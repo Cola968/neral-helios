@@ -3,6 +3,7 @@ name: SFT data contract
 on:
   pull_request:
     paths:
+      - 'fetch_oasst1_sft50.py'
       - 'prepare_sft50.py'
       - 'tests/test_sft50_data.py'
       - 'sft50_sources/README.md'
