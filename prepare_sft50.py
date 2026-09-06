@@ -164,13 +164,17 @@ def load_rows(sources,phrases,reject):
                 answer,reason=clean_field(answer,"answer")
                 if reason:reject[reason]+=1;continue
                 if len((prompt+"\n"+answer).encode("utf8"))>3800:reject["pair_too_long"]+=1;continue
+                domain=src["domain"]
+                if src.get("allow_row_domains") is True and row.get("domain") is not None:
+                    if row.get("domain") not in ALLOWED_DOMAINS:reject["invalid_row_domain"]+=1;continue
+                    domain=row["domain"]
                 nprompt=normalize(prompt);nanswer=normalize(answer)
                 if any(p in nprompt or p in nanswer for p in phrases):reject["frozen_benchmark_contamination"]+=1;continue
                 digest=hashlib.sha256((nprompt+"\0"+nanswer).encode()).hexdigest()
                 if digest in exact:reject["exact_pair_duplicate"]+=1;continue
                 exact.add(digest)
                 rows.append({
-                    "id":rid,"source_id":src["id"],"language":src["language"],"domain":src["domain"],
+                    "id":rid,"source_id":src["id"],"language":src["language"],"domain":domain,
                     "prompt":prompt,"answer":answer,"split":split_for(src["id"],rid),
                     "pair_sha256":digest,"selection_hash":hashlib.sha256(f"SFT50:968:{src['id']}:{rid}".encode()).hexdigest(),
                     "prompt_bytes":len(prompt.encode("utf8")),"answer_bytes":len(answer.encode("utf8")),
@@ -192,6 +196,22 @@ def select_train(rows,sources,target_examples):
         meta[src["id"]]={"target_examples":quota,"selected_examples":len(chosen),"available_train_examples":len(candidates)}
     if len(selected)!=target_examples:raise AssertionError("selected train count mismatch")
     return selected,meta
+
+
+def auto_train_target(rows,sources,recommended=None,cap=24000):
+    available=collections.Counter(r["source_id"] for r in rows if r["split"]=="train")
+    limits=[]
+    for src in sources:
+        n=available[src["id"]]
+        if n<1:raise ValueError(f"{src['id']}: no clean train examples after filtering/split")
+        limits.append(math.floor(n/src["target_fraction"]))
+    capacity=max(0,min(limits)-len(sources))
+    if recommended is not None:
+        try:capacity=min(capacity,int(recommended))
+        except (TypeError,ValueError):raise ValueError("recommended_train_examples must be an integer")
+    target=min(cap,capacity)
+    if target<1000:raise ValueError(f"Only {target} safely mixable train examples remain after cleaning")
+    return target
 
 
 def write_outputs(rows,selected,sources,out: Path,target,reject,selection,bench_files,source_manifest_sha):
@@ -222,17 +242,20 @@ def write_outputs(rows,selected,sources,out: Path,target,reject,selection,bench_
 
 
 def build(source_root: Path,out: Path,target_train_examples: int,repo_root: Path):
-    if target_train_examples<1000:raise ValueError("Use at least 1000 train examples for Stage D")
+    if target_train_examples<0:raise ValueError("target_train_examples cannot be negative")
     manifest_path=source_root/"manifest.json";manifest=json.loads(manifest_path.read_text(encoding="utf8"))
     sources=validate_manifest(manifest,source_root);phrases,bench_files=benchmark_literals(repo_root);reject=collections.Counter()
-    rows=load_rows(sources,phrases,reject);selected,selection=select_train(rows,sources,target_train_examples)
-    return write_outputs(rows,selected,sources,out,target_train_examples,reject,selection,bench_files,sha256_file(manifest_path))
+    rows=load_rows(sources,phrases,reject)
+    target=target_train_examples or auto_train_target(rows,sources,manifest.get("recommended_train_examples"))
+    if target<1000:raise ValueError("Use at least 1000 train examples for Stage D")
+    selected,selection=select_train(rows,sources,target)
+    return write_outputs(rows,selected,sources,out,target,reject,selection,bench_files,sha256_file(manifest_path))
 
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="sft50_sources");ap.add_argument("--out",default="sft50_data");ap.add_argument("--target-train-examples",type=int,default=24000);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="sft50_sources");ap.add_argument("--out",default="sft50_data");ap.add_argument("--target-train-examples",type=int,default=0,help="0=auto-size safely after filtering; otherwise exact quota");args=ap.parse_args()
     result=build(Path(args.source_root),Path(args.out),args.target_train_examples,Path(__file__).resolve().parent)
-    print(json.dumps({"train":result["splits"]["train"],"val":result["splits"]["val"],"rejected":result["rejected"]},indent=2,ensure_ascii=False))
+    print(json.dumps({"target_train_examples":result["target_train_examples"],"train":result["splits"]["train"],"val":result["splits"]["val"],"rejected":result["rejected"]},indent=2,ensure_ascii=False))
 
 
 if __name__=="__main__":main()
