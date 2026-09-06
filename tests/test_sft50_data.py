@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from fetch_oasst1_sft50 import choose_pairs
-from prepare_sft50 import clean_field, normalize, pair_from_row, select_train, split_for, validate_manifest
+from prepare_sft50 import auto_train_target, clean_field, normalize, pair_from_row, select_train, split_for, validate_manifest
 
 
 def _write(root: Path,name: str,rows):
@@ -64,6 +64,20 @@ def test_train_selection_fails_instead_of_silent_replay():
     rows=[{"source_id":"a","id":"1","split":"train","selection_hash":"0"*64}]
     with pytest.raises(ValueError,match="only 1 clean train examples"):
         select_train(rows,sources,2)
+
+
+def test_auto_target_is_limited_by_scarcest_source_after_filtering():
+    sources=[{"id":"de","target_fraction":.25},{"id":"en","target_fraction":.75}]
+    rows=[]
+    rows += [{"source_id":"de","split":"train"} for _ in range(1200)]
+    rows += [{"source_id":"en","split":"train"} for _ in range(5000)]
+    target=auto_train_target(rows,sources,recommended=10000,cap=24000)
+    assert 4700 <= target <= 4800
+    chosen=[]
+    for sid,count in (("de",1200),("en",5000)):
+        for i in range(count):chosen.append({"source_id":sid,"id":str(i),"split":"train","selection_hash":f"{i:064x}"})
+    selected,_=select_train(chosen,sources,target)
+    assert len(selected)==target
 
 
 def test_oasst_pair_selection_requires_positive_review_and_best_rank():
