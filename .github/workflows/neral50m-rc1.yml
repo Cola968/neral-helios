@@ -62,15 +62,14 @@ jobs:
           $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}'
           if (Test-Path 'sft50_sources\oasst1_ready.messages.jsonl.gz') { Remove-Item 'sft50_sources\oasst1_ready.messages.jsonl.gz' -Force }
           & $py fetch_oasst1_sft50.py --out sft50_sources --max-en 14000 --max-de 5000
-          $m=Get-Content 'sft50_sources\manifest.json' -Raw|ConvertFrom-Json
-          $target=[int]$m.recommended_train_examples
-          if ($target -lt 3000) { throw "Too few reviewed instruction examples: $target" }
           if (Test-Path 'sft50_data') { Remove-Item 'sft50_data' -Recurse -Force }
-          & $py prepare_sft50.py --source-root sft50_sources --out sft50_data --target-train-examples $target
+          & $py prepare_sft50.py --source-root sft50_sources --out sft50_data --target-train-examples 0
           $prepared=Get-Content 'sft50_data\manifest.json' -Raw|ConvertFrom-Json
+          $target=[int]$prepared.target_train_examples
+          if ($target -lt 3000) { throw "Too few clean instruction examples after filtering/split: $target" }
           if ([int]$prepared.splits.train.examples -ne $target) { throw 'Prepared SFT train count mismatch.' }
           "target=$target" >> $env:GITHUB_OUTPUT
-          Write-Host "Prepared $target contamination-screened Stage-D train examples."
+          Write-Host "Prepared $target contamination-screened Stage-D train examples after filtering and deterministic split."
 
       - name: Resolve B2 and 20M checkpoints
         id: state
