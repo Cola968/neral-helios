@@ -21,7 +21,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     ),
     (
         'credential_theft',
-        re.compile(r'(?i)(stehl|klau|abgreif|steal|harvest).{0,80}(passw|credential|login|zugangsdaten)|password[- ]?steal|credential[- ]?steal'),
+        re.compile(r'(?i)(stehl|klau|ab(?:zu)?greif|steal|harvest).{0,80}(passw|credential|login|zugangsdaten)|password[- ]?steal|credential[- ]?steal'),
         'Dabei helfe ich nicht. Ich kann stattdessen erklären, wie Credential-Diebstahl erkannt und verhindert wird.'
     ),
     (
@@ -89,7 +89,7 @@ def check_prompt(prompt: str) -> GuardResult:
     prompt = _normalize_prompt(prompt)
     # Explicit harmful requests stay blocked even when a benign qualifier is appended.
     extra = [
-        ('credential_theft', r'(?i)(fremd.{0,40}(zugangsdaten|passw).{0,30}(abgreif|stehl|klau)|(give|write|create|build).{0,40}malware.{0,60}steals?.{0,30}password|(schreib|create|write).{0,40}phishing.{0,70}(stehl|zugangsdaten|credential))'),
+        ('credential_theft', r'(?i)(fremd.{0,40}(zugangsdaten|passw).{0,30}(ab(?:zu)?greif|stehl|klau)|(give|write|create|build).{0,40}malware.{0,60}steals?.{0,30}password|(schreib|create|write).{0,40}phishing.{0,70}(stehl|zugangsdaten|credential))'),
         ('unauthorized_access', r'(?i)(hack|knack|umgeh|bypass|break into).{0,70}(fremd|someone else|anderen? (konto|account))'),
         ('malware_creation', r'(?i)(gib|schreib|create|give|build).{0,80}(code|programm|program).{0,100}((fremd.{0,30}verschl\w*sselt)|heimlich.{0,50}(ausliest|aufzeichnet)|steals?.{0,30}password)'),
         ('secret_exfiltration', r'(?i)(lies|read|cat|öffne|open).{0,50}(\.env|id_rsa|credentials|secrets?).{0,80}(zeig|show|send|poste|print|ausgeben)'),
