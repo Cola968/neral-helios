@@ -1,0 +1,143 @@
+{
+  "parameters": 50012976,
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "torch": "2.8.0+cu128",
+  "candidates": [
+    {
+      "seq": 256,
+      "batch": 16,
+      "tokens_per_step": 4096,
+      "seconds": 0.05914659996051341,
+      "tokens_per_second": 69251.6561008496,
+      "peak_allocated": 2161170432,
+      "peak_reserved": 2220883968,
+      "oom": false,
+      "last_loss": 3.66943359375
+    },
+    {
+      "seq": 256,
+      "batch": 32,
+      "tokens_per_step": 8192,
+      "seconds": 0.10692566666208829,
+      "tokens_per_second": 76613.9717032465,
+      "peak_allocated": 3584221696,
+      "peak_reserved": 3938451456,
+      "oom": false,
+      "last_loss": 3.6870908737182617
+    },
+    {
+      "seq": 256,
+      "batch": 64,
+      "tokens_per_step": 16384,
+      "seconds": 0.22338986666485047,
+      "tokens_per_second": 73342.62849344348,
+      "peak_allocated": 6346856448,
+      "peak_reserved": 6679429120,
+      "oom": false,
+      "last_loss": 3.6590170860290527
+    },
+    {
+      "seq": 512,
+      "batch": 8,
+      "tokens_per_step": 4096,
+      "seconds": 0.062324400001671165,
+      "tokens_per_second": 65720.64873292274,
+      "peak_allocated": 2164675584,
+      "peak_reserved": 2229272576,
+      "oom": false,
+      "last_loss": 3.6249027252197266
+    },
+    {
+      "seq": 512,
+      "batch": 16,
+      "tokens_per_step": 8192,
+      "seconds": 0.1102618000198466,
+      "tokens_per_second": 74295.90301015835,
+      "peak_allocated": 3579033088,
+      "peak_reserved": 3988783104,
+      "oom": false,
+      "last_loss": 3.760573387145996
+    },
+    {
+      "seq": 512,
+      "batch": 32,
+      "tokens_per_step": 16384,
+      "seconds": 0.22977239999454468,
+      "tokens_per_second": 71305.34389852303,
+      "peak_allocated": 6351109120,
+      "peak_reserved": 6668943360,
+      "oom": false,
+      "last_loss": 3.7611265182495117
+    },
+    {
+      "seq": 1024,
+      "batch": 4,
+      "tokens_per_step": 4096,
+      "seconds": 0.06275230001968642,
+      "tokens_per_second": 65272.50791947097,
+      "peak_allocated": 2166785024,
+      "peak_reserved": 2237661184,
+      "oom": false,
+      "last_loss": 3.6136207580566406
+    },
+    {
+      "seq": 1024,
+      "batch": 8,
+      "tokens_per_step": 8192,
+      "seconds": 0.11610543332062662,
+      "tokens_per_second": 70556.5602376048,
+      "peak_allocated": 3581423616,
+      "peak_reserved": 4001366016,
+      "oom": false,
+      "last_loss": 3.646717071533203
+    },
+    {
+      "seq": 1024,
+      "batch": 16,
+      "tokens_per_step": 16384,
+      "seconds": 0.24240563336449364,
+      "tokens_per_second": 67589.1883063797,
+      "peak_allocated": 6349145600,
+      "peak_reserved": 6694109184,
+      "oom": false,
+      "last_loss": 3.678946018218994
+    }
+  ],
+  "selected": {
+    "seq": 256,
+    "batch": 32,
+    "tokens_per_step": 8192,
+    "seconds": 0.10692566666208829,
+    "tokens_per_second": 76613.9717032465,
+    "peak_allocated": 3584221696,
+    "peak_reserved": 3938451456,
+    "oom": false,
+    "last_loss": 3.6870908737182617
+  },
+  "attention_operators": [
+    "ScaledDotProductEfficientAttentionBackward0",
+    "_Z40fmha_cutlassF_bf16_aligned_64x64_rf_sm80N22PyTorchMemEffAttention15AttentionKernelIN7cutlass10bfloat16_tENS1_4arch4Sm80ELb1ELi64ELi64ELi64ELb1ELb1EE6ParamsE",
+    "_Z52fmha_cutlassB_bf16_aligned_64x64_k64_seqaligned_sm80N22PyTorchMemEffAttention23AttentionBackwardKernelIN7cutlass4arch4Sm80ENS1_10bfloat16_tELb1ELb0ELb1ELi64ELi64ELi64ELb1EE6ParamsE",
+    "aten::_efficient_attention_backward",
+    "aten::_efficient_attention_forward",
+    "aten::_scaled_dot_product_efficient_attention",
+    "aten::_scaled_dot_product_efficient_attention_backward",
+    "aten::scaled_dot_product_attention",
+    "autograd::engine::evaluate_function: ScaledDotProductEfficientAttentionBackward0"
+  ],
+  "optimizations": {
+    "packing": "enabled: 0 PAD tokens",
+    "pretokens": "uint16 memmap",
+    "BF16": true,
+    "fused_adamw": true,
+    "compile": "not enabled or benchmarked in this bounded Windows pilot; no speed claim",
+    "pinned_memory": "not enabled: not benchmarked",
+    "gradient_checkpointing": "not needed in measured memory budget"
+  },
+  "training_only_estimated_hours": {
+    "100000000": 0.3625680428808875,
+    "250000000": 0.9064201072022187,
+    "500000000": 1.8128402144044373,
+    "1000000000": 3.6256804288088746
+  }
+}

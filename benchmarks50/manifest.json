@@ -1,0 +1,10 @@
+{
+  "regression_prompts": 100,
+  "holdout_prompts": 20,
+  "hashes": {
+    "regression": "2fd59817bdb9890dd18c793803a9cc576746be6f85ea3a7e30d1ff4c3686b7aa",
+    "holdout": "dd8c847e3f1ded219af49f367d7a9220d79b49ae993ffac80af695af23e72294"
+  },
+  "rules": "Frozen before pretraining pilot; heldout prompts are not executed in this pilot. No benchmark prompts added as SFT examples.",
+  "manual_rubric": "0 unintelligible; 1 words without usable statement; 2 partly understandable; 3 understandable and mostly relevant; 4 clear correct natural. Human/agent judgement is recorded separately, never inferred from loss."
+}

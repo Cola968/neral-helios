@@ -1,0 +1,45 @@
+{
+  "parameters": 50012976,
+  "seed": 50013,
+  "source": "seed/neral50m.pt",
+  "source_sha256": "fa874a578e14cb4a594763b28f679efb245f60deb6cd5a6c7e4de194368a0625",
+  "data_hashes": {
+    "train_de": "63eaab05bbbdb4426a3c6dfceac9dc6c24954b655e7326d630cf733f2e1af089",
+    "train_en": "32421a22d1e841afdf32d0eef37dd3d3ab1b476cd9be5f0b7d56df63f6e3ee81",
+    "val_de": "f6aa516dd2af873a078823be35732817a139e670d0fb4eb28fff00f2ba7a5ebf",
+    "val_en": "a99a197ede81f0877e919174bd0168ab9f87b49c3d7ef66dbb5aa70fb26d287b"
+  },
+  "args": {
+    "tune": false,
+    "tokens": 1000000,
+    "out": "runs/neral50m_pilot_a",
+    "resume": null,
+    "lr": 0.0003,
+    "eval_every": 25,
+    "patience": 6
+  },
+  "packing": {
+    "seq": 256,
+    "batch": 32,
+    "tokens_per_step": 8192,
+    "seconds": 0.10692566666208829,
+    "tokens_per_second": 76613.9717032465,
+    "peak_allocated": 3584221696,
+    "peak_reserved": 3938451456,
+    "oom": false,
+    "last_loss": 3.6870908737182617
+  },
+  "baseline": {
+    "domains": {
+      "de": 5.590865135192871,
+      "en": 5.655845324198405
+    },
+    "macro": 5.623355229695639,
+    "bits_per_token": 8.112786703038916,
+    "tokens": 98304,
+    "note": "Fixed validation slices. Includes BOS/EOS, hence bits/token, not pure byte BPB."
+  },
+  "promotion": "No default promotion based on loss. Free generation and manual quality gates required.",
+  "token_budget_scope": "Target cumulative tokens when resuming.",
+  "learning_rate_schedule": "Fixed LR with 10-update warmup, independent of eventual target budget."
+}

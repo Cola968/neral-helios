@@ -1,0 +1,179 @@
+{
+  "initial": {
+    "active_checkpoint": "pilot_02",
+    "checkpoint_loaded": true,
+    "checkpoint_meta": {
+      "best_val": 2.129866545134419,
+      "format": "neral-inference-v3",
+      "source_sha256": "80761c387f31b96f853d6464d46c13081973318d7f356da1dbe670406efbb891",
+      "step": 100,
+      "training_run": "pilot_02"
+    },
+    "checkpoint_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+    "checkpoints": [
+      "original",
+      "pilot_01",
+      "pilot_02",
+      "neral40m"
+    ],
+    "d_model": 512,
+    "device": "cuda",
+    "experimental": true,
+    "ffn_hidden": 1536,
+    "gpu": "NVIDIA GeForce RTX 4070",
+    "heads": 8,
+    "layers": 6,
+    "max_seq_len": 4096,
+    "name": "Neral / Helios",
+    "parameters": 20587008,
+    "security": {
+      "checkpoint_integrity_sha256": true,
+      "generation_limit_tokens": 512,
+      "host_origin_validation": true,
+      "input_limit_bytes": 4096,
+      "localhost_only": true,
+      "prompt_guard": true,
+      "rate_limit_per_minute": 30,
+      "safe_checkpoint_loading": true,
+      "secret_redaction": true
+    },
+    "tokenizer": "ByteTokenizer-260",
+    "tools": [
+      "solve",
+      "code_check"
+    ],
+    "vocab_size": 260
+  },
+  "checks": [
+    {
+      "model": "neral40m",
+      "parameters": 40051200,
+      "sha256": "0551760477fcf73f794a28efd75faf2f4436993cb52685e57fd63f326d8f8714",
+      "real_generation": {
+        "active_checkpoint": "neral40m",
+        "cancelled": false,
+        "generated_tokens": 24,
+        "mode": "trained-generation",
+        "model_generated": true,
+        "output_secret_redacted": false,
+        "request_id": "0ead2c6db2e91d3adfa639fd1e34d3d0",
+        "seconds": 0.5065,
+        "text": "Hallo! Ich bin Neral.",
+        "tokens_per_second": 47.39
+      }
+    },
+    {
+      "model": "pilot_02",
+      "parameters": 20587008,
+      "sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+      "real_generation": {
+        "active_checkpoint": "pilot_02",
+        "cancelled": false,
+        "generated_tokens": 24,
+        "mode": "trained-generation",
+        "model_generated": true,
+        "output_secret_redacted": false,
+        "request_id": "546c489f607aa01a22e8d05c3b83a645",
+        "seconds": 0.2506,
+        "text": "Hallo! Ich bin Neral.",
+        "tokens_per_second": 95.79
+      }
+    },
+    {
+      "mode": "solve-tool",
+      "model_generated": false,
+      "solve": {
+        "engine": "bounded-linear-equation",
+        "expression": "2*x + 3 = 11",
+        "model_generated": false,
+        "result": "x = 4",
+        "steps": [
+          "Links: (2)*x + (3); rechts: (0)*x + (11)",
+          "Zusammenfassen: (2)*x = 8",
+          "Durch 2 teilen: x = 4",
+          "Probe: 11 = 11"
+        ]
+      },
+      "text": "Links: (2)*x + (3); rechts: (0)*x + (11)\nZusammenfassen: (2)*x = 8\nDurch 2 teilen: x = 4\nProbe: 11 = 11\nErgebnis: x = 4"
+    },
+    {
+      "project_id": "f879a6130d69401cae12ad6906de7b40",
+      "persisted_revision": 7,
+      "persisted_live_versions": [
+        {
+          "created_at": "2026-09-06T12:07:03.823552+00:00",
+          "previous": null,
+          "reason": "Eintrag erstellt",
+          "text": "1080",
+          "version": 1
+        },
+        {
+          "created_at": "2026-09-06T12:07:14.103656+00:00",
+          "previous": "1080",
+          "reason": "CASCADE angewendet",
+          "text": "1440",
+          "version": 2
+        },
+        {
+          "created_at": "2026-09-06T12:07:40.930822+00:00",
+          "previous": "1440",
+          "reason": "CASCADE rückgängig gemacht",
+          "text": "1080",
+          "version": 3
+        }
+      ],
+      "ripple": {
+        "affected": [
+          {
+            "dependencies": [
+              "budget"
+            ],
+            "id": "reserve",
+            "path": [
+              "budget",
+              "reserve"
+            ],
+            "title": "Reserve (10 %)"
+          },
+          {
+            "dependencies": [
+              "budget",
+              "reserve"
+            ],
+            "id": "verfuegbar",
+            "path": [
+              "budget",
+              "verfuegbar"
+            ],
+            "title": "Verfügbares Budget"
+          },
+          {
+            "dependencies": [
+              "budget",
+              "reserve",
+              "verfuegbar"
+            ],
+            "id": "empfehlung",
+            "path": [
+              "budget",
+              "empfehlung"
+            ],
+            "title": "Planungsstand"
+          },
+          {
+            "dependencies": [
+              "verfuegbar"
+            ],
+            "id": "einkauf",
+            "path": [
+              "budget",
+              "verfuegbar",
+              "einkauf"
+            ],
+            "title": "Einkaufsliste überprüfen"
+          }
+        ]
+      }
+    }
+  ]
+}

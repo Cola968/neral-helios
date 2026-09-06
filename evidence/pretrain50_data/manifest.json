@@ -1,0 +1,490 @@
+{
+  "source": {
+    "dataset": "wikimedia/wikipedia",
+    "snapshot": "20231101",
+    "dataset_repo_revision": "b04c8d1ceb2f5cd4588862100d08de323dccfbaa",
+    "retrieved_at": "2026-09-06T17:02:59.478722+00:00",
+    "license": "CC-BY-SA-3.0 (dataset card also lists GFDL)",
+    "source": "https://huggingface.co/datasets/wikimedia/wikipedia",
+    "revision_note": "Rows API uses named 20231101 configuration; repository revision records card state, not an API revision pin. Downloaded bytes are SHA256-pinned.",
+    "files": [
+      {
+        "file": "de_1000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=1000&length=100",
+        "sha256": "2b0e27cb463fa75d73d0a6d28db410337bf8b756d214015c462f2f9553640d78",
+        "bytes": 2402135,
+        "rows": 100
+      },
+      {
+        "file": "de_11000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=11000&length=100",
+        "sha256": "324aa77d431f14270905880fb78094c334790541e7007d6272a9d98b2faddadd",
+        "bytes": 2168067,
+        "rows": 100
+      },
+      {
+        "file": "de_21000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=21000&length=100",
+        "sha256": "481483156cc8c9ec7bcf038acb152f9863938499a08ae8c07526407b03350ddf",
+        "bytes": 1383462,
+        "rows": 100
+      },
+      {
+        "file": "de_31000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=31000&length=100",
+        "sha256": "09ca50cd7a9e480c5ce84b8dd9a489cbdd158ee6b5dcdf94e353b39b2f7c22a7",
+        "bytes": 883790,
+        "rows": 100
+      },
+      {
+        "file": "de_41000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=41000&length=100",
+        "sha256": "abcb767249f2144b3dbd7000eda8b81eb838beb416ec334a8ccc1b851da3afa5",
+        "bytes": 1124812,
+        "rows": 100
+      },
+      {
+        "file": "de_51000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=51000&length=100",
+        "sha256": "1c7d547f1213d5ab4922d4c3c3201bc7a91bab2c9122534f02aa88e0ba2f518b",
+        "bytes": 943436,
+        "rows": 100
+      },
+      {
+        "file": "de_61000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=61000&length=100",
+        "sha256": "bb20dd61f43a5eb94bca4260956dfbef824454772a5509768aa3d9e6b13cd5b5",
+        "bytes": 673224,
+        "rows": 100
+      },
+      {
+        "file": "de_71000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=71000&length=100",
+        "sha256": "f4fe45f1a268778bae32c8a26f3d529e113322737c25a1194deaced2b226e852",
+        "bytes": 789912,
+        "rows": 100
+      },
+      {
+        "file": "de_81000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=81000&length=100",
+        "sha256": "d406d18ca63969462435f5f5d162f68ceb71f37b3abba99eb0d5988f5d4452f3",
+        "bytes": 847729,
+        "rows": 100
+      },
+      {
+        "file": "de_91000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=91000&length=100",
+        "sha256": "5ced96b83e00b02ac582537288a0d541d70f973eaee7504bcaf5d38f71c86e13",
+        "bytes": 685807,
+        "rows": 100
+      },
+      {
+        "file": "de_101000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=101000&length=100",
+        "sha256": "e6b90521188b00d81e856545f3f3737ccfecf090a43cc9391df7ac4c0b923e66",
+        "bytes": 566276,
+        "rows": 100
+      },
+      {
+        "file": "de_111000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=111000&length=100",
+        "sha256": "0291e4660a7f3bb313dee5e52229af0588dcccfef4e6bdb433f7b4819befa2b7",
+        "bytes": 547294,
+        "rows": 100
+      },
+      {
+        "file": "de_121000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=121000&length=100",
+        "sha256": "321a918297cdaf8fa2b932fa6d6046597491d5a565d1564ab1d70e2e6db54088",
+        "bytes": 559917,
+        "rows": 100
+      },
+      {
+        "file": "de_131000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=131000&length=100",
+        "sha256": "c20681df80a518ac11dfea73f4bf83a9fa6dbb387ad194d29905f2a728693b1a",
+        "bytes": 617562,
+        "rows": 100
+      },
+      {
+        "file": "de_141000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=141000&length=100",
+        "sha256": "a94ce642fa9b67f54e5a2bfe09a4f07e1243368b76a04ce2ef57ec3fa991c6a0",
+        "bytes": 643476,
+        "rows": 100
+      },
+      {
+        "file": "de_151000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=151000&length=100",
+        "sha256": "88ced51ab98dea3bc15e7247b7a35a60a927b6c687054ce78f45c648b09610f7",
+        "bytes": 563474,
+        "rows": 100
+      },
+      {
+        "file": "de_161000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=161000&length=100",
+        "sha256": "2dc8666ea6d5ce1cf4378c10eb9c9a9c92d91a05d62a1f7a870da360187bac74",
+        "bytes": 355439,
+        "rows": 100
+      },
+      {
+        "file": "de_171000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=171000&length=100",
+        "sha256": "12a32590f037825cdc49350f93a56fcf615d858649711c3c30f962a85f433aa0",
+        "bytes": 622698,
+        "rows": 100
+      },
+      {
+        "file": "de_181000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=181000&length=100",
+        "sha256": "db612fb03365c21b4eb0f7af4cf9250628245dd8717fe9c4e6f07cb08af6c398",
+        "bytes": 411241,
+        "rows": 100
+      },
+      {
+        "file": "de_191000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=191000&length=100",
+        "sha256": "6b71255dd3b4720fc5c0e5b29140ba975eaef9a79ce5895665f57f4522568bb9",
+        "bytes": 489471,
+        "rows": 100
+      },
+      {
+        "file": "de_201000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=201000&length=100",
+        "sha256": "f8c5e25d4cfe3472728b5af675dd7e0493d01016e3ad714ed739b1a93e457e63",
+        "bytes": 554870,
+        "rows": 100
+      },
+      {
+        "file": "de_211000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=211000&length=100",
+        "sha256": "b97962b32db299f9677c722b4e5c294876369e4926a27298fd255200ef5ea777",
+        "bytes": 565914,
+        "rows": 100
+      },
+      {
+        "file": "de_221000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=221000&length=100",
+        "sha256": "3a4120cffddbc989db6ce106a10c5b7544a86fd69c5311ae0c3b2274dc740db9",
+        "bytes": 511851,
+        "rows": 100
+      },
+      {
+        "file": "de_231000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=231000&length=100",
+        "sha256": "945a57906c22d373a542699b038b09f46b282b88507352e2e1d10858ec8f9384",
+        "bytes": 529641,
+        "rows": 100
+      },
+      {
+        "file": "de_241000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=241000&length=100",
+        "sha256": "298ae96096715699d34c0c8956ae45bfcbfaf6cf8c7d90603e8e627ebc8dd4a3",
+        "bytes": 502333,
+        "rows": 100
+      },
+      {
+        "file": "de_251000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=251000&length=100",
+        "sha256": "eaafbf0d7111fa546bd0222663a984b8cc4e8a8edfbc5df4e7042f4e762f613b",
+        "bytes": 517492,
+        "rows": 100
+      },
+      {
+        "file": "de_261000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=261000&length=100",
+        "sha256": "ee45b72782f0e1b560c77ffe0d13fbd0e450f3e7f19a60df8a560945ee871827",
+        "bytes": 589999,
+        "rows": 100
+      },
+      {
+        "file": "de_271000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=271000&length=100",
+        "sha256": "6057f9e37e4c3bf18c95d61f7d04650a2d67be9518a52bbf9b09d48038040553",
+        "bytes": 553192,
+        "rows": 100
+      },
+      {
+        "file": "de_281000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=281000&length=100",
+        "sha256": "059b873f062cda921bbd4f6382cf03d5b885fd60ab39856550d97c3a2b676883",
+        "bytes": 580984,
+        "rows": 100
+      },
+      {
+        "file": "de_291000.json",
+        "language": "de",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.de&split=train&offset=291000&length=100",
+        "sha256": "94fcfd1002310f506e5b25d3950235c4e1e88498d2bdda31bf44e28ff644719c",
+        "bytes": 463790,
+        "rows": 100
+      },
+      {
+        "file": "en_1000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=1000&length=100",
+        "sha256": "25570b9f94adc30fb0da7ba4bda65ebd3f0c494d7198360408678851dadd7013",
+        "bytes": 1480202,
+        "rows": 100
+      },
+      {
+        "file": "en_11000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=11000&length=100",
+        "sha256": "17f11e7d152dfbe7a0b6d7a8d23ab5951debc75aeeb0163963e0bb439c562767",
+        "bytes": 398239,
+        "rows": 100
+      },
+      {
+        "file": "en_21000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=21000&length=100",
+        "sha256": "014c491ac70f253463c9065af5c9fda4764806b900c604d23f15c76b1009749c",
+        "bytes": 270108,
+        "rows": 100
+      },
+      {
+        "file": "en_31000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=31000&length=100",
+        "sha256": "74280620546451517b52d1513dbd98a46c32817d536a65195dca31670b6fd1ff",
+        "bytes": 593270,
+        "rows": 100
+      },
+      {
+        "file": "en_41000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=41000&length=100",
+        "sha256": "7c38695baaecf66446f1a63fc3d729354a32696f6a72130a76faa86ca88f5130",
+        "bytes": 452687,
+        "rows": 100
+      },
+      {
+        "file": "en_51000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=51000&length=100",
+        "sha256": "bae9940ab6dc3945b990f469b03d898ee2957830780a9373f8281e9534b475e9",
+        "bytes": 341071,
+        "rows": 100
+      },
+      {
+        "file": "en_61000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=61000&length=100",
+        "sha256": "ce2315878a7e5e75932db889324f305e41c0a014bbf2d927e02559640d581b49",
+        "bytes": 513943,
+        "rows": 100
+      },
+      {
+        "file": "en_71000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=71000&length=100",
+        "sha256": "d2bc868e4fb778776ffc51f4d52a7c16a787ac8fb83ecfbc9b6ff46374ea3563",
+        "bytes": 534098,
+        "rows": 100
+      },
+      {
+        "file": "en_81000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=81000&length=100",
+        "sha256": "eb1604fc21aeff3ad30c008ea2ef03922cb5e6b235bc8459910307e1ac055fac",
+        "bytes": 396554,
+        "rows": 100
+      },
+      {
+        "file": "en_91000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=91000&length=100",
+        "sha256": "dca0b56031f3c5f2782b0d5e01c36db980b72706d60fe25d91d7d0d79c804061",
+        "bytes": 349518,
+        "rows": 100
+      },
+      {
+        "file": "en_101000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=101000&length=100",
+        "sha256": "98db5601dba2f610b72863a7a74b8ee41639c3355b7d12cefeb76e54c7de2c66",
+        "bytes": 353491,
+        "rows": 100
+      },
+      {
+        "file": "en_111000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=111000&length=100",
+        "sha256": "844efd4abc8e951f06db8aa75ea5a2970334b51df42e6002bfd5fb9eec6be5da",
+        "bytes": 365842,
+        "rows": 100
+      },
+      {
+        "file": "en_121000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=121000&length=100",
+        "sha256": "61e093bd451211e0a1247dbdfab641611b173e9f619f755c665e792b3380bcd6",
+        "bytes": 525243,
+        "rows": 100
+      },
+      {
+        "file": "en_131000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=131000&length=100",
+        "sha256": "41f2e624d287dbbd84be3abba7141bec4eda0a26702fb3a34923e7a629ef9508",
+        "bytes": 474197,
+        "rows": 100
+      },
+      {
+        "file": "en_141000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=141000&length=100",
+        "sha256": "f095e1db0953c6e309e423a51f3143295daf34834e0f6bd4bc834e70b64eb5e9",
+        "bytes": 419040,
+        "rows": 100
+      },
+      {
+        "file": "en_151000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=151000&length=100",
+        "sha256": "d4c2ae42efeb40d784b9363535e18b95b3ed6af127a21fc061056048be03331b",
+        "bytes": 387294,
+        "rows": 100
+      },
+      {
+        "file": "en_161000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=161000&length=100",
+        "sha256": "b1db5e9457eaeed20b1dcd05ad04215c09e602c2888fad11e2536953b3330a5f",
+        "bytes": 421911,
+        "rows": 100
+      },
+      {
+        "file": "en_171000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=171000&length=100",
+        "sha256": "70e50e07c9602cf1dab4b8bc54993cb3786a5444e401c225bf05995e282f8c93",
+        "bytes": 375535,
+        "rows": 100
+      },
+      {
+        "file": "en_181000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=181000&length=100",
+        "sha256": "295fd4e037cfbc32d1e7aac3b92786f77bfdfec2c664741d030ed68d2e863eaa",
+        "bytes": 496504,
+        "rows": 100
+      },
+      {
+        "file": "en_191000.json",
+        "language": "en",
+        "url": "https://datasets-server.huggingface.co/rows?dataset=wikimedia%2Fwikipedia&config=20231101.en&split=train&offset=191000&length=100",
+        "sha256": "a0d35bce1198d6700e87de4f9aedfd934a48e31a7b5b14514b4e7077a3808cd1",
+        "bytes": 329080,
+        "rows": 100
+      }
+    ]
+  },
+  "input_documents": 5000,
+  "kept_documents": 4120,
+  "rejected": {
+    "insufficient_clean_prose": 878,
+    "contact_or_secret_pattern": 2
+  },
+  "splits": {
+    "train": {
+      "de": {
+        "documents": 2273,
+        "tokens": 15656347,
+        "bytes": 15651801,
+        "sha256": "63eaab05bbbdb4426a3c6dfceac9dc6c24954b655e7326d630cf733f2e1af089"
+      },
+      "en": {
+        "documents": 1463,
+        "tokens": 6259159,
+        "bytes": 6256233,
+        "sha256": "32421a22d1e841afdf32d0eef37dd3d3ab1b476cd9be5f0b7d56df63f6e3ee81"
+      }
+    },
+    "val": {
+      "de": {
+        "documents": 129,
+        "tokens": 1011828,
+        "bytes": 1011570,
+        "sha256": "f6aa516dd2af873a078823be35732817a139e670d0fb4eb28fff00f2ba7a5ebf"
+      },
+      "en": {
+        "documents": 59,
+        "tokens": 221032,
+        "bytes": 220914,
+        "sha256": "a99a197ede81f0877e919174bd0168ab9f87b49c3d7ef66dbb5aa70fb26d287b"
+      }
+    },
+    "test": {
+      "de": {
+        "documents": 67,
+        "tokens": 403655,
+        "bytes": 403521,
+        "sha256": "cf5253119c22fabfb599ec008f2c28bf369185d55c4066487d024d5ef947c878"
+      },
+      "en": {
+        "documents": 50,
+        "tokens": 280008,
+        "bytes": 279908,
+        "sha256": "5186bbf9a5d486d0a17f810bbac60ed68fa091455a11c8f53bc9300bd8c1a76d"
+      }
+    },
+    "holdout": {
+      "de": {
+        "documents": 48,
+        "tokens": 338768,
+        "bytes": 338672,
+        "sha256": "3913ddc861f748006982c9d1110f6b40f4415eefb4a06f1c7fb6acac75be0e12"
+      },
+      "en": {
+        "documents": 31,
+        "tokens": 154475,
+        "bytes": 154413,
+        "sha256": "ef0d2c1a04c35a20a81cfabca2405d2075962af4c86021af4a627bd26d20fd57"
+      }
+    }
+  },
+  "packing": "BOS + UTF8 bytes offset 4 + EOS; contiguous sequences, zero PAD, attention can cross EOS boundaries",
+  "sampling": "55% German and 45% English batches, per-language streams; code/structured share 0 in language pilot",
+  "dedup": "NFKC/casefold exact + approximate bottom-64 word 5-shingle overlap >=0.8, candidates sharing one of 8 minima. Approximate, not exhaustive semantic dedup.",
+  "split": "SHA256(language:article_id): 90/5/3/2 train/val/test/holdout. Complete articles stay together.",
+  "filters": "Every document processed by deterministic encoding, contact/secret, paragraph, markup, punctuation and repetition filters. Not manual fact-checking or exhaustive PII detection.",
+  "license": "CC-BY-SA-3.0; original authors credited through per-document source URLs, snapshot 20231101. Dataset card also lists GFDL.",
+  "license_url": "https://creativecommons.org/licenses/by-sa/3.0/legalcode",
+  "limitations": [
+    "Encyclopedia only, not broad general chat. Pilot has no dedicated code source.",
+    "Language labels follow source configuration; no learned language detector used.",
+    "No test/holdout bytes consumed by training/evaluation pipeline.",
+    "Current world facts may be outdated."
+  ]
+}

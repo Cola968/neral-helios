@@ -1,0 +1,89 @@
+{
+  "before": {
+    "domains": {
+      "chat": {
+        "loss": 2.3035907722463986,
+        "answer_tokens": 833,
+        "records": 8
+      },
+      "coding": {
+        "loss": 2.3001336711400757,
+        "answer_tokens": 561,
+        "records": 18
+      },
+      "human_de": {
+        "loss": 2.4864861318998246,
+        "answer_tokens": 4280,
+        "records": 9
+      },
+      "human_en": {
+        "loss": 2.5676508388309003,
+        "answer_tokens": 24490,
+        "records": 53
+      },
+      "math": {
+        "loss": 1.0463655653830881,
+        "answer_tokens": 1205,
+        "records": 83
+      },
+      "security": {
+        "loss": 2.0749722913062283,
+        "answer_tokens": 867,
+        "records": 6
+      }
+    },
+    "macro_loss": 2.129866545134419,
+    "definition": "Mean of domain mean answer-token cross-entropies (nats). Prompt/padding labels ignored; EOS/newline included. Not directly comparable with legacy all-token loss."
+  },
+  "after_growth_before_training": {
+    "domains": {
+      "chat": {
+        "loss": 2.303535818624325,
+        "answer_tokens": 833,
+        "records": 8
+      },
+      "coding": {
+        "loss": 2.3000086208078314,
+        "answer_tokens": 561,
+        "records": 18
+      },
+      "human_de": {
+        "loss": 2.48646673755111,
+        "answer_tokens": 4280,
+        "records": 9
+      },
+      "human_en": {
+        "loss": 2.567618977931043,
+        "answer_tokens": 24490,
+        "records": 53
+      },
+      "math": {
+        "loss": 1.0462147756236222,
+        "answer_tokens": 1205,
+        "records": 83
+      },
+      "security": {
+        "loss": 2.0745705997242645,
+        "answer_tokens": 867,
+        "records": 6
+      }
+    },
+    "macro_loss": 2.129735921710366,
+    "definition": "Mean of domain mean answer-token cross-entropies (nats). Prompt/padding labels ignored; EOS/newline included. Not directly comparable with legacy all-token loss."
+  },
+  "parameters_before": {
+    "total": 20587008,
+    "trainable": 20587008,
+    "millions": 20.587008
+  },
+  "parameters_after": {
+    "total": 40051200,
+    "trainable": 40051200,
+    "millions": 40.0512
+  },
+  "max_abs_logit_difference_fp32": 3.337860107421875e-06,
+  "source_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "grown_sha256": "7bf8c07aba61fe11e4c3fdb6b3dabb9b964f97d04600b48b5f7a6468605ca991",
+  "method": "FFN 1536 -> 3648, existing parameters copied; added gate/up randomly initialized, added down columns zero. Six layers, 512 width, byte tokenizer unchanged. No foreign model.",
+  "seed": 40051
+}

@@ -1,0 +1,11 @@
+{
+  "parameters": {
+    "total": 50012976,
+    "trainable": 50012976,
+    "millions": 50.012976
+  },
+  "max_absolute_fp32_logit_delta_cpu": 0.0,
+  "method": "Zero pad SDPA q/k/v 52->56; preserve scale 1/sqrt(52); remove extra output dimensions. No extra learned parameters.",
+  "flash_available_in_installed_torch": false,
+  "reason": "Observed ordinary SDPA used math backend: head dimension 52 not divisible by 8 for available memory-efficient CUDA kernel."
+}

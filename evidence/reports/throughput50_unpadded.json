@@ -1,0 +1,136 @@
+{
+  "parameters": 50012976,
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "torch": "2.8.0+cu128",
+  "candidates": [
+    {
+      "seq": 256,
+      "batch": 16,
+      "tokens_per_step": 4096,
+      "seconds": 0.0773246999985228,
+      "tokens_per_second": 52971.430863336675,
+      "peak_allocated": 2620949504,
+      "peak_reserved": 2780823552,
+      "oom": false,
+      "last_loss": 3.6696319580078125
+    },
+    {
+      "seq": 256,
+      "batch": 32,
+      "tokens_per_step": 8192,
+      "seconds": 0.15252496666895846,
+      "tokens_per_second": 53709.23973240387,
+      "peak_allocated": 4510209024,
+      "peak_reserved": 4831838208,
+      "oom": false,
+      "last_loss": 3.6868896484375
+    },
+    {
+      "seq": 256,
+      "batch": 64,
+      "tokens_per_step": 16384,
+      "seconds": 0.3132980666705407,
+      "tokens_per_second": 52295.24769850927,
+      "peak_allocated": 8214214144,
+      "peak_reserved": 9024045056,
+      "oom": false,
+      "last_loss": 3.6588406562805176
+    },
+    {
+      "seq": 512,
+      "batch": 8,
+      "tokens_per_step": 4096,
+      "seconds": 0.09701870001542072,
+      "tokens_per_second": 42218.665054767356,
+      "peak_allocated": 3138359296,
+      "peak_reserved": 3357540352,
+      "oom": false,
+      "last_loss": 3.6250972747802734
+    },
+    {
+      "seq": 512,
+      "batch": 16,
+      "tokens_per_step": 8192,
+      "seconds": 0.19319429997509965,
+      "tokens_per_second": 42402.90733761735,
+      "peak_allocated": 5534305792,
+      "peak_reserved": 6180306944,
+      "oom": false,
+      "last_loss": 3.760751724243164
+    },
+    {
+      "seq": 512,
+      "batch": 32,
+      "tokens_per_step": 16384,
+      "seconds": 0.6313347000201853,
+      "tokens_per_second": 25951.36937582579,
+      "peak_allocated": 10338137088,
+      "peak_reserved": 11439964160,
+      "oom": false,
+      "last_loss": 3.7606558799743652
+    },
+    {
+      "seq": 1024,
+      "batch": 4,
+      "tokens_per_step": 4096,
+      "seconds": 0.1852717666576306,
+      "tokens_per_second": 22108.063597024604,
+      "peak_allocated": 4238996992,
+      "peak_reserved": 4502585344,
+      "oom": false,
+      "last_loss": 3.6137771606445312
+    },
+    {
+      "seq": 1024,
+      "batch": 8,
+      "tokens_per_step": 8192,
+      "seconds": 0.3334032333223149,
+      "tokens_per_second": 24570.847494092683,
+      "peak_allocated": 7742253568,
+      "peak_reserved": 8084520960,
+      "oom": false,
+      "last_loss": 3.6466808319091797
+    },
+    {
+      "seq": 1024,
+      "batch": 16,
+      "tokens_per_step": 16384,
+      "seconds": 4.879529200028628,
+      "tokens_per_second": 3357.70098473924,
+      "peak_allocated": 14735942144,
+      "peak_reserved": 15634268160,
+      "oom": false,
+      "last_loss": 3.6791911125183105
+    }
+  ],
+  "selected": {
+    "seq": 256,
+    "batch": 32,
+    "tokens_per_step": 8192,
+    "seconds": 0.15252496666895846,
+    "tokens_per_second": 53709.23973240387,
+    "peak_allocated": 4510209024,
+    "peak_reserved": 4831838208,
+    "oom": false,
+    "last_loss": 3.6868896484375
+  },
+  "attention_operators": [
+    "aten::_scaled_dot_product_attention_math",
+    "aten::scaled_dot_product_attention"
+  ],
+  "optimizations": {
+    "packing": "enabled: 0 PAD tokens",
+    "pretokens": "uint16 memmap",
+    "BF16": true,
+    "fused_adamw": true,
+    "compile": "not enabled or benchmarked in this bounded Windows pilot; no speed claim",
+    "pinned_memory": "not enabled: not benchmarked",
+    "gradient_checkpointing": "not needed in measured memory budget"
+  },
+  "training_only_estimated_hours": {
+    "100000000": 0.5171880651481068,
+    "250000000": 1.292970162870267,
+    "500000000": 2.585940325740534,
+    "1000000000": 5.171880651481068
+  }
+}

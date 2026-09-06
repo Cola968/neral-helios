@@ -1,0 +1,15 @@
+{
+  "timestamp_utc": "2026-09-06T17:20:09.537621+00:00",
+  "tested_features": [
+    "Created explicit demo Budgetplanung in browser",
+    "CASCADE preview showed 4 dependents and no mutation",
+    "Applied 1200->1600 and observed Live v2",
+    "Expanded previous live version",
+    "Undo restored initial values and produced v3",
+    "RIPPLE displayed four affected nodes and transitive task path"
+  ],
+  "persistence": "Server restarted and live_check_03.py verified revision 7, values 1200 and versions 1080/1440/1080.",
+  "limitations": [
+    "No exhaustive browser matrix. Linear SOLVE and model switching additionally verified over real HTTP."
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "reviewer": "Codex agent qualitative reading, no external judge API",
+  "rubric": "0 unintelligible; 1 isolated words/no usable statement; 2 partially understandable; 3 mostly relevant understandable; 4 clear correct natural",
+  "subset": "First five German and first five English chat prompts; retrospective pilot reading. All 100 raw outputs retained.",
+  "ratings": [
+    {
+      "id": "regression/000",
+      "score20": 1,
+      "score50": 1
+    },
+    {
+      "id": "regression/001",
+      "score20": 2,
+      "score50": 1
+    },
+    {
+      "id": "regression/002",
+      "score20": 2,
+      "score50": 1
+    },
+    {
+      "id": "regression/003",
+      "score20": 2,
+      "score50": 1
+    },
+    {
+      "id": "regression/004",
+      "score20": 0,
+      "score50": 1
+    },
+    {
+      "id": "regression/010",
+      "score20": 1,
+      "score50": 1
+    },
+    {
+      "id": "regression/011",
+      "score20": 4,
+      "score50": 1
+    },
+    {
+      "id": "regression/012",
+      "score20": 1,
+      "score50": 1
+    },
+    {
+      "id": "regression/013",
+      "score20": 4,
+      "score50": 1
+    },
+    {
+      "id": "regression/014",
+      "score20": 1,
+      "score50": 1
+    }
+  ],
+  "mean20": 1.8,
+  "mean50": 1.0,
+  "promotion": false
+}

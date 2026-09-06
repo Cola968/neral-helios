@@ -1,0 +1,21 @@
+{
+  "stop": "token_budget",
+  "steps": 122,
+  "processed_tokens": 999424,
+  "this_segment_tokens": 999424,
+  "language_tokens": {
+    "de": 532480,
+    "en": 466944
+  },
+  "elapsed_seconds": 18.380737800034694,
+  "optimizer_seconds": 13.236264399951324,
+  "optimizer_tokens_per_second": 75506.50015752748,
+  "peak_allocated": 3582742528,
+  "peak_reserved": 3869245440,
+  "best_validation": 2.363631049791972,
+  "latest_sha256": "8fe3a73857d85e72b84b2eeb7572217e627c9262f87e6f9ed2237c7356f69beb",
+  "padding_tokens": 0,
+  "energy_kwh": null,
+  "cost": null,
+  "cost_note": "No measured integrated power or user electricity tariff; no invented energy/cost estimate."
+}

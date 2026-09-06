@@ -1,0 +1,10 @@
+{
+  "inherited_weights_bitwise_unchanged": true,
+  "original_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "export_sha256": "0551760477fcf73f794a28efd75faf2f4436993cb52685e57fd63f326d8f8714",
+  "trained_step": 100,
+  "effective_new_parameters": 19464192,
+  "new_down_columns_nonzero": 6488064,
+  "selected_for_default": false,
+  "reason": "Validation worsened; retain 20M Preview 02 as default. 40M trained candidate is explicitly experimental."
+}
