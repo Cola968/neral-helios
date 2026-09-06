@@ -49,17 +49,64 @@ def normalize_for_dedup(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC",text).casefold().split())
 
 
-def clean_text(raw: str):
+def _basic_text_checks(raw):
     if not isinstance(raw,str):return None,"not_text"
     if "\ufffd" in raw or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]",raw):return None,"encoding_or_control"
     if SECRET_OR_CONTACT.search(raw):return None,"contact_or_secret_pattern"
-    raw=unicodedata.normalize("NFC",raw)
+    raw=unicodedata.normalize("NFC",raw.replace("\r\n","\n").replace("\r","\n"))
+    if len(raw)>2_000_000:return None,"document_too_large"
+    return raw,None
+
+
+def clean_text(raw: str, domain: str="general"):
+    """Domain-aware deterministic cleaning.
+
+    Prose is aggressively paragraph-filtered. Code preserves leading indentation and line
+    breaks; dialogue/structured sources preserve short turn/record lines. This avoids
+    destroying exactly the syntax/turn structure those B2 domains are meant to teach.
+    """
+    raw,reason=_basic_text_checks(raw)
+    if reason:return None,reason
+    if domain not in ALLOWED_DOMAINS:return None,"unsupported_domain"
+
+    if domain=="code":
+        lines=[line.rstrip() for line in raw.split("\n")]
+        # Collapse excessive blank runs while preserving indentation and ordinary blank lines.
+        out=[];blank=0
+        for line in lines:
+            if not line.strip():
+                blank+=1
+                if blank<=2:out.append("")
+                continue
+            blank=0;out.append(line)
+        text="\n".join(out).strip("\n")
+        if len(text)<200:return None,"insufficient_clean_code"
+        printable=sum(c.isprintable() or c in "\n\t" for c in text)/max(1,len(text))
+        alpha=sum(c.isalpha() for c in text)/max(1,len(text))
+        if printable<.98 or alpha<.12:return None,"low_quality_code"
+        # Generated/minified garbage often contains enormous unbroken lines.
+        if max((len(line) for line in text.splitlines()),default=0)>20_000:return None,"extreme_code_line"
+        return text,None
+
+    if domain in {"dialogue","structured"}:
+        lines=[]
+        for line in raw.split("\n"):
+            line=" ".join(line.split())
+            if not line:continue
+            if re.search(r"javascript:|cookie settings|all rights reserved",line,re.I):continue
+            if re.search(r"(.)\1{14,}",line):continue
+            lines.append(line)
+        text="\n".join(lines)
+        if len(text)<250:return None,"insufficient_clean_structured"
+        if sum(c.isalpha() for c in text)/max(1,len(text))<.35:return None,"low_alpha_structured"
+        return text,None
+
     paragraphs=[];seen=set()
     for part in raw.splitlines():
         part=" ".join(part.split())
         if len(part)<80:continue
         if re.search(r"<[^>]+>|\{\{|javascript:|cookie settings|all rights reserved",part,re.I):continue
-        if sum(c.isalpha() for c in part)/max(1,len(part))<0.45:continue
+        if sum(c.isalpha() for c in part)/max(1,len(part))<.45:continue
         if re.search(r"(.)\1{9,}",part):continue
         key=normalize_for_dedup(part)
         if key in seen:continue
@@ -129,7 +176,6 @@ def benchmark_contamination(repo_root: Path):
 
 
 def benchmark_phrases(repo_root: Path):
-    # Backward-compatible helper used by tests/tools that only need the phrase list.
     return benchmark_contamination(repo_root)[0]
 
 
@@ -137,14 +183,11 @@ def validate_manifest(manifest: dict, source_root: Path):
     if manifest.get("version")!=1:raise ValueError("B2 manifest version must be 1")
     sources=manifest.get("sources")
     if not isinstance(sources,list) or not sources:raise ValueError("B2 manifest needs sources")
-    ids=set();fractions=0.0
-    normalized=[]
-    root=source_root.resolve()
+    ids=set();fractions=0.0;normalized=[];root=source_root.resolve()
     for src in sources:
         sid=src.get("id")
         if not isinstance(sid,str) or not ID_RE.fullmatch(sid) or sid in ids:raise ValueError(f"Invalid/duplicate source id: {sid!r}")
-        ids.add(sid)
-        lang=src.get("language");domain=src.get("domain")
+        ids.add(sid);lang=src.get("language");domain=src.get("domain")
         if lang not in ALLOWED_LANGUAGES:raise ValueError(f"{sid}: language must be de/en")
         if domain not in ALLOWED_DOMAINS:raise ValueError(f"{sid}: unsupported domain {domain!r}")
         frac=src.get("target_fraction")
@@ -168,9 +211,7 @@ def split_for(source_id: str, row_id: str):
     return "holdout" if bucket<2 else "test" if bucket<5 else "val" if bucket<10 else "train"
 
 
-def token_count(text: str):
-    return len(text.encode("utf8"))+2
-
+def token_count(text: str):return len(text.encode("utf8"))+2
 
 def encode(text: str):
     raw=np.frombuffer(text.encode("utf8"),dtype=np.uint8).astype(np.uint16)+BYTE_OFFSET
@@ -191,7 +232,7 @@ def load_clean_rows(sources, contamination, reject):
                 rid=str(rid)
                 if rid in seen_ids:raise ValueError(f"{src['id']}: duplicate row id {rid}")
                 seen_ids.add(rid)
-                text,reason=clean_text(raw)
+                text,reason=clean_text(raw,src["domain"])
                 if reason:reject[reason]+=1;continue
                 norm=normalize_for_dedup(text);digest=hashlib.sha256(norm.encode()).hexdigest()
                 if digest in exact:reject["exact_normalized_duplicate"]+=1;continue
@@ -208,83 +249,49 @@ def load_clean_rows(sources, contamination, reject):
                 index=len(signatures);signatures.append(sig)
                 for h in sig[:4]:buckets[h].add(index)
                 exact.add(digest)
-                rows.append({
-                    "id":rid,"source_id":src["id"],"language":src["language"],"domain":src["domain"],
-                    "title":row.get("title"),"url":row.get("url") or src["provenance_url"],"text":text,
-                    "normalized_sha256":digest,"split":split_for(src["id"],rid),"tokens":token_count(text),
-                    "selection_hash":hashlib.sha256(f"B2:968:{src['id']}:{rid}".encode()).hexdigest(),
-                })
+                rows.append({"id":rid,"source_id":src["id"],"language":src["language"],"domain":src["domain"],"title":row.get("title"),"url":row.get("url") or src["provenance_url"],"text":text,"normalized_sha256":digest,"split":split_for(src["id"],rid),"tokens":token_count(text),"selection_hash":hashlib.sha256(f"B2:968:{src['id']}:{rid}".encode()).hexdigest()})
     return rows
 
 
 def select_train(rows, sources, target_train_tokens):
-    selected=[];selection={}
-    by_source=collections.defaultdict(list)
+    selected=[];selection={};by_source=collections.defaultdict(list)
     for row in rows:
         if row["split"]=="train":by_source[row["source_id"]].append(row)
     for src in sources:
-        candidates=sorted(by_source[src["id"]],key=lambda r:r["selection_hash"])
-        quota=math.floor(target_train_tokens*src["target_fraction"]);used=0;chosen=[]
+        candidates=sorted(by_source[src["id"]],key=lambda r:r["selection_hash"]);quota=math.floor(target_train_tokens*src["target_fraction"]);used=0;chosen=[]
         for row in candidates:
             if used>=quota:break
             chosen.append(row);used+=row["tokens"]
-        if used<quota:
-            raise ValueError(f"{src['id']}: only {used:,} clean train tokens available; quota is {quota:,}")
-        selected.extend(chosen)
-        selection[src["id"]]={"target_tokens":quota,"selected_tokens":used,"selected_documents":len(chosen),"available_documents":len(candidates)}
+        if used<quota:raise ValueError(f"{src['id']}: only {used:,} clean train tokens available; quota is {quota:,}")
+        selected.extend(chosen);selection[src["id"]]={"target_tokens":quota,"selected_tokens":used,"selected_documents":len(chosen),"available_documents":len(candidates)}
     return selected,selection
 
 
 def write_outputs(rows,train_selected,sources,out: Path,target,reject,selection,source_manifest_sha,benchmark_files):
-    out.mkdir(parents=True,exist_ok=True)
-    train_keys={(r["source_id"],r["id"]) for r in train_selected}
-    docs=[];summary={}
+    out.mkdir(parents=True,exist_ok=True);train_keys={(r["source_id"],r["id"]) for r in train_selected};docs=[];summary={}
     for split in ("train","val","test","holdout"):
         summary[split]={}
         for lang in ("de","en"):
             if split=="train":chosen=[r for r in rows if r["split"]==split and r["language"]==lang and (r["source_id"],r["id"]) in train_keys]
             else:chosen=[r for r in rows if r["split"]==split and r["language"]==lang]
-            chosen=sorted(chosen,key=lambda r:(r["source_id"],r["selection_hash"]))
-            chunks=[];offset=0;bytes_count=0;domain_tokens=collections.Counter();source_tokens=collections.Counter()
+            chosen=sorted(chosen,key=lambda r:(r["source_id"],r["selection_hash"]));chunks=[];offset=0;bytes_count=0;domain_tokens=collections.Counter();source_tokens=collections.Counter()
             for r in chosen:
-                z=encode(r["text"]);chunks.append(z);n=len(z);b=len(r["text"].encode("utf8"))
-                docs.append({k:v for k,v in r.items() if k not in {"text","selection_hash","tokens"}}|{"start":offset,"end":offset+n,"bytes":b})
-                offset+=n;bytes_count+=b;domain_tokens[r["domain"]]+=n;source_tokens[r["source_id"]]+=n
-            data=np.concatenate(chunks) if chunks else np.empty((0,),dtype=np.uint16)
-            path=out/f"{split}_{lang}.bin";data.astype("<u2").tofile(path)
+                z=encode(r["text"]);chunks.append(z);n=len(z);b=len(r["text"].encode("utf8"));docs.append({k:v for k,v in r.items() if k not in {"text","selection_hash","tokens"}}|{"start":offset,"end":offset+n,"bytes":b});offset+=n;bytes_count+=b;domain_tokens[r["domain"]]+=n;source_tokens[r["source_id"]]+=n
+            data=np.concatenate(chunks) if chunks else np.empty((0,),dtype=np.uint16);path=out/f"{split}_{lang}.bin";data.astype("<u2").tofile(path)
             summary[split][lang]={"documents":len(chosen),"tokens":int(len(data)),"bytes":bytes_count,"sha256":sha256_file(path),"domain_tokens":dict(domain_tokens),"source_tokens":dict(source_tokens)}
-    docs_path=out/"documents.jsonl";docs_path.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in docs),encoding="utf8")
-    public_sources=[{k:v for k,v in s.items() if k!="path"} for s in sources]
-    manifest={
-        "version":1,"purpose":"Neral-50M B2 broader continued pretraining","target_train_tokens":target,
-        "actual_train_tokens":sum(summary["train"][l]["tokens"] for l in ("de","en")),
-        "source_manifest_sha256":source_manifest_sha,"sources":public_sources,"selection":selection,
-        "splits":summary,"documents_sha256":sha256_file(docs_path),"rejected":dict(reject),
-        "packing":"BOS + UTF-8 bytes offset by 4 + EOS; document index enables boundary-safe blocks",
-        "split":"SHA256(source_id:row_id): 90/5/3/2 train/val/test/holdout before train quota selection",
-        "dedup":"NFKC/casefold exact + bounded 32-minhash word-5-shingle near-duplicate check >=0.80",
-        "contamination":"Exact normalized long literals (>=20 chars) from frozen free-generation, RawMath, benchmark v3 and v4 are rejected; not a claim of exhaustive semantic contamination detection",
-        "contamination_source_sha256":benchmark_files,
-        "external_model_calls":False,"raw_data_uploaded":False,
-    }
-    (out/"manifest.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding="utf8")
-    return manifest
+    docs_path=out/"documents.jsonl";docs_path.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in docs),encoding="utf8");public_sources=[{k:v for k,v in s.items() if k!="path"} for s in sources]
+    manifest={"version":1,"purpose":"Neral-50M B2 broader continued pretraining","target_train_tokens":target,"actual_train_tokens":sum(summary["train"][l]["tokens"] for l in ("de","en")),"source_manifest_sha256":source_manifest_sha,"sources":public_sources,"selection":selection,"splits":summary,"documents_sha256":sha256_file(docs_path),"rejected":dict(reject),"packing":"BOS + UTF-8 bytes offset by 4 + EOS; document index enables boundary-safe blocks","split":"SHA256(source_id:row_id): 90/5/3/2 train/val/test/holdout before train quota selection","dedup":"NFKC/casefold exact + bounded 32-minhash word-5-shingle near-duplicate check >=0.80","cleaning":"Domain-aware: prose paragraph filtering; code preserves indentation/newlines; dialogue/structured preserve short turn/record lines","contamination":"Exact normalized long literals (>=20 chars) from frozen free-generation, RawMath, benchmark v3 and v4 are rejected; not a claim of exhaustive semantic contamination detection","contamination_source_sha256":benchmark_files,"external_model_calls":False,"raw_data_uploaded":False}
+    (out/"manifest.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding="utf8");return manifest
 
 
 def build(source_root: Path,out: Path,target_train_tokens: int,repo_root: Path):
     if target_train_tokens<1_000_000:raise ValueError("B2 target should be at least 1,000,000 tokens")
-    manifest_path=source_root/"manifest.json"
-    manifest=json.loads(manifest_path.read_text(encoding="utf8"));sources=validate_manifest(manifest,source_root)
-    contamination,benchmark_files=benchmark_contamination(repo_root)
-    reject=collections.Counter();rows=load_clean_rows(sources,contamination,reject)
-    train_selected,selection=select_train(rows,sources,target_train_tokens)
+    manifest_path=source_root/"manifest.json";manifest=json.loads(manifest_path.read_text(encoding="utf8"));sources=validate_manifest(manifest,source_root);contamination,benchmark_files=benchmark_contamination(repo_root);reject=collections.Counter();rows=load_clean_rows(sources,contamination,reject);train_selected,selection=select_train(rows,sources,target_train_tokens)
     return write_outputs(rows,train_selected,sources,out,target_train_tokens,reject,selection,sha256_file(manifest_path),benchmark_files)
 
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="b2_sources");ap.add_argument("--out",default="pretrain50_b2_data");ap.add_argument("--target-train-tokens",type=int,default=100_000_000);args=ap.parse_args()
-    report=build(Path(args.source_root),Path(args.out),args.target_train_tokens,Path(__file__).resolve().parent)
-    print(json.dumps({"actual_train_tokens":report["actual_train_tokens"],"rejected":report["rejected"],"selection":report["selection"]},indent=2,ensure_ascii=False))
+    ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="b2_sources");ap.add_argument("--out",default="pretrain50_b2_data");ap.add_argument("--target-train-tokens",type=int,default=100_000_000);args=ap.parse_args();report=build(Path(args.source_root),Path(args.out),args.target_train_tokens,Path(__file__).resolve().parent);print(json.dumps({"actual_train_tokens":report["actual_train_tokens"],"rejected":report["rejected"],"selection":report["selection"]},indent=2,ensure_ascii=False))
 
 
 if __name__=="__main__":main()
