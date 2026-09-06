@@ -18,4 +18,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Python sources
-        run: python -m py_compile pretrain50_stage_b.py summarize_benchmarks50.py quality_gate50.py benchmark_v3.py benchmark_v4.py
+        run: python -m py_compile pretrain50_stage_b.py summarize_benchmarks50.py quality_gate50.py benchmark_v3.py benchmark_v4.py tests/test_pretrain50_stage_b.py
