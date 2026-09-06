@@ -39,7 +39,7 @@ def download(url: str,path: Path):
 
 
 def reviewed_human(row):
-    return row.get("deleted") is not True and row.get("synthetic") is not True and row.get("review_result") is not False
+    return row.get("deleted") is not True and row.get("synthetic") is not True and row.get("review_result") is True
 
 
 def infer_domain(prompt: str,answer: str):
@@ -96,7 +96,7 @@ def main():
             "license":"Apache-2.0","license_url":LICENSE_URL,"provenance_url":DATASET_URL,
             "language":lang,"domain":"chat","allow_row_domains":True,"target_fraction":safe_train[lang]/safe_total,
         })
-    manifest={"version":1,"recommended_train_examples":safe_total,"upstream_download_url":UPSTREAM_URL,"upstream_sha256":upstream_sha,"filters":"reviewed non-deleted non-synthetic human prompter->assistant; deterministic best rank per prompt; de/en only","sources":sources}
+    manifest={"version":1,"recommended_train_examples":safe_total,"upstream_download_url":UPSTREAM_URL,"upstream_sha256":upstream_sha,"filters":"positively reviewed, non-deleted, non-synthetic human prompter->assistant; deterministic best rank per prompt; de/en only","sources":sources}
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding="utf8")
     print(json.dumps({"download_sha256":upstream_sha,"pairs":counts,"recommended_train_examples":safe_total,"domains":{lang:{d:sum(r['domain']==d for r in pairs[lang]) for d in sorted({x['domain'] for x in pairs[lang]})} for lang in pairs}},indent=2,ensure_ascii=False))
 
