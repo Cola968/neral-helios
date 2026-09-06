@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from prepare_pretrain50_b2 import (
+    benchmark_contamination,
     clean_text,
     normalize_for_dedup,
     select_train,
@@ -47,6 +48,16 @@ def test_manifest_requires_hashes_and_exact_mix(tmp_path):
     broken=json.loads(json.dumps(manifest));broken["sources"][0]["sha256"]="0"*64
     with pytest.raises(ValueError,match="SHA-256 mismatch"):
         validate_manifest(broken,tmp_path)
+
+
+def test_frozen_benchmark_contamination_includes_v3_and_v4():
+    root=Path(__file__).resolve().parents[1]
+    phrases,files=benchmark_contamination(root)
+    # Long literals are extracted statically with ast.literal_eval, never by importing the eval files.
+    assert normalize_for_dedup("Berlin ist die Hauptstadt von") in phrases
+    assert normalize_for_dedup("A black hole has gravity so strong that") in phrases
+    assert "benchmark_v3.py" in files and "benchmark_v4.py" in files
+    assert all(len(v)==64 for v in files.values())
 
 
 def test_train_selection_enforces_source_quotas():
