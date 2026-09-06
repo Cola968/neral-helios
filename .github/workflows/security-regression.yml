@@ -1,0 +1,31 @@
+name: Security regression
+
+on:
+  pull_request:
+    paths:
+      - 'security_guard.py'
+      - 'code_check.py'
+      - 'cyberbench_helios.py'
+      - 'promotion_gate50.py'
+      - 'summarize_benchmarks50.py'
+      - 'tests/test_security_promotion.py'
+      - '.github/workflows/security-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  defensive-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run Helios CyberBench v1
+        run: python cyberbench_helios.py --out cyberbench_ci.json
+      - name: Run security and promotion tests
+        run: python -m pytest tests/test_security_promotion.py -q
