@@ -18,6 +18,8 @@ curriculum/
 curriculum_v2/
 pretrain50_data/
 pretrain50_b2_data/
+b2_sources/*
+!b2_sources/README.md
 sft50_data/
 sft50_sources/*
 !sft50_sources/README.md
