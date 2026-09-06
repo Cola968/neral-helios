@@ -1,0 +1,21 @@
+name: Python syntax
+
+on:
+  pull_request:
+    paths:
+      - '**.py'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Python sources
+        run: python -m py_compile pretrain50_stage_b.py summarize_benchmarks50.py quality_gate50.py benchmark_v3.py benchmark_v4.py tests/test_pretrain50_stage_b.py

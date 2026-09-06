@@ -1,0 +1,183 @@
+name: Finish Neral 50M Pretraining
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gpu-run-50m-full
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-full-pretrain
+  cancel-in-progress: false
+
+jobs:
+  finish-50m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Validate local Neral environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if (-not $env:NERAL_ASSETS_ROOT) { throw 'Set NERAL_ASSETS_ROOT on the self-hosted runner.' }
+          if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw "NERAL_ASSETS_ROOT not found: $env:NERAL_ASSETS_ROOT" }
+          if (-not $env:NERAL_PYTHON) { throw 'Set NERAL_PYTHON to the existing CUDA venv python.exe.' }
+          if (-not (Test-Path $env:NERAL_PYTHON -PathType Leaf)) { throw "NERAL_PYTHON not found: $env:NERAL_PYTHON" }
+          "python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
+          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
+
+      - name: Attach private corpus without copying or uploading
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Join-Path '${{ steps.env.outputs.assets }}' 'pretrain50_data'
+          foreach ($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl')) {
+            if (-not (Test-Path (Join-Path $source $f) -PathType Leaf)) { throw "Missing private pretraining asset: $f" }
+          }
+          if (Test-Path 'pretrain50_data') { Remove-Item 'pretrain50_data' -Recurse -Force }
+          New-Item -ItemType Junction -Path 'pretrain50_data' -Target $source | Out-Null
+
+      - name: RTX health check
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -c "import json,torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'vram_gib':round(torch.cuda.get_device_properties(0).total_memory/2**30,2),'bf16':True}))"
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Resolve resumable 50M source
+        id: source
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}'
+          $full=Join-Path $assets 'runs\neral50m_stage_b_full\latest.pt'
+          $pilot=Join-Path $assets 'runs\neral50m_pilot_a\latest.pt'
+          if (Test-Path $full -PathType Leaf) { $ckpt=$full }
+          elseif (Test-Path $pilot -PathType Leaf) { $ckpt=$pilot }
+          else { throw "No 50M resume checkpoint found at $full or $pilot" }
+          "checkpoint=$ckpt" >> $env:GITHUB_OUTPUT
+          "run_out=$(Join-Path $assets 'runs\neral50m_stage_b_full')" >> $env:GITHUB_OUTPUT
+
+      - name: Create report directories
+        run: |
+          New-Item -ItemType Directory -Force -Path 'runner_reports\before' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'runner_reports\after_best' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'runner_reports\after_latest' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'runner_reports\baseline20' | Out-Null
+
+      - name: Benchmark 50M before full-coverage stage
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.source.outputs.checkpoint }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/before/free.json --max-tokens 96
+          & $py benchmark_v3.py $c --out runner_reports/before/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/before/v4.json --max-new-tokens 96
+
+      - name: Complete deterministic 50M corpus stage
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py pretrain50_stage_b.py --resume '${{ steps.source.outputs.checkpoint }}' --out '${{ steps.source.outputs.run_out }}' --seq 256 --batch 32 --de-fraction 0.60 --peak-lr 0.0002 --min-lr 0.00002 --eval-every 100
+
+      - name: Resolve completed checkpoints
+        id: completed
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='${{ steps.source.outputs.run_out }}'
+          $latest=Join-Path $out 'latest.pt';$best=Join-Path $out 'best_validation.pt';$summary=Join-Path $out 'summary.json'
+          if (-not (Test-Path $latest -PathType Leaf)) { throw 'Missing completed latest.pt' }
+          if (-not (Test-Path $summary -PathType Leaf)) { throw 'Missing Stage-B summary.json' }
+          $s=Get-Content $summary -Raw | ConvertFrom-Json
+          if (-not $s.complete) { throw "Stage B is not complete: $($s.stop)" }
+          if (-not (Test-Path $best -PathType Leaf)) { $best=$latest }
+          "latest=$latest" >> $env:GITHUB_OUTPUT
+          "best=$best" >> $env:GITHUB_OUTPUT
+          "summary=$summary" >> $env:GITHUB_OUTPUT
+
+      - name: Benchmark best-validation 50M after pretraining
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.completed.outputs.best }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/after_best/free.json --max-tokens 96
+          & $py benchmark_v3.py $c --out runner_reports/after_best/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/after_best/v4.json --max-new-tokens 96
+
+      - name: Benchmark final-sweep 50M checkpoint
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.completed.outputs.latest }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/after_latest/free.json --max-tokens 96
+          & $py benchmark_v3.py $c --out runner_reports/after_latest/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/after_latest/v4.json --max-new-tokens 96
+
+      - name: Benchmark 20M Preview 02 on same suites when available
+        id: baseline20
+        continue-on-error: true
+        run: |
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          $candidates=@(
+            (Join-Path $assets 'export\pilot_02\neral20m.pt'),
+            (Join-Path $assets 'checkpoints\neral20m.pt')
+          )
+          $c=$candidates | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $c) { Write-Host '20M Preview 02 checkpoint not found; comparison will omit it.'; exit 0 }
+          & $py free_generation50.py --checkpoint $c --out runner_reports/baseline20/free.json --max-tokens 96
+          & $py benchmark_v3.py $c --out runner_reports/baseline20/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/baseline20/v4.json --max-new-tokens 96
+
+      - name: Build percentage comparison table
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          $args=@(
+            'summarize_benchmarks50.py',
+            '--before-free','runner_reports/before/free.json','--before-v3','runner_reports/before/v3.json','--before-v4','runner_reports/before/v4.json',
+            '--after-free','runner_reports/after_best/free.json','--after-v3','runner_reports/after_best/v3.json','--after-v4','runner_reports/after_best/v4.json',
+            '--training-summary','${{ steps.completed.outputs.summary }}',
+            '--out-json','runner_reports/comparison.json','--out-md','runner_reports/COMPARISON.md'
+          )
+          if (Test-Path 'runner_reports/baseline20/v4.json') {
+            $args+=@('--baseline20-free','runner_reports/baseline20/free.json','--baseline20-v3','runner_reports/baseline20/v3.json','--baseline20-v4','runner_reports/baseline20/v4.json')
+          }
+          & $py @args
+          Get-Content runner_reports/COMPARISON.md
+
+      - name: Evaluate base-model quality gate
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py quality_gate50.py --before-v3 runner_reports/before/v3.json --after-v3 runner_reports/after_best/v3.json --after-v4 runner_reports/after_best/v4.json --after-free runner_reports/after_best/free.json --training-summary '${{ steps.completed.outputs.summary }}' --out runner_reports/quality_gate.json
+
+      - name: Run Stage-B regression tests
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -m pytest tests/test_pretrain50_stage_b.py tests/test_model50.py -q --junitxml=runner_reports/pytest.xml
+
+      - name: Persist reports locally
+        if: always()
+        run: |
+          $dest=Join-Path '${{ steps.env.outputs.assets }}' 'reports\runner_50m_full'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          if (Test-Path 'runner_reports') { Copy-Item 'runner_reports\*' $dest -Recurse -Force }
+          if (Test-Path '${{ steps.completed.outputs.summary }}') { Copy-Item '${{ steps.completed.outputs.summary }}' (Join-Path $dest 'training_summary.json') -Force }
+
+      - name: Assert no private weights or corpus enter upload
+        if: always()
+        run: |
+          if (Test-Path 'runner_reports') {
+            $bad=Get-ChildItem runner_reports -Recurse -File | Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors' }
+            if ($bad) { throw 'Forbidden private model/corpus artifact found in report directory.' }
+          }
+
+      - name: Upload benchmark reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-full-pretrain-benchmarks
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 14
