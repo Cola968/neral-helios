@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from fetch_oasst1_sft50 import choose_pairs
 from prepare_sft50 import clean_field, normalize, pair_from_row, select_train, split_for, validate_manifest
 
 
@@ -63,3 +64,13 @@ def test_train_selection_fails_instead_of_silent_replay():
     rows=[{"source_id":"a","id":"1","split":"train","selection_hash":"0"*64}]
     with pytest.raises(ValueError,match="only 1 clean train examples"):
         select_train(rows,sources,2)
+
+
+def test_oasst_pair_selection_requires_positive_review_and_best_rank():
+    prompt={"message_id":"p","parent_id":None,"text":"Explain gravity clearly please.","role":"prompter","lang":"en","review_result":True,"deleted":False,"synthetic":False}
+    good1={"message_id":"a1","parent_id":"p","text":"Gravity attracts masses.","role":"assistant","lang":"en","review_result":True,"deleted":False,"synthetic":False,"rank":1}
+    good0={"message_id":"a0","parent_id":"p","text":"Gravity is an interaction between masses.","role":"assistant","lang":"en","review_result":True,"deleted":False,"synthetic":False,"rank":0}
+    rejected={"message_id":"bad","parent_id":"p","text":"Bad answer", "role":"assistant","lang":"en","review_result":False,"deleted":False,"synthetic":False,"rank":-1}
+    pairs=choose_pairs([prompt,good1,good0,rejected],10,10)
+    assert len(pairs["en"])==1
+    assert pairs["en"][0]["id"]=="a0"
