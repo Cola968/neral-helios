@@ -1,0 +1,184 @@
+name: Neral GPU Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "healthcheck, benchmark, or train_and_benchmark"
+        required: true
+        default: "healthcheck"
+        type: choice
+        options:
+          - healthcheck
+          - benchmark
+          - train_and_benchmark
+      target_tokens:
+        description: "Cumulative 50M pretraining token target"
+        required: true
+        default: "5000000"
+        type: string
+      run_name:
+        description: "Persistent local run directory name"
+        required: true
+        default: "neral50m_stage_b"
+        type: string
+      max_new_tokens:
+        description: "Generation budget for model benchmarks"
+        required: true
+        default: "96"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-gpu-lab
+  cancel-in-progress: false
+
+jobs:
+  neral-gpu:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout exact requested revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Validate private local environment
+        id: env
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:NERAL_ASSETS_ROOT) { throw 'NERAL_ASSETS_ROOT is not configured on the runner.' }
+          if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw "NERAL_ASSETS_ROOT does not exist: $env:NERAL_ASSETS_ROOT" }
+          $python = $env:NERAL_PYTHON
+          if (-not $python) {
+            $cmd = Get-Command py -ErrorAction SilentlyContinue
+            if (-not $cmd) { throw 'Set NERAL_PYTHON to the Neral venv python.exe.' }
+            $python = 'py -3.12'
+          } elseif (-not (Test-Path $python -PathType Leaf)) { throw "NERAL_PYTHON does not exist: $python" }
+          if ('${{ inputs.run_name }}' -notmatch '^[A-Za-z0-9_-]{1,48}$') { throw 'run_name may contain only A-Z, a-z, 0-9, _ and -.' }
+          $target = 0
+          if (-not [int64]::TryParse('${{ inputs.target_tokens }}', [ref]$target) -or $target -lt 1000000 -or $target -gt 1000000000) { throw 'target_tokens must be an integer from 1,000,000 through 1,000,000,000.' }
+          $gen = 0
+          if (-not [int]::TryParse('${{ inputs.max_new_tokens }}', [ref]$gen) -or $gen -lt 16 -or $gen -gt 256) { throw 'max_new_tokens must be an integer from 16 through 256.' }
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
+
+      - name: Attach private corpus without uploading it
+        if: inputs.mode != 'healthcheck'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path '${{ steps.env.outputs.assets }}' 'pretrain50_data'
+          if (-not (Test-Path $target -PathType Container)) { throw "Missing private corpus directory: $target" }
+          if (Test-Path 'pretrain50_data') { Remove-Item 'pretrain50_data' -Force -Recurse }
+          New-Item -ItemType Junction -Path 'pretrain50_data' -Target $target | Out-Null
+
+      - name: GPU health check
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = '${{ steps.env.outputs.python }}'
+          if ($py -eq 'py -3.12') {
+            py -3.12 -c "import json,torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'vram_gib':round(torch.cuda.get_device_properties(0).total_memory/2**30,2),'bf16':torch.cuda.is_bf16_supported()}))"
+          } else {
+            & $py -c "import json,torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'vram_gib':round(torch.cuda.get_device_properties(0).total_memory/2**30,2),'bf16':torch.cuda.is_bf16_supported()}))"
+          }
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Resolve local checkpoint
+        if: inputs.mode != 'healthcheck'
+        id: ckpt
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = '${{ steps.env.outputs.assets }}'
+          $run = '${{ inputs.run_name }}'
+          $stageLatest = Join-Path $assets ("runs\" + $run + "\latest.pt")
+          $pilotLatest = Join-Path $assets 'runs\neral50m_pilot_a\latest.pt'
+          if (Test-Path $stageLatest -PathType Leaf) { $resume = $stageLatest }
+          elseif (Test-Path $pilotLatest -PathType Leaf) { $resume = $pilotLatest }
+          else { throw "No resumable 50M checkpoint found. Expected $stageLatest or $pilotLatest" }
+          "resume=$resume" >> $env:GITHUB_OUTPUT
+          "run_out=$(Join-Path $assets ("runs\" + $run))" >> $env:GITHUB_OUTPUT
+
+      - name: Continue Neral-50M pretraining
+        if: inputs.mode == 'train_and_benchmark'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = '${{ steps.env.outputs.python }}'
+          $args = @('pretrain50.py','--resume','${{ steps.ckpt.outputs.resume }}','--tokens','${{ inputs.target_tokens }}','--out','${{ steps.ckpt.outputs.run_out }}','--lr','0.0003','--eval-every','25','--patience','6')
+          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+
+      - name: Select checkpoint for evaluation
+        if: inputs.mode != 'healthcheck'
+        id: evalckpt
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = '${{ steps.ckpt.outputs.run_out }}'
+          $best = Join-Path $out 'best_validation.pt'
+          $latest = Join-Path $out 'latest.pt'
+          if (Test-Path $best -PathType Leaf) { $ckpt = $best }
+          elseif (Test-Path $latest -PathType Leaf) { $ckpt = $latest }
+          elseif ('${{ inputs.mode }}' -eq 'benchmark') { $ckpt = '${{ steps.ckpt.outputs.resume }}' }
+          else { throw 'Training finished without an evaluable checkpoint.' }
+          "checkpoint=$ckpt" >> $env:GITHUB_OUTPUT
+
+      - name: Run frozen 100-prompt regression
+        if: inputs.mode != 'healthcheck'
+        run: |
+          New-Item -ItemType Directory -Force -Path 'runner_reports' | Out-Null
+          $py = '${{ steps.env.outputs.python }}'
+          $args = @('free_generation50.py','--checkpoint','${{ steps.evalckpt.outputs.checkpoint }}','--out','runner_reports/free_generation.json','--max-tokens','${{ inputs.max_new_tokens }}')
+          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+
+      - name: Run benchmark v3
+        if: inputs.mode != 'healthcheck'
+        run: |
+          $py = '${{ steps.env.outputs.python }}'
+          $args = @('benchmark_v3.py','${{ steps.evalckpt.outputs.checkpoint }}','--out','runner_reports/benchmark_v3.json','--max-new-tokens','${{ inputs.max_new_tokens }}')
+          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+
+      - name: Run benchmark v4
+        if: inputs.mode != 'healthcheck'
+        run: |
+          $py = '${{ steps.env.outputs.python }}'
+          $args = @('benchmark_v4.py','${{ steps.evalckpt.outputs.checkpoint }}','--out','runner_reports/benchmark_v4.json','--max-new-tokens','${{ inputs.max_new_tokens }}')
+          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+
+      - name: Run regression tests
+        if: inputs.mode != 'healthcheck'
+        run: |
+          $py = '${{ steps.env.outputs.python }}'
+          $args = @('-m','pytest','tests/test_model50.py','tests/test_projects.py','tests/test_regressions.py','-q','--junitxml=runner_reports/pytest.xml')
+          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+
+      - name: Persist small reports locally
+        if: inputs.mode != 'healthcheck' && always()
+        run: |
+          $dest = Join-Path '${{ steps.env.outputs.assets }}' ('reports\runner_${{ inputs.run_name }}')
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          if (Test-Path 'runner_reports') { Copy-Item 'runner_reports\*' $dest -Force }
+          Write-Host "Reports persisted to $dest"
+
+      - name: Upload reports only
+        if: inputs.mode != 'healthcheck' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-${{ inputs.run_name }}-reports
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Safety assertion - never upload weights or corpus
+        if: always()
+        run: |
+          $tracked = git status --short
+          Write-Host $tracked
+          if (Test-Path 'runner_reports') {
+            $bad = Get-ChildItem 'runner_reports' -Recurse -File | Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors' }
+            if ($bad) { throw 'Forbidden model/corpus artifact found in upload directory.' }
+          }
