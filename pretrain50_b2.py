@@ -109,6 +109,8 @@ def main():
     if payload.get('stage_b2_version')==STAGE_VERSION:
         if payload.get('stage_b2_hashes')!=hashes:raise ValueError('B2 corpus mismatch on resume')
         if payload.get('stage_b2_seq')!=args.seq or payload.get('stage_b2_batch')!=args.batch:raise ValueError('B2 shape mismatch on resume')
+        if payload.get('stage_b2_schedule_seed')!=SEED:raise ValueError('B2 schedule seed mismatch on resume')
+        if int(payload.get('stage_b2_target_cumulative_tokens',args.target_cumulative_tokens))!=args.target_cumulative_tokens:raise ValueError('B2 target changed on interrupted resume; start a new stage for a larger milestone')
         cursor=int(payload['stage_b2_cursor']);source_tokens=int(payload['source_cumulative_tokens'])
         best=float(payload['best_b2_validation']);baseline_old=float(payload['baseline_old_validation'])
         regression_evals=int(payload.get('regression_evals',0));old_regression_evals=int(payload.get('old_regression_evals',0))
@@ -125,29 +127,32 @@ def main():
         raise ValueError(f'B2 needs {target_blocks:,} unique blocks but corpus supplies {len(schedule):,}; add data instead of replaying it')
     target_blocks=min(target_blocks,len(schedule));target_updates=math.ceil(target_blocks/args.batch)
     if not 0<=cursor<=target_blocks:raise ValueError('invalid B2 resume cursor')
+    start_cursor=cursor
 
     opt=torch.optim.AdamW(model.parameters(),lr=args.peak_lr,betas=(.9,.95),weight_decay=.1,fused=True)
     if resume_optimizer:
+        if 'optimizer' not in payload:raise ValueError('Interrupted B2 checkpoint is missing optimizer state')
         opt.load_state_dict(payload['optimizer'])
 
-    baseline_b2=validate_document_bounded(model,val,val_schedule,args.seq,device)
-    baseline_old_report=validate_document_bounded(model,old_val,old_schedule,args.seq,device)
+    current_b2=validate_document_bounded(model,val,val_schedule,args.seq,device)
+    current_old=validate_document_bounded(model,old_val,old_schedule,args.seq,device)
     if not resume_optimizer:
-        best=baseline_b2['macro'];baseline_old=baseline_old_report['macro']
-    elif not math.isclose(baseline_old,baseline_old_report['macro'],rel_tol=.02,abs_tol=.02):
-        raise ValueError('Old-validation baseline changed unexpectedly on B2 resume')
+        best=current_b2['macro'];baseline_old=current_old['macro']
 
     out=Path(args.out)
     if out.exists() and any(out.iterdir()) and not resume_optimizer:raise FileExistsError('Fresh B2 output directory required')
     out.mkdir(parents=True,exist_ok=True)
+    if resume_optimizer and not (out/'best_validation.pt').is_file():
+        raise FileNotFoundError('Interrupted B2 resume requires the original best_validation.pt in the output directory')
     run={
         'stage':'B2 broader continued pretraining','stage_b2_version':STAGE_VERSION,'parameters':EXPECTED_PARAMS,
         'source_checkpoint':str(Path(args.resume).resolve()),'source_sha256':source_sha,'source_cumulative_tokens':source_tokens,
-        'target_cumulative_tokens':args.target_cumulative_tokens,'target_stage_tokens':target_stage_tokens,'target_blocks':target_blocks,
+        'resume_cursor':cursor,'target_cumulative_tokens':args.target_cumulative_tokens,'target_stage_tokens':target_stage_tokens,'target_blocks':target_blocks,
         'data_root':str(root.resolve()),'data_hashes':hashes,'old_validation_hashes':old_hashes,'schedule':schedule_meta,
-        'validation_schedule':val_meta,'old_validation_schedule':old_meta,'baseline_b2_validation':baseline_b2,
-        'baseline_old_validation':baseline_old_report,'selection':'lowest B2 document-bounded validation macro subject to <=5% regression on frozen B1 validation',
-        'optimizer':'fresh AdamW at new stage; resumed only for interrupted B2','lr_schedule':{'type':'linear warmup + cosine','peak':args.peak_lr,'floor':args.min_lr,'warmup_fraction':args.warmup_fraction},
+        'validation_schedule':val_meta,'old_validation_schedule':old_meta,'current_b2_validation_at_start':current_b2,
+        'current_old_validation_at_start':current_old,'selection_old_baseline_macro':baseline_old,
+        'selection':'lowest B2 document-bounded validation macro subject to <=5% regression on frozen B1 validation baseline',
+        'optimizer':'fresh AdamW at new stage; optimizer state restored only for interrupted B2','lr_schedule':{'type':'linear warmup + cosine','peak':args.peak_lr,'floor':args.min_lr,'warmup_fraction':args.warmup_fraction},
         'replay_policy':'No train-block replay. Insufficient unique data is a hard error.','benchmark_policy':'Frozen free/v3/v4/RawMath benchmark required after stage; no promotion from loss alone.',
         'gpu':torch.cuda.get_device_name(),'torch':str(torch.__version__),'args':vars(args),
     }
@@ -157,7 +162,8 @@ def main():
         return {'model':model.state_dict(),'optimizer':opt.state_dict(),'config':FIFTY.to_dict(),'tokens':source_tokens+cursor*args.seq,
                 'source_cumulative_tokens':source_tokens,'stage_b2_version':STAGE_VERSION,'stage_b2_cursor':cursor,
                 'stage_b2_seq':args.seq,'stage_b2_batch':args.batch,'stage_b2_hashes':hashes,'stage_b2_schedule_seed':SEED,
-                'best_b2_validation':best,'baseline_old_validation':baseline_old,'regression_evals':regression_evals,
+                'stage_b2_target_cumulative_tokens':args.target_cumulative_tokens,'best_b2_validation':best,
+                'baseline_old_validation':baseline_old,'regression_evals':regression_evals,
                 'old_regression_evals':old_regression_evals,'source_sha256':source_sha}
 
     if cursor==0:
@@ -190,10 +196,12 @@ def main():
             with (out/'metrics.jsonl').open('a',encoding='utf8') as f:f.write(json.dumps(row)+'\n')
     finally:
         atomic_save(checkpoint(),out/'latest.pt')
+        segment_tokens=(cursor-start_cursor)*args.seq
         summary={'stop':stop,'complete':stop=='target_reached' and cursor>=target_blocks,'stage_b2_blocks':cursor,'stage_b2_tokens':cursor*args.seq,
-                 'source_cumulative_tokens':source_tokens,'cumulative_tokens':source_tokens+cursor*args.seq,'target_cumulative_tokens':args.target_cumulative_tokens,
-                 'best_b2_validation':best,'baseline_old_validation':baseline_old,'elapsed_seconds':time.perf_counter()-start,
-                 'optimizer_seconds':update_seconds,'optimizer_tokens_per_second':cursor*args.seq/max(update_seconds,1e-9),
+                 'this_segment_tokens':segment_tokens,'source_cumulative_tokens':source_tokens,'cumulative_tokens':source_tokens+cursor*args.seq,
+                 'target_cumulative_tokens':args.target_cumulative_tokens,'best_b2_validation':best,'baseline_old_validation':baseline_old,
+                 'elapsed_seconds':time.perf_counter()-start,'optimizer_seconds':update_seconds,
+                 'optimizer_tokens_per_second':segment_tokens/max(update_seconds,1e-9),
                  'peak_allocated':torch.cuda.max_memory_allocated(),'peak_reserved':torch.cuda.max_memory_reserved(),
                  'best_sha256':sha(out/'best_validation.pt'),'latest_sha256':sha(out/'latest.pt'),'instruction_tuning_performed':False,'train_block_replay':False}
         (out/'summary.json').write_text(json.dumps(summary,indent=2),encoding='utf8');print(json.dumps(summary),flush=True)
