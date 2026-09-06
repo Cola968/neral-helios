@@ -16,7 +16,7 @@ concurrency:
 jobs:
   train-and-benchmark:
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 300
+    timeout-minutes: 360
     defaults:
       run:
         shell: powershell
@@ -39,20 +39,42 @@ jobs:
           "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
           "python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
 
-      - name: Attach B1 and B2 corpora
+      - name: Attach existing B1 corpus
         run: |
-          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}'
-          foreach($pair in @(@('pretrain50_data','pretrain50_data'),@('pretrain50_b2_data','pretrain50_b2_data'))) {
-            $name=$pair[0];$source=Join-Path $assets $pair[1]
-            foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl')) {
-              if (-not (Test-Path (Join-Path $source $f) -PathType Leaf)) { throw "Missing $name asset: $f" }
-            }
-            if ($name -eq 'pretrain50_b2_data' -and -not (Test-Path (Join-Path $source 'manifest.json') -PathType Leaf)) { throw 'Missing B2 manifest.json' }
-            if (Test-Path $name) { Remove-Item $name -Recurse -Force }
-            New-Item -ItemType Junction -Path $name -Target $source | Out-Null
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$source=Join-Path $assets 'pretrain50_data'
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl')) {
+            if (-not (Test-Path (Join-Path $source $f) -PathType Leaf)) { throw "Missing B1 corpus asset: $f" }
           }
+          if (Test-Path 'pretrain50_data') { Remove-Item 'pretrain50_data' -Recurse -Force }
+          New-Item -ItemType Junction -Path 'pretrain50_data' -Target $source | Out-Null
+
+      - name: Build or attach provenance-first B2 corpus
+        id: b2data
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$py='${{ steps.env.outputs.python }}'
+          $b2=Join-Path $assets 'pretrain50_b2_data'
+          $required=@('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')
+          $valid=(Test-Path $b2 -PathType Container)
+          if ($valid) {
+            foreach($f in $required) { if (-not (Test-Path (Join-Path $b2 $f) -PathType Leaf)) { $valid=$false;break } }
+          }
+          if (-not $valid) {
+            Write-Host 'No complete local B2 corpus found. Building the pinned public-data bootstrap.'
+            & $py -m pip install --disable-pip-version-check -r requirements-data.txt
+            $sources=Join-Path $assets 'b2_sources_auto'
+            if (Test-Path $sources) { Remove-Item $sources -Recurse -Force }
+            if (Test-Path $b2) { Remove-Item $b2 -Recurse -Force }
+            & $py bootstrap_b2_sources.py --out $sources
+            & $py prepare_pretrain50_b2.py --source-root $sources --out $b2 --target-train-tokens 100000000
+          } else {
+            Write-Host 'Using existing local B2 corpus.'
+          }
+          foreach($f in $required) { if (-not (Test-Path (Join-Path $b2 $f) -PathType Leaf)) { throw "Missing B2 corpus asset after preparation: $f" } }
+          if (Test-Path 'pretrain50_b2_data') { Remove-Item 'pretrain50_b2_data' -Recurse -Force }
+          New-Item -ItemType Junction -Path 'pretrain50_b2_data' -Target $b2 | Out-Null
           $m=Get-Content 'pretrain50_b2_data\manifest.json' -Raw|ConvertFrom-Json
           if ([int64]$m.actual_train_tokens -lt 75000000) { throw "B2 corpus is too small for the 100M cumulative milestone: $($m.actual_train_tokens) train tokens" }
+          "manifest=$($m.source_manifest_sha256)" >> $env:GITHUB_OUTPUT
           Write-Host "B2 selected train tokens: $($m.actual_train_tokens)"
 
       - name: RTX health check
@@ -138,7 +160,7 @@ jobs:
       - name: Run B2 regression tests
         run: |
           $py='${{ steps.env.outputs.python }}'
-          & $py -m pytest tests/test_b2_data.py tests/test_pretrain50_stage_b.py tests/test_model50.py -q --junitxml=runner_reports/pytest.xml
+          & $py -m pytest tests/test_b2_bootstrap.py tests/test_b2_data.py tests/test_pretrain50_stage_b.py tests/test_model50.py -q --junitxml=runner_reports/pytest.xml
 
       - name: Persist reports and corpus manifest locally
         if: always()
@@ -153,7 +175,7 @@ jobs:
         if: always()
         run: |
           if (Test-Path runner_reports) {
-            $bad=Get-ChildItem runner_reports -Recurse -File|Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors' }
+            $bad=Get-ChildItem runner_reports -Recurse -File|Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz' }
             if ($bad) { throw 'Private model/corpus file found in upload directory.' }
           }
 
