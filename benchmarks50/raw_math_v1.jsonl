@@ -1,0 +1,60 @@
+{"answer": "91", "canonical": "add_sub:69:+:22", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/000", "language": "de", "prompt": "Was ist 69 + 22? Antworte nur mit der Zahl."}
+{"answer": "42", "canonical": "add_sub:48:-:6", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/001", "language": "de", "prompt": "Was ist 48 - 6? Antworte nur mit der Zahl."}
+{"answer": "133", "canonical": "add_sub:70:+:63", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/002", "language": "de", "prompt": "Was ist 70 + 63? Antworte nur mit der Zahl."}
+{"answer": "-41", "canonical": "add_sub:14:-:55", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/003", "language": "de", "prompt": "Was ist 14 - 55? Antworte nur mit der Zahl."}
+{"answer": "129", "canonical": "add_sub:62:+:67", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/004", "language": "de", "prompt": "Was ist 62 + 67? Antworte nur mit der Zahl."}
+{"answer": "27", "canonical": "add_sub:35:-:8", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/005", "language": "de", "prompt": "Was ist 35 - 8? Antworte nur mit der Zahl."}
+{"answer": "107", "canonical": "add_sub:11:+:96", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/006", "language": "de", "prompt": "Was ist 11 + 96? Antworte nur mit der Zahl."}
+{"answer": "-21", "canonical": "add_sub:47:-:68", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/007", "language": "de", "prompt": "Was ist 47 - 68? Antworte nur mit der Zahl."}
+{"answer": "109", "canonical": "add_sub:90:+:19", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/008", "language": "de", "prompt": "Was ist 90 + 19? Antworte nur mit der Zahl."}
+{"answer": "-3", "canonical": "add_sub:42:-:45", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/009", "language": "de", "prompt": "Was ist 42 - 45? Antworte nur mit der Zahl."}
+{"answer": "120", "canonical": "add_sub:38:+:82", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/010", "language": "de", "prompt": "Was ist 38 + 82? Antworte nur mit der Zahl."}
+{"answer": "6", "canonical": "add_sub:61:-:55", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/011", "language": "de", "prompt": "Was ist 61 - 55? Antworte nur mit der Zahl."}
+{"answer": "77", "canonical": "add_sub:65:+:12", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/012", "language": "de", "prompt": "Was ist 65 + 12? Antworte nur mit der Zahl."}
+{"answer": "-11", "canonical": "add_sub:33:-:44", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/013", "language": "de", "prompt": "Was ist 33 - 44? Antworte nur mit der Zahl."}
+{"answer": "97", "canonical": "add_sub:84:+:13", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/014", "language": "de", "prompt": "Was ist 84 + 13? Antworte nur mit der Zahl."}
+{"answer": "-9", "canonical": "add_sub:63:-:72", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/015", "language": "de", "prompt": "Was ist 63 - 72? Antworte nur mit der Zahl."}
+{"answer": "82", "canonical": "add_sub:18:+:64", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/016", "language": "de", "prompt": "Was ist 18 + 64? Antworte nur mit der Zahl."}
+{"answer": "43", "canonical": "add_sub:86:-:43", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/017", "language": "de", "prompt": "Was ist 86 - 43? Antworte nur mit der Zahl."}
+{"answer": "157", "canonical": "add_sub:81:+:76", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/018", "language": "de", "prompt": "Was ist 81 + 76? Antworte nur mit der Zahl."}
+{"answer": "-51", "canonical": "add_sub:2:-:53", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/019", "language": "de", "prompt": "Was ist 2 - 53? Antworte nur mit der Zahl."}
+{"answer": "107", "canonical": "add_sub:56:+:51", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/020", "language": "de", "prompt": "Was ist 56 + 51? Antworte nur mit der Zahl."}
+{"answer": "52", "canonical": "add_sub:88:-:36", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/021", "language": "de", "prompt": "Was ist 88 - 36? Antworte nur mit der Zahl."}
+{"answer": "100", "canonical": "add_sub:52:+:48", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/022", "language": "de", "prompt": "Was ist 52 + 48? Antworte nur mit der Zahl."}
+{"answer": "-11", "canonical": "add_sub:15:-:26", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/023", "language": "de", "prompt": "Was ist 15 - 26? Antworte nur mit der Zahl."}
+{"answer": "126", "canonical": "add_sub:51:+:75", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/024", "language": "de", "prompt": "Was ist 51 + 75? Antworte nur mit der Zahl."}
+{"answer": "-10", "canonical": "add_sub:8:-:18", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/025", "language": "en", "prompt": "What is 8 - 18? Answer with only the number."}
+{"answer": "131", "canonical": "add_sub:76:+:55", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/026", "language": "en", "prompt": "What is 76 + 55? Answer with only the number."}
+{"answer": "-27", "canonical": "add_sub:30:-:57", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/027", "language": "en", "prompt": "What is 30 - 57? Answer with only the number."}
+{"answer": "36", "canonical": "add_sub:16:+:20", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/028", "language": "en", "prompt": "What is 16 + 20? Answer with only the number."}
+{"answer": "-44", "canonical": "add_sub:31:-:75", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/029", "language": "en", "prompt": "What is 31 - 75? Answer with only the number."}
+{"answer": "121", "canonical": "add_sub:51:+:70", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/030", "language": "en", "prompt": "What is 51 + 70? Answer with only the number."}
+{"answer": "50", "canonical": "add_sub:90:-:40", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/031", "language": "en", "prompt": "What is 90 - 40? Answer with only the number."}
+{"answer": "93", "canonical": "add_sub:8:+:85", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/032", "language": "en", "prompt": "What is 8 + 85? Answer with only the number."}
+{"answer": "-16", "canonical": "add_sub:53:-:69", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/033", "language": "en", "prompt": "What is 53 - 69? Answer with only the number."}
+{"answer": "79", "canonical": "add_sub:9:+:70", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/034", "language": "en", "prompt": "What is 9 + 70? Answer with only the number."}
+{"answer": "23", "canonical": "add_sub:63:-:40", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/035", "language": "en", "prompt": "What is 63 - 40? Answer with only the number."}
+{"answer": "63", "canonical": "add_sub:48:+:15", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/036", "language": "en", "prompt": "What is 48 + 15? Answer with only the number."}
+{"answer": "-3", "canonical": "add_sub:63:-:66", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/037", "language": "en", "prompt": "What is 63 - 66? Answer with only the number."}
+{"answer": "148", "canonical": "add_sub:86:+:62", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/038", "language": "en", "prompt": "What is 86 + 62? Answer with only the number."}
+{"answer": "17", "canonical": "add_sub:90:-:73", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/039", "language": "en", "prompt": "What is 90 - 73? Answer with only the number."}
+{"answer": "139", "canonical": "add_sub:46:+:93", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/040", "language": "en", "prompt": "What is 46 + 93? Answer with only the number."}
+{"answer": "-71", "canonical": "add_sub:11:-:82", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/041", "language": "en", "prompt": "What is 11 - 82? Answer with only the number."}
+{"answer": "71", "canonical": "add_sub:48:+:23", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/042", "language": "en", "prompt": "What is 48 + 23? Answer with only the number."}
+{"answer": "-26", "canonical": "add_sub:53:-:79", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/043", "language": "en", "prompt": "What is 53 - 79? Answer with only the number."}
+{"answer": "72", "canonical": "add_sub:10:+:62", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/044", "language": "en", "prompt": "What is 10 + 62? Answer with only the number."}
+{"answer": "2", "canonical": "add_sub:76:-:74", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/045", "language": "en", "prompt": "What is 76 - 74? Answer with only the number."}
+{"answer": "56", "canonical": "add_sub:33:+:23", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/046", "language": "en", "prompt": "What is 33 + 23? Answer with only the number."}
+{"answer": "-8", "canonical": "add_sub:47:-:55", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/047", "language": "en", "prompt": "What is 47 - 55? Answer with only the number."}
+{"answer": "112", "canonical": "add_sub:29:+:83", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/048", "language": "en", "prompt": "What is 29 + 83? Answer with only the number."}
+{"answer": "26", "canonical": "add_sub:56:-:30", "category": "add_sub", "distribution": "id", "id": "rawmath/add_sub/049", "language": "en", "prompt": "What is 56 - 30? Answer with only the number."}
+{"answer": "224", "canonical": "mul:14:16", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/000", "language": "de", "prompt": "Berechne 14 × 16. Nur das Ergebnis."}
+{"answer": "18", "canonical": "div:162:9", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/001", "language": "de", "prompt": "Berechne 162 ÷ 9. Nur das Ergebnis."}
+{"answer": "84", "canonical": "mul:7:12", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/002", "language": "de", "prompt": "Berechne 7 × 12. Nur das Ergebnis."}
+{"answer": "16", "canonical": "div:128:8", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/003", "language": "de", "prompt": "Berechne 128 ÷ 8. Nur das Ergebnis."}
+{"answer": "324", "canonical": "mul:18:18", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/004", "language": "de", "prompt": "Berechne 18 × 18. Nur das Ergebnis."}
+{"answer": "8", "canonical": "div:72:9", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/005", "language": "de", "prompt": "Berechne 72 ÷ 9. Nur das Ergebnis."}
+{"answer": "144", "canonical": "mul:12:12", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/006", "language": "de", "prompt": "Berechne 12 × 12. Nur das Ergebnis."}
+{"answer": "14", "canonical": "div:168:12", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/007", "language": "de", "prompt": "Berechne 168 ÷ 12. Nur das Ergebnis."}
+{"answer": "180", "canonical": "mul:12:15", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/008", "language": "de", "prompt": "Berechne 12 × 15. Nur das Ergebnis."}
+{"answer": "18", "canonical": "div:162:9", "category": "mul_div", "distribution": "id", "id": "rawmath/mul_div/009", "language": "de", "prompt": "Berechne 162 ÷ 9. Nur das Ergebnis."}
