@@ -18,4 +18,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Python sources
-        run: python -m py_compile pretrain50_stage_b.py summarize_benchmarks50.py quality_gate50.py benchmark_v3.py benchmark_v4.py tests/test_pretrain50_stage_b.py
+        run: python -m py_compile pretrain50_stage_b.py train_raw_math50.py raw_math50_data.py benchmark_raw_math50.py summarize_benchmarks50.py quality_gate50.py benchmark_v3.py benchmark_v4.py tests/test_pretrain50_stage_b.py tests/test_raw_math50_data.py
+      - name: Validate frozen RawMath suite
+        run: python raw_math50_data.py

@@ -1,0 +1,194 @@
+name: Neral 50M Strong Training
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gpu-run-50m-strong
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-strong-training
+  cancel-in-progress: false
+
+jobs:
+  train-and-benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Validate local environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if (-not $env:NERAL_ASSETS_ROOT) { throw 'Set NERAL_ASSETS_ROOT on the runner.' }
+          if (-not $env:NERAL_PYTHON) { throw 'Set NERAL_PYTHON to the CUDA venv python.exe.' }
+          if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw "Missing assets root: $env:NERAL_ASSETS_ROOT" }
+          if (-not (Test-Path $env:NERAL_PYTHON -PathType Leaf)) { throw "Missing Python: $env:NERAL_PYTHON" }
+          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
+          "python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
+
+      - name: Attach private pretraining corpus
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Join-Path '${{ steps.env.outputs.assets }}' 'pretrain50_data'
+          foreach ($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl')) {
+            if (-not (Test-Path (Join-Path $source $f) -PathType Leaf)) { throw "Missing private asset: $f" }
+          }
+          if (Test-Path 'pretrain50_data') { Remove-Item 'pretrain50_data' -Recurse -Force }
+          New-Item -ItemType Junction -Path 'pretrain50_data' -Target $source | Out-Null
+
+      - name: RTX 4070 health check
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -c "import json,torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'vram_gib':round(torch.cuda.get_device_properties(0).total_memory/2**30,2),'bf16':True}))"
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Validate RawMath freeze
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py raw_math50_data.py
+
+      - name: Resolve fixed baselines and Stage B state
+        id: state
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}'
+          $pilot=Join-Path $assets 'runs\neral50m_pilot_a\latest.pt'
+          if (-not (Test-Path $pilot -PathType Leaf)) { throw "Missing Pilot A checkpoint: $pilot" }
+          "pilot=$pilot" >> $env:GITHUB_OUTPUT
+          $stageOut=Join-Path $assets 'runs\neral50m_stage_b_full';$stageLatest=Join-Path $stageOut 'latest.pt';$stageBest=Join-Path $stageOut 'best_validation.pt';$stageSummary=Join-Path $stageOut 'summary.json'
+          $complete=$false
+          if (Test-Path $stageSummary -PathType Leaf) { $s=Get-Content $stageSummary -Raw|ConvertFrom-Json; $complete=[bool]$s.complete }
+          if ($complete) { $resume=$stageLatest } elseif (Test-Path $stageLatest -PathType Leaf) { $resume=$stageLatest } else { $resume=$pilot }
+          "stage_out=$stageOut" >> $env:GITHUB_OUTPUT
+          "stage_summary=$stageSummary" >> $env:GITHUB_OUTPUT
+          "stage_complete=$($complete.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "stage_resume=$resume" >> $env:GITHUB_OUTPUT
+          $candidates=@((Join-Path $assets 'export\pilot_02\neral20m.pt'),(Join-Path $assets 'checkpoints\neral20m.pt'))
+          $base20=$candidates|Where-Object { Test-Path $_ -PathType Leaf }|Select-Object -First 1
+          if ($base20) { "base20=$base20" >> $env:GITHUB_OUTPUT } else { Write-Host '20M checkpoint absent; 20M columns will be omitted.' }
+
+      - name: Create report directories
+        run: |
+          foreach($d in @('baseline20','pilot50','stage_b','stage_c')) { New-Item -ItemType Directory -Force -Path (Join-Path 'runner_reports' $d)|Out-Null }
+
+      - name: Benchmark 20M Preview 02 on frozen suites
+        if: ${{ steps.state.outputs.base20 != '' }}
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.state.outputs.base20 }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/baseline20/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/baseline20/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/baseline20/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/baseline20/rawmath.json --max-new-tokens 32
+
+      - name: Benchmark original 50M Pilot A
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.state.outputs.pilot }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/pilot50/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/pilot50/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/pilot50/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/pilot50/rawmath.json --max-new-tokens 32
+
+      - name: Complete document-bounded language pretraining
+        if: ${{ steps.state.outputs.stage_complete != 'true' }}
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py pretrain50_stage_b.py --resume '${{ steps.state.outputs.stage_resume }}' --out '${{ steps.state.outputs.stage_out }}' --seq 256 --batch 32 --de-fraction 0.60 --peak-lr 0.0002 --min-lr 0.00002 --eval-every 100
+
+      - name: Resolve Stage B best checkpoint
+        id: stageb
+        run: |
+          $ErrorActionPreference='Stop';$out='${{ steps.state.outputs.stage_out }}';$summary=Join-Path $out 'summary.json';$latest=Join-Path $out 'latest.pt';$best=Join-Path $out 'best_validation.pt'
+          if (-not (Test-Path $summary -PathType Leaf)) { throw 'Stage B summary missing' }
+          $s=Get-Content $summary -Raw|ConvertFrom-Json
+          if (-not $s.complete) { throw "Stage B incomplete: $($s.stop)" }
+          if (-not (Test-Path $latest -PathType Leaf)) { throw 'Stage B latest missing' }
+          if (-not (Test-Path $best -PathType Leaf)) { $best=$latest }
+          "best=$best" >> $env:GITHUB_OUTPUT;"latest=$latest" >> $env:GITHUB_OUTPUT;"summary=$summary" >> $env:GITHUB_OUTPUT
+
+      - name: Benchmark 50M after language pretraining
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.stageb.outputs.best }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/stage_b/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/stage_b/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/stage_b/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/stage_b/rawmath.json --max-new-tokens 32
+
+      - name: Run base-model quality gate after Stage B
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py quality_gate50.py --before-v3 runner_reports/pilot50/v3.json --after-v3 runner_reports/stage_b/v3.json --after-v4 runner_reports/stage_b/v4.json --after-free runner_reports/stage_b/free.json --training-summary '${{ steps.stageb.outputs.summary }}' --out runner_reports/stage_b/quality_gate.json
+
+      - name: Train RawMath Stage C with language replay
+        id: stagec_train
+        run: |
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          $out=Join-Path $assets ('runs\neral50m_stage_c_rawmath_v1_'+$env:GITHUB_RUN_ID)
+          "out=$out" >> $env:GITHUB_OUTPUT
+          & $py train_raw_math50.py --init-from '${{ steps.stageb.outputs.best }}' --out $out --tokens 15000000 --seq 256 --batch 32 --math-fraction 0.35 --peak-lr 0.00005 --min-lr 0.000005 --eval-every 100
+
+      - name: Resolve RawMath best checkpoint
+        id: stagec
+        run: |
+          $ErrorActionPreference='Stop';$out='${{ steps.stagec_train.outputs.out }}';$best=Join-Path $out 'best_math.pt';$summary=Join-Path $out 'summary.json'
+          if (-not (Test-Path $best -PathType Leaf)) { throw 'RawMath best checkpoint missing' }
+          if (-not (Test-Path $summary -PathType Leaf)) { throw 'RawMath summary missing' }
+          "best=$best" >> $env:GITHUB_OUTPUT;"summary=$summary" >> $env:GITHUB_OUTPUT
+
+      - name: Benchmark 50M after RawMath Stage C
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.stagec.outputs.best }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/stage_c/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/stage_c/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/stage_c/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/stage_c/rawmath.json --max-new-tokens 32
+
+      - name: Build exact four-stage comparison
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          $args=@('summarize_strong50.py','--pilot50-free','runner_reports/pilot50/free.json','--pilot50-v3','runner_reports/pilot50/v3.json','--pilot50-v4','runner_reports/pilot50/v4.json','--pilot50-rawmath','runner_reports/pilot50/rawmath.json','--stage_b-free','runner_reports/stage_b/free.json','--stage_b-v3','runner_reports/stage_b/v3.json','--stage_b-v4','runner_reports/stage_b/v4.json','--stage_b-rawmath','runner_reports/stage_b/rawmath.json','--stage_c-free','runner_reports/stage_c/free.json','--stage_c-v3','runner_reports/stage_c/v3.json','--stage_c-v4','runner_reports/stage_c/v4.json','--stage_c-rawmath','runner_reports/stage_c/rawmath.json','--stage-b-summary','${{ steps.stageb.outputs.summary }}','--stage-c-summary','${{ steps.stagec.outputs.summary }}','--out-json','runner_reports/strong_comparison.json','--out-md','runner_reports/STRONG_COMPARISON.md')
+          if (Test-Path 'runner_reports/baseline20/rawmath.json') { $args+=@('--baseline20-free','runner_reports/baseline20/free.json','--baseline20-v3','runner_reports/baseline20/v3.json','--baseline20-v4','runner_reports/baseline20/v4.json','--baseline20-rawmath','runner_reports/baseline20/rawmath.json') }
+          & $py @args
+          Get-Content runner_reports/STRONG_COMPARISON.md
+
+      - name: Run regression tests
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -m pytest tests/test_pretrain50_stage_b.py tests/test_raw_math50_data.py tests/test_model50.py -q --junitxml=runner_reports/pytest.xml
+
+      - name: Persist reports locally
+        if: always()
+        run: |
+          $dest=Join-Path '${{ steps.env.outputs.assets }}' ('reports\runner_50m_strong_'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force -Path $dest|Out-Null
+          if (Test-Path runner_reports) { Copy-Item 'runner_reports\*' $dest -Recurse -Force }
+          if (Test-Path '${{ steps.stageb.outputs.summary }}') { Copy-Item '${{ steps.stageb.outputs.summary }}' (Join-Path $dest 'stage_b_training_summary.json') -Force }
+          if (Test-Path '${{ steps.stagec.outputs.summary }}') { Copy-Item '${{ steps.stagec.outputs.summary }}' (Join-Path $dest 'stage_c_training_summary.json') -Force }
+
+      - name: Assert private weights and corpus stay local
+        if: always()
+        run: |
+          if (Test-Path runner_reports) {
+            $bad=Get-ChildItem runner_reports -Recurse -File|Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors' }
+            if ($bad) { throw 'Private model/corpus file found in upload directory.' }
+          }
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-strong-training-benchmarks
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 14
