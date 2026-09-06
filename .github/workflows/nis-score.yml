@@ -1,0 +1,27 @@
+name: Neral Intelligence Score
+
+on:
+  pull_request:
+    paths:
+      - 'neral_intelligence_score.py'
+      - 'NERAL_INTELLIGENCE_SCORE.md'
+      - 'BENCHMARK_POLICY.md'
+      - 'tests/test_neral_intelligence_score.py'
+      - '.github/workflows/nis-score.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  score-definition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Test score formula and fail-closed behavior
+        run: python -m pytest tests/test_neral_intelligence_score.py -q
