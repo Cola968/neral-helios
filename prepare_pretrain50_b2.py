@@ -7,6 +7,7 @@ source text and packed binaries remain local and are excluded from Git.
 from __future__ import annotations
 
 import argparse
+import ast
 import collections
 import hashlib
 import json
@@ -27,6 +28,10 @@ SECRET_OR_CONTACT=re.compile(
     r"[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:sk-|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}|-----BEGIN .*PRIVATE KEY",
     re.I,
 )
+FROZEN_PY_ASSIGNMENTS={
+    "benchmark_v3.py":{"PAIR_CASES","FREE_CHAT","BASE_PREFIXES"},
+    "benchmark_v4.py":{"PAIRS","ENTROPY_PREFIXES","BASE_GENERATION"},
+}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -72,19 +77,60 @@ def minhash_signature(normalized: str, count: int=32):
     return tuple(hashes[:count])
 
 
-def benchmark_phrases(repo_root: Path):
-    phrases=set()
-    for path in [repo_root/"benchmarks50/regression.jsonl",repo_root/"benchmarks50/raw_math_v1.jsonl"]:
+def _collect_strings(value, out):
+    if isinstance(value,str):out.append(value)
+    elif isinstance(value,(tuple,list,set)):
+        for item in value:_collect_strings(item,out)
+    elif isinstance(value,dict):
+        for k,v in value.items():_collect_strings(k,out);_collect_strings(v,out)
+
+
+def _python_frozen_literals(path: Path, names: set[str]):
+    """Extract only literal benchmark constants with ast.literal_eval; never execute code."""
+    tree=ast.parse(path.read_text(encoding="utf8"),filename=str(path));strings=[]
+    for node in tree.body:
+        if not isinstance(node,(ast.Assign,ast.AnnAssign)):continue
+        targets=node.targets if isinstance(node,ast.Assign) else [node.target]
+        target_names={t.id for t in targets if isinstance(t,ast.Name)}
+        if not target_names&names:continue
+        try:value=ast.literal_eval(node.value)
+        except (ValueError,TypeError,SyntaxError):continue
+        _collect_strings(value,strings)
+    return strings
+
+
+def benchmark_contamination(repo_root: Path):
+    """Return normalized frozen-suite literals plus exact source hashes for audit.
+
+    This catches exact long prompt/continuation fragments from the committed free-generation,
+    RawMath, v3 and v4 suites. It is intentionally not described as exhaustive semantic
+    contamination detection.
+    """
+    phrases=set();files={}
+    json_paths=[repo_root/"benchmarks50/regression.jsonl",repo_root/"benchmarks50/raw_math_v1.jsonl"]
+    for path in json_paths:
         if not path.exists():continue
+        files[str(path.relative_to(repo_root))]=sha256_file(path)
         for line in path.read_text(encoding="utf8").splitlines():
             if not line.strip():continue
             row=json.loads(line)
-            for key in ("prompt","expected"):
-                value=row.get(key)
+            for value in row.values():
                 if isinstance(value,str):
                     n=normalize_for_dedup(value)
                     if len(n)>=20:phrases.add(n)
-    return sorted(phrases,key=len,reverse=True)
+    for filename,names in FROZEN_PY_ASSIGNMENTS.items():
+        path=repo_root/filename
+        if not path.exists():continue
+        files[filename]=sha256_file(path)
+        for value in _python_frozen_literals(path,names):
+            n=normalize_for_dedup(value)
+            if len(n)>=20:phrases.add(n)
+    return sorted(phrases,key=len,reverse=True),files
+
+
+def benchmark_phrases(repo_root: Path):
+    # Backward-compatible helper used by tests/tools that only need the phrase list.
+    return benchmark_contamination(repo_root)[0]
 
 
 def validate_manifest(manifest: dict, source_root: Path):
@@ -189,7 +235,7 @@ def select_train(rows, sources, target_train_tokens):
     return selected,selection
 
 
-def write_outputs(rows,train_selected,sources,out: Path,target,reject,selection,source_manifest_sha):
+def write_outputs(rows,train_selected,sources,out: Path,target,reject,selection,source_manifest_sha,benchmark_files):
     out.mkdir(parents=True,exist_ok=True)
     train_keys={(r["source_id"],r["id"]) for r in train_selected}
     docs=[];summary={}
@@ -217,7 +263,8 @@ def write_outputs(rows,train_selected,sources,out: Path,target,reject,selection,
         "packing":"BOS + UTF-8 bytes offset by 4 + EOS; document index enables boundary-safe blocks",
         "split":"SHA256(source_id:row_id): 90/5/3/2 train/val/test/holdout before train quota selection",
         "dedup":"NFKC/casefold exact + bounded 32-minhash word-5-shingle near-duplicate check >=0.80",
-        "contamination":"Exact normalized frozen regression/RawMath prompt phrases (>=20 chars) rejected; not a claim of exhaustive semantic contamination detection",
+        "contamination":"Exact normalized long literals (>=20 chars) from frozen free-generation, RawMath, benchmark v3 and v4 are rejected; not a claim of exhaustive semantic contamination detection",
+        "contamination_source_sha256":benchmark_files,
         "external_model_calls":False,"raw_data_uploaded":False,
     }
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding="utf8")
@@ -228,9 +275,10 @@ def build(source_root: Path,out: Path,target_train_tokens: int,repo_root: Path):
     if target_train_tokens<1_000_000:raise ValueError("B2 target should be at least 1,000,000 tokens")
     manifest_path=source_root/"manifest.json"
     manifest=json.loads(manifest_path.read_text(encoding="utf8"));sources=validate_manifest(manifest,source_root)
-    reject=collections.Counter();rows=load_clean_rows(sources,benchmark_phrases(repo_root),reject)
+    contamination,benchmark_files=benchmark_contamination(repo_root)
+    reject=collections.Counter();rows=load_clean_rows(sources,contamination,reject)
     train_selected,selection=select_train(rows,sources,target_train_tokens)
-    return write_outputs(rows,train_selected,sources,out,target_train_tokens,reject,selection,sha256_file(manifest_path))
+    return write_outputs(rows,train_selected,sources,out,target_train_tokens,reject,selection,sha256_file(manifest_path),benchmark_files)
 
 
 def main():
