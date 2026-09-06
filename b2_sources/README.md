@@ -6,7 +6,7 @@
 
 B2 is the first broader continued-pretraining stage after the Wikipedia-only B1 sweep. The initial target is **100,000,000 selected training byte/special tokens**. This target is a milestone, not a claim that 50M is fully pretrained.
 
-A recommended first mix is:
+A recommended long-run mix is:
 
 | Domain | Planning share |
 |---|---:|
@@ -20,9 +20,32 @@ A recommended first mix is:
 
 The manifest controls the actual source-level fractions. Shares must total exactly `1.0` and every source must have enough clean train-split tokens to fill its quota. The builder fails instead of silently distorting the mix.
 
+## Automatic first bootstrap
+
+For the first reproducible B2 100M milestone, `bootstrap_b2_sources.py` can stage a deliberately simpler broad-data mix automatically:
+
+- 35% English FineWeb general text (`v1.4.0`),
+- 35% German FineWeb2 `deu_Latn` (`v2.1.1`),
+- 20% English FineWeb-Edu (`v1.4.0`),
+- 10% positively reviewed, non-synthetic DE/EN OpenAssistant dialogue from the pinned OASST1 ready export.
+
+The automatic bootstrap intentionally leaves license-heterogeneous public code datasets out. A dedicated code stage can later add code with per-source license/provenance controls instead of weakening B2 provenance.
+
+Install the optional streaming dependency and stage the source files:
+
+```powershell
+python -m pip install -r requirements-data.txt
+python bootstrap_b2_sources.py --out b2_sources
+python prepare_pretrain50_b2.py --source-root b2_sources --out pretrain50_b2_data --target-train-tokens 100000000
+```
+
+The script pins dataset revisions, streams only a bounded amount of data, hashes every locally written source file, and writes the exact manifest consumed by the normal B2 builder. FineWeb, FineWeb2 and FineWeb-Edu are declared as ODC-By-1.0 data; their dataset cards also state that Common Crawl Terms of Use apply. OASST1 is recorded as Apache-2.0. Preserve attribution/provenance in any later model release documentation.
+
+The downstream B2 builder still performs its own filtering, deduplication, document split and benchmark-contamination screen. The bootstrap is **not** a replacement for those checks.
+
 ## `manifest.json`
 
-Example schema (replace all values with real, verified metadata):
+Example schema (replace all values with real, verified metadata when adding a custom source):
 
 ```json
 {
