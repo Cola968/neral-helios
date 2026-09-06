@@ -3,7 +3,7 @@
 This utility is optional and only prepares local Stage-D source files. It downloads no model
 weights and calls no external model/API. Only reviewed, non-deleted, non-synthetic human
 prompter -> assistant pairs in German/English are retained. The best ranked assistant per
-prompt is selected deterministically.
+prompt is selected deterministically. The upstream revision and archive SHA-256 are pinned.
 """
 from __future__ import annotations
 
@@ -15,9 +15,11 @@ import re
 import urllib.request
 from pathlib import Path
 
-UPSTREAM_URL="https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/main/2023-04-12_oasst_ready.messages.jsonl.gz"
-DATASET_URL="https://huggingface.co/datasets/OpenAssistant/oasst1"
-LICENSE_URL="https://huggingface.co/datasets/OpenAssistant/oasst1/blob/main/LICENSE"
+UPSTREAM_REVISION="5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93"
+UPSTREAM_URL=f"https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/{UPSTREAM_REVISION}/2023-04-12_oasst_ready.messages.jsonl.gz"
+UPSTREAM_SHA256="286a6e9a5a413b3272ae9c0b5a20d327983dea1c24342ae28cb244a6da65185c"
+DATASET_URL=f"https://huggingface.co/datasets/OpenAssistant/oasst1/tree/{UPSTREAM_REVISION}"
+LICENSE_URL=f"https://huggingface.co/datasets/OpenAssistant/oasst1/blob/{UPSTREAM_REVISION}/LICENSE"
 USER_AGENT="NeralDataBuilder/1.0 (+local reproducible dataset preparation)"
 
 
@@ -79,7 +81,9 @@ def main():
     if min(args.max_en,args.max_de)<=0:raise ValueError("positive language caps required")
     out=Path(args.out);out.mkdir(parents=True,exist_ok=True);raw=out/"oasst1_ready.messages.jsonl.gz"
     if args.force_download or not raw.is_file():download(UPSTREAM_URL,raw)
-    upstream_sha=sha256_file(raw);rows=[]
+    upstream_sha=sha256_file(raw)
+    if upstream_sha!=UPSTREAM_SHA256:raise ValueError(f"Pinned OASST1 archive SHA-256 mismatch: {upstream_sha}")
+    rows=[]
     with gzip.open(raw,"rt",encoding="utf8") as f:
         for line in f:
             if line.strip():rows.append(json.loads(line))
@@ -93,12 +97,12 @@ def main():
         path=out/f"oasst1_{lang}.jsonl";path.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in pairs[lang]),encoding="utf8")
         sources.append({
             "id":f"oasst1-human-{lang}","file":path.name,"sha256":sha256_file(path),"upstream_sha256":upstream_sha,
-            "license":"Apache-2.0","license_url":LICENSE_URL,"provenance_url":DATASET_URL,
+            "upstream_revision":UPSTREAM_REVISION,"license":"Apache-2.0","license_url":LICENSE_URL,"provenance_url":DATASET_URL,
             "language":lang,"domain":"chat","allow_row_domains":True,"target_fraction":safe_train[lang]/safe_total,
         })
-    manifest={"version":1,"recommended_train_examples":safe_total,"upstream_download_url":UPSTREAM_URL,"upstream_sha256":upstream_sha,"filters":"positively reviewed, non-deleted, non-synthetic human prompter->assistant; deterministic best rank per prompt; de/en only","sources":sources}
+    manifest={"version":1,"recommended_train_examples":safe_total,"upstream_download_url":UPSTREAM_URL,"upstream_revision":UPSTREAM_REVISION,"upstream_sha256":upstream_sha,"filters":"positively reviewed, non-deleted, non-synthetic human prompter->assistant; deterministic best rank per prompt; de/en only","sources":sources}
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding="utf8")
-    print(json.dumps({"download_sha256":upstream_sha,"pairs":counts,"recommended_train_examples":safe_total,"domains":{lang:{d:sum(r['domain']==d for r in pairs[lang]) for d in sorted({x['domain'] for x in pairs[lang]})} for lang in pairs}},indent=2,ensure_ascii=False))
+    print(json.dumps({"download_sha256":upstream_sha,"upstream_revision":UPSTREAM_REVISION,"pairs":counts,"recommended_train_examples":safe_total,"domains":{lang:{d:sum(r['domain']==d for r in pairs[lang]) for d in sorted({x['domain'] for x in pairs[lang]})} for lang in pairs}},indent=2,ensure_ascii=False))
 
 
 if __name__=="__main__":main()
