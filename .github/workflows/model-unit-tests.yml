@@ -1,0 +1,30 @@
+name: Model unit tests
+
+on:
+  pull_request:
+    paths:
+      - 'model.py'
+      - 'model50.py'
+      - 'config.py'
+      - 'architectures.py'
+      - 'tests/test_kv_cache.py'
+      - '.github/workflows/model-unit-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kv-cache-equivalence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Run parameter-free cache equivalence tests
+        run: python -m pytest tests/test_kv_cache.py -q
