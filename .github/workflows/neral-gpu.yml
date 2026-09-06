@@ -56,26 +56,17 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if (-not $env:NERAL_ASSETS_ROOT) { throw 'NERAL_ASSETS_ROOT is not configured on the runner.' }
           if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw "NERAL_ASSETS_ROOT does not exist: $env:NERAL_ASSETS_ROOT" }
-
           $python = $env:NERAL_PYTHON
           if (-not $python) {
             $cmd = Get-Command py -ErrorAction SilentlyContinue
             if (-not $cmd) { throw 'Set NERAL_PYTHON to the Neral venv python.exe.' }
             $python = 'py -3.12'
-          } elseif (-not (Test-Path $python -PathType Leaf)) {
-            throw "NERAL_PYTHON does not exist: $python"
-          }
-
+          } elseif (-not (Test-Path $python -PathType Leaf)) { throw "NERAL_PYTHON does not exist: $python" }
           if ('${{ inputs.run_name }}' -notmatch '^[A-Za-z0-9_-]{1,48}$') { throw 'run_name may contain only A-Z, a-z, 0-9, _ and -.' }
           $target = 0
-          if (-not [int64]::TryParse('${{ inputs.target_tokens }}', [ref]$target) -or $target -lt 1000000 -or $target -gt 1000000000) {
-            throw 'target_tokens must be an integer from 1,000,000 through 1,000,000,000.'
-          }
+          if (-not [int64]::TryParse('${{ inputs.target_tokens }}', [ref]$target) -or $target -lt 1000000 -or $target -gt 1000000000) { throw 'target_tokens must be an integer from 1,000,000 through 1,000,000,000.' }
           $gen = 0
-          if (-not [int]::TryParse('${{ inputs.max_new_tokens }}', [ref]$gen) -or $gen -lt 16 -or $gen -gt 256) {
-            throw 'max_new_tokens must be an integer from 16 through 256.'
-          }
-
+          if (-not [int]::TryParse('${{ inputs.max_new_tokens }}', [ref]$gen) -or $gen -lt 16 -or $gen -gt 256) { throw 'max_new_tokens must be an integer from 16 through 256.' }
           "python=$python" >> $env:GITHUB_OUTPUT
           "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
 
@@ -149,6 +140,13 @@ jobs:
         run: |
           $py = '${{ steps.env.outputs.python }}'
           $args = @('benchmark_v3.py','${{ steps.evalckpt.outputs.checkpoint }}','--out','runner_reports/benchmark_v3.json','--max-new-tokens','${{ inputs.max_new_tokens }}')
+          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+
+      - name: Run benchmark v4
+        if: inputs.mode != 'healthcheck'
+        run: |
+          $py = '${{ steps.env.outputs.python }}'
+          $args = @('benchmark_v4.py','${{ steps.evalckpt.outputs.checkpoint }}','--out','runner_reports/benchmark_v4.json','--max-new-tokens','${{ inputs.max_new_tokens }}')
           if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
 
       - name: Run regression tests
