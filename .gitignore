@@ -17,6 +17,10 @@ corpus_sources/
 curriculum/
 curriculum_v2/
 pretrain50_data/
+pretrain50_b2_data/
+sft50_data/
+sft50_sources/*
+!sft50_sources/README.md
 runs/
 reports/
 benchmarks50/holdout.jsonl
