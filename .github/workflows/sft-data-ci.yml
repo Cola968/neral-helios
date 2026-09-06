@@ -1,0 +1,26 @@
+name: SFT data contract
+
+on:
+  pull_request:
+    paths:
+      - 'prepare_sft50.py'
+      - 'tests/test_sft50_data.py'
+      - 'sft50_sources/README.md'
+      - '.github/workflows/sft-data-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  data-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run Stage D data tests
+        run: python -m pytest tests/test_sft50_data.py -q
