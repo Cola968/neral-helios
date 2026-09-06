@@ -1,0 +1,31 @@
+name: Exact Neral Benchmark Dashboard
+
+on:
+  push:
+    branches:
+      - benchmark-dashboard-exact
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install plotting dependency
+        run: python -m pip install --disable-pip-version-check matplotlib
+      - name: Build exact benchmark report and graphs
+        run: python build_exact_benchmark_dashboard.py
+      - name: Show report
+        run: cat benchmark_dashboard/REPORT.md
+      - name: Upload dashboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-neral-20m-vs-50m-dashboard
+          path: benchmark_dashboard/
+          retention-days: 30
