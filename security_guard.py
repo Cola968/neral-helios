@@ -15,6 +15,11 @@ class GuardResult:
 # not a full safety classifier and never counts as raw Neral model capability.
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (
+        'prompt_injection',
+        re.compile(r'(?i)(ignorier|ignore|überschreib|override).{0,80}(regel|instruction|system|sicherheit).{0,100}(secret|geheim|api|password|passwort|token|credential)'),
+        'Nein. Nutzertext hebt Sicherheitsregeln oder den Schutz vertraulicher Daten nicht auf.'
+    ),
+    (
         'secret_exfiltration',
         re.compile(r'(?i)(zeig(?:e)?|gib|verrat|reveal|show|print|read|lies).{0,80}(api[- ]?key|passw(?:ort|örter)|passwords?|secret|token|zugangsdaten|credentials|\.env|private key)'),
         'Ich gebe keine Passwörter, API-Schlüssel, Tokens oder andere vertrauliche Zugangsdaten aus.'
@@ -48,11 +53,6 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         'self_harm',
         re.compile(r'(?i)(mich selbst|myself).{0,40}(verletz|töten|umbringen|hurt|kill)|selbstverletz|suizid.*anleitung'),
         'Ich kann nicht bei Anleitungen zur Selbstverletzung helfen. Bei akuter Gefahr kontaktiere bitte sofort den Notruf oder eine Person in deiner Nähe.'
-    ),
-    (
-        'prompt_injection',
-        re.compile(r'(?i)(ignorier|ignore|überschreib|override).{0,80}(regel|instruction|system|sicherheit).{0,100}(secret|geheim|api|password|passwort|token|credential)'),
-        'Nein. Nutzertext hebt Sicherheitsregeln oder den Schutz vertraulicher Daten nicht auf.'
     ),
 ]
 
