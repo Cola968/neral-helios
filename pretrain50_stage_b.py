@@ -1,4 +1,4 @@
-"""Neral-50M Stage B: deterministic full-corpus coverage pretraining.
+"""Neral-50M Stage B1: deterministic full-corpus coverage pretraining.
 
 Goals:
 - continue only the user's own 50,012,976-parameter Neral checkpoint
@@ -6,20 +6,19 @@ Goals:
 - guarantee at least one full sweep of English blocks, then deterministic English top-up
   to target a 60/40 DE/EN token mix for this stage
 - never cross document boundaries inside an attention sequence
-- zero padding, fixed 256-token blocks, BF16 CUDA, fused AdamW
+- select checkpoints on deterministic document-bounded validation blocks as well
+- zero padding, fixed 256-token training blocks, BF16 CUDA, fused AdamW
 - cosine LR decay and explicit quality-abort protection
 - preserve reproducible resume state without uploading checkpoints
 
-This is general-language pretraining, not instruction tuning. Chat-format quality remains a
-separate post-pretraining gate.
+This is general-language pretraining, not instruction tuning. Every completed stage is followed
+by frozen external benchmarks in the GitHub workflow; benchmark data is never consumed here.
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
-import os
 import random
 import time
 from pathlib import Path
@@ -29,17 +28,14 @@ import torch
 
 from architectures import FIFTY
 from experiment import atomic_save, load_model, sha
-from pretrain50 import loss, validate
+from pretrain50 import loss
 
 BASE = Path(__file__).resolve().parent
 DATA = BASE / "pretrain50_data"
 STAGE_VERSION = 1
+VALIDATION_VERSION = 2
 SEED = 50014
 EXPECTED_PARAMS = 50_012_976
-
-
-def _hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def load_streams(split: str):
@@ -59,16 +55,16 @@ def load_documents() -> list[dict]:
     return rows
 
 
-def document_blocks(rows: list[dict], lang: str, seq: int) -> list[tuple[str, int]]:
-    """Return fixed-length starts fully contained in train documents.
+def document_blocks(rows: list[dict], lang: str, seq: int, split: str = "train") -> list[tuple[str, int]]:
+    """Return fixed-length starts fully contained in documents from one split.
 
     A final tail-anchored block is added when needed so each sufficiently long document's
-    ending (including EOS) is trained. This creates small overlap at document tails but
+    ending (including EOS) is represented. This creates small overlap at document tails but
     prevents cross-document attention and avoids padding.
     """
     blocks: list[tuple[str, int]] = []
     for r in rows:
-        if r.get("split") != "train" or r.get("language") != lang:
+        if r.get("split") != split or r.get("language") != lang:
             continue
         start, end = int(r["start"]), int(r["end"])
         if end - start < seq + 1:
@@ -82,7 +78,7 @@ def document_blocks(rows: list[dict], lang: str, seq: int) -> list[tuple[str, in
                 raise AssertionError("Block crosses document boundary")
             blocks.append((lang, s))
     if not blocks:
-        raise ValueError(f"No usable {lang} training blocks")
+        raise ValueError(f"No usable {lang} {split} blocks")
     return blocks
 
 
@@ -90,8 +86,8 @@ def build_schedule(rows: list[dict], seq: int, de_fraction: float, seed: int = S
     if not 0.5 <= de_fraction <= 0.8:
         raise ValueError("de_fraction must be between 0.5 and 0.8")
     rng = random.Random(seed)
-    de = document_blocks(rows, "de", seq)
-    en = document_blocks(rows, "en", seq)
+    de = document_blocks(rows, "de", seq, "train")
+    en = document_blocks(rows, "en", seq, "train")
     rng.shuffle(de)
     rng.shuffle(en)
 
@@ -114,6 +110,7 @@ def build_schedule(rows: list[dict], seq: int, de_fraction: float, seed: int = S
         "de_unique_blocks": len(de),
         "en_unique_blocks": len(en),
         "en_scheduled_blocks": len(en_selected),
+        "english_replay_factor": len(en_selected) / len(en),
         "total_blocks": len(schedule),
         "target_de_fraction": de_fraction,
         "actual_de_fraction": actual_de,
@@ -122,6 +119,23 @@ def build_schedule(rows: list[dict], seq: int, de_fraction: float, seed: int = S
         "padding_tokens": 0,
         "schedule_seed": seed,
     }
+
+
+def build_validation_schedule(
+    rows: list[dict], seq: int, blocks_per_language: int, seed: int = SEED + 17
+):
+    if blocks_per_language <= 0:
+        raise ValueError("blocks_per_language must be positive")
+    selected: dict[str, list[tuple[str, int]]] = {}
+    meta = {"split": "val", "sequence": seq, "seed": seed, "document_boundary_crossing": False}
+    for offset, lang in enumerate(("de", "en")):
+        blocks = document_blocks(rows, lang, seq, "val")
+        random.Random(seed + offset).shuffle(blocks)
+        chosen = blocks[: min(blocks_per_language, len(blocks))]
+        selected[lang] = chosen
+        meta[f"{lang}_available_blocks"] = len(blocks)
+        meta[f"{lang}_selected_blocks"] = len(chosen)
+    return selected, meta
 
 
 def cosine_lr(progress: float, peak: float, floor: float) -> float:
@@ -141,6 +155,38 @@ def make_batch(streams, items: list[tuple[str, int]], seq: int, device: torch.de
     return t[:, :-1], t[:, 1:]
 
 
+@torch.inference_mode()
+def validate_document_bounded(model, streams, schedule, seq: int, device: torch.device, batch_size: int = 8):
+    """Deterministic validation that never lets attention cross article boundaries."""
+    was_training = model.training
+    model.eval()
+    domains = {}
+    total_tokens = 0
+    try:
+        for lang in ("de", "en"):
+            blocks = schedule[lang]
+            weighted_loss = 0.0
+            tokens = 0
+            for start in range(0, len(blocks), batch_size):
+                items = blocks[start : start + batch_size]
+                x, y = make_batch(streams, items, seq, device)
+                v = loss(model, x, y)
+                n = int(y.numel())
+                weighted_loss += float(v) * n
+                tokens += n
+            domains[lang] = weighted_loss / max(1, tokens)
+            total_tokens += tokens
+    finally:
+        model.train(was_training)
+    return {
+        "domains": domains,
+        "macro": sum(domains.values()) / len(domains),
+        "tokens": total_tokens,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": VALIDATION_VERSION,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--resume", required=True, help="Pilot A latest.pt or a Stage-B latest.pt")
@@ -151,13 +197,15 @@ def main():
     ap.add_argument("--peak-lr", type=float, default=2e-4)
     ap.add_argument("--min-lr", type=float, default=2e-5)
     ap.add_argument("--eval-every", type=int, default=100)
+    ap.add_argument("--val-seq", type=int, default=256)
+    ap.add_argument("--val-blocks-per-language", type=int, default=192)
     ap.add_argument("--abort-regression", type=float, default=0.20,
                     help="Abort after three evals > best*(1+fraction)")
     args = ap.parse_args()
 
-    if min(args.seq, args.batch, args.eval_every) <= 0:
-        raise ValueError("seq, batch and eval_every must be positive")
-    if args.seq > FIFTY.max_seq_len:
+    if min(args.seq, args.batch, args.eval_every, args.val_seq, args.val_blocks_per_language) <= 0:
+        raise ValueError("sequence, batch, evaluation and validation budgets must be positive")
+    if max(args.seq, args.val_seq) > FIFTY.max_seq_len:
         raise ValueError("Sequence exceeds model context")
     if not 0 < args.min_lr <= args.peak_lr:
         raise ValueError("Require 0 < min_lr <= peak_lr")
@@ -174,6 +222,9 @@ def main():
     val = load_streams("val")
     docs = load_documents()
     schedule, schedule_meta = build_schedule(docs, args.seq, args.de_fraction, SEED)
+    validation_schedule, validation_meta = build_validation_schedule(
+        docs, args.val_seq, args.val_blocks_per_language
+    )
     total_schedule_tokens = len(schedule) * args.seq
 
     hashes = {
@@ -195,6 +246,7 @@ def main():
     if "optimizer" in payload:
         opt.load_state_dict(payload["optimizer"])
 
+    validation_migration = False
     if payload.get("stage_b_version") == STAGE_VERSION:
         if payload.get("stage_b_hashes") != hashes:
             raise ValueError("Stage-B corpus mismatch")
@@ -204,8 +256,15 @@ def main():
             raise ValueError("Stage-B schedule seed mismatch")
         cursor = int(payload["stage_b_cursor"])
         source_cumulative_tokens = int(payload["source_cumulative_tokens"])
-        best = float(payload["best"])
-        regression_evals = int(payload.get("regression_evals", 0))
+        if payload.get("stage_b_validation_version") == VALIDATION_VERSION:
+            best = float(payload["best"])
+            regression_evals = int(payload.get("regression_evals", 0))
+        else:
+            # Resume the already-computed training cursor, but never compare old cross-document
+            # validation scores against the new document-bounded selector.
+            best = float("inf")
+            regression_evals = 0
+            validation_migration = True
     else:
         cursor = 0
         source_cumulative_tokens = int(payload.get("tokens", 0))
@@ -220,17 +279,21 @@ def main():
         raise FileExistsError("Fresh Stage-B output directory required")
     out.mkdir(parents=True, exist_ok=True)
 
-    baseline = validate(model, val)
+    baseline = validate_document_bounded(
+        model, val, validation_schedule, args.val_seq, device
+    )
     best = min(best, baseline["macro"])
     run = {
         "stage_b_version": STAGE_VERSION,
-        "purpose": "Complete deterministic general-language pretraining coverage; not instruction tuning",
+        "validation_version": VALIDATION_VERSION,
+        "purpose": "B1 complete deterministic general-language corpus coverage; not instruction tuning",
         "parameters": EXPECTED_PARAMS,
         "source_checkpoint": str(Path(args.resume).resolve()),
         "source_sha256": sha(args.resume),
         "source_cumulative_tokens": source_cumulative_tokens,
         "data_hashes": hashes,
         "schedule": schedule_meta,
+        "validation_schedule": validation_meta,
         "scheduled_stage_tokens": total_schedule_tokens,
         "config": model.cfg.to_dict(),
         "gpu": torch.cuda.get_device_name(),
@@ -239,7 +302,9 @@ def main():
         "optimizer": "AdamW fused; beta1=.9 beta2=.95 weight_decay=.1",
         "lr_schedule": {"type": "cosine", "peak": args.peak_lr, "floor": args.min_lr},
         "baseline_validation": baseline,
+        "validation_migrated_from_legacy_selector": validation_migration,
         "quality_abort": f"abort after 3 evals above best by >{args.abort_regression*100:.1f}%",
+        "benchmark_contract": "Frozen free/v3/v4/RawMath benchmarks run after B1 by workflow; benchmark examples are excluded from training.",
         "chat_note": "Raw chat is not used as a pretraining selection criterion; base-LM and chat are benchmarked separately afterwards.",
     }
     (out / "run.json").write_text(json.dumps(run, indent=2), encoding="utf8")
@@ -250,6 +315,7 @@ def main():
             "optimizer": opt.state_dict(),
             "config": FIFTY.to_dict(),
             "stage_b_version": STAGE_VERSION,
+            "stage_b_validation_version": VALIDATION_VERSION,
             "stage_b_cursor": cursor,
             "stage_b_seq": args.seq,
             "stage_b_batch": args.batch,
@@ -264,8 +330,11 @@ def main():
             "rng_cuda": torch.cuda.get_rng_state_all(),
         }
 
-    if cursor == 0:
-        atomic_save(checkpoint(), out / "latest.pt")
+    # Always preserve the exact baseline under the current validation selector. This avoids
+    # accidentally choosing a worse trained checkpoint if B1 provides no real improvement.
+    if cursor == 0 or validation_migration or not (out / "best_validation.pt").is_file():
+        atomic_save(checkpoint(), out / "best_validation.pt")
+    atomic_save(checkpoint(), out / "latest.pt")
 
     torch.cuda.reset_peak_memory_stats()
     wall_start = time.perf_counter()
@@ -316,7 +385,9 @@ def main():
 
         should_eval = step % args.eval_every == 0 or cursor == len(schedule)
         if should_eval:
-            score = validate(model, val)
+            score = validate_document_bounded(
+                model, val, validation_schedule, args.val_seq, device
+            )
             row["validation"] = score
             improved = score["macro"] < best - 0.002
             if improved:
@@ -342,6 +413,8 @@ def main():
     summary = {
         "stop": stop,
         "complete": cursor == len(schedule),
+        "stage_b_version": STAGE_VERSION,
+        "validation_version": VALIDATION_VERSION,
         "stage_b_cursor": cursor,
         "stage_b_blocks": len(schedule),
         "stage_b_tokens": cursor * args.seq,
@@ -349,6 +422,7 @@ def main():
         "cumulative_tokens": source_cumulative_tokens + cursor * args.seq,
         "scheduled_stage_tokens": total_schedule_tokens,
         "best_validation": best,
+        "validation_schedule": validation_meta,
         "elapsed_seconds": time.perf_counter() - wall_start,
         "optimizer_seconds": update_seconds,
         "optimizer_tokens_per_second": cursor * args.seq / max(update_seconds, 1e-9),
@@ -356,8 +430,9 @@ def main():
         "peak_reserved": torch.cuda.max_memory_reserved(),
         "schedule": schedule_meta,
         "latest_sha256": sha(out / "latest.pt"),
-        "best_sha256": sha(out / "best_validation.pt") if (out / "best_validation.pt").exists() else None,
+        "best_sha256": sha(out / "best_validation.pt"),
         "instruction_tuning_performed": False,
+        "benchmark_required_after_stage": True,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf8")
     print(json.dumps(summary), flush=True)
