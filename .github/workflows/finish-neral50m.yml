@@ -147,6 +147,11 @@ jobs:
           & $py @args
           Get-Content runner_reports/COMPARISON.md
 
+      - name: Evaluate base-model quality gate
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py quality_gate50.py --before-v3 runner_reports/before/v3.json --after-v3 runner_reports/after_best/v3.json --after-v4 runner_reports/after_best/v4.json --after-free runner_reports/after_best/free.json --training-summary '${{ steps.completed.outputs.summary }}' --out runner_reports/quality_gate.json
+
       - name: Run Stage-B regression tests
         run: |
           $py='${{ steps.env.outputs.python }}'
