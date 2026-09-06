@@ -1,4 +1,4 @@
-"""Create a concise, auditable percentage summary from Neral benchmark reports."""
+"""Create a concise, auditable summary from Neral benchmark reports."""
 from __future__ import annotations
 
 import argparse
@@ -42,6 +42,19 @@ def v3_metrics(r):
             out[f'{key}_eos_pct']=pct(s.get('eos_fraction'))
             out[f'{key}_unique_pct']=pct(s.get('unique_output_fraction'))
             out[f'{key}_repeated_trigram_pct']=pct(s.get('mean_repeated_trigram_fraction'))
+
+    # True-byte BPB is one of the most comparable base-LM metrics in this byte-token project.
+    # Keep each context length and also expose a DE/EN macro at 1024 bytes when both exist.
+    bpb=r.get('true_byte_bpb',{}).get('languages',{})
+    macro=[]
+    for lang in ('de','en'):
+        rows=bpb.get(lang,{}).get('sequence_lengths',{})
+        for seq,row in rows.items():
+            value=row.get('bits_per_byte')
+            if value is not None:out[f'true_byte_bpb_{lang}_{seq}']=float(value)
+        v=rows.get('1024',{}).get('bits_per_byte')
+        if v is not None:macro.append(float(v))
+    out['true_byte_bpb_macro_1024']=sum(macro)/len(macro) if macro else None
     return out
 
 
@@ -94,7 +107,7 @@ def main():
     for prefix in ['baseline20','before','after']:
         sets[prefix]=flatten(load(getattr(a,f'{prefix}_free')),load(getattr(a,f'{prefix}_v3')),load(getattr(a,f'{prefix}_v4')))
     report={
-        'definition':'Percentages are direct scores from frozen Neral tests. No synthetic composite intelligence percentage is invented.',
+        'definition':'Direct frozen-suite metrics only. No synthetic composite intelligence percentage is invented.',
         'baseline20_preview02':sets['baseline20'],
         'neral50m_before_full_pretrain':sets['before'],
         'neral50m_after_full_pretrain':sets['after'],
@@ -105,6 +118,7 @@ def main():
 
     preferred=[
         'utf8_valid_pct','eos_pct','repeated_trigram_pct','non_repetition_trigram_pct','raw_math_exact_pct',
+        'true_byte_bpb_macro_1024','true_byte_bpb_de_1024','true_byte_bpb_en_1024',
         'v3_pair_overall_pct','v3_de_grammar_pct','v3_en_grammar_pct','v3_facts_pct','v3_commonsense_pct','v3_code_pct','v3_math_pct',
         'v4_pair_overall_pct','v4_de_grammar_pct','v4_en_grammar_pct','v4_physics_pct','v4_astronomy_pct','v4_aviation_pct','v4_transport_pct','v4_math_pct','v4_logic_pct','v4_commonsense_pct','v4_code_pct','v4_translation_pct','v4_induction_pct',
         'context_recall_overall_pct','context_recall_128B_pct','context_recall_512B_pct','context_recall_1024B_pct','context_recall_2048B_pct','context_recall_3072B_pct',
@@ -113,13 +127,14 @@ def main():
     ]
     labels={k:k.replace('_pct','').replace('_',' ') for k in preferred}
     lines=['# Neral benchmark comparison','',
-           'No composite intelligence score is used. Percentages are shown only where the underlying benchmark naturally produces a percentage.','',
+           'No composite intelligence score is used. Percentages are shown only where the underlying benchmark naturally produces a percentage. True-byte BPB is reported as bits/byte (lower is better).','',
            '| Metric | 20M Preview 02 | 50M before | 50M after | Δ after-before |','|---|---:|---:|---:|---:|']
     for k in preferred:
         vals=[sets['baseline20'].get(k),sets['before'].get(k),sets['after'].get(k)]
         if all(v is None for v in vals):continue
         d=report['delta_after_minus_before'].get(k)
-        suffix='' if k in {'next_token_entropy_bits','decode_tokens_per_second'} else '%'
+        is_plain=k in {'next_token_entropy_bits','decode_tokens_per_second'} or k.startswith('true_byte_bpb_')
+        suffix='' if is_plain else '%'
         lines.append(f"| {labels[k]} | {fmt(vals[0])}{suffix if vals[0] is not None else ''} | {fmt(vals[1])}{suffix if vals[1] is not None else ''} | {fmt(vals[2])}{suffix if vals[2] is not None else ''} | {fmt(d)}{suffix if d is not None else ''} |")
     Path(a.out_md).write_text('\n'.join(lines)+'\n',encoding='utf8')
     print(json.dumps({'saved_json':a.out_json,'saved_markdown':a.out_md,'metrics_after':len(sets['after'])},ensure_ascii=False))
