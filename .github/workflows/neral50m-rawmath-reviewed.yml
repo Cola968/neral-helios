@@ -1,0 +1,114 @@
+name: Neral 50M RawMath Reviewed
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-rawmath-reviewed
+  cancel-in-progress: false
+
+jobs:
+  train-benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Validate runner and attach B2 replay corpus
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if (-not $env:NERAL_ASSETS_ROOT) { throw 'NERAL_ASSETS_ROOT required.' }
+          if (-not $env:NERAL_PYTHON) { throw 'NERAL_PYTHON required.' }
+          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT;"python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
+          & $env:NERAL_PYTHON -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name())"
+          $data=Join-Path $env:NERAL_ASSETS_ROOT 'pretrain50_b2_data'
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')) { if (-not (Test-Path (Join-Path $data $f))) { throw "Missing B2 replay data: $f" } }
+          if (Test-Path pretrain50_b2_data) { Remove-Item pretrain50_b2_data -Recurse -Force }
+          New-Item -ItemType Junction -Path pretrain50_b2_data -Target $data | Out-Null
+
+      - name: Select highest benchmark-reviewed pretraining checkpoint
+        id: source
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$reports=Join-Path $assets 'reports';$chosen=$null;$label=$null
+          foreach($candidate in @(
+            @{label='b3b';run='runs\neral50m_b3b_500m';pattern='runner_50m_b3b_*';needsGate=$true},
+            @{label='b3a';run='runs\neral50m_b3a_300m';pattern='runner_50m_b3a_*';needsGate=$true},
+            @{label='b2';run='runs\neral50m_b2_100m';pattern='runner_50m_b2_*';needsGate=$false}
+          )) {
+            $dir=Join-Path $assets $candidate.run;$summary=Join-Path $dir 'summary.json';$best=Join-Path $dir 'best_validation.pt'
+            if (-not (Test-Path $summary) -or -not (Test-Path $best)) { continue }
+            $s=Get-Content $summary -Raw|ConvertFrom-Json;if (-not $s.complete) { continue }
+            $r=Get-ChildItem $reports -Directory -Filter $candidate.pattern -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 1
+            if (-not $r) { continue }
+            if ($candidate.needsGate) {
+              $g=Join-Path $r.FullName 'B3_PROGRESS_GATE.json';if (-not (Test-Path $g)) { continue };$gate=Get-Content $g -Raw|ConvertFrom-Json;if (-not $gate.proceed) { continue }
+            } else {
+              if (-not (Test-Path (Join-Path $r.FullName 'B2_COMPARISON.json'))) { continue }
+            }
+            $chosen=$best;$label=$candidate.label;break
+          }
+          if (-not $chosen) { throw 'No completed benchmark-reviewed B2/B3 checkpoint available.' }
+          "checkpoint=$chosen" >> $env:GITHUB_OUTPUT;"label=$label" >> $env:GITHUB_OUTPUT;Write-Host "RawMath source: $label -> $chosen"
+
+      - name: Frozen benchmark before RawMath
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.source.outputs.checkpoint }}';New-Item -ItemType Directory -Force runner_reports/before,runner_reports/after|Out-Null
+          & $py free_generation50.py --checkpoint $c --out runner_reports/before/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/before/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/before/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/before/rawmath.json --max-new-tokens 32
+
+      - name: Train RawMath Stage C v2 with language replay
+        id: train
+        run: |
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}';$out=Join-Path $assets ('runs\neral50m_rawmath_reviewed_'+$env:GITHUB_RUN_ID);"out=$out" >> $env:GITHUB_OUTPUT
+          & $py train_raw_math50.py --init-from '${{ steps.source.outputs.checkpoint }}' --replay-data pretrain50_b2_data --out $out --tokens 20000000 --seq 256 --batch 32 --math-fraction 0.35 --peak-lr 0.00005 --min-lr 0.000005 --eval-every 100 --validation-blocks 128
+
+      - name: Resolve RawMath selected checkpoint
+        id: selected
+        run: |
+          $out='${{ steps.train.outputs.out }}';$summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_math.pt'
+          if (-not (Test-Path $summary) -or -not (Test-Path $best)) { throw 'RawMath outputs missing.' }
+          $s=Get-Content $summary -Raw|ConvertFrom-Json;if (-not $s.complete) { throw "RawMath incomplete: $($s.stop)" }
+          "best=$best" >> $env:GITHUB_OUTPUT;"summary=$summary" >> $env:GITHUB_OUTPUT
+
+      - name: Frozen benchmark after RawMath including OOD transfer
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.selected.outputs.best }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/after/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/after/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/after/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/after/rawmath.json --max-new-tokens 32
+          & $py -c "import json; r=json.load(open('runner_reports/after/rawmath.json',encoding='utf8')); d=r['by_distribution']; assert all(k in d for k in ('id','ood','transfer')); print({'ID':d['id']['exact_pct'],'OOD':d['ood']['exact_pct'],'transfer':d['transfer']['exact_pct']})"
+
+      - name: Summarize and gate RawMath progress
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py summarize_weight_stage50.py --stage 'Neral-50M RawMath Stage C v2' --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/RAWMATH_COMPARISON.json --out-md runner_reports/RAWMATH_COMPARISON.md
+          & $py rawmath_progress_gate50.py runner_reports/RAWMATH_COMPARISON.json --out runner_reports/RAWMATH_PROGRESS_GATE.json
+          Get-Content runner_reports/RAWMATH_COMPARISON.md
+
+      - name: Persist reports locally
+        if: always()
+        run: |
+          $dest=Join-Path '${{ steps.env.outputs.assets }}' ('reports\runner_50m_rawmath_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
+          if (Test-Path runner_reports) { Copy-Item runner_reports\* $dest -Recurse -Force }
+          if (Test-Path '${{ steps.selected.outputs.summary }}') { Copy-Item '${{ steps.selected.outputs.summary }}' (Join-Path $dest 'training_summary.json') }
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-rawmath-reviewed-benchmarks
+          path: runner_reports/
+          retention-days: 14
