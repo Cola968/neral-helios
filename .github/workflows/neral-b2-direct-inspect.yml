@@ -1,0 +1,45 @@
+name: Neral B2 Direct Inspect
+
+on:
+  push:
+    branches:
+      - gpu-b2-direct-inspect
+    paths:
+      - gpu_b2_direct_inspect.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Inspect discovered local B2 run without loading weights
+        run: |
+          @echo off
+          set B2=C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\runs\neral50m_b2_100m
+          echo B2=%B2%
+          if not exist "%B2%\summary.json" (
+            echo summary_missing
+            exit /b 1
+          )
+          echo === summary.json ===
+          type "%B2%\summary.json"
+          echo.
+          echo === checkpoint files ===
+          if exist "%B2%\latest.pt" (
+            for %%F in ("%B2%\latest.pt") do echo latest_bytes=%%~zF
+            certutil -hashfile "%B2%\latest.pt" SHA256
+          ) else echo latest_missing
+          if exist "%B2%\best_validation.pt" (
+            for %%F in ("%B2%\best_validation.pt") do echo best_validation_bytes=%%~zF
+            certutil -hashfile "%B2%\best_validation.pt" SHA256
+          ) else echo best_validation_missing
+          echo.
+          echo Read-only inspection complete.
