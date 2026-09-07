@@ -42,9 +42,11 @@ jobs:
           $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$reports=Join-Path $assets 'reports'
           $r=Get-ChildItem $reports -Directory -Filter 'runner_50m_rawmath_*' -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 1
           if (-not $r) { throw 'No RawMath benchmark report found.' }
-          $gate=Join-Path $r.FullName 'RAWMATH_PROGRESS_GATE.json';if (-not (Test-Path $gate)) { throw 'RawMath progress gate missing.' }
-          $g=Get-Content $gate -Raw|ConvertFrom-Json;if (-not $g.proceed) { throw 'RawMath benchmark did not pass the review gate; do not start Stage D.' }
-          if (-not (Test-Path (Join-Path $r.FullName 'after\v5.json'))) { throw 'RawMath v5 long-context regression report missing.' }
+          $gate=Join-Path $r.FullName 'RAWMATH_PROGRESS_GATE.json';$longGate=Join-Path $r.FullName 'RAWMATH_LONG_CONTEXT_GATE.json';$v5=Join-Path $r.FullName 'after\v5.json'
+          if (-not (Test-Path $gate) -or -not (Test-Path $longGate) -or -not (Test-Path $v5)) { throw 'RawMath progress, long-context gate and v5 report are required.' }
+          $g=Get-Content $gate -Raw|ConvertFrom-Json;$lg=Get-Content $longGate -Raw|ConvertFrom-Json
+          if (-not $g.proceed) { throw 'RawMath benchmark did not pass the review gate; do not start Stage D.' }
+          if (-not $lg.proceed) { throw 'RawMath lost too much long-context capability; do not start Stage D.' }
           $id=$r.Name -replace '^runner_50m_rawmath_','';$run=Join-Path $assets ('runs\neral50m_rawmath_reviewed_'+$id);$best=Join-Path $run 'best_math.pt';$summary=Join-Path $run 'summary.json'
           if (-not (Test-Path $best) -or -not (Test-Path $summary)) { throw 'Matching RawMath checkpoint missing.' }
           $s=Get-Content $summary -Raw|ConvertFrom-Json;if (-not $s.complete) { throw 'RawMath training incomplete.' }
@@ -95,6 +97,7 @@ jobs:
           & $py benchmark_raw_math50.py $c --out runner_reports/after/rawmath.json --max-new-tokens 32
           & $py summarize_weight_stage50.py --stage 'Neral-50M Stage D Instruct' --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/INSTRUCT_COMPARISON.json --out-md runner_reports/INSTRUCT_COMPARISON.md
           & $py stage_progress_gate50.py runner_reports/INSTRUCT_COMPARISON.json --out runner_reports/INSTRUCT_PROGRESS_GATE.json
+          & $py long_context_gate50.py runner_reports/before/v5.json runner_reports/after/v5.json --mode protect --out runner_reports/INSTRUCT_LONG_CONTEXT_GATE.json
 
       - name: Benchmark 20M Preview02 on same frozen harness
         run: |
