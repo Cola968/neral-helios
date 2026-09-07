@@ -1,0 +1,43 @@
+name: Loss optimization CI
+
+on:
+  pull_request:
+    paths:
+      - 'loss_telemetry50.py'
+      - 'pretrain50_b3.py'
+      - 'run_50m_i1.py'
+      - 'tests/test_loss_telemetry50.py'
+      - '.github/workflows/loss-optimization-ci.yml'
+  push:
+    branches:
+      - loss-optimization-v1
+
+permissions:
+  contents: read
+
+jobs:
+  loss-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: python -m pip install --disable-pip-version-check pytest numpy
+      - name: Compile optimized training path
+        run: python -m py_compile loss_telemetry50.py pretrain50_b3.py run_50m_i1.py
+      - name: Test loss telemetry and checkpoint selection
+        run: python -m pytest tests/test_loss_telemetry50.py -q
+      - name: Verify I1 keeps original B3 optimizer schedule
+        run: |
+          python - <<'PY'
+          import inspect
+          import pretrain50_b3 as b3
+          src=inspect.getsource(b3.lr_for)
+          assert 'math.cos' in src
+          assert 'warmup_fraction' in src
+          assert b3.STAGE_VERSION == 1
+          print('resume-compatible B3 optimizer/LR contract preserved')
+          PY
