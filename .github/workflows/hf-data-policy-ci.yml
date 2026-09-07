@@ -6,8 +6,12 @@ on:
       - 'hf_source_policy50.py'
       - 'fetch_oasst2_sft50.py'
       - 'build_targeted_sft50_oasst2.py'
+      - 'prepare_gsm8k_holdout50.py'
+      - 'benchmark_gsm8k50.py'
       - 'run_50m_i1.py'
       - 'tests/test_hf_data_policy50.py'
+      - 'tests/test_public_eval_policy50.py'
+      - 'tests/test_gsm8k_benchmark50.py'
       - '.github/workflows/hf-data-policy-ci.yml'
   push:
     branches:
@@ -25,12 +29,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install test dependency
-        run: python -m pip install --disable-pip-version-check pytest
-      - name: Compile data pipeline
+      - name: Install CPU test dependencies
         run: |
-          python -m py_compile hf_source_policy50.py fetch_oasst2_sft50.py build_targeted_sft50_oasst2.py run_50m_i1.py
+          python -m pip install --disable-pip-version-check pytest numpy
+          python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile HF data and external-eval pipeline
+        run: |
+          python -m py_compile hf_source_policy50.py fetch_oasst2_sft50.py build_targeted_sft50_oasst2.py prepare_gsm8k_holdout50.py benchmark_gsm8k50.py run_50m_i1.py
       - name: Validate source registry
         run: python hf_source_policy50.py > /tmp/hf-source-policy.json
-      - name: Run OASST2 and holdout policy tests
-        run: python -m pytest tests/test_hf_data_policy50.py -q
+      - name: Run OASST2 and external-holdout contract tests
+        run: |
+          python -m pytest tests/test_hf_data_policy50.py tests/test_public_eval_policy50.py tests/test_gsm8k_benchmark50.py -q
