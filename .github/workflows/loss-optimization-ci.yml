@@ -1,0 +1,51 @@
+name: Loss optimization CI
+
+on:
+  pull_request:
+    paths:
+      - 'loss_telemetry50.py'
+      - 'pretrain50_b3.py'
+      - 'run_50m_i1.py'
+      - 'tests/test_loss_telemetry50.py'
+      - '.github/workflows/loss-optimization-ci.yml'
+  push:
+    branches:
+      - loss-optimization-v1
+
+permissions:
+  contents: read
+
+jobs:
+  loss-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: python -m pip install --disable-pip-version-check pytest numpy
+      - name: Compile optimized training path
+        run: python -m py_compile loss_telemetry50.py pretrain50_b3.py run_50m_i1.py
+      - name: Test loss telemetry and checkpoint selection
+        run: python -m pytest tests/test_loss_telemetry50.py -q
+      - name: Verify I1 keeps original B3 optimizer schedule
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          text=Path('pretrain50_b3.py').read_text(encoding='utf8')
+          tree=ast.parse(text)
+          stage=None
+          lr_src=None
+          for node in tree.body:
+              if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id=='STAGE_VERSION' for t in node.targets):
+                  stage=ast.literal_eval(node.value)
+              if isinstance(node, ast.FunctionDef) and node.name=='lr_for':
+                  lr_src=ast.get_source_segment(text,node)
+          assert stage == 1
+          assert lr_src and 'math.cos' in lr_src and 'warmup_fraction' in lr_src
+          assert "betas=(.9,.95),weight_decay=.1,fused=True" in text
+          print('resume-compatible B3 optimizer/LR contract preserved')
+          PY
