@@ -27,8 +27,6 @@ on:
 permissions:
   contents: read
 
-# Share the B2 lock so a benchmark cannot overlap a GitHub-managed B2 writer.
-# Astra/local processes are outside GitHub concurrency and must still be stopped before benchmarking.
 concurrency:
   group: neral-50m-b2-100m
   cancel-in-progress: false
@@ -39,7 +37,7 @@ jobs:
     timeout-minutes: 300
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         working-directory: src
 
     steps:
@@ -60,17 +58,20 @@ jobs:
           clean: true
           persist-credentials: false
 
-      - name: Validate private RTX environment
+      - name: Resolve and validate private RTX environment
         id: env
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:NERAL_ASSETS_ROOT) { throw 'NERAL_ASSETS_ROOT is required.' }
-          if (-not $env:NERAL_PYTHON) { throw 'NERAL_PYTHON is required.' }
-          if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw 'NERAL_ASSETS_ROOT does not exist.' }
-          if (-not (Test-Path $env:NERAL_PYTHON -PathType Leaf)) { throw 'NERAL_PYTHON does not exist.' }
-          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
-          "python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
-          & $env:NERAL_PYTHON -c "import torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0))"
+          $verifiedAssets = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { $verifiedAssets }
+          $python = if ($env:NERAL_PYTHON) { $env:NERAL_PYTHON } else { $verifiedPython }
+          if (-not (Test-Path $assets -PathType Container)) { throw "NERAL assets root does not exist: $assets" }
+          if (-not (Test-Path $python -PathType Leaf)) { throw "NERAL Python does not exist: $python" }
+          if (-not (Test-Path (Join-Path $assets 'runs\neral50m_b2_100m\summary.json') -PathType Leaf)) { throw 'Resolved assets root does not contain the verified B2 run.' }
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          & $python -c "import torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
 
       - name: Materialize restricted request
         env:
