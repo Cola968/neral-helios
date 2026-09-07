@@ -1,0 +1,2 @@
+request=discover-neral-local-environment
+purpose=resolve-python-and-assets-for-safe-gpu-control
