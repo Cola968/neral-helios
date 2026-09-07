@@ -3,7 +3,7 @@ name: Neral GPU Status Probe
 on:
   push:
     branches:
-      - gpu-status-ping
+      - gpu-status-ping-v2
     paths:
       - gpu_status_ping.txt
   workflow_dispatch:
@@ -17,9 +17,8 @@ jobs:
     timeout-minutes: 5
     defaults:
       run:
-        shell: powershell
+        shell: cmd
     steps:
       - name: Probe runner and NVIDIA GPU
         run: |
-          $ErrorActionPreference = 'Stop'
           nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
