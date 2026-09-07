@@ -1,0 +1,12 @@
+{
+  "documents": 3,
+  "text_bytes": 5526,
+  "reject": {},
+  "sha256": "6caeec8597d16f6c9badf52fcb64d1f4e8c0a3c2cfcde6d2348af6ebd7ab0c5f",
+  "identity": {
+    "repo": "HuggingFaceFW/fineweb-2",
+    "config": "deu_Latn",
+    "revision": "66d1a3b989bad0c42b88179a7fb60c47ce87af74"
+  },
+  "target_bytes": 4096
+}

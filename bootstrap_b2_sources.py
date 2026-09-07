@@ -22,7 +22,8 @@ from pathlib import Path
 FINEWEB_REPO="HuggingFaceFW/fineweb"
 FINEWEB_REV="v1.4.0"
 FINEWEB2_REPO="HuggingFaceFW/fineweb-2"
-FINEWEB2_REV="v2.1.1"
+# Verified upstream v2.1.0 branch; immutable commit (v2.1.1 does not exist).
+FINEWEB2_REV="66d1a3b989bad0c42b88179a7fb60c47ce87af74"
 FINEWEB_EDU_REPO="HuggingFaceFW/fineweb-edu"
 FINEWEB_EDU_REV="v1.4.0"
 OASST_REV="5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93"
@@ -77,14 +78,22 @@ def row_url(row):
 
 
 def stream_public_source(spec,out_path: Path,staging_bytes=None):
+    target=int(staging_bytes or spec["staging_bytes"])
+    receipt=out_path.with_suffix('.receipt.json')
+    identity={k:spec[k] for k in ('repo','config','revision')}
+    if out_path.is_file() and receipt.is_file():
+        saved=json.loads(receipt.read_text(encoding='utf8'))
+        if (saved.get('identity')==identity and saved.get('target_bytes')==target
+                and saved.get('sha256')==sha256_file(out_path)):
+            return saved
     try:
         from datasets import load_dataset
     except ImportError as e:
         raise RuntimeError("Install the optional data dependency: pip install -r requirements-data.txt") from e
-    target=int(staging_bytes or spec["staging_bytes"])
     ds=load_dataset(spec["repo"],spec["config"],split="train",streaming=True,revision=spec["revision"])
     out_path.parent.mkdir(parents=True,exist_ok=True);written=0;docs=0;seen=set();reject=collections.Counter()
-    with out_path.open("w",encoding="utf8",newline="\n") as f:
+    partial=out_path.with_suffix('.partial.jsonl')
+    with partial.open("w",encoding="utf8",newline="\n") as f:
         for index,row in enumerate(ds):
             text=row_text(row)
             if not text:reject["missing_text"]+=1;continue
@@ -98,7 +107,12 @@ def stream_public_source(spec,out_path: Path,staging_bytes=None):
             f.write(json.dumps(item,ensure_ascii=False,separators=(",",":"))+"\n");written+=len(raw);docs+=1
             if written>=target:break
     if written<target:raise ValueError(f"{spec['id']}: stream ended at {written:,} UTF-8 bytes before target {target:,}")
-    return {"documents":docs,"text_bytes":written,"reject":dict(reject),"sha256":sha256_file(out_path)}
+    partial.replace(out_path)
+    result={"documents":docs,"text_bytes":written,"reject":dict(reject),"sha256":sha256_file(out_path),
+            "identity":identity,"target_bytes":target}
+    tmp=receipt.with_suffix('.tmp')
+    tmp.write_text(json.dumps(result,indent=2),encoding='utf8');tmp.replace(receipt)
+    return result
 
 
 def build_oasst_dialogue(out_path: Path,staging_bytes=DIALOGUE_STAGING_BYTES):

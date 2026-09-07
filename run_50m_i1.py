@@ -42,12 +42,15 @@ def selected(run_dir, preferred):
     raise FileNotFoundError(f'No checkpoint in {run_dir}')
 
 def junction(link,target):
-    link,target=Path(link),Path(target)
+    link,target=Path(link).absolute(),Path(target).resolve()
     if not target.is_dir():raise FileNotFoundError(target)
+    if link.resolve()==target:return
     if link.exists() or link.is_symlink():
-        run(['cmd','/c','rmdir',str(link)],allow_failure=True)
-        if link.exists():shutil.rmtree(link)
-    run(['cmd','/c','mklink','/J',str(link),str(target)])
+        raise FileExistsError(f'Refusing to replace existing asset directory: {link}')
+    if not link.is_relative_to(REPO.resolve()):raise ValueError('Junction must stay within source checkout')
+    quote=lambda p:"'"+str(p).replace("'","''")+"'"
+    run(['powershell','-NoProfile','-NonInteractive','-Command',
+         f"New-Item -ItemType Junction -Path {quote(link)} -Target {quote(target)} -ErrorAction Stop | Out-Null"])
 
 def ensure_b3_data(assets,b2_data):
     data=assets/'pretrain50_b3_data'
@@ -55,8 +58,6 @@ def ensure_b3_data(assets,b2_data):
     if not all((data/x).is_file() for x in req):
         run([PY,'-m','pip','install','--disable-pip-version-check','-r','requirements-data.txt'])
         src=assets/'b3_sources_auto'
-        if src.exists():shutil.rmtree(src)
-        if data.exists():shutil.rmtree(data)
         run([PY,'bootstrap_b3_sources.py','--out',str(src)])
         run([PY,'prepare_pretrain50_b3.py','--source-root',str(src),'--b2-data',str(b2_data),'--out',str(data),'--phase-a-tokens','220000000','--phase-b-tokens','220000000'])
     if not all((data/x).is_file() for x in req):raise RuntimeError('B3 corpus incomplete')
@@ -92,8 +93,8 @@ def main():
         for n in names:
             if not (root/n).is_file():raise FileNotFoundError(root/n)
 
-    base20=next((p for p in (assets/'export/pilot_02/neral20m.pt',assets/'checkpoints/neral20m.pt') if p.is_file()),None)
-    if base20 is None:raise FileNotFoundError('Neral-20M checkpoint required')
+    base20=assets/'export/pilot_02/neral20m.pt'
+    if not base20.is_file():raise FileNotFoundError('Frozen Neral-20M Preview02 checkpoint required')
     b2_run=assets/'runs/neral50m_b2_100m';b2_summary=b2_run/'summary.json'
     if not complete(b2_summary,100_000_000):raise RuntimeError('Completed B2 100M required')
     b2=selected(b2_run,'best_validation.pt')
