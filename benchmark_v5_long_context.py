@@ -8,7 +8,7 @@ used. All retrieval keys are synthetic random-looking strings chosen for this su
 The suite reports direct metrics only:
 * single-needle preference at increasing byte distances up to the model's 4096-token window,
 * two-needle position-sensitive recall,
-* document-bounded true-byte BPB at 512..4095 input tokens when local validation data exist.
+* document-bounded true-byte BPB at 512..4095 input tokens on the frozen B1 validation corpus.
 
 It is an internal diagnostic, not a public benchmark or IQ score.
 """
@@ -29,7 +29,7 @@ import torch.nn.functional as F
 from benchmark_v3 import _conditional_loss
 from experiment import TOKENIZER, amp, load_model, sha
 
-SUITE_VERSION = 1
+SUITE_VERSION = 2
 SUITE_SEED = 75_005
 NEEDLES = ("ORBIT-7K4Q", "NOVA-3M8P", "LUMEN-5R2X", "VECTOR-9C6T")
 SINGLE_DISTANCES = (512, 1024, 2048, 3072, 3800)
@@ -54,6 +54,7 @@ def suite_sha256() -> str:
         "filler_de": FILLER_DE,
         "filler_en": FILLER_EN,
         "literals": FROZEN_TEXT_LITERALS,
+        "validation_root_policy": "pretrain50_data_only",
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf8")
     return hashlib.sha256(raw).hexdigest()
@@ -67,7 +68,6 @@ def _filler(target_bytes: int, lang: str) -> str:
     while used + len(raw) <= target_bytes:
         pieces.append(sentence)
         used += len(raw)
-    # ASCII tail gives deterministic byte-level spacing without introducing another fact.
     remain = target_bytes - used
     if remain:
         pieces.append(" " + ("x" * max(0, remain - 1)))
@@ -170,10 +170,9 @@ def multi_needle_recall(model, device) -> dict:
 
 
 def _validation_root() -> Path | None:
-    for candidate in (Path("pretrain50_b2_data"), Path("pretrain50_data")):
-        if (candidate / "documents.jsonl").is_file() and (candidate / "val_de.bin").is_file() and (candidate / "val_en.bin").is_file():
-            return candidate
-    return None
+    candidate = Path("pretrain50_data")
+    required = ("documents.jsonl", "val_de.bin", "val_en.bin")
+    return candidate if all((candidate / name).is_file() for name in required) else None
 
 
 def _docs_for(root: Path, lang: str) -> list[dict]:
@@ -191,8 +190,13 @@ def _docs_for(root: Path, lang: str) -> list[dict]:
 def document_bounded_bpb(model, device) -> dict:
     root = _validation_root()
     if root is None:
-        return {"available": False, "reason": "no_local_document_bounded_validation_corpus"}
-    report = {"available": True, "data_root": str(root), "languages": {}}
+        return {"available": False, "reason": "frozen_pretrain50_validation_corpus_missing"}
+    report = {
+        "available": True,
+        "data_root": str(root),
+        "validation_sha256": {name: sha(root / name) for name in ("documents.jsonl", "val_de.bin", "val_en.bin")},
+        "languages": {},
+    }
     for lang in ("de", "en"):
         stream = np.memmap(root / f"val_{lang}.bin", dtype="<u2", mode="r")
         docs = _docs_for(root, lang)
@@ -204,7 +208,6 @@ def document_bounded_bpb(model, device) -> dict:
             if not eligible:
                 lang_rows[str(seq)] = {"available": False, "eligible_documents": 0}
                 continue
-            # Keep RTX-4070 memory bounded while still sampling multiple documents where possible.
             samples = 8 if seq <= 512 else 4 if seq <= 1024 else 2 if seq <= 2048 else 1
             rng = random.Random(SUITE_SEED + seq + (0 if lang == "de" else 100_000))
             total_nll = 0.0
@@ -238,7 +241,6 @@ def document_bounded_bpb(model, device) -> dict:
                 "sampled_documents": chosen_meta,
             }
         report["languages"][lang] = lang_rows
-    # Macro only where both languages have the same available length.
     macro = {}
     for seq in BPB_LENGTHS:
         values = []
