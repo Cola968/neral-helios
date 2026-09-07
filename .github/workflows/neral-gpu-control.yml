@@ -12,6 +12,7 @@ on:
           - gpu_status
           - inspect_b2
           - benchmark_b2
+          - probe_generation_b2
           - run_tests
       request_id:
         description: "Audit id (A-Z, a-z, 0-9, dot, underscore, dash)"
@@ -27,6 +28,8 @@ on:
 permissions:
   contents: read
 
+# Share the B2 lock so a benchmark cannot overlap a GitHub-managed B2 writer.
+# Astra/local processes are outside GitHub concurrency and must still be stopped before benchmarking.
 concurrency:
   group: neral-50m-b2-100m
   cancel-in-progress: false
@@ -85,7 +88,7 @@ jobs:
             Copy-Item $source 'control_request.json' -Force
           } else {
             if ($env:CONTROL_REQUEST_ID -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw 'Invalid request_id.' }
-            $allowed = @('gpu_status','inspect_b2','benchmark_b2','run_tests')
+            $allowed = @('gpu_status','inspect_b2','benchmark_b2','probe_generation_b2','run_tests')
             if ($allowed -notcontains $env:CONTROL_ACTION) { throw 'Unsupported action.' }
             [ordered]@{version=1;request_id=$env:CONTROL_REQUEST_ID;action=$env:CONTROL_ACTION} |
               ConvertTo-Json -Compress | Set-Content -Encoding utf8 'control_request.json'
