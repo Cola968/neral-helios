@@ -1,0 +1,27 @@
+name: B2 benchmark handoff CI
+
+on:
+  pull_request:
+    paths:
+      - 'finalize_b2_benchmark50.py'
+      - 'tests/test_finalize_b2_benchmark50.py'
+      - '.github/workflows/neral50m-b2-benchmark-only.yml'
+      - '.github/workflows/b2-benchmark-handoff-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile handoff code
+        run: python -m py_compile finalize_b2_benchmark50.py
+      - name: Test fail-closed B2 completion and checkpoint identity
+        run: python -m pytest tests/test_finalize_b2_benchmark50.py -q

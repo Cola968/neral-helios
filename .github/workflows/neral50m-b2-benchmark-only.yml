@@ -1,0 +1,93 @@
+name: Neral 50M B2 Benchmark Only
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gpu-benchmark-50m-b2-final
+
+permissions:
+  contents: read
+
+# Do not benchmark a directory while another B2 job may still be writing it.
+concurrency:
+  group: neral-50m-b2-100m
+  cancel-in-progress: false
+
+jobs:
+  benchmark-completed-b2:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout exact benchmark revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Validate local RTX environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if (-not $env:NERAL_ASSETS_ROOT) { throw 'NERAL_ASSETS_ROOT is required.' }
+          if (-not $env:NERAL_PYTHON) { throw 'NERAL_PYTHON is required.' }
+          if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw "Missing assets root: $env:NERAL_ASSETS_ROOT" }
+          if (-not (Test-Path $env:NERAL_PYTHON -PathType Leaf)) { throw "Missing CUDA Python: $env:NERAL_PYTHON" }
+          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
+          "python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
+          & $env:NERAL_PYTHON -c "import torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print({'gpu':torch.cuda.get_device_name(0),'torch':torch.__version__,'cuda':torch.version.cuda})"
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Attach frozen validation corpora read-only by junction
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}'
+          $pairs=@(
+            @('pretrain50_data',(Join-Path $assets 'pretrain50_data')),
+            @('pretrain50_b2_data',(Join-Path $assets 'pretrain50_b2_data'))
+          )
+          foreach($pair in $pairs) {
+            $name=$pair[0];$target=$pair[1]
+            if (-not (Test-Path $target -PathType Container)) { throw "Missing local corpus: $target" }
+            foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')) {
+              if (-not (Test-Path (Join-Path $target $f) -PathType Leaf)) { throw "Missing validation asset $name/$f" }
+            }
+            if (Test-Path $name) { Remove-Item $name -Recurse -Force }
+            New-Item -ItemType Junction -Path $name -Target $target | Out-Null
+          }
+
+      - name: Benchmark completed B2 and stop before later training
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.python }}' finalize_b2_benchmark50.py --assets '${{ steps.env.outputs.assets }}' --reports b2_final_benchmark_reports
+
+      - name: Run benchmark-handoff contract tests
+        run: |
+          & '${{ steps.env.outputs.python }}' -m pytest tests/test_finalize_b2_benchmark50.py -q --junitxml=b2_final_benchmark_reports/pytest.xml
+
+      - name: Persist reports locally
+        if: always()
+        run: |
+          $dest=Join-Path '${{ steps.env.outputs.assets }}' ('reports\b2_final_benchmark_'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          if (Test-Path b2_final_benchmark_reports) { Copy-Item 'b2_final_benchmark_reports\*' $dest -Recurse -Force }
+
+      - name: Assert no private weights or corpora are uploaded
+        if: always()
+        run: |
+          if (Test-Path b2_final_benchmark_reports) {
+            $bad=Get-ChildItem b2_final_benchmark_reports -Recurse -File | Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz' }
+            if ($bad) { throw 'Private model/corpus file found in benchmark upload directory.' }
+          }
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-b2-final-benchmarks
+          path: b2_final_benchmark_reports/
+          if-no-files-found: warn
+          retention-days: 14
