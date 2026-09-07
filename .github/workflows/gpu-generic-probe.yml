@@ -1,0 +1,24 @@
+name: Neral Generic Self-hosted Probe
+
+on:
+  push:
+    branches:
+      - gpu-generic-ping
+    paths:
+      - gpu_generic_ping.txt
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Probe generic Windows self-hosted runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
