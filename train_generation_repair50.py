@@ -54,13 +54,15 @@ def evaluate_free_dev(model, rows, device, max_new_tokens=64):
         items.append({"id":row.get("id"),"language":row.get("language"),"domain":row.get("domain"),"tokens":len(generated),"diagnostics":d})
     model.train(was)
     n=max(1,len(items))
+    eos=100*sum(x["diagnostics"]["eos"] for x in items)/n
+    rep=100*sum(x["diagnostics"]["repeated_word_ngrams"]["3"] for x in items)/n
     return {
         "examples":len(items),
         "utf8_valid_pct":100*sum(x["diagnostics"]["valid_utf8"] for x in items)/n,
-        "eos_pct":100*sum(x["diagnostics"]["eos"] for x in items)/n,
-        "repeated_trigram_pct":100*sum(x["diagnostics"]["repeated_word_ngrams"]["3"] for x in items)/n,
+        "eos_pct":eos,
+        "repeated_trigram_pct":rep,
         "mean_generated_tokens":sum(x["tokens"] for x in items)/n,
-        "health_score":100*sum(x["diagnostics"]["eos"] for x in items)/n-100*sum(x["diagnostics"]["repeated_word_ngrams"]["3"] for x in items)/n,
+        "health_score":eos-rep,
         "note":"Held-out G1 dev only; not a frozen benchmark or promotion score.",
     }
 
@@ -68,6 +70,7 @@ def evaluate_free_dev(model, rows, device, max_new_tokens=64):
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--init-from",required=True)
+    ap.add_argument("--expected-source-sha")
     ap.add_argument("--data",default="sft50_data")
     ap.add_argument("--replay-data",default="pretrain50_b2_data")
     ap.add_argument("--out",default="runs/neral50m_g1_generation_repair")
@@ -103,6 +106,8 @@ def main():
     if not 0<=args.warmup_fraction<=.2:raise ValueError("warmup-fraction must be 0..0.2")
     if not 0<=args.desired_de_fraction<=1:raise ValueError("desired-de-fraction must be 0..1")
     if not 0<=args.max_lm_regression<=.10 or not 0<=args.max_math_regression<=.20:raise ValueError("invalid regression guards")
+    if args.expected_source_sha and (len(args.expected_source_sha)!=64 or any(c not in "0123456789abcdefABCDEF" for c in args.expected_source_sha)):
+        raise ValueError("expected-source-sha must be a 64-character SHA-256")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise RuntimeError("G1 requires BF16 CUDA")
 
     torch.set_num_threads(4);torch.manual_seed(SEED);torch.cuda.manual_seed_all(SEED);torch.set_float32_matmul_precision("high")
@@ -126,9 +131,10 @@ def main():
 
     model,payload=load_model(args.init_from,device)
     if model.parameter_report()["trainable"]!=EXPECTED_PARAMS:raise ValueError("G1 accepts exact Neral-50M only")
-    source_tokens=int(payload.get("tokens",0))
-    if source_tokens<100_000_000:raise ValueError("G1 requires the completed B2 >=100M checkpoint")
-    source_sha=sha(args.init_from);model.train()
+    source_tokens=int(payload.get("tokens",0));source_sha=sha(args.init_from)
+    if args.expected_source_sha and source_sha.lower()!=args.expected_source_sha.lower():
+        raise ValueError("G1 source checkpoint SHA-256 differs from the verified B2 handoff")
+    model.train()
     baseline_sft=evaluate_sft(model,val,device,args.seq)
     baseline_gen=evaluate_free_dev(model,dev_rows,device)
     baseline_lm=validate_document_bounded(model,replay_val,replay_val_schedule,args.seq,device)
@@ -143,7 +149,8 @@ def main():
     bad=0
     run={
         "stage":"G1 generation repair","stage_version":STAGE_VERSION,"goal_issue":36,"parameters":EXPECTED_PARAMS,
-        "source_checkpoint":str(Path(args.init_from).resolve()),"source_sha256":source_sha,"source_cumulative_tokens":source_tokens,
+        "source_checkpoint":str(Path(args.init_from).resolve()),"source_sha256":source_sha,"source_payload_tokens":source_tokens,
+        "source_contract":"Workflow independently verified completed B2 100M summary + exact selected-checkpoint SHA-256.",
         "data_hashes":hashes,"train_selection":selection_summary(train),"val_selection":selection_summary(val),"dev_selection":selection_summary(dev_rows),
         "replay_root":str(replay_root.resolve()),"replay_validation":replay_val_meta,
         "objective":{"assistant_only":True,"real_eos_target":True,"eos_weight":args.eos_weight,"sft_weight":args.sft_weight,"base_lm_replay_weight":1-args.sft_weight},
@@ -155,11 +162,12 @@ def main():
     }
     (out/"run.json").write_text(json.dumps(run,indent=2,ensure_ascii=False),encoding="utf8")
 
+    train_summary=selection_summary(train)
     def checkpoint():
         return {"model":model.state_dict(),"optimizer":opt.state_dict(),"config":FIFTY.to_dict(),"tokens":source_tokens,
-                "source_cumulative_tokens":source_tokens,"g1_version":STAGE_VERSION,"g1_step":step,"g1_selected_step":selected_step,
+                "source_payload_tokens":source_tokens,"g1_version":STAGE_VERSION,"g1_step":step,"g1_selected_step":selected_step,
                 "best_health_score":best_health,"best_sft_macro_answer_nll":best_sft,"source_sha256":source_sha,"sft_data_hashes":hashes,
-                "train_selection_sha256":selection_summary(train)["selection_sha256"]}
+                "train_selection_sha256":train_summary["selection_sha256"]}
 
     atomic_save(checkpoint(),out/"best_repair.pt");atomic_save(checkpoint(),out/"latest.pt")
     start=time.perf_counter();update_seconds=0.0;input_tokens=0;answer_tokens=0;replay_tokens=0;stop="max_steps";torch.cuda.reset_peak_memory_stats()
@@ -202,7 +210,7 @@ def main():
         atomic_save(checkpoint(),out/"latest.pt")
         summary={
             "stage":"G1 generation repair","stop":stop,"complete":stop in {"max_steps","early_stopping"},"completed_step":step,"selected_step":selected_step,
-            "effective_weight_candidate":selected_step>0,"source_cumulative_tokens":source_tokens,"sft_input_tokens":input_tokens,"sft_answer_tokens":answer_tokens,"base_replay_tokens":replay_tokens,
+            "effective_weight_candidate":selected_step>0,"source_payload_tokens":source_tokens,"sft_input_tokens":input_tokens,"sft_answer_tokens":answer_tokens,"base_replay_tokens":replay_tokens,
             "baseline_free_dev":baseline_gen,"selected_free_dev":best_gen,"baseline_sft_macro_answer_nll":baseline_sft["macro_answer_nll"],"best_sft_macro_answer_nll":best_sft,
             "optimizer_seconds":update_seconds,"elapsed_seconds":time.perf_counter()-start,"peak_allocated":torch.cuda.max_memory_allocated(),"peak_reserved":torch.cuda.max_memory_reserved(),
             "best_sha256":sha(out/"best_repair.pt"),"latest_sha256":sha(out/"latest.pt"),"source_sha256":source_sha,"solve_used":False,"tools_used":False,
