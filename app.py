@@ -1,4 +1,4 @@
-"""Local Neral/Helios browser test: own unchanged 20M architecture."""
+"""Local Neral/Helios browser test: own Neral weights with local tools."""
 from __future__ import annotations
 import hashlib,json,math,re,secrets,threading,time
 from collections import defaultdict,deque
@@ -100,7 +100,7 @@ def text_key(value):
     return value
 
 def info_payload():
-    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'inference':{'backend':'kv_cache','prefill_once':True,'cache_in_checkpoint':False},'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 
 @app.before_request
 def local_and_rate_guard():
@@ -156,21 +156,33 @@ def cancel():
         if event:event.set()
     return jsonify(cancelled=event is not None)
 
+
+def _sample_next(logits,temperature,top_k):
+    if temperature==0:return logits.argmax(-1,keepdim=True)
+    logits=logits/temperature
+    if top_k:
+        threshold=torch.topk(logits,top_k).values[:,-1,None]
+        logits=logits.masked_fill(logits<threshold,float('-inf'))
+    return torch.multinomial(torch.softmax(logits,dim=-1),1)
+
+
 @torch.inference_mode()
 def generate_tokens(ids,max_new,temperature,top_k,event):
+    """Cancelable autoregressive decode with one prompt prefill and per-layer KV cache."""
+    if event.is_set() or max_new<=0:return []
     x=torch.tensor([ids],device=device,dtype=torch.long);output=[]
-    for _ in range(max_new):
+    autocast_enabled=device.type=='cuda' and torch.cuda.is_bf16_supported()
+    with torch.autocast('cuda',dtype=torch.bfloat16,enabled=autocast_enabled):
+        logits,cache=model.forward_cached(x)
+    for step in range(max_new):
         if event.is_set():break
-        with torch.autocast('cuda',dtype=torch.bfloat16,enabled=device.type=='cuda' and torch.cuda.is_bf16_supported()):
-            logits,_=model(x);logits=logits[:,-1,:].float()
-        if temperature==0:next_id=logits.argmax(-1,keepdim=True)
-        else:
-            logits/=temperature
-            if top_k:
-                threshold=torch.topk(logits,top_k).values[:,-1,None];logits=logits.masked_fill(logits<threshold,float('-inf'))
-            next_id=torch.multinomial(torch.softmax(logits,dim=-1),1)
-        token=int(next_id.item());output.append(token);x=torch.cat([x,next_id],dim=1)
+        next_id=_sample_next(logits[:,-1,:].float(),temperature,top_k)
+        token=int(next_id.item());output.append(token)
         if token==tokenizer.eos_id:break
+        if step+1>=max_new:break
+        if event.is_set():break
+        with torch.autocast('cuda',dtype=torch.bfloat16,enabled=autocast_enabled):
+            logits,cache=model.forward_cached(next_id,cache)
     return output
 
 @app.post('/api/generate')
@@ -230,7 +242,7 @@ def generate():
         start=time.perf_counter();continuation=generate_tokens(ids,params['max_new_tokens'],params['temperature'],params['top_k'],event)
         if device.type=='cuda':torch.cuda.synchronize()
         elapsed=time.perf_counter()-start;text,redacted=sanitize_output(tokenizer.decode(continuation))
-        return jsonify(mode='trained-generation',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+        return jsonify(mode='trained-generation',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job,inference_backend='kv_cache')
     except Exception:
         app.logger.exception('Lokale Inferenz fehlgeschlagen')
         return jsonify(error='Die lokale Berechnung ist fehlgeschlagen. Prüfe das Serverprotokoll.'),500
