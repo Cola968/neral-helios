@@ -10,12 +10,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MIN_B2_TOKENS = 100_000_000
+FROZEN_VALIDATION_FILES = ("val_de.bin", "val_en.bin")
 
 
 def sha256_file(path: Path) -> str:
@@ -81,6 +83,36 @@ def resolve_state(assets: Path) -> dict[str, Path]:
     return {"baseline20": baseline20, "b1": b1, "b2": b2, "summary": summary_path.resolve()}
 
 
+def stage_frozen_validation_data(assets: Path) -> tuple[dict[str, str], list[Path]]:
+    """Copy private frozen validation binaries into the ephemeral trusted checkout only.
+
+    The source files stay under the local assets root. They are never uploaded by this
+    script. Newly staged files are removed in ``finally`` by the caller.
+    """
+    source_dir = assets / "pretrain50_data"
+    dest_dir = ROOT / "pretrain50_data"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    provenance: dict[str, str] = {}
+    created: list[Path] = []
+    for name in FROZEN_VALIDATION_FILES:
+        source = source_dir / name
+        dest = dest_dir / name
+        if not source.is_file():
+            raise FileNotFoundError(f"Missing frozen validation source: {source}")
+        source_hash = sha256_file(source)
+        provenance[name] = source_hash
+        if dest.exists():
+            if sha256_file(dest) != source_hash:
+                raise ValueError(f"Existing benchmark validation file differs from private frozen source: {dest}")
+            continue
+        shutil.copy2(source, dest)
+        if sha256_file(dest) != source_hash:
+            dest.unlink(missing_ok=True)
+            raise ValueError(f"Staged validation hash mismatch: {name}")
+        created.append(dest)
+    return provenance, created
+
+
 def run_checked(args: list[str]) -> None:
     print(json.dumps({"exec": args}, ensure_ascii=False), flush=True)
     subprocess.run(args, cwd=ROOT, check=True)
@@ -103,55 +135,61 @@ def main() -> None:
     reports = Path(args.reports).resolve()
     reports.mkdir(parents=True, exist_ok=True)
     state = resolve_state(assets)
+    validation_hashes, staged_files = stage_frozen_validation_data(assets)
 
-    # Same frozen protocol and budgets for every checkpoint. Existing valid reports can be
-    # reused only through run_frozen_benchmarks50.py's provenance/hash checks.
-    for stage in ("baseline20", "b1", "b2"):
-        run_benchmark(state[stage], stage, reports)
+    try:
+        # Same frozen protocol and budgets for every checkpoint. Existing valid reports can be
+        # reused only through run_frozen_benchmarks50.py's provenance/hash checks.
+        for stage in ("baseline20", "b1", "b2"):
+            run_benchmark(state[stage], stage, reports)
 
-    comparison_json = reports / "B2_COMPARISON.json"
-    comparison_md = reports / "B2_COMPARISON.md"
-    run_checked([
-        sys.executable, "-X", "utf8", "summarize_b2.py",
-        "--baseline20-free", str(reports / "baseline20" / "free.json"),
-        "--baseline20-v3", str(reports / "baseline20" / "v3.json"),
-        "--baseline20-v4", str(reports / "baseline20" / "v4.json"),
-        "--baseline20-rawmath", str(reports / "baseline20" / "rawmath.json"),
-        "--b1-free", str(reports / "b1" / "free.json"),
-        "--b1-v3", str(reports / "b1" / "v3.json"),
-        "--b1-v4", str(reports / "b1" / "v4.json"),
-        "--b1-rawmath", str(reports / "b1" / "rawmath.json"),
-        "--b2-free", str(reports / "b2" / "free.json"),
-        "--b2-v3", str(reports / "b2" / "v3.json"),
-        "--b2-v4", str(reports / "b2" / "v4.json"),
-        "--b2-rawmath", str(reports / "b2" / "rawmath.json"),
-        "--training-summary", str(state["summary"]),
-        "--out-json", str(comparison_json), "--out-md", str(comparison_md),
-    ])
+        comparison_json = reports / "B2_COMPARISON.json"
+        comparison_md = reports / "B2_COMPARISON.md"
+        run_checked([
+            sys.executable, "-X", "utf8", "summarize_b2.py",
+            "--baseline20-free", str(reports / "baseline20" / "free.json"),
+            "--baseline20-v3", str(reports / "baseline20" / "v3.json"),
+            "--baseline20-v4", str(reports / "baseline20" / "v4.json"),
+            "--baseline20-rawmath", str(reports / "baseline20" / "rawmath.json"),
+            "--b1-free", str(reports / "b1" / "free.json"),
+            "--b1-v3", str(reports / "b1" / "v3.json"),
+            "--b1-v4", str(reports / "b1" / "v4.json"),
+            "--b1-rawmath", str(reports / "b1" / "rawmath.json"),
+            "--b2-free", str(reports / "b2" / "free.json"),
+            "--b2-v3", str(reports / "b2" / "v3.json"),
+            "--b2-v4", str(reports / "b2" / "v4.json"),
+            "--b2-rawmath", str(reports / "b2" / "rawmath.json"),
+            "--training-summary", str(state["summary"]),
+            "--out-json", str(comparison_json), "--out-md", str(comparison_md),
+        ])
 
-    long_gate = reports / "B2_LONG_CONTEXT_GATE.json"
-    gate = subprocess.run([
-        sys.executable, "-X", "utf8", "long_context_gate50.py",
-        str(reports / "b1" / "v5.json"), str(reports / "b2" / "v5.json"),
-        "--mode", "protect", "--out", str(long_gate),
-    ], cwd=ROOT)
+        long_gate = reports / "B2_LONG_CONTEXT_GATE.json"
+        gate = subprocess.run([
+            sys.executable, "-X", "utf8", "long_context_gate50.py",
+            str(reports / "b1" / "v5.json"), str(reports / "b2" / "v5.json"),
+            "--mode", "protect", "--out", str(long_gate),
+        ], cwd=ROOT)
 
-    summary = load_json(state["summary"])
-    handoff = {
-        "definition": "Completed B2 100M benchmark handoff; no later weight-changing stage started.",
-        "b2_complete": True,
-        "cumulative_tokens": int(summary["cumulative_tokens"]),
-        "target_cumulative_tokens": int(summary["target_cumulative_tokens"]),
-        "checkpoints": {k: {"path": str(state[k]), "sha256": sha256_file(state[k])} for k in ("baseline20", "b1", "b2")},
-        "comparison_json": str(comparison_json),
-        "long_context_gate": load_json(long_gate) if long_gate.is_file() else None,
-        "later_training_started": False,
-        "next_decision": "Review frozen B2 reports before B3/RawMath/Instruct.",
-    }
-    (reports / "B2_HANDOFF.json").write_text(json.dumps(handoff, indent=2, ensure_ascii=False), encoding="utf8")
-    print(json.dumps(handoff, ensure_ascii=False), flush=True)
-    if gate.returncode != 0:
-        raise SystemExit(gate.returncode)
+        summary = load_json(state["summary"])
+        handoff = {
+            "definition": "Completed B2 100M benchmark handoff; no later weight-changing stage started.",
+            "b2_complete": True,
+            "cumulative_tokens": int(summary["cumulative_tokens"]),
+            "target_cumulative_tokens": int(summary["target_cumulative_tokens"]),
+            "checkpoints": {k: {"path": str(state[k]), "sha256": sha256_file(state[k])} for k in ("baseline20", "b1", "b2")},
+            "frozen_validation_sha256": validation_hashes,
+            "comparison_json": str(comparison_json),
+            "long_context_gate": load_json(long_gate) if long_gate.is_file() else None,
+            "later_training_started": False,
+            "next_decision": "Review frozen B2 reports before B3/RawMath/Instruct.",
+        }
+        (reports / "B2_HANDOFF.json").write_text(json.dumps(handoff, indent=2, ensure_ascii=False), encoding="utf8")
+        print(json.dumps(handoff, ensure_ascii=False), flush=True)
+        if gate.returncode != 0:
+            raise SystemExit(gate.returncode)
+    finally:
+        for path in staged_files:
+            path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
