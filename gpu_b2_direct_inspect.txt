@@ -1,0 +1,2 @@
+request=inspect-b2-direct
+purpose=read-summary-and-checkpoint-hashes
