@@ -3,9 +3,9 @@ name: Neral Runner Environment Discovery
 on:
   push:
     branches:
-      - gpu-env-discovery
+      - gpu-env-discovery-v2
     paths:
-      - gpu_env_discovery.txt
+      - gpu_env_discovery_v2.txt
   workflow_dispatch:
 
 permissions:
@@ -45,17 +45,29 @@ jobs:
           echo === py launcher registrations ===
           py -0p 2>nul || echo no_py_launcher_registrations
           echo.
+          echo === common Python installs ===
+          for %%P in ("%USERPROFILE%\AppData\Local\Programs\Python\Python*\python.exe") do if exist "%%~fP" echo %%~fP
+          if exist "%USERPROFILE%\miniconda3\python.exe" echo %USERPROFILE%\miniconda3\python.exe
+          if exist "%USERPROFILE%\anaconda3\python.exe" echo %USERPROFILE%\anaconda3\python.exe
+          echo.
+          echo === active python.exe processes ===
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$p=Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue; if($p){$p | Select-Object ProcessId,ExecutablePath,CommandLine | Format-List}else{Write-Output 'no_active_python_processes'}"
+          echo.
           echo === PATH python CUDA probe ===
           python -c "import sys; print('python_executable='+sys.executable); import torch; print('torch='+torch.__version__); print('cuda_available='+str(torch.cuda.is_available())); print('bf16='+str(torch.cuda.is_available() and torch.cuda.is_bf16_supported())); print('gpu='+str(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'))" 2>nul || echo path_python_cuda_probe_failed
           echo.
           echo === py -3 CUDA probe ===
           py -3 -c "import sys; print('python_executable='+sys.executable); import torch; print('torch='+torch.__version__); print('cuda_available='+str(torch.cuda.is_available())); print('bf16='+str(torch.cuda.is_available() and torch.cuda.is_bf16_supported())); print('gpu='+str(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'))" 2>nul || echo py3_cuda_probe_failed
+          exit /b 0
 
       - name: Locate only known Neral B2 run directories
         run: |
           @echo off
           echo === exact neral50m_b2_100m directories below USERPROFILE ===
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; Get-ChildItem -LiteralPath $env:USERPROFILE -Directory -Filter 'neral50m_b2_100m' -Recurse | Select-Object -First 20 -ExpandProperty FullName"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $x=Get-ChildItem -LiteralPath $env:USERPROFILE -Directory -Filter 'neral50m_b2_100m' -Recurse; if($x){$x | Select-Object -First 20 -ExpandProperty FullName}else{Write-Output 'no_b2_run_dir_under_userprofile'}"
+          echo.
+          echo === exact likely Neral workspace directories ===
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $names=@('neral-helios','NeralPrivate'); foreach($n in $names){Get-ChildItem -LiteralPath $env:USERPROFILE -Directory -Filter $n -Recurse | Select-Object -First 20 -ExpandProperty FullName}"
           echo.
           echo === exact common private roots ===
           if exist "C:\NeralPrivate" echo C:\NeralPrivate
@@ -63,3 +75,4 @@ jobs:
           if exist "%USERPROFILE%\Documents\NeralPrivate" echo %USERPROFILE%\Documents\NeralPrivate
           echo.
           echo Discovery is read-only; no files or settings were changed.
+          exit /b 0
