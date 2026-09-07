@@ -1,0 +1,43 @@
+name: SFT padding optimization CI
+
+on:
+  pull_request:
+    paths:
+      - 'train_instruct50.py'
+      - 'train_instruct50_i1.py'
+      - 'tests/test_sft_padding_trim50.py'
+      - '.github/workflows/sft-padding-ci.yml'
+  push:
+    branches:
+      - sft-padding-optimization
+
+permissions:
+  contents: read
+
+jobs:
+  objective-preservation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest numpy
+          python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile SFT path
+        run: python -m py_compile train_instruct50.py train_instruct50_i1.py
+      - name: Verify padding trim preserves targets
+        run: python -m pytest tests/test_sft_padding_trim50.py -q
+      - name: Verify model attention is causal
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('model.py').read_text(encoding='utf8')
+          assert 'scaled_dot_product_attention' in text
+          assert 'is_causal=is_causal' in text
+          assert 'self._sdpa(q, k, v, True)' in text
+          print('causal-attention contract supports objective-preserving trailing trim')
+          PY
