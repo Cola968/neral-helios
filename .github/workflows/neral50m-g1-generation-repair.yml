@@ -1,0 +1,216 @@
+name: Neral 50M G1 Generation Repair
+
+on:
+  push:
+    branches:
+      - g1-train-run
+    paths:
+      - g1_requests/request.json
+
+permissions:
+  contents: read
+
+# Same lock as the B2 benchmark/control bridge: the repair cannot overlap a benchmark or writer.
+concurrency:
+  group: neral-50m-b2-100m
+  cancel-in-progress: false
+
+jobs:
+  train-benchmark-g1:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        working-directory: src
+
+    steps:
+      - name: Checkout trusted G1 code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: src
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: requestsrc
+          clean: true
+          persist-credentials: false
+
+      - name: Validate exact authorization request and RTX environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $requestPath=Join-Path '..\requestsrc' 'g1_requests\request.json'
+          if (-not (Test-Path $requestPath -PathType Leaf)) { throw 'G1 authorization request missing.' }
+          $request=Get-Content $requestPath -Raw|ConvertFrom-Json
+          $props=@($request.PSObject.Properties.Name|Sort-Object)
+          if (($props -join ',') -ne 'action,request_id,version') { throw 'G1 request has unsupported fields.' }
+          if ([int]$request.version -ne 1 -or $request.action -ne 'train_g1') { throw 'Unsupported G1 request.' }
+          if ($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw 'Invalid G1 request_id.' }
+
+          $verifiedAssets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{$verifiedAssets}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if (-not (Test-Path $assets -PathType Container)) { throw "NERAL assets root missing: $assets" }
+          if (-not (Test-Path $python -PathType Leaf)) { throw "NERAL Python missing: $python" }
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA/BF16 validation failed.' }
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "request_id=$($request.request_id)" >> $env:GITHUB_OUTPUT
+
+      - name: Verify completed B2 source and attach private corpora
+        id: source
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}'
+          $run=Join-Path $assets 'runs\neral50m_b2_100m';$summaryPath=Join-Path $run 'summary.json';$best=Join-Path $run 'best_validation.pt'
+          if (-not (Test-Path $summaryPath) -or -not (Test-Path $best)) { throw 'Completed B2 source files missing.' }
+          $s=Get-Content $summaryPath -Raw|ConvertFrom-Json
+          if (-not $s.complete -or $s.stop -ne 'target_reached' -or [int64]$s.cumulative_tokens -lt 100000000) { throw 'B2 is not the completed 100M target run.' }
+          if ($s.train_block_replay -eq $true -or $s.instruction_tuning_performed -eq $true) { throw 'B2 source contract violated.' }
+          $actual=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
+          if ($s.best_sha256 -and $actual -ne ([string]$s.best_sha256).ToLower()) { throw 'B2 best checkpoint SHA-256 mismatch.' }
+          "checkpoint=$best" >> $env:GITHUB_OUTPUT
+          "checkpoint_sha=$actual" >> $env:GITHUB_OUTPUT
+
+          foreach($name in @('pretrain50_data','pretrain50_b2_data')) {
+            $target=Join-Path $assets $name
+            if (-not (Test-Path $target -PathType Container)) { throw "Missing private corpus root: $target" }
+            if (Test-Path $name) { cmd /c "rmdir $name" 2>$null; if(Test-Path $name){Remove-Item $name -Recurse -Force} }
+            New-Item -ItemType Junction -Path $name -Target $target|Out-Null
+          }
+          foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')) { if(-not(Test-Path (Join-Path 'pretrain50_data' $f))){throw "Frozen B1 validation file missing: $f"} }
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')) { if(-not(Test-Path (Join-Path 'pretrain50_b2_data' $f))){throw "B2 replay file missing: $f"} }
+
+      - name: Require completed hardened B2 frozen benchmark as the before-state
+        id: baseline
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$expected='${{ steps.source.outputs.checkpoint_sha }}'
+          $root=Join-Path $assets 'reports\gpu_control'
+          if (-not (Test-Path $root -PathType Container)) { throw 'No local GPU-control reports found.' }
+          $picked=$null
+          foreach($d in (Get-ChildItem $root -Directory|Sort-Object LastWriteTime -Descending)) {
+            $handoff=Join-Path $d.FullName 'benchmark\B2_HANDOFF.json';$b2=Join-Path $d.FullName 'benchmark\b2'
+            if (-not (Test-Path $handoff) -or -not (Test-Path $b2)) { continue }
+            try { $h=Get-Content $handoff -Raw|ConvertFrom-Json } catch { continue }
+            if (([string]$h.checkpoints.b2.sha256).ToLower() -ne $expected) { continue }
+            $needed=@('free.json','v3.json','v4.json','v5.json','rawmath.json')
+            if (($needed|Where-Object{-not(Test-Path (Join-Path $b2 $_))}).Count -gt 0) { continue }
+            $picked=$b2;break
+          }
+          if (-not $picked) { throw 'No completed hardened B2 benchmark matching the exact source checkpoint. Do not train without the before-state.' }
+          New-Item -ItemType Directory -Force runner_reports\before|Out-Null
+          Copy-Item (Join-Path $picked '*') runner_reports\before -Recurse -Force
+          "path=$picked" >> $env:GITHUB_OUTPUT
+          Write-Host "Using frozen B2 before-state: $picked"
+
+      - name: Build and validate prompt-group-disjoint human SFT data
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}'
+          if(Test-Path sft50_sources){Remove-Item sft50_sources -Recurse -Force}
+          if(Test-Path sft50_data){Remove-Item sft50_data -Recurse -Force}
+          & $py -X utf8 fetch_oasst1_sft50.py --out sft50_sources --max-en 14000 --max-de 5000
+          if($LASTEXITCODE -ne 0){throw 'OASST1 source preparation failed.'}
+          & $py -X utf8 prepare_sft50.py --source-root sft50_sources --out sft50_data --target-train-examples 0 --max-seq 768
+          if($LASTEXITCODE -ne 0){throw 'SFT preparation failed.'}
+          & $py -X utf8 validate_sft50_dataset.py --data sft50_data --out runner_reports\SFT_DATA_AUDIT.json
+          if($LASTEXITCODE -ne 0){throw 'SFT prompt-group leakage/data audit failed.'}
+
+      - name: Train one bounded G1 generation-repair stage
+        id: train
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          $out=Join-Path $assets ('runs\neral50m_g1_generation_repair_'+$env:GITHUB_RUN_ID)
+          "out=$out" >> $env:GITHUB_OUTPUT
+          & $py -X utf8 train_generation_repair50.py `
+            --init-from '${{ steps.source.outputs.checkpoint }}' --data sft50_data --replay-data pretrain50_b2_data --out $out `
+            --steps 1200 --seq 768 --batch-size 8 --replay-batch 6 --sft-weight 0.70 --eos-weight 1.5 `
+            --peak-lr 0.00001 --min-lr 0.000001 --warmup-fraction 0.05 --eval-every 100 --patience 5 `
+            --max-train-examples 5000 --max-val-examples 256 --dev-generation-examples 64 --desired-de-fraction 0.20 `
+            --min-answer-bytes 12 --max-answer-bytes 384 --max-lm-regression 0.03 --max-math-regression 0.05 `
+            --min-health-gain 2.0 --min-sft-nll-gain 0.005
+          if($LASTEXITCODE -ne 0){throw 'G1 training failed.'}
+
+      - name: Resolve selected G1 candidate
+        id: selected
+        run: |
+          $ErrorActionPreference='Stop';$out='${{ steps.train.outputs.out }}';$summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_repair.pt'
+          if(-not(Test-Path $summary)-or-not(Test-Path $best)){throw 'G1 outputs missing.'}
+          $s=Get-Content $summary -Raw|ConvertFrom-Json
+          if(-not $s.complete){throw "G1 training incomplete: $($s.stop)"}
+          "best=$best" >> $env:GITHUB_OUTPUT
+          "summary=$summary" >> $env:GITHUB_OUTPUT
+          "selected_step=$($s.selected_step)" >> $env:GITHUB_OUTPUT
+          Write-Host "Selected G1 step: $($s.selected_step); effective candidate: $($s.effective_weight_candidate)"
+
+      - name: Run mandatory complete frozen benchmark after G1
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$best='${{ steps.selected.outputs.best }}'
+          & $py -X utf8 run_frozen_benchmarks50.py --checkpoint $best --stage after --root runner_reports\frozen
+          if($LASTEXITCODE -ne 0){throw 'Mandatory post-G1 frozen benchmark failed.'}
+          & $py -X utf8 generation_probe50.py --checkpoint $best --out runner_reports\G1_GENERATION_LENGTH_PROBE.json --budgets 64,128,256
+          if($LASTEXITCODE -ne 0){throw 'Post-G1 generation-length probe failed.'}
+
+      - name: Compare B2 to G1 and apply all gates
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$after='runner_reports\frozen\after';$before='runner_reports\before';$summary='${{ steps.selected.outputs.summary }}'
+          & $py -X utf8 summarize_weight_stage50.py --stage 'Neral-50M G1 Generation Repair' `
+            --before-free "$before\free.json" --before-v3 "$before\v3.json" --before-v4 "$before\v4.json" --before-rawmath "$before\rawmath.json" `
+            --after-free "$after\free.json" --after-v3 "$after\v3.json" --after-v4 "$after\v4.json" --after-rawmath "$after\rawmath.json" `
+            --training-summary $summary --out-json runner_reports\G1_COMPARISON.json --out-md runner_reports\G1_COMPARISON.md
+          if($LASTEXITCODE -ne 0){throw 'G1 before/after comparison failed.'}
+
+          & $py -X utf8 stage_progress_gate50.py runner_reports\G1_COMPARISON.json --out runner_reports\G1_PROGRESS_GATE.json
+          $progressCode=$LASTEXITCODE
+          & $py -X utf8 long_context_gate50.py "$before\v5.json" "$after\v5.json" --mode protect --out runner_reports\G1_LONG_CONTEXT_GATE.json
+          $longCode=$LASTEXITCODE
+          & $py -X utf8 generation_health_gate50.py --free "$after\free.json" --v3 "$after\v3.json" --v4 "$after\v4.json" `
+            --reference-free "$before\free.json" --reference-v3 "$before\v3.json" --reference-v4 "$before\v4.json" --out runner_reports\G1_GENERATION_HEALTH_GATE.json
+          $healthCode=$LASTEXITCODE
+          & $py -X utf8 generation_repair_goal50.py `
+            --before-free "$before\free.json" --before-v3 "$before\v3.json" --before-v4 "$before\v4.json" --before-rawmath "$before\rawmath.json" `
+            --after-free "$after\free.json" --after-v3 "$after\v3.json" --after-v4 "$after\v4.json" --after-rawmath "$after\rawmath.json" `
+            --out runner_reports\G1_GOAL_GATE.json
+          $goalCode=$LASTEXITCODE
+
+          [ordered]@{
+            stage='G1 generation repair';goal_issue=36;source='B2 100M';selected_step=[int]'${{ steps.selected.outputs.selected_step }}';
+            frozen_benchmark_complete=$true;progress_gate_pass=($progressCode -eq 0);long_context_gate_pass=($longCode -eq 0);
+            generation_health_pass=($healthCode -eq 0);hard_goal_pass=($goalCode -eq 0);
+            next_action=if($goalCode -eq 0){'Review G1 for promotion; no further weights until review.'}else{'Do not compound G1; diagnose frozen result and design one new independent stage.'}
+          }|ConvertTo-Json|Set-Content -Encoding utf8 runner_reports\G1_DECISION.json
+          Get-Content runner_reports\G1_DECISION.json
+
+      - name: Reject private model or corpus uploads
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          if(Test-Path runner_reports){
+            $bad=Get-ChildItem runner_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private checkpoint/corpus found in report directory.'}
+          }
+
+      - name: Persist G1 reports locally
+        if: always()
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';if(-not $assets){exit 0}
+          $dest=Join-Path $assets ('reports\runner_50m_g1_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
+          if(Test-Path runner_reports){Copy-Item runner_reports\* $dest -Recurse -Force}
+          if(Test-Path sft50_data\manifest.json){Copy-Item sft50_data\manifest.json (Join-Path $dest 'sft_manifest.json') -Force}
+          if(Test-Path '${{ steps.selected.outputs.summary }}'){Copy-Item '${{ steps.selected.outputs.summary }}' (Join-Path $dest 'training_summary.json') -Force}
+          Write-Host "Persisted G1 reports to $dest"
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-g1-generation-repair-${{ github.run_id }}
+          path: src/runner_reports/
+          if-no-files-found: warn
+          retention-days: 14
