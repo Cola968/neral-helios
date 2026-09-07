@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "file_sha256": {
+    "benchmark_v3.py": "483eb2197eb6e141c31ce27a307754cbac6fc3b415787389dde06db7bd0cd21c",
+    "benchmark_v4.py": "851eeeb32aef522af2cd714a26febc41180f75921c82a22c5453cd4b64816e2d",
+    "benchmark_raw_math50.py": "91f75219ab9dd47cb1e42521d8a370a8fb8341e96b45af2f5c1f718bac9a42b3",
+    "raw_math50_data.py": "700a1538fe2d19fc9db91983797c2095e31a2d8dce29bc8f0252ba09c1672228",
+    "free_generation50.py": "487963610280ef1617ff4a1858e4e95cb85b554ffca25b8e3c451a05e736511a",
+    "benchmarks50/regression.jsonl": "ea85e28272b98f79d8911d677125455ffc3d506152804b51dc8069279deee5d9",
+    "benchmarks50/raw_math_v1.jsonl": "3f3d31fd1f42c16b05549553d2be78f71e59ce6065ab48435bd130a20d4b05b7",
+    "model.py": "a7a235318374d1398f2906a37118dc051e52ae7af27ab592325c95e615cffa32",
+    "model50.py": "1f01829e08bd8203a9ac5ec23a8e99256d781a24c2379517bc950ba550a7934c",
+    "tokenizer.py": "aef494d753a2721d92542136cc502804af67254ac10101f2ea96513958058be7",
+    "experiment.py": "de78d7235323203bc33e6f014937c2ba49456c5849f5e621ae874da64c14b92d",
+    "pretrain50_data/val_de.bin": "f6aa516dd2af873a078823be35732817a139e670d0fb4eb28fff00f2ba7a5ebf",
+    "pretrain50_data/val_en.bin": "a99a197ede81f0877e919174bd0168ab9f87b49c3d7ef66dbb5aa70fb26d287b"
+  },
+  "baseline20_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "generation_budgets": {
+    "free": 64,
+    "v3": 96,
+    "v4": 96,
+    "rawmath": 32
+  },
+  "tools_used": false
+}

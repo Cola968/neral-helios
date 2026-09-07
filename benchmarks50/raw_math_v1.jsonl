@@ -1,0 +1,500 @@
+{"category": "add_sub", "language": "de", "prompt": "Was ist 97 + 12? Antworte nur mit der Zahl.", "answer": "109", "canonical": "add_sub:97:+:12", "distribution": "id", "id": "rawmath/add_sub/000"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 0 - 15? Antworte nur mit der Zahl.", "answer": "-15", "canonical": "add_sub:0:-:15", "distribution": "id", "id": "rawmath/add_sub/001"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 114 - 163? Antworte nur mit der Zahl.", "answer": "-49", "canonical": "add_sub:114:-:163", "distribution": "id", "id": "rawmath/add_sub/002"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 21 + 105? Antworte nur mit der Zahl.", "answer": "126", "canonical": "add_sub:21:+:105", "distribution": "id", "id": "rawmath/add_sub/003"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 64 - 85? Antworte nur mit der Zahl.", "answer": "-21", "canonical": "add_sub:64:-:85", "distribution": "id", "id": "rawmath/add_sub/004"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 50 + 187? Antworte nur mit der Zahl.", "answer": "237", "canonical": "add_sub:50:+:187", "distribution": "id", "id": "rawmath/add_sub/005"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 185 + 176? Antworte nur mit der Zahl.", "answer": "361", "canonical": "add_sub:185:+:176", "distribution": "id", "id": "rawmath/add_sub/006"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 143 - 19? Antworte nur mit der Zahl.", "answer": "124", "canonical": "add_sub:143:-:19", "distribution": "id", "id": "rawmath/add_sub/007"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 150 + 39? Antworte nur mit der Zahl.", "answer": "189", "canonical": "add_sub:150:+:39", "distribution": "id", "id": "rawmath/add_sub/008"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 120 - 166? Antworte nur mit der Zahl.", "answer": "-46", "canonical": "add_sub:120:-:166", "distribution": "id", "id": "rawmath/add_sub/009"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 99 + 10? Antworte nur mit der Zahl.", "answer": "109", "canonical": "add_sub:99:+:10", "distribution": "id", "id": "rawmath/add_sub/010"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 102 + 186? Antworte nur mit der Zahl.", "answer": "288", "canonical": "add_sub:102:+:186", "distribution": "id", "id": "rawmath/add_sub/011"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 45 - 2? Antworte nur mit der Zahl.", "answer": "43", "canonical": "add_sub:45:-:2", "distribution": "id", "id": "rawmath/add_sub/012"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 7 - 120? Antworte nur mit der Zahl.", "answer": "-113", "canonical": "add_sub:7:-:120", "distribution": "id", "id": "rawmath/add_sub/013"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 30 - 94? Antworte nur mit der Zahl.", "answer": "-64", "canonical": "add_sub:30:-:94", "distribution": "id", "id": "rawmath/add_sub/014"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 62 - 128? Antworte nur mit der Zahl.", "answer": "-66", "canonical": "add_sub:62:-:128", "distribution": "id", "id": "rawmath/add_sub/015"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 95 - 54? Antworte nur mit der Zahl.", "answer": "41", "canonical": "add_sub:95:-:54", "distribution": "id", "id": "rawmath/add_sub/016"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 100 - 53? Antworte nur mit der Zahl.", "answer": "47", "canonical": "add_sub:100:-:53", "distribution": "id", "id": "rawmath/add_sub/017"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 53 - 175? Antworte nur mit der Zahl.", "answer": "-122", "canonical": "add_sub:53:-:175", "distribution": "id", "id": "rawmath/add_sub/018"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 72 + 16? Antworte nur mit der Zahl.", "answer": "88", "canonical": "add_sub:72:+:16", "distribution": "id", "id": "rawmath/add_sub/019"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 126 - 149? Antworte nur mit der Zahl.", "answer": "-23", "canonical": "add_sub:126:-:149", "distribution": "id", "id": "rawmath/add_sub/020"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 46 + 51? Antworte nur mit der Zahl.", "answer": "97", "canonical": "add_sub:46:+:51", "distribution": "id", "id": "rawmath/add_sub/021"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 45 + 2? Antworte nur mit der Zahl.", "answer": "47", "canonical": "add_sub:45:+:2", "distribution": "id", "id": "rawmath/add_sub/022"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 163 + 47? Antworte nur mit der Zahl.", "answer": "210", "canonical": "add_sub:163:+:47", "distribution": "id", "id": "rawmath/add_sub/023"}
+{"category": "add_sub", "language": "de", "prompt": "Was ist 121 + 108? Antworte nur mit der Zahl.", "answer": "229", "canonical": "add_sub:121:+:108", "distribution": "id", "id": "rawmath/add_sub/024"}
+{"category": "add_sub", "language": "en", "prompt": "What is 69 - 157? Answer with only the number.", "answer": "-88", "canonical": "add_sub:69:-:157", "distribution": "id", "id": "rawmath/add_sub/025"}
+{"category": "add_sub", "language": "en", "prompt": "What is 170 - 53? Answer with only the number.", "answer": "117", "canonical": "add_sub:170:-:53", "distribution": "id", "id": "rawmath/add_sub/026"}
+{"category": "add_sub", "language": "en", "prompt": "What is 111 - 19? Answer with only the number.", "answer": "92", "canonical": "add_sub:111:-:19", "distribution": "id", "id": "rawmath/add_sub/027"}
+{"category": "add_sub", "language": "en", "prompt": "What is 84 + 198? Answer with only the number.", "answer": "282", "canonical": "add_sub:84:+:198", "distribution": "id", "id": "rawmath/add_sub/028"}
+{"category": "add_sub", "language": "en", "prompt": "What is 92 + 42? Answer with only the number.", "answer": "134", "canonical": "add_sub:92:+:42", "distribution": "id", "id": "rawmath/add_sub/029"}
+{"category": "add_sub", "language": "en", "prompt": "What is 127 + 69? Answer with only the number.", "answer": "196", "canonical": "add_sub:127:+:69", "distribution": "id", "id": "rawmath/add_sub/030"}
+{"category": "add_sub", "language": "en", "prompt": "What is 17 + 112? Answer with only the number.", "answer": "129", "canonical": "add_sub:17:+:112", "distribution": "id", "id": "rawmath/add_sub/031"}
+{"category": "add_sub", "language": "en", "prompt": "What is 81 - 74? Answer with only the number.", "answer": "7", "canonical": "add_sub:81:-:74", "distribution": "id", "id": "rawmath/add_sub/032"}
+{"category": "add_sub", "language": "en", "prompt": "What is 160 - 156? Answer with only the number.", "answer": "4", "canonical": "add_sub:160:-:156", "distribution": "id", "id": "rawmath/add_sub/033"}
+{"category": "add_sub", "language": "en", "prompt": "What is 165 + 0? Answer with only the number.", "answer": "165", "canonical": "add_sub:165:+:0", "distribution": "id", "id": "rawmath/add_sub/034"}
+{"category": "add_sub", "language": "en", "prompt": "What is 159 + 101? Answer with only the number.", "answer": "260", "canonical": "add_sub:159:+:101", "distribution": "id", "id": "rawmath/add_sub/035"}
+{"category": "add_sub", "language": "en", "prompt": "What is 74 + 164? Answer with only the number.", "answer": "238", "canonical": "add_sub:74:+:164", "distribution": "id", "id": "rawmath/add_sub/036"}
+{"category": "add_sub", "language": "en", "prompt": "What is 114 + 36? Answer with only the number.", "answer": "150", "canonical": "add_sub:114:+:36", "distribution": "id", "id": "rawmath/add_sub/037"}
+{"category": "add_sub", "language": "en", "prompt": "What is 13 - 3? Answer with only the number.", "answer": "10", "canonical": "add_sub:13:-:3", "distribution": "id", "id": "rawmath/add_sub/038"}
+{"category": "add_sub", "language": "en", "prompt": "What is 70 + 51? Answer with only the number.", "answer": "121", "canonical": "add_sub:70:+:51", "distribution": "id", "id": "rawmath/add_sub/039"}
+{"category": "add_sub", "language": "en", "prompt": "What is 102 + 56? Answer with only the number.", "answer": "158", "canonical": "add_sub:102:+:56", "distribution": "id", "id": "rawmath/add_sub/040"}
+{"category": "add_sub", "language": "en", "prompt": "What is 0 + 42? Answer with only the number.", "answer": "42", "canonical": "add_sub:0:+:42", "distribution": "id", "id": "rawmath/add_sub/041"}
+{"category": "add_sub", "language": "en", "prompt": "What is 134 + 120? Answer with only the number.", "answer": "254", "canonical": "add_sub:134:+:120", "distribution": "id", "id": "rawmath/add_sub/042"}
+{"category": "add_sub", "language": "en", "prompt": "What is 128 + 146? Answer with only the number.", "answer": "274", "canonical": "add_sub:128:+:146", "distribution": "id", "id": "rawmath/add_sub/043"}
+{"category": "add_sub", "language": "en", "prompt": "What is 6 + 32? Answer with only the number.", "answer": "38", "canonical": "add_sub:6:+:32", "distribution": "id", "id": "rawmath/add_sub/044"}
+{"category": "add_sub", "language": "en", "prompt": "What is 93 - 195? Answer with only the number.", "answer": "-102", "canonical": "add_sub:93:-:195", "distribution": "id", "id": "rawmath/add_sub/045"}
+{"category": "add_sub", "language": "en", "prompt": "What is 128 - 108? Answer with only the number.", "answer": "20", "canonical": "add_sub:128:-:108", "distribution": "id", "id": "rawmath/add_sub/046"}
+{"category": "add_sub", "language": "en", "prompt": "What is 38 + 154? Answer with only the number.", "answer": "192", "canonical": "add_sub:38:+:154", "distribution": "id", "id": "rawmath/add_sub/047"}
+{"category": "add_sub", "language": "en", "prompt": "What is 178 + 84? Answer with only the number.", "answer": "262", "canonical": "add_sub:178:+:84", "distribution": "id", "id": "rawmath/add_sub/048"}
+{"category": "add_sub", "language": "en", "prompt": "What is 72 + 42? Answer with only the number.", "answer": "114", "canonical": "add_sub:72:+:42", "distribution": "id", "id": "rawmath/add_sub/049"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 27 × 6. Nur das Ergebnis.", "answer": "162", "canonical": "mul:27:6", "distribution": "id", "id": "rawmath/mul_div/000"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 204 ÷ 12. Nur das Ergebnis.", "answer": "17", "canonical": "div:204:12", "distribution": "id", "id": "rawmath/mul_div/001"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 14 × 2. Nur das Ergebnis.", "answer": "28", "canonical": "mul:14:2", "distribution": "id", "id": "rawmath/mul_div/002"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 13 × 15. Nur das Ergebnis.", "answer": "195", "canonical": "mul:13:15", "distribution": "id", "id": "rawmath/mul_div/003"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 8 ÷ 2. Nur das Ergebnis.", "answer": "4", "canonical": "div:8:2", "distribution": "id", "id": "rawmath/mul_div/004"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 88 ÷ 11. Nur das Ergebnis.", "answer": "8", "canonical": "div:88:11", "distribution": "id", "id": "rawmath/mul_div/005"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 4 × 11. Nur das Ergebnis.", "answer": "44", "canonical": "mul:4:11", "distribution": "id", "id": "rawmath/mul_div/006"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 16 × 29. Nur das Ergebnis.", "answer": "464", "canonical": "mul:16:29", "distribution": "id", "id": "rawmath/mul_div/007"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 6 × 22. Nur das Ergebnis.", "answer": "132", "canonical": "mul:6:22", "distribution": "id", "id": "rawmath/mul_div/008"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 21 ÷ 3. Nur das Ergebnis.", "answer": "7", "canonical": "div:21:3", "distribution": "id", "id": "rawmath/mul_div/009"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 14 ÷ 7. Nur das Ergebnis.", "answer": "2", "canonical": "div:14:7", "distribution": "id", "id": "rawmath/mul_div/010"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 207 ÷ 9. Nur das Ergebnis.", "answer": "23", "canonical": "div:207:9", "distribution": "id", "id": "rawmath/mul_div/011"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 28 × 27. Nur das Ergebnis.", "answer": "756", "canonical": "mul:28:27", "distribution": "id", "id": "rawmath/mul_div/012"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 30 ÷ 10. Nur das Ergebnis.", "answer": "3", "canonical": "div:30:10", "distribution": "id", "id": "rawmath/mul_div/013"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 336 ÷ 12. Nur das Ergebnis.", "answer": "28", "canonical": "div:336:12", "distribution": "id", "id": "rawmath/mul_div/014"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 4 × 6. Nur das Ergebnis.", "answer": "24", "canonical": "mul:4:6", "distribution": "id", "id": "rawmath/mul_div/015"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 115 ÷ 5. Nur das Ergebnis.", "answer": "23", "canonical": "div:115:5", "distribution": "id", "id": "rawmath/mul_div/016"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 5 × 27. Nur das Ergebnis.", "answer": "135", "canonical": "mul:5:27", "distribution": "id", "id": "rawmath/mul_div/017"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 2 × 22. Nur das Ergebnis.", "answer": "44", "canonical": "mul:2:22", "distribution": "id", "id": "rawmath/mul_div/018"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 19 × 27. Nur das Ergebnis.", "answer": "513", "canonical": "mul:19:27", "distribution": "id", "id": "rawmath/mul_div/019"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 23 × 5. Nur das Ergebnis.", "answer": "115", "canonical": "mul:23:5", "distribution": "id", "id": "rawmath/mul_div/020"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 168 ÷ 14. Nur das Ergebnis.", "answer": "12", "canonical": "div:168:14", "distribution": "id", "id": "rawmath/mul_div/021"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 15 × 17. Nur das Ergebnis.", "answer": "255", "canonical": "mul:15:17", "distribution": "id", "id": "rawmath/mul_div/022"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 196 ÷ 14. Nur das Ergebnis.", "answer": "14", "canonical": "div:196:14", "distribution": "id", "id": "rawmath/mul_div/023"}
+{"category": "mul_div", "language": "de", "prompt": "Berechne 250 ÷ 10. Nur das Ergebnis.", "answer": "25", "canonical": "div:250:10", "distribution": "id", "id": "rawmath/mul_div/024"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 308 ÷ 14. Result only.", "answer": "22", "canonical": "div:308:14", "distribution": "id", "id": "rawmath/mul_div/025"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 9 × 15. Result only.", "answer": "135", "canonical": "mul:9:15", "distribution": "id", "id": "rawmath/mul_div/026"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 377 ÷ 13. Result only.", "answer": "29", "canonical": "div:377:13", "distribution": "id", "id": "rawmath/mul_div/027"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 70 ÷ 5. Result only.", "answer": "14", "canonical": "div:70:5", "distribution": "id", "id": "rawmath/mul_div/028"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 14 × 17. Result only.", "answer": "238", "canonical": "mul:14:17", "distribution": "id", "id": "rawmath/mul_div/029"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 4 × 2. Result only.", "answer": "8", "canonical": "mul:4:2", "distribution": "id", "id": "rawmath/mul_div/030"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 2 × 11. Result only.", "answer": "22", "canonical": "mul:2:11", "distribution": "id", "id": "rawmath/mul_div/031"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 54 ÷ 3. Result only.", "answer": "18", "canonical": "div:54:3", "distribution": "id", "id": "rawmath/mul_div/032"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 132 ÷ 6. Result only.", "answer": "22", "canonical": "div:132:6", "distribution": "id", "id": "rawmath/mul_div/033"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 8 × 12. Result only.", "answer": "96", "canonical": "mul:8:12", "distribution": "id", "id": "rawmath/mul_div/034"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 165 ÷ 11. Result only.", "answer": "15", "canonical": "div:165:11", "distribution": "id", "id": "rawmath/mul_div/035"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 57 ÷ 3. Result only.", "answer": "19", "canonical": "div:57:3", "distribution": "id", "id": "rawmath/mul_div/036"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 2 × 17. Result only.", "answer": "34", "canonical": "mul:2:17", "distribution": "id", "id": "rawmath/mul_div/037"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 21 × 3. Result only.", "answer": "63", "canonical": "mul:21:3", "distribution": "id", "id": "rawmath/mul_div/038"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 11 × 20. Result only.", "answer": "220", "canonical": "mul:11:20", "distribution": "id", "id": "rawmath/mul_div/039"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 12 × 11. Result only.", "answer": "132", "canonical": "mul:12:11", "distribution": "id", "id": "rawmath/mul_div/040"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 7 × 18. Result only.", "answer": "126", "canonical": "mul:7:18", "distribution": "id", "id": "rawmath/mul_div/041"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 322 ÷ 14. Result only.", "answer": "23", "canonical": "div:322:14", "distribution": "id", "id": "rawmath/mul_div/042"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 11 × 8. Result only.", "answer": "88", "canonical": "mul:11:8", "distribution": "id", "id": "rawmath/mul_div/043"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 17 × 22. Result only.", "answer": "374", "canonical": "mul:17:22", "distribution": "id", "id": "rawmath/mul_div/044"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 104 ÷ 4. Result only.", "answer": "26", "canonical": "div:104:4", "distribution": "id", "id": "rawmath/mul_div/045"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 22 × 19. Result only.", "answer": "418", "canonical": "mul:22:19", "distribution": "id", "id": "rawmath/mul_div/046"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 11 × 11. Result only.", "answer": "121", "canonical": "mul:11:11", "distribution": "id", "id": "rawmath/mul_div/047"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 120 ÷ 15. Result only.", "answer": "8", "canonical": "div:120:15", "distribution": "id", "id": "rawmath/mul_div/048"}
+{"category": "mul_div", "language": "en", "prompt": "Compute 120 ÷ 6. Result only.", "answer": "20", "canonical": "div:120:6", "distribution": "id", "id": "rawmath/mul_div/049"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 11 - (-83). Nur das Ergebnis.", "answer": "94", "canonical": "neg:11:-:-83", "distribution": "id", "id": "rawmath/negatives/000"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 89 - (-50). Nur das Ergebnis.", "answer": "139", "canonical": "neg:89:-:-50", "distribution": "id", "id": "rawmath/negatives/001"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -33 - (-49). Nur das Ergebnis.", "answer": "16", "canonical": "neg:-33:-:-49", "distribution": "id", "id": "rawmath/negatives/002"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 0 + (8). Nur das Ergebnis.", "answer": "8", "canonical": "neg:0:+:8", "distribution": "id", "id": "rawmath/negatives/003"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -74 - (41). Nur das Ergebnis.", "answer": "-115", "canonical": "neg:-74:-:41", "distribution": "id", "id": "rawmath/negatives/004"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 86 + (54). Nur das Ergebnis.", "answer": "140", "canonical": "neg:86:+:54", "distribution": "id", "id": "rawmath/negatives/005"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -34 - (72). Nur das Ergebnis.", "answer": "-106", "canonical": "neg:-34:-:72", "distribution": "id", "id": "rawmath/negatives/006"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 42 + (-46). Nur das Ergebnis.", "answer": "-4", "canonical": "neg:42:+:-46", "distribution": "id", "id": "rawmath/negatives/007"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -56 - (13). Nur das Ergebnis.", "answer": "-69", "canonical": "neg:-56:-:13", "distribution": "id", "id": "rawmath/negatives/008"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -2 - (-4). Nur das Ergebnis.", "answer": "2", "canonical": "neg:-2:-:-4", "distribution": "id", "id": "rawmath/negatives/009"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 32 - (5). Nur das Ergebnis.", "answer": "27", "canonical": "neg:32:-:5", "distribution": "id", "id": "rawmath/negatives/010"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 67 + (-10). Nur das Ergebnis.", "answer": "57", "canonical": "neg:67:+:-10", "distribution": "id", "id": "rawmath/negatives/011"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 39 - (4). Nur das Ergebnis.", "answer": "35", "canonical": "neg:39:-:4", "distribution": "id", "id": "rawmath/negatives/012"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 66 + (-60). Nur das Ergebnis.", "answer": "6", "canonical": "neg:66:+:-60", "distribution": "id", "id": "rawmath/negatives/013"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -74 - (-2). Nur das Ergebnis.", "answer": "-72", "canonical": "neg:-74:-:-2", "distribution": "id", "id": "rawmath/negatives/014"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 65 - (79). Nur das Ergebnis.", "answer": "-14", "canonical": "neg:65:-:79", "distribution": "id", "id": "rawmath/negatives/015"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -42 - (4). Nur das Ergebnis.", "answer": "-46", "canonical": "neg:-42:-:4", "distribution": "id", "id": "rawmath/negatives/016"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 56 + (-76). Nur das Ergebnis.", "answer": "-20", "canonical": "neg:56:+:-76", "distribution": "id", "id": "rawmath/negatives/017"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -36 + (13). Nur das Ergebnis.", "answer": "-23", "canonical": "neg:-36:+:13", "distribution": "id", "id": "rawmath/negatives/018"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 42 - (-55). Nur das Ergebnis.", "answer": "97", "canonical": "neg:42:-:-55", "distribution": "id", "id": "rawmath/negatives/019"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -21 + (49). Nur das Ergebnis.", "answer": "28", "canonical": "neg:-21:+:49", "distribution": "id", "id": "rawmath/negatives/020"}
+{"category": "negatives", "language": "de", "prompt": "Berechne 27 - (28). Nur das Ergebnis.", "answer": "-1", "canonical": "neg:27:-:28", "distribution": "id", "id": "rawmath/negatives/021"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -45 - (-7). Nur das Ergebnis.", "answer": "-38", "canonical": "neg:-45:-:-7", "distribution": "id", "id": "rawmath/negatives/022"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -69 + (49). Nur das Ergebnis.", "answer": "-20", "canonical": "neg:-69:+:49", "distribution": "id", "id": "rawmath/negatives/023"}
+{"category": "negatives", "language": "de", "prompt": "Berechne -58 - (-83). Nur das Ergebnis.", "answer": "25", "canonical": "neg:-58:-:-83", "distribution": "id", "id": "rawmath/negatives/024"}
+{"category": "negatives", "language": "en", "prompt": "Compute 47 + (-82). Result only.", "answer": "-35", "canonical": "neg:47:+:-82", "distribution": "id", "id": "rawmath/negatives/025"}
+{"category": "negatives", "language": "en", "prompt": "Compute 89 + (39). Result only.", "answer": "128", "canonical": "neg:89:+:39", "distribution": "id", "id": "rawmath/negatives/026"}
+{"category": "negatives", "language": "en", "prompt": "Compute -44 - (59). Result only.", "answer": "-103", "canonical": "neg:-44:-:59", "distribution": "id", "id": "rawmath/negatives/027"}
+{"category": "negatives", "language": "en", "prompt": "Compute -1 + (-40). Result only.", "answer": "-41", "canonical": "neg:-1:+:-40", "distribution": "id", "id": "rawmath/negatives/028"}
+{"category": "negatives", "language": "en", "prompt": "Compute -32 + (74). Result only.", "answer": "42", "canonical": "neg:-32:+:74", "distribution": "id", "id": "rawmath/negatives/029"}
+{"category": "negatives", "language": "en", "prompt": "Compute 44 + (-68). Result only.", "answer": "-24", "canonical": "neg:44:+:-68", "distribution": "id", "id": "rawmath/negatives/030"}
+{"category": "negatives", "language": "en", "prompt": "Compute -49 - (-94). Result only.", "answer": "45", "canonical": "neg:-49:-:-94", "distribution": "id", "id": "rawmath/negatives/031"}
+{"category": "negatives", "language": "en", "prompt": "Compute -83 + (25). Result only.", "answer": "-58", "canonical": "neg:-83:+:25", "distribution": "id", "id": "rawmath/negatives/032"}
+{"category": "negatives", "language": "en", "prompt": "Compute 83 - (78). Result only.", "answer": "5", "canonical": "neg:83:-:78", "distribution": "id", "id": "rawmath/negatives/033"}
+{"category": "negatives", "language": "en", "prompt": "Compute -20 + (57). Result only.", "answer": "37", "canonical": "neg:-20:+:57", "distribution": "id", "id": "rawmath/negatives/034"}
+{"category": "negatives", "language": "en", "prompt": "Compute 28 - (99). Result only.", "answer": "-71", "canonical": "neg:28:-:99", "distribution": "id", "id": "rawmath/negatives/035"}
+{"category": "negatives", "language": "en", "prompt": "Compute 90 + (49). Result only.", "answer": "139", "canonical": "neg:90:+:49", "distribution": "id", "id": "rawmath/negatives/036"}
+{"category": "negatives", "language": "en", "prompt": "Compute 77 - (-23). Result only.", "answer": "100", "canonical": "neg:77:-:-23", "distribution": "id", "id": "rawmath/negatives/037"}
+{"category": "negatives", "language": "en", "prompt": "Compute 26 - (-74). Result only.", "answer": "100", "canonical": "neg:26:-:-74", "distribution": "id", "id": "rawmath/negatives/038"}
+{"category": "negatives", "language": "en", "prompt": "Compute 6 + (22). Result only.", "answer": "28", "canonical": "neg:6:+:22", "distribution": "id", "id": "rawmath/negatives/039"}
+{"category": "negatives", "language": "en", "prompt": "Compute -30 - (-15). Result only.", "answer": "-15", "canonical": "neg:-30:-:-15", "distribution": "id", "id": "rawmath/negatives/040"}
+{"category": "negatives", "language": "en", "prompt": "Compute -43 - (-27). Result only.", "answer": "-16", "canonical": "neg:-43:-:-27", "distribution": "id", "id": "rawmath/negatives/041"}
+{"category": "negatives", "language": "en", "prompt": "Compute 56 - (26). Result only.", "answer": "30", "canonical": "neg:56:-:26", "distribution": "id", "id": "rawmath/negatives/042"}
+{"category": "negatives", "language": "en", "prompt": "Compute 3 - (-99). Result only.", "answer": "102", "canonical": "neg:3:-:-99", "distribution": "id", "id": "rawmath/negatives/043"}
+{"category": "negatives", "language": "en", "prompt": "Compute 29 + (84). Result only.", "answer": "113", "canonical": "neg:29:+:84", "distribution": "id", "id": "rawmath/negatives/044"}
+{"category": "negatives", "language": "en", "prompt": "Compute 42 + (55). Result only.", "answer": "97", "canonical": "neg:42:+:55", "distribution": "id", "id": "rawmath/negatives/045"}
+{"category": "negatives", "language": "en", "prompt": "Compute -81 - (34). Result only.", "answer": "-115", "canonical": "neg:-81:-:34", "distribution": "id", "id": "rawmath/negatives/046"}
+{"category": "negatives", "language": "en", "prompt": "Compute -79 - (41). Result only.", "answer": "-120", "canonical": "neg:-79:-:41", "distribution": "id", "id": "rawmath/negatives/047"}
+{"category": "negatives", "language": "en", "prompt": "Compute 57 + (-88). Result only.", "answer": "-31", "canonical": "neg:57:+:-88", "distribution": "id", "id": "rawmath/negatives/048"}
+{"category": "negatives", "language": "en", "prompt": "Compute 92 + (36). Result only.", "answer": "128", "canonical": "neg:92:+:36", "distribution": "id", "id": "rawmath/negatives/049"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 4/10 - 9/8. Kürze vollständig. Nur das Ergebnis.", "answer": "-29/40", "canonical": "frac:4/10:-:9/8", "distribution": "id", "id": "rawmath/fractions/000"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 2/12 - 7/10. Kürze vollständig. Nur das Ergebnis.", "answer": "-8/15", "canonical": "frac:2/12:-:7/10", "distribution": "id", "id": "rawmath/fractions/001"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 2/5 - 6/4. Kürze vollständig. Nur das Ergebnis.", "answer": "-11/10", "canonical": "frac:2/5:-:6/4", "distribution": "id", "id": "rawmath/fractions/002"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 6/8 + 12/4. Kürze vollständig. Nur das Ergebnis.", "answer": "15/4", "canonical": "frac:6/8:+:12/4", "distribution": "id", "id": "rawmath/fractions/003"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 3/15 + 4/5. Kürze vollständig. Nur das Ergebnis.", "answer": "1", "canonical": "frac:3/15:+:4/5", "distribution": "id", "id": "rawmath/fractions/004"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 1/2 + 8/9. Kürze vollständig. Nur das Ergebnis.", "answer": "25/18", "canonical": "frac:1/2:+:8/9", "distribution": "id", "id": "rawmath/fractions/005"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 7/4 + 8/10. Kürze vollständig. Nur das Ergebnis.", "answer": "51/20", "canonical": "frac:7/4:+:8/10", "distribution": "id", "id": "rawmath/fractions/006"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 9/14 - 11/13. Kürze vollständig. Nur das Ergebnis.", "answer": "-37/182", "canonical": "frac:9/14:-:11/13", "distribution": "id", "id": "rawmath/fractions/007"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 5/14 - 10/15. Kürze vollständig. Nur das Ergebnis.", "answer": "-13/42", "canonical": "frac:5/14:-:10/15", "distribution": "id", "id": "rawmath/fractions/008"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 8/8 + 5/7. Kürze vollständig. Nur das Ergebnis.", "answer": "12/7", "canonical": "frac:8/8:+:5/7", "distribution": "id", "id": "rawmath/fractions/009"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 7/12 + 2/4. Kürze vollständig. Nur das Ergebnis.", "answer": "13/12", "canonical": "frac:7/12:+:2/4", "distribution": "id", "id": "rawmath/fractions/010"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 1/13 + 9/14. Kürze vollständig. Nur das Ergebnis.", "answer": "131/182", "canonical": "frac:1/13:+:9/14", "distribution": "id", "id": "rawmath/fractions/011"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 8/15 - 12/14. Kürze vollständig. Nur das Ergebnis.", "answer": "-34/105", "canonical": "frac:8/15:-:12/14", "distribution": "id", "id": "rawmath/fractions/012"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 4/12 - 10/3. Kürze vollständig. Nur das Ergebnis.", "answer": "-3", "canonical": "frac:4/12:-:10/3", "distribution": "id", "id": "rawmath/fractions/013"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 4/5 - 2/7. Kürze vollständig. Nur das Ergebnis.", "answer": "18/35", "canonical": "frac:4/5:-:2/7", "distribution": "id", "id": "rawmath/fractions/014"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 12/14 + 7/9. Kürze vollständig. Nur das Ergebnis.", "answer": "103/63", "canonical": "frac:12/14:+:7/9", "distribution": "id", "id": "rawmath/fractions/015"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 9/9 - 3/12. Kürze vollständig. Nur das Ergebnis.", "answer": "3/4", "canonical": "frac:9/9:-:3/12", "distribution": "id", "id": "rawmath/fractions/016"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 2/14 + 9/7. Kürze vollständig. Nur das Ergebnis.", "answer": "10/7", "canonical": "frac:2/14:+:9/7", "distribution": "id", "id": "rawmath/fractions/017"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 8/13 + 12/5. Kürze vollständig. Nur das Ergebnis.", "answer": "196/65", "canonical": "frac:8/13:+:12/5", "distribution": "id", "id": "rawmath/fractions/018"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 3/12 - 6/15. Kürze vollständig. Nur das Ergebnis.", "answer": "-3/20", "canonical": "frac:3/12:-:6/15", "distribution": "id", "id": "rawmath/fractions/019"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 8/11 - 3/3. Kürze vollständig. Nur das Ergebnis.", "answer": "-3/11", "canonical": "frac:8/11:-:3/3", "distribution": "id", "id": "rawmath/fractions/020"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 7/5 + 11/13. Kürze vollständig. Nur das Ergebnis.", "answer": "146/65", "canonical": "frac:7/5:+:11/13", "distribution": "id", "id": "rawmath/fractions/021"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 9/11 - 6/6. Kürze vollständig. Nur das Ergebnis.", "answer": "-2/11", "canonical": "frac:9/11:-:6/6", "distribution": "id", "id": "rawmath/fractions/022"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 7/14 - 2/2. Kürze vollständig. Nur das Ergebnis.", "answer": "-1/2", "canonical": "frac:7/14:-:2/2", "distribution": "id", "id": "rawmath/fractions/023"}
+{"category": "fractions", "language": "de", "prompt": "Berechne 10/5 + 5/14. Kürze vollständig. Nur das Ergebnis.", "answer": "33/14", "canonical": "frac:10/5:+:5/14", "distribution": "id", "id": "rawmath/fractions/024"}
+{"category": "fractions", "language": "en", "prompt": "Compute 3/15 + 12/13. Simplify fully. Result only.", "answer": "73/65", "canonical": "frac:3/15:+:12/13", "distribution": "id", "id": "rawmath/fractions/025"}
+{"category": "fractions", "language": "en", "prompt": "Compute 1/4 + 5/8. Simplify fully. Result only.", "answer": "7/8", "canonical": "frac:1/4:+:5/8", "distribution": "id", "id": "rawmath/fractions/026"}
+{"category": "fractions", "language": "en", "prompt": "Compute 5/6 - 1/12. Simplify fully. Result only.", "answer": "3/4", "canonical": "frac:5/6:-:1/12", "distribution": "id", "id": "rawmath/fractions/027"}
+{"category": "fractions", "language": "en", "prompt": "Compute 12/13 + 2/3. Simplify fully. Result only.", "answer": "62/39", "canonical": "frac:12/13:+:2/3", "distribution": "id", "id": "rawmath/fractions/028"}
+{"category": "fractions", "language": "en", "prompt": "Compute 7/10 + 7/14. Simplify fully. Result only.", "answer": "6/5", "canonical": "frac:7/10:+:7/14", "distribution": "id", "id": "rawmath/fractions/029"}
+{"category": "fractions", "language": "en", "prompt": "Compute 5/8 - 6/2. Simplify fully. Result only.", "answer": "-19/8", "canonical": "frac:5/8:-:6/2", "distribution": "id", "id": "rawmath/fractions/030"}
+{"category": "fractions", "language": "en", "prompt": "Compute 9/10 - 10/8. Simplify fully. Result only.", "answer": "-7/20", "canonical": "frac:9/10:-:10/8", "distribution": "id", "id": "rawmath/fractions/031"}
+{"category": "fractions", "language": "en", "prompt": "Compute 1/2 - 2/4. Simplify fully. Result only.", "answer": "0", "canonical": "frac:1/2:-:2/4", "distribution": "id", "id": "rawmath/fractions/032"}
+{"category": "fractions", "language": "en", "prompt": "Compute 3/14 + 9/5. Simplify fully. Result only.", "answer": "141/70", "canonical": "frac:3/14:+:9/5", "distribution": "id", "id": "rawmath/fractions/033"}
+{"category": "fractions", "language": "en", "prompt": "Compute 3/4 + 2/13. Simplify fully. Result only.", "answer": "47/52", "canonical": "frac:3/4:+:2/13", "distribution": "id", "id": "rawmath/fractions/034"}
+{"category": "fractions", "language": "en", "prompt": "Compute 8/11 - 12/12. Simplify fully. Result only.", "answer": "-3/11", "canonical": "frac:8/11:-:12/12", "distribution": "id", "id": "rawmath/fractions/035"}
+{"category": "fractions", "language": "en", "prompt": "Compute 6/5 - 4/9. Simplify fully. Result only.", "answer": "34/45", "canonical": "frac:6/5:-:4/9", "distribution": "id", "id": "rawmath/fractions/036"}
+{"category": "fractions", "language": "en", "prompt": "Compute 6/2 - 8/10. Simplify fully. Result only.", "answer": "11/5", "canonical": "frac:6/2:-:8/10", "distribution": "id", "id": "rawmath/fractions/037"}
+{"category": "fractions", "language": "en", "prompt": "Compute 9/10 + 8/13. Simplify fully. Result only.", "answer": "197/130", "canonical": "frac:9/10:+:8/13", "distribution": "id", "id": "rawmath/fractions/038"}
+{"category": "fractions", "language": "en", "prompt": "Compute 1/4 + 10/14. Simplify fully. Result only.", "answer": "27/28", "canonical": "frac:1/4:+:10/14", "distribution": "id", "id": "rawmath/fractions/039"}
+{"category": "fractions", "language": "en", "prompt": "Compute 10/4 + 10/8. Simplify fully. Result only.", "answer": "15/4", "canonical": "frac:10/4:+:10/8", "distribution": "id", "id": "rawmath/fractions/040"}
+{"category": "fractions", "language": "en", "prompt": "Compute 9/13 - 8/14. Simplify fully. Result only.", "answer": "11/91", "canonical": "frac:9/13:-:8/14", "distribution": "id", "id": "rawmath/fractions/041"}
+{"category": "fractions", "language": "en", "prompt": "Compute 7/14 - 7/8. Simplify fully. Result only.", "answer": "-3/8", "canonical": "frac:7/14:-:7/8", "distribution": "id", "id": "rawmath/fractions/042"}
+{"category": "fractions", "language": "en", "prompt": "Compute 7/4 - 12/12. Simplify fully. Result only.", "answer": "3/4", "canonical": "frac:7/4:-:12/12", "distribution": "id", "id": "rawmath/fractions/043"}
+{"category": "fractions", "language": "en", "prompt": "Compute 1/13 - 1/9. Simplify fully. Result only.", "answer": "-4/117", "canonical": "frac:1/13:-:1/9", "distribution": "id", "id": "rawmath/fractions/044"}
+{"category": "fractions", "language": "en", "prompt": "Compute 6/10 + 10/10. Simplify fully. Result only.", "answer": "8/5", "canonical": "frac:6/10:+:10/10", "distribution": "id", "id": "rawmath/fractions/045"}
+{"category": "fractions", "language": "en", "prompt": "Compute 5/3 + 6/5. Simplify fully. Result only.", "answer": "43/15", "canonical": "frac:5/3:+:6/5", "distribution": "id", "id": "rawmath/fractions/046"}
+{"category": "fractions", "language": "en", "prompt": "Compute 11/9 - 9/15. Simplify fully. Result only.", "answer": "28/45", "canonical": "frac:11/9:-:9/15", "distribution": "id", "id": "rawmath/fractions/047"}
+{"category": "fractions", "language": "en", "prompt": "Compute 1/12 + 12/6. Simplify fully. Result only.", "answer": "25/12", "canonical": "frac:1/12:+:12/6", "distribution": "id", "id": "rawmath/fractions/048"}
+{"category": "fractions", "language": "en", "prompt": "Compute 2/8 + 7/2. Simplify fully. Result only.", "answer": "15/4", "canonical": "frac:2/8:+:7/2", "distribution": "id", "id": "rawmath/fractions/049"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 10% von 700? Nur die Zahl.", "answer": "70", "canonical": "pct:10:700", "distribution": "id", "id": "rawmath/percent/000"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 20% von 1520? Nur die Zahl.", "answer": "304", "canonical": "pct:20:1520", "distribution": "id", "id": "rawmath/percent/001"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 10% von 980? Nur die Zahl.", "answer": "98", "canonical": "pct:10:980", "distribution": "id", "id": "rawmath/percent/002"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 75% von 280? Nur die Zahl.", "answer": "210", "canonical": "pct:75:280", "distribution": "id", "id": "rawmath/percent/003"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 5% von 1120? Nur die Zahl.", "answer": "56", "canonical": "pct:5:1120", "distribution": "id", "id": "rawmath/percent/004"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 5% von 220? Nur die Zahl.", "answer": "11", "canonical": "pct:5:220", "distribution": "id", "id": "rawmath/percent/005"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 10% von 1540? Nur die Zahl.", "answer": "154", "canonical": "pct:10:1540", "distribution": "id", "id": "rawmath/percent/006"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 20% von 1220? Nur die Zahl.", "answer": "244", "canonical": "pct:20:1220", "distribution": "id", "id": "rawmath/percent/007"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 25% von 1300? Nur die Zahl.", "answer": "325", "canonical": "pct:25:1300", "distribution": "id", "id": "rawmath/percent/008"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 50% von 1020? Nur die Zahl.", "answer": "510", "canonical": "pct:50:1020", "distribution": "id", "id": "rawmath/percent/009"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 20% von 920? Nur die Zahl.", "answer": "184", "canonical": "pct:20:920", "distribution": "id", "id": "rawmath/percent/010"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 10% von 200? Nur die Zahl.", "answer": "20", "canonical": "pct:10:200", "distribution": "id", "id": "rawmath/percent/011"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 10% von 520? Nur die Zahl.", "answer": "52", "canonical": "pct:10:520", "distribution": "id", "id": "rawmath/percent/012"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 20% von 1020? Nur die Zahl.", "answer": "204", "canonical": "pct:20:1020", "distribution": "id", "id": "rawmath/percent/013"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 20% von 200? Nur die Zahl.", "answer": "40", "canonical": "pct:20:200", "distribution": "id", "id": "rawmath/percent/014"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 50% von 460? Nur die Zahl.", "answer": "230", "canonical": "pct:50:460", "distribution": "id", "id": "rawmath/percent/015"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 50% von 760? Nur die Zahl.", "answer": "380", "canonical": "pct:50:760", "distribution": "id", "id": "rawmath/percent/016"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 5% von 620? Nur die Zahl.", "answer": "31", "canonical": "pct:5:620", "distribution": "id", "id": "rawmath/percent/017"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 75% von 1300? Nur die Zahl.", "answer": "975", "canonical": "pct:75:1300", "distribution": "id", "id": "rawmath/percent/018"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 75% von 1120? Nur die Zahl.", "answer": "840", "canonical": "pct:75:1120", "distribution": "id", "id": "rawmath/percent/019"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 25% von 1280? Nur die Zahl.", "answer": "320", "canonical": "pct:25:1280", "distribution": "id", "id": "rawmath/percent/020"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 50% von 580? Nur die Zahl.", "answer": "290", "canonical": "pct:50:580", "distribution": "id", "id": "rawmath/percent/021"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 25% von 500? Nur die Zahl.", "answer": "125", "canonical": "pct:25:500", "distribution": "id", "id": "rawmath/percent/022"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 10% von 1140? Nur die Zahl.", "answer": "114", "canonical": "pct:10:1140", "distribution": "id", "id": "rawmath/percent/023"}
+{"category": "percent", "language": "de", "prompt": "Wie viel sind 5% von 420? Nur die Zahl.", "answer": "21", "canonical": "pct:5:420", "distribution": "id", "id": "rawmath/percent/024"}
+{"category": "percent", "language": "en", "prompt": "What is 10% of 1100? Number only.", "answer": "110", "canonical": "pct:10:1100", "distribution": "id", "id": "rawmath/percent/025"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 480? Number only.", "answer": "240", "canonical": "pct:50:480", "distribution": "id", "id": "rawmath/percent/026"}
+{"category": "percent", "language": "en", "prompt": "What is 5% of 1580? Number only.", "answer": "79", "canonical": "pct:5:1580", "distribution": "id", "id": "rawmath/percent/027"}
+{"category": "percent", "language": "en", "prompt": "What is 5% of 840? Number only.", "answer": "42", "canonical": "pct:5:840", "distribution": "id", "id": "rawmath/percent/028"}
+{"category": "percent", "language": "en", "prompt": "What is 75% of 1080? Number only.", "answer": "810", "canonical": "pct:75:1080", "distribution": "id", "id": "rawmath/percent/029"}
+{"category": "percent", "language": "en", "prompt": "What is 25% of 1520? Number only.", "answer": "380", "canonical": "pct:25:1520", "distribution": "id", "id": "rawmath/percent/030"}
+{"category": "percent", "language": "en", "prompt": "What is 5% of 140? Number only.", "answer": "7", "canonical": "pct:5:140", "distribution": "id", "id": "rawmath/percent/031"}
+{"category": "percent", "language": "en", "prompt": "What is 25% of 1240? Number only.", "answer": "310", "canonical": "pct:25:1240", "distribution": "id", "id": "rawmath/percent/032"}
+{"category": "percent", "language": "en", "prompt": "What is 75% of 820? Number only.", "answer": "615", "canonical": "pct:75:820", "distribution": "id", "id": "rawmath/percent/033"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 1220? Number only.", "answer": "610", "canonical": "pct:50:1220", "distribution": "id", "id": "rawmath/percent/034"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 700? Number only.", "answer": "350", "canonical": "pct:50:700", "distribution": "id", "id": "rawmath/percent/035"}
+{"category": "percent", "language": "en", "prompt": "What is 25% of 1040? Number only.", "answer": "260", "canonical": "pct:25:1040", "distribution": "id", "id": "rawmath/percent/036"}
+{"category": "percent", "language": "en", "prompt": "What is 20% of 560? Number only.", "answer": "112", "canonical": "pct:20:560", "distribution": "id", "id": "rawmath/percent/037"}
+{"category": "percent", "language": "en", "prompt": "What is 20% of 1260? Number only.", "answer": "252", "canonical": "pct:20:1260", "distribution": "id", "id": "rawmath/percent/038"}
+{"category": "percent", "language": "en", "prompt": "What is 10% of 60? Number only.", "answer": "6", "canonical": "pct:10:60", "distribution": "id", "id": "rawmath/percent/039"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 400? Number only.", "answer": "200", "canonical": "pct:50:400", "distribution": "id", "id": "rawmath/percent/040"}
+{"category": "percent", "language": "en", "prompt": "What is 75% of 1260? Number only.", "answer": "945", "canonical": "pct:75:1260", "distribution": "id", "id": "rawmath/percent/041"}
+{"category": "percent", "language": "en", "prompt": "What is 25% of 680? Number only.", "answer": "170", "canonical": "pct:25:680", "distribution": "id", "id": "rawmath/percent/042"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 1060? Number only.", "answer": "530", "canonical": "pct:50:1060", "distribution": "id", "id": "rawmath/percent/043"}
+{"category": "percent", "language": "en", "prompt": "What is 20% of 380? Number only.", "answer": "76", "canonical": "pct:20:380", "distribution": "id", "id": "rawmath/percent/044"}
+{"category": "percent", "language": "en", "prompt": "What is 20% of 460? Number only.", "answer": "92", "canonical": "pct:20:460", "distribution": "id", "id": "rawmath/percent/045"}
+{"category": "percent", "language": "en", "prompt": "What is 20% of 180? Number only.", "answer": "36", "canonical": "pct:20:180", "distribution": "id", "id": "rawmath/percent/046"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 620? Number only.", "answer": "310", "canonical": "pct:50:620", "distribution": "id", "id": "rawmath/percent/047"}
+{"category": "percent", "language": "en", "prompt": "What is 75% of 240? Number only.", "answer": "180", "canonical": "pct:75:240", "distribution": "id", "id": "rawmath/percent/048"}
+{"category": "percent", "language": "en", "prompt": "What is 50% of 300? Number only.", "answer": "150", "canonical": "pct:50:300", "distribution": "id", "id": "rawmath/percent/049"}
+{"category": "powers", "language": "de", "prompt": "Berechne 58^2. Nur das Ergebnis.", "answer": "3364", "canonical": "pow:58:2", "distribution": "id", "id": "rawmath/powers/000"}
+{"category": "powers", "language": "de", "prompt": "Berechne 10^2. Nur das Ergebnis.", "answer": "100", "canonical": "pow:10:2", "distribution": "id", "id": "rawmath/powers/001"}
+{"category": "powers", "language": "de", "prompt": "Berechne 37^3. Nur das Ergebnis.", "answer": "50653", "canonical": "pow:37:3", "distribution": "id", "id": "rawmath/powers/002"}
+{"category": "powers", "language": "de", "prompt": "Berechne 77^2. Nur das Ergebnis.", "answer": "5929", "canonical": "pow:77:2", "distribution": "id", "id": "rawmath/powers/003"}
+{"category": "powers", "language": "de", "prompt": "Berechne 82^2. Nur das Ergebnis.", "answer": "6724", "canonical": "pow:82:2", "distribution": "id", "id": "rawmath/powers/004"}
+{"category": "powers", "language": "de", "prompt": "Berechne 41^2. Nur das Ergebnis.", "answer": "1681", "canonical": "pow:41:2", "distribution": "id", "id": "rawmath/powers/005"}
+{"category": "powers", "language": "de", "prompt": "Berechne 47^2. Nur das Ergebnis.", "answer": "2209", "canonical": "pow:47:2", "distribution": "id", "id": "rawmath/powers/006"}
+{"category": "powers", "language": "de", "prompt": "Berechne 71^2. Nur das Ergebnis.", "answer": "5041", "canonical": "pow:71:2", "distribution": "id", "id": "rawmath/powers/007"}
+{"category": "powers", "language": "de", "prompt": "Berechne 81^2. Nur das Ergebnis.", "answer": "6561", "canonical": "pow:81:2", "distribution": "id", "id": "rawmath/powers/008"}
+{"category": "powers", "language": "de", "prompt": "Berechne 16^3. Nur das Ergebnis.", "answer": "4096", "canonical": "pow:16:3", "distribution": "id", "id": "rawmath/powers/009"}
+{"category": "powers", "language": "de", "prompt": "Berechne 45^2. Nur das Ergebnis.", "answer": "2025", "canonical": "pow:45:2", "distribution": "id", "id": "rawmath/powers/010"}
+{"category": "powers", "language": "de", "prompt": "Berechne 6^2. Nur das Ergebnis.", "answer": "36", "canonical": "pow:6:2", "distribution": "id", "id": "rawmath/powers/011"}
+{"category": "powers", "language": "de", "prompt": "Berechne 97^3. Nur das Ergebnis.", "answer": "912673", "canonical": "pow:97:3", "distribution": "id", "id": "rawmath/powers/012"}
+{"category": "powers", "language": "de", "prompt": "Berechne 22^3. Nur das Ergebnis.", "answer": "10648", "canonical": "pow:22:3", "distribution": "id", "id": "rawmath/powers/013"}
+{"category": "powers", "language": "de", "prompt": "Berechne 86^2. Nur das Ergebnis.", "answer": "7396", "canonical": "pow:86:2", "distribution": "id", "id": "rawmath/powers/014"}
+{"category": "powers", "language": "de", "prompt": "Berechne 85^3. Nur das Ergebnis.", "answer": "614125", "canonical": "pow:85:3", "distribution": "id", "id": "rawmath/powers/015"}
+{"category": "powers", "language": "de", "prompt": "Berechne 37^2. Nur das Ergebnis.", "answer": "1369", "canonical": "pow:37:2", "distribution": "id", "id": "rawmath/powers/016"}
+{"category": "powers", "language": "de", "prompt": "Berechne 8^2. Nur das Ergebnis.", "answer": "64", "canonical": "pow:8:2", "distribution": "id", "id": "rawmath/powers/017"}
+{"category": "powers", "language": "de", "prompt": "Berechne 47^3. Nur das Ergebnis.", "answer": "103823", "canonical": "pow:47:3", "distribution": "id", "id": "rawmath/powers/018"}
+{"category": "powers", "language": "de", "prompt": "Berechne 74^3. Nur das Ergebnis.", "answer": "405224", "canonical": "pow:74:3", "distribution": "id", "id": "rawmath/powers/019"}
+{"category": "powers", "language": "de", "prompt": "Berechne 80^3. Nur das Ergebnis.", "answer": "512000", "canonical": "pow:80:3", "distribution": "id", "id": "rawmath/powers/020"}
+{"category": "powers", "language": "de", "prompt": "Berechne 48^2. Nur das Ergebnis.", "answer": "2304", "canonical": "pow:48:2", "distribution": "id", "id": "rawmath/powers/021"}
+{"category": "powers", "language": "de", "prompt": "Berechne 89^3. Nur das Ergebnis.", "answer": "704969", "canonical": "pow:89:3", "distribution": "id", "id": "rawmath/powers/022"}
+{"category": "powers", "language": "de", "prompt": "Berechne 99^2. Nur das Ergebnis.", "answer": "9801", "canonical": "pow:99:2", "distribution": "id", "id": "rawmath/powers/023"}
+{"category": "powers", "language": "de", "prompt": "Berechne 91^3. Nur das Ergebnis.", "answer": "753571", "canonical": "pow:91:3", "distribution": "id", "id": "rawmath/powers/024"}
+{"category": "powers", "language": "en", "prompt": "Compute 53^2. Result only.", "answer": "2809", "canonical": "pow:53:2", "distribution": "id", "id": "rawmath/powers/025"}
+{"category": "powers", "language": "en", "prompt": "Compute 72^3. Result only.", "answer": "373248", "canonical": "pow:72:3", "distribution": "id", "id": "rawmath/powers/026"}
+{"category": "powers", "language": "en", "prompt": "Compute 80^2. Result only.", "answer": "6400", "canonical": "pow:80:2", "distribution": "id", "id": "rawmath/powers/027"}
+{"category": "powers", "language": "en", "prompt": "Compute 36^2. Result only.", "answer": "1296", "canonical": "pow:36:2", "distribution": "id", "id": "rawmath/powers/028"}
+{"category": "powers", "language": "en", "prompt": "Compute 41^3. Result only.", "answer": "68921", "canonical": "pow:41:3", "distribution": "id", "id": "rawmath/powers/029"}
+{"category": "powers", "language": "en", "prompt": "Compute 26^2. Result only.", "answer": "676", "canonical": "pow:26:2", "distribution": "id", "id": "rawmath/powers/030"}
+{"category": "powers", "language": "en", "prompt": "Compute 70^3. Result only.", "answer": "343000", "canonical": "pow:70:3", "distribution": "id", "id": "rawmath/powers/031"}
+{"category": "powers", "language": "en", "prompt": "Compute 35^3. Result only.", "answer": "42875", "canonical": "pow:35:3", "distribution": "id", "id": "rawmath/powers/032"}
+{"category": "powers", "language": "en", "prompt": "Compute 18^2. Result only.", "answer": "324", "canonical": "pow:18:2", "distribution": "id", "id": "rawmath/powers/033"}
+{"category": "powers", "language": "en", "prompt": "Compute 38^3. Result only.", "answer": "54872", "canonical": "pow:38:3", "distribution": "id", "id": "rawmath/powers/034"}
+{"category": "powers", "language": "en", "prompt": "Compute 83^2. Result only.", "answer": "6889", "canonical": "pow:83:2", "distribution": "id", "id": "rawmath/powers/035"}
+{"category": "powers", "language": "en", "prompt": "Compute 51^3. Result only.", "answer": "132651", "canonical": "pow:51:3", "distribution": "id", "id": "rawmath/powers/036"}
+{"category": "powers", "language": "en", "prompt": "Compute 51^2. Result only.", "answer": "2601", "canonical": "pow:51:2", "distribution": "id", "id": "rawmath/powers/037"}
+{"category": "powers", "language": "en", "prompt": "Compute 9^3. Result only.", "answer": "729", "canonical": "pow:9:3", "distribution": "id", "id": "rawmath/powers/038"}
+{"category": "powers", "language": "en", "prompt": "Compute 9^2. Result only.", "answer": "81", "canonical": "pow:9:2", "distribution": "id", "id": "rawmath/powers/039"}
+{"category": "powers", "language": "en", "prompt": "Compute 31^3. Result only.", "answer": "29791", "canonical": "pow:31:3", "distribution": "id", "id": "rawmath/powers/040"}
+{"category": "powers", "language": "en", "prompt": "Compute 76^3. Result only.", "answer": "438976", "canonical": "pow:76:3", "distribution": "id", "id": "rawmath/powers/041"}
+{"category": "powers", "language": "en", "prompt": "Compute 42^2. Result only.", "answer": "1764", "canonical": "pow:42:2", "distribution": "id", "id": "rawmath/powers/042"}
+{"category": "powers", "language": "en", "prompt": "Compute 30^3. Result only.", "answer": "27000", "canonical": "pow:30:3", "distribution": "id", "id": "rawmath/powers/043"}
+{"category": "powers", "language": "en", "prompt": "Compute 5^3. Result only.", "answer": "125", "canonical": "pow:5:3", "distribution": "id", "id": "rawmath/powers/044"}
+{"category": "powers", "language": "en", "prompt": "Compute 64^2. Result only.", "answer": "4096", "canonical": "pow:64:2", "distribution": "id", "id": "rawmath/powers/045"}
+{"category": "powers", "language": "en", "prompt": "Compute 55^3. Result only.", "answer": "166375", "canonical": "pow:55:3", "distribution": "id", "id": "rawmath/powers/046"}
+{"category": "powers", "language": "en", "prompt": "Compute 57^3. Result only.", "answer": "185193", "canonical": "pow:57:3", "distribution": "id", "id": "rawmath/powers/047"}
+{"category": "powers", "language": "en", "prompt": "Compute 23^2. Result only.", "answer": "529", "canonical": "pow:23:2", "distribution": "id", "id": "rawmath/powers/048"}
+{"category": "powers", "language": "en", "prompt": "Compute 57^2. Result only.", "answer": "3249", "canonical": "pow:57:2", "distribution": "id", "id": "rawmath/powers/049"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 3x + (19) = 88. Nur x.", "answer": "23", "canonical": "lin:3:19:88", "distribution": "id", "id": "rawmath/linear/000"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 7x + (4) = -3. Nur x.", "answer": "-1", "canonical": "lin:7:4:-3", "distribution": "id", "id": "rawmath/linear/001"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 2x + (15) = 69. Nur x.", "answer": "27", "canonical": "lin:2:15:69", "distribution": "id", "id": "rawmath/linear/002"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 3x + (15) = 30. Nur x.", "answer": "5", "canonical": "lin:3:15:30", "distribution": "id", "id": "rawmath/linear/003"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 2x + (-23) = -39. Nur x.", "answer": "-8", "canonical": "lin:2:-23:-39", "distribution": "id", "id": "rawmath/linear/004"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 1x + (-29) = -59. Nur x.", "answer": "-30", "canonical": "lin:1:-29:-59", "distribution": "id", "id": "rawmath/linear/005"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 9x + (9) = 171. Nur x.", "answer": "18", "canonical": "lin:9:9:171", "distribution": "id", "id": "rawmath/linear/006"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 3x + (-22) = 53. Nur x.", "answer": "25", "canonical": "lin:3:-22:53", "distribution": "id", "id": "rawmath/linear/007"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 3x + (-13) = 32. Nur x.", "answer": "15", "canonical": "lin:3:-13:32", "distribution": "id", "id": "rawmath/linear/008"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 1x + (13) = -11. Nur x.", "answer": "-24", "canonical": "lin:1:13:-11", "distribution": "id", "id": "rawmath/linear/009"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 10x + (19) = -221. Nur x.", "answer": "-24", "canonical": "lin:10:19:-221", "distribution": "id", "id": "rawmath/linear/010"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 9x + (23) = 77. Nur x.", "answer": "6", "canonical": "lin:9:23:77", "distribution": "id", "id": "rawmath/linear/011"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 2x + (-13) = 19. Nur x.", "answer": "16", "canonical": "lin:2:-13:19", "distribution": "id", "id": "rawmath/linear/012"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 8x + (-10) = 38. Nur x.", "answer": "6", "canonical": "lin:8:-10:38", "distribution": "id", "id": "rawmath/linear/013"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 5x + (-29) = -124. Nur x.", "answer": "-19", "canonical": "lin:5:-29:-124", "distribution": "id", "id": "rawmath/linear/014"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 7x + (-29) = 167. Nur x.", "answer": "28", "canonical": "lin:7:-29:167", "distribution": "id", "id": "rawmath/linear/015"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 2x + (-26) = 4. Nur x.", "answer": "15", "canonical": "lin:2:-26:4", "distribution": "id", "id": "rawmath/linear/016"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 12x + (26) = 218. Nur x.", "answer": "16", "canonical": "lin:12:26:218", "distribution": "id", "id": "rawmath/linear/017"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 11x + (-20) = -75. Nur x.", "answer": "-5", "canonical": "lin:11:-20:-75", "distribution": "id", "id": "rawmath/linear/018"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 7x + (4) = 88. Nur x.", "answer": "12", "canonical": "lin:7:4:88", "distribution": "id", "id": "rawmath/linear/019"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 5x + (9) = 134. Nur x.", "answer": "25", "canonical": "lin:5:9:134", "distribution": "id", "id": "rawmath/linear/020"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 2x + (27) = -27. Nur x.", "answer": "-27", "canonical": "lin:2:27:-27", "distribution": "id", "id": "rawmath/linear/021"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 5x + (28) = -67. Nur x.", "answer": "-19", "canonical": "lin:5:28:-67", "distribution": "id", "id": "rawmath/linear/022"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 3x + (-23) = 4. Nur x.", "answer": "9", "canonical": "lin:3:-23:4", "distribution": "id", "id": "rawmath/linear/023"}
+{"category": "linear", "language": "de", "prompt": "Löse nach x: 8x + (-23) = 97. Nur x.", "answer": "15", "canonical": "lin:8:-23:97", "distribution": "id", "id": "rawmath/linear/024"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 2x + (29) = 53. x only.", "answer": "12", "canonical": "lin:2:29:53", "distribution": "id", "id": "rawmath/linear/025"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 12x + (19) = 247. x only.", "answer": "19", "canonical": "lin:12:19:247", "distribution": "id", "id": "rawmath/linear/026"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 2x + (-19) = 19. x only.", "answer": "19", "canonical": "lin:2:-19:19", "distribution": "id", "id": "rawmath/linear/027"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 12x + (-28) = 236. x only.", "answer": "22", "canonical": "lin:12:-28:236", "distribution": "id", "id": "rawmath/linear/028"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 2x + (19) = 1. x only.", "answer": "-9", "canonical": "lin:2:19:1", "distribution": "id", "id": "rawmath/linear/029"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 9x + (26) = -145. x only.", "answer": "-19", "canonical": "lin:9:26:-145", "distribution": "id", "id": "rawmath/linear/030"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 5x + (-9) = 91. x only.", "answer": "20", "canonical": "lin:5:-9:91", "distribution": "id", "id": "rawmath/linear/031"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 9x + (-1) = 8. x only.", "answer": "1", "canonical": "lin:9:-1:8", "distribution": "id", "id": "rawmath/linear/032"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 1x + (17) = 38. x only.", "answer": "21", "canonical": "lin:1:17:38", "distribution": "id", "id": "rawmath/linear/033"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 1x + (6) = 24. x only.", "answer": "18", "canonical": "lin:1:6:24", "distribution": "id", "id": "rawmath/linear/034"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 8x + (2) = -126. x only.", "answer": "-16", "canonical": "lin:8:2:-126", "distribution": "id", "id": "rawmath/linear/035"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 2x + (21) = -9. x only.", "answer": "-15", "canonical": "lin:2:21:-9", "distribution": "id", "id": "rawmath/linear/036"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 4x + (16) = 128. x only.", "answer": "28", "canonical": "lin:4:16:128", "distribution": "id", "id": "rawmath/linear/037"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 3x + (-15) = 57. x only.", "answer": "24", "canonical": "lin:3:-15:57", "distribution": "id", "id": "rawmath/linear/038"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 6x + (-8) = -122. x only.", "answer": "-19", "canonical": "lin:6:-8:-122", "distribution": "id", "id": "rawmath/linear/039"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 8x + (-28) = -124. x only.", "answer": "-12", "canonical": "lin:8:-28:-124", "distribution": "id", "id": "rawmath/linear/040"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 9x + (5) = 185. x only.", "answer": "20", "canonical": "lin:9:5:185", "distribution": "id", "id": "rawmath/linear/041"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 7x + (7) = -49. x only.", "answer": "-8", "canonical": "lin:7:7:-49", "distribution": "id", "id": "rawmath/linear/042"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 7x + (12) = -149. x only.", "answer": "-23", "canonical": "lin:7:12:-149", "distribution": "id", "id": "rawmath/linear/043"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 4x + (-7) = 109. x only.", "answer": "29", "canonical": "lin:4:-7:109", "distribution": "id", "id": "rawmath/linear/044"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 10x + (25) = 5. x only.", "answer": "-2", "canonical": "lin:10:25:5", "distribution": "id", "id": "rawmath/linear/045"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 11x + (-9) = 123. x only.", "answer": "12", "canonical": "lin:11:-9:123", "distribution": "id", "id": "rawmath/linear/046"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 5x + (-29) = -109. x only.", "answer": "-16", "canonical": "lin:5:-29:-109", "distribution": "id", "id": "rawmath/linear/047"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 11x + (-14) = -135. x only.", "answer": "-11", "canonical": "lin:11:-14:-135", "distribution": "id", "id": "rawmath/linear/048"}
+{"category": "linear", "language": "en", "prompt": "Solve for x: 9x + (11) = -25. x only.", "answer": "-4", "canonical": "lin:9:11:-25", "distribution": "id", "id": "rawmath/linear/049"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 27, 34, 41, 48, ... Nur die Zahl.", "answer": "55", "canonical": "seq:27:7", "distribution": "id", "id": "rawmath/sequence/000"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 66, 86, 106, 126, ... Nur die Zahl.", "answer": "146", "canonical": "seq:66:20", "distribution": "id", "id": "rawmath/sequence/001"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 41, 43, 45, 47, ... Nur die Zahl.", "answer": "49", "canonical": "seq:41:2", "distribution": "id", "id": "rawmath/sequence/002"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -24, -18, -12, -6, ... Nur die Zahl.", "answer": "0", "canonical": "seq:-24:6", "distribution": "id", "id": "rawmath/sequence/003"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -37, -22, -7, 8, ... Nur die Zahl.", "answer": "23", "canonical": "seq:-37:15", "distribution": "id", "id": "rawmath/sequence/004"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -36, -28, -20, -12, ... Nur die Zahl.", "answer": "-4", "canonical": "seq:-36:8", "distribution": "id", "id": "rawmath/sequence/005"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -20, -13, -6, 1, ... Nur die Zahl.", "answer": "8", "canonical": "seq:-20:7", "distribution": "id", "id": "rawmath/sequence/006"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -73, -50, -27, -4, ... Nur die Zahl.", "answer": "19", "canonical": "seq:-73:23", "distribution": "id", "id": "rawmath/sequence/007"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -41, -39, -37, -35, ... Nur die Zahl.", "answer": "-33", "canonical": "seq:-41:2", "distribution": "id", "id": "rawmath/sequence/008"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 15, 20, 25, 30, ... Nur die Zahl.", "answer": "35", "canonical": "seq:15:5", "distribution": "id", "id": "rawmath/sequence/009"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -2, 3, 8, 13, ... Nur die Zahl.", "answer": "18", "canonical": "seq:-2:5", "distribution": "id", "id": "rawmath/sequence/010"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 21, 25, 29, 33, ... Nur die Zahl.", "answer": "37", "canonical": "seq:21:4", "distribution": "id", "id": "rawmath/sequence/011"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -84, -68, -52, -36, ... Nur die Zahl.", "answer": "-20", "canonical": "seq:-84:16", "distribution": "id", "id": "rawmath/sequence/012"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -15, 3, 21, 39, ... Nur die Zahl.", "answer": "57", "canonical": "seq:-15:18", "distribution": "id", "id": "rawmath/sequence/013"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 34, 54, 74, 94, ... Nur die Zahl.", "answer": "114", "canonical": "seq:34:20", "distribution": "id", "id": "rawmath/sequence/014"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -69, -50, -31, -12, ... Nur die Zahl.", "answer": "7", "canonical": "seq:-69:19", "distribution": "id", "id": "rawmath/sequence/015"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 14, 17, 20, 23, ... Nur die Zahl.", "answer": "26", "canonical": "seq:14:3", "distribution": "id", "id": "rawmath/sequence/016"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -15, -10, -5, 0, ... Nur die Zahl.", "answer": "5", "canonical": "seq:-15:5", "distribution": "id", "id": "rawmath/sequence/017"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -98, -88, -78, -68, ... Nur die Zahl.", "answer": "-58", "canonical": "seq:-98:10", "distribution": "id", "id": "rawmath/sequence/018"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -58, -37, -16, 5, ... Nur die Zahl.", "answer": "26", "canonical": "seq:-58:21", "distribution": "id", "id": "rawmath/sequence/019"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -32, -9, 14, 37, ... Nur die Zahl.", "answer": "60", "canonical": "seq:-32:23", "distribution": "id", "id": "rawmath/sequence/020"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -71, -66, -61, -56, ... Nur die Zahl.", "answer": "-51", "canonical": "seq:-71:5", "distribution": "id", "id": "rawmath/sequence/021"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 65, 74, 83, 92, ... Nur die Zahl.", "answer": "101", "canonical": "seq:65:9", "distribution": "id", "id": "rawmath/sequence/022"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? -58, -41, -24, -7, ... Nur die Zahl.", "answer": "10", "canonical": "seq:-58:17", "distribution": "id", "id": "rawmath/sequence/023"}
+{"category": "sequence", "language": "de", "prompt": "Welche Zahl kommt als Nächstes? 0, 22, 44, 66, ... Nur die Zahl.", "answer": "88", "canonical": "seq:0:22", "distribution": "id", "id": "rawmath/sequence/024"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 74, 95, 116, 137, ... Number only.", "answer": "158", "canonical": "seq:74:21", "distribution": "id", "id": "rawmath/sequence/025"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 47, 56, 65, 74, ... Number only.", "answer": "83", "canonical": "seq:47:9", "distribution": "id", "id": "rawmath/sequence/026"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 46, 54, 62, 70, ... Number only.", "answer": "78", "canonical": "seq:46:8", "distribution": "id", "id": "rawmath/sequence/027"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -56, -34, -12, 10, ... Number only.", "answer": "32", "canonical": "seq:-56:22", "distribution": "id", "id": "rawmath/sequence/028"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -10, -4, 2, 8, ... Number only.", "answer": "14", "canonical": "seq:-10:6", "distribution": "id", "id": "rawmath/sequence/029"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -86, -85, -84, -83, ... Number only.", "answer": "-82", "canonical": "seq:-86:1", "distribution": "id", "id": "rawmath/sequence/030"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 23, 42, 61, 80, ... Number only.", "answer": "99", "canonical": "seq:23:19", "distribution": "id", "id": "rawmath/sequence/031"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 100, 106, 112, 118, ... Number only.", "answer": "124", "canonical": "seq:100:6", "distribution": "id", "id": "rawmath/sequence/032"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -57, -45, -33, -21, ... Number only.", "answer": "-9", "canonical": "seq:-57:12", "distribution": "id", "id": "rawmath/sequence/033"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 12, 33, 54, 75, ... Number only.", "answer": "96", "canonical": "seq:12:21", "distribution": "id", "id": "rawmath/sequence/034"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -11, 0, 11, 22, ... Number only.", "answer": "33", "canonical": "seq:-11:11", "distribution": "id", "id": "rawmath/sequence/035"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -50, -33, -16, 1, ... Number only.", "answer": "18", "canonical": "seq:-50:17", "distribution": "id", "id": "rawmath/sequence/036"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -58, -33, -8, 17, ... Number only.", "answer": "42", "canonical": "seq:-58:25", "distribution": "id", "id": "rawmath/sequence/037"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -51, -47, -43, -39, ... Number only.", "answer": "-35", "canonical": "seq:-51:4", "distribution": "id", "id": "rawmath/sequence/038"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -1, 20, 41, 62, ... Number only.", "answer": "83", "canonical": "seq:-1:21", "distribution": "id", "id": "rawmath/sequence/039"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -76, -51, -26, -1, ... Number only.", "answer": "24", "canonical": "seq:-76:25", "distribution": "id", "id": "rawmath/sequence/040"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -59, -35, -11, 13, ... Number only.", "answer": "37", "canonical": "seq:-59:24", "distribution": "id", "id": "rawmath/sequence/041"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 81, 82, 83, 84, ... Number only.", "answer": "85", "canonical": "seq:81:1", "distribution": "id", "id": "rawmath/sequence/042"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -70, -60, -50, -40, ... Number only.", "answer": "-30", "canonical": "seq:-70:10", "distribution": "id", "id": "rawmath/sequence/043"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 37, 41, 45, 49, ... Number only.", "answer": "53", "canonical": "seq:37:4", "distribution": "id", "id": "rawmath/sequence/044"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -19, -9, 1, 11, ... Number only.", "answer": "21", "canonical": "seq:-19:10", "distribution": "id", "id": "rawmath/sequence/045"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -87, -86, -85, -84, ... Number only.", "answer": "-83", "canonical": "seq:-87:1", "distribution": "id", "id": "rawmath/sequence/046"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -80, -60, -40, -20, ... Number only.", "answer": "0", "canonical": "seq:-80:20", "distribution": "id", "id": "rawmath/sequence/047"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? -97, -75, -53, -31, ... Number only.", "answer": "-9", "canonical": "seq:-97:22", "distribution": "id", "id": "rawmath/sequence/048"}
+{"category": "sequence", "language": "en", "prompt": "What number comes next? 70, 71, 72, 73, ... Number only.", "answer": "74", "canonical": "seq:70:1", "distribution": "id", "id": "rawmath/sequence/049"}
+{"category": "word", "language": "de", "prompt": "Lea hat 98 Äpfel und bekommt 58 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "156", "canonical": "word_add:98:58", "distribution": "id", "id": "rawmath/word/000"}
+{"category": "word", "language": "de", "prompt": "Lea hat 138 Äpfel und bekommt 53 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "191", "canonical": "word_add:138:53", "distribution": "id", "id": "rawmath/word/001"}
+{"category": "word", "language": "de", "prompt": "Lea hat 117 Äpfel und bekommt 47 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "164", "canonical": "word_add:117:47", "distribution": "id", "id": "rawmath/word/002"}
+{"category": "word", "language": "de", "prompt": "Lea hat 115 Äpfel und bekommt 33 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "148", "canonical": "word_add:115:33", "distribution": "id", "id": "rawmath/word/003"}
+{"category": "word", "language": "de", "prompt": "Lea hat 135 Äpfel und gibt 31 ab. Wie viele bleiben? Nur die Zahl.", "answer": "104", "canonical": "word_sub:135:31", "distribution": "id", "id": "rawmath/word/004"}
+{"category": "word", "language": "de", "prompt": "Lea hat 132 Äpfel und bekommt 28 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "160", "canonical": "word_add:132:28", "distribution": "id", "id": "rawmath/word/005"}
+{"category": "word", "language": "de", "prompt": "Lea hat 123 Äpfel und bekommt 41 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "164", "canonical": "word_add:123:41", "distribution": "id", "id": "rawmath/word/006"}
+{"category": "word", "language": "de", "prompt": "Lea hat 87 Äpfel und gibt 34 ab. Wie viele bleiben? Nur die Zahl.", "answer": "53", "canonical": "word_sub:87:34", "distribution": "id", "id": "rawmath/word/007"}
+{"category": "word", "language": "de", "prompt": "Lea hat 91 Äpfel und bekommt 9 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "100", "canonical": "word_add:91:9", "distribution": "id", "id": "rawmath/word/008"}
+{"category": "word", "language": "de", "prompt": "Lea hat 68 Äpfel und bekommt 26 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "94", "canonical": "word_add:68:26", "distribution": "id", "id": "rawmath/word/009"}
+{"category": "word", "language": "de", "prompt": "Lea hat 85 Äpfel und gibt 77 ab. Wie viele bleiben? Nur die Zahl.", "answer": "8", "canonical": "word_sub:85:77", "distribution": "id", "id": "rawmath/word/010"}
+{"category": "word", "language": "de", "prompt": "Lea hat 148 Äpfel und gibt 58 ab. Wie viele bleiben? Nur die Zahl.", "answer": "90", "canonical": "word_sub:148:58", "distribution": "id", "id": "rawmath/word/011"}
+{"category": "word", "language": "de", "prompt": "Lea hat 123 Äpfel und gibt 10 ab. Wie viele bleiben? Nur die Zahl.", "answer": "113", "canonical": "word_sub:123:10", "distribution": "id", "id": "rawmath/word/012"}
+{"category": "word", "language": "de", "prompt": "Lea hat 105 Äpfel und gibt 14 ab. Wie viele bleiben? Nur die Zahl.", "answer": "91", "canonical": "word_sub:105:14", "distribution": "id", "id": "rawmath/word/013"}
+{"category": "word", "language": "de", "prompt": "Lea hat 81 Äpfel und gibt 58 ab. Wie viele bleiben? Nur die Zahl.", "answer": "23", "canonical": "word_sub:81:58", "distribution": "id", "id": "rawmath/word/014"}
+{"category": "word", "language": "de", "prompt": "Lea hat 104 Äpfel und bekommt 29 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "133", "canonical": "word_add:104:29", "distribution": "id", "id": "rawmath/word/015"}
+{"category": "word", "language": "de", "prompt": "Lea hat 150 Äpfel und gibt 76 ab. Wie viele bleiben? Nur die Zahl.", "answer": "74", "canonical": "word_sub:150:76", "distribution": "id", "id": "rawmath/word/016"}
+{"category": "word", "language": "de", "prompt": "Lea hat 33 Äpfel und bekommt 5 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "38", "canonical": "word_add:33:5", "distribution": "id", "id": "rawmath/word/017"}
+{"category": "word", "language": "de", "prompt": "Lea hat 138 Äpfel und gibt 28 ab. Wie viele bleiben? Nur die Zahl.", "answer": "110", "canonical": "word_sub:138:28", "distribution": "id", "id": "rawmath/word/018"}
+{"category": "word", "language": "de", "prompt": "Lea hat 4 Äpfel und bekommt 69 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "73", "canonical": "word_add:4:69", "distribution": "id", "id": "rawmath/word/019"}
+{"category": "word", "language": "de", "prompt": "Lea hat 97 Äpfel und gibt 8 ab. Wie viele bleiben? Nur die Zahl.", "answer": "89", "canonical": "word_sub:97:8", "distribution": "id", "id": "rawmath/word/020"}
+{"category": "word", "language": "de", "prompt": "Lea hat 146 Äpfel und bekommt 8 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "154", "canonical": "word_add:146:8", "distribution": "id", "id": "rawmath/word/021"}
+{"category": "word", "language": "de", "prompt": "Lea hat 60 Äpfel und bekommt 24 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "84", "canonical": "word_add:60:24", "distribution": "id", "id": "rawmath/word/022"}
+{"category": "word", "language": "de", "prompt": "Lea hat 148 Äpfel und gibt 75 ab. Wie viele bleiben? Nur die Zahl.", "answer": "73", "canonical": "word_sub:148:75", "distribution": "id", "id": "rawmath/word/023"}
+{"category": "word", "language": "de", "prompt": "Lea hat 146 Äpfel und bekommt 5 dazu. Wie viele hat sie jetzt? Nur die Zahl.", "answer": "151", "canonical": "word_add:146:5", "distribution": "id", "id": "rawmath/word/024"}
+{"category": "word", "language": "en", "prompt": "Lea has 131 apples and gets 27 more. How many now? Number only.", "answer": "158", "canonical": "word_add:131:27", "distribution": "id", "id": "rawmath/word/025"}
+{"category": "word", "language": "en", "prompt": "Lea has 15 apples and gets 54 more. How many now? Number only.", "answer": "69", "canonical": "word_add:15:54", "distribution": "id", "id": "rawmath/word/026"}
+{"category": "word", "language": "en", "prompt": "Lea has 35 apples and gives away 20. How many remain? Number only.", "answer": "15", "canonical": "word_sub:35:20", "distribution": "id", "id": "rawmath/word/027"}
+{"category": "word", "language": "en", "prompt": "Lea has 135 apples and gives away 9. How many remain? Number only.", "answer": "126", "canonical": "word_sub:135:9", "distribution": "id", "id": "rawmath/word/028"}
+{"category": "word", "language": "en", "prompt": "Lea has 51 apples and gives away 49. How many remain? Number only.", "answer": "2", "canonical": "word_sub:51:49", "distribution": "id", "id": "rawmath/word/029"}
+{"category": "word", "language": "en", "prompt": "Lea has 72 apples and gets 47 more. How many now? Number only.", "answer": "119", "canonical": "word_add:72:47", "distribution": "id", "id": "rawmath/word/030"}
+{"category": "word", "language": "en", "prompt": "Lea has 21 apples and gives away 5. How many remain? Number only.", "answer": "16", "canonical": "word_sub:21:5", "distribution": "id", "id": "rawmath/word/031"}
+{"category": "word", "language": "en", "prompt": "Lea has 148 apples and gets 39 more. How many now? Number only.", "answer": "187", "canonical": "word_add:148:39", "distribution": "id", "id": "rawmath/word/032"}
+{"category": "word", "language": "en", "prompt": "Lea has 73 apples and gives away 62. How many remain? Number only.", "answer": "11", "canonical": "word_sub:73:62", "distribution": "id", "id": "rawmath/word/033"}
+{"category": "word", "language": "en", "prompt": "Lea has 122 apples and gets 37 more. How many now? Number only.", "answer": "159", "canonical": "word_add:122:37", "distribution": "id", "id": "rawmath/word/034"}
+{"category": "word", "language": "en", "prompt": "Lea has 5 apples and gets 69 more. How many now? Number only.", "answer": "74", "canonical": "word_add:5:69", "distribution": "id", "id": "rawmath/word/035"}
+{"category": "word", "language": "en", "prompt": "Lea has 13 apples and gets 45 more. How many now? Number only.", "answer": "58", "canonical": "word_add:13:45", "distribution": "id", "id": "rawmath/word/036"}
+{"category": "word", "language": "en", "prompt": "Lea has 28 apples and gets 50 more. How many now? Number only.", "answer": "78", "canonical": "word_add:28:50", "distribution": "id", "id": "rawmath/word/037"}
+{"category": "word", "language": "en", "prompt": "Lea has 43 apples and gets 13 more. How many now? Number only.", "answer": "56", "canonical": "word_add:43:13", "distribution": "id", "id": "rawmath/word/038"}
+{"category": "word", "language": "en", "prompt": "Lea has 146 apples and gets 60 more. How many now? Number only.", "answer": "206", "canonical": "word_add:146:60", "distribution": "id", "id": "rawmath/word/039"}
+{"category": "word", "language": "en", "prompt": "Lea has 101 apples and gets 9 more. How many now? Number only.", "answer": "110", "canonical": "word_add:101:9", "distribution": "id", "id": "rawmath/word/040"}
+{"category": "word", "language": "en", "prompt": "Lea has 29 apples and gives away 1. How many remain? Number only.", "answer": "28", "canonical": "word_sub:29:1", "distribution": "id", "id": "rawmath/word/041"}
+{"category": "word", "language": "en", "prompt": "Lea has 69 apples and gives away 15. How many remain? Number only.", "answer": "54", "canonical": "word_sub:69:15", "distribution": "id", "id": "rawmath/word/042"}
+{"category": "word", "language": "en", "prompt": "Lea has 17 apples and gets 5 more. How many now? Number only.", "answer": "22", "canonical": "word_add:17:5", "distribution": "id", "id": "rawmath/word/043"}
+{"category": "word", "language": "en", "prompt": "Lea has 6 apples and gets 5 more. How many now? Number only.", "answer": "11", "canonical": "word_add:6:5", "distribution": "id", "id": "rawmath/word/044"}
+{"category": "word", "language": "en", "prompt": "Lea has 143 apples and gives away 13. How many remain? Number only.", "answer": "130", "canonical": "word_sub:143:13", "distribution": "id", "id": "rawmath/word/045"}
+{"category": "word", "language": "en", "prompt": "Lea has 66 apples and gets 60 more. How many now? Number only.", "answer": "126", "canonical": "word_add:66:60", "distribution": "id", "id": "rawmath/word/046"}
+{"category": "word", "language": "en", "prompt": "Lea has 76 apples and gives away 63. How many remain? Number only.", "answer": "13", "canonical": "word_sub:76:63", "distribution": "id", "id": "rawmath/word/047"}
+{"category": "word", "language": "en", "prompt": "Lea has 39 apples and gives away 4. How many remain? Number only.", "answer": "35", "canonical": "word_sub:39:4", "distribution": "id", "id": "rawmath/word/048"}
+{"category": "word", "language": "en", "prompt": "Lea has 7 apples and gets 4 more. How many now? Number only.", "answer": "11", "canonical": "word_add:7:4", "distribution": "id", "id": "rawmath/word/049"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis: 2026 plus 8448.", "answer": "10474", "canonical": "ood_add:2026:8448", "distribution": "ood", "id": "rawmath/transfer_ood/000"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis von 48 mal 53.", "answer": "2544", "canonical": "ood_mul:48:53", "distribution": "ood", "id": "rawmath/transfer_ood/001"}
+{"category": "transfer_ood", "language": "de", "prompt": "Bestimme 35 Prozent von 600. Nur die Zahl.", "answer": "210", "canonical": "ood_pct:35:600", "distribution": "ood", "id": "rawmath/transfer_ood/002"}
+{"category": "transfer_ood", "language": "de", "prompt": "Welche Zahl x erfüllt 9x + (13) = 580? Nur x.", "answer": "63", "canonical": "ood_lin:9:13:580", "distribution": "ood", "id": "rawmath/transfer_ood/003"}
+{"category": "transfer_ood", "language": "de", "prompt": "Setze die Folge fort: 335, 366, 397, 428, ... Nur die nächste Zahl.", "answer": "459", "canonical": "ood_seq:335:31", "distribution": "ood", "id": "rawmath/transfer_ood/004"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis: 2720 plus 2862.", "answer": "5582", "canonical": "ood_add:2720:2862", "distribution": "ood", "id": "rawmath/transfer_ood/005"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis von 67 mal 68.", "answer": "4556", "canonical": "ood_mul:67:68", "distribution": "ood", "id": "rawmath/transfer_ood/006"}
+{"category": "transfer_ood", "language": "de", "prompt": "Bestimme 85 Prozent von 1200. Nur die Zahl.", "answer": "1020", "canonical": "ood_pct:85:1200", "distribution": "ood", "id": "rawmath/transfer_ood/007"}
+{"category": "transfer_ood", "language": "de", "prompt": "Welche Zahl x erfüllt 8x + (18) = 610? Nur x.", "answer": "74", "canonical": "ood_lin:8:18:610", "distribution": "ood", "id": "rawmath/transfer_ood/008"}
+{"category": "transfer_ood", "language": "de", "prompt": "Setze die Folge fort: 395, 438, 481, 524, ... Nur die nächste Zahl.", "answer": "567", "canonical": "ood_seq:395:43", "distribution": "ood", "id": "rawmath/transfer_ood/009"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis: 2289 plus 9627.", "answer": "11916", "canonical": "ood_add:2289:9627", "distribution": "ood", "id": "rawmath/transfer_ood/010"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis von 35 mal 74.", "answer": "2590", "canonical": "ood_mul:35:74", "distribution": "ood", "id": "rawmath/transfer_ood/011"}
+{"category": "transfer_ood", "language": "de", "prompt": "Bestimme 15 Prozent von 1200. Nur die Zahl.", "answer": "180", "canonical": "ood_pct:15:1200", "distribution": "ood", "id": "rawmath/transfer_ood/012"}
+{"category": "transfer_ood", "language": "de", "prompt": "Welche Zahl x erfüllt 3x + (-39) = 51? Nur x.", "answer": "30", "canonical": "ood_lin:3:-39:51", "distribution": "ood", "id": "rawmath/transfer_ood/013"}
+{"category": "transfer_ood", "language": "de", "prompt": "Setze die Folge fort: 359, 397, 435, 473, ... Nur die nächste Zahl.", "answer": "511", "canonical": "ood_seq:359:38", "distribution": "ood", "id": "rawmath/transfer_ood/014"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis: 2016 plus 7467.", "answer": "9483", "canonical": "ood_add:2016:7467", "distribution": "ood", "id": "rawmath/transfer_ood/015"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis von 68 mal 43.", "answer": "2924", "canonical": "ood_mul:68:43", "distribution": "ood", "id": "rawmath/transfer_ood/016"}
+{"category": "transfer_ood", "language": "de", "prompt": "Bestimme 15 Prozent von 600. Nur die Zahl.", "answer": "90", "canonical": "ood_pct:15:600", "distribution": "ood", "id": "rawmath/transfer_ood/017"}
+{"category": "transfer_ood", "language": "de", "prompt": "Welche Zahl x erfüllt 5x + (-17) = 358? Nur x.", "answer": "75", "canonical": "ood_lin:5:-17:358", "distribution": "ood", "id": "rawmath/transfer_ood/018"}
+{"category": "transfer_ood", "language": "de", "prompt": "Setze die Folge fort: 282, 315, 348, 381, ... Nur die nächste Zahl.", "answer": "414", "canonical": "ood_seq:282:33", "distribution": "ood", "id": "rawmath/transfer_ood/019"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis: 3515 plus 8938.", "answer": "12453", "canonical": "ood_add:3515:8938", "distribution": "ood", "id": "rawmath/transfer_ood/020"}
+{"category": "transfer_ood", "language": "de", "prompt": "Nur das Ergebnis von 63 mal 56.", "answer": "3528", "canonical": "ood_mul:63:56", "distribution": "ood", "id": "rawmath/transfer_ood/021"}
+{"category": "transfer_ood", "language": "de", "prompt": "Bestimme 35 Prozent von 1000. Nur die Zahl.", "answer": "350", "canonical": "ood_pct:35:1000", "distribution": "ood", "id": "rawmath/transfer_ood/022"}
+{"category": "transfer_ood", "language": "de", "prompt": "Welche Zahl x erfüllt 6x + (-1) = 251? Nur x.", "answer": "42", "canonical": "ood_lin:6:-1:251", "distribution": "ood", "id": "rawmath/transfer_ood/023"}
+{"category": "transfer_ood", "language": "de", "prompt": "Setze die Folge fort: 495, 522, 549, 576, ... Nur die nächste Zahl.", "answer": "603", "canonical": "ood_seq:495:27", "distribution": "ood", "id": "rawmath/transfer_ood/024"}
+{"category": "transfer_ood", "language": "en", "prompt": "Result only: 7669 plus 8669.", "answer": "16338", "canonical": "ood_add:7669:8669", "distribution": "ood", "id": "rawmath/transfer_ood/025"}
+{"category": "transfer_ood", "language": "en", "prompt": "Only the result of 67 times 78.", "answer": "5226", "canonical": "ood_mul:67:78", "distribution": "ood", "id": "rawmath/transfer_ood/026"}
+{"category": "transfer_ood", "language": "en", "prompt": "Find 85 percent of 400. Number only.", "answer": "340", "canonical": "ood_pct:85:400", "distribution": "ood", "id": "rawmath/transfer_ood/027"}
+{"category": "transfer_ood", "language": "en", "prompt": "Which x satisfies 7x + (44) = 240? x only.", "answer": "28", "canonical": "ood_lin:7:44:240", "distribution": "ood", "id": "rawmath/transfer_ood/028"}
+{"category": "transfer_ood", "language": "en", "prompt": "Continue the sequence: 133, 167, 201, 235, ... Next number only.", "answer": "269", "canonical": "ood_seq:133:34", "distribution": "ood", "id": "rawmath/transfer_ood/029"}
+{"category": "transfer_ood", "language": "en", "prompt": "Result only: 7769 plus 6109.", "answer": "13878", "canonical": "ood_add:7769:6109", "distribution": "transfer", "id": "rawmath/transfer_ood/030"}
+{"category": "transfer_ood", "language": "en", "prompt": "Only the result of 40 times 44.", "answer": "1760", "canonical": "ood_mul:40:44", "distribution": "transfer", "id": "rawmath/transfer_ood/031"}
+{"category": "transfer_ood", "language": "en", "prompt": "Find 15 percent of 400. Number only.", "answer": "60", "canonical": "ood_pct:15:400", "distribution": "transfer", "id": "rawmath/transfer_ood/032"}
+{"category": "transfer_ood", "language": "en", "prompt": "Which x satisfies 3x + (38) = 131? x only.", "answer": "31", "canonical": "ood_lin:3:38:131", "distribution": "transfer", "id": "rawmath/transfer_ood/033"}
+{"category": "transfer_ood", "language": "en", "prompt": "Continue the sequence: 117, 157, 197, 237, ... Next number only.", "answer": "277", "canonical": "ood_seq:117:40", "distribution": "transfer", "id": "rawmath/transfer_ood/034"}
+{"category": "transfer_ood", "language": "en", "prompt": "Result only: 8405 plus 7293.", "answer": "15698", "canonical": "ood_add:8405:7293", "distribution": "transfer", "id": "rawmath/transfer_ood/035"}
+{"category": "transfer_ood", "language": "en", "prompt": "Only the result of 68 times 54.", "answer": "3672", "canonical": "ood_mul:68:54", "distribution": "transfer", "id": "rawmath/transfer_ood/036"}
+{"category": "transfer_ood", "language": "en", "prompt": "Find 65 percent of 600. Number only.", "answer": "390", "canonical": "ood_pct:65:600", "distribution": "transfer", "id": "rawmath/transfer_ood/037"}
+{"category": "transfer_ood", "language": "en", "prompt": "Which x satisfies 2x + (40) = 162? x only.", "answer": "61", "canonical": "ood_lin:2:40:162", "distribution": "transfer", "id": "rawmath/transfer_ood/038"}
+{"category": "transfer_ood", "language": "en", "prompt": "Continue the sequence: 501, 527, 553, 579, ... Next number only.", "answer": "605", "canonical": "ood_seq:501:26", "distribution": "transfer", "id": "rawmath/transfer_ood/039"}
+{"category": "transfer_ood", "language": "en", "prompt": "Result only: 3557 plus 8492.", "answer": "12049", "canonical": "ood_add:3557:8492", "distribution": "transfer", "id": "rawmath/transfer_ood/040"}
+{"category": "transfer_ood", "language": "en", "prompt": "Only the result of 63 times 38.", "answer": "2394", "canonical": "ood_mul:63:38", "distribution": "transfer", "id": "rawmath/transfer_ood/041"}
+{"category": "transfer_ood", "language": "en", "prompt": "Find 85 percent of 200. Number only.", "answer": "170", "canonical": "ood_pct:85:200", "distribution": "transfer", "id": "rawmath/transfer_ood/042"}
+{"category": "transfer_ood", "language": "en", "prompt": "Which x satisfies 2x + (-34) = 24? x only.", "answer": "29", "canonical": "ood_lin:2:-34:24", "distribution": "transfer", "id": "rawmath/transfer_ood/043"}
+{"category": "transfer_ood", "language": "en", "prompt": "Continue the sequence: 293, 329, 365, 401, ... Next number only.", "answer": "437", "canonical": "ood_seq:293:36", "distribution": "transfer", "id": "rawmath/transfer_ood/044"}
+{"category": "transfer_ood", "language": "en", "prompt": "Result only: 1583 plus 1186.", "answer": "2769", "canonical": "ood_add:1583:1186", "distribution": "transfer", "id": "rawmath/transfer_ood/045"}
+{"category": "transfer_ood", "language": "en", "prompt": "Only the result of 71 times 77.", "answer": "5467", "canonical": "ood_mul:71:77", "distribution": "transfer", "id": "rawmath/transfer_ood/046"}
+{"category": "transfer_ood", "language": "en", "prompt": "Find 35 percent of 200. Number only.", "answer": "70", "canonical": "ood_pct:35:200", "distribution": "transfer", "id": "rawmath/transfer_ood/047"}
+{"category": "transfer_ood", "language": "en", "prompt": "Which x satisfies 9x + (-13) = 212? x only.", "answer": "25", "canonical": "ood_lin:9:-13:212", "distribution": "transfer", "id": "rawmath/transfer_ood/048"}
+{"category": "transfer_ood", "language": "en", "prompt": "Continue the sequence: 597, 619, 641, 663, ... Next number only.", "answer": "685", "canonical": "ood_seq:597:22", "distribution": "transfer", "id": "rawmath/transfer_ood/049"}

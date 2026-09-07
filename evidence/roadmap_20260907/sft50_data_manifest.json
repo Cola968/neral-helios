@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "purpose": "Neral-50M assistant-only instruction tuning",
+  "target_train_examples": 4792,
+  "sources": [
+    {
+      "id": "oasst1-human-de",
+      "file": "oasst1_de.jsonl",
+      "sha256": "fcf06d6c0c930c0ff1dff57155c95305a79a43e21699fc8c55649360cc1f3ae8",
+      "upstream_sha256": "286a6e9a5a413b3272ae9c0b5a20d327983dea1c24342ae28cb244a6da65185c",
+      "upstream_revision": "5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/datasets/OpenAssistant/oasst1/blob/5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93/LICENSE",
+      "provenance_url": "https://huggingface.co/datasets/OpenAssistant/oasst1/tree/5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93",
+      "language": "de",
+      "domain": "chat",
+      "allow_row_domains": true,
+      "target_fraction": 0.0749147205457885
+    },
+    {
+      "id": "oasst1-human-en",
+      "file": "oasst1_en.jsonl",
+      "sha256": "a8406f89e5013960c84a0eec97462f33d7064d51bb5b2b22f38e36bf34b10b12",
+      "upstream_sha256": "286a6e9a5a413b3272ae9c0b5a20d327983dea1c24342ae28cb244a6da65185c",
+      "upstream_revision": "5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/datasets/OpenAssistant/oasst1/blob/5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93/LICENSE",
+      "provenance_url": "https://huggingface.co/datasets/OpenAssistant/oasst1/tree/5c38bf14fe3c7bb31bb8e13eb4f87b2c6fd78d93",
+      "language": "en",
+      "domain": "chat",
+      "allow_row_domains": true,
+      "target_fraction": 0.9250852794542115
+    }
+  ],
+  "selection": {
+    "oasst1-human-de": {
+      "target_examples": 359,
+      "selected_examples": 359,
+      "available_train_examples": 478
+    },
+    "oasst1-human-en": {
+      "target_examples": 4433,
+      "selected_examples": 4433,
+      "available_train_examples": 4435
+    }
+  },
+  "splits": {
+    "train": {
+      "examples": 4792,
+      "answer_bytes": 1968141,
+      "sha256": "7caf41323106d99cb3ab8bf213dd87e90eed6a19e1614d9fabd864340a039333",
+      "by_language": {
+        "de": 359,
+        "en": 4433
+      },
+      "by_domain": {
+        "chat": 3381,
+        "reasoning": 71,
+        "explanation": 481,
+        "science": 131,
+        "code": 519,
+        "focus": 47,
+        "math": 81,
+        "summary": 48,
+        "translation": 33
+      }
+    },
+    "val": {
+      "examples": 284,
+      "answer_bytes": 115144,
+      "sha256": "6855db2112dfce70ed81fc174e04313d13bf3fb7fe7c4784e0523ce319aa96c8",
+      "by_language": {
+        "de": 29,
+        "en": 255
+      },
+      "by_domain": {
+        "chat": 191,
+        "code": 36,
+        "reasoning": 4,
+        "explanation": 32,
+        "math": 4,
+        "translation": 1,
+        "science": 10,
+        "focus": 5,
+        "summary": 1
+      }
+    },
+    "test": {
+      "examples": 172,
+      "answer_bytes": 75000,
+      "sha256": "ff798eb436d3ada4cb07faedccc64375aa1ec0fffc1a8439077f291758655c7f",
+      "by_language": {
+        "de": 16,
+        "en": 156
+      },
+      "by_domain": {
+        "chat": 121,
+        "code": 17,
+        "math": 4,
+        "reasoning": 2,
+        "science": 5,
+        "explanation": 17,
+        "summary": 2,
+        "focus": 4
+      }
+    },
+    "holdout": {
+      "examples": 110,
+      "answer_bytes": 45743,
+      "sha256": "7ba09f6edcf212bb082cf2d6d78c3b34dee71ca02cbab7008243c73191f2ca73",
+      "by_language": {
+        "de": 5,
+        "en": 105
+      },
+      "by_domain": {
+        "chat": 68,
+        "math": 2,
+        "explanation": 14,
+        "science": 4,
+        "focus": 3,
+        "code": 16,
+        "reasoning": 2,
+        "summary": 1
+      }
+    }
+  },
+  "rejected": {
+    "pair_exceeds_training_sequence": 4262,
+    "answer_too_short": 9,
+    "answer_character_run": 106,
+    "answer_too_long": 165,
+    "prompt_too_short": 102,
+    "prompt_too_long": 11,
+    "prompt_contact_or_secret": 4,
+    "prompt_character_run": 9,
+    "answer_contact_or_secret": 9,
+    "pair_too_long": 6,
+    "exact_pair_duplicate": 1,
+    "prompt_encoding_or_control": 1
+  },
+  "source_manifest_sha256": "15b610d9fc1d4d7a2953f87cec47034b9d13208a9719f80513951fdcd2af3c1e",
+  "frozen_benchmark_files": {
+    "benchmarks50/regression.jsonl": "ea85e28272b98f79d8911d677125455ffc3d506152804b51dc8069279deee5d9",
+    "benchmarks50/raw_math_v1.jsonl": "3f3d31fd1f42c16b05549553d2be78f71e59ce6065ab48435bd130a20d4b05b7",
+    "benchmark_v3.py": "483eb2197eb6e141c31ce27a307754cbac6fc3b415787389dde06db7bd0cd21c",
+    "benchmark_v4.py": "851eeeb32aef522af2cd714a26febc41180f75921c82a22c5453cd4b64816e2d"
+  },
+  "format": "User prompt + Assistant answer; assistant answer and EOS only are loss targets during training",
+  "split": "SHA256(SFT50:source_id:row_id): 90/5/3/2 train/val/test/holdout before train quota selection",
+  "external_model_calls": false,
+  "raw_source_uploaded": false,
+  "contamination_note": "Exact normalized long literals from frozen 100-prompt, RawMath, v3 and v4 suites are rejected; not exhaustive semantic detection.",
+  "max_training_sequence": 1024
+}

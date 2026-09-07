@@ -1,0 +1,2129 @@
+{
+  "benchmark_version": 4,
+  "checkpoint": "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\export\\pilot_02\\neral20m.pt",
+  "checkpoint_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "parameters": {
+    "total": 20587008,
+    "trainable": 20587008,
+    "millions": 20.587008
+  },
+  "config": {
+    "vocab_size": 260,
+    "d_model": 512,
+    "n_layers": 6,
+    "n_heads": 8,
+    "ffn_hidden": 1536,
+    "max_seq_len": 4096,
+    "rope_theta": 10000.0,
+    "dropout": 0.0,
+    "rms_eps": 1e-05
+  },
+  "step": 100,
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "torch": "2.8.0+cu128",
+  "pair_suite": {
+    "accuracy": 0.6136363636363636,
+    "domains": {
+      "de_grammar": {
+        "correct": 3,
+        "total": 4,
+        "accuracy": 0.75,
+        "mean_margin": 0.0008291006088256836
+      },
+      "en_grammar": {
+        "correct": 2,
+        "total": 4,
+        "accuracy": 0.5,
+        "mean_margin": 0.08066362142562866
+      },
+      "physics": {
+        "correct": 1,
+        "total": 4,
+        "accuracy": 0.25,
+        "mean_margin": 0.10927778482437134
+      },
+      "astronomy": {
+        "correct": 3,
+        "total": 4,
+        "accuracy": 0.75,
+        "mean_margin": 0.3484140634536743
+      },
+      "aviation": {
+        "correct": 3,
+        "total": 4,
+        "accuracy": 0.75,
+        "mean_margin": 0.30377036333084106
+      },
+      "transport": {
+        "correct": 2,
+        "total": 2,
+        "accuracy": 1.0,
+        "mean_margin": 0.7212557792663574
+      },
+      "math": {
+        "correct": 4,
+        "total": 6,
+        "accuracy": 0.6666666666666666,
+        "mean_margin": 0.1755808194478353
+      },
+      "logic": {
+        "correct": 1,
+        "total": 2,
+        "accuracy": 0.5,
+        "mean_margin": 0.056399762630462646
+      },
+      "commonsense": {
+        "correct": 1,
+        "total": 2,
+        "accuracy": 0.5,
+        "mean_margin": -0.1633526086807251
+      },
+      "code": {
+        "correct": 2,
+        "total": 4,
+        "accuracy": 0.5,
+        "mean_margin": -0.14092856645584106
+      },
+      "translation": {
+        "correct": 3,
+        "total": 4,
+        "accuracy": 0.75,
+        "mean_margin": 0.5731571614742279
+      },
+      "induction": {
+        "correct": 2,
+        "total": 4,
+        "accuracy": 0.5,
+        "mean_margin": -0.16910839080810547
+      }
+    },
+    "cases": [
+      {
+        "id": "v4pair/000",
+        "domain": "de_grammar",
+        "prefix": "Die beiden Flugzeuge",
+        "preferred": " stehen am Gate.",
+        "distractor": " steht am Gate.",
+        "correct": true,
+        "margin_nats_per_byte": 0.23051834106445312,
+        "preferred_score": {
+          "sum_nll": 58.87866973876953,
+          "mean_nll": 3.6799168586730957,
+          "bits_per_byte": 5.308997631072998,
+          "bytes": 16
+        },
+        "distractor_score": {
+          "sum_nll": 58.656524658203125,
+          "mean_nll": 3.910435199737549,
+          "bits_per_byte": 5.641565322875977,
+          "bytes": 15
+        }
+      },
+      {
+        "id": "v4pair/001",
+        "domain": "de_grammar",
+        "prefix": "Gestern",
+        "preferred": " ging ich nach Hause.",
+        "distractor": " gehe ich nach Hause.",
+        "correct": false,
+        "margin_nats_per_byte": -0.4145023822784424,
+        "preferred_score": {
+          "sum_nll": 74.11529541015625,
+          "mean_nll": 3.529299736022949,
+          "bits_per_byte": 5.091702938079834,
+          "bytes": 21
+        },
+        "distractor_score": {
+          "sum_nll": 65.4107437133789,
+          "mean_nll": 3.114797353744507,
+          "bits_per_byte": 4.493702411651611,
+          "bytes": 21
+        }
+      },
+      {
+        "id": "v4pair/002",
+        "domain": "de_grammar",
+        "prefix": "Das Mädchen und der Junge",
+        "preferred": " lesen ein Buch.",
+        "distractor": " liest ein Buch.",
+        "correct": true,
+        "margin_nats_per_byte": 0.17228055000305176,
+        "preferred_score": {
+          "sum_nll": 44.26213073730469,
+          "mean_nll": 2.766383171081543,
+          "bits_per_byte": 3.9910471439361572,
+          "bytes": 16
+        },
+        "distractor_score": {
+          "sum_nll": 47.018619537353516,
+          "mean_nll": 2.9386637210845947,
+          "bits_per_byte": 4.239595413208008,
+          "bytes": 16
+        }
+      },
+      {
+        "id": "v4pair/003",
+        "domain": "de_grammar",
+        "prefix": "Wenn Wasser kocht,",
+        "preferred": " entsteht Wasserdampf.",
+        "distractor": " entstehen Wasserdampf.",
+        "correct": true,
+        "margin_nats_per_byte": 0.015019893646240234,
+        "preferred_score": {
+          "sum_nll": 67.53714752197266,
+          "mean_nll": 3.0698704719543457,
+          "bits_per_byte": 4.428886890411377,
+          "bytes": 22
+        },
+        "distractor_score": {
+          "sum_nll": 70.95247650146484,
+          "mean_nll": 3.084890365600586,
+          "bits_per_byte": 4.450555801391602,
+          "bytes": 23
+        }
+      },
+      {
+        "id": "v4pair/004",
+        "domain": "en_grammar",
+        "prefix": "Yesterday she",
+        "preferred": " went home.",
+        "distractor": " goes home.",
+        "correct": true,
+        "margin_nats_per_byte": 0.11241960525512695,
+        "preferred_score": {
+          "sum_nll": 28.185863494873047,
+          "mean_nll": 2.5623512268066406,
+          "bits_per_byte": 3.6966912746429443,
+          "bytes": 11
+        },
+        "distractor_score": {
+          "sum_nll": 29.42247772216797,
+          "mean_nll": 2.6747708320617676,
+          "bits_per_byte": 3.8588786125183105,
+          "bytes": 11
+        }
+      },
+      {
+        "id": "v4pair/005",
+        "domain": "en_grammar",
+        "prefix": "The aircraft",
+        "preferred": " is at the gate.",
+        "distractor": " are at the gate.",
+        "correct": true,
+        "margin_nats_per_byte": 0.2520768642425537,
+        "preferred_score": {
+          "sum_nll": 49.490211486816406,
+          "mean_nll": 3.0931382179260254,
+          "bits_per_byte": 4.4624552726745605,
+          "bytes": 16
+        },
+        "distractor_score": {
+          "sum_nll": 56.868656158447266,
+          "mean_nll": 3.345215082168579,
+          "bits_per_byte": 4.826125144958496,
+          "bytes": 17
+        }
+      },
+      {
+        "id": "v4pair/006",
+        "domain": "en_grammar",
+        "prefix": "My friends",
+        "preferred": " have arrived.",
+        "distractor": " has arrived.",
+        "correct": false,
+        "margin_nats_per_byte": -0.01122593879699707,
+        "preferred_score": {
+          "sum_nll": 46.71793746948242,
+          "mean_nll": 3.3369956016540527,
+          "bits_per_byte": 4.814267158508301,
+          "bytes": 14
+        },
+        "distractor_score": {
+          "sum_nll": 43.23500442504883,
+          "mean_nll": 3.3257696628570557,
+          "bits_per_byte": 4.798071384429932,
+          "bytes": 13
+        }
+      },
+      {
+        "id": "v4pair/007",
+        "domain": "en_grammar",
+        "prefix": "If water boils, it",
+        "preferred": " turns into vapor.",
+        "distractor": " turn into vapor.",
+        "correct": false,
+        "margin_nats_per_byte": -0.030616044998168945,
+        "preferred_score": {
+          "sum_nll": 59.7126579284668,
+          "mean_nll": 3.3173699378967285,
+          "bits_per_byte": 4.785953044891357,
+          "bytes": 18
+        },
+        "distractor_score": {
+          "sum_nll": 55.87481689453125,
+          "mean_nll": 3.2867538928985596,
+          "bits_per_byte": 4.741783618927002,
+          "bytes": 17
+        }
+      },
+      {
+        "id": "v4pair/008",
+        "domain": "physics",
+        "prefix": "Die Einheit der Kraft ist",
+        "preferred": " Newton.",
+        "distractor": " Watt.",
+        "correct": false,
+        "margin_nats_per_byte": -0.002799510955810547,
+        "preferred_score": {
+          "sum_nll": 32.10636901855469,
+          "mean_nll": 4.013296127319336,
+          "bits_per_byte": 5.789962291717529,
+          "bytes": 8
+        },
+        "distractor_score": {
+          "sum_nll": 24.062978744506836,
+          "mean_nll": 4.010496616363525,
+          "bits_per_byte": 5.785923480987549,
+          "bytes": 6
+        }
+      },
+      {
+        "id": "v4pair/009",
+        "domain": "physics",
+        "prefix": "Licht bewegt sich im Vakuum",
+        "preferred": " schneller als Schall.",
+        "distractor": " langsamer als Schall.",
+        "correct": false,
+        "margin_nats_per_byte": -0.08757352828979492,
+        "preferred_score": {
+          "sum_nll": 56.43233108520508,
+          "mean_nll": 2.565106153488159,
+          "bits_per_byte": 3.7006659507751465,
+          "bytes": 22
+        },
+        "distractor_score": {
+          "sum_nll": 54.505714416503906,
+          "mean_nll": 2.4775326251983643,
+          "bits_per_byte": 3.574323892593384,
+          "bytes": 22
+        }
+      },
+      {
+        "id": "v4pair/010",
+        "domain": "physics",
+        "prefix": "Die Erde wird durch",
+        "preferred": " Gravitation auf ihrer Bahn gehalten.",
+        "distractor": " Magnetismus auf ihrer Bahn gehalten.",
+        "correct": true,
+        "margin_nats_per_byte": 0.7183761596679688,
+        "preferred_score": {
+          "sum_nll": 100.99922180175781,
+          "mean_nll": 2.729708671569824,
+          "bits_per_byte": 3.9381370544433594,
+          "bytes": 37
+        },
+        "distractor_score": {
+          "sum_nll": 127.57913970947266,
+          "mean_nll": 3.448084831237793,
+          "bits_per_byte": 4.97453498840332,
+          "bytes": 37
+        }
+      },
+      {
+        "id": "v4pair/011",
+        "domain": "physics",
+        "prefix": "Ein elektrischer Strom wird in",
+        "preferred": " Ampere gemessen.",
+        "distractor": " Metern gemessen.",
+        "correct": false,
+        "margin_nats_per_byte": -0.19089198112487793,
+        "preferred_score": {
+          "sum_nll": 48.869956970214844,
+          "mean_nll": 2.8747034072875977,
+          "bits_per_byte": 4.14732027053833,
+          "bytes": 17
+        },
+        "distractor_score": {
+          "sum_nll": 45.624794006347656,
+          "mean_nll": 2.6838114261627197,
+          "bits_per_byte": 3.8719213008880615,
+          "bytes": 17
+        }
+      },
+      {
+        "id": "v4pair/012",
+        "domain": "astronomy",
+        "prefix": "The planet closest to the Sun is",
+        "preferred": " Mercury.",
+        "distractor": " Neptune.",
+        "correct": true,
+        "margin_nats_per_byte": 1.239042043685913,
+        "preferred_score": {
+          "sum_nll": 30.847867965698242,
+          "mean_nll": 3.4275410175323486,
+          "bits_per_byte": 4.944896221160889,
+          "bytes": 9
+        },
+        "distractor_score": {
+          "sum_nll": 41.99924850463867,
+          "mean_nll": 4.666583061218262,
+          "bits_per_byte": 6.732456207275391,
+          "bytes": 9
+        }
+      },
+      {
+        "id": "v4pair/013",
+        "domain": "astronomy",
+        "prefix": "A black hole has gravity so strong that",
+        "preferred": " light cannot escape from inside its event horizon.",
+        "distractor": " gravity disappears at its event horizon.",
+        "correct": true,
+        "margin_nats_per_byte": 0.18001437187194824,
+        "preferred_score": {
+          "sum_nll": 131.87515258789062,
+          "mean_nll": 2.585787296295166,
+          "bits_per_byte": 3.7305023670196533,
+          "bytes": 51
+        },
+        "distractor_score": {
+          "sum_nll": 113.39787292480469,
+          "mean_nll": 2.7658016681671143,
+          "bits_per_byte": 3.990208387374878,
+          "bytes": 41
+        }
+      },
+      {
+        "id": "v4pair/014",
+        "domain": "astronomy",
+        "prefix": "Earth has one natural satellite called",
+        "preferred": " the Moon.",
+        "distractor": " Mars.",
+        "correct": true,
+        "margin_nats_per_byte": 0.08900928497314453,
+        "preferred_score": {
+          "sum_nll": 28.762451171875,
+          "mean_nll": 2.8762452602386475,
+          "bits_per_byte": 4.149544715881348,
+          "bytes": 10
+        },
+        "distractor_score": {
+          "sum_nll": 17.791526794433594,
+          "mean_nll": 2.965254545211792,
+          "bits_per_byte": 4.277957916259766,
+          "bytes": 6
+        }
+      },
+      {
+        "id": "v4pair/015",
+        "domain": "astronomy",
+        "prefix": "The Sun is",
+        "preferred": " a star.",
+        "distractor": " a planet.",
+        "correct": false,
+        "margin_nats_per_byte": -0.1144094467163086,
+        "preferred_score": {
+          "sum_nll": 32.25194549560547,
+          "mean_nll": 4.031493186950684,
+          "bits_per_byte": 5.8162150382995605,
+          "bytes": 8
+        },
+        "distractor_score": {
+          "sum_nll": 39.17083740234375,
+          "mean_nll": 3.917083740234375,
+          "bits_per_byte": 5.651157379150391,
+          "bytes": 10
+        }
+      },
+      {
+        "id": "v4pair/016",
+        "domain": "aviation",
+        "prefix": "Ein Flughafen hat eine Start- und Landebahn für",
+        "preferred": " Flugzeuge.",
+        "distractor": " U-Boote.",
+        "correct": true,
+        "margin_nats_per_byte": 1.2554478645324707,
+        "preferred_score": {
+          "sum_nll": 28.523494720458984,
+          "mean_nll": 2.5930449962615967,
+          "bits_per_byte": 3.7409729957580566,
+          "bytes": 11
+        },
+        "distractor_score": {
+          "sum_nll": 34.636436462402344,
+          "mean_nll": 3.8484928607940674,
+          "bits_per_byte": 5.552201271057129,
+          "bytes": 9
+        }
+      },
+      {
+        "id": "v4pair/017",
+        "domain": "aviation",
+        "prefix": "The cockpit is where",
+        "preferred": " pilots control an aircraft.",
+        "distractor": " passengers collect baggage.",
+        "correct": false,
+        "margin_nats_per_byte": -0.44525980949401855,
+        "preferred_score": {
+          "sum_nll": 110.53392028808594,
+          "mean_nll": 3.9476401805877686,
+          "bits_per_byte": 5.6952409744262695,
+          "bytes": 28
+        },
+        "distractor_score": {
+          "sum_nll": 98.06664276123047,
+          "mean_nll": 3.50238037109375,
+          "bits_per_byte": 5.0528669357299805,
+          "bytes": 28
+        }
+      },
+      {
+        "id": "v4pair/018",
+        "domain": "aviation",
+        "prefix": "ATC commonly stands for",
+        "preferred": " air traffic control.",
+        "distractor": " automatic train cabin.",
+        "correct": true,
+        "margin_nats_per_byte": 0.1594686508178711,
+        "preferred_score": {
+          "sum_nll": 60.76811218261719,
+          "mean_nll": 2.8937196731567383,
+          "bits_per_byte": 4.174755096435547,
+          "bytes": 21
+        },
+        "distractor_score": {
+          "sum_nll": 70.22332763671875,
+          "mean_nll": 3.0531883239746094,
+          "bits_per_byte": 4.404819488525391,
+          "bytes": 23
+        }
+      },
+      {
+        "id": "v4pair/019",
+        "domain": "aviation",
+        "prefix": "A runway is used primarily for aircraft",
+        "preferred": " takeoff and landing.",
+        "distractor": " baggage sorting.",
+        "correct": true,
+        "margin_nats_per_byte": 0.24542474746704102,
+        "preferred_score": {
+          "sum_nll": 62.54265594482422,
+          "mean_nll": 2.9782216548919678,
+          "bits_per_byte": 4.296665668487549,
+          "bytes": 21
+        },
+        "distractor_score": {
+          "sum_nll": 54.8019905090332,
+          "mean_nll": 3.223646402359009,
+          "bits_per_byte": 4.650738716125488,
+          "bytes": 17
+        }
+      },
+      {
+        "id": "v4pair/020",
+        "domain": "transport",
+        "prefix": "Ein Zug fährt auf",
+        "preferred": " Schienen.",
+        "distractor": " Startbahnen.",
+        "correct": true,
+        "margin_nats_per_byte": 1.2074217796325684,
+        "preferred_score": {
+          "sum_nll": 25.605030059814453,
+          "mean_nll": 2.5605030059814453,
+          "bits_per_byte": 3.6940250396728516,
+          "bytes": 10
+        },
+        "distractor_score": {
+          "sum_nll": 48.9830207824707,
+          "mean_nll": 3.7679247856140137,
+          "bits_per_byte": 5.435966491699219,
+          "bytes": 13
+        }
+      },
+      {
+        "id": "v4pair/021",
+        "domain": "transport",
+        "prefix": "A railway station is a place where",
+        "preferred": " trains stop for passengers.",
+        "distractor": " aircraft refuel in flight.",
+        "correct": true,
+        "margin_nats_per_byte": 0.23508977890014648,
+        "preferred_score": {
+          "sum_nll": 77.39628601074219,
+          "mean_nll": 2.764153242111206,
+          "bits_per_byte": 3.98783016204834,
+          "bytes": 28
+        },
+        "distractor_score": {
+          "sum_nll": 80.97956085205078,
+          "mean_nll": 2.9992430210113525,
+          "bits_per_byte": 4.326992988586426,
+          "bytes": 27
+        }
+      },
+      {
+        "id": "v4pair/022",
+        "domain": "math",
+        "prefix": "15 + 7 =",
+        "preferred": " 22",
+        "distractor": " 23",
+        "correct": true,
+        "margin_nats_per_byte": 0.23958325386047363,
+        "preferred_score": {
+          "sum_nll": 11.0567626953125,
+          "mean_nll": 3.6855876445770264,
+          "bits_per_byte": 5.317178726196289,
+          "bytes": 3
+        },
+        "distractor_score": {
+          "sum_nll": 11.7755126953125,
+          "mean_nll": 3.9251708984375,
+          "bits_per_byte": 5.662824630737305,
+          "bytes": 3
+        }
+      },
+      {
+        "id": "v4pair/023",
+        "domain": "math",
+        "prefix": "8 * 8 =",
+        "preferred": " 64",
+        "distractor": " 48",
+        "correct": true,
+        "margin_nats_per_byte": 0.10989689826965332,
+        "preferred_score": {
+          "sum_nll": 9.804346084594727,
+          "mean_nll": 3.268115520477295,
+          "bits_per_byte": 4.714893817901611,
+          "bytes": 3
+        },
+        "distractor_score": {
+          "sum_nll": 10.134037017822266,
+          "mean_nll": 3.3780124187469482,
+          "bits_per_byte": 4.873441696166992,
+          "bytes": 3
+        }
+      },
+      {
+        "id": "v4pair/024",
+        "domain": "math",
+        "prefix": "100 / 4 =",
+        "preferred": " 25",
+        "distractor": " 40",
+        "correct": true,
+        "margin_nats_per_byte": 0.7092189788818359,
+        "preferred_score": {
+          "sum_nll": 9.208148956298828,
+          "mean_nll": 3.069383144378662,
+          "bits_per_byte": 4.428183555603027,
+          "bytes": 3
+        },
+        "distractor_score": {
+          "sum_nll": 11.335805892944336,
+          "mean_nll": 3.778602123260498,
+          "bits_per_byte": 5.4513702392578125,
+          "bytes": 3
+        }
+      },
+      {
+        "id": "v4pair/025",
+        "domain": "math",
+        "prefix": "3 squared equals",
+        "preferred": " 9",
+        "distractor": " 6",
+        "correct": true,
+        "margin_nats_per_byte": 0.3310546875,
+        "preferred_score": {
+          "sum_nll": 5.250546455383301,
+          "mean_nll": 2.6252732276916504,
+          "bits_per_byte": 3.787468671798706,
+          "bytes": 2
+        },
+        "distractor_score": {
+          "sum_nll": 5.912655830383301,
+          "mean_nll": 2.9563279151916504,
+          "bits_per_byte": 4.265079498291016,
+          "bytes": 2
+        }
+      },
+      {
+        "id": "v4pair/026",
+        "domain": "math",
+        "prefix": "Die Hälfte von 20 ist",
+        "preferred": " 10.",
+        "distractor": " 40.",
+        "correct": false,
+        "margin_nats_per_byte": -0.22029495239257812,
+        "preferred_score": {
+          "sum_nll": 13.405927658081055,
+          "mean_nll": 3.3514819145202637,
+          "bits_per_byte": 4.8351664543151855,
+          "bytes": 4
+        },
+        "distractor_score": {
+          "sum_nll": 12.524747848510742,
+          "mean_nll": 3.1311869621276855,
+          "bits_per_byte": 4.517347812652588,
+          "bytes": 4
+        }
+      },
+      {
+        "id": "v4pair/027",
+        "domain": "math",
+        "prefix": "A triangle has",
+        "preferred": " 3 sides.",
+        "distractor": " 4 sides.",
+        "correct": false,
+        "margin_nats_per_byte": -0.11597394943237305,
+        "preferred_score": {
+          "sum_nll": 38.55862045288086,
+          "mean_nll": 4.2842912673950195,
+          "bits_per_byte": 6.1809258460998535,
+          "bytes": 9
+        },
+        "distractor_score": {
+          "sum_nll": 37.514854431152344,
+          "mean_nll": 4.1683173179626465,
+          "bits_per_byte": 6.01361083984375,
+          "bytes": 9
+        }
+      },
+      {
+        "id": "v4pair/028",
+        "domain": "logic",
+        "prefix": "All birds are animals. A sparrow is a bird. Therefore a sparrow is",
+        "preferred": " an animal.",
+        "distractor": " a mineral.",
+        "correct": true,
+        "margin_nats_per_byte": 0.33425652980804443,
+        "preferred_score": {
+          "sum_nll": 21.78741455078125,
+          "mean_nll": 1.980674147605896,
+          "bits_per_byte": 2.857508659362793,
+          "bytes": 11
+        },
+        "distractor_score": {
+          "sum_nll": 25.464237213134766,
+          "mean_nll": 2.3149306774139404,
+          "bits_per_byte": 3.3397388458251953,
+          "bytes": 11
+        }
+      },
+      {
+        "id": "v4pair/029",
+        "domain": "logic",
+        "prefix": "If A is larger than B and B is larger than C, then A is",
+        "preferred": " larger than C.",
+        "distractor": " smaller than C.",
+        "correct": false,
+        "margin_nats_per_byte": -0.22145700454711914,
+        "preferred_score": {
+          "sum_nll": 41.988426208496094,
+          "mean_nll": 2.7992286682128906,
+          "bits_per_byte": 4.038433074951172,
+          "bytes": 15
+        },
+        "distractor_score": {
+          "sum_nll": 41.244346618652344,
+          "mean_nll": 2.5777716636657715,
+          "bits_per_byte": 3.7189383506774902,
+          "bytes": 16
+        }
+      },
+      {
+        "id": "v4pair/030",
+        "domain": "commonsense",
+        "prefix": "Ice left in a warm room will usually",
+        "preferred": " melt.",
+        "distractor": " become hotter than the Sun.",
+        "correct": true,
+        "margin_nats_per_byte": 0.2811453342437744,
+        "preferred_score": {
+          "sum_nll": 14.790103912353516,
+          "mean_nll": 2.465017318725586,
+          "bits_per_byte": 3.5562682151794434,
+          "bytes": 6
+        },
+        "distractor_score": {
+          "sum_nll": 76.89254760742188,
+          "mean_nll": 2.7461626529693604,
+          "bits_per_byte": 3.9618752002716064,
+          "bytes": 28
+        }
+      },
+      {
+        "id": "v4pair/031",
+        "domain": "commonsense",
+        "prefix": "Ein Mensch braucht zum Atmen",
+        "preferred": " Luft.",
+        "distractor": " Beton.",
+        "correct": false,
+        "margin_nats_per_byte": -0.6078505516052246,
+        "preferred_score": {
+          "sum_nll": 24.618839263916016,
+          "mean_nll": 4.103139877319336,
+          "bits_per_byte": 5.91957950592041,
+          "bytes": 6
+        },
+        "distractor_score": {
+          "sum_nll": 24.467023849487305,
+          "mean_nll": 3.4952893257141113,
+          "bits_per_byte": 5.042636394500732,
+          "bytes": 7
+        }
+      },
+      {
+        "id": "v4pair/032",
+        "domain": "code",
+        "prefix": "x = [1, 2, 3]\nprint(x[0])  # prints",
+        "preferred": " 1\n",
+        "distractor": " 3\n",
+        "correct": true,
+        "margin_nats_per_byte": 0.6648299694061279,
+        "preferred_score": {
+          "sum_nll": 10.050543785095215,
+          "mean_nll": 3.3501813411712646,
+          "bits_per_byte": 4.833290100097656,
+          "bytes": 3
+        },
+        "distractor_score": {
+          "sum_nll": 12.04503345489502,
+          "mean_nll": 4.015011310577393,
+          "bits_per_byte": 5.792436599731445,
+          "bytes": 3
+        }
+      },
+      {
+        "id": "v4pair/033",
+        "domain": "code",
+        "prefix": "def square(x):\n    return",
+        "preferred": " x * x\n",
+        "distractor": " x + 1\n",
+        "correct": false,
+        "margin_nats_per_byte": -0.33039379119873047,
+        "preferred_score": {
+          "sum_nll": 22.113990783691406,
+          "mean_nll": 3.159141778945923,
+          "bits_per_byte": 4.55767822265625,
+          "bytes": 7
+        },
+        "distractor_score": {
+          "sum_nll": 19.80123519897461,
+          "mean_nll": 2.8287479877471924,
+          "bits_per_byte": 4.081020832061768,
+          "bytes": 7
+        }
+      },
+      {
+        "id": "v4pair/034",
+        "domain": "code",
+        "prefix": "for i in range(2):\n    print(i)\n# values printed are",
+        "preferred": " 0 and 1\n",
+        "distractor": " 1 and 2\n",
+        "correct": true,
+        "margin_nats_per_byte": 0.1307826042175293,
+        "preferred_score": {
+          "sum_nll": 26.46820831298828,
+          "mean_nll": 2.9409120082855225,
+          "bits_per_byte": 4.242839336395264,
+          "bytes": 9
+        },
+        "distractor_score": {
+          "sum_nll": 27.645252227783203,
+          "mean_nll": 3.0716946125030518,
+          "bits_per_byte": 4.4315185546875,
+          "bytes": 9
+        }
+      },
+      {
+        "id": "v4pair/035",
+        "domain": "code",
+        "prefix": "name = 'Neral'\nlength =",
+        "preferred": " len(name)\n",
+        "distractor": " name / 2\n",
+        "correct": false,
+        "margin_nats_per_byte": -1.028933048248291,
+        "preferred_score": {
+          "sum_nll": 48.06636428833008,
+          "mean_nll": 4.369669437408447,
+          "bits_per_byte": 6.304100513458252,
+          "bytes": 11
+        },
+        "distractor_score": {
+          "sum_nll": 33.40736389160156,
+          "mean_nll": 3.3407363891601562,
+          "bits_per_byte": 4.8196635246276855,
+          "bytes": 10
+        }
+      },
+      {
+        "id": "v4pair/036",
+        "domain": "translation",
+        "prefix": "Deutsch: Haus\nEnglisch:",
+        "preferred": " house",
+        "distractor": " water",
+        "correct": false,
+        "margin_nats_per_byte": -0.8584921360015869,
+        "preferred_score": {
+          "sum_nll": 20.2122802734375,
+          "mean_nll": 3.36871337890625,
+          "bits_per_byte": 4.860025882720947,
+          "bytes": 6
+        },
+        "distractor_score": {
+          "sum_nll": 15.06132698059082,
+          "mean_nll": 2.510221242904663,
+          "bits_per_byte": 3.62148380279541,
+          "bytes": 6
+        }
+      },
+      {
+        "id": "v4pair/037",
+        "domain": "translation",
+        "prefix": "Deutsch: Zug\nEnglisch:",
+        "preferred": " train",
+        "distractor": " tree",
+        "correct": true,
+        "margin_nats_per_byte": 0.724097490310669,
+        "preferred_score": {
+          "sum_nll": 19.274599075317383,
+          "mean_nll": 3.212433338165283,
+          "bits_per_byte": 4.634561538696289,
+          "bytes": 6
+        },
+        "distractor_score": {
+          "sum_nll": 19.682653427124023,
+          "mean_nll": 3.936530828475952,
+          "bits_per_byte": 5.679213523864746,
+          "bytes": 5
+        }
+      },
+      {
+        "id": "v4pair/038",
+        "domain": "translation",
+        "prefix": "English: window\nDeutsch:",
+        "preferred": " Fenster",
+        "distractor": " Wolke",
+        "correct": true,
+        "margin_nats_per_byte": 0.04204368591308594,
+        "preferred_score": {
+          "sum_nll": 20.11176300048828,
+          "mean_nll": 2.513970375061035,
+          "bits_per_byte": 3.626892566680908,
+          "bytes": 8
+        },
+        "distractor_score": {
+          "sum_nll": 15.336084365844727,
+          "mean_nll": 2.556014060974121,
+          "bits_per_byte": 3.687548875808716,
+          "bytes": 6
+        }
+      },
+      {
+        "id": "v4pair/039",
+        "domain": "translation",
+        "prefix": "English: airport\nDeutsch:",
+        "preferred": " Flughafen",
+        "distractor": " Fahrrad",
+        "correct": true,
+        "margin_nats_per_byte": 2.3849796056747437,
+        "preferred_score": {
+          "sum_nll": 19.451356887817383,
+          "mean_nll": 1.9451357126235962,
+          "bits_per_byte": 2.8062376976013184,
+          "bytes": 10
+        },
+        "distractor_score": {
+          "sum_nll": 34.64092254638672,
+          "mean_nll": 4.33011531829834,
+          "bits_per_byte": 6.247035980224609,
+          "bytes": 8
+        }
+      },
+      {
+        "id": "v4pair/040",
+        "domain": "induction",
+        "prefix": "A B C A B",
+        "preferred": " C",
+        "distractor": " D",
+        "correct": false,
+        "margin_nats_per_byte": -0.8330078125,
+        "preferred_score": {
+          "sum_nll": 10.053104400634766,
+          "mean_nll": 5.026552200317383,
+          "bits_per_byte": 7.251781940460205,
+          "bytes": 2
+        },
+        "distractor_score": {
+          "sum_nll": 8.387088775634766,
+          "mean_nll": 4.193544387817383,
+          "bits_per_byte": 6.0500054359436035,
+          "bytes": 2
+        }
+      },
+      {
+        "id": "v4pair/041",
+        "domain": "induction",
+        "prefix": "1 2 3 1 2",
+        "preferred": " 3",
+        "distractor": " 4",
+        "correct": true,
+        "margin_nats_per_byte": 0.0128173828125,
+        "preferred_score": {
+          "sum_nll": 6.8001813888549805,
+          "mean_nll": 3.4000906944274902,
+          "bits_per_byte": 4.905293941497803,
+          "bytes": 2
+        },
+        "distractor_score": {
+          "sum_nll": 6.8258161544799805,
+          "mean_nll": 3.4129080772399902,
+          "bits_per_byte": 4.92378568649292,
+          "bytes": 2
+        }
+      },
+      {
+        "id": "v4pair/042",
+        "domain": "induction",
+        "prefix": "rot blau grün rot blau",
+        "preferred": " grün",
+        "distractor": " gelb",
+        "correct": true,
+        "margin_nats_per_byte": 0.2951805591583252,
+        "preferred_score": {
+          "sum_nll": 18.79502296447754,
+          "mean_nll": 3.1325039863586426,
+          "bits_per_byte": 4.519248008728027,
+          "bytes": 6
+        },
+        "distractor_score": {
+          "sum_nll": 17.1384220123291,
+          "mean_nll": 3.4276845455169678,
+          "bits_per_byte": 4.945103645324707,
+          "bytes": 5
+        }
+      },
+      {
+        "id": "v4pair/043",
+        "domain": "induction",
+        "prefix": "cat dog bird cat dog",
+        "preferred": " bird",
+        "distractor": " fish",
+        "correct": false,
+        "margin_nats_per_byte": -0.15142369270324707,
+        "preferred_score": {
+          "sum_nll": 16.036415100097656,
+          "mean_nll": 3.2072830200195312,
+          "bits_per_byte": 4.627131462097168,
+          "bytes": 5
+        },
+        "distractor_score": {
+          "sum_nll": 15.279296875,
+          "mean_nll": 3.055859327316284,
+          "bits_per_byte": 4.40867280960083,
+          "bytes": 5
+        }
+      }
+    ],
+    "definition": "Two-way continuation preference using length-normalized byte NLL. Internal diagnostic, not an official public benchmark score."
+  },
+  "next_token_entropy": {
+    "mean_entropy_bits": 2.9767511085207974,
+    "mean_top1_probability": 0.5361340673906463,
+    "max_top1_probability": 0.9959062337875366,
+    "rows": [
+      {
+        "prefix": "Berlin ist",
+        "entropy_bits": 0.25208109617233276,
+        "top1_probability": 0.9765165448188782,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.9765165448188782,
+            "decoded": " "
+          },
+          {
+            "token_id": 105,
+            "probability": 0.011192476376891136,
+            "decoded": "e"
+          },
+          {
+            "token_id": 50,
+            "probability": 0.001538590295240283,
+            "decoded": "."
+          },
+          {
+            "token_id": 48,
+            "probability": 0.0011613889364525676,
+            "decoded": ","
+          },
+          {
+            "token_id": 101,
+            "probability": 0.0010574567131698132,
+            "decoded": "a"
+          }
+        ]
+      },
+      {
+        "prefix": "Die Erde ist",
+        "entropy_bits": 2.4831137657165527,
+        "top1_probability": 0.6441535353660583,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.6441535353660583,
+            "decoded": " "
+          },
+          {
+            "token_id": 101,
+            "probability": 0.1154903694987297,
+            "decoded": "a"
+          },
+          {
+            "token_id": 50,
+            "probability": 0.06085914745926857,
+            "decoded": "."
+          },
+          {
+            "token_id": 107,
+            "probability": 0.021032357588410378,
+            "decoded": "g"
+          },
+          {
+            "token_id": 109,
+            "probability": 0.01975807175040245,
+            "decoded": "i"
+          }
+        ]
+      },
+      {
+        "prefix": "Wasser",
+        "entropy_bits": 4.755408763885498,
+        "top1_probability": 0.16020266711711884,
+        "top5": [
+          {
+            "token_id": 118,
+            "probability": 0.16020266711711884,
+            "decoded": "r"
+          },
+          {
+            "token_id": 101,
+            "probability": 0.12476595491170883,
+            "decoded": "a"
+          },
+          {
+            "token_id": 62,
+            "probability": 0.0756743848323822,
+            "decoded": ":"
+          },
+          {
+            "token_id": 67,
+            "probability": 0.06080607324838638,
+            "decoded": "?"
+          },
+          {
+            "token_id": 109,
+            "probability": 0.05893527343869209,
+            "decoded": "i"
+          }
+        ]
+      },
+      {
+        "prefix": "Ein Flughafen",
+        "entropy_bits": 1.3199169635772705,
+        "top1_probability": 0.8248271346092224,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.8248271346092224,
+            "decoded": " "
+          },
+          {
+            "token_id": 50,
+            "probability": 0.061646949499845505,
+            "decoded": "."
+          },
+          {
+            "token_id": 48,
+            "probability": 0.021304618567228317,
+            "decoded": ","
+          },
+          {
+            "token_id": 67,
+            "probability": 0.02097432129085064,
+            "decoded": "?"
+          },
+          {
+            "token_id": 119,
+            "probability": 0.017388321459293365,
+            "decoded": "s"
+          }
+        ]
+      },
+      {
+        "prefix": "Python ist",
+        "entropy_bits": 0.3010751008987427,
+        "top1_probability": 0.9686050415039062,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.9686050415039062,
+            "decoded": " "
+          },
+          {
+            "token_id": 105,
+            "probability": 0.01830376870930195,
+            "decoded": "e"
+          },
+          {
+            "token_id": 101,
+            "probability": 0.0023637088015675545,
+            "decoded": "a"
+          },
+          {
+            "token_id": 50,
+            "probability": 0.0015745696146041155,
+            "decoded": "."
+          },
+          {
+            "token_id": 107,
+            "probability": 0.0008428063592873514,
+            "decoded": "g"
+          }
+        ]
+      },
+      {
+        "prefix": "The Earth is",
+        "entropy_bits": 5.168447494506836,
+        "top1_probability": 0.1718904972076416,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.1718904972076416,
+            "decoded": " "
+          },
+          {
+            "token_id": 120,
+            "probability": 0.09492693841457367,
+            "decoded": "t"
+          },
+          {
+            "token_id": 50,
+            "probability": 0.0673132836818695,
+            "decoded": "."
+          },
+          {
+            "token_id": 105,
+            "probability": 0.0642307847738266,
+            "decoded": "e"
+          },
+          {
+            "token_id": 121,
+            "probability": 0.0441451296210289,
+            "decoded": "u"
+          }
+        ]
+      },
+      {
+        "prefix": "Water is",
+        "entropy_bits": 3.046938419342041,
+        "top1_probability": 0.3691920042037964,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.3691920042037964,
+            "decoded": " "
+          },
+          {
+            "token_id": 120,
+            "probability": 0.19761425256729126,
+            "decoded": "t"
+          },
+          {
+            "token_id": 101,
+            "probability": 0.12758934497833252,
+            "decoded": "a"
+          },
+          {
+            "token_id": 105,
+            "probability": 0.0876907929778099,
+            "decoded": "e"
+          },
+          {
+            "token_id": 109,
+            "probability": 0.075005903840065,
+            "decoded": "i"
+          }
+        ]
+      },
+      {
+        "prefix": "An airport",
+        "entropy_bits": 5.60731315612793,
+        "top1_probability": 0.22807881236076355,
+        "top5": [
+          {
+            "token_id": 108,
+            "probability": 0.22807881236076355,
+            "decoded": "h"
+          },
+          {
+            "token_id": 105,
+            "probability": 0.1240042969584465,
+            "decoded": "e"
+          },
+          {
+            "token_id": 67,
+            "probability": 0.040892280638217926,
+            "decoded": "?"
+          },
+          {
+            "token_id": 36,
+            "probability": 0.032348453998565674,
+            "decoded": " "
+          },
+          {
+            "token_id": 62,
+            "probability": 0.025193000212311745,
+            "decoded": ":"
+          }
+        ]
+      },
+      {
+        "prefix": "A computer",
+        "entropy_bits": 2.2608094215393066,
+        "top1_probability": 0.7193353772163391,
+        "top5": [
+          {
+            "token_id": 67,
+            "probability": 0.7193353772163391,
+            "decoded": "?"
+          },
+          {
+            "token_id": 36,
+            "probability": 0.09435626864433289,
+            "decoded": " "
+          },
+          {
+            "token_id": 14,
+            "probability": 0.02241157926619053,
+            "decoded": "\n"
+          },
+          {
+            "token_id": 123,
+            "probability": 0.01718355342745781,
+            "decoded": "w"
+          },
+          {
+            "token_id": 49,
+            "probability": 0.009126117452979088,
+            "decoded": "-"
+          }
+        ]
+      },
+      {
+        "prefix": "The train",
+        "entropy_bits": 4.356549263000488,
+        "top1_probability": 0.22562161087989807,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.22562161087989807,
+            "decoded": " "
+          },
+          {
+            "token_id": 105,
+            "probability": 0.15750926733016968,
+            "decoded": "e"
+          },
+          {
+            "token_id": 109,
+            "probability": 0.1099591925740242,
+            "decoded": "i"
+          },
+          {
+            "token_id": 107,
+            "probability": 0.10011898726224899,
+            "decoded": "g"
+          },
+          {
+            "token_id": 120,
+            "probability": 0.048037610948085785,
+            "decoded": "t"
+          }
+        ]
+      },
+      {
+        "prefix": "2 + 2 =",
+        "entropy_bits": 6.728161811828613,
+        "top1_probability": 0.13074396550655365,
+        "top5": [
+          {
+            "token_id": 199,
+            "probability": 0.13074396550655365,
+            "decoded": "�"
+          },
+          {
+            "token_id": 36,
+            "probability": 0.06273163855075836,
+            "decoded": " "
+          },
+          {
+            "token_id": 103,
+            "probability": 0.03687802702188492,
+            "decoded": "c"
+          },
+          {
+            "token_id": 48,
+            "probability": 0.0317908450961113,
+            "decoded": ","
+          },
+          {
+            "token_id": 14,
+            "probability": 0.029401728883385658,
+            "decoded": "\n"
+          }
+        ]
+      },
+      {
+        "prefix": "def add(a, b):\n    return",
+        "entropy_bits": 4.430715560913086,
+        "top1_probability": 0.1934773474931717,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.1934773474931717,
+            "decoded": " "
+          },
+          {
+            "token_id": 109,
+            "probability": 0.14155104756355286,
+            "decoded": "i"
+          },
+          {
+            "token_id": 107,
+            "probability": 0.1068483293056488,
+            "decoded": "g"
+          },
+          {
+            "token_id": 101,
+            "probability": 0.06686398386955261,
+            "decoded": "a"
+          },
+          {
+            "token_id": 121,
+            "probability": 0.056305114179849625,
+            "decoded": "u"
+          }
+        ]
+      },
+      {
+        "prefix": "The Sun is",
+        "entropy_bits": 0.9051836729049683,
+        "top1_probability": 0.8973261713981628,
+        "top5": [
+          {
+            "token_id": 120,
+            "probability": 0.8973261713981628,
+            "decoded": "t"
+          },
+          {
+            "token_id": 36,
+            "probability": 0.01891668699681759,
+            "decoded": " "
+          },
+          {
+            "token_id": 105,
+            "probability": 0.014964330941438675,
+            "decoded": "e"
+          },
+          {
+            "token_id": 119,
+            "probability": 0.011295669712126255,
+            "decoded": "s"
+          },
+          {
+            "token_id": 108,
+            "probability": 0.011295669712126255,
+            "decoded": "h"
+          }
+        ]
+      },
+      {
+        "prefix": "Gravitation ist",
+        "entropy_bits": 0.05880102887749672,
+        "top1_probability": 0.9959062337875366,
+        "top5": [
+          {
+            "token_id": 36,
+            "probability": 0.9959062337875366,
+            "decoded": " "
+          },
+          {
+            "token_id": 101,
+            "probability": 0.0008268790552392602,
+            "decoded": "a"
+          },
+          {
+            "token_id": 105,
+            "probability": 0.0006439739954657853,
+            "decoded": "e"
+          },
+          {
+            "token_id": 50,
+            "probability": 0.00024252283037640154,
+            "decoded": "."
+          },
+          {
+            "token_id": 118,
+            "probability": 0.00015058585267979652,
+            "decoded": "r"
+          }
+        ]
+      }
+    ],
+    "note": "Collapse diagnostic only: extremely low entropy/high top-1 probability across unrelated prefixes is suspicious, but higher entropy is not automatically better."
+  },
+  "context_recall": {
+    "accuracy": 0.5,
+    "by_distance": {
+      "128": {
+        "correct": 1,
+        "total": 2
+      },
+      "512": {
+        "correct": 1,
+        "total": 2
+      },
+      "1024": {
+        "correct": 1,
+        "total": 2
+      },
+      "2048": {
+        "correct": 1,
+        "total": 2
+      },
+      "3072": {
+        "correct": 1,
+        "total": 2
+      }
+    },
+    "rows": [
+      {
+        "language": "de",
+        "approx_filler_bytes": 128,
+        "prefix_bytes": 190,
+        "correct": false,
+        "margin_nats_per_byte": -0.21149492263793945
+      },
+      {
+        "language": "de",
+        "approx_filler_bytes": 512,
+        "prefix_bytes": 568,
+        "correct": false,
+        "margin_nats_per_byte": -0.014211177825927734
+      },
+      {
+        "language": "de",
+        "approx_filler_bytes": 1024,
+        "prefix_bytes": 1054,
+        "correct": false,
+        "margin_nats_per_byte": -0.09494256973266602
+      },
+      {
+        "language": "de",
+        "approx_filler_bytes": 2048,
+        "prefix_bytes": 2080,
+        "correct": false,
+        "margin_nats_per_byte": -0.13188982009887695
+      },
+      {
+        "language": "de",
+        "approx_filler_bytes": 3072,
+        "prefix_bytes": 3106,
+        "correct": false,
+        "margin_nats_per_byte": -0.15338420867919922
+      },
+      {
+        "language": "en",
+        "approx_filler_bytes": 128,
+        "prefix_bytes": 184,
+        "correct": true,
+        "margin_nats_per_byte": 0.21696949005126953
+      },
+      {
+        "language": "en",
+        "approx_filler_bytes": 512,
+        "prefix_bytes": 548,
+        "correct": true,
+        "margin_nats_per_byte": 0.2553977966308594
+      },
+      {
+        "language": "en",
+        "approx_filler_bytes": 1024,
+        "prefix_bytes": 1068,
+        "correct": true,
+        "margin_nats_per_byte": 0.21908044815063477
+      },
+      {
+        "language": "en",
+        "approx_filler_bytes": 2048,
+        "prefix_bytes": 2108,
+        "correct": true,
+        "margin_nats_per_byte": 0.2097172737121582
+      },
+      {
+        "language": "en",
+        "approx_filler_bytes": 3072,
+        "prefix_bytes": 3148,
+        "correct": true,
+        "margin_nats_per_byte": 0.1696019172668457
+      }
+    ],
+    "definition": "Synthetic in-context recall: a repeated passcode must be preferred over an unseen distractor after neutral filler. This tests context use, not world knowledge."
+  },
+  "generation_grid": {
+    "summary": {
+      "greedy": {
+        "responses": 8,
+        "unique_fraction": 1.0,
+        "eos_fraction": 0.125,
+        "mean_repeated_trigram_fraction": 0.043560606060606064,
+        "mean_tokens_per_second": 187.1606483135718
+      },
+      "sample_t07_k40": {
+        "responses": 8,
+        "unique_fraction": 1.0,
+        "eos_fraction": 0.125,
+        "mean_repeated_trigram_fraction": 0.0,
+        "mean_tokens_per_second": 163.8859035746062
+      }
+    },
+    "responses": [
+      {
+        "language": "de",
+        "prefix": "Berlin ist die Hauptstadt von",
+        "mode": "greedy",
+        "raw_output": " paro al a a a                                                                                  ",
+        "tokens": 96,
+        "seconds": 0.5407215000013821,
+        "tokens_per_second": 177.54056385728074,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.4,
+            "2": 0.25,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 82,
+          "language_heuristic": "unknown",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "Berlin ist die Hauptstadt von",
+        "mode": "sample_t07_k40",
+        "raw_output": " Aer anag hat ass nher of\nIn our tano he trealen d tebeerion is tinl the owerof fasea pand te in",
+        "tokens": 96,
+        "seconds": 0.5862374999560416,
+        "tokens_per_second": 163.75615685997306,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.047619047619047616,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "en",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "Ein Flughafen ist",
+        "mode": "greedy",
+        "raw_output": " der Hallochen auf s al lochen auf ar auf as e aus as as as as aus as as as au aus as as auuer a",
+        "tokens": 96,
+        "seconds": 0.5170731999678537,
+        "tokens_per_second": 185.66036686095563,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.5,
+            "2": 0.28,
+            "3": 0.16666666666666666,
+            "4": 0.043478260869565216
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "unknown",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "Ein Flughafen ist",
+        "mode": "sample_t07_k40",
+        "raw_output": " einer kahl dass liher prauscheribation berp?\nDies i b iei Usstion lit es iel auer is pieles ar ",
+        "tokens": 96,
+        "seconds": 0.5445121999946423,
+        "tokens_per_second": 176.30458968769588,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.0,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "en",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "Die Erde umkreist",
+        "mode": "greedy",
+        "raw_output": " du Chaten, die sich herrin duerwe Die ist ein gelen un wirte Dansich hein ein ein ein  un hein ",
+        "tokens": 96,
+        "seconds": 0.5134914999944158,
+        "tokens_per_second": 186.9553829051581,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.3157894736842105,
+            "2": 0.05555555555555555,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "de",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "Die Erde umkreist",
+        "mode": "sample_t07_k40",
+        "raw_output": " der arbau Mit du Chatver\nIch kann erzecherer Daten 20, die sehiün sich helfon ein agen ich sin",
+        "tokens": 96,
+        "seconds": 0.5440144999884069,
+        "tokens_per_second": 176.465884644703,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 95,
+          "repeated_word_ngrams": {
+            "1": 0.05555555555555555,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "de",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "In Python kann man",
+        "mode": "greedy",
+        "raw_output": "d konen therschelfen icht helfen. Pre impe helfen helfen her helfen hellen helfen hrt herhen uur",
+        "tokens": 96,
+        "seconds": 0.5142233000369743,
+        "tokens_per_second": 186.6893234769745,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.25,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "unknown",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "de",
+        "prefix": "In Python kann man",
+        "mode": "sample_t07_k40",
+        "raw_output": "d kür4t hendemitenherhenn. Sonfarme Hhollss?\nDrie keime ist heiön ung helfen. Nasst finhelleic",
+        "tokens": 96,
+        "seconds": 0.6130832999479026,
+        "tokens_per_second": 156.58557329510967,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 94,
+          "repeated_word_ngrams": {
+            "1": 0.0,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "unknown",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "Berlin is the capital of",
+        "mode": "greedy",
+        "raw_output": " her ist ein ga a is a                                                                          ",
+        "tokens": 96,
+        "seconds": 0.5139842000207864,
+        "tokens_per_second": 186.77616937664155,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.14285714285714285,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 74,
+          "language_heuristic": "mixed",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "Berlin is the capital of",
+        "mode": "sample_t07_k40",
+        "raw_output": " ber are aled as f her are arin a a   h 5 rere the tre eriff erin nler I oe iof far offanth o i ",
+        "tokens": 96,
+        "seconds": 0.5412780999904498,
+        "tokens_per_second": 177.35799767567502,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.12,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 3,
+          "language_heuristic": "en",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "An airport is",
+        "mode": "greedy",
+        "raw_output": "t eine heischer nergen oist eine heiges Arheischeiter Aussagen oburrede.\n",
+        "tokens": 74,
+        "seconds": 0.3912554000271484,
+        "tokens_per_second": 189.13476975618812,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 73,
+          "characters": 73,
+          "repeated_word_ngrams": {
+            "1": 0.1,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "unknown",
+          "eos": true,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "An airport is",
+        "mode": "sample_t07_k40",
+        "raw_output": "cher ang aued ass nherver\nIchlüses ochluer ?\nDaei ice eier ist o nlich aein cherhen y.\n",
+        "tokens": 89,
+        "seconds": 0.48925149999558926,
+        "tokens_per_second": 181.9105306796246,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 88,
+          "characters": 87,
+          "repeated_word_ngrams": {
+            "1": 0.0,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "unknown",
+          "eos": true,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "The Earth orbits",
+        "mode": "greedy",
+        "raw_output": " areau mer are au e er ar e er ar e ar a                                                        ",
+        "tokens": 96,
+        "seconds": 0.5004543000250123,
+        "tokens_per_second": 191.82570715288486,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.38461538461538464,
+            "2": 0.25,
+            "3": 0.18181818181818182,
+            "4": 0.1
+          },
+          "longest_identical_token_run": 56,
+          "language_heuristic": "unknown",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "The Earth orbits",
+        "mode": "sample_t07_k40",
+        "raw_output": " eee antwot d aslenhep trerwer.  t e of ate e ate  t e ere ei a omnn the ee tou fe eof antes ti ",
+        "tokens": 96,
+        "seconds": 0.5290921999840066,
+        "tokens_per_second": 181.4428562789281,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.16666666666666666,
+            "2": 0.043478260869565216,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 3,
+          "language_heuristic": "en",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "In Python you can",
+        "mode": "greedy",
+        "raw_output": " kerant here hauppre hin hereial a oue he ing he imel ich in Noramen in her is and of in he in h",
+        "tokens": 96,
+        "seconds": 0.4981761999661103,
+        "tokens_per_second": 192.70290312249088,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.21739130434782608,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "en",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      },
+      {
+        "language": "en",
+        "prefix": "In Python you can",
+        "mode": "sample_t07_k40",
+        "raw_output": " yeraam, a ad asllyhep ar\nI ularedang houle a ated tou of an at o nn our ougeou fas ay an hal i ",
+        "tokens": 96,
+        "seconds": 0.9870081000262871,
+        "tokens_per_second": 97.2636394751403,
+        "diagnostics": {
+          "valid_utf8": true,
+          "output_bytes": 96,
+          "characters": 96,
+          "repeated_word_ngrams": {
+            "1": 0.13043478260869565,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0
+          },
+          "longest_identical_token_run": 2,
+          "language_heuristic": "en",
+          "eos": false,
+          "special_non_eos_tokens": 0
+        }
+      }
+    ],
+    "note": "Sampling is diagnostic only and must not be used to hide weak greedy/base-model behavior."
+  },
+  "true_byte_bpb": {
+    "definition": "Cross-entropy over raw-byte targets only (token IDs >=4); special BOS/EOS/PAD/SEP targets excluded.",
+    "split": "val",
+    "languages": {
+      "de": {
+        "available": true,
+        "sequence_lengths": {
+          "128": {
+            "byte_nll": 2.925799638032913,
+            "bits_per_byte": 4.221036628424808,
+            "byte_targets": 4096,
+            "special_targets_excluded": 0,
+            "batches": 8
+          },
+          "256": {
+            "byte_nll": 2.8300091455853176,
+            "bits_per_byte": 4.08284016000635,
+            "byte_targets": 8190,
+            "special_targets_excluded": 2,
+            "batches": 8
+          },
+          "512": {
+            "byte_nll": 2.676421656978963,
+            "bits_per_byte": 3.861260251851373,
+            "byte_targets": 16376,
+            "special_targets_excluded": 8,
+            "batches": 8
+          },
+          "1024": {
+            "byte_nll": 2.6454504781381663,
+            "bits_per_byte": 3.8165782857272696,
+            "byte_targets": 32754,
+            "special_targets_excluded": 14,
+            "batches": 8
+          },
+          "2048": {
+            "byte_nll": 2.5609974883708064,
+            "bits_per_byte": 3.6947383762016535,
+            "byte_targets": 65514,
+            "special_targets_excluded": 22,
+            "batches": 8
+          }
+        }
+      },
+      "en": {
+        "available": true,
+        "sequence_lengths": {
+          "128": {
+            "byte_nll": 2.935937285423279,
+            "bits_per_byte": 4.235662162041169,
+            "byte_targets": 4096,
+            "special_targets_excluded": 0,
+            "batches": 8
+          },
+          "256": {
+            "byte_nll": 2.8494319049218366,
+            "bits_per_byte": 4.110861278581526,
+            "byte_targets": 8188,
+            "special_targets_excluded": 4,
+            "batches": 8
+          },
+          "512": {
+            "byte_nll": 2.649065315723419,
+            "bits_per_byte": 3.821793393985133,
+            "byte_targets": 16384,
+            "special_targets_excluded": 0,
+            "batches": 8
+          },
+          "1024": {
+            "byte_nll": 2.582804091125954,
+            "bits_per_byte": 3.726198653855141,
+            "byte_targets": 32750,
+            "special_targets_excluded": 18,
+            "batches": 8
+          },
+          "2048": {
+            "byte_nll": 2.570215857585878,
+            "bits_per_byte": 3.7080376717533206,
+            "byte_targets": 65500,
+            "special_targets_excluded": 36,
+            "batches": 8
+          }
+        }
+      }
+    }
+  },
+  "forward_runtime": {
+    "available": true,
+    "cases": [
+      {
+        "seq": 128,
+        "batch": 32,
+        "tokens": 4096,
+        "median_seconds": 0.009191749995807186,
+        "forward_tokens_per_second": 445616.9937028737,
+        "peak_allocated": 906811392,
+        "peak_reserved": 933232640,
+        "oom": false
+      },
+      {
+        "seq": 256,
+        "batch": 32,
+        "tokens": 8192,
+        "median_seconds": 0.01236840002820827,
+        "forward_tokens_per_second": 662333.0407584433,
+        "peak_allocated": 1670191104,
+        "peak_reserved": 1843396608,
+        "oom": false
+      },
+      {
+        "seq": 512,
+        "batch": 16,
+        "tokens": 8192,
+        "median_seconds": 0.012802450015442446,
+        "forward_tokens_per_second": 639877.5226709518,
+        "peak_allocated": 1670191104,
+        "peak_reserved": 1843396608,
+        "oom": false
+      },
+      {
+        "seq": 1024,
+        "batch": 8,
+        "tokens": 8192,
+        "median_seconds": 0.013321350008482113,
+        "forward_tokens_per_second": 614952.6883374358,
+        "peak_allocated": 1670191104,
+        "peak_reserved": 1843396608,
+        "oom": false
+      },
+      {
+        "seq": 2048,
+        "batch": 2,
+        "tokens": 4096,
+        "median_seconds": 0.00935330000356771,
+        "forward_tokens_per_second": 437920.3060350494,
+        "peak_allocated": 907859968,
+        "peak_reserved": 1843396608,
+        "oom": false
+      }
+    ]
+  }
+}

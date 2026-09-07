@@ -1,0 +1,74 @@
+{
+  "stage_b_version": 1,
+  "validation_version": 2,
+  "purpose": "B1 complete deterministic general-language corpus coverage; not instruction tuning",
+  "parameters": 50012976,
+  "source_checkpoint": "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_stage_b_full\\latest.pt",
+  "source_sha256": "019279a70c0853d075841e26242ecb82a92a8e33dc7c0e9faf57f05342c4ba21",
+  "source_cumulative_tokens": 999424,
+  "data_hashes": {
+    "train_de": "63eaab05bbbdb4426a3c6dfceac9dc6c24954b655e7326d630cf733f2e1af089",
+    "train_en": "32421a22d1e841afdf32d0eef37dd3d3ab1b476cd9be5f0b7d56df63f6e3ee81",
+    "val_de": "f6aa516dd2af873a078823be35732817a139e670d0fb4eb28fff00f2ba7a5ebf",
+    "val_en": "a99a197ede81f0877e919174bd0168ab9f87b49c3d7ef66dbb5aa70fb26d287b",
+    "documents": "21fcfc2ebb10ced26fa243b81e33b4d2fa3ec75856a621059904fccf0e540903"
+  },
+  "schedule": {
+    "de_unique_blocks": 62275,
+    "en_unique_blocks": 25176,
+    "en_scheduled_blocks": 41517,
+    "english_replay_factor": 1.6490705433746424,
+    "total_blocks": 103792,
+    "target_de_fraction": 0.6,
+    "actual_de_fraction": 0.5999980730692154,
+    "actual_en_fraction": 0.4000019269307846,
+    "document_boundary_crossing": false,
+    "padding_tokens": 0,
+    "schedule_seed": 50014
+  },
+  "validation_schedule": {
+    "split": "val",
+    "sequence": 256,
+    "seed": 50031,
+    "document_boundary_crossing": false,
+    "de_available_blocks": 4017,
+    "de_selected_blocks": 192,
+    "en_available_blocks": 893,
+    "en_selected_blocks": 192
+  },
+  "scheduled_stage_tokens": 26570752,
+  "config": {
+    "vocab_size": 260,
+    "d_model": 624,
+    "n_layers": 8,
+    "n_heads": 12,
+    "ffn_hidden": 2496,
+    "max_seq_len": 4096,
+    "rope_theta": 10000.0,
+    "dropout": 0.0,
+    "rms_eps": 1e-05
+  },
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "torch": "2.8.0+cu128",
+  "precision": "bf16",
+  "optimizer": "AdamW fused; beta1=.9 beta2=.95 weight_decay=.1",
+  "lr_schedule": {
+    "type": "cosine",
+    "peak": 0.0002,
+    "floor": 2e-05
+  },
+  "baseline_validation": {
+    "domains": {
+      "de": 2.2955397963523865,
+      "en": 2.395859718322754
+    },
+    "macro": 2.34569975733757,
+    "tokens": 98304,
+    "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+    "validation_version": 2
+  },
+  "validation_migrated_from_legacy_selector": false,
+  "quality_abort": "abort after 3 evals above best by >20.0%",
+  "benchmark_contract": "Frozen free/v3/v4/RawMath benchmarks run after B1 by workflow; benchmark examples are excluded from training.",
+  "chat_note": "Raw chat is not used as a pretraining selection criterion; base-LM and chat are benchmarked separately afterwards."
+}

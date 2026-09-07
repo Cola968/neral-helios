@@ -31,7 +31,10 @@ def main():
     free={s:load(getattr(a,f"{s}_free")) for s in STAGES}
     hashes={s:r.get("suite_sha256") for s,r in free.items() if r}
     nonnull={v for v in hashes.values() if v}
-    if len(nonnull)!=1:raise ValueError(f"Frozen free-generation suite mismatch or missing hash: {hashes}")
+    if len(hashes)!=len(STAGES) or any(not v for v in hashes.values()) or len(nonnull)!=1:raise ValueError(f"Frozen free-generation suite mismatch or missing hash: {hashes}")
+    settings=[r.get('generation') for r in free.values()]
+    if any(s is None for s in settings) or any(s!=settings[0] for s in settings):
+        raise ValueError('Frozen free-generation settings mismatch or missing settings')
     nis={s:nis_v1(sets[s]) for s in STAGES}
     delta={k:sets["instruct"][k]-sets["baseline20"][k] for k in set(sets["instruct"])&set(sets["baseline20"]) if sets["instruct"][k] is not None and sets["baseline20"][k] is not None}
     report={

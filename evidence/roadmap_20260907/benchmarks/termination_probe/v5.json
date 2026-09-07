@@ -1,0 +1,667 @@
+{
+  "benchmark_version": 5,
+  "suite_version": 1,
+  "suite_sha256": "c7591900dff9a6b30d773e7e1e79cd2bdd7d466e9bd5cfda3a60c9bc4ade70d2",
+  "definition": "Internal frozen 4K byte-context diagnostic; no tools/SOLVE/Helios/external model.",
+  "checkpoint": "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_termination_probe\\best_instruct.pt",
+  "checkpoint_sha256": "31ffd4bdbde5182291e0753e6b70157759d9fa1b8ef6becd6c9dc97dc7a64ff5",
+  "parameters": {
+    "total": 50012976,
+    "trainable": 50012976,
+    "millions": 50.012976
+  },
+  "config": {
+    "vocab_size": 260,
+    "d_model": 624,
+    "n_layers": 8,
+    "n_heads": 12,
+    "ffn_hidden": 2496,
+    "max_seq_len": 4096,
+    "rope_theta": 10000.0,
+    "dropout": 0.0,
+    "rms_eps": 1e-05
+  },
+  "step": null,
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "single_needle": {
+    "accuracy": 0.4,
+    "correct": 4,
+    "total": 10,
+    "by_distance": {
+      "512": {
+        "correct": 1,
+        "total": 2,
+        "accuracy": 0.5,
+        "mean_margin": 0.11185956001281738
+      },
+      "1024": {
+        "correct": 0,
+        "total": 2,
+        "accuracy": 0.0,
+        "mean_margin": -0.7089111804962158
+      },
+      "2048": {
+        "correct": 2,
+        "total": 2,
+        "accuracy": 1.0,
+        "mean_margin": 0.16478729248046875
+      },
+      "3072": {
+        "correct": 1,
+        "total": 2,
+        "accuracy": 0.5,
+        "mean_margin": 0.19284915924072266
+      },
+      "3800": {
+        "correct": 0,
+        "total": 2,
+        "accuracy": 0.0,
+        "mean_margin": -0.2684907913208008
+      }
+    },
+    "rows": [
+      {
+        "language": "de",
+        "filler_bytes": 512,
+        "needle": "ORBIT-7K4Q",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.32297658920288086,
+        "preferred": {
+          "sum_nll": 58.529052734375,
+          "mean_nll": 4.8774213790893555,
+          "bits_per_byte": 7.0366315841674805,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 57.204376220703125,
+          "mean_nll": 5.200397968292236,
+          "bits_per_byte": 7.502588272094727,
+          "bytes": 11
+        },
+        "prefix_bytes": 544,
+        "context_tokens_with_good": 557
+      },
+      {
+        "language": "de",
+        "filler_bytes": 1024,
+        "needle": "NOVA-3M8P",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -1.337012767791748,
+        "preferred": {
+          "sum_nll": 62.562286376953125,
+          "mean_nll": 5.687480926513672,
+          "bits_per_byte": 8.205300331115723,
+          "bytes": 11
+        },
+        "distractor": {
+          "sum_nll": 52.20561599731445,
+          "mean_nll": 4.350468158721924,
+          "bits_per_byte": 6.276398658752441,
+          "bytes": 12
+        },
+        "prefix_bytes": 1055,
+        "context_tokens_with_good": 1067
+      },
+      {
+        "language": "de",
+        "filler_bytes": 2048,
+        "needle": "LUMEN-5R2X",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.2808561325073242,
+        "preferred": {
+          "sum_nll": 63.74413299560547,
+          "mean_nll": 5.312011241912842,
+          "bits_per_byte": 7.663612365722656,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 72.707275390625,
+          "mean_nll": 5.592867374420166,
+          "bits_per_byte": 8.068801879882812,
+          "bytes": 13
+        },
+        "prefix_bytes": 2080,
+        "context_tokens_with_good": 2093
+      },
+      {
+        "language": "de",
+        "filler_bytes": 3072,
+        "needle": "VECTOR-9C6T",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.43793725967407227,
+        "preferred": {
+          "sum_nll": 75.62672424316406,
+          "mean_nll": 5.817440509796143,
+          "bits_per_byte": 8.392792701721191,
+          "bytes": 13
+        },
+        "distractor": {
+          "sum_nll": 75.06452941894531,
+          "mean_nll": 6.255377769470215,
+          "bits_per_byte": 9.024601936340332,
+          "bytes": 12
+        },
+        "prefix_bytes": 3105,
+        "context_tokens_with_good": 3119
+      },
+      {
+        "language": "de",
+        "filler_bytes": 3800,
+        "needle": "ORBIT-7K4Q",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -0.3784756660461426,
+        "preferred": {
+          "sum_nll": 77.51551055908203,
+          "mean_nll": 6.459626197814941,
+          "bits_per_byte": 9.319270133972168,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 66.89265441894531,
+          "mean_nll": 6.081150531768799,
+          "bits_per_byte": 8.773245811462402,
+          "bytes": 11
+        },
+        "prefix_bytes": 3832,
+        "context_tokens_with_good": 3845
+      },
+      {
+        "language": "en",
+        "filler_bytes": 512,
+        "needle": "ORBIT-7K4Q",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -0.0992574691772461,
+        "preferred": {
+          "sum_nll": 58.556175231933594,
+          "mean_nll": 4.879681587219238,
+          "bits_per_byte": 7.039892196655273,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 52.58466339111328,
+          "mean_nll": 4.780424118041992,
+          "bits_per_byte": 6.896694183349609,
+          "bytes": 11
+        },
+        "prefix_bytes": 544,
+        "context_tokens_with_good": 557
+      },
+      {
+        "language": "en",
+        "filler_bytes": 1024,
+        "needle": "NOVA-3M8P",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -0.0808095932006836,
+        "preferred": {
+          "sum_nll": 55.71267318725586,
+          "mean_nll": 5.064788818359375,
+          "bits_per_byte": 7.30694580078125,
+          "bytes": 11
+        },
+        "distractor": {
+          "sum_nll": 59.8077507019043,
+          "mean_nll": 4.983979225158691,
+          "bits_per_byte": 7.190361976623535,
+          "bytes": 12
+        },
+        "prefix_bytes": 1055,
+        "context_tokens_with_good": 1067
+      },
+      {
+        "language": "en",
+        "filler_bytes": 2048,
+        "needle": "LUMEN-5R2X",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.04871845245361328,
+        "preferred": {
+          "sum_nll": 62.836238861083984,
+          "mean_nll": 5.236353397369385,
+          "bits_per_byte": 7.5544610023498535,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 68.7059326171875,
+          "mean_nll": 5.285071849822998,
+          "bits_per_byte": 7.624746799468994,
+          "bytes": 13
+        },
+        "prefix_bytes": 2080,
+        "context_tokens_with_good": 2093
+      },
+      {
+        "language": "en",
+        "filler_bytes": 3072,
+        "needle": "VECTOR-9C6T",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -0.05223894119262695,
+        "preferred": {
+          "sum_nll": 71.9090576171875,
+          "mean_nll": 5.531466007232666,
+          "bits_per_byte": 7.980218410491943,
+          "bytes": 13
+        },
+        "distractor": {
+          "sum_nll": 65.75072479248047,
+          "mean_nll": 5.479227066040039,
+          "bits_per_byte": 7.904853820800781,
+          "bytes": 12
+        },
+        "prefix_bytes": 3105,
+        "context_tokens_with_good": 3119
+      },
+      {
+        "language": "en",
+        "filler_bytes": 3800,
+        "needle": "ORBIT-7K4Q",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -0.15850591659545898,
+        "preferred": {
+          "sum_nll": 65.6241455078125,
+          "mean_nll": 5.468678951263428,
+          "bits_per_byte": 7.889636039733887,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 58.41189956665039,
+          "mean_nll": 5.310173034667969,
+          "bits_per_byte": 7.6609601974487305,
+          "bytes": 11
+        },
+        "prefix_bytes": 3832,
+        "context_tokens_with_good": 3845
+      }
+    ],
+    "definition": "Prefer the passcode actually present near the beginning of a long synthetic context over a distractor."
+  },
+  "multi_needle": {
+    "accuracy": 0.75,
+    "correct": 3,
+    "total": 4,
+    "rows": [
+      {
+        "language": "de",
+        "ask": "first",
+        "first": "ORBIT-7K4Q",
+        "second": "LUMEN-5R2X",
+        "available": true,
+        "correct": false,
+        "margin_nats_per_byte": -0.7381496429443359,
+        "preferred": {
+          "sum_nll": 72.90577697753906,
+          "mean_nll": 6.075481414794922,
+          "bits_per_byte": 8.765067100524902,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 64.04798126220703,
+          "mean_nll": 5.337331771850586,
+          "bits_per_byte": 7.700141906738281,
+          "bytes": 12
+        },
+        "prefix_bytes": 2727,
+        "context_tokens_with_good": 2740
+      },
+      {
+        "language": "de",
+        "ask": "second",
+        "first": "NOVA-3M8P",
+        "second": "VECTOR-9C6T",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.10690879821777344,
+        "preferred": {
+          "sum_nll": 77.23738861083984,
+          "mean_nll": 5.941337585449219,
+          "bits_per_byte": 8.571537971496582,
+          "bytes": 13
+        },
+        "distractor": {
+          "sum_nll": 66.53070831298828,
+          "mean_nll": 6.048246383666992,
+          "bits_per_byte": 8.725774765014648,
+          "bytes": 11
+        },
+        "prefix_bytes": 3328,
+        "context_tokens_with_good": 3342
+      },
+      {
+        "language": "en",
+        "ask": "first",
+        "first": "LUMEN-5R2X",
+        "second": "ORBIT-7K4Q",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.08041095733642578,
+        "preferred": {
+          "sum_nll": 62.265010833740234,
+          "mean_nll": 5.188751220703125,
+          "bits_per_byte": 7.485785484313965,
+          "bytes": 12
+        },
+        "distractor": {
+          "sum_nll": 63.229942321777344,
+          "mean_nll": 5.269162178039551,
+          "bits_per_byte": 7.601794242858887,
+          "bytes": 12
+        },
+        "prefix_bytes": 2724,
+        "context_tokens_with_good": 2737
+      },
+      {
+        "language": "en",
+        "ask": "second",
+        "first": "VECTOR-9C6T",
+        "second": "NOVA-3M8P",
+        "available": true,
+        "correct": true,
+        "margin_nats_per_byte": 0.16256189346313477,
+        "preferred": {
+          "sum_nll": 57.96091842651367,
+          "mean_nll": 5.269174575805664,
+          "bits_per_byte": 7.60181188583374,
+          "bytes": 11
+        },
+        "distractor": {
+          "sum_nll": 70.6125717163086,
+          "mean_nll": 5.431736469268799,
+          "bits_per_byte": 7.836338996887207,
+          "bytes": 13
+        },
+        "prefix_bytes": 3325,
+        "context_tokens_with_good": 3337
+      }
+    ],
+    "definition": "Position-sensitive two-needle recall. Swapping the two values is scored as wrong."
+  },
+  "document_bounded_true_byte_bpb": {
+    "available": true,
+    "data_root": "pretrain50_b2_data",
+    "languages": {
+      "de": {
+        "512": {
+          "available": true,
+          "bits_per_byte": 2.0447212131431423,
+          "byte_nll": 1.41729274392128,
+          "byte_targets": 4096,
+          "eligible_documents": 673,
+          "sampled_windows": 8,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-de",
+              "id": "4046235",
+              "offset": 15
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "675069",
+              "offset": 615
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "7920750",
+              "offset": 82
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "6526387",
+              "offset": 470
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "7446953",
+              "offset": 356
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "831135",
+              "offset": 182
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "2104008",
+              "offset": 1272
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "4155113",
+              "offset": 1401
+            }
+          ]
+        },
+        "1024": {
+          "available": true,
+          "bits_per_byte": 2.5818906209694825,
+          "byte_nll": 1.7896302044391632,
+          "byte_targets": 4096,
+          "eligible_documents": 557,
+          "sampled_windows": 4,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-de",
+              "id": "5852901",
+              "offset": 111
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "1940090",
+              "offset": 5528
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "1548452",
+              "offset": 1776
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "4477187",
+              "offset": 178
+            }
+          ]
+        },
+        "2048": {
+          "available": true,
+          "bits_per_byte": 3.165563062697559,
+          "byte_nll": 2.194201111793518,
+          "byte_targets": 4096,
+          "eligible_documents": 373,
+          "sampled_windows": 2,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-de",
+              "id": "7619018",
+              "offset": 33
+            },
+            {
+              "source_id": "wiki-b2-de",
+              "id": "2103868",
+              "offset": 573
+            }
+          ]
+        },
+        "3072": {
+          "available": true,
+          "bits_per_byte": 3.078313340209791,
+          "byte_nll": 2.1337242126464844,
+          "byte_targets": 3072,
+          "eligible_documents": 260,
+          "sampled_windows": 1,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-de",
+              "id": "1404968",
+              "offset": 913
+            }
+          ]
+        },
+        "4095": {
+          "available": true,
+          "bits_per_byte": 3.425340362174432,
+          "byte_nll": 2.3742650144993895,
+          "byte_targets": 4095,
+          "eligible_documents": 179,
+          "sampled_windows": 1,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-de",
+              "id": "2897504",
+              "offset": 921
+            }
+          ]
+        }
+      },
+      "en": {
+        "512": {
+          "available": true,
+          "bits_per_byte": 2.0108156934387935,
+          "byte_nll": 1.3937912285327911,
+          "byte_targets": 4096,
+          "eligible_documents": 475,
+          "sampled_windows": 8,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-en",
+              "id": "5149053",
+              "offset": 43
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "9148252",
+              "offset": 27
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "11277575",
+              "offset": 25
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "12331195",
+              "offset": 1664
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "5494698",
+              "offset": 1202
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "6100444",
+              "offset": 41
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "13819078",
+              "offset": 3
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "4257837",
+              "offset": 1646
+            }
+          ]
+        },
+        "1024": {
+          "available": true,
+          "bits_per_byte": 2.50358825289719,
+          "byte_nll": 1.7353551387786865,
+          "byte_targets": 4096,
+          "eligible_documents": 361,
+          "sampled_windows": 4,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-en",
+              "id": "14301179",
+              "offset": 129
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "14758930",
+              "offset": 1056
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "9579330",
+              "offset": 674
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "17422420",
+              "offset": 502
+            }
+          ]
+        },
+        "2048": {
+          "available": true,
+          "bits_per_byte": 2.9470204086799163,
+          "byte_nll": 2.0427188873291016,
+          "byte_targets": 4096,
+          "eligible_documents": 236,
+          "sampled_windows": 2,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-en",
+              "id": "18505131",
+              "offset": 2344
+            },
+            {
+              "source_id": "wiki-b2-en",
+              "id": "9147172",
+              "offset": 1388
+            }
+          ]
+        },
+        "3072": {
+          "available": true,
+          "bits_per_byte": 3.505615931098698,
+          "byte_nll": 2.42990779876709,
+          "byte_targets": 3072,
+          "eligible_documents": 169,
+          "sampled_windows": 1,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-en",
+              "id": "12160462",
+              "offset": 7391
+            }
+          ]
+        },
+        "4095": {
+          "available": true,
+          "bits_per_byte": 3.700328644695829,
+          "byte_nll": 2.5648723672161173,
+          "byte_targets": 4095,
+          "eligible_documents": 126,
+          "sampled_windows": 1,
+          "sampled_documents": [
+            {
+              "source_id": "wiki-b2-en",
+              "id": "6767747",
+              "offset": 19330
+            }
+          ]
+        }
+      }
+    },
+    "macro_bits_per_byte": {
+      "512": 2.027768453290968,
+      "1024": 2.5427394369333363,
+      "2048": 3.0562917356887374,
+      "3072": 3.2919646356542445,
+      "4095": 3.5628345034351305
+    }
+  },
+  "solve_used": false,
+  "helios_used": false,
+  "external_model_used": false
+}

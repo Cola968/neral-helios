@@ -1,0 +1,10 @@
+{
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "checkpoint_sha256": "f22a25bdd7edb1941f187a5dad3c509bc46012ad8c756e689f9f985cfc48f5da",
+  "command": [
+    "benchmark_v5_long_context.py",
+    "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_stage_b_full\\best_validation.pt"
+  ],
+  "v5_protocol_sha256": "aae564f4fd73ffbcb11e590b6a0fa05a79bbab9084983109f49a59e5b48b67cd",
+  "report_sha256": "c8614b94c6bccd3f0501dbac6b44878bf1c78910849e03068d837e62a195e988"
+}

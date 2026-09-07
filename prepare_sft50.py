@@ -144,7 +144,7 @@ def validate_manifest(manifest,root: Path):
     return resolved
 
 
-def load_rows(sources,phrases,reject):
+def load_rows(sources,phrases,reject,max_seq=4096):
     exact=set();rows=[]
     for src in sources:
         ids=set()
@@ -164,6 +164,11 @@ def load_rows(sources,phrases,reject):
                 answer,reason=clean_field(answer,"answer")
                 if reason:reject[reason]+=1;continue
                 if len((prompt+"\n"+answer).encode("utf8"))>3800:reject["pair_too_long"]+=1;continue
+                # Match encode_sft exactly: BOS plus formatted bytes plus EOS,
+                # then one-position shift. Keep whole answers and their true EOS.
+                formatted='User: '+prompt+'\nAssistant: '+answer+'\n'
+                if len(formatted.encode('utf8'))+1>max_seq:
+                    reject['pair_exceeds_training_sequence']+=1;continue
                 domain=src["domain"]
                 if src.get("allow_row_domains") is True and row.get("domain") is not None:
                     if row.get("domain") not in ALLOWED_DOMAINS:reject["invalid_row_domain"]+=1;continue
@@ -241,20 +246,24 @@ def write_outputs(rows,selected,sources,out: Path,target,reject,selection,bench_
     return manifest
 
 
-def build(source_root: Path,out: Path,target_train_examples: int,repo_root: Path):
+def build(source_root: Path,out: Path,target_train_examples: int,repo_root: Path,max_seq=512):
     if target_train_examples<0:raise ValueError("target_train_examples cannot be negative")
     manifest_path=source_root/"manifest.json";manifest=json.loads(manifest_path.read_text(encoding="utf8"))
     sources=validate_manifest(manifest,source_root);phrases,bench_files=benchmark_literals(repo_root);reject=collections.Counter()
-    rows=load_rows(sources,phrases,reject)
+    if not 32<=max_seq<=4096:raise ValueError('max_seq must be 32..4096')
+    rows=load_rows(sources,phrases,reject,max_seq)
     target=target_train_examples or auto_train_target(rows,sources,manifest.get("recommended_train_examples"))
     if target<1000:raise ValueError("Use at least 1000 train examples for Stage D")
     selected,selection=select_train(rows,sources,target)
-    return write_outputs(rows,selected,sources,out,target,reject,selection,bench_files,sha256_file(manifest_path))
+    result=write_outputs(rows,selected,sources,out,target,reject,selection,bench_files,sha256_file(manifest_path))
+    result['max_training_sequence']=max_seq
+    (out/'manifest.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf8')
+    return result
 
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="sft50_sources");ap.add_argument("--out",default="sft50_data");ap.add_argument("--target-train-examples",type=int,default=0,help="0=auto-size safely after filtering; otherwise exact quota");args=ap.parse_args()
-    result=build(Path(args.source_root),Path(args.out),args.target_train_examples,Path(__file__).resolve().parent)
+    ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="sft50_sources");ap.add_argument("--out",default="sft50_data");ap.add_argument('--max-seq',type=int,default=512);ap.add_argument("--target-train-examples",type=int,default=0,help="0=auto-size safely after filtering; otherwise exact quota");args=ap.parse_args()
+    result=build(Path(args.source_root),Path(args.out),args.target_train_examples,Path(__file__).resolve().parent,args.max_seq)
     print(json.dumps({"target_train_examples":result["target_train_examples"],"train":result["splits"]["train"],"val":result["splits"]["val"],"rejected":result["rejected"]},indent=2,ensure_ascii=False))
 
 

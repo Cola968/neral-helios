@@ -1,0 +1,10 @@
+{
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "checkpoint_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "command": [
+    "benchmark_v5_long_context.py",
+    "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\export\\pilot_02\\neral20m.pt"
+  ],
+  "v5_protocol_sha256": "aae564f4fd73ffbcb11e590b6a0fa05a79bbab9084983109f49a59e5b48b67cd",
+  "report_sha256": "01f536b622b8f0327147caf50a626b5ede9b412373bc00dbcc2a086e06770588"
+}

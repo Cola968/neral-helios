@@ -1,0 +1,11 @@
+{
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "checkpoint_sha256": "f22a25bdd7edb1941f187a5dad3c509bc46012ad8c756e689f9f985cfc48f5da",
+  "command": [
+    "benchmark_v3.py",
+    "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_stage_b_full\\best_validation.pt",
+    "--max-new-tokens",
+    "96"
+  ],
+  "report_sha256": "f51ff9714bf55769b204af06132e736d0ff6c13cba6a15f14ee35710fec7c328"
+}

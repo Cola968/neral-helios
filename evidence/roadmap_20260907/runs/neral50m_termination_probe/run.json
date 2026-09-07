@@ -1,0 +1,176 @@
+{
+  "stage": "D assistant-only instruction tuning",
+  "stage_version": 1,
+  "parameters": 50012976,
+  "source_checkpoint": "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_stage_b_full\\best_validation.pt",
+  "source_sha256": "f22a25bdd7edb1941f187a5dad3c509bc46012ad8c756e689f9f985cfc48f5da",
+  "source_cumulative_tokens": 27570176,
+  "data_hashes": {
+    "train.jsonl": "6c9a3ba479f5acdcf5fae04a81be93ddd4065cbfa8bf912cf3330172314db2bf",
+    "val.jsonl": "bd602c411207cc4932acddb87349e766eeb7540dfba875b410cb178358a0b2a4",
+    "test.jsonl": "a63a556988ceeee17209ac8827d991dce235339c606858ddad8b6b8af22c1367",
+    "holdout.jsonl": "b06fca68fcdf4d9e4d990c8897a58698c412ea24074075a53117dd2679262f6a",
+    "manifest.json": "c1255d9e78ff52b9eeb8559d6f902199465d4aa743d415154dfda8d05d973717"
+  },
+  "replay_root": "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\pretrain50_data",
+  "replay_validation": {
+    "split": "val",
+    "sequence": 256,
+    "seed": 968557,
+    "document_boundary_crossing": false,
+    "de_available_blocks": 4017,
+    "de_selected_blocks": 96,
+    "en_available_blocks": 893,
+    "en_selected_blocks": 96
+  },
+  "loss": {
+    "assistant_only": true,
+    "assistant_eos_in_loss": true,
+    "eos_weight": 1.5,
+    "sft_weight": 0.85,
+    "base_lm_replay_weight": 0.15000000000000002
+  },
+  "sampling": "deterministic shuffled train sweep; no domain-balanced hidden oversampling",
+  "solve_used": false,
+  "tools_used": false,
+  "selection": "lowest SFT validation macro answer NLL subject to <=5% B2-LM validation regression and <=10% RawMath dev NLL regression",
+  "benchmark_policy": "Frozen free/v3/v4/RawMath/NIS benchmark required after Stage D; no promotion from SFT loss alone.",
+  "baseline_sft": {
+    "macro_answer_nll": 2.1379489379722645,
+    "micro_answer_nll": 1.8156713495764003,
+    "answer_tokens": 5316,
+    "terminal_eos_top1_pct": 0.0,
+    "slices": {
+      "de/chat": {
+        "answer_nll": 1.8238133902501579,
+        "answer_tokens": 396,
+        "examples": 5,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "de/code": {
+        "answer_nll": 1.1091220431857638,
+        "answer_tokens": 180,
+        "examples": 1,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "de/reasoning": {
+        "answer_nll": 2.1310305388077446,
+        "answer_tokens": 92,
+        "examples": 1,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "en/chat": {
+        "answer_nll": 1.8221864415982574,
+        "answer_tokens": 3723,
+        "examples": 37,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "en/code": {
+        "answer_nll": 2.6283651115068425,
+        "answer_tokens": 306,
+        "examples": 2,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "en/explanation": {
+        "answer_nll": 1.2883486925813668,
+        "answer_tokens": 482,
+        "examples": 5,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "en/focus": {
+        "answer_nll": 4.0944474538167315,
+        "answer_tokens": 12,
+        "examples": 1,
+        "terminal_eos_top1_pct": 0.0
+      },
+      "en/science": {
+        "answer_nll": 2.20627783203125,
+        "answer_tokens": 125,
+        "examples": 1,
+        "terminal_eos_top1_pct": 0.0
+      }
+    }
+  },
+  "baseline_lm": {
+    "domains": {
+      "de": 1.2152561446030934,
+      "en": 1.3156404197216034
+    },
+    "macro": 1.2654482821623483,
+    "tokens": 49152,
+    "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+    "validation_version": 2
+  },
+  "baseline_math": {
+    "nll": 5.266404071836981,
+    "answer_tokens": 1048,
+    "tasks": 180,
+    "by_category": {
+      "add_sub": {
+        "nll": 5.438877500336746,
+        "answer_tokens": 116,
+        "tasks": 20
+      },
+      "fractions": {
+        "nll": 4.775143958782327,
+        "answer_tokens": 145,
+        "tasks": 20
+      },
+      "linear": {
+        "nll": 5.584916822981127,
+        "answer_tokens": 101,
+        "tasks": 20
+      },
+      "mul_div": {
+        "nll": 5.428224469175433,
+        "answer_tokens": 101,
+        "tasks": 20
+      },
+      "negatives": {
+        "nll": 5.5196400518002715,
+        "answer_tokens": 115,
+        "tasks": 20
+      },
+      "percent": {
+        "nll": 4.929806385869565,
+        "answer_tokens": 115,
+        "tasks": 20
+      },
+      "powers": {
+        "nll": 5.090197925836268,
+        "answer_tokens": 142,
+        "tasks": 20
+      },
+      "sequence": {
+        "nll": 5.485349301938657,
+        "answer_tokens": 108,
+        "tasks": 20
+      },
+      "word": {
+        "nll": 5.396632021949404,
+        "answer_tokens": 105,
+        "tasks": 20
+      }
+    }
+  },
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "torch": "2.8.0+cu128",
+  "args": {
+    "init_from": "runs/neral50m_stage_b_full/best_validation.pt",
+    "data": "reports/termination_probe_data",
+    "replay_data": "pretrain50_data",
+    "out": "runs/neral50m_termination_probe",
+    "steps": 400,
+    "seq": 256,
+    "batch_size": 16,
+    "replay_batch": 8,
+    "sft_weight": 0.85,
+    "eos_weight": 1.5,
+    "peak_lr": 3e-05,
+    "min_lr": 3e-06,
+    "warmup_fraction": 0.05,
+    "eval_every": 100,
+    "patience": 4,
+    "min_delta": 0.003
+  }
+}

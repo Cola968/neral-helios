@@ -1,0 +1,11 @@
+{
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "checkpoint_sha256": "31ffd4bdbde5182291e0753e6b70157759d9fa1b8ef6becd6c9dc97dc7a64ff5",
+  "command": [
+    "benchmark_v4.py",
+    "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_termination_probe\\best_instruct.pt",
+    "--max-new-tokens",
+    "96"
+  ],
+  "report_sha256": "b891c44bb1fdf06feed7b3d5dc03544eeb3fae357caf77283713276134a4eb22"
+}

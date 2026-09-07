@@ -33,3 +33,6 @@ benchmarks50/holdout.jsonl
 release/*.zip
 !evidence/
 !evidence/**
+pretrain50_b3_data/
+campaign_private/
+campaign_reports/

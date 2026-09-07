@@ -126,7 +126,7 @@ def build_sft(work: Path) -> Path:
     if src.exists():shutil.rmtree(src)
     if data.exists():shutil.rmtree(data)
     run([PY,'fetch_oasst1_sft50.py','--out',str(src),'--max-en','14000','--max-de','5000'])
-    run([PY,'prepare_sft50.py','--source-root',str(src),'--out',str(data),'--target-train-examples','0'])
+    run([PY,'prepare_sft50.py','--source-root',str(src),'--out',str(data),'--target-train-examples','0','--max-seq','1024'])
     m=read(data/'manifest.json')
     if int(m.get('target_train_examples',0))<3000:raise RuntimeError('Too few clean SFT examples')
     return data
@@ -215,7 +215,7 @@ def main() -> None:
     # Stage D: human DE/EN assistant-only SFT, EOS supervision and base-language replay.
     sft=build_sft(REPO/'campaign_private')
     inst_run=assets/f'runs/neral50m_instruct_campaign_{run_id}'
-    run([PY,'train_instruct50.py','--init-from',str(instruct_source),'--data',str(sft),'--replay-data',str(b2_data),'--out',str(inst_run),'--steps','2000','--seq','512','--batch-size','16','--replay-batch','8','--sft-weight','0.85','--eos-weight','1.5','--peak-lr','0.00003','--min-lr','0.000003','--warmup-fraction','0.05','--eval-every','100','--patience','6'])
+    run([PY,'train_instruct50.py','--init-from',str(instruct_source),'--data',str(sft),'--replay-data',str(b2_data),'--out',str(inst_run),'--steps','2000','--seq','1024','--batch-size','8','--replay-batch','4','--sft-weight','0.85','--eos-weight','1.5','--peak-lr','0.00003','--min-lr','0.000003','--warmup-fraction','0.05','--eval-every','100','--patience','6'])
     inst_summary=inst_run/'summary.json';inst=selected_checkpoint(inst_run,'best_instruct.pt');inst_reports=reports/'instruct';benchmark(inst,inst_reports)
     d=promotion('instruct',baseline_reports,inst_reports,reports);ip=progress('instruct',instruct_before,inst_reports,inst_summary,reports,long_mode='protect')
     state['stages'].append({'stage':'instruct','source':instruct_source_label,'decision':d,'progress':ip});state['surpassed_20m']=bool(d['surpassed_20m']);state['winner']='instruct' if d['surpassed_20m'] else None;state['finished_at_unix']=time.time();write(reports/'CAMPAIGN_STATE.json',state)

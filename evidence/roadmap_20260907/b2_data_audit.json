@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "target_train_tokens": 80000000,
+  "actual_train_tokens": 80148053,
+  "sources": 3,
+  "documents": 23989,
+  "unique_normalized_documents": 23989,
+  "source_manifest_sha256": "25f9d206e5e3634601741a79df9a5518343020c542a7c72f00a306b83f454b54",
+  "documents_sha256": "d4933d7ecddf487340f4655c7b5b44bd5d1cfe1bc45f7bfa69b3378007af01c0",
+  "contamination_source_sha256": {
+    "benchmarks50\\regression.jsonl": "ea85e28272b98f79d8911d677125455ffc3d506152804b51dc8069279deee5d9",
+    "benchmarks50\\raw_math_v1.jsonl": "3f3d31fd1f42c16b05549553d2be78f71e59ce6065ab48435bd130a20d4b05b7",
+    "benchmark_v3.py": "483eb2197eb6e141c31ce27a307754cbac6fc3b415787389dde06db7bd0cd21c",
+    "benchmark_v4.py": "851eeeb32aef522af2cd714a26febc41180f75921c82a22c5453cd4b64816e2d"
+  }
+}

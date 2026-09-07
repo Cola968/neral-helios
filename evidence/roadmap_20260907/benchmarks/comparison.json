@@ -1,0 +1,677 @@
+{
+  "definition": "Raw own Neral weights only; no tools or decoder penalties",
+  "stages": {
+    "baseline20": {
+      "utf8_valid_pct": 100.0,
+      "eos_pct": 28.000000000000004,
+      "non_repetition_trigram_pct": 97.23412698412699,
+      "repeated_trigram_pct": 2.765873015873016,
+      "raw_math_exact_pct": 0.0,
+      "decode_tokens_per_second": 164.85880923020196,
+      "v3_pair_overall_pct": 46.15384615384615,
+      "v3_de_grammar_pct": 75.0,
+      "v3_en_grammar_pct": 75.0,
+      "v3_facts_pct": 50.0,
+      "v3_commonsense_pct": 0.0,
+      "v3_code_pct": 25.0,
+      "v3_math_pct": 50.0,
+      "v3_chat_eos_pct": 50.0,
+      "v3_chat_unique_pct": 100.0,
+      "v3_chat_repeated_trigram_pct": 0.5882352941176471,
+      "v3_base_eos_pct": 20.0,
+      "v3_base_unique_pct": 100.0,
+      "v3_base_repeated_trigram_pct": 8.133333333333333,
+      "true_byte_bpb_de_128": 4.221036628424808,
+      "true_byte_bpb_de_256": 4.08284016000635,
+      "true_byte_bpb_de_512": 3.861260251851373,
+      "true_byte_bpb_de_1024": 3.8165782857272696,
+      "true_byte_bpb_en_128": 4.235662162041169,
+      "true_byte_bpb_en_256": 4.110861278581526,
+      "true_byte_bpb_en_512": 3.821793393985133,
+      "true_byte_bpb_en_1024": 3.726198653855141,
+      "true_byte_bpb_macro_1024": 3.771388469791205,
+      "v4_pair_overall_pct": 61.36363636363637,
+      "context_recall_overall_pct": 50.0,
+      "v4_de_grammar_pct": 75.0,
+      "v4_en_grammar_pct": 50.0,
+      "v4_physics_pct": 25.0,
+      "v4_astronomy_pct": 75.0,
+      "v4_aviation_pct": 75.0,
+      "v4_transport_pct": 100.0,
+      "v4_math_pct": 66.66666666666666,
+      "v4_logic_pct": 50.0,
+      "v4_commonsense_pct": 50.0,
+      "v4_code_pct": 50.0,
+      "v4_translation_pct": 75.0,
+      "v4_induction_pct": 50.0,
+      "context_recall_128B_pct": 50.0,
+      "context_recall_512B_pct": 50.0,
+      "context_recall_1024B_pct": 50.0,
+      "context_recall_2048B_pct": 50.0,
+      "context_recall_3072B_pct": 50.0,
+      "v4_greedy_eos_pct": 12.5,
+      "v4_greedy_unique_pct": 100.0,
+      "v4_greedy_repeated_trigram_pct": 4.356060606060606,
+      "v4_sample_t07_k40_eos_pct": 12.5,
+      "v4_sample_t07_k40_unique_pct": 100.0,
+      "v4_sample_t07_k40_repeated_trigram_pct": 0.0,
+      "next_token_entropy_bits": 2.9767511085207974,
+      "next_token_mean_top1_pct": 53.61340673906463,
+      "rawmath_v1_exact_pct": 0.0,
+      "rawmath_v1_eos_pct": 9.6,
+      "rawmath_v1_answer_nll": 2.4661013329217796,
+      "rawmath_add_sub_pct": 0.0,
+      "rawmath_fractions_pct": 0.0,
+      "rawmath_linear_pct": 0.0,
+      "rawmath_mul_div_pct": 0.0,
+      "rawmath_negatives_pct": 0.0,
+      "rawmath_percent_pct": 0.0,
+      "rawmath_powers_pct": 0.0,
+      "rawmath_sequence_pct": 0.0,
+      "rawmath_transfer_ood_pct": 0.0,
+      "rawmath_word_pct": 0.0,
+      "rawmath_distribution_id_pct": 0.0,
+      "rawmath_distribution_ood_pct": 0.0,
+      "rawmath_distribution_transfer_pct": 0.0
+    },
+    "b1": {
+      "utf8_valid_pct": 98.0,
+      "eos_pct": 0.0,
+      "non_repetition_trigram_pct": 95.64784382284383,
+      "repeated_trigram_pct": 4.352156177156178,
+      "raw_math_exact_pct": 0.0,
+      "decode_tokens_per_second": 108.61641996741918,
+      "v3_pair_overall_pct": 46.15384615384615,
+      "v3_de_grammar_pct": 50.0,
+      "v3_en_grammar_pct": 50.0,
+      "v3_facts_pct": 66.66666666666666,
+      "v3_commonsense_pct": 25.0,
+      "v3_code_pct": 25.0,
+      "v3_math_pct": 50.0,
+      "v3_chat_eos_pct": 0.0,
+      "v3_chat_unique_pct": 80.0,
+      "v3_chat_repeated_trigram_pct": 16.66141456582633,
+      "v3_base_eos_pct": 0.0,
+      "v3_base_unique_pct": 100.0,
+      "v3_base_repeated_trigram_pct": 30.091331269349848,
+      "true_byte_bpb_de_128": 1.7293030751580976,
+      "true_byte_bpb_de_256": 1.7084361814058642,
+      "true_byte_bpb_de_512": 1.8577595264747655,
+      "true_byte_bpb_de_1024": 2.279959012347246,
+      "true_byte_bpb_en_128": 1.8843950089100308,
+      "true_byte_bpb_en_256": 1.9182384007114222,
+      "true_byte_bpb_en_512": 1.9856604575298629,
+      "true_byte_bpb_en_1024": 2.3667075734904994,
+      "true_byte_bpb_macro_1024": 2.323333292918873,
+      "v4_pair_overall_pct": 61.36363636363637,
+      "context_recall_overall_pct": 40.0,
+      "v4_de_grammar_pct": 50.0,
+      "v4_en_grammar_pct": 100.0,
+      "v4_physics_pct": 75.0,
+      "v4_astronomy_pct": 50.0,
+      "v4_aviation_pct": 100.0,
+      "v4_transport_pct": 50.0,
+      "v4_math_pct": 66.66666666666666,
+      "v4_logic_pct": 0.0,
+      "v4_commonsense_pct": 0.0,
+      "v4_code_pct": 25.0,
+      "v4_translation_pct": 75.0,
+      "v4_induction_pct": 75.0,
+      "context_recall_128B_pct": 0.0,
+      "context_recall_512B_pct": 50.0,
+      "context_recall_1024B_pct": 50.0,
+      "context_recall_2048B_pct": 50.0,
+      "context_recall_3072B_pct": 50.0,
+      "v4_greedy_eos_pct": 0.0,
+      "v4_greedy_unique_pct": 100.0,
+      "v4_greedy_repeated_trigram_pct": 37.204431114551085,
+      "v4_sample_t07_k40_eos_pct": 0.0,
+      "v4_sample_t07_k40_unique_pct": 100.0,
+      "v4_sample_t07_k40_repeated_trigram_pct": 0.0,
+      "next_token_entropy_bits": 0.8113525821162122,
+      "next_token_mean_top1_pct": 84.86303814819881,
+      "rawmath_v1_exact_pct": 0.0,
+      "rawmath_v1_eos_pct": 0.0,
+      "rawmath_v1_answer_nll": 5.229721948810602,
+      "rawmath_add_sub_pct": 0.0,
+      "rawmath_fractions_pct": 0.0,
+      "rawmath_linear_pct": 0.0,
+      "rawmath_mul_div_pct": 0.0,
+      "rawmath_negatives_pct": 0.0,
+      "rawmath_percent_pct": 0.0,
+      "rawmath_powers_pct": 0.0,
+      "rawmath_sequence_pct": 0.0,
+      "rawmath_transfer_ood_pct": 0.0,
+      "rawmath_word_pct": 0.0,
+      "rawmath_distribution_id_pct": 0.0,
+      "rawmath_distribution_ood_pct": 0.0,
+      "rawmath_distribution_transfer_pct": 0.0
+    },
+    "termination_probe": {
+      "utf8_valid_pct": 100.0,
+      "eos_pct": 1.0,
+      "non_repetition_trigram_pct": 91.99617604617605,
+      "repeated_trigram_pct": 8.003823953823954,
+      "raw_math_exact_pct": 0.0,
+      "decode_tokens_per_second": 118.07036396380822,
+      "v3_pair_overall_pct": 50.0,
+      "v3_de_grammar_pct": 25.0,
+      "v3_en_grammar_pct": 50.0,
+      "v3_facts_pct": 66.66666666666666,
+      "v3_commonsense_pct": 75.0,
+      "v3_code_pct": 50.0,
+      "v3_math_pct": 25.0,
+      "v3_chat_eos_pct": 20.0,
+      "v3_chat_unique_pct": 100.0,
+      "v3_chat_repeated_trigram_pct": 19.625104427736005,
+      "v3_base_eos_pct": 0.0,
+      "v3_base_unique_pct": 100.0,
+      "v3_base_repeated_trigram_pct": 30.306372549019606,
+      "true_byte_bpb_de_128": 1.7630724490964567,
+      "true_byte_bpb_de_256": 1.7490240211563008,
+      "true_byte_bpb_de_512": 1.9104664504439965,
+      "true_byte_bpb_de_1024": 2.3752490051387776,
+      "true_byte_bpb_en_128": 1.9768329105285452,
+      "true_byte_bpb_en_256": 2.0316040516018177,
+      "true_byte_bpb_en_512": 2.10179832086137,
+      "true_byte_bpb_en_1024": 2.522335354204763,
+      "true_byte_bpb_macro_1024": 2.44879217967177,
+      "v4_pair_overall_pct": 61.36363636363637,
+      "context_recall_overall_pct": 10.0,
+      "v4_de_grammar_pct": 50.0,
+      "v4_en_grammar_pct": 75.0,
+      "v4_physics_pct": 75.0,
+      "v4_astronomy_pct": 50.0,
+      "v4_aviation_pct": 75.0,
+      "v4_transport_pct": 50.0,
+      "v4_math_pct": 66.66666666666666,
+      "v4_logic_pct": 50.0,
+      "v4_commonsense_pct": 0.0,
+      "v4_code_pct": 25.0,
+      "v4_translation_pct": 100.0,
+      "v4_induction_pct": 75.0,
+      "context_recall_128B_pct": 0.0,
+      "context_recall_512B_pct": 0.0,
+      "context_recall_1024B_pct": 0.0,
+      "context_recall_2048B_pct": 0.0,
+      "context_recall_3072B_pct": 50.0,
+      "v4_greedy_eos_pct": 0.0,
+      "v4_greedy_unique_pct": 100.0,
+      "v4_greedy_repeated_trigram_pct": 25.033229638009054,
+      "v4_sample_t07_k40_eos_pct": 0.0,
+      "v4_sample_t07_k40_unique_pct": 100.0,
+      "v4_sample_t07_k40_repeated_trigram_pct": 0.0,
+      "next_token_entropy_bits": 0.708323638354029,
+      "next_token_mean_top1_pct": 88.23355564049312,
+      "rawmath_v1_exact_pct": 0.0,
+      "rawmath_v1_eos_pct": 1.0,
+      "rawmath_v1_answer_nll": 2.8576909219748887,
+      "rawmath_add_sub_pct": 0.0,
+      "rawmath_fractions_pct": 0.0,
+      "rawmath_linear_pct": 0.0,
+      "rawmath_mul_div_pct": 0.0,
+      "rawmath_negatives_pct": 0.0,
+      "rawmath_percent_pct": 0.0,
+      "rawmath_powers_pct": 0.0,
+      "rawmath_sequence_pct": 0.0,
+      "rawmath_transfer_ood_pct": 0.0,
+      "rawmath_word_pct": 0.0,
+      "rawmath_distribution_id_pct": 0.0,
+      "rawmath_distribution_ood_pct": 0.0,
+      "rawmath_distribution_transfer_pct": 0.0
+    }
+  },
+  "nis": {
+    "baseline20": {
+      "name": "Neral Intelligence Score",
+      "version": "1.0",
+      "status": "complete",
+      "score": 44.0625,
+      "scale": "0-100",
+      "components": {
+        "language_knowledge": 50.0,
+        "raw_math": 0.0,
+        "code": 37.5,
+        "science_focus": 68.75,
+        "logic_induction": 50.0,
+        "translation": 75.0,
+        "context_use": 50.0
+      },
+      "weights": {
+        "language_knowledge": 0.2,
+        "raw_math": 0.2,
+        "code": 0.1,
+        "science_focus": 0.15,
+        "logic_induction": 0.15,
+        "translation": 0.1,
+        "context_use": 0.1
+      },
+      "contributions": {
+        "language_knowledge": 10.0,
+        "raw_math": 0.0,
+        "code": 3.75,
+        "science_focus": 10.3125,
+        "logic_induction": 7.5,
+        "translation": 7.5,
+        "context_use": 5.0
+      },
+      "scope": "Internal Neral-only frozen-benchmark composite; not IQ and not cross-model comparable.",
+      "excluded": [
+        "parameter_count",
+        "decode_speed",
+        "training_loss",
+        "SOLVE",
+        "VERIFY",
+        "Helios security/tool scores"
+      ]
+    },
+    "b1": {
+      "name": "Neral Intelligence Score",
+      "version": "1.0",
+      "status": "complete",
+      "score": 37.645833333333336,
+      "scale": "0-100",
+      "components": {
+        "language_knowledge": 47.916666666666664,
+        "raw_math": 0.0,
+        "code": 25.0,
+        "science_focus": 68.75,
+        "logic_induction": 25.0,
+        "translation": 75.0,
+        "context_use": 40.0
+      },
+      "weights": {
+        "language_knowledge": 0.2,
+        "raw_math": 0.2,
+        "code": 0.1,
+        "science_focus": 0.15,
+        "logic_induction": 0.15,
+        "translation": 0.1,
+        "context_use": 0.1
+      },
+      "contributions": {
+        "language_knowledge": 9.583333333333334,
+        "raw_math": 0.0,
+        "code": 2.5,
+        "science_focus": 10.3125,
+        "logic_induction": 3.75,
+        "translation": 7.5,
+        "context_use": 4.0
+      },
+      "scope": "Internal Neral-only frozen-benchmark composite; not IQ and not cross-model comparable.",
+      "excluded": [
+        "parameter_count",
+        "decode_speed",
+        "training_loss",
+        "SOLVE",
+        "VERIFY",
+        "Helios security/tool scores"
+      ]
+    },
+    "termination_probe": {
+      "name": "Neral Intelligence Score",
+      "version": "1.0",
+      "status": "complete",
+      "score": 41.208333333333336,
+      "scale": "0-100",
+      "components": {
+        "language_knowledge": 54.166666666666664,
+        "raw_math": 0.0,
+        "code": 37.5,
+        "science_focus": 62.5,
+        "logic_induction": 41.666666666666664,
+        "translation": 100.0,
+        "context_use": 10.0
+      },
+      "weights": {
+        "language_knowledge": 0.2,
+        "raw_math": 0.2,
+        "code": 0.1,
+        "science_focus": 0.15,
+        "logic_induction": 0.15,
+        "translation": 0.1,
+        "context_use": 0.1
+      },
+      "contributions": {
+        "language_knowledge": 10.833333333333334,
+        "raw_math": 0.0,
+        "code": 3.75,
+        "science_focus": 9.375,
+        "logic_induction": 6.249999999999999,
+        "translation": 10.0,
+        "context_use": 1.0
+      },
+      "scope": "Internal Neral-only frozen-benchmark composite; not IQ and not cross-model comparable.",
+      "excluded": [
+        "parameter_count",
+        "decode_speed",
+        "training_loss",
+        "SOLVE",
+        "VERIFY",
+        "Helios security/tool scores"
+      ]
+    }
+  },
+  "checkpoint_sha256": {
+    "baseline20": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+    "b1": "f22a25bdd7edb1941f187a5dad3c509bc46012ad8c756e689f9f985cfc48f5da",
+    "termination_probe": "31ffd4bdbde5182291e0753e6b70157759d9fa1b8ef6becd6c9dc97dc7a64ff5"
+  },
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "decisions": {
+    "b1": {
+      "surpassed_20m": false,
+      "candidate": "b1",
+      "rule": "8/9 hard promotion gate AND NIS1.0 > 20M AND v5 long-context protection pass",
+      "promotion": {
+        "candidate": "b1",
+        "rule": "At least 8 strict wins across 9 directional core metrics, UTF-8 non-regression, all metrics present, and no severe regression.",
+        "release_ready": false,
+        "ready_for_rc_review": false,
+        "strict_wins": 1,
+        "strict_wins_required": 8,
+        "utf8_nonregressed": false,
+        "missing_metrics": [],
+        "severe_regressions": [
+          {
+            "metric": "utf8_valid_pct",
+            "detail": "more than 1 percentage point below 20M"
+          }
+        ],
+        "scorecard": [
+          {
+            "metric": "eos_pct",
+            "direction": "higher",
+            "baseline": 28.000000000000004,
+            "candidate": 0.0,
+            "delta": -28.000000000000004,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "repeated_trigram_pct",
+            "direction": "lower",
+            "baseline": 2.765873015873016,
+            "candidate": 4.352156177156178,
+            "delta": 1.5862831612831618,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "rawmath_v1_exact_pct",
+            "direction": "higher",
+            "baseline": 0.0,
+            "candidate": 0.0,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "v3_pair_overall_pct",
+            "direction": "higher",
+            "baseline": 46.15384615384615,
+            "candidate": 46.15384615384615,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "v4_pair_overall_pct",
+            "direction": "higher",
+            "baseline": 61.36363636363637,
+            "candidate": 61.36363636363637,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "context_recall_overall_pct",
+            "direction": "higher",
+            "baseline": 50.0,
+            "candidate": 40.0,
+            "delta": -10.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "true_byte_bpb_macro_1024",
+            "direction": "lower",
+            "baseline": 3.771388469791205,
+            "candidate": 2.323333292918873,
+            "delta": -1.448055176872332,
+            "strict_win": true,
+            "missing": false
+          },
+          {
+            "metric": "v4_math_pct",
+            "direction": "higher",
+            "baseline": 66.66666666666666,
+            "candidate": 66.66666666666666,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "v4_code_pct",
+            "direction": "higher",
+            "baseline": 50.0,
+            "candidate": 25.0,
+            "delta": -25.0,
+            "strict_win": false,
+            "missing": false
+          }
+        ],
+        "note": "This gate is a benchmark decision rule, not a composite intelligence score. Human quality, licensing, security and release review remain separate."
+      },
+      "nis": {
+        "baseline20": 44.0625,
+        "candidate": 37.645833333333336,
+        "strict_win": false
+      },
+      "long_context": {
+        "proceed": true,
+        "mode": "protect",
+        "reason": "pass",
+        "suite_sha256": "c7591900dff9a6b30d773e7e1e79cd2bdd7d466e9bd5cfda3a60c9bc4ade70d2",
+        "single_needle": {
+          "before": 0.6,
+          "after": 0.5,
+          "delta": -0.09999999999999998
+        },
+        "multi_needle": {
+          "before": 0.25,
+          "after": 0.75,
+          "delta": 0.5
+        },
+        "bpb": {
+          "2048": {
+            "before": 4.007842591853336,
+            "after": 2.9233149220242645,
+            "relative_change": -0.2706013634451538
+          },
+          "3072": {
+            "before": 3.6284748334302606,
+            "after": 3.186583871509466,
+            "relative_change": -0.12178421573976934
+          },
+          "4095": {
+            "before": 3.691790889337928,
+            "after": 3.4432914783539914,
+            "relative_change": -0.06731134520690618
+          }
+        },
+        "improvements": [
+          "bpb_2048_improved",
+          "bpb_3072_improved",
+          "bpb_4095_improved",
+          "multi_needle_improved"
+        ],
+        "severe": [],
+        "note": "Separate long-context gate; not an intelligence score and not part of NIS."
+      },
+      "reasons": [
+        "hard_promotion_gate_not_passed",
+        "nis_not_above_20m"
+      ]
+    },
+    "termination_probe": {
+      "surpassed_20m": false,
+      "candidate": "termination_probe",
+      "rule": "8/9 hard promotion gate AND NIS1.0 > 20M AND v5 long-context protection pass",
+      "promotion": {
+        "candidate": "termination_probe",
+        "rule": "At least 8 strict wins across 9 directional core metrics, UTF-8 non-regression, all metrics present, and no severe regression.",
+        "release_ready": false,
+        "ready_for_rc_review": false,
+        "strict_wins": 2,
+        "strict_wins_required": 8,
+        "utf8_nonregressed": true,
+        "missing_metrics": [],
+        "severe_regressions": [
+          {
+            "metric": "repeated_trigram_pct",
+            "detail": "more than 5 percentage points worse than 20M"
+          },
+          {
+            "metric": "context_recall_overall_pct",
+            "detail": "more than 10 percentage points below 20M"
+          }
+        ],
+        "scorecard": [
+          {
+            "metric": "eos_pct",
+            "direction": "higher",
+            "baseline": 28.000000000000004,
+            "candidate": 1.0,
+            "delta": -27.000000000000004,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "repeated_trigram_pct",
+            "direction": "lower",
+            "baseline": 2.765873015873016,
+            "candidate": 8.003823953823954,
+            "delta": 5.237950937950938,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "rawmath_v1_exact_pct",
+            "direction": "higher",
+            "baseline": 0.0,
+            "candidate": 0.0,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "v3_pair_overall_pct",
+            "direction": "higher",
+            "baseline": 46.15384615384615,
+            "candidate": 50.0,
+            "delta": 3.8461538461538467,
+            "strict_win": true,
+            "missing": false
+          },
+          {
+            "metric": "v4_pair_overall_pct",
+            "direction": "higher",
+            "baseline": 61.36363636363637,
+            "candidate": 61.36363636363637,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "context_recall_overall_pct",
+            "direction": "higher",
+            "baseline": 50.0,
+            "candidate": 10.0,
+            "delta": -40.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "true_byte_bpb_macro_1024",
+            "direction": "lower",
+            "baseline": 3.771388469791205,
+            "candidate": 2.44879217967177,
+            "delta": -1.322596290119435,
+            "strict_win": true,
+            "missing": false
+          },
+          {
+            "metric": "v4_math_pct",
+            "direction": "higher",
+            "baseline": 66.66666666666666,
+            "candidate": 66.66666666666666,
+            "delta": 0.0,
+            "strict_win": false,
+            "missing": false
+          },
+          {
+            "metric": "v4_code_pct",
+            "direction": "higher",
+            "baseline": 50.0,
+            "candidate": 25.0,
+            "delta": -25.0,
+            "strict_win": false,
+            "missing": false
+          }
+        ],
+        "note": "This gate is a benchmark decision rule, not a composite intelligence score. Human quality, licensing, security and release review remain separate."
+      },
+      "nis": {
+        "baseline20": 44.0625,
+        "candidate": 41.208333333333336,
+        "strict_win": false
+      },
+      "long_context": {
+        "proceed": true,
+        "mode": "protect",
+        "reason": "pass",
+        "suite_sha256": "c7591900dff9a6b30d773e7e1e79cd2bdd7d466e9bd5cfda3a60c9bc4ade70d2",
+        "single_needle": {
+          "before": 0.6,
+          "after": 0.4,
+          "delta": -0.19999999999999996
+        },
+        "multi_needle": {
+          "before": 0.25,
+          "after": 0.75,
+          "delta": 0.5
+        },
+        "bpb": {
+          "2048": {
+            "before": 4.007842591853336,
+            "after": 3.0562917356887374,
+            "relative_change": -0.23742221266344088
+          },
+          "3072": {
+            "before": 3.6284748334302606,
+            "after": 3.2919646356542445,
+            "relative_change": -0.09274149972755594
+          },
+          "4095": {
+            "before": 3.691790889337928,
+            "after": 3.5628345034351305,
+            "relative_change": -0.034930576993195815
+          }
+        },
+        "improvements": [
+          "bpb_2048_improved",
+          "bpb_3072_improved",
+          "bpb_4095_improved",
+          "multi_needle_improved"
+        ],
+        "severe": [],
+        "note": "Separate long-context gate; not an intelligence score and not part of NIS."
+      },
+      "reasons": [
+        "hard_promotion_gate_not_passed",
+        "nis_not_above_20m"
+      ]
+    }
+  }
+}

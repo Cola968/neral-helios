@@ -1,0 +1,12 @@
+{
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "checkpoint_sha256": "31ffd4bdbde5182291e0753e6b70157759d9fa1b8ef6becd6c9dc97dc7a64ff5",
+  "command": [
+    "free_generation50.py",
+    "--checkpoint",
+    "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_termination_probe\\best_instruct.pt",
+    "--max-tokens",
+    "64"
+  ],
+  "report_sha256": "2c97ce50908b2f586f26af8fc7d95381883b0e35d689e3114182eb4c1c899c4d"
+}

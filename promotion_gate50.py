@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -32,7 +33,10 @@ def _load(path):
 
 def _metric(stage, key):
     value=stage.get(key)
-    return None if value is None else float(value)
+    if value is None or isinstance(value,bool):return None
+    try:value=float(value)
+    except (TypeError,ValueError):return None
+    return value if math.isfinite(value) else None
 
 
 def evaluate(report, candidate_name="stage_c"):

@@ -1,0 +1,11 @@
+{
+  "protocol_sha256": "9f47ccd8af7e45a3160d2bd9ecc9d04f2ca1ff79afe8130b59ddd6a1eff63e40",
+  "checkpoint_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "command": [
+    "benchmark_v4.py",
+    "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\export\\pilot_02\\neral20m.pt",
+    "--max-new-tokens",
+    "96"
+  ],
+  "report_sha256": "130f650a143bb3e697a195fc07a8dc719e997bc0f5dcac38507355a257b1417b"
+}

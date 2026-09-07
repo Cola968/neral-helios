@@ -1,8 +1,21 @@
 import torch
+import pytest
 
 from config import NeralConfig
 from model import Neral20M
 from model50 import Neral50M
+
+
+@pytest.mark.parametrize('cls,head_dim', [(Neral20M,16),(Neral50M,52)])
+def test_validation_populated_rope_cache_supports_training(cls,head_dim):
+    from model import _ROPE_TABLES
+    _ROPE_TABLES.clear()
+    model=cls(tiny_config(head_dim=head_dim))
+    tokens=torch.randint(4,260,(2,12))
+    with torch.inference_mode():
+        model.eval()(tokens)
+    model.train()(tokens,tokens)[1].backward()
+    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.parameters())
 
 
 def tiny_config(head_dim=16, max_seq_len=64):

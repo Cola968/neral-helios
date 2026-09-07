@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "purpose": "Neral-50M B2 broader continued pretraining",
+  "target_train_tokens": 80000000,
+  "actual_train_tokens": 80148053,
+  "source_manifest_sha256": "25f9d206e5e3634601741a79df9a5518343020c542a7c72f00a306b83f454b54",
+  "sources": [
+    {
+      "id": "wiki-b2-de",
+      "file": "wiki-b2-de.jsonl",
+      "sha256": "1f29d6e539f0b3056731706735c9ceafb114f8088f89d8309972c8b2cf0ffcf5",
+      "language": "de",
+      "domain": "general",
+      "target_fraction": 0.58,
+      "license": "CC-BY-SA-3.0; GFDL alternative noted by upstream",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "provenance_url": "https://huggingface.co/datasets/wikimedia/wikipedia"
+    },
+    {
+      "id": "wiki-b2-en",
+      "file": "wiki-b2-en.jsonl",
+      "sha256": "62bfdb21a1b080724d6d0a16e4a6c81b34c87403d2d7e0924f7fb38f7eefe00c",
+      "language": "en",
+      "domain": "general",
+      "target_fraction": 0.39,
+      "license": "CC-BY-SA-3.0; GFDL alternative noted by upstream",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "provenance_url": "https://huggingface.co/datasets/wikimedia/wikipedia"
+    },
+    {
+      "id": "cpython-docs-31210",
+      "file": "cpython-docs-31210.jsonl",
+      "sha256": "36ac90d94190074e019e70eb02153b7364e8f56be7bb05b6ac9ae007fecf51d3",
+      "language": "en",
+      "domain": "code",
+      "target_fraction": 0.03,
+      "license": "PSF-2.0; documentation examples also 0BSD",
+      "license_url": "https://docs.python.org/3.12/license.html",
+      "provenance_url": "https://www.python.org/ftp/python/3.12.10/Python-3.12.10.tgz"
+    }
+  ],
+  "selection": {
+    "wiki-b2-de": {
+      "target_tokens": 46400000,
+      "selected_tokens": 46407332,
+      "selected_documents": 12185,
+      "available_documents": 13561
+    },
+    "wiki-b2-en": {
+      "target_tokens": 31200000,
+      "selected_tokens": 31228813,
+      "selected_documents": 9056,
+      "available_documents": 10021
+    },
+    "cpython-docs-31210": {
+      "target_tokens": 2400000,
+      "selected_tokens": 2511908,
+      "selected_documents": 129,
+      "available_documents": 299
+    }
+  },
+  "splits": {
+    "train": {
+      "de": {
+        "documents": 12185,
+        "tokens": 46407332,
+        "bytes": 46382962,
+        "sha256": "c806464770933e099bf53678f9c4c52c1d8ff4f327e4f2dfae07084c008002ec",
+        "domain_tokens": {
+          "general": 46407332
+        },
+        "source_tokens": {
+          "wiki-b2-de": 46407332
+        }
+      },
+      "en": {
+        "documents": 9185,
+        "tokens": 33740721,
+        "bytes": 33722351,
+        "sha256": "0793ba8769c361166a89164a081879eebc9cf7f6c210c6d1217f60ec0cf450c2",
+        "domain_tokens": {
+          "code": 2511908,
+          "general": 31228813
+        },
+        "source_tokens": {
+          "cpython-docs-31210": 2511908,
+          "wiki-b2-en": 31228813
+        }
+      }
+    },
+    "val": {
+      "de": {
+        "documents": 720,
+        "tokens": 2758831,
+        "bytes": 2757391,
+        "sha256": "cd91eeb7f288cb253efd031d164c8be52f60ccf999280d8aba2c5f342a05f319",
+        "domain_tokens": {
+          "general": 2758831
+        },
+        "source_tokens": {
+          "wiki-b2-de": 2758831
+        }
+      },
+      "en": {
+        "documents": 547,
+        "tokens": 2041770,
+        "bytes": 2040676,
+        "sha256": "7763f646d37521a983e8254afd1f57e4bb634f215ff2a552201521f5b13031de",
+        "domain_tokens": {
+          "code": 105241,
+          "general": 1936529
+        },
+        "source_tokens": {
+          "cpython-docs-31210": 105241,
+          "wiki-b2-en": 1936529
+        }
+      }
+    },
+    "test": {
+      "de": {
+        "documents": 500,
+        "tokens": 1670315,
+        "bytes": 1669315,
+        "sha256": "6cf8c27bb7a541cc6bdceafaa2eff97699f3a56c2ad27c92a5026e8502fe8596",
+        "domain_tokens": {
+          "general": 1670315
+        },
+        "source_tokens": {
+          "wiki-b2-de": 1670315
+        }
+      },
+      "en": {
+        "documents": 313,
+        "tokens": 1014677,
+        "bytes": 1014051,
+        "sha256": "46ae161dc048b5b973f3ed73b800098cc903c7145340a2cdc3aa446990a22d07",
+        "domain_tokens": {
+          "code": 112676,
+          "general": 902001
+        },
+        "source_tokens": {
+          "cpython-docs-31210": 112676,
+          "wiki-b2-en": 902001
+        }
+      }
+    },
+    "holdout": {
+      "de": {
+        "documents": 302,
+        "tokens": 1040982,
+        "bytes": 1040378,
+        "sha256": "d02d0447d777582cbcf2e7e65ba81566c469790fdfb4b91b00e53ea9681f75ea",
+        "domain_tokens": {
+          "general": 1040982
+        },
+        "source_tokens": {
+          "wiki-b2-de": 1040982
+        }
+      },
+      "en": {
+        "documents": 237,
+        "tokens": 1058881,
+        "bytes": 1058407,
+        "sha256": "05b2d6b00b54b7ec01400f0d76b84bac443136af982c53e08138287dc8122d6c",
+        "domain_tokens": {
+          "code": 220852,
+          "general": 838029
+        },
+        "source_tokens": {
+          "cpython-docs-31210": 220852,
+          "wiki-b2-en": 838029
+        }
+      }
+    }
+  },
+  "documents_sha256": "d4933d7ecddf487340f4655c7b5b44bd5d1cfe1bc45f7bfa69b3378007af01c0",
+  "rejected": {
+    "insufficient_clean_prose": 5813,
+    "contact_or_secret_pattern": 179,
+    "near_duplicate_minhash": 7,
+    "encoding_or_control": 2,
+    "insufficient_clean_code": 2
+  },
+  "packing": "BOS + UTF-8 bytes offset by 4 + EOS; document index enables boundary-safe blocks",
+  "split": "SHA256(source_id:row_id): 90/5/3/2 train/val/test/holdout before train quota selection",
+  "dedup": "NFKC/casefold exact + bounded 32-minhash word-5-shingle near-duplicate check >=0.80",
+  "cleaning": "Domain-aware: prose paragraph filtering; code preserves indentation/newlines; dialogue/structured preserve short turn/record lines",
+  "contamination": "Exact normalized long literals (>=20 chars) from frozen free-generation, RawMath, benchmark v3 and v4 are rejected; not a claim of exhaustive semantic contamination detection",
+  "contamination_source_sha256": {
+    "benchmarks50\\regression.jsonl": "ea85e28272b98f79d8911d677125455ffc3d506152804b51dc8069279deee5d9",
+    "benchmarks50\\raw_math_v1.jsonl": "3f3d31fd1f42c16b05549553d2be78f71e59ce6065ab48435bd130a20d4b05b7",
+    "benchmark_v3.py": "483eb2197eb6e141c31ce27a307754cbac6fc3b415787389dde06db7bd0cd21c",
+    "benchmark_v4.py": "851eeeb32aef522af2cd714a26febc41180f75921c82a22c5453cd4b64816e2d"
+  },
+  "external_model_calls": false,
+  "raw_data_uploaded": false
+}

@@ -63,7 +63,7 @@ jobs:
           if (Test-Path 'sft50_sources\oasst1_ready.messages.jsonl.gz') { Remove-Item 'sft50_sources\oasst1_ready.messages.jsonl.gz' -Force }
           & $py fetch_oasst1_sft50.py --out sft50_sources --max-en 14000 --max-de 5000
           if (Test-Path 'sft50_data') { Remove-Item 'sft50_data' -Recurse -Force }
-          & $py prepare_sft50.py --source-root sft50_sources --out sft50_data --target-train-examples 0
+          & $py prepare_sft50.py --source-root sft50_sources --out sft50_data --target-train-examples 0 --max-seq 1024
           $prepared=Get-Content 'sft50_data\manifest.json' -Raw|ConvertFrom-Json
           $target=[int]$prepared.target_train_examples
           if ($target -lt 3000) { throw "Too few clean instruction examples after filtering/split: $target" }
@@ -137,7 +137,7 @@ jobs:
         run: |
           $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
           $out=Join-Path $assets ('runs\neral50m_rc1_instruct_'+$env:GITHUB_RUN_ID);"out=$out" >> $env:GITHUB_OUTPUT
-          & $py train_instruct50.py --init-from '${{ steps.raw.outputs.best }}' --data sft50_data --replay-data pretrain50_b2_data --out $out --steps 2000 --seq 512 --batch-size 16 --replay-batch 8 --sft-weight 0.85 --eos-weight 1.5 --peak-lr 0.00003 --min-lr 0.000003 --warmup-fraction 0.05 --eval-every 100 --patience 6
+          & $py train_instruct50.py --init-from '${{ steps.raw.outputs.best }}' --data sft50_data --replay-data pretrain50_b2_data --out $out --steps 2000 --seq 1024 --batch-size 8 --replay-batch 4 --sft-weight 0.85 --eos-weight 1.5 --peak-lr 0.00003 --min-lr 0.000003 --warmup-fraction 0.05 --eval-every 100 --patience 6
 
       - name: Resolve Instruct checkpoint
         id: instruct

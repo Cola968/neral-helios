@@ -46,11 +46,14 @@ def _rope_table(
     cached = _ROPE_TABLES.get(key)
     if cached is not None:
         return cached
-    pos = torch.arange(length, device=device, dtype=torch.float32)
-    inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
-    freqs = torch.outer(pos, inv_freq)
-    emb = torch.repeat_interleave(freqs, 2, dim=-1)[None, None, :, :]
-    value = (emb.cos().to(dtype=dtype), emb.sin().to(dtype=dtype))
+    # Validation may populate this shared cache before training. Inference tensors
+    # cannot be saved for backward, even though these constants require no gradients.
+    with torch.inference_mode(False), torch.no_grad():
+        pos = torch.arange(length, device=device, dtype=torch.float32)
+        inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
+        freqs = torch.outer(pos, inv_freq)
+        emb = torch.repeat_interleave(freqs, 2, dim=-1)[None, None, :, :]
+        value = (emb.cos().to(dtype=dtype), emb.sin().to(dtype=dtype))
     _ROPE_TABLES[key] = value
     return value
 

@@ -1,0 +1,21 @@
+{
+  "stop": "max_steps",
+  "complete": true,
+  "completed_step": 400,
+  "source_cumulative_tokens": 27570176,
+  "sft_input_tokens": 1055166,
+  "sft_answer_tokens": 642718,
+  "base_replay_tokens": 819200,
+  "best_sft_macro_answer_nll": 1.5506016763932386,
+  "best_sft_terminal_eos_top1_pct": 100.0,
+  "baseline_sft_macro_answer_nll": 2.1379489379722645,
+  "baseline_sft_terminal_eos_top1_pct": 0.0,
+  "optimizer_seconds": 35.26845749979839,
+  "elapsed_seconds": 40.835126199992374,
+  "peak_allocated": 2923883520,
+  "peak_reserved": 3063939072,
+  "best_sha256": "31ffd4bdbde5182291e0753e6b70157759d9fa1b8ef6becd6c9dc97dc7a64ff5",
+  "latest_sha256": "541ad219d82ed60400b52c7d124c2ac0415924ac2925e7bca42b5239a2ed7d83",
+  "solve_used": false,
+  "tools_used": false
+}
