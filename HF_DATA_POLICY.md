@@ -16,7 +16,9 @@ This document records the Hugging Face datasets inspected for Neral and the corr
 
 OASST2 replaces OASST1 in the I1 D3 mixture rather than being stacked on top of it. This avoids deliberately duplicating the older OpenAssistant release. OASST1 remains registered for reproduction of historical runs.
 
-The 20k I1 SFT target keeps a 30% human share: 24% English OASST2 and 6% German OASST2. The remaining 70% is Neral's deterministic project-generated German/math/code/reasoning curriculum. This doubles the human German quota relative to the previous I1 plan without increasing the amount of external data.
+A real GitHub-hosted build of the pinned archive produced 14,714 English and 1,480 German reviewed human pairs before SFT cleaning. After Neral's strict 1024-byte training-sequence, contamination, deduplication and deterministic train-split filters, 805 clean German train examples remained. The project therefore does **not** weaken filters or truncate examples to force a larger quota.
+
+The 20k I1 SFT target keeps a 30% human share: 26.25% English OASST2 and 3.75% German OASST2. The German quota is 750 examples, leaving measured headroom below the 805 clean examples. The remaining 70% is Neral's deterministic project-generated German/math/code/reasoning curriculum. Total German coverage remains much larger than the human-only fraction because the generated German core, math, code and reasoning slices are separate.
 
 ## Public benchmark holdouts
 
@@ -27,6 +29,8 @@ The following datasets are intentionally **not training data**:
 - `deepmind/code_contests` — CC-BY-4.0 competitive-programming problems; reserved for future code evaluation.
 
 `hf_source_policy50.py` fails closed if any of these IDs are passed to a training-source policy check. This makes future public benchmark claims more defensible.
+
+`prepare_gsm8k_holdout50.py` additionally pins the GSM8K main test revision and Parquet SHA-256, copies only the question and final answer into the local evaluation JSONL, removes the raw Parquet by default and never exposes the worked rationale to Neral's training builders. `benchmark_gsm8k50.py` is a separate raw-model direct-answer diagnostic and is deliberately excluded from NIS and the internal I1 promotion score.
 
 ## Future candidates, not I1 inputs
 
