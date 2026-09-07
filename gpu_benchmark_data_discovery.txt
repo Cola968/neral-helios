@@ -1,0 +1,2 @@
+request=locate-frozen-validation-binaries
+purpose=stage-local-private-benchmark-inputs
