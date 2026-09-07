@@ -13,7 +13,7 @@ from bootstrap_b2_sources import ODC_LICENSE, ODC_LICENSE_URL, stream_public_sou
 
 SPECS=(
     {"id":"fineweb-en-general","repo":"HuggingFaceFW/fineweb","config":"sample-10BT","revision":"v1.4.0","language":"en","domain":"general","target_fraction":.40,"staging_bytes":300_000_000,"license":ODC_LICENSE,"license_url":ODC_LICENSE_URL,"provenance_url":"https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/v1.4.0"},
-    {"id":"fineweb2-de-general","repo":"HuggingFaceFW/fineweb-2","config":"deu_Latn","revision":"v2.1.1","language":"de","domain":"general","target_fraction":.40,"staging_bytes":330_000_000,"license":ODC_LICENSE,"license_url":ODC_LICENSE_URL,"provenance_url":"https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/tree/v2.1.1"},
+    {"id":"fineweb2-de-general","repo":"HuggingFaceFW/fineweb-2","config":"deu_Latn","revision":"v2.1.0","language":"de","domain":"general","target_fraction":.40,"staging_bytes":330_000_000,"license":ODC_LICENSE,"license_url":ODC_LICENSE_URL,"provenance_url":"https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/tree/v2.1.0"},
     {"id":"fineweb-edu-en","repo":"HuggingFaceFW/fineweb-edu","config":"sample-10BT","revision":"v1.4.0","language":"en","domain":"education","target_fraction":.20,"staging_bytes":180_000_000,"license":ODC_LICENSE,"license_url":ODC_LICENSE_URL,"provenance_url":"https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/tree/v1.4.0"},
 )
 
