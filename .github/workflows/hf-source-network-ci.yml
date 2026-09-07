@@ -1,0 +1,65 @@
+name: HF source network audit
+
+on:
+  push:
+    branches:
+      - hf-oasst2-data-policy
+    paths:
+      - 'fetch_oasst2_sft50.py'
+      - 'build_targeted_sft50_oasst2.py'
+      - 'hf_source_policy50.py'
+      - 'prepare_sft50.py'
+      - 'prepare_sft50_i1.py'
+      - 'validate_sft50_dataset.py'
+      - 'benchmarks50/**'
+      - '.github/workflows/hf-source-network-ci.yml'
+  pull_request:
+    paths:
+      - 'fetch_oasst2_sft50.py'
+      - 'build_targeted_sft50_oasst2.py'
+      - 'hf_source_policy50.py'
+      - 'prepare_sft50_i1.py'
+      - '.github/workflows/hf-source-network-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-real-sft-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned human-only OASST2
+        run: |
+          python fetch_oasst2_sft50.py --out /tmp/neral-oasst2 --max-en 16000 --max-de 6000
+      - name: Build deterministic targeted mixture
+        run: |
+          python build_targeted_sft50_oasst2.py --root /tmp/neral-oasst2 --per-generated-source 6000
+      - name: Build contamination-screened 20k SFT dataset
+        run: |
+          python prepare_sft50_i1.py --source-root /tmp/neral-oasst2 --out /tmp/neral-sft --target-train-examples 20000 --max-seq 1024
+      - name: Validate splits hashes and composition
+        run: |
+          python validate_sft50_dataset.py --data /tmp/neral-sft --out /tmp/neral-sft-audit.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('/tmp/neral-sft/manifest.json').read_text())
+          a=json.loads(Path('/tmp/neral-sft-audit.json').read_text())
+          ids={s['id'] for s in m['sources']}
+          assert {'oasst2-human-en','oasst2-human-de'} <= ids
+          assert m['target_train_examples']==20000
+          assert m['i1_targeted_v1_screened_from_sft'] is True
+          assert a['valid'] is True
+          assert a['cross_split_prompt_group_overlap']==0
+          assert a['cross_split_exact_pair_overlap']==0
+          print(json.dumps({'train':m['splits']['train'],'validation':a['composition']['val'],'sources':sorted(ids)},indent=2))
+          PY
+      - name: Confirm no source corpus is uploaded
+        run: |
+          test ! -e hf-source-artifact
+          echo 'Audit data remains ephemeral on the hosted runner.'
