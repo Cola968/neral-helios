@@ -1,0 +1,29 @@
+name: Neral Frozen Benchmark Data Discovery
+
+on:
+  push:
+    branches:
+      - gpu-benchmark-data-discovery
+    paths:
+      - gpu_benchmark_data_discovery.txt
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Locate only frozen validation binaries
+        run: |
+          @echo off
+          set ROOT=C:\Users\astad\Documents\Codex\2026-09-05\lo
+          echo ROOT=%ROOT%
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$root='C:\Users\astad\Documents\Codex\2026-09-05\lo'; foreach($name in @('val_de.bin','val_en.bin')){Write-Output ('=== '+$name+' ==='); $x=Get-ChildItem -LiteralPath $root -File -Filter $name -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.DirectoryName -match 'pretrain50_data'}; if($x){$x | Select-Object -First 20 FullName,Length | Format-Table -AutoSize}else{Write-Output 'not_found'}}"
+          echo.
+          echo Discovery is read-only.
