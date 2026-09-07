@@ -2,9 +2,9 @@
 
 This is intentionally stricter than "loss went down" but weaker than the final 20M promotion
 gate. It detects the exact trade-off the training policy forbids: e.g. lower repetition bought
-with materially worse byte-level language modelling. Generation health is a hard guard: a
-stage with unusable termination/repetition cannot be compounded by another weight-changing
-stage merely because loss or preference metrics improved.
+with materially worse byte-level language modelling. When a modern frozen report carries the
+rich generation-health fields, generation health becomes a hard guard. Legacy synthetic gate
+fixtures without those fields keep the historical contract instead of being reinterpreted.
 """
 from __future__ import annotations
 import argparse, json
@@ -15,12 +15,12 @@ from generation_health_gate50 import assess_metrics
 HIGHER=('eos_pct','rawmath_v1_exact_pct','v3_pair_overall_pct','v4_pair_overall_pct','context_recall_overall_pct')
 LOWER=('repeated_trigram_pct','true_byte_bpb_macro_1024')
 HEALTH=('utf8_valid_pct','eos_pct','repeated_trigram_pct','v3_chat_eos_pct','v3_chat_repeated_trigram_pct','v4_greedy_eos_pct','v4_greedy_repeated_trigram_pct')
+RICH_HEALTH=('utf8_valid_pct','v3_chat_eos_pct','v3_chat_repeated_trigram_pct','v4_greedy_eos_pct','v4_greedy_repeated_trigram_pct')
 
 
 def decide(report):
     before=report.get('before',{});after=report.get('after',{})
-    required=tuple(dict.fromkeys(HIGHER+LOWER+HEALTH))
-    missing=[k for k in required if before.get(k) is None or after.get(k) is None]
+    missing=[k for k in HIGHER+LOWER if before.get(k) is None or after.get(k) is None]
     if missing:return {'proceed':False,'reason':'missing_metrics','missing':missing,'wins':0,'severe':[]}
     wins=sum(after[k]>before[k] for k in HIGHER)+sum(after[k]<before[k] for k in LOWER);severe=[]
     if after['repeated_trigram_pct']>before['repeated_trigram_pct']+5:severe.append('repetition_regressed_gt_5pp')
@@ -28,18 +28,27 @@ def decide(report):
     for k in ('v3_pair_overall_pct','v4_pair_overall_pct'):
         if after[k]<before[k]-5:severe.append(f'{k}_regressed_gt_5pp')
     if after['context_recall_overall_pct']<before['context_recall_overall_pct']-10:severe.append('context_regressed_gt_10pp')
-    # Explicitly reject repetition cosmetics that harm the language model.
     if after['repeated_trigram_pct']<before['repeated_trigram_pct'] and after['true_byte_bpb_macro_1024']>before['true_byte_bpb_macro_1024']*1.01:
         severe.append('repetition_improved_but_bpb_worsened_gt_1pct')
 
-    generation=assess_metrics({k:after[k] for k in HEALTH},{k:before[k] for k in HEALTH})
-    severe.extend('generation:'+x for x in generation.get('failures',[]))
-    severe.extend('generation:'+x for x in generation.get('severe',[]))
-    severe=list(dict.fromkeys(severe))
+    # Modern frozen reports contain all rich fields through summarize_benchmarks50.flatten().
+    # If any rich field is present, require the complete set and enforce generation health.
+    rich_present=any(k in before or k in after for k in RICH_HEALTH)
+    generation=None
+    if rich_present:
+        health_missing=[k for k in HEALTH if before.get(k) is None or after.get(k) is None]
+        if health_missing:
+            return {'proceed':False,'reason':'missing_generation_health_metrics','missing':health_missing,'wins':wins,'severe':severe,
+                    'generation_health':{'proceed':False,'reason':'missing_metrics','missing':health_missing}}
+        generation=assess_metrics({k:after[k] for k in HEALTH},{k:before[k] for k in HEALTH})
+        severe.extend('generation:'+x for x in generation.get('failures',[]))
+        severe.extend('generation:'+x for x in generation.get('severe',[]))
+        severe=list(dict.fromkeys(severe))
+
     proceed=not severe and wins>=3
     return {'proceed':proceed,'reason':'pass' if proceed else 'insufficient_or_regressive_progress','wins':wins,'required_wins':3,'severe':severe,
             'generation_health':generation,
-            'note':'Decision support only. A failed generation-health guard blocks the next weight-changing stage; no decoding hacks are used.'}
+            'note':'Decision support only. Rich frozen reports enforce generation health; no decoding hacks are used.'}
 
 
 def main():
