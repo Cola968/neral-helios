@@ -3,11 +3,15 @@ name: B2 data pipeline
 on:
   pull_request:
     paths:
+      - 'bootstrap_b2_sources.py'
+      - 'requirements-data.txt'
       - 'prepare_pretrain50_b2.py'
       - 'pretrain50_b2.py'
       - 'b2_sources/**'
+      - 'tests/test_b2_bootstrap.py'
       - 'tests/test_b2_data.py'
       - '.github/workflows/b2-data-ci.yml'
+      - '.github/workflows/neral50m-b2.yml'
 
 permissions:
   contents: read
@@ -22,8 +26,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile B2 sources
-        run: python -m py_compile prepare_pretrain50_b2.py pretrain50_b2.py tests/test_b2_data.py
+        run: python -m py_compile bootstrap_b2_sources.py prepare_pretrain50_b2.py pretrain50_b2.py tests/test_b2_bootstrap.py tests/test_b2_data.py
       - name: Install lightweight test dependencies
         run: python -m pip install --disable-pip-version-check pytest numpy
-      - name: Test provenance, filters, split and no-replay quotas
-        run: python -m pytest tests/test_b2_data.py -q
+      - name: Test bootstrap provenance plus B2 filters split and no-replay quotas
+        run: python -m pytest tests/test_b2_bootstrap.py tests/test_b2_data.py -q
