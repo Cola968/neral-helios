@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from finalize_b2_benchmark50 import MIN_B2_TOKENS, resolve_state, sha256_file, validate_b2_summary
+import finalize_b2_benchmark50 as finalizer
+from finalize_b2_benchmark50 import MIN_B2_TOKENS, resolve_state, sha256_file, stage_frozen_validation_data, validate_b2_summary
 
 
 def good_summary():
@@ -66,3 +67,17 @@ def test_resolve_state_rejects_checkpoint_hash_mismatch(tmp_path: Path):
     (b2 / "summary.json").write_text(json.dumps(good_summary() | {"best_sha256": "0" * 64}), encoding="utf8")
     with pytest.raises(ValueError, match="SHA-256"):
         resolve_state(assets)
+
+
+def test_stage_frozen_validation_includes_document_boundaries(tmp_path: Path, monkeypatch):
+    assets = tmp_path / "assets"
+    source = assets / "pretrain50_data"; source.mkdir(parents=True)
+    (source / "val_de.bin").write_bytes(b"de")
+    (source / "val_en.bin").write_bytes(b"en")
+    (source / "documents.jsonl").write_text('{"split":"val","language":"de","start":0,"end":10}\n', encoding="utf8")
+    fake_repo = tmp_path / "repo"; fake_repo.mkdir()
+    monkeypatch.setattr(finalizer, "ROOT", fake_repo)
+    hashes, created = stage_frozen_validation_data(assets)
+    assert set(hashes) == {"val_de.bin", "val_en.bin", "documents.jsonl"}
+    assert all(path.is_file() for path in created)
+    assert (fake_repo / "pretrain50_data" / "documents.jsonl").is_file()
