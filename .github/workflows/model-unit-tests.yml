@@ -9,8 +9,10 @@ on:
       - 'architectures.py'
       - 'train_instruct50.py'
       - 'train_raw_math50.py'
+      - 'benchmark_v5_long_context.py'
       - 'tests/test_kv_cache.py'
       - 'tests/test_instruct50.py'
+      - 'tests/test_benchmark_v5.py'
       - '.github/workflows/model-unit-tests.yml'
 
 permissions:
@@ -29,5 +31,5 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check pytest numpy
           python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Run cache and instruction-target correctness tests
-        run: python -m pytest tests/test_kv_cache.py tests/test_instruct50.py -q
+      - name: Run cache instruction and v5 correctness tests
+        run: python -m pytest tests/test_kv_cache.py tests/test_instruct50.py tests/test_benchmark_v5.py -q

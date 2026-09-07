@@ -64,7 +64,12 @@ jobs:
             if (-not (Test-Path $asum) -or -not (Test-Path $abest)) { throw 'B3a checkpoint/summary missing.' }
             $s=Get-Content $asum -Raw|ConvertFrom-Json;if (-not $s.complete -or [int64]$s.cumulative_tokens -lt 300000000) { throw 'B3a 300M incomplete.' }
             $areports=Get-ChildItem (Join-Path $assets 'reports') -Directory -Filter 'runner_50m_b3a_*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-            if (-not $areports -or -not (Test-Path (Join-Path $areports[0].FullName 'B3_COMPARISON.json'))) { throw 'Frozen B3a benchmark review required before B3b.' }
+            if (-not $areports) { throw 'Frozen B3a benchmark review required before B3b.' }
+            $comparison=Join-Path $areports[0].FullName 'B3_COMPARISON.json';$gatePath=Join-Path $areports[0].FullName 'B3_PROGRESS_GATE.json';$longGatePath=Join-Path $areports[0].FullName 'B3_LONG_CONTEXT_GATE.json';$v5=Join-Path $areports[0].FullName 'after\v5.json'
+            if (-not (Test-Path $comparison) -or -not (Test-Path $gatePath) -or -not (Test-Path $longGatePath) -or -not (Test-Path $v5)) { throw 'B3a comparison, progress gates and v5 report are all required before B3b.' }
+            $gate=Get-Content $gatePath -Raw|ConvertFrom-Json;$longGate=Get-Content $longGatePath -Raw|ConvertFrom-Json
+            if (-not $gate.proceed) { throw 'B3a core progress gate did not pass; B3b is intentionally blocked.' }
+            if (-not $longGate.proceed) { throw 'B3a long-context progress gate did not pass; B3b is intentionally blocked.' }
             "source=$abest" >> $env:GITHUB_OUTPUT;"target=500000000" >> $env:GITHUB_OUTPUT;"seq=1024" >> $env:GITHUB_OUTPUT;"batch=8" >> $env:GITHUB_OUTPUT;"peak=0.00003" >> $env:GITHUB_OUTPUT;"floor=0.000003" >> $env:GITHUB_OUTPUT
           }
 
@@ -77,6 +82,11 @@ jobs:
             & $py bootstrap_b3_sources.py --out $src
             & $py prepare_pretrain50_b3.py --source-root $src --b2-data pretrain50_b2_data --out $data --phase-a-tokens 220000000 --phase-b-tokens 220000000
           }
+          $manifest=Join-Path $data 'manifest.json';if (-not (Test-Path $manifest)) { throw 'B3 manifest missing.' }
+          $m=Get-Content $manifest -Raw|ConvertFrom-Json
+          if ([int]$m.version -lt 2) { throw 'B3 corpus predates strengthened cross-stage no-replay audit; rebuild it.' }
+          if ([int]$m.b2_exclusion_counts.normalized_hashes -le 0 -or [int]$m.b2_exclusion_counts.source_rows -le 0) { throw 'B3 corpus does not record B2 content/row exclusions.' }
+          if ([int64]$m.actual_phase_a_tokens -lt 200000000 -or [int64]$m.actual_phase_b_tokens -lt 200000000) { throw 'B3 corpus does not contain enough disjoint tokens for both milestones.' }
           if (Test-Path pretrain50_b3_data) { Remove-Item pretrain50_b3_data -Recurse -Force }
           New-Item -ItemType Junction -Path pretrain50_b3_data -Target $data | Out-Null
 
@@ -86,6 +96,7 @@ jobs:
           & $py free_generation50.py --checkpoint $c --out runner_reports/before/free.json --max-tokens 64
           & $py benchmark_v3.py $c --out runner_reports/before/v3.json --max-new-tokens 96
           & $py benchmark_v4.py $c --out runner_reports/before/v4.json --max-new-tokens 96
+          & $py benchmark_v5_long_context.py $c --out runner_reports/before/v5.json
           & $py benchmark_raw_math50.py $c --out runner_reports/before/rawmath.json --max-new-tokens 32
 
       - name: Train exactly one B3 phase
@@ -109,6 +120,7 @@ jobs:
           & $py free_generation50.py --checkpoint $c --out runner_reports/after/free.json --max-tokens 64
           & $py benchmark_v3.py $c --out runner_reports/after/v3.json --max-new-tokens 96
           & $py benchmark_v4.py $c --out runner_reports/after/v4.json --max-new-tokens 96
+          & $py benchmark_v5_long_context.py $c --out runner_reports/after/v5.json
           & $py benchmark_raw_math50.py $c --out runner_reports/after/rawmath.json --max-new-tokens 32
           & $py -c "import json; r=json.load(open('runner_reports/after/rawmath.json',encoding='utf8')); assert 'ood' in r['by_distribution'] and 'transfer' in r['by_distribution']; print({'rawmath_ood':r['by_distribution']['ood']['exact_pct'],'rawmath_transfer':r['by_distribution']['transfer']['exact_pct']})"
 
@@ -117,7 +129,10 @@ jobs:
           $py='${{ steps.env.outputs.python }}';$phase='${{ inputs.phase }}'
           & $py summarize_b3.py --phase $phase --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/B3_COMPARISON.json --out-md runner_reports/B3_COMPARISON.md
           & $py stage_progress_gate50.py runner_reports/B3_COMPARISON.json --out runner_reports/B3_PROGRESS_GATE.json
+          & $py long_context_gate50.py runner_reports/before/v5.json runner_reports/after/v5.json --mode progress --out runner_reports/B3_LONG_CONTEXT_GATE.json
           Get-Content runner_reports/B3_COMPARISON.md
+          Write-Host 'Supplemental 4K long-context metrics:'
+          & $py -c "import json; r=json.load(open('runner_reports/after/v5.json',encoding='utf8')); print({'single':r['single_needle']['accuracy'],'multi':r['multi_needle']['accuracy'],'bpb':r['document_bounded_true_byte_bpb'].get('macro_bits_per_byte')})"
 
       - name: Persist reports locally
         if: always()
