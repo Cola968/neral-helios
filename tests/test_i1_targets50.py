@@ -3,8 +3,21 @@ from i1_targets50 import evaluate
 
 
 def inputs():
-    metrics={'rawmath_v1_exact_pct':60,'eos_pct':60,'repeated_trigram_pct':4.99,
-             'v3_code_pct':60,'v4_code_pct':60,'context_recall_overall_pct':60}
+    metrics={
+        'utf8_valid_pct':99,
+        'rawmath_v1_exact_pct':60,
+        'rawmath_transfer_ood_pct':45,
+        'eos_pct':60,
+        'repeated_trigram_pct':4.99,
+        'v3_code_pct':60,
+        'v4_code_pct':60,
+        'v4_math_pct':50,
+        'v3_de_grammar_pct':60,
+        'v4_de_grammar_pct':60,
+        'v3_pair_overall_pct':60,
+        'v4_pair_overall_pct':60,
+        'context_recall_overall_pct':60,
+    }
     comp={'stages':{'baseline20':metrics,'instruct':dict(metrics)},
           'nis':{'baseline20':{'score':44},'instruct':{'score':55}}}
     v5={'suite_sha256':'fixed','single_needle':{'accuracy':.6},'multi_needle':{'accuracy':.6},
@@ -23,6 +36,18 @@ def test_missing_nonfinite_or_regressed_context_never_passes():
     assert not evaluate(*args)['targets_met']
     for invalid in (None,float('nan'),float('inf'),True):
         args=inputs();args[0]['stages']['instruct']['eos_pct']=invalid
+        assert not evaluate(*args)['targets_met']
+
+
+def test_strengthened_math_code_and_transfer_targets_are_mandatory():
+    for key,value in (
+        ('rawmath_transfer_ood_pct',44.99),
+        ('v3_code_pct',49.99),
+        ('v4_code_pct',49.99),
+        ('v4_math_pct',49.99),
+        ('utf8_valid_pct',98.99),
+    ):
+        args=inputs();args[0]['stages']['instruct'][key]=value
         assert not evaluate(*args)['targets_met']
 
 
