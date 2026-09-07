@@ -44,6 +44,7 @@ jobs:
           if (-not $r) { throw 'No RawMath benchmark report found.' }
           $gate=Join-Path $r.FullName 'RAWMATH_PROGRESS_GATE.json';if (-not (Test-Path $gate)) { throw 'RawMath progress gate missing.' }
           $g=Get-Content $gate -Raw|ConvertFrom-Json;if (-not $g.proceed) { throw 'RawMath benchmark did not pass the review gate; do not start Stage D.' }
+          if (-not (Test-Path (Join-Path $r.FullName 'after\v5.json'))) { throw 'RawMath v5 long-context regression report missing.' }
           $id=$r.Name -replace '^runner_50m_rawmath_','';$run=Join-Path $assets ('runs\neral50m_rawmath_reviewed_'+$id);$best=Join-Path $run 'best_math.pt';$summary=Join-Path $run 'summary.json'
           if (-not (Test-Path $best) -or -not (Test-Path $summary)) { throw 'Matching RawMath checkpoint missing.' }
           $s=Get-Content $summary -Raw|ConvertFrom-Json;if (-not $s.complete) { throw 'RawMath training incomplete.' }
@@ -67,6 +68,7 @@ jobs:
           & $py free_generation50.py --checkpoint $c --out runner_reports/before/free.json --max-tokens 64
           & $py benchmark_v3.py $c --out runner_reports/before/v3.json --max-new-tokens 96
           & $py benchmark_v4.py $c --out runner_reports/before/v4.json --max-new-tokens 96
+          & $py benchmark_v5_long_context.py $c --out runner_reports/before/v5.json
           & $py benchmark_raw_math50.py $c --out runner_reports/before/rawmath.json --max-new-tokens 32
 
       - name: Train Stage D assistant-only with EOS and language replay
@@ -89,6 +91,7 @@ jobs:
           & $py free_generation50.py --checkpoint $c --out runner_reports/after/free.json --max-tokens 64
           & $py benchmark_v3.py $c --out runner_reports/after/v3.json --max-new-tokens 96
           & $py benchmark_v4.py $c --out runner_reports/after/v4.json --max-new-tokens 96
+          & $py benchmark_v5_long_context.py $c --out runner_reports/after/v5.json
           & $py benchmark_raw_math50.py $c --out runner_reports/after/rawmath.json --max-new-tokens 32
           & $py summarize_weight_stage50.py --stage 'Neral-50M Stage D Instruct' --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/INSTRUCT_COMPARISON.json --out-md runner_reports/INSTRUCT_COMPARISON.md
           & $py stage_progress_gate50.py runner_reports/INSTRUCT_COMPARISON.json --out runner_reports/INSTRUCT_PROGRESS_GATE.json
@@ -99,6 +102,7 @@ jobs:
           & $py free_generation50.py --checkpoint $c --out runner_reports/baseline20/free.json --max-tokens 64
           & $py benchmark_v3.py $c --out runner_reports/baseline20/v3.json --max-new-tokens 96
           & $py benchmark_v4.py $c --out runner_reports/baseline20/v4.json --max-new-tokens 96
+          & $py benchmark_v5_long_context.py $c --out runner_reports/baseline20/v5.json
           & $py benchmark_raw_math50.py $c --out runner_reports/baseline20/rawmath.json --max-new-tokens 32
 
       - name: Build direct 20M vs 50M comparison and hard promotion gate
@@ -106,6 +110,7 @@ jobs:
           $py='${{ steps.env.outputs.python }}'
           & $py build_promotion_comparison50.py --baseline20-free runner_reports/baseline20/free.json --baseline20-v3 runner_reports/baseline20/v3.json --baseline20-v4 runner_reports/baseline20/v4.json --baseline20-rawmath runner_reports/baseline20/rawmath.json --candidate-free runner_reports/after/free.json --candidate-v3 runner_reports/after/v3.json --candidate-v4 runner_reports/after/v4.json --candidate-rawmath runner_reports/after/rawmath.json --out runner_reports/FINAL_20M_VS_50M.json
           & $py promotion_gate50.py runner_reports/FINAL_20M_VS_50M.json --candidate instruct --out runner_reports/FINAL_PROMOTION_GATE.json
+          & $py -c "import json; b=json.load(open('runner_reports/baseline20/v5.json',encoding='utf8')); c=json.load(open('runner_reports/after/v5.json',encoding='utf8')); print({'v5_20m_single':b['single_needle']['accuracy'],'v5_50m_single':c['single_needle']['accuracy'],'v5_20m_multi':b['multi_needle']['accuracy'],'v5_50m_multi':c['multi_needle']['accuracy'],'v5_20m_bpb4095':b['document_bounded_true_byte_bpb'].get('macro_bits_per_byte',{}).get('4095'),'v5_50m_bpb4095':c['document_bounded_true_byte_bpb'].get('macro_bits_per_byte',{}).get('4095')})"
           & $py cyberbench_helios.py --out runner_reports/HELIOS_CYBERBENCH.json
           Get-Content runner_reports/FINAL_PROMOTION_GATE.json
 
