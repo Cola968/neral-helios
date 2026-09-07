@@ -2,9 +2,9 @@
 
 The campaign keeps B3a/B3b/RawMath/Instruct as internal checkpoints. It resumes interrupted
 GPU work from local latest checkpoints, reaches 500M cumulative language-pretraining tokens,
-adds guarded RawMath specialization, then instruction-tunes on human OASST1 plus deterministic
-targeted German/math/code/reasoning data. Only the final candidate is compared with frozen
-Neral-20M Preview 02 across the complete model-only benchmark bundle.
+adds guarded RawMath specialization, then instruction-tunes on human-only OASST2 plus
+deterministic targeted German/math/code/reasoning data. Only the final candidate is compared
+with frozen Neral-20M Preview 02 across the complete model-only benchmark bundle.
 """
 from __future__ import annotations
 
@@ -106,7 +106,13 @@ def build_sft(work):
     if all((data / name).is_file() for name in req):
         try:
             prepared = read(data / "manifest.json")
-            if prepared.get("i1_targeted_v1_screened_from_sft") is True and int(prepared.get("target_train_examples", 0)) >= 10_000:
+            source_ids = {s.get("id") for s in prepared.get("sources", [])}
+            correct_human_source = {"oasst2-human-en", "oasst2-human-de"}.issubset(source_ids)
+            if (
+                prepared.get("i1_targeted_v1_screened_from_sft") is True
+                and int(prepared.get("target_train_examples", 0)) >= 10_000
+                and correct_human_source
+            ):
                 return data
         except Exception:
             pass
@@ -114,8 +120,8 @@ def build_sft(work):
         shutil.rmtree(src)
     if data.exists():
         shutil.rmtree(data)
-    run([PY, "fetch_oasst1_sft50.py", "--out", str(src), "--max-en", "16000", "--max-de", "9000"])
-    run([PY, "build_targeted_sft50_sources.py", "--root", str(src), "--per-generated-source", "6000"])
+    run([PY, "fetch_oasst2_sft50.py", "--out", str(src), "--max-en", "16000", "--max-de", "6000"])
+    run([PY, "build_targeted_sft50_oasst2.py", "--root", str(src), "--per-generated-source", "6000"])
     run([PY, "prepare_sft50_i1.py", "--source-root", str(src), "--out", str(data), "--target-train-examples", "0", "--max-seq", "1024"])
     run([PY, "validate_sft50_dataset.py", "--data", str(data), "--out", str(work / "SFT_DATA_AUDIT.json")])
     return data
@@ -144,7 +150,7 @@ def main():
     run_id = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))
     state = {
         "campaign": "Neral-50M I1",
-        "campaign_version": 2,
+        "campaign_version": 3,
         "run_id": run_id,
         "started_at_unix": time.time(),
         "policy": "Resume-safe local checkpoints; one final candidate; frozen model-only promotion evidence.",
@@ -152,7 +158,7 @@ def main():
             "B3a": "99.25M selected B2 -> 300M cumulative, seq512, LR unchanged for resume compatibility",
             "B3b": "300M -> 500M cumulative, seq1024",
             "RawMath": "30M mixed tokens, 35% math-domain loss / 65% language replay",
-            "Instruct": "20k contamination-screened SFT mix, 4000 max steps, 78% assistant loss / 22% base replay",
+            "Instruct": "20k contamination-screened SFT mix with 30% human-only OASST2, 4000 max steps, 78% assistant loss / 22% base replay",
         },
         "phases": [],
     }
@@ -214,7 +220,7 @@ def main():
     write(reports / "I1_STATE.json", state)
 
     # Phase 4: targeted SFT. Data and trainer are both resume-safe across separate PC sessions.
-    work = assets / "i1_work_v2"
+    work = assets / "i1_work_v3_oasst2"
     work.mkdir(parents=True, exist_ok=True)
     sft = build_sft(work)
     inst_run = assets / "runs/neral50m_i1_instruct_d3"
@@ -262,7 +268,7 @@ def main():
     nis50 = comparison["nis"]["instruct"]["score"]
     result = {
         "campaign": "Neral-50M I1",
-        "campaign_version": 2,
+        "campaign_version": 3,
         "final_checkpoint": str(final),
         "nis20": nis20,
         "nis50": nis50,
