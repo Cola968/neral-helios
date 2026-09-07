@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+from loss_telemetry50 import summarize_metrics
+
 REPO = Path(__file__).resolve().parent
 PY = sys.executable
 
@@ -68,6 +70,16 @@ def selected(run_dir, preferred):
         if p.is_file():
             return p
     raise FileNotFoundError(f"No checkpoint in {run_dir}")
+
+
+def loss_snapshot(run_dir):
+    p = Path(run_dir) / "metrics.jsonl"
+    if not p.is_file():
+        return {"evaluations": 0, "status": "no_metrics"}
+    try:
+        return summarize_metrics(p)
+    except Exception as exc:
+        return {"evaluations": 0, "status": "telemetry_error", "error": type(exc).__name__}
 
 
 def junction(link, target):
@@ -150,15 +162,15 @@ def main():
     run_id = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))
     state = {
         "campaign": "Neral-50M I1",
-        "campaign_version": 3,
+        "campaign_version": 4,
         "run_id": run_id,
         "started_at_unix": time.time(),
-        "policy": "Resume-safe local checkpoints; one final candidate; frozen model-only promotion evidence.",
+        "policy": "Resume-safe local checkpoints; finer guarded loss selection; one final candidate; frozen model-only promotion evidence.",
         "curriculum": {
-            "B3a": "99.25M selected B2 -> 300M cumulative, seq512, LR unchanged for resume compatibility",
-            "B3b": "300M -> 500M cumulative, seq1024",
+            "B3a": "99.25M selected B2 -> 300M cumulative, seq512, optimizer/LR unchanged; denser early validation and 0.0005 CE best-checkpoint delta",
+            "B3b": "300M -> 500M cumulative, seq1024; denser early validation and 0.0005 CE best-checkpoint delta",
             "RawMath": "30M mixed tokens, 35% math-domain loss / 65% language replay",
-            "Instruct": "20k contamination-screened SFT mix with 30% human-only OASST2, 4000 max steps, 78% assistant loss / 22% base replay",
+            "Instruct": "20k contamination-screened SFT mix with 30% human-only OASST2, 4000 max steps, 78% assistant loss / 22% base replay, 0.00075 NLL selection delta",
         },
         "phases": [],
     }
@@ -184,28 +196,28 @@ def main():
     b2 = selected(b2_run, "best_validation.pt")
     b3_data = ensure_b3_data(assets, b2_data)
 
-    # Phase 1: keep exact original hyperparameters so the already-saved B3a optimizer state remains valid.
+    # Phase 1: exact optimizer/LR trajectory remains resume-compatible; only validation selection is denser.
     b3a_run = assets / "runs/neral50m_i1_b3a_300m"
     b3a_summary = b3a_run / "summary.json"
     if not complete(b3a_summary, 300_000_000):
         resume = b3a_run / "latest.pt" if (b3a_run / "latest.pt").is_file() else b2
-        run([PY, "pretrain50_b3.py", "--phase", "a", "--resume", str(resume), "--data", str(b3_data), "--old-data", str(b2_data), "--out", str(b3a_run), "--target-cumulative-tokens", "300000000", "--seq", "512", "--batch", "16", "--peak-lr", "0.00006", "--min-lr", "0.000006", "--eval-every", "250", "--validation-blocks", "192"])
+        run([PY, "pretrain50_b3.py", "--phase", "a", "--resume", str(resume), "--data", str(b3_data), "--old-data", str(b2_data), "--out", str(b3a_run), "--target-cumulative-tokens", "300000000", "--seq", "512", "--batch", "16", "--peak-lr", "0.00006", "--min-lr", "0.000006", "--eval-every", "250", "--early-eval-every", "100", "--early-eval-until", "1000", "--selection-min-delta", "0.0005", "--validation-blocks", "192"])
     if not complete(b3a_summary, 300_000_000):
         raise RuntimeError("I1 B3a incomplete")
     b3a = selected(b3a_run, "best_validation.pt")
-    state["phases"].append({"phase": "B3a", "checkpoint": str(b3a), "summary": read(b3a_summary)})
+    state["phases"].append({"phase": "B3a", "checkpoint": str(b3a), "summary": read(b3a_summary), "loss_telemetry": loss_snapshot(b3a_run)})
     write(reports / "I1_STATE.json", state)
 
-    # Phase 2: longer context with a conservative LR.
+    # Phase 2: longer context with a conservative LR and the same finer selector.
     b3b_run = assets / "runs/neral50m_i1_b3b_500m"
     b3b_summary = b3b_run / "summary.json"
     if not complete(b3b_summary, 500_000_000):
         resume = b3b_run / "latest.pt" if (b3b_run / "latest.pt").is_file() else b3a
-        run([PY, "pretrain50_b3.py", "--phase", "b", "--resume", str(resume), "--data", str(b3_data), "--old-data", str(b2_data), "--out", str(b3b_run), "--target-cumulative-tokens", "500000000", "--seq", "1024", "--batch", "8", "--peak-lr", "0.00003", "--min-lr", "0.000003", "--eval-every", "250", "--validation-blocks", "192"])
+        run([PY, "pretrain50_b3.py", "--phase", "b", "--resume", str(resume), "--data", str(b3_data), "--old-data", str(b2_data), "--out", str(b3b_run), "--target-cumulative-tokens", "500000000", "--seq", "1024", "--batch", "8", "--peak-lr", "0.00003", "--min-lr", "0.000003", "--eval-every", "250", "--early-eval-every", "100", "--early-eval-until", "1000", "--selection-min-delta", "0.0005", "--validation-blocks", "192"])
     if not complete(b3b_summary, 500_000_000):
         raise RuntimeError("I1 B3b incomplete")
     b3b = selected(b3b_run, "best_validation.pt")
-    state["phases"].append({"phase": "B3b", "checkpoint": str(b3b), "summary": read(b3b_summary)})
+    state["phases"].append({"phase": "B3b", "checkpoint": str(b3b), "summary": read(b3b_summary), "loss_telemetry": loss_snapshot(b3b_run)})
     write(reports / "I1_STATE.json", state)
 
     # Phase 3: stable output directory + resume-safe optimizer/RNG state.
@@ -226,7 +238,7 @@ def main():
     inst_run = assets / "runs/neral50m_i1_instruct_d3"
     inst_summary = inst_run / "summary.json"
     if not stage_complete(inst_summary):
-        run([PY, "train_instruct50_i1.py", "--init-from", str(raw), "--data", str(sft), "--replay-data", str(b2_data), "--out", str(inst_run), "--steps", "4000", "--seq", "1024", "--batch-size", "8", "--replay-batch", "8", "--sft-weight", "0.78", "--eos-weight", "2.0", "--peak-lr", "0.00002", "--min-lr", "0.000002", "--warmup-fraction", "0.05", "--eval-every", "100", "--patience", "12", "--min-delta", "0.0015"])
+        run([PY, "train_instruct50_i1.py", "--init-from", str(raw), "--data", str(sft), "--replay-data", str(b2_data), "--out", str(inst_run), "--steps", "4000", "--seq", "1024", "--batch-size", "8", "--replay-batch", "8", "--sft-weight", "0.78", "--eos-weight", "2.0", "--peak-lr", "0.00002", "--min-lr", "0.000002", "--warmup-fraction", "0.05", "--eval-every", "100", "--patience", "14", "--min-delta", "0.00075"])
     if not stage_complete(inst_summary):
         raise RuntimeError("I1 Instruct incomplete")
     final = selected(inst_run, "best_instruct.pt")
@@ -268,7 +280,7 @@ def main():
     nis50 = comparison["nis"]["instruct"]["score"]
     result = {
         "campaign": "Neral-50M I1",
-        "campaign_version": 3,
+        "campaign_version": 4,
         "final_checkpoint": str(final),
         "nis20": nis20,
         "nis50": nis50,
