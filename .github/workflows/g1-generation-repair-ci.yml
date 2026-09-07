@@ -5,9 +5,11 @@ on:
     paths:
       - generation_repair_data50.py
       - generation_repair_goal50.py
+      - resolve_g1_baseline50.py
       - train_generation_repair50.py
       - tests/test_generation_repair_data50.py
       - tests/test_generation_repair_goal50.py
+      - tests/test_resolve_g1_baseline50.py
       - .github/workflows/neral50m-g1-generation-repair.yml
       - .github/workflows/g1-generation-repair-ci.yml
 
@@ -23,8 +25,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile G1 sources
-        run: python -m py_compile generation_repair_data50.py generation_repair_goal50.py train_generation_repair50.py
+        run: python -m py_compile generation_repair_data50.py generation_repair_goal50.py resolve_g1_baseline50.py train_generation_repair50.py
       - name: Install lightweight tests
         run: python -m pip install --disable-pip-version-check pytest
       - name: Run G1 pure contract tests
-        run: python -m pytest tests/test_generation_repair_data50.py tests/test_generation_repair_goal50.py -q
+        run: python -m pytest tests/test_generation_repair_data50.py tests/test_generation_repair_goal50.py tests/test_resolve_g1_baseline50.py -q

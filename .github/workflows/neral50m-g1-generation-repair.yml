@@ -10,7 +10,6 @@ on:
 permissions:
   contents: read
 
-# Same lock as the B2 benchmark/control bridge: the repair cannot overlap a benchmark or writer.
 concurrency:
   group: neral-50m-b2-100m
   cancel-in-progress: false
@@ -45,6 +44,7 @@ jobs:
         id: env
         run: |
           $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force runner_reports | Out-Null
           $requestPath=Join-Path '..\requestsrc' 'g1_requests\request.json'
           if (-not (Test-Path $requestPath -PathType Leaf)) { throw 'G1 authorization request missing.' }
           $request=Get-Content $requestPath -Raw|ConvertFrom-Json
@@ -70,9 +70,9 @@ jobs:
         run: |
           $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}'
           $run=Join-Path $assets 'runs\neral50m_b2_100m';$summaryPath=Join-Path $run 'summary.json';$best=Join-Path $run 'best_validation.pt'
-          if (-not (Test-Path $summaryPath) -or -not (Test-Path $best)) { throw 'Completed B2 source files missing.' }
+          if ((-not (Test-Path $summaryPath)) -or (-not (Test-Path $best))) { throw 'Completed B2 source files missing.' }
           $s=Get-Content $summaryPath -Raw|ConvertFrom-Json
-          if (-not $s.complete -or $s.stop -ne 'target_reached' -or [int64]$s.cumulative_tokens -lt 100000000) { throw 'B2 is not the completed 100M target run.' }
+          if ((-not $s.complete) -or $s.stop -ne 'target_reached' -or [int64]$s.cumulative_tokens -lt 100000000) { throw 'B2 is not the completed 100M target run.' }
           if ($s.train_block_replay -eq $true -or $s.instruction_tuning_performed -eq $true) { throw 'B2 source contract violated.' }
           $actual=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
           if ($s.best_sha256 -and $actual -ne ([string]$s.best_sha256).ToLower()) { throw 'B2 best checkpoint SHA-256 mismatch.' }
@@ -82,29 +82,28 @@ jobs:
           foreach($name in @('pretrain50_data','pretrain50_b2_data')) {
             $target=Join-Path $assets $name
             if (-not (Test-Path $target -PathType Container)) { throw "Missing private corpus root: $target" }
-            if (Test-Path $name) { cmd /c "rmdir $name" 2>$null; if(Test-Path $name){Remove-Item $name -Recurse -Force} }
+            if (Test-Path $name) {
+              cmd /c "rmdir $name" 2>$null
+              if(Test-Path $name){Remove-Item $name -Recurse -Force}
+            }
             New-Item -ItemType Junction -Path $name -Target $target|Out-Null
           }
-          foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')) { if(-not(Test-Path (Join-Path 'pretrain50_data' $f))){throw "Frozen B1 validation file missing: $f"} }
-          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')) { if(-not(Test-Path (Join-Path 'pretrain50_b2_data' $f))){throw "B2 replay file missing: $f"} }
+          foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')) {
+            if(-not(Test-Path (Join-Path 'pretrain50_data' $f))){throw "Frozen B1 validation file missing: $f"}
+          }
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')) {
+            if(-not(Test-Path (Join-Path 'pretrain50_b2_data' $f))){throw "B2 replay file missing: $f"}
+          }
 
-      - name: Require completed hardened B2 frozen benchmark as the before-state
+      - name: Resolve completed hardened B2 frozen benchmark as before-state
         id: baseline
         run: |
-          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$expected='${{ steps.source.outputs.checkpoint_sha }}'
-          $root=Join-Path $assets 'reports\gpu_control'
-          if (-not (Test-Path $root -PathType Container)) { throw 'No local GPU-control reports found.' }
-          $picked=$null
-          foreach($d in (Get-ChildItem $root -Directory|Sort-Object LastWriteTime -Descending)) {
-            $handoff=Join-Path $d.FullName 'benchmark\B2_HANDOFF.json';$b2=Join-Path $d.FullName 'benchmark\b2'
-            if (-not (Test-Path $handoff) -or -not (Test-Path $b2)) { continue }
-            try { $h=Get-Content $handoff -Raw|ConvertFrom-Json } catch { continue }
-            if (([string]$h.checkpoints.b2.sha256).ToLower() -ne $expected) { continue }
-            $needed=@('free.json','v3.json','v4.json','v5.json','rawmath.json')
-            if (($needed|Where-Object{-not(Test-Path (Join-Path $b2 $_))}).Count -gt 0) { continue }
-            $picked=$b2;break
-          }
-          if (-not $picked) { throw 'No completed hardened B2 benchmark matching the exact source checkpoint. Do not train without the before-state.' }
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}';$expected='${{ steps.source.outputs.checkpoint_sha }}'
+          & $py -X utf8 resolve_g1_baseline50.py --assets $assets --checkpoint-sha $expected --out runner_reports\BASELINE_RESOLUTION.json
+          if($LASTEXITCODE -ne 0){throw 'Exact hardened B2 before-state could not be resolved.'}
+          $r=Get-Content runner_reports\BASELINE_RESOLUTION.json -Raw|ConvertFrom-Json
+          $picked=[string]$r.b2_report_dir
+          if(-not(Test-Path $picked -PathType Container)){throw 'Resolved B2 report directory does not exist.'}
           New-Item -ItemType Directory -Force runner_reports\before|Out-Null
           Copy-Item (Join-Path $picked '*') runner_reports\before -Recurse -Force
           "path=$picked" >> $env:GITHUB_OUTPUT
@@ -129,7 +128,8 @@ jobs:
           $out=Join-Path $assets ('runs\neral50m_g1_generation_repair_'+$env:GITHUB_RUN_ID)
           "out=$out" >> $env:GITHUB_OUTPUT
           & $py -X utf8 train_generation_repair50.py `
-            --init-from '${{ steps.source.outputs.checkpoint }}' --data sft50_data --replay-data pretrain50_b2_data --out $out `
+            --init-from '${{ steps.source.outputs.checkpoint }}' --expected-source-sha '${{ steps.source.outputs.checkpoint_sha }}' `
+            --data sft50_data --replay-data pretrain50_b2_data --out $out `
             --steps 1200 --seq 768 --batch-size 8 --replay-batch 6 --sft-weight 0.70 --eos-weight 1.5 `
             --peak-lr 0.00001 --min-lr 0.000001 --warmup-fraction 0.05 --eval-every 100 --patience 5 `
             --max-train-examples 5000 --max-val-examples 256 --dev-generation-examples 64 --desired-de-fraction 0.20 `
@@ -141,7 +141,7 @@ jobs:
         id: selected
         run: |
           $ErrorActionPreference='Stop';$out='${{ steps.train.outputs.out }}';$summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_repair.pt'
-          if(-not(Test-Path $summary)-or-not(Test-Path $best)){throw 'G1 outputs missing.'}
+          if ((-not (Test-Path $summary)) -or (-not (Test-Path $best))) { throw 'G1 outputs missing.' }
           $s=Get-Content $summary -Raw|ConvertFrom-Json
           if(-not $s.complete){throw "G1 training incomplete: $($s.stop)"}
           "best=$best" >> $env:GITHUB_OUTPUT
@@ -199,11 +199,13 @@ jobs:
       - name: Persist G1 reports locally
         if: always()
         run: |
-          $assets='${{ steps.env.outputs.assets }}';if(-not $assets){exit 0}
+          $assets='${{ steps.env.outputs.assets }}'
+          if(-not $assets){exit 0}
           $dest=Join-Path $assets ('reports\runner_50m_g1_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
           if(Test-Path runner_reports){Copy-Item runner_reports\* $dest -Recurse -Force}
           if(Test-Path sft50_data\manifest.json){Copy-Item sft50_data\manifest.json (Join-Path $dest 'sft_manifest.json') -Force}
-          if(Test-Path '${{ steps.selected.outputs.summary }}'){Copy-Item '${{ steps.selected.outputs.summary }}' (Join-Path $dest 'training_summary.json') -Force}
+          $summary='${{ steps.selected.outputs.summary }}'
+          if($summary -and (Test-Path -LiteralPath $summary)){Copy-Item -LiteralPath $summary (Join-Path $dest 'training_summary.json') -Force}
           Write-Host "Persisted G1 reports to $dest"
 
       - name: Upload reports only
