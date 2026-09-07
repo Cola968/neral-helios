@@ -1,0 +1,80 @@
+{"id": "targeted/de/000", "domain": "de_grammar", "language": "de", "prompt": "Die beiden Satelliten", "preferred": " bewegen sich auf stabilen Bahnen.", "distractor": " bewegt sich auf stabilen Bahnen."}
+{"id": "targeted/de/001", "domain": "de_grammar", "language": "de", "prompt": "Gestern", "preferred": " flog das Flugzeug nach Berlin.", "distractor": " fliegt das Flugzeug nach Berlin."}
+{"id": "targeted/de/002", "domain": "de_grammar", "language": "de", "prompt": "Die Schülerinnen und Schüler", "preferred": " lösen die Aufgabe gemeinsam.", "distractor": " löst die Aufgabe gemeinsam."}
+{"id": "targeted/de/003", "domain": "de_grammar", "language": "de", "prompt": "Das Ergebnis der beiden Messungen", "preferred": " ist plausibel.", "distractor": " sind plausibel."}
+{"id": "targeted/de/004", "domain": "de_grammar", "language": "de", "prompt": "Wenn die Geschwindigkeit steigt,", "preferred": " wächst bei gleicher Masse die Bewegungsenergie.", "distractor": " wachsen bei gleicher Masse die Bewegungsenergie."}
+{"id": "targeted/de/005", "domain": "de_grammar", "language": "de", "prompt": "Ein Planet und sein Mond", "preferred": " bewegen sich um ihren gemeinsamen Schwerpunkt.", "distractor": " bewegt sich um ihren gemeinsamen Schwerpunkt."}
+{"id": "targeted/de/006", "domain": "de_grammar", "language": "de", "prompt": "Die Daten aus dem Experiment", "preferred": " zeigen einen klaren Trend.", "distractor": " zeigt einen klaren Trend."}
+{"id": "targeted/de/007", "domain": "de_grammar", "language": "de", "prompt": "Heute", "preferred": " gehe ich früher nach Hause.", "distractor": " ging ich früher nach Hause."}
+{"id": "targeted/de/008", "domain": "de_grammar", "language": "de", "prompt": "Mehrere Prozesse", "preferred": " laufen gleichzeitig.", "distractor": " läuft gleichzeitig."}
+{"id": "targeted/de/009", "domain": "de_grammar", "language": "de", "prompt": "Die zwei Funktionen", "preferred": " liefern dasselbe Ergebnis.", "distractor": " liefert dasselbe Ergebnis."}
+{"id": "targeted/de/010", "domain": "de_grammar", "language": "de", "prompt": "Weder der Pilot noch die Passagiere", "preferred": " waren verletzt.", "distractor": " war verletzt."}
+{"id": "targeted/de/011", "domain": "de_grammar", "language": "de", "prompt": "Jede der drei Messreihen", "preferred": " enthält zehn Werte.", "distractor": " enthalten zehn Werte."}
+{"id": "targeted/de/012", "domain": "de_grammar", "language": "de", "prompt": "Die Ursache der Fehler", "preferred": " ist noch unklar.", "distractor": " sind noch unklar."}
+{"id": "targeted/de/013", "domain": "de_grammar", "language": "de", "prompt": "Die meisten Sterne", "preferred": " bestehen überwiegend aus Wasserstoff und Helium.", "distractor": " besteht überwiegend aus Wasserstoff und Helium."}
+{"id": "targeted/de/014", "domain": "de_grammar", "language": "de", "prompt": "Vor einer Stunde", "preferred": " begann der Test.", "distractor": " beginnt der Test."}
+{"id": "targeted/de/015", "domain": "de_grammar", "language": "de", "prompt": "Das Team", "preferred": " hat die Daten geprüft.", "distractor": " haben die Daten geprüft."}
+{"id": "targeted/de/016", "domain": "de_grammar", "language": "de", "prompt": "Zwei Gigabyte", "preferred": " reichen für diese Datei aus.", "distractor": " reicht für diese Datei aus."}
+{"id": "targeted/de/017", "domain": "de_grammar", "language": "de", "prompt": "Die Summe aus 8 und 9", "preferred": " beträgt 17.", "distractor": " betragen 17."}
+{"id": "targeted/de/018", "domain": "de_grammar", "language": "de", "prompt": "Keines der Programme", "preferred": " startet automatisch.", "distractor": " starten automatisch."}
+{"id": "targeted/de/019", "domain": "de_grammar", "language": "de", "prompt": "Die Bahnen der Planeten", "preferred": " sind nicht exakt kreisförmig.", "distractor": " ist nicht exakt kreisförmig."}
+{"id": "targeted/math/000", "domain": "math", "language": "de", "prompt": "37 + 48 =", "preferred": " 85", "distractor": " 84"}
+{"id": "targeted/math/001", "domain": "math", "language": "en", "prompt": "126 - 79 =", "preferred": " 47", "distractor": " 57"}
+{"id": "targeted/math/002", "domain": "math", "language": "de", "prompt": "14 × 9 =", "preferred": " 126", "distractor": " 116"}
+{"id": "targeted/math/003", "domain": "math", "language": "en", "prompt": "168 ÷ 12 =", "preferred": " 14", "distractor": " 16"}
+{"id": "targeted/math/004", "domain": "math", "language": "de", "prompt": "25% von 360 sind", "preferred": " 90", "distractor": " 75"}
+{"id": "targeted/math/005", "domain": "math", "language": "en", "prompt": "3/4 of 80 is", "preferred": " 60", "distractor": " 65"}
+{"id": "targeted/math/006", "domain": "math", "language": "de", "prompt": "2^7 =", "preferred": " 128", "distractor": " 64"}
+{"id": "targeted/math/007", "domain": "math", "language": "en", "prompt": "5^3 =", "preferred": " 125", "distractor": " 25"}
+{"id": "targeted/math/008", "domain": "math", "language": "de", "prompt": "Löse: 4x + 7 = 39. x =", "preferred": " 8", "distractor": " 7"}
+{"id": "targeted/math/009", "domain": "math", "language": "en", "prompt": "Solve: 6x - 5 = 43. x =", "preferred": " 8", "distractor": " 9"}
+{"id": "targeted/math/010", "domain": "math", "language": "de", "prompt": "Löse: 3(x + 2) = 27. x =", "preferred": " 7", "distractor": " 9"}
+{"id": "targeted/math/011", "domain": "math", "language": "en", "prompt": "Half of 7.2 is", "preferred": " 3.6", "distractor": " 4.2"}
+{"id": "targeted/math/012", "domain": "math", "language": "de", "prompt": "1,5 km entsprechen in Metern", "preferred": " 1500", "distractor": " 150"}
+{"id": "targeted/math/013", "domain": "math", "language": "en", "prompt": "2.5 hours in minutes are", "preferred": " 150", "distractor": " 125"}
+{"id": "targeted/math/014", "domain": "math", "language": "de", "prompt": "Bei v = s/t, s = 120 m und t = 10 s ist v =", "preferred": " 12", "distractor": " 1200"}
+{"id": "targeted/math/015", "domain": "math", "language": "en", "prompt": "With F = m·a, m = 4 kg and a = 3 m/s², F =", "preferred": " 12", "distractor": " 7"}
+{"id": "targeted/math/016", "domain": "math", "language": "de", "prompt": "Eine Folge steigt jeweils um 7: 5, 12, 19, 26, danach kommt", "preferred": " 33", "distractor": " 32"}
+{"id": "targeted/math/017", "domain": "math", "language": "en", "prompt": "The mean of 4, 8 and 12 is", "preferred": " 8", "distractor": " 6"}
+{"id": "targeted/math/018", "domain": "math", "language": "de", "prompt": "15% von 240 sind", "preferred": " 36", "distractor": " 24"}
+{"id": "targeted/math/019", "domain": "math", "language": "en", "prompt": "If x/5 = 9, then x =", "preferred": " 45", "distractor": " 14"}
+{"id": "targeted/code/000", "domain": "code", "language": "de", "prompt": "x = [3, 5, 7]\nprint(x[1])\n# Ausgabe:", "preferred": " 5\n", "distractor": " 3\n"}
+{"id": "targeted/code/001", "domain": "code", "language": "en", "prompt": "def add(a, b):\n    return", "preferred": " a + b\n", "distractor": " a - b\n"}
+{"id": "targeted/code/002", "domain": "code", "language": "de", "prompt": "for i in range(3):\n    print(i)\n# letzte ausgegebene Zahl:", "preferred": " 2\n", "distractor": " 3\n"}
+{"id": "targeted/code/003", "domain": "code", "language": "en", "prompt": "name = 'Helios'\nprint(len(name))\n# Ausgabe:", "preferred": " 6\n", "distractor": " 5\n"}
+{"id": "targeted/code/004", "domain": "code", "language": "de", "prompt": "values = [2, 4, 6]\nprint(sum(values))\n# Ausgabe:", "preferred": " 12\n", "distractor": " 10\n"}
+{"id": "targeted/code/005", "domain": "code", "language": "en", "prompt": "def is_even(n):\n    return", "preferred": " n % 2 == 0\n", "distractor": " n % 2 == 1\n"}
+{"id": "targeted/code/006", "domain": "code", "language": "de", "prompt": "items = {'a': 4, 'b': 9}\nprint(items['b'])\n# Ausgabe:", "preferred": " 9\n", "distractor": " 4\n"}
+{"id": "targeted/code/007", "domain": "code", "language": "en", "prompt": "text = 'abc'\nprint(text.upper())\n# Ausgabe:", "preferred": " ABC\n", "distractor": " abc\n"}
+{"id": "targeted/code/008", "domain": "code", "language": "de", "prompt": "nums = [1, 2, 3, 4]\nprint(nums[-1])\n# Ausgabe:", "preferred": " 4\n", "distractor": " 1\n"}
+{"id": "targeted/code/009", "domain": "code", "language": "en", "prompt": "def square(n):\n    return", "preferred": " n * n\n", "distractor": " n + n\n"}
+{"id": "targeted/code/010", "domain": "code", "language": "de", "prompt": "for n in [2, 4, 6]:\n    if n > 3:\n        print(n)\n# ausgegeben werden", "preferred": " 4 und 6\n", "distractor": " 2 und 4\n"}
+{"id": "targeted/code/011", "domain": "code", "language": "en", "prompt": "x = 10\nx -= 3\nprint(x)\n# Ausgabe:", "preferred": " 7\n", "distractor": " 13\n"}
+{"id": "targeted/code/012", "domain": "code", "language": "de", "prompt": "letters = ['a', 'b']\nletters.append('c')\nprint(len(letters))\n# Ausgabe:", "preferred": " 3\n", "distractor": " 2\n"}
+{"id": "targeted/code/013", "domain": "code", "language": "en", "prompt": "def first(xs):\n    return", "preferred": " xs[0]\n", "distractor": " xs[-1]\n"}
+{"id": "targeted/code/014", "domain": "code", "language": "de", "prompt": "a = 5\nb = 8\nprint(max(a, b))\n# Ausgabe:", "preferred": " 8\n", "distractor": " 5\n"}
+{"id": "targeted/code/015", "domain": "code", "language": "en", "prompt": "s = 'planet'\nprint(s[0])\n# Ausgabe:", "preferred": " p\n", "distractor": " t\n"}
+{"id": "targeted/code/016", "domain": "code", "language": "de", "prompt": "nums = [2, 3, 4]\nprint([n*n for n in nums])\n# Ausgabe:", "preferred": " [4, 9, 16]\n", "distractor": " [2, 3, 4]\n"}
+{"id": "targeted/code/017", "domain": "code", "language": "en", "prompt": "def clamp_zero(x):\n    if x < 0:\n        return 0\n    return", "preferred": " x\n", "distractor": " -x\n"}
+{"id": "targeted/code/018", "domain": "code", "language": "de", "prompt": "count = 0\nfor _ in range(5):\n    count += 1\nprint(count)\n# Ausgabe:", "preferred": " 5\n", "distractor": " 4\n"}
+{"id": "targeted/code/019", "domain": "code", "language": "en", "prompt": "data = {'x': 2}\ndata['x'] *= 3\nprint(data['x'])\n# Ausgabe:", "preferred": " 6\n", "distractor": " 5\n"}
+{"id": "targeted/reason/000", "domain": "reasoning", "language": "de", "prompt": "Alle A sind B. Alle B sind C. Ein Objekt ist A. Dann ist es", "preferred": " C.", "distractor": " nicht C."}
+{"id": "targeted/reason/001", "domain": "reasoning", "language": "de", "prompt": "Anna ist größer als Ben. Ben ist größer als Clara. Also ist Anna", "preferred": " größer als Clara.", "distractor": " kleiner als Clara."}
+{"id": "targeted/reason/002", "domain": "reasoning", "language": "de", "prompt": "Ein Zug fährt 60 km in einer Stunde. Bei gleicher Geschwindigkeit fährt er in zwei Stunden", "preferred": " 120 km.", "distractor": " 30 km."}
+{"id": "targeted/reason/003", "domain": "reasoning", "language": "de", "prompt": "Wenn ein Wert von 20 auf 25 steigt, ist die Änderung", "preferred": " positiv.", "distractor": " negativ."}
+{"id": "targeted/reason/004", "domain": "reasoning", "language": "de", "prompt": "Ein Glas enthält mehr Wasser als ein zweites. Das zweite enthält mehr als ein drittes. Das erste enthält", "preferred": " mehr als das dritte.", "distractor": " weniger als das dritte."}
+{"id": "targeted/reason/005", "domain": "reasoning", "language": "de", "prompt": "Wenn heute Montag ist, ist morgen", "preferred": " Dienstag.", "distractor": " Sonntag."}
+{"id": "targeted/reason/006", "domain": "reasoning", "language": "de", "prompt": "Ein Quadrat hat vier gleich lange Seiten. Eine Figur mit nur drei Seiten ist daher", "preferred": " kein Quadrat.", "distractor": " sicher ein Quadrat."}
+{"id": "targeted/reason/007", "domain": "reasoning", "language": "de", "prompt": "Wenn A wahr ist und 'A impliziert B' gilt, folgt", "preferred": " B.", "distractor": " nicht B."}
+{"id": "targeted/reason/008", "domain": "reasoning", "language": "de", "prompt": "Eine Datei mit 200 MB ist größer als eine Datei mit 150 MB. Die Differenz beträgt", "preferred": " 50 MB.", "distractor": " 350 MB."}
+{"id": "targeted/reason/009", "domain": "reasoning", "language": "de", "prompt": "Ein Flug startet um 10:00 und dauert zwei Stunden. Die geplante Ankunft ist", "preferred": " 12:00.", "distractor": " 08:00."}
+{"id": "targeted/reason/010", "domain": "reasoning", "language": "en", "prompt": "All red objects are visible. This object is red. Therefore it is", "preferred": " visible.", "distractor": " invisible."}
+{"id": "targeted/reason/011", "domain": "reasoning", "language": "en", "prompt": "If 8 is greater than 5 and 5 is greater than 2, then 8 is", "preferred": " greater than 2.", "distractor": " less than 2."}
+{"id": "targeted/reason/012", "domain": "reasoning", "language": "en", "prompt": "A battery is at 80% and loses 10 percentage points. It is then at", "preferred": " 70%.", "distractor": " 72%."}
+{"id": "targeted/reason/013", "domain": "reasoning", "language": "en", "prompt": "A train has 100 seats and 75 are occupied. The number of free seats is", "preferred": " 25.", "distractor": " 175."}
+{"id": "targeted/reason/014", "domain": "reasoning", "language": "en", "prompt": "If a function returns x + 1 and x is 4, the result is", "preferred": " 5.", "distractor": " 3."}
+{"id": "targeted/reason/015", "domain": "reasoning", "language": "en", "prompt": "A planet completes one orbit every 10 days. In 30 days it completes", "preferred": " 3 orbits.", "distractor": " 30 orbits."}
+{"id": "targeted/reason/016", "domain": "reasoning", "language": "en", "prompt": "If no cats are reptiles and Milo is a cat, Milo is", "preferred": " not a reptile.", "distractor": " necessarily a reptile."}
+{"id": "targeted/reason/017", "domain": "reasoning", "language": "en", "prompt": "A value is doubled and becomes 18. The original value was", "preferred": " 9.", "distractor": " 36."}
+{"id": "targeted/reason/018", "domain": "reasoning", "language": "en", "prompt": "Three identical boxes each contain 6 items. Together they contain", "preferred": " 18 items.", "distractor": " 9 items."}
+{"id": "targeted/reason/019", "domain": "reasoning", "language": "en", "prompt": "If a statement and its exact negation cannot both be true, they are", "preferred": " contradictory.", "distractor": " equivalent."}
