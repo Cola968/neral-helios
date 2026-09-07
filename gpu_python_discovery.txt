@@ -1,0 +1,2 @@
+request=discover-cuda-python
+purpose=resolve-NERAL_PYTHON
