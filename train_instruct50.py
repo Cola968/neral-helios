@@ -67,11 +67,26 @@ def encode_sft(row,seq):
     return x,y
 
 
+def trim_sft_padding(x,y):
+    """Remove only trailing columns that are padding/ignored for every row in the batch.
+
+    For a causal LM, removing common trailing padding cannot alter logits at any supervised
+    position because those positions never attend to future tokens. This therefore preserves
+    the exact SFT objective while reducing attention work for short/mixed-length batches.
+    """
+    if x.ndim!=2 or y.ndim!=2 or x.shape!=y.shape:raise ValueError("SFT tensors must be same-shape rank-2")
+    active=(x!=TOKENIZER.pad_id)|(y!=-100)
+    if not bool(active.any()):raise ValueError("SFT batch contains no active tokens")
+    width=int(torch.nonzero(active,as_tuple=False)[:,1].max().item())+1
+    return x[:,:width].contiguous(),y[:,:width].contiguous()
+
+
 def make_sft_batch(rows,seq,device):
     encoded=[encode_sft(row,seq) for row in rows]
-    x=torch.stack([a for a,_ in encoded]).to(device)
-    y=torch.stack([b for _,b in encoded]).to(device)
-    return x,y
+    x=torch.stack([a for a,_ in encoded])
+    y=torch.stack([b for _,b in encoded])
+    x,y=trim_sft_padding(x,y)
+    return x.to(device),y.to(device)
 
 
 def assistant_loss(model,x,y,eos_weight):
@@ -175,6 +190,7 @@ def main():
         "data_hashes":hashes,"replay_root":str(replay_root.resolve()),"replay_validation":replay_val_meta,
         "loss":{"assistant_only":True,"assistant_eos_in_loss":True,"eos_weight":args.eos_weight,"sft_weight":args.sft_weight,"base_lm_replay_weight":1-args.sft_weight},
         "sampling":"deterministic shuffled train sweep; no domain-balanced hidden oversampling","solve_used":False,"tools_used":False,
+        "padding_policy":"right-trim batch columns that are padding/ignored for every SFT row; target tokens and causal logits are unchanged",
         "selection":"lowest SFT validation macro answer NLL subject to <=5% B2-LM validation regression and <=10% RawMath dev NLL regression",
         "benchmark_policy":"Frozen free/v3/v4/RawMath/NIS benchmark required after Stage D; no promotion from SFT loss alone.",
         "baseline_sft":baseline_sft,"baseline_lm":baseline_lm,"baseline_math":baseline_math,"gpu":torch.cuda.get_device_name(),"torch":str(torch.__version__),"args":vars(args),
@@ -205,6 +221,7 @@ def main():
             total.backward();gn=torch.nn.utils.clip_grad_norm_(model.parameters(),1.0,error_if_nonfinite=True);opt.step();torch.cuda.synchronize();dt=time.perf_counter()-tick
             update_seconds+=dt;input_tokens+=int((x!=TOKENIZER.pad_id).sum());answer_tokens+=int((y!=-100).sum());replay_tokens+=lx.numel()
             row={"step":step,"loss":float(total),"sft_loss":float(sft.detach()),"base_replay_loss":float(base.detach()),"lr":lr,"grad_norm":float(gn),"seconds":dt,
+                 "sft_compute_width":int(x.shape[1]),"sft_max_seq":args.seq,
                  "input_tokens":input_tokens,"answer_tokens":answer_tokens,"replay_tokens":replay_tokens,"optimizer_tokens_per_second":(x.numel()+lx.numel())/max(dt,1e-9)}
             if step%args.eval_every==0 or step==args.steps:
                 sft_val=evaluate_sft(model,val,device,args.seq);lm_val=validate_document_bounded(model,replay_val,replay_val_schedule,args.seq,device);math_val=dev_math_nll(model,device,min(args.seq,256))
