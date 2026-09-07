@@ -1,8 +1,10 @@
 """Build the I1 targeted SFT mixture on top of pinned human-only OASST2.
 
 This wrapper reuses Neral's deterministic math/code/German/reasoning generators but replaces
-the older OASST1 human slice with OASST2. The total human share remains 30%; German human
-conversation increases from 3% to 6% while English human conversation becomes 24%.
+the older OASST1 human slice with OASST2. The total human share remains 30%. A real hosted
+build measured 805 clean German train examples after all length, contamination and split
+filters, so the German human quota is conservatively frozen at 3.75% (750/20k) rather than
+weakening filters or silently truncating examples. English human conversation is 26.25%.
 """
 from __future__ import annotations
 
@@ -24,8 +26,8 @@ from build_targeted_sft50_sources import (
 )
 
 WEIGHTS = {
-    "oasst2-human-en": 0.24,
-    "oasst2-human-de": 0.06,
+    "oasst2-human-en": 0.2625,
+    "oasst2-human-de": 0.0375,
     "neral-generated-de-core": 0.20,
     "neral-generated-math-de": 0.12,
     "neral-generated-math-en": 0.12,
@@ -36,11 +38,15 @@ WEIGHTS = {
 }
 
 HUMAN_SOURCES = ("oasst2-human-en", "oasst2-human-de")
+MEASURED_CLEAN_DE_TRAIN = 805
+GERMAN_HUMAN_QUOTA = round(TARGET_TRAIN_EXAMPLES * WEIGHTS["oasst2-human-de"])
 
 
 def augment(root: Path, per_generated_source: int = 6000):
     if per_generated_source < 6000:
         raise ValueError("per-generated-source must be >=6000")
+    if GERMAN_HUMAN_QUOTA >= MEASURED_CLEAN_DE_TRAIN:
+        raise AssertionError("German human quota must retain measured clean-capacity headroom")
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf8"))
     existing = {src.get("id"): src for src in manifest.get("sources", [])}
@@ -101,7 +107,7 @@ def augment(root: Path, per_generated_source: int = 6000):
     manifest["recommended_train_examples"] = TARGET_TRAIN_EXAMPLES
     manifest["human_source_family"] = "OpenAssistant/oasst2"
     manifest["targeted_augmentation"] = {
-        "version": 2,
+        "version": 3,
         "generator": "build_targeted_sft50_oasst2.py",
         "external_model_calls": False,
         "generated_counts": generated_counts,
@@ -109,6 +115,9 @@ def augment(root: Path, per_generated_source: int = 6000):
         "weights": WEIGHTS,
         "human_share": sum(WEIGHTS[sid] for sid in HUMAN_SOURCES),
         "german_human_share": WEIGHTS["oasst2-human-de"],
+        "german_human_target_quota": GERMAN_HUMAN_QUOTA,
+        "measured_clean_german_train_capacity": MEASURED_CLEAN_DE_TRAIN,
+        "capacity_policy": "Keep strict filters and reserve headroom; never fill quota by truncating or admitting synthetic/rejected rows.",
         "purpose": "Target measured weak areas while preserving a 30% human OASST2 base.",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf8")
