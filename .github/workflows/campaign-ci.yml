@@ -1,0 +1,30 @@
+name: 50M campaign contract
+
+on:
+  pull_request:
+    paths:
+      - 'campaign50_decision.py'
+      - 'benchmark_bundle50.py'
+      - 'run_50m_campaign.py'
+      - 'tests/test_campaign50_decision.py'
+      - '.github/workflows/neral50m-autonomous-campaign.yml'
+      - '.github/workflows/campaign-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  campaign-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile campaign orchestration
+        run: python -m py_compile campaign50_decision.py benchmark_bundle50.py run_50m_campaign.py tests/test_campaign50_decision.py
+      - name: Install lightweight tests
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Test fail-closed campaign stop rule
+        run: python -m pytest tests/test_campaign50_decision.py -q
