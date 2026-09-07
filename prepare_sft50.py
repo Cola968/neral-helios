@@ -2,8 +2,9 @@
 
 No network calls and no external model calls are made. Every source is a local JSONL file
 listed in sft50_sources/manifest.json with an exact SHA-256 and provenance/license metadata.
-The output is split deterministically at document/example level before the training quota is
-selected. Frozen Neral benchmark literals are screened from prompt and answer text.
+All rows sharing the same normalized user prompt are assigned to the same split before any
+training quota is selected, preventing identical-question leakage across train/validation/test.
+Frozen Neral benchmark literals are screened from prompt and answer text.
 """
 from __future__ import annotations
 
@@ -33,18 +34,40 @@ FROZEN_PY_ASSIGNMENTS={
     "benchmark_v3.py":{"PAIR_CASES","FREE_CHAT","BASE_PREFIXES"},
     "benchmark_v4.py":{"PAIRS","ENTROPY_PREFIXES","BASE_GENERATION"},
 }
+SPLIT_CONTRACT_VERSION=2
 
 
 def sha256_file(path: Path) -> str:
     h=hashlib.sha256()
     with path.open("rb") as f:
-        for chunk in iter(lambda:f.read(1024*1024),b""):
-            h.update(chunk)
+        for chunk in iter(lambda:f.read(1024*1024),b""):h.update(chunk)
     return h.hexdigest()
 
 
 def normalize(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC",text).casefold().split())
+
+
+def prompt_group_hash(prompt: str) -> str:
+    normalized=normalize(prompt)
+    if not normalized:raise ValueError("normalized prompt is empty")
+    return hashlib.sha256(("SFT50:PROMPT_GROUP:v2:"+normalized).encode("utf8")).hexdigest()
+
+
+def split_for_group(group_sha256: str) -> str:
+    if not re.fullmatch(r"[0-9a-f]{64}",group_sha256):raise ValueError("invalid prompt group SHA-256")
+    bucket=int(group_sha256[:8],16)%100
+    return "holdout" if bucket<2 else "test" if bucket<5 else "val" if bucket<10 else "train"
+
+
+def split_for_prompt(prompt: str) -> str:
+    return split_for_group(prompt_group_hash(prompt))
+
+
+def split_for(source_id,row_id):
+    """Historical row-level splitter kept for reproducibility tests; new data uses prompt groups."""
+    bucket=int(hashlib.sha256(f"SFT50:{source_id}:{row_id}".encode()).hexdigest()[:8],16)%100
+    return "holdout" if bucket<2 else "test" if bucket<5 else "val" if bucket<10 else "train"
 
 
 def _collect_strings(value,out):
@@ -112,11 +135,6 @@ def pair_from_row(row):
     return None,None
 
 
-def split_for(source_id,row_id):
-    bucket=int(hashlib.sha256(f"SFT50:{source_id}:{row_id}".encode()).hexdigest()[:8],16)%100
-    return "holdout" if bucket<2 else "test" if bucket<5 else "val" if bucket<10 else "train"
-
-
 def validate_manifest(manifest,root: Path):
     if manifest.get("version")!=1:raise ValueError("SFT manifest version must be 1")
     sources=manifest.get("sources")
@@ -164,8 +182,6 @@ def load_rows(sources,phrases,reject,max_seq=4096):
                 answer,reason=clean_field(answer,"answer")
                 if reason:reject[reason]+=1;continue
                 if len((prompt+"\n"+answer).encode("utf8"))>3800:reject["pair_too_long"]+=1;continue
-                # Match encode_sft exactly: BOS plus formatted bytes plus EOS,
-                # then one-position shift. Keep whole answers and their true EOS.
                 formatted='User: '+prompt+'\nAssistant: '+answer+'\n'
                 if len(formatted.encode('utf8'))+1>max_seq:
                     reject['pair_exceeds_training_sequence']+=1;continue
@@ -178,13 +194,29 @@ def load_rows(sources,phrases,reject,max_seq=4096):
                 digest=hashlib.sha256((nprompt+"\0"+nanswer).encode()).hexdigest()
                 if digest in exact:reject["exact_pair_duplicate"]+=1;continue
                 exact.add(digest)
+                group=prompt_group_hash(prompt)
                 rows.append({
                     "id":rid,"source_id":src["id"],"language":src["language"],"domain":domain,
-                    "prompt":prompt,"answer":answer,"split":split_for(src["id"],rid),
-                    "pair_sha256":digest,"selection_hash":hashlib.sha256(f"SFT50:968:{src['id']}:{rid}".encode()).hexdigest(),
+                    "prompt":prompt,"answer":answer,"split":split_for_group(group),
+                    "prompt_group_sha256":group,"pair_sha256":digest,
+                    "selection_hash":hashlib.sha256(f"SFT50:968:{src['id']}:{rid}".encode()).hexdigest(),
                     "prompt_bytes":len(prompt.encode("utf8")),"answer_bytes":len(answer.encode("utf8")),
                 })
     return rows
+
+
+def audit_prompt_group_splits(rows):
+    """Return an explicit cross-split prompt-group audit and fail on any leakage."""
+    locations=collections.defaultdict(set);counts=collections.Counter()
+    for row in rows:
+        group=row.get("prompt_group_sha256");split=row.get("split")
+        if not isinstance(group,str) or not re.fullmatch(r"[0-9a-f]{64}",group):raise ValueError("row missing valid prompt_group_sha256")
+        if split not in {"train","val","test","holdout"}:raise ValueError("row missing valid split")
+        locations[group].add(split);counts[split]+=1
+    overlaps={group:sorted(splits) for group,splits in locations.items() if len(splits)>1}
+    audit={"prompt_groups":len(locations),"rows":len(rows),"rows_by_split":dict(counts),"cross_split_prompt_group_overlap":len(overlaps),"overlap_examples":dict(list(sorted(overlaps.items()))[:20])}
+    if overlaps:raise ValueError(f"normalized prompt leakage across splits: {len(overlaps)} groups")
+    return audit
 
 
 def select_train(rows,sources,target_examples):
@@ -220,25 +252,25 @@ def auto_train_target(rows,sources,recommended=None,cap=24000):
 
 
 def write_outputs(rows,selected,sources,out: Path,target,reject,selection,bench_files,source_manifest_sha):
-    out.mkdir(parents=True,exist_ok=True);selected_keys={(r["source_id"],r["id"]) for r in selected};summary={}
+    out.mkdir(parents=True,exist_ok=True);selected_keys={(r["source_id"],r["id"]) for r in selected};summary={};written=[]
     for split in ("train","val","test","holdout"):
         if split=="train":chosen=[r for r in rows if (r["source_id"],r["id"]) in selected_keys]
         else:chosen=[r for r in rows if r["split"]==split]
         chosen=sorted(chosen,key=lambda r:(r["source_id"],r["selection_hash"]))
         clean=[{k:v for k,v in r.items() if k not in {"selection_hash","split"}} for r in chosen]
         path=out/f"{split}.jsonl";path.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in clean),encoding="utf8")
-        summary[split]={
-            "examples":len(clean),"answer_bytes":sum(r["answer_bytes"] for r in clean),"sha256":sha256_file(path),
-            "by_language":dict(collections.Counter(r["language"] for r in clean)),
-            "by_domain":dict(collections.Counter(r["domain"] for r in clean)),
-        }
+        summary[split]={"examples":len(clean),"answer_bytes":sum(r["answer_bytes"] for r in clean),"sha256":sha256_file(path),"by_language":dict(collections.Counter(r["language"] for r in clean)),"by_domain":dict(collections.Counter(r["domain"] for r in clean)),"prompt_groups":len({r["prompt_group_sha256"] for r in clean})}
+        written.extend(dict(r,split=split) for r in clean)
+    overlap_audit=audit_prompt_group_splits(written)
     public_sources=[{k:v for k,v in s.items() if k!="path"} for s in sources]
     manifest={
         "version":1,"purpose":"Neral-50M assistant-only instruction tuning","target_train_examples":target,
         "sources":public_sources,"selection":selection,"splits":summary,"rejected":dict(reject),
         "source_manifest_sha256":source_manifest_sha,"frozen_benchmark_files":bench_files,
         "format":"User prompt + Assistant answer; assistant answer and EOS only are loss targets during training",
-        "split":"SHA256(SFT50:source_id:row_id): 90/5/3/2 train/val/test/holdout before train quota selection",
+        "split_contract_version":SPLIT_CONTRACT_VERSION,
+        "split":"SHA256(SFT50:PROMPT_GROUP:v2:normalize(prompt)): 90/5/3/2 train/val/test/holdout before train quota selection; identical normalized prompts cannot cross splits",
+        "prompt_group_overlap_audit":overlap_audit,
         "external_model_calls":False,"raw_source_uploaded":False,
         "contamination_note":"Exact normalized long literals from frozen 100-prompt, RawMath, v3 and v4 suites are rejected; not exhaustive semantic detection.",
     }
@@ -251,7 +283,7 @@ def build(source_root: Path,out: Path,target_train_examples: int,repo_root: Path
     manifest_path=source_root/"manifest.json";manifest=json.loads(manifest_path.read_text(encoding="utf8"))
     sources=validate_manifest(manifest,source_root);phrases,bench_files=benchmark_literals(repo_root);reject=collections.Counter()
     if not 32<=max_seq<=4096:raise ValueError('max_seq must be 32..4096')
-    rows=load_rows(sources,phrases,reject,max_seq)
+    rows=load_rows(sources,phrases,reject,max_seq);audit_prompt_group_splits(rows)
     target=target_train_examples or auto_train_target(rows,sources,manifest.get("recommended_train_examples"))
     if target<1000:raise ValueError("Use at least 1000 train examples for Stage D")
     selected,selection=select_train(rows,sources,target)
@@ -264,7 +296,7 @@ def build(source_root: Path,out: Path,target_train_examples: int,repo_root: Path
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--source-root",default="sft50_sources");ap.add_argument("--out",default="sft50_data");ap.add_argument('--max-seq',type=int,default=512);ap.add_argument("--target-train-examples",type=int,default=0,help="0=auto-size safely after filtering; otherwise exact quota");args=ap.parse_args()
     result=build(Path(args.source_root),Path(args.out),args.target_train_examples,Path(__file__).resolve().parent,args.max_seq)
-    print(json.dumps({"target_train_examples":result["target_train_examples"],"train":result["splits"]["train"],"val":result["splits"]["val"],"rejected":result["rejected"]},indent=2,ensure_ascii=False))
+    print(json.dumps({"target_train_examples":result["target_train_examples"],"train":result["splits"]["train"],"val":result["splits"]["val"],"rejected":result["rejected"],"prompt_group_overlap_audit":result["prompt_group_overlap_audit"]},indent=2,ensure_ascii=False))
 
 
 if __name__=="__main__":main()
