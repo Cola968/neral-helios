@@ -1,0 +1,54 @@
+name: GSM8K holdout CI
+
+on:
+  push:
+    branches:
+      - hf-oasst2-data-policy
+    paths:
+      - 'hf_source_policy50.py'
+      - 'prepare_gsm8k_holdout50.py'
+      - 'tests/test_public_eval_policy50.py'
+      - '.github/workflows/gsm8k-holdout-ci.yml'
+  pull_request:
+    paths:
+      - 'hf_source_policy50.py'
+      - 'prepare_gsm8k_holdout50.py'
+      - 'tests/test_public_eval_policy50.py'
+      - '.github/workflows/gsm8k-holdout-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-public-math-holdout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install parquet reader and tests
+        run: python -m pip install --disable-pip-version-check pytest pyarrow
+      - name: Test holdout policy
+        run: python -m pytest tests/test_public_eval_policy50.py -q
+      - name: Download and verify pinned GSM8K test only
+        run: |
+          python prepare_gsm8k_holdout50.py --out /tmp/neral-gsm8k
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/tmp/neral-gsm8k')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['dataset_id']=='openai/gsm8k'
+          assert m['role']=='public-eval-holdout'
+          assert m['training_allowed'] is False
+          assert m['worked_rationale_copied'] is False
+          assert m['examples'] > 1000
+          assert not (root/'gsm8k-test.parquet').exists()
+          rows=sum(1 for line in (root/'gsm8k_test_holdout.jsonl').open() if line.strip())
+          assert rows==m['examples']
+          print(json.dumps({'examples':rows,'prepared_sha256':m['prepared_sha256'],'raw_removed':True},indent=2))
+          PY
+      - name: Confirm no evaluation corpus is uploaded
+        run: echo 'Public holdout remains ephemeral on hosted CI; no artifact upload step exists.'
