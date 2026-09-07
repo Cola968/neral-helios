@@ -1,5 +1,7 @@
+import json
+
 from stage_progress_gate50 import decide
-from prepare_pretrain50_b3 import select_disjoint_phases
+from prepare_pretrain50_b3 import load_b2_exclusions, select_disjoint_phases
 
 
 def test_b3_phase_selection_is_document_disjoint():
@@ -14,6 +16,19 @@ def test_b3_phase_selection_is_document_disjoint():
     assert sum(r['tokens'] for r in selected['a'])>=1000
     assert sum(r['tokens'] for r in selected['b'])>=1000
     assert meta['a']['a']['selected_tokens']>=500
+
+
+def test_b3_loads_hash_row_and_url_exclusions_from_b2(tmp_path):
+    digest='a'*64
+    rows=[
+        {'source_id':'fineweb-en-general','id':'doc-1','normalized_sha256':digest,'url':'https://example.test/doc/'},
+        {'source_id':'fineweb-en-general','id':'doc-2','normalized_sha256':'b'*64,'url':None},
+    ]
+    (tmp_path/'documents.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows),encoding='utf8')
+    excluded=load_b2_exclusions(tmp_path)
+    assert digest in excluded['hashes']
+    assert ('fineweb-en-general','doc-1') in excluded['source_rows']
+    assert 'https://example.test/doc' in excluded['urls']
 
 
 def test_progress_gate_rejects_repetition_gain_bought_with_bpb_loss():
