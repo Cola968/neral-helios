@@ -2,8 +2,8 @@
 
 This is a handoff path for the local RTX runner: it refuses incomplete B2 runs, verifies
 checkpoint identity, executes the hash-locked frozen benchmark bundle for 20M/B1/B2,
-builds the existing B2 comparison, and applies the separate v5 long-context protection
-gate. It never starts B3, RawMath, or instruction tuning.
+builds the existing B2 comparison, applies the v5 long-context protection gate, and records
+a separate generation-health decision. It never starts B3, RawMath, or instruction tuning.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MIN_B2_TOKENS = 100_000_000
-FROZEN_VALIDATION_FILES = ("val_de.bin", "val_en.bin")
+FROZEN_VALIDATION_FILES = ("val_de.bin", "val_en.bin", "documents.jsonl")
 
 
 def sha256_file(path: Path) -> str:
@@ -84,7 +84,7 @@ def resolve_state(assets: Path) -> dict[str, Path]:
 
 
 def stage_frozen_validation_data(assets: Path) -> tuple[dict[str, str], list[Path]]:
-    """Copy private frozen validation binaries into the ephemeral trusted checkout only.
+    """Copy private frozen validation inputs into the ephemeral trusted checkout only.
 
     The source files stay under the local assets root. They are never uploaded by this
     script. Newly staged files are removed in ``finally`` by the caller.
@@ -138,8 +138,6 @@ def main() -> None:
     validation_hashes, staged_files = stage_frozen_validation_data(assets)
 
     try:
-        # Same frozen protocol and budgets for every checkpoint. Existing valid reports can be
-        # reused only through run_frozen_benchmarks50.py's provenance/hash checks.
         for stage in ("baseline20", "b1", "b2"):
             run_benchmark(state[stage], stage, reports)
 
@@ -163,14 +161,33 @@ def main() -> None:
             "--out-json", str(comparison_json), "--out-md", str(comparison_md),
         ])
 
-        long_gate = reports / "B2_LONG_CONTEXT_GATE.json"
-        gate = subprocess.run([
+        health_gate_path = reports / "B2_GENERATION_HEALTH_GATE.json"
+        health_proc = subprocess.run([
+            sys.executable, "-X", "utf8", "generation_health_gate50.py",
+            "--free", str(reports / "b2" / "free.json"),
+            "--v3", str(reports / "b2" / "v3.json"),
+            "--v4", str(reports / "b2" / "v4.json"),
+            "--reference-free", str(reports / "baseline20" / "free.json"),
+            "--reference-v3", str(reports / "baseline20" / "v3.json"),
+            "--reference-v4", str(reports / "baseline20" / "v4.json"),
+            "--out", str(health_gate_path),
+        ], cwd=ROOT)
+
+        long_gate_path = reports / "B2_LONG_CONTEXT_GATE.json"
+        long_proc = subprocess.run([
             sys.executable, "-X", "utf8", "long_context_gate50.py",
             str(reports / "b1" / "v5.json"), str(reports / "b2" / "v5.json"),
-            "--mode", "protect", "--out", str(long_gate),
+            "--mode", "protect", "--out", str(long_gate_path),
         ], cwd=ROOT)
 
         summary = load_json(state["summary"])
+        health = load_json(health_gate_path) if health_gate_path.is_file() else None
+        long_gate = load_json(long_gate_path) if long_gate_path.is_file() else None
+        next_decision = (
+            "Generation repair required before B3/RawMath/Instruct; rerun the frozen benchmark after any weight change."
+            if health and not health.get("proceed")
+            else "Review frozen B2 reports before B3/RawMath/Instruct."
+        )
         handoff = {
             "definition": "Completed B2 100M benchmark handoff; no later weight-changing stage started.",
             "b2_complete": True,
@@ -179,14 +196,19 @@ def main() -> None:
             "checkpoints": {k: {"path": str(state[k]), "sha256": sha256_file(state[k])} for k in ("baseline20", "b1", "b2")},
             "frozen_validation_sha256": validation_hashes,
             "comparison_json": str(comparison_json),
-            "long_context_gate": load_json(long_gate) if long_gate.is_file() else None,
+            "generation_health_gate": health,
+            "generation_health_returncode": health_proc.returncode,
+            "long_context_gate": long_gate,
             "later_training_started": False,
-            "next_decision": "Review frozen B2 reports before B3/RawMath/Instruct.",
+            "next_decision": next_decision,
         }
         (reports / "B2_HANDOFF.json").write_text(json.dumps(handoff, indent=2, ensure_ascii=False), encoding="utf8")
         print(json.dumps(handoff, ensure_ascii=False), flush=True)
-        if gate.returncode != 0:
-            raise SystemExit(gate.returncode)
+        # An unhealthy generation gate is a valid benchmark result and does not make the
+        # benchmark job itself fail. A missing/regressed long-context suite is incomplete
+        # evidence, so the handoff fails closed there.
+        if long_proc.returncode != 0:
+            raise SystemExit(long_proc.returncode)
     finally:
         for path in staged_files:
             path.unlink(missing_ok=True)
