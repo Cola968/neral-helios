@@ -22,12 +22,14 @@ The manifest controls the actual source-level fractions. Shares must total exact
 
 ## Automatic first bootstrap
 
-For the first reproducible B2 100M milestone, `bootstrap_b2_sources.py` can stage a deliberately simpler broad-data mix automatically:
+For the first reproducible B2 100M milestone, `bootstrap_b2_sources.py` stages a deliberately simpler broad-data mix automatically:
 
 - 35% English FineWeb general text (`v1.4.0`),
-- 35% German FineWeb2 `deu_Latn` (`v2.1.1`),
+- 40% German FineWeb2 `deu_Latn` (`v2.1.1`),
 - 20% English FineWeb-Edu (`v1.4.0`),
-- 10% positively reviewed, non-synthetic DE/EN OpenAssistant dialogue from the pinned OASST1 ready export.
+- 5% positively reviewed, non-synthetic **English** OpenAssistant dialogue from the pinned OASST1 ready export.
+
+German conversational behavior is supplied later by Stage-D DE/EN instruction tuning; the B2 dialogue source is English-only so its manifest language metadata remains exact.
 
 The automatic bootstrap intentionally leaves license-heterogeneous public code datasets out. A dedicated code stage can later add code with per-source license/provenance controls instead of weakening B2 provenance.
 
@@ -41,7 +43,7 @@ python prepare_pretrain50_b2.py --source-root b2_sources --out pretrain50_b2_dat
 
 The script pins dataset revisions, streams only a bounded amount of data, hashes every locally written source file, and writes the exact manifest consumed by the normal B2 builder. FineWeb, FineWeb2 and FineWeb-Edu are declared as ODC-By-1.0 data; their dataset cards also state that Common Crawl Terms of Use apply. OASST1 is recorded as Apache-2.0. Preserve attribution/provenance in any later model release documentation.
 
-The downstream B2 builder still performs its own filtering, deduplication, document split and benchmark-contamination screen. The bootstrap is **not** a replacement for those checks.
+The downstream B2 builder still performs its own filtering, normalized exact deduplication, near-duplicate screening, document-level split and frozen-benchmark contamination screen. The bootstrap is **not** a replacement for those checks.
 
 ## `manifest.json`
 
@@ -99,6 +101,6 @@ The row `id` must be stable and unique within that source. Complete documents st
 python prepare_pretrain50_b2.py --source-root b2_sources --out pretrain50_b2_data --target-train-tokens 100000000
 ```
 
-The builder verifies source SHA-256 values before reading, applies deterministic filtering and deduplication, rejects exact frozen benchmark prompt contamination, creates deterministic 90/5/3/2 document-level splits, and records source/domain counts in `pretrain50_b2_data/manifest.json`.
+The builder verifies source SHA-256 values before reading, applies deterministic filtering and deduplication, rejects exact frozen benchmark prompt/continuation contamination, creates deterministic 90/5/3/2 document-level splits, and records source/domain counts plus output hashes in `pretrain50_b2_data/manifest.json`.
 
 Raw source documents and packed binaries remain private/local. The generated manifest can be copied into reports for audit without copying the corpus.
