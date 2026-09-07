@@ -2,13 +2,16 @@
 
 This gate is intentionally separate from NIS and the 8/9 promotion scorecard. It prevents a
 later specialization stage from being accepted merely because short-context metrics improve
-while the model loses the long-context capability trained in B3.
+while the model loses the long-context capability trained in B3. Missing document-bounded BPB
+is treated as missing evidence, not as a pass.
 """
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+
+REQUIRED_BPB_LENGTHS = (2048, 3072, 4095)
 
 
 def _load(path):
@@ -35,8 +38,22 @@ def decide(before, after, mode="protect"):
         missing.append("single_needle_accuracy")
     if None in (b_multi, a_multi):
         missing.append("multi_needle_accuracy")
+    for seq in REQUIRED_BPB_LENGTHS:
+        if _bpb(before, seq) is None:
+            missing.append(f"before_bpb_{seq}")
+        if _bpb(after, seq) is None:
+            missing.append(f"after_bpb_{seq}")
     if missing:
-        return {"proceed": False, "reason": "missing_metrics", "missing": missing, "severe": [], "improvements": []}
+        return {
+            "proceed": False,
+            "mode": mode,
+            "reason": "missing_metrics",
+            "missing": missing,
+            "suite_sha256": before.get("suite_sha256"),
+            "severe": [],
+            "improvements": [],
+            "note": "Long-context evidence incomplete; gate fails closed.",
+        }
 
     severe = []
     if a_single < b_single - 0.20:
@@ -46,13 +63,10 @@ def decide(before, after, mode="protect"):
 
     bpb_rows = {}
     improvements = []
-    for seq in (2048, 3072, 4095):
+    for seq in REQUIRED_BPB_LENGTHS:
         b, a = _bpb(before, seq), _bpb(after, seq)
-        bpb_rows[str(seq)] = {"before": b, "after": a, "relative_change": None}
-        if b is None or a is None or b <= 0:
-            continue
         rel = (a - b) / b
-        bpb_rows[str(seq)]["relative_change"] = rel
+        bpb_rows[str(seq)] = {"before": b, "after": a, "relative_change": rel}
         if rel > 0.05:
             severe.append(f"bpb_{seq}_regressed_gt_5pct")
         if rel < -0.005:

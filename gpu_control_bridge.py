@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-ALLOWED_ACTIONS = {"gpu_status", "inspect_b2", "benchmark_b2", "run_tests"}
+ALLOWED_ACTIONS = {"gpu_status", "inspect_b2", "benchmark_b2", "probe_generation_b2", "run_tests"}
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
@@ -74,6 +74,28 @@ def inspect_b2(assets: Path) -> dict:
             item.update({"bytes": p.stat().st_size, "sha256": sha256_file(p)})
         out[name] = item
     return out
+
+
+def resolve_completed_b2_checkpoint(assets: Path) -> Path:
+    run = assets / "runs" / "neral50m_b2_100m"
+    summary_path = run / "summary.json"
+    if not summary_path.is_file():
+        raise FileNotFoundError(summary_path)
+    summary = json.loads(summary_path.read_text(encoding="utf8"))
+    if not summary.get("complete") or summary.get("stop") != "target_reached":
+        raise RuntimeError("B2 is not a completed target_reached stage")
+    cumulative = int(summary.get("cumulative_tokens", 0))
+    target = int(summary.get("target_cumulative_tokens", 0))
+    if cumulative < 100_000_000 or cumulative < target:
+        raise RuntimeError(f"B2 is incomplete: {cumulative}/{target}")
+    checkpoint = run / "best_validation.pt"
+    if not checkpoint.is_file():
+        raise FileNotFoundError(checkpoint)
+    expected = summary.get("best_sha256")
+    actual = sha256_file(checkpoint)
+    if expected and actual != expected:
+        raise ValueError("B2 best checkpoint SHA-256 does not match summary.json")
+    return checkpoint.resolve()
 
 
 def gpu_status() -> dict:
@@ -148,6 +170,19 @@ def execute(request: dict, assets: Path, reports_root: Path) -> Path:
             result["benchmark_returncode"] = code
             if code != 0:
                 raise RuntimeError(f"B2 benchmark handoff failed with exit code {code}")
+        elif action == "probe_generation_b2":
+            checkpoint = resolve_completed_b2_checkpoint(assets)
+            result["checkpoint_sha256"] = sha256_file(checkpoint)
+            code = run_logged(
+                [sys.executable, "-X", "utf8", "generation_probe50.py",
+                 "--checkpoint", str(checkpoint), "--budgets", "64,128,256",
+                 "--out", str(out / "generation_probe.json")],
+                Path(__file__).resolve().parent,
+                out / "generation_probe.log",
+            )
+            result["generation_probe_returncode"] = code
+            if code != 0:
+                raise RuntimeError(f"B2 generation probe failed with exit code {code}")
         elif action == "run_tests":
             code = run_logged(
                 [sys.executable, "-m", "pytest", "-q", "--junitxml", str(out / "pytest.xml")],
@@ -157,7 +192,7 @@ def execute(request: dict, assets: Path, reports_root: Path) -> Path:
             result["pytest_returncode"] = code
             if code != 0:
                 raise RuntimeError(f"pytest failed with exit code {code}")
-        else:  # load_request already fail-closes; keep an execution guard too.
+        else:
             raise AssertionError(action)
         result["status"] = "success"
         return out

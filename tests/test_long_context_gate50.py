@@ -35,3 +35,12 @@ def test_gate_fails_on_suite_mismatch():
     result=decide(_report(sha='a'*64),_report(sha='b'*64),'protect')
     assert not result['proceed']
     assert result['reason']=='suite_mismatch'
+
+
+def test_gate_fails_closed_when_long_bpb_is_missing():
+    before=_report();after=_report()
+    del before['document_bounded_true_byte_bpb']['macro_bits_per_byte']['3072']
+    result=decide(before,after,'protect')
+    assert not result['proceed']
+    assert result['reason']=='missing_metrics'
+    assert 'before_bpb_3072' in result['missing']

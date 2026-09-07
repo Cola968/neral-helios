@@ -1,7 +1,8 @@
 """Run the unchanged four raw-model suites with a hash-locked local protocol.
 
 Reuse a finished suite only when checkpoint, harness, validation data and command match.
-No SOLVE, Helios, network inference, or fallback checkpoint is used.
+No SOLVE, Helios, network inference, or fallback checkpoint is used. The v5 extension has
+its own versioned provenance because it additionally depends on document-boundary metadata.
 """
 import argparse
 import hashlib
@@ -16,6 +17,7 @@ FILES=['benchmark_v3.py','benchmark_v4.py','benchmark_raw_math50.py','raw_math50
        'free_generation50.py','benchmarks50/regression.jsonl','benchmarks50/raw_math_v1.jsonl',
        'model.py','model50.py','tokenizer.py','experiment.py',
        'pretrain50_data/val_de.bin','pretrain50_data/val_en.bin']
+V5_DATA_FILES=['pretrain50_data/documents.jsonl','pretrain50_data/val_de.bin','pretrain50_data/val_en.bin']
 
 
 def sha(path):
@@ -37,13 +39,27 @@ def freeze(root):
     return sha(p)
 
 
-def run(checkpoint,stage,root):
-    protocol_hash=freeze(root);checkpoint=Path(checkpoint).resolve();checkpoint_hash=sha(checkpoint)
-    extension={'parent_protocol_sha256':protocol_hash,'v5_source_sha256':sha(ROOT/'benchmark_v5_long_context.py')}
+def v5_extension(root, parent_protocol_hash):
+    missing=[p for p in V5_DATA_FILES if not (ROOT/p).is_file()]
+    if missing:
+        raise FileNotFoundError('Frozen v5 validation inputs missing: '+', '.join(missing))
+    extension={
+        'version':2,
+        'parent_protocol_sha256':parent_protocol_hash,
+        'v5_source_sha256':sha(ROOT/'benchmark_v5_long_context.py'),
+        'v5_validation_sha256':{p:sha(ROOT/p) for p in V5_DATA_FILES},
+    }
     extension_path=root/'protocol_v5.json'
     if extension_path.exists():
-        if json.loads(extension_path.read_text())!=extension:raise ValueError('V5 protocol changed')
-    else:extension_path.write_text(json.dumps(extension,indent=2),encoding='utf8')
+        if json.loads(extension_path.read_text())!=extension:raise ValueError('V5 protocol changed; do not mix v5 reports')
+    else:
+        extension_path.write_text(json.dumps(extension,indent=2),encoding='utf8')
+    return extension_path
+
+
+def run(checkpoint,stage,root):
+    protocol_hash=freeze(root);checkpoint=Path(checkpoint).resolve();checkpoint_hash=sha(checkpoint)
+    extension_path=v5_extension(root,protocol_hash)
     if stage=='baseline20' and checkpoint_hash!=BASELINE_SHA:raise ValueError('Exact 20M Preview02 required')
     out=root/stage;out.mkdir(parents=True,exist_ok=True)
     commands={
