@@ -4,7 +4,12 @@ import math
 
 import pytest
 
-from build_targeted_sft50_oasst2 import HUMAN_SOURCES, WEIGHTS
+from build_targeted_sft50_oasst2 import (
+    GERMAN_HUMAN_QUOTA,
+    HUMAN_SOURCES,
+    MEASURED_CLEAN_DE_TRAIN,
+    WEIGHTS,
+)
 from fetch_oasst2_sft50 import UPSTREAM_REVISION, UPSTREAM_SHA256, choose_pairs, reviewed_human
 from hf_source_policy50 import SOURCES, assert_not_reserved_eval, assert_training_allowed, validate_registry
 
@@ -58,10 +63,13 @@ def test_oasst2_filter_keeps_only_reviewed_non_synthetic_human_pairs():
     assert reviewed_human(rows[2])
 
 
-def test_oasst2_mix_preserves_targeted_curriculum_and_more_human_german():
+def test_oasst2_mix_preserves_targeted_curriculum_and_measured_capacity_headroom():
     assert math.isclose(sum(WEIGHTS.values()), 1.0, abs_tol=1e-12)
     assert math.isclose(sum(WEIGHTS[s] for s in HUMAN_SOURCES), 0.30, abs_tol=1e-12)
-    assert WEIGHTS["oasst2-human-de"] == 0.06
+    assert WEIGHTS["oasst2-human-de"] == 0.0375
+    assert GERMAN_HUMAN_QUOTA == 750
+    assert MEASURED_CLEAN_DE_TRAIN == 805
+    assert GERMAN_HUMAN_QUOTA < MEASURED_CLEAN_DE_TRAIN
     assert WEIGHTS["neral-generated-math-de"] + WEIGHTS["neral-generated-math-en"] == 0.24
     assert WEIGHTS["neral-generated-code-de"] + WEIGHTS["neral-generated-code-en"] == 0.20
 
