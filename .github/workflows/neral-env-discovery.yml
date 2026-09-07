@@ -1,0 +1,65 @@
+name: Neral Runner Environment Discovery
+
+on:
+  push:
+    branches:
+      - gpu-env-discovery
+    paths:
+      - gpu_env_discovery.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Runner and GPU identity
+        run: |
+          @echo off
+          echo === runner ===
+          echo COMPUTERNAME=%COMPUTERNAME%
+          echo USERNAME=%USERNAME%
+          echo USERPROFILE=%USERPROFILE%
+          echo NERAL_ASSETS_ROOT=%NERAL_ASSETS_ROOT%
+          echo NERAL_PYTHON=%NERAL_PYTHON%
+          echo.
+          echo === gpu ===
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw,utilization.gpu --format=csv,noheader
+
+      - name: Discover Python without changing the machine
+        run: |
+          @echo off
+          echo === where python ===
+          where python 2>nul || echo python_not_on_PATH
+          echo.
+          echo === where py ===
+          where py 2>nul || echo py_launcher_not_on_PATH
+          echo.
+          echo === py launcher registrations ===
+          py -0p 2>nul || echo no_py_launcher_registrations
+          echo.
+          echo === PATH python CUDA probe ===
+          python -c "import sys; print('python_executable='+sys.executable); import torch; print('torch='+torch.__version__); print('cuda_available='+str(torch.cuda.is_available())); print('bf16='+str(torch.cuda.is_available() and torch.cuda.is_bf16_supported())); print('gpu='+str(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'))" 2>nul || echo path_python_cuda_probe_failed
+          echo.
+          echo === py -3 CUDA probe ===
+          py -3 -c "import sys; print('python_executable='+sys.executable); import torch; print('torch='+torch.__version__); print('cuda_available='+str(torch.cuda.is_available())); print('bf16='+str(torch.cuda.is_available() and torch.cuda.is_bf16_supported())); print('gpu='+str(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'))" 2>nul || echo py3_cuda_probe_failed
+
+      - name: Locate only known Neral B2 run directories
+        run: |
+          @echo off
+          echo === exact neral50m_b2_100m directories below USERPROFILE ===
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; Get-ChildItem -LiteralPath $env:USERPROFILE -Directory -Filter 'neral50m_b2_100m' -Recurse | Select-Object -First 20 -ExpandProperty FullName"
+          echo.
+          echo === exact common private roots ===
+          if exist "C:\NeralPrivate" echo C:\NeralPrivate
+          if exist "%USERPROFILE%\NeralPrivate" echo %USERPROFILE%\NeralPrivate
+          if exist "%USERPROFILE%\Documents\NeralPrivate" echo %USERPROFILE%\Documents\NeralPrivate
+          echo.
+          echo Discovery is read-only; no files or settings were changed.
