@@ -51,8 +51,10 @@ jobs:
             $r=Get-ChildItem $reports -Directory -Filter $candidate.pattern -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 1
             if (-not $r) { continue }
             if ($candidate.needsGate) {
-              $g=Join-Path $r.FullName 'B3_PROGRESS_GATE.json';if (-not (Test-Path $g)) { continue };$gate=Get-Content $g -Raw|ConvertFrom-Json;if (-not $gate.proceed) { continue }
-              if (-not (Test-Path (Join-Path $r.FullName 'after\v5.json'))) { continue }
+              $g=Join-Path $r.FullName 'B3_PROGRESS_GATE.json';$lg=Join-Path $r.FullName 'B3_LONG_CONTEXT_GATE.json';$v5=Join-Path $r.FullName 'after\v5.json'
+              if (-not (Test-Path $g) -or -not (Test-Path $lg) -or -not (Test-Path $v5)) { continue }
+              $gate=Get-Content $g -Raw|ConvertFrom-Json;$long=Get-Content $lg -Raw|ConvertFrom-Json
+              if (-not $gate.proceed -or -not $long.proceed) { continue }
             } else {
               if (-not (Test-Path (Join-Path $r.FullName 'B2_COMPARISON.json'))) { continue }
             }
@@ -99,7 +101,7 @@ jobs:
           $py='${{ steps.env.outputs.python }}'
           & $py summarize_weight_stage50.py --stage 'Neral-50M RawMath Stage C v2' --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/RAWMATH_COMPARISON.json --out-md runner_reports/RAWMATH_COMPARISON.md
           & $py rawmath_progress_gate50.py runner_reports/RAWMATH_COMPARISON.json --out runner_reports/RAWMATH_PROGRESS_GATE.json
-          & $py -c "import json; b=json.load(open('runner_reports/before/v5.json',encoding='utf8')); a=json.load(open('runner_reports/after/v5.json',encoding='utf8')); print({'v5_single_before':b['single_needle']['accuracy'],'v5_single_after':a['single_needle']['accuracy'],'v5_multi_before':b['multi_needle']['accuracy'],'v5_multi_after':a['multi_needle']['accuracy']})"
+          & $py long_context_gate50.py runner_reports/before/v5.json runner_reports/after/v5.json --mode protect --out runner_reports/RAWMATH_LONG_CONTEXT_GATE.json
           Get-Content runner_reports/RAWMATH_COMPARISON.md
 
       - name: Persist reports locally
