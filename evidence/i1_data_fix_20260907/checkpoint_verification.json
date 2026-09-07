@@ -1,0 +1,10 @@
+{
+  "baseline20_sha256": "8ea61ecc405257c73905383e922b32cfff9ccd00f13f5677a91ec938d3129c2f",
+  "b2_sha256": "1d7da2b62c82159c720e52ab9809e53d484613dcf05fb01d8f77f0235c8105b6",
+  "parameters": {
+    "total": 50012976,
+    "trainable": 50012976,
+    "millions": 50.012976
+  },
+  "b2_checkpoint_tokens": 99250176
+}

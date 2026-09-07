@@ -1,0 +1,52 @@
+{
+  "stage": "B3a disjoint long-context continued pretraining",
+  "stage_b3_version": 1,
+  "phase": "a",
+  "parameters": 50012976,
+  "source_checkpoint": "C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral\\runs\\neral50m_b2_100m\\best_validation.pt",
+  "source_sha256": "1d7da2b62c82159c720e52ab9809e53d484613dcf05fb01d8f77f0235c8105b6",
+  "source_cumulative_tokens": 99250176,
+  "target_cumulative_tokens": 300000000,
+  "seq": 512,
+  "batch": 16,
+  "unique_blocks_available": 457791,
+  "target_blocks": 392090,
+  "data_hashes": {
+    "train_a_de.bin": "93438fe125dbcb4b4f1d7a55592dccbdf1eea668278ffb46fa6e30a11908345f",
+    "train_a_en.bin": "7beba3a217a573d9659d094079cdf23d0c1328c1ba70e21c1f4db34d8220fc13",
+    "val_de.bin": "bdc5e42ae01cace74a376f5bc3f9f8877925c727e6675d27dac5824b9a982400",
+    "val_en.bin": "ff3408e498a95ba80d4f26f259bc85a376d4237e9f928adccd60dfa9225ada79",
+    "documents.jsonl": "6b74e73e6417c0e8e3b91a5dd8afbdb32ebd9059d9af6b1b28ae32c65127a921",
+    "manifest.json": "867dba4dd15dacc1c09aa5f317e3cb77485835345b6bfcf8129c82f9af4ff213"
+  },
+  "validation_schedule": {
+    "split": "val",
+    "sequence": 512,
+    "seed": 50317,
+    "document_boundary_crossing": false,
+    "de_available_blocks": 25162,
+    "de_selected_blocks": 192,
+    "en_available_blocks": 42902,
+    "en_selected_blocks": 192
+  },
+  "old_validation_schedule": {
+    "split": "val",
+    "sequence": 512,
+    "seed": 50329,
+    "document_boundary_crossing": false,
+    "de_available_blocks": 5690,
+    "de_selected_blocks": 96,
+    "en_available_blocks": 4182,
+    "en_selected_blocks": 96
+  },
+  "selection": "lowest B3 validation macro subject to <=5% regression on frozen B2 validation baseline",
+  "replay_policy": "No train-block replay. Phase A/B documents are disjoint and B2 document hashes were excluded during corpus build.",
+  "benchmark_policy": "Run frozen free/v3/v4/RawMath/BPB/context/NIS after this phase. Do not automatically start the next phase.",
+  "lr": {
+    "peak": 6e-05,
+    "floor": 6e-06,
+    "warmup_fraction": 0.02
+  },
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "torch": "2.8.0+cu128"
+}

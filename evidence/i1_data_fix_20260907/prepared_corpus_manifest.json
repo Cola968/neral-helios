@@ -1,0 +1,182 @@
+{
+  "version": 2,
+  "purpose": "Neral-50M B3 disjoint long-context curriculum",
+  "target_phase_a_tokens": 220000000,
+  "target_phase_b_tokens": 220000000,
+  "actual_phase_a_tokens": 220005950,
+  "actual_phase_b_tokens": 220030954,
+  "sources": [
+    {
+      "id": "fineweb-en-general",
+      "revision": "v1.4.0",
+      "language": "en",
+      "domain": "general",
+      "target_fraction": 0.4,
+      "license": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "provenance_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/v1.4.0",
+      "file": "fineweb-en-general.jsonl",
+      "sha256": "be6e3efc7e31357d9f0e2486b06d3a0ff1bdbf97df5213551a6a7490bd85a43d",
+      "dataset_repo": "HuggingFaceFW/fineweb",
+      "dataset_config": "sample-10BT",
+      "staged_text_bytes": 300000672,
+      "staged_documents": 93157
+    },
+    {
+      "id": "fineweb2-de-general",
+      "revision": "66d1a3b989bad0c42b88179a7fb60c47ce87af74",
+      "language": "de",
+      "domain": "general",
+      "target_fraction": 0.4,
+      "license": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "provenance_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/tree/66d1a3b989bad0c42b88179a7fb60c47ce87af74",
+      "file": "fineweb2-de-general.jsonl",
+      "sha256": "5bfb8fb278aa304f78fe15d2ef1f862db60058f34c5c30bdfd3da578378871ae",
+      "dataset_repo": "HuggingFaceFW/fineweb-2",
+      "dataset_config": "deu_Latn",
+      "staged_text_bytes": 330000795,
+      "staged_documents": 97657
+    },
+    {
+      "id": "fineweb-edu-en",
+      "revision": "v1.4.0",
+      "language": "en",
+      "domain": "education",
+      "target_fraction": 0.2,
+      "license": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "provenance_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/tree/v1.4.0",
+      "file": "fineweb-edu-en.jsonl",
+      "sha256": "4af07021a77af36e0da890a4a392eac583a4c2cde721f97f97f0a71755f14558",
+      "dataset_repo": "HuggingFaceFW/fineweb-edu",
+      "dataset_config": "sample-10BT",
+      "staged_text_bytes": 180001388,
+      "staged_documents": 37032
+    }
+  ],
+  "selection": {
+    "a": {
+      "fineweb-en-general": {
+        "target_tokens": 88000000,
+        "selected_tokens": 88002623,
+        "documents": 29312
+      },
+      "fineweb2-de-general": {
+        "target_tokens": 88000000,
+        "selected_tokens": 88002139,
+        "documents": 29378
+      },
+      "fineweb-edu-en": {
+        "target_tokens": 44000000,
+        "selected_tokens": 44001188,
+        "documents": 9744
+      }
+    },
+    "b": {
+      "fineweb-en-general": {
+        "target_tokens": 88000000,
+        "selected_tokens": 88000034,
+        "documents": 29840
+      },
+      "fineweb2-de-general": {
+        "target_tokens": 88000000,
+        "selected_tokens": 88001052,
+        "documents": 29364
+      },
+      "fineweb-edu-en": {
+        "target_tokens": 44000000,
+        "selected_tokens": 44029868,
+        "documents": 9554
+      }
+    }
+  },
+  "splits": {
+    "train_a": {
+      "de": {
+        "documents": 29378,
+        "tokens": 88002139,
+        "sha256": "93438fe125dbcb4b4f1d7a55592dccbdf1eea668278ffb46fa6e30a11908345f"
+      },
+      "en": {
+        "documents": 39056,
+        "tokens": 132003811,
+        "sha256": "7beba3a217a573d9659d094079cdf23d0c1328c1ba70e21c1f4db34d8220fc13"
+      }
+    },
+    "train_b": {
+      "de": {
+        "documents": 29364,
+        "tokens": 88001052,
+        "sha256": "212a0fee91f6fdd18fa5b4ab4811f827af9085bac89dc09d65005d7310b9f419"
+      },
+      "en": {
+        "documents": 39394,
+        "tokens": 132029902,
+        "sha256": "cb9eea47b54386e26939932b36f0112f32a388683d453193869aefdc7b197ac3"
+      }
+    },
+    "val": {
+      "de": {
+        "documents": 4432,
+        "tokens": 11997261,
+        "sha256": "bdc5e42ae01cace74a376f5bc3f9f8877925c727e6675d27dac5824b9a982400"
+      },
+      "en": {
+        "documents": 6059,
+        "tokens": 20610283,
+        "sha256": "ff3408e498a95ba80d4f26f259bc85a376d4237e9f928adccd60dfa9225ada79"
+      }
+    },
+    "test": {
+      "de": {
+        "documents": 2787,
+        "tokens": 8269370,
+        "sha256": "bede76460b4e8d99ac4bdd31bfcbd28ef295d3a02eaac3aa87b23ef0cc926cd4"
+      },
+      "en": {
+        "documents": 3702,
+        "tokens": 12580931,
+        "sha256": "f2469534b3e24fc734f82e1df9521090dd102178cf82e3e1b02c0b466d90ab1a"
+      }
+    },
+    "holdout": {
+      "de": {
+        "documents": 1796,
+        "tokens": 5096460,
+        "sha256": "2b22009d298a76947fb6f03d78e6b715ae871dd0faf02432a636475aa519d1a7"
+      },
+      "en": {
+        "documents": 2388,
+        "tokens": 8686970,
+        "sha256": "23248a78358bb2b235f5b5722deb22f4893b7f7b4926c021a1165e2192cba90e"
+      }
+    }
+  },
+  "rejected": {
+    "insufficient_clean_prose": 7168,
+    "contact_or_secret_pattern": 8625,
+    "frozen_benchmark_contamination": 13,
+    "encoding_or_control": 95,
+    "exact_normalized_duplicate": 56,
+    "near_duplicate_minhash": 38,
+    "b2_provenance_url_overlap": 4
+  },
+  "b2_exclusion_counts": {
+    "normalized_hashes": 23989,
+    "source_rows": 23989,
+    "provenance_urls": 23989
+  },
+  "source_manifest_sha256": "515664119ae15889032a166255fed0c7e03a307fd92b9ebb72ec1685e3fc444d",
+  "documents_sha256": "6b74e73e6417c0e8e3b91a5dd8afbdb32ebd9059d9af6b1b28ae32c65127a921",
+  "contamination_source_sha256": {
+    "benchmarks50\\regression.jsonl": "2fd59817bdb9890dd18c793803a9cc576746be6f85ea3a7e30d1ff4c3686b7aa",
+    "benchmarks50\\raw_math_v1.jsonl": "3f3d31fd1f42c16b05549553d2be78f71e59ce6065ab48435bd130a20d4b05b7",
+    "benchmark_v3.py": "ba6060074cd5c664a159e36aaf4de5b87b847464dd14cd5bb9c2d42fa09850f6",
+    "benchmark_v4.py": "1fadce77501278167754a948ffe7c3176bac6c8fde6379c950016c9cd997eaac"
+  },
+  "replay_policy": "Phase A and B use disjoint documents. B2 documents are excluded by normalized hash, source-row identity and provenance URL when available.",
+  "within_b3_dedup": "NFKC/casefold exact + bounded 32-minhash word-5-shingle near duplicate check >=0.80.",
+  "external_model_calls": false,
+  "raw_data_uploaded": false
+}

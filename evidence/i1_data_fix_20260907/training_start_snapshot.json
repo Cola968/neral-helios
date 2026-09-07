@@ -1,0 +1,114 @@
+{
+  "workflow_run_id": 34155344697,
+  "attempt": 2,
+  "running_code_commit": "a9a24085296b2582eab71e2a4aa0f7321566055c",
+  "last_step": {
+    "step": 785,
+    "cursor": 12560,
+    "cumulative_tokens": 105680896,
+    "train_loss": 1.2154693603515625,
+    "lr": 5.998003315448501e-05,
+    "grad_norm": 0.8694403767585754,
+    "seconds": 0.11214700003620237,
+    "tokens_per_second": 73046.98295411849
+  },
+  "validation_rows": [
+    {
+      "step": 250,
+      "cursor": 4000,
+      "cumulative_tokens": 101298176,
+      "train_loss": 1.3538168668746948,
+      "lr": 3.061224489795919e-05,
+      "grad_norm": 1.1524059772491455,
+      "seconds": 0.11386729998048395,
+      "tokens_per_second": 71943.39376980091,
+      "validation": {
+        "domains": {
+          "de": 1.2069957852363586,
+          "en": 1.2748584200938542
+        },
+        "macro": 1.2409271026651063,
+        "tokens": 196608,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": 2
+      },
+      "old_validation": {
+        "domains": {
+          "de": 1.1280455092589061,
+          "en": 1.228494942188263
+        },
+        "macro": 1.1782702257235846,
+        "tokens": 98304,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": 2
+      },
+      "eligible": true,
+      "selected": true
+    },
+    {
+      "step": 500,
+      "cursor": 8000,
+      "cumulative_tokens": 103346176,
+      "train_loss": 1.297349452972412,
+      "lr": 5.999998128657414e-05,
+      "grad_norm": 0.8946406245231628,
+      "seconds": 0.10925660002976656,
+      "tokens_per_second": 74979.4520218286,
+      "validation": {
+        "domains": {
+          "de": 1.2019303093353908,
+          "en": 1.2766943126916885
+        },
+        "macro": 1.2393123110135398,
+        "tokens": 196608,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": 2
+      },
+      "old_validation": {
+        "domains": {
+          "de": 1.1556233763694763,
+          "en": 1.2608185112476349
+        },
+        "macro": 1.2082209438085556,
+        "tokens": 98304,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": 2
+      },
+      "eligible": true,
+      "selected": false
+    },
+    {
+      "step": 750,
+      "cursor": 12000,
+      "cumulative_tokens": 105394176,
+      "train_loss": 1.2661155462265015,
+      "lr": 5.998450376074987e-05,
+      "grad_norm": 0.8578066229820251,
+      "seconds": 0.11158080003224313,
+      "tokens_per_second": 73417.64889329334,
+      "validation": {
+        "domains": {
+          "de": 1.1958832045396168,
+          "en": 1.2652770976225536
+        },
+        "macro": 1.2305801510810852,
+        "tokens": 196608,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": 2
+      },
+      "old_validation": {
+        "domains": {
+          "de": 1.169278860092163,
+          "en": 1.2671768367290497
+        },
+        "macro": 1.2182278484106064,
+        "tokens": 98304,
+        "definition": "Mean CE on fixed document-bounded validation blocks; DE/EN macro average. No cross-document attention and no padding.",
+        "validation_version": 2
+      },
+      "eligible": true,
+      "selected": true
+    }
+  ],
+  "status": "I1 B3a training running; final benchmark not yet executed"
+}
