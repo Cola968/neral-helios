@@ -1,3 +1,4 @@
+import collections
 import hashlib
 import json
 from pathlib import Path
@@ -5,7 +6,19 @@ from pathlib import Path
 import pytest
 
 from fetch_oasst1_sft50 import choose_pairs
-from prepare_sft50 import auto_train_target, clean_field, normalize, pair_from_row, select_train, split_for, validate_manifest
+from prepare_sft50 import (
+    audit_prompt_group_splits,
+    auto_train_target,
+    clean_field,
+    load_rows,
+    normalize,
+    pair_from_row,
+    prompt_group_hash,
+    select_train,
+    split_for,
+    split_for_prompt,
+    validate_manifest,
+)
 
 
 def _write(root: Path,name: str,rows):
@@ -27,10 +40,17 @@ def test_clean_fields_and_pair_formats():
     assert (p,a)==("Question here","Answer here")
 
 
-def test_split_is_stable():
+def test_legacy_split_is_stable():
     value=split_for("source","row-17")
     assert value==split_for("source","row-17")
     assert value in {"train","val","test","holdout"}
+
+
+def test_prompt_group_split_ignores_source_row_and_formatting_variants():
+    a="  Warum ist der Himmel blau?  "
+    b="WARUM   IST DER HIMMEL BLAU?"
+    assert prompt_group_hash(a)==prompt_group_hash(b)
+    assert split_for_prompt(a)==split_for_prompt(b)
 
 
 def test_manifest_requires_exact_hash_and_mix(tmp_path):
@@ -45,6 +65,33 @@ def test_manifest_requires_exact_hash_and_mix(tmp_path):
     broken=json.loads(json.dumps(manifest));broken["sources"][1]["sha256"]="0"*64
     with pytest.raises(ValueError,match="SHA-256 mismatch"):
         validate_manifest(broken,tmp_path)
+
+
+def test_same_normalized_question_with_different_answers_stays_in_one_split(tmp_path):
+    rows_a=[{"id":"a1","prompt":"Warum ist Wasser nass?","answer":"Eine kurze Antwort über Wasser."}]
+    rows_b=[{"id":"b1","prompt":"  WARUM   IST WASSER NASS? ","answer":"Eine andere, ebenfalls vollständige Antwort."}]
+    sha_a=_write(tmp_path,"a.jsonl",rows_a);sha_b=_write(tmp_path,"b.jsonl",rows_b);base=_base()
+    manifest={"version":1,"sources":[
+        base|{"id":"a","file":"a.jsonl","sha256":sha_a,"language":"de","domain":"chat","target_fraction":.5},
+        base|{"id":"b","file":"b.jsonl","sha256":sha_b,"language":"de","domain":"chat","target_fraction":.5},
+    ]}
+    sources=validate_manifest(manifest,tmp_path)
+    loaded=load_rows(sources,[],collections.Counter(),max_seq=512)
+    assert len(loaded)==2
+    assert loaded[0]["prompt_group_sha256"]==loaded[1]["prompt_group_sha256"]
+    assert loaded[0]["split"]==loaded[1]["split"]
+    audit=audit_prompt_group_splits(loaded)
+    assert audit["cross_split_prompt_group_overlap"]==0
+
+
+def test_overlap_audit_rejects_manually_cross_split_group():
+    group=prompt_group_hash("This question is sufficiently long.")
+    rows=[
+        {"prompt_group_sha256":group,"split":"train"},
+        {"prompt_group_sha256":group,"split":"val"},
+    ]
+    with pytest.raises(ValueError,match="prompt leakage"):
+        audit_prompt_group_splits(rows)
 
 
 def test_train_selection_obeys_declared_source_mix():
