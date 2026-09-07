@@ -1,0 +1,32 @@
+name: B3 curriculum
+
+on:
+  pull_request:
+    paths:
+      - 'bootstrap_b3_sources.py'
+      - 'prepare_pretrain50_b3.py'
+      - 'pretrain50_b3.py'
+      - 'summarize_b3.py'
+      - 'stage_progress_gate50.py'
+      - 'tests/test_b3_curriculum.py'
+      - '.github/workflows/neral50m-b3.yml'
+      - '.github/workflows/b3-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  curriculum-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile B3 sources
+        run: python -m py_compile bootstrap_b3_sources.py prepare_pretrain50_b3.py pretrain50_b3.py summarize_b3.py stage_progress_gate50.py tests/test_b3_curriculum.py
+      - name: Install lightweight tests
+        run: python -m pip install --disable-pip-version-check pytest numpy
+      - name: Run disjoint-corpus and progress-gate tests
+        run: python -m pytest tests/test_b3_curriculum.py -q

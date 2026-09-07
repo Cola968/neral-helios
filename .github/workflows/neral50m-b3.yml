@@ -1,0 +1,135 @@
+name: Neral 50M B3 Curriculum
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Run only one reviewed B3 phase'
+        required: true
+        type: choice
+        options: [a, b]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-b3-${{ inputs.phase }}
+  cancel-in-progress: false
+
+jobs:
+  train-benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 480
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Validate runner
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if (-not $env:NERAL_ASSETS_ROOT) { throw 'NERAL_ASSETS_ROOT is required.' }
+          if (-not $env:NERAL_PYTHON) { throw 'NERAL_PYTHON is required.' }
+          if (-not (Test-Path $env:NERAL_ASSETS_ROOT -PathType Container)) { throw 'Assets root missing.' }
+          if (-not (Test-Path $env:NERAL_PYTHON -PathType Leaf)) { throw 'CUDA Python missing.' }
+          "assets=$env:NERAL_ASSETS_ROOT" >> $env:GITHUB_OUTPUT
+          "python=$env:NERAL_PYTHON" >> $env:GITHUB_OUTPUT
+          & $env:NERAL_PYTHON -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name())"
+
+      - name: Attach B2 data and require completed B2 benchmark
+        id: state
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$phase='${{ inputs.phase }}'
+          $b2data=Join-Path $assets 'pretrain50_b2_data'
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')) { if (-not (Test-Path (Join-Path $b2data $f))) { throw "Missing B2 data $f" } }
+          if (Test-Path pretrain50_b2_data) { Remove-Item pretrain50_b2_data -Recurse -Force }
+          New-Item -ItemType Junction -Path pretrain50_b2_data -Target $b2data | Out-Null
+          $b2run=Join-Path $assets 'runs\neral50m_b2_100m';$b2summary=Join-Path $b2run 'summary.json';$b2best=Join-Path $b2run 'best_validation.pt'
+          if (-not (Test-Path $b2summary)) { throw 'B2 summary missing; B3 cannot start before B2.' }
+          $bs=Get-Content $b2summary -Raw|ConvertFrom-Json
+          if (-not $bs.complete -or [int64]$bs.cumulative_tokens -lt 100000000) { throw 'B2 >=100M is not complete.' }
+          $b2reports=Get-ChildItem (Join-Path $assets 'reports') -Directory -Filter 'runner_50m_b2_*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+          if (-not $b2reports -or -not (Test-Path (Join-Path $b2reports[0].FullName 'B2_COMPARISON.json'))) { throw 'Frozen B2 benchmark report is required before B3.' }
+          if ($phase -eq 'a') {
+            if (-not (Test-Path $b2best)) { $b2best=Join-Path $b2run 'latest.pt' }
+            if (-not (Test-Path $b2best)) { throw 'B2 selected checkpoint missing.' }
+            "source=$b2best" >> $env:GITHUB_OUTPUT;"target=300000000" >> $env:GITHUB_OUTPUT;"seq=512" >> $env:GITHUB_OUTPUT;"batch=16" >> $env:GITHUB_OUTPUT;"peak=0.00006" >> $env:GITHUB_OUTPUT;"floor=0.000006" >> $env:GITHUB_OUTPUT
+          } else {
+            $a=Join-Path $assets 'runs\neral50m_b3a_300m';$asum=Join-Path $a 'summary.json';$abest=Join-Path $a 'best_validation.pt'
+            if (-not (Test-Path $asum) -or -not (Test-Path $abest)) { throw 'B3a checkpoint/summary missing.' }
+            $s=Get-Content $asum -Raw|ConvertFrom-Json;if (-not $s.complete -or [int64]$s.cumulative_tokens -lt 300000000) { throw 'B3a 300M incomplete.' }
+            $areports=Get-ChildItem (Join-Path $assets 'reports') -Directory -Filter 'runner_50m_b3a_*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+            if (-not $areports -or -not (Test-Path (Join-Path $areports[0].FullName 'B3_COMPARISON.json'))) { throw 'Frozen B3a benchmark review required before B3b.' }
+            "source=$abest" >> $env:GITHUB_OUTPUT;"target=500000000" >> $env:GITHUB_OUTPUT;"seq=1024" >> $env:GITHUB_OUTPUT;"batch=8" >> $env:GITHUB_OUTPUT;"peak=0.00003" >> $env:GITHUB_OUTPUT;"floor=0.000003" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build or attach disjoint B3 corpus
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}';$py='${{ steps.env.outputs.python }}';$data=Join-Path $assets 'pretrain50_b3_data'
+          if (-not (Test-Path (Join-Path $data 'manifest.json'))) {
+            & $py -m pip install --disable-pip-version-check -r requirements-data.txt
+            $src=Join-Path $assets 'b3_sources_auto';if (Test-Path $src) { Remove-Item $src -Recurse -Force };if (Test-Path $data) { Remove-Item $data -Recurse -Force }
+            & $py bootstrap_b3_sources.py --out $src
+            & $py prepare_pretrain50_b3.py --source-root $src --b2-data pretrain50_b2_data --out $data --phase-a-tokens 220000000 --phase-b-tokens 220000000
+          }
+          if (Test-Path pretrain50_b3_data) { Remove-Item pretrain50_b3_data -Recurse -Force }
+          New-Item -ItemType Junction -Path pretrain50_b3_data -Target $data | Out-Null
+
+      - name: Benchmark source checkpoint
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.state.outputs.source }}';New-Item -ItemType Directory -Force runner_reports/before,runner_reports/after|Out-Null
+          & $py free_generation50.py --checkpoint $c --out runner_reports/before/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/before/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/before/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/before/rawmath.json --max-new-tokens 32
+
+      - name: Train exactly one B3 phase
+        id: train
+        run: |
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}';$phase='${{ inputs.phase }}';$out=Join-Path $assets ("runs\neral50m_b3${phase}_" + ('${{ steps.state.outputs.target }}'/1000000) + 'm')
+          "out=$out" >> $env:GITHUB_OUTPUT
+          & $py pretrain50_b3.py --phase $phase --resume '${{ steps.state.outputs.source }}' --data pretrain50_b3_data --old-data pretrain50_b2_data --out $out --target-cumulative-tokens '${{ steps.state.outputs.target }}' --seq '${{ steps.state.outputs.seq }}' --batch '${{ steps.state.outputs.batch }}' --peak-lr '${{ steps.state.outputs.peak }}' --min-lr '${{ steps.state.outputs.floor }}' --eval-every 200 --validation-blocks 192
+
+      - name: Resolve selected checkpoint
+        id: selected
+        run: |
+          $out='${{ steps.train.outputs.out }}';$s=Get-Content (Join-Path $out 'summary.json') -Raw|ConvertFrom-Json
+          if (-not $s.complete) { throw "B3 incomplete: $($s.stop)" }
+          $best=Join-Path $out 'best_validation.pt';if (-not (Test-Path $best)) { throw 'B3 best checkpoint missing.' }
+          "best=$best" >> $env:GITHUB_OUTPUT;"summary=$(Join-Path $out 'summary.json')" >> $env:GITHUB_OUTPUT
+
+      - name: Frozen benchmark after phase
+        run: |
+          $py='${{ steps.env.outputs.python }}';$c='${{ steps.selected.outputs.best }}'
+          & $py free_generation50.py --checkpoint $c --out runner_reports/after/free.json --max-tokens 64
+          & $py benchmark_v3.py $c --out runner_reports/after/v3.json --max-new-tokens 96
+          & $py benchmark_v4.py $c --out runner_reports/after/v4.json --max-new-tokens 96
+          & $py benchmark_raw_math50.py $c --out runner_reports/after/rawmath.json --max-new-tokens 32
+          & $py -c "import json; r=json.load(open('runner_reports/after/rawmath.json',encoding='utf8')); assert 'ood' in r['by_distribution'] and 'transfer' in r['by_distribution']; print({'rawmath_ood':r['by_distribution']['ood']['exact_pct'],'rawmath_transfer':r['by_distribution']['transfer']['exact_pct']})"
+
+      - name: Summarize and review progress
+        run: |
+          $py='${{ steps.env.outputs.python }}';$phase='${{ inputs.phase }}'
+          & $py summarize_b3.py --phase $phase --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/B3_COMPARISON.json --out-md runner_reports/B3_COMPARISON.md
+          & $py stage_progress_gate50.py runner_reports/B3_COMPARISON.json --out runner_reports/B3_PROGRESS_GATE.json
+          Get-Content runner_reports/B3_COMPARISON.md
+
+      - name: Persist reports locally
+        if: always()
+        run: |
+          $dest=Join-Path '${{ steps.env.outputs.assets }}' ('reports\runner_50m_b3${{ inputs.phase }}_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
+          if (Test-Path runner_reports) { Copy-Item runner_reports\* $dest -Recurse -Force }
+          if (Test-Path pretrain50_b3_data\manifest.json) { Copy-Item pretrain50_b3_data\manifest.json (Join-Path $dest 'b3_corpus_manifest.json') }
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-b3-${{ inputs.phase }}-benchmarks
+          path: runner_reports/
+          retention-days: 14
