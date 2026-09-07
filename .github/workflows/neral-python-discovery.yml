@@ -1,0 +1,33 @@
+name: Neral CUDA Python Discovery
+
+on:
+  push:
+    branches:
+      - gpu-python-discovery
+    paths:
+      - gpu_python_discovery.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover-python:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Search only the discovered Neral/Codex workspace for python.exe
+        run: |
+          @echo off
+          set ROOT=C:\Users\astad\Documents\Codex\2026-09-05\lo
+          echo ROOT=%ROOT%
+          if not exist "%ROOT%" (
+            echo discovered_workspace_missing
+            exit /b 1
+          )
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$root='C:\Users\astad\Documents\Codex\2026-09-05\lo'; $c=Get-ChildItem -LiteralPath $root -Filter 'python.exe' -File -Recurse -ErrorAction SilentlyContinue; if(-not $c){Write-Output 'no_python_exe_in_workspace'; exit 0}; foreach($p in $c){Write-Output ('CANDIDATE='+$p.FullName); $code='import sys,torch; print(\"PYTHON=\"+sys.executable); print(\"TORCH=\"+torch.__version__); print(\"CUDA=\"+str(torch.cuda.is_available())); print(\"BF16=\"+str(torch.cuda.is_available() and torch.cuda.is_bf16_supported())); print(\"GPU=\"+(torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"none\"))'; & $p.FullName -c $code 2>$null; if($LASTEXITCODE -eq 0){Write-Output ('USABLE_PYTHON='+$p.FullName)} }"
+          exit /b 0
