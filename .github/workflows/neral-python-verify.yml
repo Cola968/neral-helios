@@ -1,0 +1,36 @@
+name: Neral Exact CUDA Python Verify
+
+on:
+  push:
+    branches:
+      - gpu-python-verify
+    paths:
+      - gpu_python_verify.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Verify exact Neral virtualenv Python and CUDA
+        run: |
+          @echo off
+          set PY=C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe
+          echo PY=%PY%
+          if not exist "%PY%" (
+            echo python_missing
+            exit /b 1
+          )
+          "%PY%" --version
+          "%PY%" -c "import sys,torch; print('PYTHON='+sys.executable); print('TORCH='+torch.__version__); print('CUDA_RUNTIME='+str(torch.version.cuda)); print('CUDA_AVAILABLE='+str(torch.cuda.is_available())); print('BF16='+str(torch.cuda.is_available() and torch.cuda.is_bf16_supported())); print('GPU='+(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none')); assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported()"
+          if errorlevel 1 exit /b 1
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw,utilization.gpu --format=csv,noheader
+          echo VERIFIED_NERAL_PYTHON=%PY%
