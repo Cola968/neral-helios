@@ -65,10 +65,11 @@ jobs:
             $s=Get-Content $asum -Raw|ConvertFrom-Json;if (-not $s.complete -or [int64]$s.cumulative_tokens -lt 300000000) { throw 'B3a 300M incomplete.' }
             $areports=Get-ChildItem (Join-Path $assets 'reports') -Directory -Filter 'runner_50m_b3a_*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
             if (-not $areports) { throw 'Frozen B3a benchmark review required before B3b.' }
-            $comparison=Join-Path $areports[0].FullName 'B3_COMPARISON.json';$gatePath=Join-Path $areports[0].FullName 'B3_PROGRESS_GATE.json';$v5=Join-Path $areports[0].FullName 'after\v5.json'
-            if (-not (Test-Path $comparison) -or -not (Test-Path $gatePath) -or -not (Test-Path $v5)) { throw 'B3a comparison, progress gate and v5 long-context report are all required before B3b.' }
-            $gate=Get-Content $gatePath -Raw|ConvertFrom-Json
-            if (-not $gate.proceed) { throw 'B3a progress gate did not pass; B3b is intentionally blocked.' }
+            $comparison=Join-Path $areports[0].FullName 'B3_COMPARISON.json';$gatePath=Join-Path $areports[0].FullName 'B3_PROGRESS_GATE.json';$longGatePath=Join-Path $areports[0].FullName 'B3_LONG_CONTEXT_GATE.json';$v5=Join-Path $areports[0].FullName 'after\v5.json'
+            if (-not (Test-Path $comparison) -or -not (Test-Path $gatePath) -or -not (Test-Path $longGatePath) -or -not (Test-Path $v5)) { throw 'B3a comparison, progress gates and v5 report are all required before B3b.' }
+            $gate=Get-Content $gatePath -Raw|ConvertFrom-Json;$longGate=Get-Content $longGatePath -Raw|ConvertFrom-Json
+            if (-not $gate.proceed) { throw 'B3a core progress gate did not pass; B3b is intentionally blocked.' }
+            if (-not $longGate.proceed) { throw 'B3a long-context progress gate did not pass; B3b is intentionally blocked.' }
             "source=$abest" >> $env:GITHUB_OUTPUT;"target=500000000" >> $env:GITHUB_OUTPUT;"seq=1024" >> $env:GITHUB_OUTPUT;"batch=8" >> $env:GITHUB_OUTPUT;"peak=0.00003" >> $env:GITHUB_OUTPUT;"floor=0.000003" >> $env:GITHUB_OUTPUT
           }
 
@@ -128,6 +129,7 @@ jobs:
           $py='${{ steps.env.outputs.python }}';$phase='${{ inputs.phase }}'
           & $py summarize_b3.py --phase $phase --before-free runner_reports/before/free.json --before-v3 runner_reports/before/v3.json --before-v4 runner_reports/before/v4.json --before-rawmath runner_reports/before/rawmath.json --after-free runner_reports/after/free.json --after-v3 runner_reports/after/v3.json --after-v4 runner_reports/after/v4.json --after-rawmath runner_reports/after/rawmath.json --training-summary '${{ steps.selected.outputs.summary }}' --out-json runner_reports/B3_COMPARISON.json --out-md runner_reports/B3_COMPARISON.md
           & $py stage_progress_gate50.py runner_reports/B3_COMPARISON.json --out runner_reports/B3_PROGRESS_GATE.json
+          & $py long_context_gate50.py runner_reports/before/v5.json runner_reports/after/v5.json --mode progress --out runner_reports/B3_LONG_CONTEXT_GATE.json
           Get-Content runner_reports/B3_COMPARISON.md
           Write-Host 'Supplemental 4K long-context metrics:'
           & $py -c "import json; r=json.load(open('runner_reports/after/v5.json',encoding='utf8')); print({'single':r['single_needle']['accuracy'],'multi':r['multi_needle']['accuracy'],'bpb':r['document_bounded_true_byte_bpb'].get('macro_bits_per_byte')})"
