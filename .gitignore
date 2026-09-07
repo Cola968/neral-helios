@@ -36,3 +36,7 @@ release/*.zip
 pretrain50_b3_data/
 campaign_private/
 campaign_reports/
+b3_sources_auto/
+b3_sources/
+i1_work_*/
+i1_reports/

@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "bootstrap_version": 1,
+  "purpose": "Neral-50M B3 disjoint public-data staging",
+  "sources": [
+    {
+      "id": "fineweb-en-general",
+      "revision": "v1.4.0",
+      "language": "en",
+      "domain": "general",
+      "target_fraction": 0.4,
+      "license": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "provenance_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/v1.4.0",
+      "file": "fineweb-en-general.jsonl",
+      "sha256": "be6e3efc7e31357d9f0e2486b06d3a0ff1bdbf97df5213551a6a7490bd85a43d",
+      "dataset_repo": "HuggingFaceFW/fineweb",
+      "dataset_config": "sample-10BT",
+      "staged_text_bytes": 300000672,
+      "staged_documents": 93157
+    },
+    {
+      "id": "fineweb2-de-general",
+      "revision": "66d1a3b989bad0c42b88179a7fb60c47ce87af74",
+      "language": "de",
+      "domain": "general",
+      "target_fraction": 0.4,
+      "license": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "provenance_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/tree/66d1a3b989bad0c42b88179a7fb60c47ce87af74",
+      "file": "fineweb2-de-general.jsonl",
+      "sha256": "5bfb8fb278aa304f78fe15d2ef1f862db60058f34c5c30bdfd3da578378871ae",
+      "dataset_repo": "HuggingFaceFW/fineweb-2",
+      "dataset_config": "deu_Latn",
+      "staged_text_bytes": 330000795,
+      "staged_documents": 97657
+    },
+    {
+      "id": "fineweb-edu-en",
+      "revision": "v1.4.0",
+      "language": "en",
+      "domain": "education",
+      "target_fraction": 0.2,
+      "license": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "provenance_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/tree/v1.4.0",
+      "file": "fineweb-edu-en.jsonl",
+      "sha256": "4af07021a77af36e0da890a4a392eac583a4c2cde721f97f97f0a71755f14558",
+      "dataset_repo": "HuggingFaceFW/fineweb-edu",
+      "dataset_config": "sample-10BT",
+      "staged_text_bytes": 180001388,
+      "staged_documents": 37032
+    }
+  ],
+  "notes": [
+    "Raw source files remain local.",
+    "prepare_pretrain50_b3.py excludes all normalized B2 document hashes before phase selection.",
+    "FineWeb-family datasets are ODC-By-1.0 and derived from Common Crawl; preserve source attribution and applicable Common Crawl terms."
+  ]
+}

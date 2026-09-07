@@ -136,6 +136,9 @@ def main():
     comp=read(reports/'I1_20M_VS_50M.json');gate=read(reports/'I1_PROMOTION_GATE.json')
     nis20=comp['nis']['baseline20']['score'];nis50=comp['nis']['instruct']['score']
     result={'campaign':'Neral-50M I1','final_checkpoint':str(final),'nis20':nis20,'nis50':nis50,'nis_delta':nis50-nis20,'promotion_gate':gate,'hard_target_nis55':nis50>=55.0,'completed_at_unix':time.time()}
+    from i1_targets50 import evaluate as evaluate_targets
+    result['target_gate']=evaluate_targets(comp,read(reports/'baseline20/v5.json'),read(reports/'candidate50/v5.json'),gate)
+    write(reports/'I1_TARGET_GATE.json',result['target_gate'])
     write(reports/'I1_FINAL_RESULT.json',result);print(json.dumps(result,ensure_ascii=False),flush=True)
 
 if __name__=='__main__':main()
