@@ -47,7 +47,7 @@ VERSION_SPECS = (
 
 
 def read_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf8-sig"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def completed(spec: VersionSpec, assets: Path) -> tuple[bool, str]:
@@ -80,7 +80,6 @@ def junction(link: Path, target: Path) -> None:
     if not target.is_dir():
         raise FileNotFoundError(target)
     if link.exists():
-        # A prior workflow in the same checkout may already have the exact junction.
         try:
             if link.resolve() == target:
                 return
