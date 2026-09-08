@@ -51,9 +51,14 @@ jobs:
           if($env:NERAL_TRACKIO_SPACE_ID -and -not $env:HF_TOKEN){ throw 'HF_TOKEN is required when NERAL_TRACKIO_SPACE_ID is configured' }
           "output_root=$env:NERAL100_OUTPUT_ROOT" >> $env:GITHUB_OUTPUT
       - name: Install Trackio when enabled
-        if: ${{ env.NERAL_TRACKIO_ENABLED == '1' }}
         shell: pwsh
-        run: python -m pip install --disable-pip-version-check trackio
+        run: |
+          if($env:NERAL_TRACKIO_ENABLED -eq '1'){
+            python -m pip install --disable-pip-version-check trackio
+            if($LASTEXITCODE -ne 0){ throw 'Trackio install failed' }
+          } else {
+            Write-Host 'Trackio remote logging disabled; local telemetry remains enabled.'
+          }
       - name: Train Helix from scratch or validated resume
         shell: pwsh
         run: |
