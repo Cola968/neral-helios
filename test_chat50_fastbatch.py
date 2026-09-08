@@ -29,21 +29,23 @@ def test_fast_store_materializes_once_and_batches_exact_values():
     examples = preencode(rows(), 2048)
     store = FastBucketStore(examples, token_budget=512, pin_memory=False)
     for width, bucket in store.buckets.items():
-        indices = bucket.globals[: min(len(bucket.globals), bucket.stage_x.size(0))]
-        x, y, meta = store.batch(width, indices)
+        indices = bucket.globals[: min(len(bucket.globals), bucket.max_rows)]
+        x, y, meta = store.batch_cpu(width, indices)
         assert x.dtype == torch.int16 and y.dtype == torch.int16
         assert meta["padded_tokens"] == len(indices) * width
         for r, gi in enumerate(indices):
             ex = examples[gi]
+            assert store.width_for(gi) == width
             assert torch.equal(x[r, :ex.length], torch.tensor(ex.input_ids, dtype=torch.int16))
             assert torch.equal(y[r, :ex.length], torch.tensor(ex.targets, dtype=torch.int16))
             assert bool((y[r, :ex.length] == 2).any())
 
 
-def test_store_reports_compact_int16_storage():
+def test_store_reports_compact_int16_storage_without_cuda_allocations():
     examples = preencode(rows(), 2048)
     store = FastBucketStore(examples, token_budget=512, pin_memory=False)
     report = store.report()
     assert report["examples"] == len(examples)
     assert report["storage_bytes"] > 0
-    assert report["staging_bytes"] > 0
+    assert report["pin_memory"] is False
+    assert all(row["max_batch_rows"] >= 1 for row in report["buckets"].values())
