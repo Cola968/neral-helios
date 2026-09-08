@@ -26,6 +26,16 @@ def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf8"))
 
 
+def targeted_accuracy(targeted: dict) -> float:
+    """Return Targeted-v1 overall accuracy across current and legacy report schemas."""
+    overall = targeted.get("overall")
+    if isinstance(overall, dict) and "accuracy" in overall:
+        return float(overall["accuracy"])
+    if "overall_accuracy" in targeted:
+        return float(targeted["overall_accuracy"])
+    raise KeyError("Targeted-v1 report missing overall accuracy")
+
+
 def summarize(root: Path) -> dict:
     raw = load(root / "rawmath.json")
     free = load(root / "free.json")
@@ -38,7 +48,7 @@ def summarize(root: Path) -> dict:
         "rawmath_ood_pct": float(raw["by_distribution"]["ood"]["exact_pct"]),
         "free_eos_pct": 100.0 * float(free["summary"]["eos_fraction"]),
         "free_repeated_trigram_pct": 100.0 * float(free["summary"]["mean_repeated_trigram_fraction"]),
-        "targeted_overall_pct": 100.0 * float(targeted["overall_accuracy"]),
+        "targeted_overall_pct": 100.0 * targeted_accuracy(targeted),
         "targeted_math_pct": 100.0 * float(targeted["domains"]["math"]["accuracy"]),
         "targeted_code_pct": 100.0 * float(targeted["domains"]["code"]["accuracy"]),
         "targeted_de_pct": 100.0 * float(targeted["domains"]["de_grammar"]["accuracy"]),
