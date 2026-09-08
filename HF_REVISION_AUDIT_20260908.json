@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "purpose": "Immutable Hugging Face revision and license preflight for Neral",
+  "read_only": true,
+  "changes_training_allow_list": false,
+  "source_run_id": 34262080625,
+  "datasets": [
+    {
+      "dataset_id": "HuggingFaceFW/fineweb-2",
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "last_modified": "2025-10-27T18:32:07.000Z",
+      "policy_role": "pretrain",
+      "training_allowed_by_policy": true,
+      "policy_license": "ODC-By-1.0",
+      "hub_license": ["odc-by-1.0"],
+      "license_match": true,
+      "content_origin": "web-human",
+      "status": "approved_revision_pinned"
+    },
+    {
+      "dataset_id": "HuggingFaceFW/fineweb-edu",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "last_modified": "2025-07-11T20:16:53.000Z",
+      "policy_role": "pretrain",
+      "training_allowed_by_policy": true,
+      "policy_license": "ODC-By-1.0",
+      "hub_license": ["odc-by-1.0"],
+      "license_match": true,
+      "content_origin": "web-human-filtered",
+      "status": "approved_revision_pinned"
+    },
+    {
+      "dataset_id": "OpenAssistant/oasst2",
+      "revision": "179dd21fc55192153d94adb0e0ce8f69e222bf75",
+      "last_modified": "2024-01-11T06:09:29.000Z",
+      "policy_role": "sft-human",
+      "training_allowed_by_policy": true,
+      "policy_license": "Apache-2.0",
+      "hub_license": ["apache-2.0"],
+      "license_match": true,
+      "content_origin": "human-crowdsourced",
+      "status": "approved_revision_pinned"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/finemath",
+      "revision": "e92b25a616738fe95dc186b64dfb19f9c8525594",
+      "last_modified": "2025-02-06T10:31:11.000Z",
+      "policy_role": "future-pretrain-candidate",
+      "training_allowed_by_policy": false,
+      "policy_license": "ODC-By-1.0",
+      "hub_license": ["odc-by-1.0"],
+      "license_match": true,
+      "content_origin": "web-human-filtered",
+      "status": "candidate_revision_pinned_manual_review_required"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/stack-edu",
+      "revision": "eeec5caac5cc3758a18f1d3ba4416837a9ba814c",
+      "last_modified": "2025-03-20T13:51:54.000Z",
+      "policy_role": "future-pretrain-candidate",
+      "training_allowed_by_policy": false,
+      "policy_license": "UNVERIFIED-MIXED",
+      "hub_license": [],
+      "license_match": false,
+      "content_origin": "code-found-filtered",
+      "status": "quarantine_metadata_mismatch_or_missing_license"
+    }
+  ],
+  "all_currently_approved_metadata_match": true
+}
