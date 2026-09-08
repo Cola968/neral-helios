@@ -13,6 +13,7 @@ def base():
         "sft_reasoning_nll": 0.95,
         "sft_de_nll": 0.85,
         "lm_macro": 1.10,
+        "free_utf8_pct": 100.0,
         "free_eos_pct": 20.0,
         "free_repetition_pct": 6.0,
         "free_health_score": 14.0,
@@ -43,6 +44,14 @@ def test_rejects_repetition_regression_even_when_eos_improves():
     result = assess_dev(before, after)
     assert result["selectable"] is False
     assert "free_repetition_pct" in result["regressions"]
+
+
+def test_rejects_utf8_regression():
+    before = base(); after = dict(before)
+    after.update(id_exact_pct=12.0, transfer_exact_pct=2.0, free_utf8_pct=99.0)
+    result = assess_dev(before, after)
+    assert result["selectable"] is False
+    assert "free_utf8_pct" in result["regressions"]
 
 
 def test_accepts_soft_math_growth_before_exact_match_moves():
