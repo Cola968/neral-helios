@@ -4,6 +4,9 @@ on:
     branches: ['neral100-train-run']
     paths: ['.github/neral100-train-request.json']
 permissions: {contents: read}
+concurrency:
+  group: neral-gpu-exclusive-training
+  cancel-in-progress: false
 jobs:
   train:
     runs-on: [self-hosted, windows, x64, neral-gpu]
@@ -11,26 +14,65 @@ jobs:
     steps:
       - name: Checkout trusted code from main
         uses: actions/checkout@v4
-        with: {ref: main}
+        with:
+          ref: main
+          persist-credentials: false
       - name: Checkout authorization request only
         uses: actions/checkout@v4
-        with: {ref: neral100-train-run, path: request}
-      - name: Validate authorization and GPU
+        with:
+          ref: neral100-train-run
+          path: request
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Validate exact authorization and GPU
         shell: pwsh
         run: |
-          python -c "import json; o=json.load(open('request/.github/neral100-train-request.json')); assert o.get('action')=='train'; assert o.get('variant') in ['a1','a2']; assert int(o.get('steps',0))>0"
-          python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name())"
-      - name: Resolve local prepared corpus
+          $ErrorActionPreference='Stop'
+          $r = Get-Content request/.github/neral100-train-request.json -Raw | ConvertFrom-Json
+          $allowed = @('action','variant','steps','seq','microbatch','grad_accum','lr','min_lr','warmup_fraction','eval_every','save_every')
+          foreach($p in $r.PSObject.Properties.Name){ if($allowed -notcontains $p){ throw "Unsupported request field: $p" } }
+          if($r.action -ne 'train'){ throw 'Unsupported action' }
+          if(@('a1','a2') -notcontains $r.variant){ throw 'Unsupported variant' }
+          if([int]$r.steps -le 0 -or [int]$r.seq -lt 512 -or [int]$r.microbatch -le 0 -or [int]$r.grad_accum -le 0){ throw 'Invalid training budget' }
+          python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){ throw 'CUDA/BF16 validation failed' }
+      - name: Resolve persistent local corpus and output
+        id: local
         shell: pwsh
         run: |
+          $ErrorActionPreference='Stop'
           if (-not $env:NERAL100_TRAIN_BIN) { throw 'NERAL100_TRAIN_BIN must point to a local prepared uint16 token stream' }
-          if (-not (Test-Path $env:NERAL100_TRAIN_BIN)) { throw 'NERAL100_TRAIN_BIN missing' }
-      - name: Train Helix from scratch
+          if (-not (Test-Path $env:NERAL100_TRAIN_BIN -PathType Leaf)) { throw 'NERAL100_TRAIN_BIN missing' }
+          if (-not $env:NERAL100_OUTPUT_ROOT) { throw 'NERAL100_OUTPUT_ROOT must point outside the checkout to persistent local storage' }
+          New-Item -ItemType Directory -Force $env:NERAL100_OUTPUT_ROOT | Out-Null
+          if($env:NERAL100_VAL_BIN -and -not (Test-Path $env:NERAL100_VAL_BIN -PathType Leaf)){ throw 'NERAL100_VAL_BIN missing' }
+          if($env:NERAL100_TRAIN_MANIFEST -and -not (Test-Path $env:NERAL100_TRAIN_MANIFEST -PathType Leaf)){ throw 'NERAL100_TRAIN_MANIFEST missing' }
+          if($env:NERAL100_RESUME_PT -and -not (Test-Path $env:NERAL100_RESUME_PT -PathType Leaf)){ throw 'NERAL100_RESUME_PT missing' }
+          if($env:NERAL_TRACKIO_SPACE_ID -and -not $env:HF_TOKEN){ throw 'HF_TOKEN is required when NERAL_TRACKIO_SPACE_ID is configured' }
+          "output_root=$env:NERAL100_OUTPUT_ROOT" >> $env:GITHUB_OUTPUT
+      - name: Install Trackio when enabled
+        if: ${{ env.NERAL_TRACKIO_ENABLED == '1' }}
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check trackio
+      - name: Train Helix from scratch or validated resume
         shell: pwsh
         run: |
-          $r = Get-Content request/.github/neral100-train-request.json | ConvertFrom-Json
-          python pretrain100_helix.py --variant $r.variant --train-bin $env:NERAL100_TRAIN_BIN --out "runs/neral100_$($r.variant)_$env:GITHUB_RUN_ID" --steps $r.steps --seq $r.seq --microbatch $r.microbatch --grad-accum $r.grad_accum
-      - name: Keep private checkpoints local
+          $ErrorActionPreference='Stop'
+          $r = Get-Content request/.github/neral100-train-request.json -Raw | ConvertFrom-Json
+          $lr = if($null -ne $r.lr){[double]$r.lr}else{0.0002}
+          $minlr = if($null -ne $r.min_lr){[double]$r.min_lr}else{0.00002}
+          $warm = if($null -ne $r.warmup_fraction){[double]$r.warmup_fraction}else{0.05}
+          $evalEvery = if($null -ne $r.eval_every){[int]$r.eval_every}else{100}
+          $saveEvery = if($null -ne $r.save_every){[int]$r.save_every}else{250}
+          $out = Join-Path '${{ steps.local.outputs.output_root }}' ("neral100_{0}_{1}" -f $r.variant,$env:GITHUB_RUN_ID)
+          $args = @('pretrain100_helix.py','--variant',$r.variant,'--train-bin',$env:NERAL100_TRAIN_BIN,'--out',$out,'--steps',[string]$r.steps,'--seq',[string]$r.seq,'--microbatch',[string]$r.microbatch,'--grad-accum',[string]$r.grad_accum,'--lr',[string]$lr,'--min-lr',[string]$minlr,'--warmup-fraction',[string]$warm,'--eval-every',[string]$evalEvery,'--save-every',[string]$saveEvery)
+          if($env:NERAL100_VAL_BIN){ $args += @('--val-bin',$env:NERAL100_VAL_BIN) }
+          if($env:NERAL100_TRAIN_MANIFEST){ $args += @('--train-manifest',$env:NERAL100_TRAIN_MANIFEST) }
+          if($env:NERAL100_RESUME_PT){ $args += @('--resume',$env:NERAL100_RESUME_PT) }
+          python @args
+          if($LASTEXITCODE -ne 0){ throw 'Neral-100M training failed' }
+      - name: Keep private checkpoints and corpus local
+        if: always()
         shell: pwsh
         run: |
-          Write-Host '100M checkpoints stay on the self-hosted runner; no model weights are uploaded.'
+          Write-Host '100M corpus/checkpoints stay on the self-hosted runner. Trackio, when enabled, receives metrics only.'
