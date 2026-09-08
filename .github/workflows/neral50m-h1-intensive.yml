@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neral-50m-h1-intensive
+  group: neral-gpu-exclusive-training
   cancel-in-progress: false
 
 jobs:
@@ -61,20 +61,26 @@ jobs:
           $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
           if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
           if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          if($env:NERAL_TRACKIO_SPACE_ID -and -not $env:HF_TOKEN){throw 'HF_TOKEN is required when NERAL_TRACKIO_SPACE_ID is configured.'}
           & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
           if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
           "assets=$assets" >> $env:GITHUB_OUTPUT
           "python=$python" >> $env:GITHUB_OUTPUT
           nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
 
-      - name: Run intensive H1 campaign
+      - name: Run intensive H1 campaign with optional Trackio bridge
         run: |
           $ErrorActionPreference='Stop'
           $env:PYTHONUNBUFFERED='1'
           $assets='${{ steps.env.outputs.assets }}'
           $python='${{ steps.env.outputs.python }}'
           New-Item -ItemType Directory -Force 'h1_reports'|Out-Null
-          & $python -u -X utf8 run_50m_h1_intensive.py --assets $assets --reports h1_reports
+          if($env:NERAL_TRACKIO_ENABLED -eq '1'){
+            & $python -m pip install --disable-pip-version-check trackio
+            if($LASTEXITCODE -ne 0){throw 'Trackio install failed.'}
+          }
+          $cmd=@($python,'-u','-X','utf8','run_50m_h1_intensive.py','--assets',$assets,'--reports','h1_reports')
+          & $python -u -X utf8 trackio_bridge50.py --assets $assets --telemetry-dir 'h1_reports\telemetry' --run-name ("neral50-h1-"+$env:GITHUB_RUN_ID) -- @cmd
           if($LASTEXITCODE -ne 0){throw 'H1 intensive campaign failed.'}
 
       - name: Reject private checkpoint or corpus uploads

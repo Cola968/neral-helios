@@ -5,6 +5,8 @@ on:
       - 'architectures100_variants.py'
       - 'neral100_checkpoint.py'
       - 'pretrain100_helix.py'
+      - 'training_observability.py'
+      - 'trackio_bridge50.py'
       - 'hf_curriculum50.py'
       - 'cross_phase_dedup50.py'
       - 'public_eval_registry50.py'
@@ -12,6 +14,8 @@ on:
       - 'audit_finemath_sample50.py'
       - 'tests/test_foundation_v2.py'
       - '.github/workflows/foundation-v2-ci.yml'
+      - '.github/workflows/neral100-pretrain.yml'
+      - '.github/workflows/neral50m-h1-intensive.yml'
 permissions: {contents: read}
 jobs:
   test:
@@ -21,5 +25,5 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: python -m pip install --disable-pip-version-check pytest torch numpy
-      - run: python -m py_compile architectures100_variants.py neral100_checkpoint.py pretrain100_helix.py hf_curriculum50.py cross_phase_dedup50.py public_eval_registry50.py finemath_pilot50.py audit_finemath_sample50.py
+      - run: python -m py_compile architectures100_variants.py neral100_checkpoint.py pretrain100_helix.py training_observability.py trackio_bridge50.py hf_curriculum50.py cross_phase_dedup50.py public_eval_registry50.py finemath_pilot50.py audit_finemath_sample50.py
       - run: python -m pytest tests/test_foundation_v2.py -q
