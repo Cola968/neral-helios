@@ -87,64 +87,81 @@ jobs:
           foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')){
             if(-not(Test-Path (Join-Path $replay $f) -PathType Leaf)){throw "B2 replay file missing: $f"}
           }
+          $b1=Join-Path $assets 'pretrain50_data'
+          foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')){
+            if(-not(Test-Path (Join-Path $b1 $f) -PathType Leaf)){throw "B1 validation file missing: $f"}
+          }
           "checkpoint=$best" >> $env:GITHUB_OUTPUT
           "checkpoint_sha=$actual" >> $env:GITHUB_OUTPUT
           "data=$data" >> $env:GITHUB_OUTPUT
           "replay=$replay" >> $env:GITHUB_OUTPUT
+          "b1=$b1" >> $env:GITHUB_OUTPUT
 
-      - name: Train or resume bounded I2 weakness repair
+      - name: Train or resume guarded I2 E2 tri-loss repair
         id: train
         run: |
           $ErrorActionPreference='Stop'
           $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
-          $out=Join-Path $assets 'runs\neral50m_i2_weakness_e1'
+          $out=Join-Path $assets 'runs\neral50m_i2_weakness_e2'
           "out=$out" >> $env:GITHUB_OUTPUT
-          & $py -u -X utf8 train_weakness_repair50.py `
+          & $py -u -X utf8 train_weakness_repair50_e2.py `
             --init-from '${{ steps.source.outputs.checkpoint }}' --expected-source-sha '${{ steps.source.outputs.checkpoint_sha }}' `
             --data '${{ steps.source.outputs.data }}' --replay-data '${{ steps.source.outputs.replay }}' --out $out `
-            --steps 1600 --seq 768 --batch-size 8 --replay-batch 8 --sft-weight 0.72 --eos-weight 3.0 `
-            --peak-lr 0.000008 --min-lr 0.0000008 --warmup-fraction 0.05 --eval-every 100 --patience 8 `
-            --max-train-examples 8000 --max-val-examples 512 --dev-generation-examples 96 --desired-de-fraction 0.35 `
-            --min-answer-bytes 2 --max-answer-bytes 384 --max-lm-regression 0.02 --max-math-regression 0.02 `
-            --min-health-gain 1.5 --min-sft-nll-gain 0.003 --min-score-gain 0.50
-          if($LASTEXITCODE -ne 0){throw 'I2 training failed or was interrupted; latest.pt is retained for resume.'}
+            --steps 1200 --seq 768 --batch-size 8 --replay-batch 6 --math-batch 10 --math-seq 256 `
+            --sft-weight 0.45 --math-weight 0.35 --lm-weight 0.20 --eos-weight 2.25 `
+            --peak-lr 0.000004 --min-lr 0.0000004 --warmup-fraction 0.05 --eval-every 50 --patience 12 `
+            --max-train-examples 7000 --max-val-examples 512 --dev-generation-examples 96 --desired-de-fraction 0.35 `
+            --min-answer-bytes 2 --max-answer-bytes 384 --max-lm-regression 0.015 --max-math-regression 0.005 `
+            --min-health-gain 1.0 --min-sft-gain 0.001 --min-score-gain 0.25
+          if($LASTEXITCODE -ne 0){throw 'I2 E2 training failed or was interrupted; latest.pt is retained for resume.'}
 
-      - name: Resolve selected I2 candidate
+      - name: Resolve selected I2 E2 candidate
         id: candidate
         run: |
           $ErrorActionPreference='Stop'
           $out='${{ steps.train.outputs.out }}';$summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_repair.pt'
-          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'I2 outputs missing.'}
+          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'I2 E2 outputs missing.'}
           $s=Get-Content $summary -Raw|ConvertFrom-Json
-          if(-not $s.complete){throw "I2 incomplete: $($s.stop)"}
+          if(-not $s.complete){throw "I2 E2 incomplete: $($s.stop)"}
           $sha=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
-          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'I2 best checkpoint SHA mismatch.'}
+          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'I2 E2 best checkpoint SHA mismatch.'}
           "best=$best" >> $env:GITHUB_OUTPUT
           "best_sha=$sha" >> $env:GITHUB_OUTPUT
           "selected_step=$($s.selected_step)" >> $env:GITHUB_OUTPUT
           "effective=$($s.effective_weight_candidate)" >> $env:GITHUB_OUTPUT
 
-      - name: Benchmark unchanged I1 source and I2 candidate
+      - name: Attach frozen validation corpora for complete benchmark evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($item in @(@('pretrain50_data','${{ steps.source.outputs.b1 }}'),@('pretrain50_b2_data','${{ steps.source.outputs.replay }}'))){
+            $link=$item[0];$target=$item[1]
+            if(Test-Path $link){cmd /c "rmdir $link" 2>$null; if(Test-Path $link){Remove-Item $link -Recurse -Force}}
+            New-Item -ItemType Junction -Path $link -Target $target|Out-Null
+          }
+
+      - name: Benchmark unchanged I1 source and I2 E2 candidate
         run: |
           $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}'
           New-Item -ItemType Directory -Force i2_reports|Out-Null
           & $py -X utf8 benchmark_bundle50.py '${{ steps.source.outputs.checkpoint }}' --out-dir i2_reports\before
           if($LASTEXITCODE -ne 0){throw 'I1 source benchmark failed.'}
           & $py -X utf8 benchmark_bundle50.py '${{ steps.candidate.outputs.best }}' --out-dir i2_reports\after
-          if($LASTEXITCODE -ne 0){throw 'I2 candidate benchmark failed.'}
+          if($LASTEXITCODE -ne 0){throw 'I2 E2 candidate benchmark failed.'}
 
       - name: Apply weakness-repair gate
         run: |
           $ErrorActionPreference='Continue';$py='${{ steps.env.outputs.python }}'
           & $py -X utf8 weakness_repair_gate50.py --before-dir i2_reports\before --after-dir i2_reports\after --out i2_reports\I2_WEAKNESS_GATE.json
           $gateCode=$LASTEXITCODE
+          if($gateCode -notin @(0,2)){throw "I2 gate execution error: $gateCode"}
           [ordered]@{
-            stage='I2 weakness repair E1';source_sha='${{ steps.source.outputs.checkpoint_sha }}';candidate_sha='${{ steps.candidate.outputs.best_sha }}';
+            stage='I2 weakness repair E2 tri-loss';source_sha='${{ steps.source.outputs.checkpoint_sha }}';candidate_sha='${{ steps.candidate.outputs.best_sha }}';
             selected_step=[int]'${{ steps.candidate.outputs.selected_step }}';effective_weight_candidate=('${{ steps.candidate.outputs.effective }}' -eq 'True');
             weakness_gate_pass=($gateCode -eq 0);gate_exit_code=$gateCode;
-            next_action=if($gateCode -eq 0){'Review rich benchmark; candidate may replace I1 only after review.'}else{'Keep I1 as selected model; do not promote I2 candidate.'}
+            next_action=if($gateCode -eq 0){'Review rich benchmark; E2 may replace I1 only after review.'}else{'Keep I1 as selected model; E2 did not satisfy the hard release gate.'}
           }|ConvertTo-Json|Set-Content -Encoding utf8 i2_reports\I2_RESULT.json
           Get-Content i2_reports\I2_RESULT.json
+          exit 0
 
       - name: Reject private checkpoint or corpus uploads
         if: always()
