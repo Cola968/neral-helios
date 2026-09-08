@@ -3,6 +3,11 @@ from __future__ import annotations
 import pytest
 
 from hf_candidate_admission50 import assess_manifest
+from hf_source_policy50 import SOURCES
+
+
+def reserved_eval_ids():
+    return sorted(k for k, v in SOURCES.items() if v.role == "public-eval-holdout")
 
 
 def good(dataset_id="HuggingFaceTB/finemath"):
@@ -21,11 +26,7 @@ def good(dataset_id="HuggingFaceTB/finemath"):
         },
         "sampled_rows": 10000,
         "external_model_generated_rows": 0,
-        "reserved_eval_dataset_ids": [
-            "openai/gsm8k",
-            "google-research-datasets/mbpp",
-            "deepmind/code_contests",
-        ],
+        "reserved_eval_dataset_ids": reserved_eval_ids(),
     }
 
 

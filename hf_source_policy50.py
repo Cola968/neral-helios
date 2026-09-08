@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 
-REGISTRY_VERSION = 1
+REGISTRY_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,18 @@ SOURCES = {
     "deepmind/code_contests": SourcePolicy(
         "deepmind/code_contests", "public-eval-holdout", "CC-BY-4.0", "human-found",
         False, False, "Reserve for future coding evaluation rather than specialization data."),
+    "google/IFEval": SourcePolicy(
+        "google/IFEval", "public-eval-holdout", "Apache-2.0", "human-authored-verifiable-instructions",
+        False, False, "Reserve as an external instruction-following benchmark; never expose its prompts to training."),
+    "truthfulqa/truthful_qa": SourcePolicy(
+        "truthfulqa/truthful_qa", "public-eval-holdout", "Apache-2.0", "expert-generated",
+        False, False, "Reserve as an external truthfulness/misconception benchmark."),
+    "google/boolq": SourcePolicy(
+        "google/boolq", "public-eval-holdout", "CC-BY-SA-3.0", "human-found/crowdsourced",
+        False, False, "Reserve as an external reading-comprehension benchmark."),
+    "allenai/ai2_arc": SourcePolicy(
+        "allenai/ai2_arc", "public-eval-holdout", "CC-BY-SA-4.0", "human-found",
+        False, False, "Reserve ARC as an external science/reasoning benchmark."),
 
     # Potentially useful, but deliberately blocked until a separate next-campaign audit.
     "HuggingFaceTB/finemath": SourcePolicy(
