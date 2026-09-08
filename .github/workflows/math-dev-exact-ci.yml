@@ -1,0 +1,26 @@
+name: Math dev exact CI
+
+on:
+  pull_request:
+    paths:
+      - math_dev_exact50.py
+      - tests/test_math_dev_exact50.py
+      - .github/workflows/math-dev-exact-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile exact dev evaluator
+        run: python -m py_compile math_dev_exact50.py
+      - name: Install tests
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run exact dev tests
+        run: python -m pytest tests/test_math_dev_exact50.py -q
