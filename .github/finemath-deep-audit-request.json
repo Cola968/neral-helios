@@ -1,6 +1,1 @@
-{
-  "action": "audit",
-  "dataset": "HuggingFaceTB/finemath",
-  "sample_rows": 10000,
-  "sampling": "stratified-v1"
-}
+{"action":"audit","dataset":"HuggingFaceTB/finemath","sample_rows":10000,"sampling":"stratified-v1"}
