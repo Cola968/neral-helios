@@ -1,0 +1,62 @@
+name: Neral 50M Chat V2 RTX Autotune
+
+on:
+  push:
+    branches:
+      - train/neral50-chat-v2
+    paths:
+      - 'probe_chat50_v2_gpu.py'
+      - 'chat50_fastbatch.py'
+      - 'chat50_v2.py'
+      - 'fastpath50.py'
+      - 'model50.py'
+      - '.github/workflows/chat50-v2-gpu-profile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rtx4070-autotune:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve local Neral Python
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 unavailable'}
+          "python=$python" >> $env:GITHUB_OUTPUT
+      - name: Compile autotuner
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile probe_chat50_v2_gpu.py chat50_v2.py chat50_fastbatch.py fastpath50.py
+          if($LASTEXITCODE -ne 0){throw 'Autotuner compile failed'}
+      - name: Measure per-bucket training throughput
+        run: |
+          & '${{ steps.env.outputs.python }}' -u probe_chat50_v2_gpu.py --out chat50_v2_gpu_profile --max-padded-tokens 32768 --max-batch 128 --warmup 1 --steps 3 --max-reserved-fraction 0.90
+          if($LASTEXITCODE -ne 0){throw 'RTX autotune failed'}
+      - name: Reject model/corpus artifacts
+        if: always()
+        run: |
+          if(Test-Path chat50_v2_gpu_profile){
+            $bad=Get-ChildItem chat50_v2_gpu_profile -Recurse -File | Where-Object {$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Unexpected model/corpus artifact'}
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral50-chat-v2-rtx-profile-${{ github.run_id }}
+          path: chat50_v2_gpu_profile/
+          if-no-files-found: warn
+          retention-days: 30
