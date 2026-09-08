@@ -1,0 +1,39 @@
+name: FineMath bounded contamination audit
+
+on:
+  pull_request:
+    paths:
+      - 'audit_finemath_sample50.py'
+      - 'hf_candidate_admission50.py'
+      - 'hf_source_policy50.py'
+      - 'HF_REVISION_AUDIT_20260908.json'
+      - '.github/workflows/finemath-sample-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal dependency
+        run: python -m pip install --disable-pip-version-check numpy
+      - name: Compile audit scripts
+        run: python -m py_compile audit_finemath_sample50.py hf_candidate_admission50.py
+      - name: Run bounded FineMath sample audit
+        run: python audit_finemath_sample50.py --sample-rows 1000 --out finemath_audit_reports
+      - name: Apply fail-closed candidate admission gate
+        run: python hf_candidate_admission50.py --manifest finemath_audit_reports/FINEMATH_CANDIDATE_MANIFEST.json --out finemath_audit_reports/FINEMATH_ADMISSION_RESULT.json
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finemath-bounded-audit-${{ github.run_id }}
+          path: finemath_audit_reports/
+          if-no-files-found: warn
+          retention-days: 30
