@@ -1,7 +1,9 @@
 """Post-training gate for Neral-50M M1 RawMath generalization.
 
-M1 must create a real frozen RawMath/transfer gain without trading away the existing chat-model
-capabilities. Targeted-v1 remains supplemental and is never folded into NIS 1.0.
+M1 must create a real frozen RawMath/transfer gain without trading away any tracked release
+metric. Targeted-v1 remains supplemental and is never folded into NIS 1.0. The promotion
+policy is Pareto-style: a candidate may improve some metrics and leave saturated metrics equal,
+but no tracked metric is allowed to become worse than the source on the identical frozen bundle.
 """
 from __future__ import annotations
 
@@ -11,44 +13,105 @@ from pathlib import Path
 
 from weakness_repair_gate50 import extract
 
+HIGHER_IS_BETTER = (
+    "nis",
+    "free_eos_pct",
+    "utf8_pct",
+    "rawmath_exact_pct",
+    "rawmath_transfer_pct",
+    "rawmath_ood_pct",
+    "targeted_math_pct",
+    "targeted_code_pct",
+    "targeted_de_pct",
+    "targeted_reasoning_pct",
+    "v4_overall_pct",
+    "v4_math_pct",
+    "v4_code_pct",
+    "context_recall_pct",
+    "v5_single_pct",
+    "v5_multi_pct",
+)
+LOWER_IS_BETTER = ("free_repeated_trigram_pct", "v5_bpb_4095")
+EPS = 1e-9
+
+
+def pareto_compare(before: dict, after: dict) -> dict:
+    checks: dict[str, bool] = {}
+    deltas: dict[str, float | None] = {}
+    regressions: list[str] = []
+    improvements: list[str] = []
+    unchanged: list[str] = []
+
+    for key in HIGHER_IS_BETTER:
+        b = before.get(key)
+        a = after.get(key)
+        ok = b is not None and a is not None and float(a) + EPS >= float(b)
+        checks[key] = ok
+        if b is None or a is None:
+            deltas[key] = None
+            regressions.append(key)
+            continue
+        delta = float(a) - float(b)
+        deltas[key] = delta
+        if delta > EPS:
+            improvements.append(key)
+        elif delta < -EPS:
+            regressions.append(key)
+        else:
+            unchanged.append(key)
+
+    for key in LOWER_IS_BETTER:
+        b = before.get(key)
+        a = after.get(key)
+        # If neither side has optional BPB evidence, do not manufacture a failure.
+        if b is None and a is None:
+            checks[key] = True
+            deltas[key] = None
+            unchanged.append(key)
+            continue
+        ok = b is not None and a is not None and float(a) <= float(b) + EPS
+        checks[key] = ok
+        if b is None or a is None:
+            deltas[key] = None
+            regressions.append(key)
+            continue
+        delta = float(a) - float(b)
+        deltas[key] = delta
+        if delta < -EPS:
+            improvements.append(key)
+        elif delta > EPS:
+            regressions.append(key)
+        else:
+            unchanged.append(key)
+
+    return {
+        "pass": not regressions,
+        "checks": checks,
+        "regressions": regressions,
+        "improvements": improvements,
+        "unchanged": unchanged,
+        "deltas": deltas,
+        "policy": "Every tracked frozen-bundle metric must be non-worse than source; equality is allowed for saturated/unchanged metrics.",
+    }
+
 
 def assess(before: dict, after: dict) -> dict:
     failures: list[str] = []
     before_transfer = (before["rawmath_transfer_pct"] + before["rawmath_ood_pct"]) / 2.0
     after_transfer = (after["rawmath_transfer_pct"] + after["rawmath_ood_pct"]) / 2.0
-    before_bpb = before.get("v5_bpb_4095")
-    after_bpb = after.get("v5_bpb_4095")
-    if before_bpb is None:
-        bpb_ok = True
-        bpb_note = "source 4095-BPB unavailable; needle/context guards remain mandatory"
-    elif after_bpb is None:
-        bpb_ok = False
-        bpb_note = "candidate 4095-BPB missing while source evidence exists"
-    else:
-        bpb_ok = float(after_bpb) <= float(before_bpb) * 1.08
-        bpb_note = "candidate 4095-BPB must remain within +8%"
+
+    pareto = pareto_compare(before, after)
+    if not pareto["pass"]:
+        failures.extend(f"pareto_regression:{name}" for name in pareto["regressions"])
 
     checks = {
+        "pareto_no_tracked_regression": pareto["pass"],
         "utf8_ge_99": after["utf8_pct"] >= 99.0,
         "rawmath_exact_real_gain": after["rawmath_exact_pct"] >= max(15.0, before["rawmath_exact_pct"] + 5.0),
         "rawmath_transfer_ood_real_gain": after_transfer >= max(5.0, before_transfer + 5.0),
-        "targeted_math_protected": after["targeted_math_pct"] >= before["targeted_math_pct"] - 5.0,
-        "targeted_code_protected": after["targeted_code_pct"] >= before["targeted_code_pct"] - 5.0,
-        "targeted_de_protected": after["targeted_de_pct"] >= before["targeted_de_pct"] - 5.0,
-        "targeted_reasoning_protected": after["targeted_reasoning_pct"] >= before["targeted_reasoning_pct"] - 5.0,
-        "v4_math_protected": after["v4_math_pct"] >= before["v4_math_pct"] - 10.0,
-        "v4_code_protected": after["v4_code_pct"] >= before["v4_code_pct"] - 10.0,
-        "v4_overall_protected": after["v4_overall_pct"] >= before["v4_overall_pct"] - 5.0,
-        "nis_within_1_5": after["nis"] >= before["nis"] - 1.5,
-        "context_protected": after["context_recall_pct"] >= before["context_recall_pct"] - 10.0,
-        "single_needle_protected": after["v5_single_pct"] >= before["v5_single_pct"] - 10.0,
-        "multi_needle_protected": after["v5_multi_pct"] >= before["v5_multi_pct"] - 10.0,
-        "eos_not_materially_worse": after["free_eos_pct"] >= max(10.0, before["free_eos_pct"] - 2.0),
-        "repetition_bounded": after["free_repeated_trigram_pct"] <= min(8.5, before["free_repeated_trigram_pct"] + 1.0),
-        "long_context_bpb_protected": bpb_ok,
     }
     for name, ok in checks.items():
-        if not ok:
+        if not ok and name != "pareto_no_tracked_regression":
             failures.append(name)
 
     deltas = {
@@ -65,6 +128,7 @@ def assess(before: dict, after: dict) -> dict:
         "targeted_reasoning_pp": after["targeted_reasoning_pct"] - before["targeted_reasoning_pct"],
     }
     stretch = {
+        "all_tracked_non_worse": pareto["pass"],
         "rawmath_exact_ge_30": after["rawmath_exact_pct"] >= 30.0,
         "transfer_ood_mean_ge_15": after_transfer >= 15.0,
         "rawmath_exact_ge_formal_60": after["rawmath_exact_pct"] >= 60.0,
@@ -76,12 +140,12 @@ def assess(before: dict, after: dict) -> dict:
         "pass": not failures,
         "failures": failures,
         "checks": checks,
+        "pareto": pareto,
         "before": before,
         "after": after,
         "deltas": deltas,
         "stretch": stretch,
-        "long_context_bpb_evidence": {"source": before_bpb, "candidate": after_bpb, "note": bpb_note},
-        "policy": "Frozen model-only release bundle after training. M1 selection itself uses only independent dev/guard sets.",
+        "policy": "Frozen model-only release bundle after training. Promotion is forbidden if any tracked metric regresses. M1 selection itself uses only independent dev/guard sets.",
         "next_action": "candidate eligible for manual promotion review" if not failures else "keep previous selected model",
     }
 
@@ -93,7 +157,8 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     result = assess(extract(args.before_dir), extract(args.after_dir))
-    out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf8")
     print(json.dumps(result, ensure_ascii=False), flush=True)
     if not result["pass"]:
