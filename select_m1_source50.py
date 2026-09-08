@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 def load(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf8-sig"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def sha256(path: Path) -> str:
