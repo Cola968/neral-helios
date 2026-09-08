@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - raw_math50_transfer_data.py
+      - train_math_generalization50.py
       - tests/test_raw_math50_transfer_data.py
       - .github/workflows/rawmath-transfer-ci.yml
 
@@ -18,8 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile transfer curriculum
-        run: python -m py_compile raw_math50_transfer_data.py
+      - name: Compile transfer curriculum and dormant trainer
+        run: python -m py_compile raw_math50_transfer_data.py train_math_generalization50.py
       - name: Install tests
         run: python -m pip install --disable-pip-version-check pytest
       - name: Validate transfer curriculum
