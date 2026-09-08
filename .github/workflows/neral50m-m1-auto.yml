@@ -1,0 +1,180 @@
+name: Neral 50M M1 Auto Generalization
+
+on:
+  workflow_run:
+    workflows:
+      - Neral 50M Stage Ablation
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-m1-generalization
+  cancel-in-progress: false
+
+jobs:
+  m1:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'stage-ablation-run' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 600
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted M1 code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Validate RTX environment and completed ablation event
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if('${{ github.event.workflow_run.name }}' -ne 'Neral 50M Stage Ablation'){throw 'Unexpected upstream workflow.'}
+          if('${{ github.event.workflow_run.conclusion }}' -ne 'success'){throw 'Ablation did not succeed.'}
+          if('${{ github.event.workflow_run.head_branch }}' -ne 'stage-ablation-run'){throw 'Untrusted ablation branch.'}
+          $verifiedAssets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{$verifiedAssets}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Select verified M1 source from completed evidence
+        id: source
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          New-Item -ItemType Directory -Force m1_reports|Out-Null
+          & $py -X utf8 select_m1_source50.py --assets $assets --ablation-run-id '${{ github.event.workflow_run.id }}' --out m1_reports\M1_SOURCE_SELECTION.json
+          if($LASTEXITCODE -ne 0){throw 'M1 source selection failed.'}
+          $s=Get-Content m1_reports\M1_SOURCE_SELECTION.json -Raw|ConvertFrom-Json
+          $rel=([string]$s.selected.checkpoint_rel).Replace('/','\')
+          $checkpoint=Join-Path $assets $rel
+          if(-not(Test-Path $checkpoint -PathType Leaf)){throw "Selected checkpoint missing: $checkpoint"}
+          $actual=(Get-FileHash $checkpoint -Algorithm SHA256).Hash.ToLower()
+          if($actual -ne ([string]$s.selected.sha256).ToLower()){throw 'Selected M1 source hash mismatch.'}
+          $data=Join-Path $assets 'i1_work_v3_oasst2\sft_data'
+          $replay=Join-Path $assets 'pretrain50_b2_data'
+          $b1=Join-Path $assets 'pretrain50_data'
+          foreach($f in @('train.jsonl','val.jsonl','test.jsonl','holdout.jsonl','manifest.json')){
+            if(-not(Test-Path (Join-Path $data $f) -PathType Leaf)){throw "Screened SFT file missing: $f"}
+          }
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')){
+            if(-not(Test-Path (Join-Path $replay $f) -PathType Leaf)){throw "Replay file missing: $f"}
+          }
+          foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')){
+            if(-not(Test-Path (Join-Path $b1 $f) -PathType Leaf)){throw "B1 validation file missing: $f"}
+          }
+          "checkpoint=$checkpoint" >> $env:GITHUB_OUTPUT
+          "checkpoint_sha=$actual" >> $env:GITHUB_OUTPUT
+          "source_label=$($s.selected.source_label)" >> $env:GITHUB_OUTPUT
+          "data=$data" >> $env:GITHUB_OUTPUT
+          "replay=$replay" >> $env:GITHUB_OUTPUT
+          "b1=$b1" >> $env:GITHUB_OUTPUT
+          Write-Host "M1 source: $($s.selected.source_label) because $($s.selected.reason)"
+
+      - name: Train or resume guarded M1 RawMath generalization
+        id: train
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          $label='${{ steps.source.outputs.source_label }}'
+          $out=Join-Path $assets ('runs\neral50m_math_generalization_m1_'+$label)
+          "out=$out" >> $env:GITHUB_OUTPUT
+          & $py -u -X utf8 train_math_generalization50.py `
+            --init-from '${{ steps.source.outputs.checkpoint }}' --expected-source-sha '${{ steps.source.outputs.checkpoint_sha }}' `
+            --data '${{ steps.source.outputs.data }}' --replay-data '${{ steps.source.outputs.replay }}' --out $out `
+            --steps 3000 --math-seq 256 --sft-seq 768 --id-math-batch 16 --transfer-math-batch 16 --sft-batch 4 --replay-batch 4 `
+            --id-math-weight 0.35 --transfer-math-weight 0.35 --sft-weight 0.15 --lm-weight 0.15 --eos-weight 2.0 `
+            --peak-lr 0.000008 --min-lr 0.0000008 --warmup-fraction 0.05 --eval-every 100 --patience 10 `
+            --max-sft-train 5000 --max-sft-val 384 --dev-generation-examples 64 --desired-de-fraction 0.35 `
+            --max-lm-regression 0.02 --max-sft-regression 0.02 --max-health-drop 2.0 --min-math-gain 0.005
+          if($LASTEXITCODE -ne 0){throw 'M1 training failed or was interrupted; latest.pt remains resume-safe.'}
+
+      - name: Resolve selected M1 candidate
+        id: candidate
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='${{ steps.train.outputs.out }}';$summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_math_generalization.pt'
+          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'M1 outputs missing.'}
+          $s=Get-Content $summary -Raw|ConvertFrom-Json
+          if(-not $s.complete){throw "M1 incomplete: $($s.stop)"}
+          $sha=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
+          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'M1 best checkpoint SHA mismatch.'}
+          "best=$best" >> $env:GITHUB_OUTPUT
+          "best_sha=$sha" >> $env:GITHUB_OUTPUT
+          "selected_step=$($s.selected_step)" >> $env:GITHUB_OUTPUT
+          "effective=$($s.effective_weight_candidate)" >> $env:GITHUB_OUTPUT
+
+      - name: Attach frozen validation corpora for complete benchmark evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($item in @(@('pretrain50_data','${{ steps.source.outputs.b1 }}'),@('pretrain50_b2_data','${{ steps.source.outputs.replay }}'))){
+            $link=$item[0];$target=$item[1]
+            if(Test-Path $link){cmd /c "rmdir $link" 2>$null; if(Test-Path $link){Remove-Item $link -Recurse -Force}}
+            New-Item -ItemType Junction -Path $link -Target $target|Out-Null
+          }
+
+      - name: Benchmark unchanged source and M1 candidate
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 benchmark_bundle50.py '${{ steps.source.outputs.checkpoint }}' --out-dir m1_reports\before
+          if($LASTEXITCODE -ne 0){throw 'M1 source benchmark failed.'}
+          & $py -X utf8 benchmark_bundle50.py '${{ steps.candidate.outputs.best }}' --out-dir m1_reports\after
+          if($LASTEXITCODE -ne 0){throw 'M1 candidate benchmark failed.'}
+
+      - name: Apply hard M1 generalization gate
+        run: |
+          $ErrorActionPreference='Continue';$py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 m1_gate50.py --before-dir m1_reports\before --after-dir m1_reports\after --out m1_reports\M1_GATE.json
+          $gateCode=$LASTEXITCODE
+          if($gateCode -notin @(0,2)){throw "M1 gate execution error: $gateCode"}
+          [ordered]@{
+            stage='M1 RawMath generalization';source_label='${{ steps.source.outputs.source_label }}';source_sha='${{ steps.source.outputs.checkpoint_sha }}';
+            candidate_sha='${{ steps.candidate.outputs.best_sha }}';selected_step=[int]'${{ steps.candidate.outputs.selected_step }}';
+            effective_weight_candidate=('${{ steps.candidate.outputs.effective }}' -eq 'True');m1_gate_pass=($gateCode -eq 0);gate_exit_code=$gateCode;
+            next_action=if($gateCode -eq 0){'Candidate eligible for manual promotion review.'}else{'Keep previous selected model; M1 did not pass hard frozen-benchmark gate.'}
+          }|ConvertTo-Json|Set-Content -Encoding utf8 m1_reports\M1_RESULT.json
+          Get-Content m1_reports\M1_RESULT.json
+          exit 0
+
+      - name: Reject private checkpoint or corpus uploads
+        if: always()
+        run: |
+          if(Test-Path m1_reports){
+            $bad=Get-ChildItem m1_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private model/corpus found in M1 report directory.'}
+          }
+
+      - name: Persist M1 reports locally
+        if: always()
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';if(-not $assets){exit 0}
+          $dest=Join-Path $assets ('reports\runner_50m_m1_'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force $dest|Out-Null
+          if(Test-Path m1_reports){Copy-Item m1_reports\* $dest -Recurse -Force}
+          $summary=Join-Path '${{ steps.train.outputs.out }}' 'summary.json'
+          if(Test-Path $summary){Copy-Item $summary (Join-Path $dest 'training_summary.json') -Force}
+          Write-Host "Persisted M1 reports to $dest"
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-m1-generalization-${{ github.run_id }}
+          path: m1_reports/
+          if-no-files-found: warn
+          retention-days: 14
