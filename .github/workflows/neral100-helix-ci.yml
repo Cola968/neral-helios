@@ -1,0 +1,33 @@
+name: Neral 100M Helix architecture CI
+
+on:
+  pull_request:
+    paths:
+      - 'model100.py'
+      - 'architectures100.py'
+      - 'tests/test_model100_helix.py'
+      - 'NERAL100_ARCHITECTURE.md'
+      - '.github/workflows/neral100-helix-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  helix-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile Helix implementation
+        run: python -m py_compile model100.py architectures100.py
+      - name: Validate exact architecture contract
+        run: python architectures100.py
+      - name: Run Helix correctness tests
+        run: python -m pytest tests/test_model100_helix.py -q
