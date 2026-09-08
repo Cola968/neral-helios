@@ -1,0 +1,33 @@
+name: Neral automatic scorecard
+on:
+  workflow_run:
+    workflows: ['Neral 50M H1 1B-token Intensive', 'Neral 50M M2 Transactional Pareto', 'Neral 50M Version Matrix']
+    types: [completed]
+permissions: {actions: read, contents: read}
+jobs:
+  scorecard:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download source-run artifacts
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: gh run download '${{ github.event.workflow_run.id }}' --dir incoming || true
+      - name: Generate scorecard when a complete frozen bundle exists
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess,sys
+          roots=[]
+          for p in Path('incoming').rglob('bundle_manifest.json'):
+              r=p.parent
+              if all((r/f).is_file() for f in ['v3.json','v4.json','rawmath.json','targeted.json','free.json','v5.json']):roots.append(r)
+          if not roots:print('No complete frozen bundle; scorecard skipped.');raise SystemExit(0)
+          roots.sort(key=lambda p:('before' in p.parts, p.name!='after',str(p)))
+          name='H1' if 'H1' in '${{ github.event.workflow_run.name }}' else 'run-${{ github.event.workflow_run.id }}'
+          subprocess.run([sys.executable,'neral_scorecard50.py','--bundle',str(roots[0]),'--name',name,'--out','scorecard'],check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles('scorecard/**') != '' }}
+        with: {name: 'neral-scorecard-${{ github.event.workflow_run.id }}', path: scorecard/, retention-days: 30}

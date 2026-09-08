@@ -1,0 +1,31 @@
+name: External holdout preparation smoke
+on:
+  push:
+    branches: ['external-holdout-smoke-run']
+    paths: ['.github/external-holdout-smoke-request.json']
+permissions: {contents: read}
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout trusted code from main
+        uses: actions/checkout@v4
+        with: {ref: main}
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with: {ref: external-holdout-smoke-run, path: request}
+      - name: Validate authorization
+        run: python -c "import json; o=json.load(open('request/.github/external-holdout-smoke-request.json')); assert o=={'action':'smoke','tasks':['gsm8k','mbpp','codecontests'],'training':False}"
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install --disable-pip-version-check datasets
+      - name: Resolve immutable public-eval revisions
+        run: python hf_revision_audit50.py --dataset openai/gsm8k --dataset google-research-datasets/mbpp --dataset deepmind/code_contests --out public_eval_revisions.json
+      - name: Prepare 5 answer-free MBPP examples
+        run: python prepare_external_holdouts50.py --task mbpp --revision-audit public_eval_revisions.json --out smoke_mbpp --limit 5
+      - name: Prepare 2 answer-free CodeContests examples
+        run: python prepare_external_holdouts50.py --task codecontests --revision-audit public_eval_revisions.json --out smoke_codecontests --limit 2
+      - name: Verify no solution keys were retained
+        run: python -c "import json,pathlib; rows=[json.loads(x) for p in [pathlib.Path('smoke_mbpp/mbpp.jsonl'),pathlib.Path('smoke_codecontests/codecontests.jsonl')] for x in p.read_text().splitlines()]; assert all(not any(k in r for k in ['code','solutions','solution']) for r in rows)"
+      - name: Keep public-eval rows ephemeral
+        run: rm -rf smoke_mbpp smoke_codecontests

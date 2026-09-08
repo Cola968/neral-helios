@@ -1,0 +1,24 @@
+name: FineMath deep contamination audit
+on:
+  push:
+    branches: ['finemath-deep-audit-run']
+    paths: ['.github/finemath-deep-audit-request.json']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout trusted code from main
+        uses: actions/checkout@v4
+        with: {ref: main}
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with: {ref: finemath-deep-audit-run, path: request}
+      - name: Validate authorization
+        run: python -c "import json; o=json.load(open('request/.github/finemath-deep-audit-request.json')); assert o=={'action':'audit','dataset':'HuggingFaceTB/finemath','sample_rows':10000,'sampling':'stratified-v1'}"
+      - name: Audit 10k FineMath rows
+        run: python audit_finemath_sample50.py --sample-rows 10000 --sampling stratified-v1 --out finemath_deep_reports
+      - name: Admission evidence
+        run: python hf_candidate_admission50.py --manifest finemath_deep_reports/FINEMATH_CANDIDATE_MANIFEST.json --out finemath_deep_reports/FINEMATH_ADMISSION_RESULT.json
+      - uses: actions/upload-artifact@v4
+        with: {name: 'finemath-deep-audit-${{ github.run_id }}', path: finemath_deep_reports/, retention-days: 30}
