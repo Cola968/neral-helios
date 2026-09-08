@@ -1,0 +1,109 @@
+name: Neral 50M M1 Post-Run Recheck
+
+on:
+  workflow_run:
+    workflows:
+      - Neral 50M M1 Auto Generalization
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-m1-postrun-recheck
+  cancel-in-progress: false
+
+jobs:
+  recheck:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_run'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout current trusted gate from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve persisted M1 evidence
+        id: evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          if('${{ github.event.workflow_run.name }}' -ne 'Neral 50M M1 Auto Generalization'){throw 'Unexpected upstream workflow.'}
+          if('${{ github.event.workflow_run.conclusion }}' -ne 'success'){throw 'Upstream M1 workflow did not complete successfully.'}
+          $verifiedAssets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{$verifiedAssets}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          $runId='${{ github.event.workflow_run.id }}'
+          if($runId -notmatch '^\d+$'){throw 'Invalid upstream run id.'}
+          $report=Join-Path $assets ('reports\runner_50m_m1_'+$runId)
+          if(-not(Test-Path $report -PathType Container)){throw "Persisted M1 report missing: $report"}
+          foreach($dir in @('before','after')){
+            $p=Join-Path $report $dir
+            if(-not(Test-Path $p -PathType Container)){throw "M1 benchmark evidence missing: $dir"}
+            foreach($f in @('free.json','v3.json','v4.json','rawmath.json','targeted.json','v5.json')){
+              if(-not(Test-Path (Join-Path $p $f) -PathType Leaf)){throw "M1 $dir evidence missing: $f"}
+            }
+          }
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "report=$report" >> $env:GITHUB_OUTPUT
+          "upstream_run_id=$runId" >> $env:GITHUB_OUTPUT
+
+      - name: Apply latest M1 gate from current main
+        id: gate
+        run: |
+          $ErrorActionPreference='Continue'
+          $py='${{ steps.evidence.outputs.python }}';$report='${{ steps.evidence.outputs.report }}'
+          New-Item -ItemType Directory -Force m1_recheck_reports|Out-Null
+          & $py -X utf8 m1_gate50.py --before-dir (Join-Path $report 'before') --after-dir (Join-Path $report 'after') --out m1_recheck_reports\M1_GATE_RECHECK.json
+          $code=$LASTEXITCODE
+          if($code -notin @(0,2)){throw "M1 current-main gate execution error: $code"}
+          $gate=Get-Content m1_recheck_reports\M1_GATE_RECHECK.json -Raw|ConvertFrom-Json
+          [ordered]@{
+            stage='M1 post-run current-main recheck';
+            upstream_run_id=[int64]'${{ steps.evidence.outputs.upstream_run_id }}';
+            evaluated_main_sha='${{ github.sha }}';
+            current_gate_pass=($code -eq 0);
+            gate_exit_code=$code;
+            failures=@($gate.failures);
+            next_action=if($code -eq 0){'M1 remains eligible for manual promotion review under current main gate.'}else{'Do not promote M1; keep previous selected model.'}
+          }|ConvertTo-Json -Depth 6|Set-Content -Encoding utf8 m1_recheck_reports\M1_RECHECK_RESULT.json
+          Get-Content m1_recheck_reports\M1_RECHECK_RESULT.json
+          exit 0
+
+      - name: Persist current-main recheck beside M1 evidence
+        if: always()
+        run: |
+          $report='${{ steps.evidence.outputs.report }}'
+          if(-not $report -or -not(Test-Path $report -PathType Container)){exit 0}
+          if(Test-Path m1_recheck_reports){Copy-Item m1_recheck_reports\* $report -Force}
+          Write-Host "Persisted current-main M1 recheck to $report"
+
+      - name: Reject private model or corpus uploads
+        if: always()
+        run: |
+          if(Test-Path m1_recheck_reports){
+            $bad=Get-ChildItem m1_recheck_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz','.jsonl'}
+            if($bad){throw 'Private model/corpus found in M1 recheck report directory.'}
+          }
+
+      - name: Upload recheck reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-m1-recheck-${{ github.event.workflow_run.id }}
+          path: m1_recheck_reports/
+          if-no-files-found: warn
+          retention-days: 14

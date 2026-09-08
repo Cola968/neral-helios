@@ -10,6 +10,7 @@ on:
       - tests/test_m1_gate50.py
       - tests/test_stage_ablation50.py
       - .github/workflows/neral50m-m1-auto.yml
+      - .github/workflows/neral50m-m1-recheck.yml
       - .github/workflows/m1-auto-ci.yml
 
 permissions:
