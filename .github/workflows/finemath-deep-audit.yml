@@ -16,6 +16,10 @@ jobs:
         with: {ref: finemath-deep-audit-run, path: request}
       - name: Validate authorization
         run: python -c "import json; o=json.load(open('request/.github/finemath-deep-audit-request.json')); assert o=={'action':'audit','dataset':'HuggingFaceTB/finemath','sample_rows':10000,'sampling':'stratified-v1'}"
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install audit runtime
+        run: python -m pip install --disable-pip-version-check numpy
       - name: Audit 10k FineMath rows
         run: python audit_finemath_sample50.py --sample-rows 10000 --sampling stratified-v1 --out finemath_deep_reports
       - name: Admission evidence
