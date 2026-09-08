@@ -25,3 +25,9 @@ Set `HELIOS_PREPARATION_MODE=1` and `HELIOS_DEVICE=cpu` before starting `app.py`
 Reproduce: `python -m pytest -q tests/test_projects.py tests/test_helios_runtime.py tests/test_helios_i1_ready.py`, `node --test tests/test_helios_history.js`. Browser suite: install Playwright in your test environment, optionally set `HELIOS_TEST_BROWSER` to an installed browser executable, then `node tests/test_helios_browser.cjs`.
 
 Training scripts, training data, checkpoints and architectures were not edited. No inference, benchmark, CUDA or training job was started during this UI update. CASCADE/RIPPLE/LIVING operate on explicitly stored local project relationships; they do not monitor the internet or scan arbitrary repository files.
+
+## Quiet chat layout follow-up
+
+Replaced the welcome-card layout and blue accents with a restrained monochrome chat layout matching the supplied reference: narrow history sidebar, centered opening question and composer, own-model selection inside its bottom row, and a slim SOLVE/code/projects toolbar. Rename, import/export, theme and model details moved into a keyboard-accessible overflow menu. Dark is the default for new sessions; existing saved theme choices remain respected. Removed decorative branding, feature marketing panels and repeated runtime labels from the main canvas. Existing project tools and runtime protection remain in place.
+
+Revalidated: 58 Python CPU/security tests, 8 Node tests, JavaScript syntax and the headless browser suite (desktop/mobile, light/dark, menu actions and persisted chats). Browser tests use fixtures and send zero model requests. No training or model files changed.
