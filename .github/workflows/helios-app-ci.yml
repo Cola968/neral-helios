@@ -1,9 +1,9 @@
 name: Helios app CPU tests
 on:
   pull_request:
-    paths: ['app.py', 'static/**', 'templates/**', 'tests/test_helios_runtime.py', '.github/workflows/helios-app-ci.yml']
+    paths: ['app.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_projects.py', '.github/workflows/helios-app-ci.yml']
   push:
-    branches: [helios-app-runtime-ux]
+    branches: [helios-history-markdown-i1-ready]
 permissions:
   contents: read
 jobs:
@@ -20,6 +20,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install pytest numpy flask waitress
       - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py
+      - run: python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py
       - run: node --check static/neral.js
       - run: node --check static/projects.js
+      - run: node --check static/helios-core.js
+      - run: node --test tests/test_helios_history.js

@@ -34,7 +34,8 @@ _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.L
 torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
 assert report['trainable']==EXPECTED_PARAMS
-device_name=os.environ.get('HELIOS_DEVICE','cpu')
+PREPARATION_MODE=os.environ.get('HELIOS_PREPARATION_MODE','0')=='1'
+device_name='cpu' if PREPARATION_MODE else os.environ.get('HELIOS_DEVICE','cpu')
 if device_name not in {'cpu','cuda'}:raise ValueError('HELIOS_DEVICE must be cpu or cuda')
 device=torch.device(device_name)
 runtime_error=None
@@ -46,9 +47,12 @@ def checkpoint_paths():
     if (ASSETS/'export/pilot_02/neral20m.pt').exists():paths['pilot_02']=(ASSETS/'export/pilot_02/neral20m.pt',ASSETS/'export/pilot_02/neral20m.sha256')
     if (ASSETS/'export/neral40m/neral40m.pt').exists():paths['neral40m']=(ASSETS/'export/neral40m/neral40m.pt',ASSETS/'export/neral40m/neral40m.sha256')
     if (ASSETS/'export/neral50m/neral50m.pt').exists():paths['neral50m']=(ASSETS/'export/neral50m/neral50m.pt',ASSETS/'export/neral50m/neral50m.sha256')
+    i1=ASSETS/'export/neral50m_i1/neral50m.pt';digest=i1.with_suffix('.sha256')
+    if i1.is_file() and digest.is_file():paths['neral50m_i1']=(i1,digest)
     return paths
 def load_runtime(name):
     global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error
+    if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
     if name not in checkpoint_paths():raise ValueError('Unbekannter Checkpoint.')
     path,hash_path=checkpoint_paths()[name]
     if not path.is_file() or not hash_path.is_file():raise ValueError('Checkpoint oder SHA-256-Datei fehlt.')
@@ -57,6 +61,7 @@ def load_runtime(name):
     if not re.fullmatch('[a-fA-F0-9]{64}',expected) or not secrets.compare_digest(actual,expected.lower()):raise ValueError('Checkpoint-Integrität fehlgeschlagen.')
     payload=torch.load(path,map_location='cpu',weights_only=True);state=payload['model']
     candidate_cfg=NeralConfig(**payload.get('config',{}));expected=expected_parameters(candidate_cfg)
+    if name=='neral50m_i1' and expected!=50_012_976:raise ValueError('I1 erfordert exakt Neral-50M.')
     if not torch.equal(state['tok_emb.weight'],state['lm_head.weight']):raise ValueError('Inkonsistente gebundene Gewichte.')
     if not all(torch.isfinite(v).all() for v in state.values()):raise ValueError('Ungültige Gewichte.')
     if expected==50_012_976:
@@ -70,6 +75,9 @@ def load_runtime(name):
     checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name;runtime_error=None
 def initialize_runtime():
     global runtime_error
+    if PREPARATION_MODE:
+        runtime_error='Vorbereitungsmodus: keine Modellinferenz. SOLVE, Codeprüfung und Projekte sind bereit.'
+        return
     name='pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original'
     if not checkpoint_paths()[name][0].is_file():
         runtime_error='Kein eigener Checkpoint verfügbar. SOLVE, Codeprüfung und Projekte sind bereit.'
@@ -117,7 +125,7 @@ def text_key(value):
     return value
 
 def info_payload():
-    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 
 @app.before_request
 def local_and_rate_guard():
@@ -209,8 +217,10 @@ def generate():
     if type(params['temperature']) not in (int,float) or not math.isfinite(params['temperature']) or not 0<=params['temperature']<=1.5:return jsonify(error='Temperatur muss zwischen 0 und 1,5 liegen.'),400
     history=data.get('history',[])
     if not isinstance(history,list) or len(history)>12:return jsonify(error='Maximal zwölf vorherige Nachrichten erlaubt.'),400
-    for h in history:
+    if len(history)%2:return jsonify(error='Chatverlauf muss vollständige Nachrichtenpaare enthalten.'),400
+    for index,h in enumerate(history):
         if not isinstance(h,dict) or not isinstance(h.get('role'),str) or h.get('role') not in {'user','assistant'} or not isinstance(h.get('content'),str):return jsonify(error='Ungültiger Chatverlauf.'),400
+        if h['role']!=('user' if index%2==0 else 'assistant'):return jsonify(error='Ungültige Reihenfolge im Chatverlauf.'),400
     try:history_bytes=sum(len(h['content'].encode()) for h in history)
     except UnicodeEncodeError:return jsonify(error='Ungültiger Unicode-Text im Verlauf.'),400
     if history_bytes+prompt_bytes>MAX_PROMPT_BYTES:return jsonify(error='Chatkontext zu lang. Beginne einen neuen Chat.'),413
@@ -227,7 +237,7 @@ def generate():
         except ValueError as e:return jsonify(error=str(e)),400
     if mode=='solve':
         try:
-            result=solve(prompt)
+            result=solve(prompt.translate(str.maketrans({'×':'*','÷':'/','−':'-'})))
             return jsonify(mode='solve-tool',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False)
         except ValueError as e:return jsonify(error=str(e)),400
     if mode=='chat' and re.fullmatch(r'[0-9x\s.+*/()%=\-^]+',prompt.strip()) and re.search(r'\d',prompt):
@@ -235,6 +245,7 @@ def generate():
             result=solve(prompt)
             return jsonify(mode='solve-tool',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False,routing='deterministic-arithmetic-only')
         except ValueError:pass
+    if PREPARATION_MODE:return jsonify(error='Vorbereitungsmodus: Modellinferenz ist deaktiviert.'),503
     if not checkpoint_loaded:return jsonify(error='Kein eigener Checkpoint installiert. SOLVE, Codeprüfung und Projekte funktionieren lokal; Modellgewichte laut README bereitstellen.'),503
     formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'
     ids=tokenizer.encode(formatted,bos=True)
