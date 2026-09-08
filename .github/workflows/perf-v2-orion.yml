@@ -10,14 +10,11 @@ on:
       - 'probe_perf_v2.py'
       - 'test_perf_v2.py'
       - 'DATA_SCALE_V2.md'
+      - 'PERFORMANCE_SPRINT_20260908.md'
       - '.github/workflows/perf-v2-orion.yml'
 
 permissions:
   contents: read
-
-concurrency:
-  group: neral-gpu-exclusive-training
-  cancel-in-progress: false
 
 jobs:
   contracts:
@@ -35,6 +32,9 @@ jobs:
     needs: contracts
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 120
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
