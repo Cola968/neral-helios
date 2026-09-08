@@ -34,6 +34,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: request_checkout
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Validate exact authorization and RTX environment
