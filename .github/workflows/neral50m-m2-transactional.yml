@@ -1,0 +1,171 @@
+name: Neral 50M M2 Transactional Pareto
+
+on:
+  push:
+    branches:
+      - m2-train-run
+    paths:
+      - 'requests/NERAL50_M2_RUN.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-m2-transactional
+  cancel-in-progress: false
+
+jobs:
+  m2:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 600
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted M2 code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: request_checkout
+          persist-credentials: false
+
+      - name: Validate exact authorization and RTX environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          if('${{ github.ref_name }}' -ne 'm2-train-run'){throw 'Untrusted M2 branch.'}
+          $reqPath='request_checkout\requests\NERAL50_M2_RUN.json'
+          if(-not(Test-Path $reqPath -PathType Leaf)){throw 'M2 authorization request missing.'}
+          $r=Get-Content $reqPath -Raw|ConvertFrom-Json
+          if($r.schema -ne 1 -or $r.stage -ne 'neral50m_m2_transactional' -or $r.source -ne 'd3_i1' -or -not $r.authorize){throw 'Invalid M2 authorization request.'}
+          $changed=git -C request_checkout diff-tree --no-commit-id --name-only -r '${{ github.sha }}'
+          if(($changed|Measure-Object).Count -ne 1 -or $changed -ne 'requests/NERAL50_M2_RUN.json'){throw 'Authorization commit may change only the M2 request file.'}
+          $verifiedAssets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{$verifiedAssets}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Resolve immutable D3 I1 source and screened data
+        id: source
+        run: |
+          $ErrorActionPreference='Stop';$assets='${{ steps.env.outputs.assets }}'
+          $checkpoint=Join-Path $assets 'runs\neral50m_i1_instruct_d3\best_instruct.pt'
+          $expected='ab48ea9266444c19c67325a9f344813f5b69692cf65749d6abf5b5a15ff222da'
+          if(-not(Test-Path $checkpoint -PathType Leaf)){throw "D3/I1 source missing: $checkpoint"}
+          $actual=(Get-FileHash $checkpoint -Algorithm SHA256).Hash.ToLower()
+          if($actual -ne $expected){throw "D3/I1 source SHA mismatch: $actual"}
+          $data=Join-Path $assets 'i1_work_v3_oasst2\sft_data'
+          $replay=Join-Path $assets 'pretrain50_b2_data'
+          $b1=Join-Path $assets 'pretrain50_data'
+          foreach($f in @('train.jsonl','val.jsonl','test.jsonl','holdout.jsonl','manifest.json')){if(-not(Test-Path (Join-Path $data $f) -PathType Leaf)){throw "SFT data missing: $f"}}
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')){if(-not(Test-Path (Join-Path $replay $f) -PathType Leaf)){throw "Replay data missing: $f"}}
+          foreach($f in @('val_de.bin','val_en.bin','documents.jsonl')){if(-not(Test-Path (Join-Path $b1 $f) -PathType Leaf)){throw "B1 validation missing: $f"}}
+          "checkpoint=$checkpoint" >> $env:GITHUB_OUTPUT
+          "checkpoint_sha=$actual" >> $env:GITHUB_OUTPUT
+          "data=$data" >> $env:GITHUB_OUTPUT
+          "replay=$replay" >> $env:GITHUB_OUTPUT
+          "b1=$b1" >> $env:GITHUB_OUTPUT
+
+      - name: Train transactional M2 from D3 I1
+        id: train
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          $out=Join-Path $assets ('runs\neral50m_m2_transactional_'+$env:GITHUB_RUN_ID)
+          "out=$out" >> $env:GITHUB_OUTPUT
+          & $py -u -X utf8 train_m2_pareto50.py `
+            --init-from '${{ steps.source.outputs.checkpoint }}' --expected-source-sha '${{ steps.source.outputs.checkpoint_sha }}' `
+            --data '${{ steps.source.outputs.data }}' --replay-data '${{ steps.source.outputs.replay }}' --out $out `
+            --blocks 12 --steps-per-block 50 --math-seq 256 --sft-seq 768 `
+            --id-math-batch 8 --transfer-math-batch 10 --sft-batch 8 --replay-batch 8 `
+            --id-math-weight 0.18 --transfer-math-weight 0.22 --sft-weight 0.30 --lm-weight 0.30 `
+            --eos-weight 2.25 --peak-lr 0.0000025 --min-lr 0.00000025 --warmup-fraction 0.05 `
+            --max-sft-train 6000 --max-sft-val 512 --dev-generation-examples 72 --desired-de-fraction 0.38 `
+            --exact-per-category 3 --min-score-gain 0.05
+          if($LASTEXITCODE -ne 0){throw 'M2 training failed.'}
+
+      - name: Resolve selected M2 anchor
+        id: candidate
+        run: |
+          $ErrorActionPreference='Stop';$out='${{ steps.train.outputs.out }}'
+          $summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_m2.pt'
+          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'M2 outputs missing.'}
+          $s=Get-Content $summary -Raw|ConvertFrom-Json
+          if(-not $s.complete){throw 'M2 run incomplete.'}
+          $sha=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
+          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'M2 best SHA mismatch.'}
+          "best=$best" >> $env:GITHUB_OUTPUT
+          "best_sha=$sha" >> $env:GITHUB_OUTPUT
+          "selected_block=$($s.selected_block)" >> $env:GITHUB_OUTPUT
+          "effective=$($s.effective_weight_candidate)" >> $env:GITHUB_OUTPUT
+          "transfer_growth=$($s.exact_transfer_growth)" >> $env:GITHUB_OUTPUT
+
+      - name: Attach frozen validation corpora for post-training evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($item in @(@('pretrain50_data','${{ steps.source.outputs.b1 }}'),@('pretrain50_b2_data','${{ steps.source.outputs.replay }}'))){
+            $link=$item[0];$target=$item[1]
+            if(Test-Path $link){cmd /c "rmdir $link" 2>$null; if(Test-Path $link){Remove-Item $link -Recurse -Force}}
+            New-Item -ItemType Junction -Path $link -Target $target|Out-Null
+          }
+
+      - name: Benchmark source and selected M2 anchor
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';New-Item -ItemType Directory -Force m2_reports|Out-Null
+          & $py -X utf8 benchmark_bundle50.py '${{ steps.source.outputs.checkpoint }}' --out-dir m2_reports\before
+          if($LASTEXITCODE -ne 0){throw 'M2 source benchmark failed.'}
+          & $py -X utf8 benchmark_bundle50.py '${{ steps.candidate.outputs.best }}' --out-dir m2_reports\after
+          if($LASTEXITCODE -ne 0){throw 'M2 candidate benchmark failed.'}
+
+      - name: Apply strict frozen Pareto gate
+        run: |
+          $ErrorActionPreference='Continue';$py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 m1_gate50.py --before-dir m2_reports\before --after-dir m2_reports\after --out m2_reports\M2_FROZEN_GATE.json
+          $gateCode=$LASTEXITCODE
+          if($gateCode -notin @(0,2)){throw "M2 gate execution error: $gateCode"}
+          [ordered]@{
+            stage='M2 transactional Pareto';source='D3/I1';source_sha='${{ steps.source.outputs.checkpoint_sha }}';candidate_sha='${{ steps.candidate.outputs.best_sha }}';
+            selected_block=[int]'${{ steps.candidate.outputs.selected_block }}';effective_weight_candidate=('${{ steps.candidate.outputs.effective }}' -eq 'True');
+            independent_transfer_exact_growth=('${{ steps.candidate.outputs.transfer_growth }}' -eq 'True');frozen_gate_pass=($gateCode -eq 0);gate_exit_code=$gateCode;
+            promotion_eligible=(($gateCode -eq 0) -and ('${{ steps.candidate.outputs.effective }}' -eq 'True'));
+          }|ConvertTo-Json|Set-Content -Encoding utf8 m2_reports\M2_RESULT.json
+          Get-Content m2_reports\M2_RESULT.json
+          exit 0
+
+      - name: Reject private checkpoint or corpus uploads
+        if: always()
+        run: |
+          if(Test-Path m2_reports){$bad=Get-ChildItem m2_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'};if($bad){throw 'Private model/corpus found in M2 reports.'}}
+
+      - name: Persist M2 reports locally
+        if: always()
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';if(-not $assets){exit 0}
+          $dest=Join-Path $assets ('reports\runner_50m_m2_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
+          if(Test-Path m2_reports){Copy-Item m2_reports\* $dest -Recurse -Force}
+          $out='${{ steps.train.outputs.out }}'
+          foreach($name in @('summary.json','run.json','source_dev.json','metrics.jsonl')){$p=Join-Path $out $name;if(Test-Path $p){Copy-Item $p (Join-Path $dest $name) -Force}}
+          Get-ChildItem $out -Filter 'dev_block_*.json' -ErrorAction SilentlyContinue|Copy-Item -Destination $dest -Force
+          Write-Host "Persisted M2 reports to $dest"
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-m2-${{ github.run_id }}
+          path: m2_reports/
+          if-no-files-found: warn
+          retention-days: 14
