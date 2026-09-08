@@ -1,0 +1,67 @@
+name: Neral 50M vs 100M RTX4070 Benchmark
+
+on:
+  push:
+    branches:
+      - bench-50m-vs-100m-hw
+    paths:
+      - benchmark_50m_vs_100m_hw.py
+      - .github/workflows/benchmark-50m-vs-100m-hw.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-vs-100m-hw
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout benchmark branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate CUDA runtime
+        id: env
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
+          "python=$python" >> $env:GITHUB_OUTPUT
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Run fair non-training hardware benchmark
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force hw_benchmark | Out-Null
+          & '${{ steps.env.outputs.python }}' -X utf8 benchmark_50m_vs_100m_hw.py --out-dir hw_benchmark
+          if($LASTEXITCODE -ne 0){throw '50M vs 100M hardware benchmark failed.'}
+
+      - name: Reject weights or corpora in output
+        if: always()
+        shell: powershell
+        run: |
+          if(Test-Path hw_benchmark){
+            $bad=Get-ChildItem hw_benchmark -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private model/corpus found in benchmark output.'}
+          }
+
+      - name: Upload benchmark report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-vs-100m-hw-${{ github.run_id }}
+          path: hw_benchmark/
+          if-no-files-found: warn
+          retention-days: 30
