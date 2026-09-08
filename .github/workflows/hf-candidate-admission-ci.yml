@@ -1,0 +1,35 @@
+name: HF candidate admission CI
+
+on:
+  pull_request:
+    paths:
+      - 'hf_candidate_admission50.py'
+      - 'hf_source_policy50.py'
+      - 'tests/test_hf_candidate_admission50.py'
+      - '.github/workflows/hf-candidate-admission-ci.yml'
+  push:
+    branches:
+      - hf-candidate-admission
+    paths:
+      - 'hf_candidate_admission50.py'
+      - 'hf_source_policy50.py'
+      - 'tests/test_hf_candidate_admission50.py'
+      - '.github/workflows/hf-candidate-admission-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile admission policy
+        run: python -m py_compile hf_candidate_admission50.py hf_source_policy50.py
+      - name: Install tests
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run admission policy tests
+        run: python -m pytest tests/test_hf_candidate_admission50.py tests/test_hf_data_policy50.py -q
