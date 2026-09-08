@@ -1,0 +1,28 @@
+name: Hugging Face revision audit CI
+
+on:
+  pull_request:
+    paths:
+      - 'hf_revision_audit50.py'
+      - 'hf_source_policy50.py'
+      - 'tests/test_hf_revision_audit50.py'
+      - '.github/workflows/hf-revision-audit-ci.yml'
+      - '.github/workflows/hf-revision-live.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile
+        run: python -m py_compile hf_revision_audit50.py hf_source_policy50.py
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Test revision audit
+        run: python -m pytest tests/test_hf_revision_audit50.py -q
