@@ -14,9 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from neral_intelligence_score import components_from_reports as nis1_components
-from neral_intelligence_score import score_from_components as nis1_score
 from neral_intelligence_score_v2 import score_report_dir
+from weakness_repair_gate50 import extract
 
 REPO = Path(__file__).resolve().parent
 PY = sys.executable
@@ -142,7 +141,7 @@ def main() -> None:
         report=out/"versions"/spec.key; report.mkdir(parents=True, exist_ok=True)
         run(PY,"benchmark_bundle50.py",str(checkpoint),"--out-dir",str(report))
         run(PY,"benchmark_nis2_chat50.py",str(checkpoint),"--out",str(report/"nis2_chat.json"))
-        n1c=nis1_components(report); n1=float(nis1_score(n1c))
+        n1=float(extract(report)["nis"])
         n2=score_report_dir(report)
         rows.append({"order":spec.order,"key":spec.key,"label":spec.label,"checkpoint":str(checkpoint),"nis1":n1,"nis2":n2})
 
