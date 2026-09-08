@@ -1,6 +1,6 @@
 """Local Neral/Helios browser test: own unchanged 20M architecture."""
 from __future__ import annotations
-import hashlib,json,math,re,secrets,threading,time
+import hashlib,json,math,os,re,secrets,threading,time
 from collections import defaultdict,deque
 from pathlib import Path
 import torch
@@ -16,37 +16,44 @@ from architectures import expected_parameters
 from project_store import ProjectStore,ripple
 
 BASE=Path(__file__).resolve().parent
+# Deployment configuration only; HTTP clients cannot choose filesystem paths.
+ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
 EXPECTED_PARAMS=20_587_008
 MAX_PROMPT_BYTES=4096
 MAX_NEW_TOKENS=512
-ALLOWED_HOSTS={'127.0.0.1:9680','localhost:9680','127.0.0.1','localhost'}
-ALLOWED_ORIGINS={'http://127.0.0.1:9680','http://localhost:9680'}
+APP_PORT=int(os.environ.get('HELIOS_PORT','9680'))
+if not 1024<=APP_PORT<=65535:raise ValueError('HELIOS_PORT must be 1024..65535')
+ALLOWED_HOSTS={f'127.0.0.1:{APP_PORT}',f'localhost:{APP_PORT}','127.0.0.1','localhost'}
+ALLOWED_ORIGINS={f'http://127.0.0.1:{APP_PORT}',f'http://localhost:{APP_PORT}'}
 RATE_LIMIT=30
 RATE_WINDOW_S=60
 app=Flask(__name__)
 app.config.update(MAX_CONTENT_LENGTH=24*1024,JSON_SORT_KEYS=False)
 project_store=ProjectStore(BASE/'local_state/projects.sqlite3')
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
-torch.set_num_threads(4);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
+torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
 assert report['trainable']==EXPECTED_PARAMS
-device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device_name=os.environ.get('HELIOS_DEVICE','cpu')
+if device_name not in {'cpu','cuda'}:raise ValueError('HELIOS_DEVICE must be cpu or cuda')
+device=torch.device(device_name)
+runtime_error=None
 checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original'
 
 def checkpoint_paths():
-    paths={'original':(BASE/'checkpoints/neral20m.pt',BASE/'checkpoints/neral20m.sha256')}
-    if (BASE/'export/neral20m.pt').exists():paths['pilot_01']=(BASE/'export/neral20m.pt',BASE/'export/neral20m.sha256')
-    if (BASE/'export/pilot_02/neral20m.pt').exists():paths['pilot_02']=(BASE/'export/pilot_02/neral20m.pt',BASE/'export/pilot_02/neral20m.sha256')
-    if (BASE/'export/neral40m/neral40m.pt').exists():paths['neral40m']=(BASE/'export/neral40m/neral40m.pt',BASE/'export/neral40m/neral40m.sha256')
-    if (BASE/'export/neral50m/neral50m.pt').exists():paths['neral50m']=(BASE/'export/neral50m/neral50m.pt',BASE/'export/neral50m/neral50m.sha256')
+    paths={'original':(ASSETS/'checkpoints/neral20m.pt',ASSETS/'checkpoints/neral20m.sha256')}
+    if (ASSETS/'export/neral20m.pt').exists():paths['pilot_01']=(ASSETS/'export/neral20m.pt',ASSETS/'export/neral20m.sha256')
+    if (ASSETS/'export/pilot_02/neral20m.pt').exists():paths['pilot_02']=(ASSETS/'export/pilot_02/neral20m.pt',ASSETS/'export/pilot_02/neral20m.sha256')
+    if (ASSETS/'export/neral40m/neral40m.pt').exists():paths['neral40m']=(ASSETS/'export/neral40m/neral40m.pt',ASSETS/'export/neral40m/neral40m.sha256')
+    if (ASSETS/'export/neral50m/neral50m.pt').exists():paths['neral50m']=(ASSETS/'export/neral50m/neral50m.pt',ASSETS/'export/neral50m/neral50m.sha256')
     return paths
 def load_runtime(name):
-    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report
+    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error
     if name not in checkpoint_paths():raise ValueError('Unbekannter Checkpoint.')
     path,hash_path=checkpoint_paths()[name]
     if not path.is_file() or not hash_path.is_file():raise ValueError('Checkpoint oder SHA-256-Datei fehlt.')
     if path.stat().st_size>200*1024*1024:raise ValueError('Inferenz-Checkpoint zu groß.')
-    actual=hashlib.sha256(path.read_bytes()).hexdigest();expected=hash_path.read_text(encoding='ascii').split()[0]
+    actual=hashlib.sha256(path.read_bytes()).hexdigest();hash_parts=hash_path.read_text(encoding='ascii').split();expected=hash_parts[0] if hash_parts else ''
     if not re.fullmatch('[a-fA-F0-9]{64}',expected) or not secrets.compare_digest(actual,expected.lower()):raise ValueError('Checkpoint-Integrität fehlgeschlagen.')
     payload=torch.load(path,map_location='cpu',weights_only=True);state=payload['model']
     candidate_cfg=NeralConfig(**payload.get('config',{}));expected=expected_parameters(candidate_cfg)
@@ -60,9 +67,19 @@ def load_runtime(name):
     if candidate.parameter_report()['total']!=expected:raise ValueError('Parameterzahl stimmt nicht.')
     candidate.to(device);candidate.eval();model=candidate;cfg=candidate_cfg;report=model.parameter_report()
     checkpoint_meta={k:v for k,v in payload.items() if isinstance(v,(str,int,float,bool))}
-    checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name
-if (BASE/'export/pilot_02/neral20m.pt').is_file():load_runtime('pilot_02')
-elif (BASE/'checkpoints/neral20m.pt').is_file():load_runtime('original')
+    checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name;runtime_error=None
+def initialize_runtime():
+    global runtime_error
+    name='pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original'
+    if not checkpoint_paths()[name][0].is_file():
+        runtime_error='Kein eigener Checkpoint verfügbar. SOLVE, Codeprüfung und Projekte sind bereit.'
+        return
+    try:load_runtime(name)
+    except Exception:
+        app.logger.exception('Eigener Checkpoint konnte nicht geladen werden')
+        runtime_error='Checkpoint konnte nicht sicher geladen werden. SOLVE, Codeprüfung und Projekte sind bereit.'
+
+initialize_runtime()
 
 @app.route('/api/projects',methods=['GET','POST'])
 def projects():
@@ -100,7 +117,7 @@ def text_key(value):
     return value
 
 def info_payload():
-    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 
 @app.before_request
 def local_and_rate_guard():
@@ -143,7 +160,9 @@ def select_model():
     if not isinstance(data.get('checkpoint'),str):return jsonify(error='Checkpoint fehlt.'),400
     if not _generation_lock.acquire(blocking=False):return jsonify(error='Modell ist gerade beschäftigt.'),409
     try:load_runtime(data['checkpoint']);return jsonify(info_payload())
-    except (ValueError,KeyError,RuntimeError) as e:return jsonify(error=str(e)),400
+    except Exception:
+        app.logger.exception('Checkpoint-Wechsel abgelehnt')
+        return jsonify(error='Checkpoint konnte nicht sicher geladen werden. Der bisherige Zustand bleibt erhalten.'),400
     finally:_generation_lock.release()
 @app.post('/api/cancel')
 def cancel():
@@ -240,4 +259,4 @@ def generate():
 if __name__=='__main__':
     from waitress import serve
     print(f'Neral bereit: {report["trainable"]:,} Parameter, {device}, {active_checkpoint}',flush=True)
-    serve(app,host='127.0.0.1',port=9680,threads=4)
+    serve(app,host='127.0.0.1',port=APP_PORT,threads=4)
