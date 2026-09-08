@@ -6,6 +6,11 @@ E1 starts after I1 D3 with a fresh optimizer, preserving D3 reproducibility whil
 runtime weight-layout fast paths. The hot loop is deliberately asynchronous: preencoded int16
 length buckets, double-buffered pinned H2D, preallocated CUDA input buffers, no per-step loss
 .item() calls and no global CUDA synchronize per optimizer update.
+
+Resume is transactional at completed optimizer-step boundaries. The sampler keeps an explicit
+prefetch queue in the checkpoint so batches sampled ahead for H2D overlap are neither lost nor
+silently skipped. If Python is interrupted inside an unfinished optimizer step, the last stable
+checkpoint is deliberately not overwritten.
 """
 
 import argparse
@@ -31,8 +36,9 @@ from train_instruct50 import assistant_loss, lr_at
 from train_raw_math50 import dev_math_nll
 
 EXPECTED_PARAMS = 50_012_976
-STAGE_VERSION = 3
-SEED = 968_562
+STAGE_VERSION = 4
+SEED = 968_563
+PREFETCH_DEPTH = 2
 
 
 def file_sha(path: Path) -> str:
@@ -75,6 +81,18 @@ def load_fused_resume(path: Path, device: torch.device):
     model = Neral50M(FIFTY).to(device)
     load_fused_state_dict(model, payload["model_fused"])
     return model, payload
+
+
+def validate_pending_specs(specs: list[dict], train_size: int, remaining: int) -> None:
+    if len(specs) > min(PREFETCH_DEPTH, remaining):
+        raise ValueError("checkpoint prefetch queue exceeds remaining work")
+    for spec in specs:
+        width = int(spec["width"])
+        indices = list(spec["indices"])
+        if width <= 0 or not indices:
+            raise ValueError("invalid prefetched batch spec")
+        if min(indices) < 0 or max(indices) >= train_size:
+            raise ValueError("prefetched example index outside ChatMix")
 
 
 @torch.inference_mode()
@@ -188,7 +206,7 @@ def main() -> None:
     sampler = TokenBudgetSampler(train, args.token_budget, SEED)
     train_store = FastBucketStore(train, args.token_budget, pin_memory=False)
     val_store = FastBucketStore(val, args.token_budget, pin_memory=False)
-    prefetcher = CudaBucketPrefetcher(train_store, device, depth=2)
+    prefetcher = CudaBucketPrefetcher(train_store, device, depth=PREFETCH_DEPTH)
     preparation_seconds = time.perf_counter() - prep_start
 
     replay_streams = load_b2_streams(replay_root, "train")
@@ -215,7 +233,7 @@ def main() -> None:
         best = float(payload["best_chat_nll"]); best_eos = float(payload["best_eos_pct"]); bad = int(payload["bad_full_evals"])
         baseline_chat = payload["baseline_chat"]; baseline_lm = payload["baseline_lm"]; baseline_math = payload["baseline_math"]
         chat_tokens = int(payload.get("chat_tokens", 0)); replay_tokens = int(payload.get("replay_tokens", 0)); source_tokens = int(payload.get("source_cumulative_tokens", 0))
-        pending_spec = payload.get("pending_spec")
+        pending_specs = [dict(spec) for spec in payload.get("pending_specs", [])]
     else:
         model, source = load_model(args.init_from, device)
         if model.parameter_report()["trainable"] != EXPECTED_PARAMS:
@@ -228,7 +246,7 @@ def main() -> None:
         baseline_lm = validate_document_bounded(model, replay_val, replay_val_schedule, args.replay_seq, device)
         baseline_math = dev_math_nll(model, device, min(args.replay_seq, 256))
         step = 0; best = baseline_chat["macro_answer_nll"]; best_eos = baseline_chat["terminal_eos_top1_pct"]
-        bad = 0; chat_tokens = replay_tokens = 0; pending_spec = None
+        bad = 0; chat_tokens = replay_tokens = 0; pending_specs = []
 
     if sum(p.numel() for p in model.parameters()) != EXPECTED_PARAMS:
         raise ValueError("fastpath changed exact Neral-50M parameter count")
@@ -237,9 +255,11 @@ def main() -> None:
     if resume:
         opt.load_state_dict(payload["optimizer"])
 
-    if pending_spec is None and step < args.steps:
-        width, indices = sampler.next_indices(); pending_spec = {"width": width, "indices": indices}
-    pending_handle = None if pending_spec is None else prefetcher.enqueue(pending_spec["width"], pending_spec["indices"])
+    remaining = max(0, args.steps - step)
+    validate_pending_specs(pending_specs, len(train), remaining)
+    while len(pending_specs) < min(PREFETCH_DEPTH, remaining):
+        width, indices = sampler.next_indices(); pending_specs.append({"width": width, "indices": indices})
+    pending_handles = [prefetcher.enqueue(spec["width"], spec["indices"]) for spec in pending_specs]
 
     run = {
         "stage": "Neral-50M Chat V2 E1", "stage_version": STAGE_VERSION, "parameters": EXPECTED_PARAMS,
@@ -249,6 +269,7 @@ def main() -> None:
         "train_prefix_examples": len(train), "val_prefix_examples": len(val), "preparation_seconds": preparation_seconds,
         "train_store": train_store.report(), "prefetcher": prefetcher.report(),
         "fastpaths": ["padded_sdpa_52_to_56", "fused_gate_up", "native_rmsnorm", "preencoded_int16_buckets", "double_buffered_pinned_h2d", "dedicated_h2d_stream", "preallocated_cuda_input_buffers", "fused_adamw", "batched_telemetry_sync"],
+        "resume": "transactional completed-step checkpoint; explicit sampled-ahead prefetch queue; unfinished step never overwrites stable checkpoint",
         "loss": {"assistant_only": True, "eos_weight": args.eos_weight, "expected_chat_weight": args.chat_weight, "expected_replay_weight": 1 - args.chat_weight},
         "selection": "lower ChatMix val NLL + EOS non-regression + <=5% base-LM regression + <=10% RawMath dev-NLL regression",
         "baseline_chat": baseline_chat, "baseline_lm": baseline_lm, "baseline_math": baseline_math,
@@ -262,7 +283,7 @@ def main() -> None:
             "model_fused": model.state_dict(), "optimizer": opt.state_dict(), "config": FIFTY.to_dict(),
             "chat_v2_version": STAGE_VERSION, "step": step, "source_sha256": source_sha,
             "source_cumulative_tokens": source_tokens, "data_signature": data_sig, "replay_signature": replay_sig,
-            "args_signature": args_signature(args), "sampler": sampler.state_dict(), "pending_spec": pending_spec,
+            "args_signature": args_signature(args), "sampler": sampler.state_dict(), "pending_specs": pending_specs,
             "replay_cursor": replay_cursor, "rng_python": rng.getstate(), "rng_torch": torch.get_rng_state(), "rng_cuda": torch.cuda.get_rng_state_all(),
             "best_chat_nll": best, "best_eos_pct": best_eos, "bad_full_evals": bad,
             "baseline_chat": baseline_chat, "baseline_lm": baseline_lm, "baseline_math": baseline_math,
@@ -282,23 +303,18 @@ def main() -> None:
     interval_start = torch.cuda.Event(enable_timing=True); interval_start.record()
     interval_tokens = 0; gpu_seconds_measured = 0.0
     last_chat_loss = last_total_loss = last_replay_value = last_grad = None
+    in_step = False
     try:
-        while step < args.steps and pending_handle is not None:
-            x, y, batch_meta = prefetcher.wait(pending_handle)
-            current_spec = pending_spec
-            # Queue the next H2D before launching current compute so PCIe transfer can overlap it.
-            next_spec = None; next_handle = None
-            if step + 1 < args.steps:
-                nw, ni = sampler.next_indices(); next_spec = {"width": nw, "indices": ni}
-                next_handle = prefetcher.enqueue(nw, ni)
-
-            step += 1
-            lr = lr_at(step, args.steps, args.peak_lr, args.min_lr, args.warmup_fraction)
+        while step < args.steps and pending_handles:
+            x, y, batch_meta = prefetcher.wait(pending_handles[0])
+            current_step = step + 1
+            in_step = True
+            lr = lr_at(current_step, args.steps, args.peak_lr, args.min_lr, args.warmup_fraction)
             for group in opt.param_groups: group["lr"] = lr
             opt.zero_grad(set_to_none=True)
             chat_loss = assistant_loss(model, x, y, args.eos_weight)
             total_loss = chat_loss; replay_value = None
-            if step % args.replay_every == 0:
+            if current_step % args.replay_every == 0:
                 items = []
                 while len(items) < args.replay_batch:
                     if replay_cursor >= len(replay_blocks): rng.shuffle(replay_blocks); replay_cursor = 0
@@ -307,13 +323,20 @@ def main() -> None:
                 rx, ry = make_batch(replay_streams, items, args.replay_seq, device)
                 with torch.autocast("cuda", dtype=torch.bfloat16): replay_value = lm_loss(model, rx, ry)
                 replay_scale = ((1.0 - args.chat_weight) / args.chat_weight) * args.replay_every
-                total_loss = chat_loss + replay_scale * replay_value; replay_tokens += int(ry.numel())
+                total_loss = chat_loss + replay_scale * replay_value
             total_loss.backward()
             grad = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
             opt.step()
+            # Commit counters and queue only after the optimizer call returned successfully.
+            step = current_step; in_step = False
+            if replay_value is not None: replay_tokens += int(ry.numel())
             chat_tokens += batch_meta["true_tokens"]; interval_tokens += batch_meta["true_tokens"]
             last_chat_loss, last_total_loss, last_replay_value, last_grad = chat_loss, total_loss, replay_value, grad
-            pending_spec, pending_handle = next_spec, next_handle
+            pending_specs.pop(0); pending_handles.pop(0)
+            remaining_after = args.steps - step
+            while len(pending_specs) < min(PREFETCH_DEPTH, remaining_after):
+                nw, ni = sampler.next_indices(); spec = {"width": nw, "indices": ni}
+                pending_specs.append(spec); pending_handles.append(prefetcher.enqueue(nw, ni))
 
             log_due = step % args.log_every == 0 or step % args.chat_eval_every == 0 or step == args.steps
             if log_due:
@@ -325,7 +348,7 @@ def main() -> None:
                     "total_loss": float(last_total_loss.detach()), "grad_norm": float(last_grad),
                     "interval_gpu_seconds": gpu_s, "interval_chat_tokens": interval_tokens,
                     "interval_chat_tokens_per_second": interval_tokens / max(gpu_s, 1e-9),
-                    "chat_tokens": chat_tokens, "replay_tokens": replay_tokens,
+                    "chat_tokens": chat_tokens, "replay_tokens": replay_tokens, "prefetch_queue_depth": len(pending_specs),
                     "last_padding_efficiency": batch_meta["true_tokens"] / max(1, batch_meta["padded_tokens"]),
                     "last_bucket_width": batch_meta["width"], "last_batch_rows": batch_meta["rows"],
                 }
@@ -346,17 +369,28 @@ def main() -> None:
                             export_canonical(out / "best_chat.pt", {"chat": chat_eval, "guard": guard})
                         else:
                             bad += 1
-                        if bad >= args.patience:
-                            stop = "early_stop_no_guarded_improvement"
+                        if bad >= args.patience: stop = "early_stop_no_guarded_improvement"
                     atomic_save(fused_checkpoint(), latest)
                 with metrics_path.open("a", encoding="utf8") as f: f.write(json.dumps(row, ensure_ascii=False) + "\n")
                 if stop != "step_budget": break
     except KeyboardInterrupt:
-        stop = "interrupted"
+        stop = "interrupted_inside_step" if in_step else "interrupted_between_steps"
     finally:
-        # Complete all writes before serializing GPU state. This synchronization is infrequent and intentional.
         torch.cuda.synchronize()
-        atomic_save(fused_checkpoint(), latest)
+        if not in_step:
+            atomic_save(fused_checkpoint(), latest)
+        else:
+            (out / "INTERRUPTION.json").write_text(json.dumps({
+                "status": stop,
+                "stable_checkpoint_preserved": latest.is_file(),
+                "completed_step": step,
+                "reason": "Unfinished optimizer step was not serialized; resume from last stable checkpoint/source.",
+            }, indent=2), encoding="utf8")
+
+    # An interrupted in-step model may contain partial transient work; never export it as a candidate.
+    if in_step:
+        print(json.dumps({"stage": "Chat V2 E1", "stop": stop, "completed_step": step, "candidate_exported": False}, indent=2), flush=True)
+        return
 
     final_chat = evaluate_chat(model, val, val_store, device)
     export_canonical(out / "final_chat.pt", {"chat": final_chat, "stop": stop})
