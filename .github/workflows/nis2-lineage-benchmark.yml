@@ -1,0 +1,79 @@
+name: Neral NIS2 Lineage Benchmark
+
+on:
+  push:
+    branches:
+      - nis2-benchmark-run
+    paths:
+      - 'requests/NERAL_NIS2_MATRIX_RUN.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-gpu-exclusive-training
+  cancel-in-progress: false
+
+jobs:
+  nis2:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted NIS2 code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: request_checkout
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Validate request and local evaluation environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $req='request_checkout\requests\NERAL_NIS2_MATRIX_RUN.json'
+          if(-not(Test-Path $req -PathType Leaf)){throw 'NIS2 request missing.'}
+          $r=Get-Content $req -Raw|ConvertFrom-Json
+          if($r.schema -ne 1 -or $r.stage -ne 'nis2_lineage_evaluation' -or -not $r.authorize){throw 'Invalid NIS2 request.'}
+          $changed=git -C request_checkout diff-tree --no-commit-id --name-only -r '${{ github.sha }}'
+          if(($changed|Measure-Object).Count -ne 1 -or $changed -ne 'requests/NERAL_NIS2_MATRIX_RUN.json'){throw 'Authorization commit may change only the NIS2 request file.'}
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+
+      - name: Run full NIS2 lineage matrix
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.python }}' -u -X utf8 benchmark_versions_nis2_50.py --assets '${{ steps.env.outputs.assets }}' --out nis2_reports
+          if($LASTEXITCODE -ne 0){throw 'NIS2 lineage benchmark failed.'}
+
+      - name: Reject checkpoint or corpus uploads
+        if: always()
+        run: |
+          if(Test-Path nis2_reports){
+            $bad=Get-ChildItem nis2_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private model/corpus found in NIS2 reports.'}
+          }
+
+      - name: Upload NIS2 reports and chart only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nis2-lineage-${{ github.run_id }}
+          path: nis2_reports/
+          if-no-files-found: warn
+          retention-days: 30
