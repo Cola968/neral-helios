@@ -5,8 +5,10 @@ on:
     paths:
       - select_m1_source50.py
       - m1_gate50.py
+      - run_stage_ablation50.py
       - tests/test_select_m1_source50.py
       - tests/test_m1_gate50.py
+      - tests/test_stage_ablation50.py
       - .github/workflows/neral50m-m1-auto.yml
       - .github/workflows/m1-auto-ci.yml
 
@@ -21,9 +23,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile M1 handoff and gate
-        run: python -m py_compile select_m1_source50.py m1_gate50.py
+      - name: Compile M1 handoff, gate and ablation
+        run: python -m py_compile select_m1_source50.py m1_gate50.py run_stage_ablation50.py
       - name: Install tests
         run: python -m pip install --disable-pip-version-check pytest
-      - name: Run M1 handoff and gate tests
-        run: python -m pytest tests/test_select_m1_source50.py tests/test_m1_gate50.py -q
+      - name: Run M1 handoff, gate and ablation tests
+        run: python -m pytest tests/test_select_m1_source50.py tests/test_m1_gate50.py tests/test_stage_ablation50.py -q
