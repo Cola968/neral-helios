@@ -23,6 +23,6 @@ jobs:
       - name: Compile H1 scripts
         run: python -m py_compile run_50m_h1_intensive.py h1_gate50.py
       - name: Install tests
-        run: python -m pip install --disable-pip-version-check pytest torch
+        run: python -m pip install --disable-pip-version-check pytest
       - name: Run H1 gate tests
         run: python -m pytest tests/test_h1_gate50.py -q
