@@ -1,0 +1,36 @@
+name: Neral 100M Helix Pretraining
+on:
+  push:
+    branches: ['neral100-train-run']
+    paths: ['.github/neral100-train-request.json']
+permissions: {contents: read}
+jobs:
+  train:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 1440
+    steps:
+      - name: Checkout trusted code from main
+        uses: actions/checkout@v4
+        with: {ref: main}
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with: {ref: neral100-train-run, path: request}
+      - name: Validate authorization and GPU
+        shell: pwsh
+        run: |
+          python -c "import json; o=json.load(open('request/.github/neral100-train-request.json')); assert o.get('action')=='train'; assert o.get('variant') in ['a1','a2']; assert int(o.get('steps',0))>0"
+          python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name())"
+      - name: Resolve local prepared corpus
+        shell: pwsh
+        run: |
+          if (-not $env:NERAL100_TRAIN_BIN) { throw 'NERAL100_TRAIN_BIN must point to a local prepared uint16 token stream' }
+          if (-not (Test-Path $env:NERAL100_TRAIN_BIN)) { throw 'NERAL100_TRAIN_BIN missing' }
+      - name: Train Helix from scratch
+        shell: pwsh
+        run: |
+          $r = Get-Content request/.github/neral100-train-request.json | ConvertFrom-Json
+          python pretrain100_helix.py --variant $r.variant --train-bin $env:NERAL100_TRAIN_BIN --out "runs/neral100_$($r.variant)_$env:GITHUB_RUN_ID" --steps $r.steps --seq $r.seq --microbatch $r.microbatch --grad-accum $r.grad_accum
+      - name: Keep private checkpoints local
+        shell: pwsh
+        run: |
+          Write-Host '100M checkpoints stay on the self-hosted runner; no model weights are uploaded.'
