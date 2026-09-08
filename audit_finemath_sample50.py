@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from hf_source_policy50 import SOURCES
 from prepare_pretrain50_b2 import benchmark_contamination, normalize_for_dedup
 
 REPO = Path(__file__).resolve().parent
@@ -210,6 +211,7 @@ def audit(rows: list[dict], out_dir: Path, near_threshold: float = .80, sampling
     index_path = out_dir / "finemath_sample_index.jsonl"
     index_path.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in index), encoding="utf8")
     benchmark_sha = sha256_bytes(json.dumps(benchmark_hashes, sort_keys=True, separators=(",", ":")).encode())
+    reserved_eval_ids = sorted(k for k, v in SOURCES.items() if v.role == "public-eval-holdout")
     manifest = {
         "dataset_id": DATASET_ID,
         "revision": assert_live_revision_pinned(),
@@ -225,11 +227,7 @@ def audit(rows: list[dict], out_dir: Path, near_threshold: float = .80, sampling
         },
         "sampled_rows": audited,
         "external_model_generated_rows": 0,
-        "reserved_eval_dataset_ids": [
-            "openai/gsm8k",
-            "google-research-datasets/mbpp",
-            "deepmind/code_contests",
-        ],
+        "reserved_eval_dataset_ids": reserved_eval_ids,
         "bounded_sample_only": True,
         "sampling": sampling_meta or {},
         "policy_note": "Passing this sample is not sufficient to allow training; FineMath remains manual-review-only.",
