@@ -1,0 +1,26 @@
+name: Pareto dev adapter CI
+
+on:
+  pull_request:
+    paths:
+      - pareto_dev_adapter50.py
+      - tests/test_pareto_dev_adapter50.py
+      - .github/workflows/pareto-adapter-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile adapter
+        run: python -m py_compile pareto_dev_adapter50.py
+      - name: Install tests
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run adapter tests
+        run: python -m pytest tests/test_pareto_dev_adapter50.py -q
