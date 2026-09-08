@@ -39,6 +39,24 @@ def test_gate_rejects_math_gain_that_destroys_code():
     assert "targeted_code_protected" in result["failures"]
 
 
+def test_gate_rejects_math_gain_that_destroys_german():
+    before = base(); after = dict(before)
+    after.update(rawmath_exact_pct=25.0, rawmath_transfer_pct=10.0, rawmath_ood_pct=10.0,
+                 targeted_de_pct=70.0)
+    result = assess(before, after)
+    assert result["pass"] is False
+    assert "targeted_de_protected" in result["failures"]
+
+
+def test_gate_rejects_math_gain_that_destroys_reasoning():
+    before = base(); after = dict(before)
+    after.update(rawmath_exact_pct=25.0, rawmath_transfer_pct=10.0, rawmath_ood_pct=10.0,
+                 targeted_reasoning_pct=60.0)
+    result = assess(before, after)
+    assert result["pass"] is False
+    assert "targeted_reasoning_protected" in result["failures"]
+
+
 def test_missing_candidate_bpb_fails_when_source_has_evidence():
     before = base(); after = dict(before)
     after.update(rawmath_exact_pct=20.0, rawmath_transfer_pct=8.0, rawmath_ood_pct=8.0, v5_bpb_4095=None)
