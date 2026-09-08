@@ -61,6 +61,7 @@ def build_dev_vector(
         "sft_reasoning_nll": domain_nll(sft, "reasoning"),
         "sft_de_nll": german_nll(sft),
         "lm_macro": _f(lm["macro"], "LM macro"),
+        "free_utf8_pct": _f(free["utf8_valid_pct"], "free UTF-8 validity"),
         "free_eos_pct": _f(free["eos_pct"], "free EOS"),
         "free_repetition_pct": _f(free["repeated_trigram_pct"], "free repetition"),
         "free_health_score": _f(free["health_score"], "free health"),
