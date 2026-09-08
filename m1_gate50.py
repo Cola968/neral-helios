@@ -34,6 +34,8 @@ def assess(before: dict, after: dict) -> dict:
         "rawmath_transfer_ood_real_gain": after_transfer >= max(5.0, before_transfer + 5.0),
         "targeted_math_protected": after["targeted_math_pct"] >= before["targeted_math_pct"] - 5.0,
         "targeted_code_protected": after["targeted_code_pct"] >= before["targeted_code_pct"] - 5.0,
+        "targeted_de_protected": after["targeted_de_pct"] >= before["targeted_de_pct"] - 5.0,
+        "targeted_reasoning_protected": after["targeted_reasoning_pct"] >= before["targeted_reasoning_pct"] - 5.0,
         "v4_math_protected": after["v4_math_pct"] >= before["v4_math_pct"] - 10.0,
         "v4_code_protected": after["v4_code_pct"] >= before["v4_code_pct"] - 10.0,
         "v4_overall_protected": after["v4_overall_pct"] >= before["v4_overall_pct"] - 5.0,
@@ -59,6 +61,8 @@ def assess(before: dict, after: dict) -> dict:
         "repetition_pp_lower_is_better": after["free_repeated_trigram_pct"] - before["free_repeated_trigram_pct"],
         "targeted_math_pp": after["targeted_math_pct"] - before["targeted_math_pct"],
         "targeted_code_pp": after["targeted_code_pct"] - before["targeted_code_pct"],
+        "targeted_de_pp": after["targeted_de_pct"] - before["targeted_de_pct"],
+        "targeted_reasoning_pp": after["targeted_reasoning_pct"] - before["targeted_reasoning_pct"],
     }
     stretch = {
         "rawmath_exact_ge_30": after["rawmath_exact_pct"] >= 30.0,
