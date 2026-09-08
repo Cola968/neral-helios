@@ -20,7 +20,7 @@ jobs:
       - name: Checkout authorization request only
         uses: actions/checkout@v4
         with:
-          ref: neral100-train-run
+          ref: ${{ github.sha }}
           path: request
           fetch-depth: 2
           persist-credentials: false
@@ -28,7 +28,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $r = Get-Content request/.github/neral100-train-request.json -Raw | ConvertFrom-Json
+          if('${{ github.ref_name }}' -ne 'neral100-train-run'){ throw 'Untrusted training branch' }
+          $requestPath='request/.github/neral100-train-request.json'
+          if(-not (Test-Path $requestPath -PathType Leaf)){ throw '100M request missing' }
+          $changed = git -C request diff-tree --no-commit-id --name-only -r '${{ github.sha }}'
+          if(($changed | Measure-Object).Count -ne 1 -or $changed -ne '.github/neral100-train-request.json'){ throw 'Authorization commit may change only the request file' }
+          $r = Get-Content $requestPath -Raw | ConvertFrom-Json
           $allowed = @('action','variant','steps','seq','microbatch','grad_accum','lr','min_lr','warmup_fraction','eval_every','save_every')
           foreach($p in $r.PSObject.Properties.Name){ if($allowed -notcontains $p){ throw "Unsupported request field: $p" } }
           if($r.action -ne 'train'){ throw 'Unsupported action' }
