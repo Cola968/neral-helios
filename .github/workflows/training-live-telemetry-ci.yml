@@ -1,0 +1,25 @@
+name: I1 live telemetry CI
+
+on:
+  pull_request:
+    paths:
+      - 'training_live_status50.py'
+      - 'tests/test_training_live_status50.py'
+      - '.github/workflows/neral50m-i1-intensive.yml'
+      - '.github/workflows/training-live-telemetry-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m py_compile training_live_status50.py tests/test_training_live_status50.py
+      - run: python -m pytest -q tests/test_training_live_status50.py

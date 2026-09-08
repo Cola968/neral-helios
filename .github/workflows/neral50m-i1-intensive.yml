@@ -66,8 +66,26 @@ jobs:
       - name: Run one intensive I1 campaign
         run: |
           $ErrorActionPreference='Stop'
-          & '${{ steps.env.outputs.python }}' -X utf8 run_50m_i1.py --assets '${{ steps.env.outputs.assets }}' --reports i1_reports
-          if($LASTEXITCODE -ne 0){throw 'I1 campaign failed.'}
+          $env:PYTHONUNBUFFERED='1'
+          $assets='${{ steps.env.outputs.assets }}'
+          $python='${{ steps.env.outputs.python }}'
+          New-Item -ItemType Directory -Force 'i1_reports'|Out-Null
+          $stop=Join-Path (Get-Location) 'i1_reports\LIVE_STOP'
+          Remove-Item $stop -Force -ErrorAction SilentlyContinue
+          $watcherArgs='-u -X utf8 training_live_status50.py --assets "{0}" --reports "i1_reports" --interval 30 --stop-file "{1}"' -f $assets,$stop
+          $watcher=Start-Process -FilePath $python -ArgumentList $watcherArgs -NoNewWindow -PassThru
+          try {
+            & $python -u -X utf8 run_50m_i1.py --assets $assets --reports i1_reports
+            if($LASTEXITCODE -ne 0){throw 'I1 campaign failed.'}
+          }
+          finally {
+            Set-Content -Path $stop -Value 'stop' -Encoding ascii
+            if($watcher -and -not $watcher.HasExited){
+              [void]$watcher.WaitForExit(10000)
+              if(-not $watcher.HasExited){$watcher.Kill()}
+            }
+            Remove-Item $stop -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Reject private checkpoint or corpus uploads
         if: always()
