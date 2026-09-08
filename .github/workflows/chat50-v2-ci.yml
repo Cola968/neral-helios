@@ -1,0 +1,72 @@
+name: Neral 50M Chat V2 CI
+
+on:
+  push:
+    branches:
+      - train/neral50-chat-v2
+    paths:
+      - 'chat50_v2.py'
+      - 'chat50_fastbatch.py'
+      - 'fastpath50.py'
+      - 'fetch_oasst2_multiturn50.py'
+      - 'prepare_chatmix50_v2.py'
+      - 'train_chat50_v2.py'
+      - 'train_chat50_v2_fast.py'
+      - 'test_chat50_v2.py'
+      - 'test_chat50_fastbatch.py'
+      - '.github/workflows/chat50-v2-ci.yml'
+  pull_request:
+    paths:
+      - 'chat50_v2.py'
+      - 'chat50_fastbatch.py'
+      - 'fastpath50.py'
+      - 'fetch_oasst2_multiturn50.py'
+      - 'prepare_chatmix50_v2.py'
+      - 'train_chat50_v2.py'
+      - 'train_chat50_v2_fast.py'
+      - 'test_chat50_v2.py'
+      - 'test_chat50_fastbatch.py'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test runtime
+        run: pip install --disable-pip-version-check torch pytest
+      - name: Compile new Chat V2 sources
+        run: python -m py_compile chat50_v2.py chat50_fastbatch.py fastpath50.py fetch_oasst2_multiturn50.py prepare_chatmix50_v2.py train_chat50_v2.py train_chat50_v2_fast.py
+      - name: Run Chat V2 contracts
+        run: python -m pytest -q test_chat50_v2.py test_chat50_fastbatch.py
+
+  pinned-human-data-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build pinned OASST2 multi-turn manifest
+        run: |
+          python fetch_oasst2_multiturn50.py --out "$RUNNER_TEMP/oasst2_mt" --max-assistant-turns 4 --max-seq 2048
+          mkdir -p chat50_v2_audit
+          cp "$RUNNER_TEMP/oasst2_mt/manifest.json" chat50_v2_audit/OASST2_MULTITURN_MANIFEST.json
+      - name: Reject accidental raw dialogue upload
+        run: |
+          test ! -f chat50_v2_audit/train.jsonl
+          test ! -f chat50_v2_audit/val.jsonl
+          test ! -f chat50_v2_audit/test.jsonl
+          test ! -f chat50_v2_audit/holdout.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral50-chat-v2-human-data-audit-${{ github.run_id }}
+          path: chat50_v2_audit/OASST2_MULTITURN_MANIFEST.json
+          retention-days: 30
