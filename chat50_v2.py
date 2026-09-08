@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-"""Efficient multi-turn chat encoding and token-budget batching for Neral-50M Chat V2.
+"""Efficient multi-turn chat encoding and hardware-aware batching for Neral-50M Chat V2.
 
-The key training contract is inference-compatible: previous assistant turns appear as ordinary
-history text, while the *current* assistant answer is the only supervised span and ends in EOS.
-A multi-turn conversation is therefore expanded to one prefix->assistant example per assistant
-turn. This teaches follow-up context without inserting EOS tokens inside the history that Helios
-will later reconstruct as plain role-labelled text.
+Previous assistant turns appear as ordinary inference-style history, while the current assistant
+answer is the only supervised span and ends in EOS. A multi-turn conversation is expanded to one
+prefix->assistant example per assistant turn.
+
+The sampler supports either a portable fixed token budget or an explicit per-bucket batch profile
+measured on the target GPU. The latter matters because causal-attention memory/compute is not
+linear in sequence length, so equal padded-token budgets are not equally efficient.
 """
 
 from dataclasses import dataclass
@@ -60,16 +62,13 @@ def validate_messages(messages: list[dict]) -> None:
 
 
 def format_history(messages: list[dict], assistant_index: int) -> tuple[str, str]:
-    """Return (context-prefix, current answer) for one assistant message index."""
     validate_messages(messages)
     if assistant_index <= 0 or assistant_index >= len(messages) or assistant_index % 2 != 1:
         raise ValueError("assistant_index must reference an assistant turn")
     lines: list[str] = []
-    for i, message in enumerate(messages[:assistant_index]):
+    for message in messages[:assistant_index]:
         role = "User" if message["role"] == "user" else "Assistant"
         lines.append(f"{role}: {_clean(message['content'])}")
-    current_user = messages[assistant_index - 1]
-    # The current user was already added above; append only the assistant marker.
     prefix = "\n".join(lines) + "\nAssistant:"
     answer = _clean(messages[assistant_index]["content"])
     return prefix, answer
@@ -86,7 +85,6 @@ def encode_turn(row: dict, assistant_index: int, max_seq: int) -> EncodedChatExa
     if len(ids) < 2:
         raise ValueError("encoded chat is empty")
     x = tuple(ids[:-1])
-    # Same assistant-only causal target convention as train_instruct50.py.
     raw_targets = [-100] * len(prefix_ids) + answer_ids
     y = tuple(raw_targets[1:])
     if len(x) != len(y):
@@ -124,8 +122,6 @@ def expand_conversation(row: dict, max_seq: int, include_all_turns: bool = True)
         except ValueError as exc:
             if "exceeds max_seq" not in str(exc):
                 raise
-            # Later turns can exceed the window while earlier follow-ups remain useful.
-            continue
     return out
 
 
@@ -139,8 +135,8 @@ def preencode(rows: Iterable[dict], max_seq: int, include_all_turns: bool = True
     for row in rows:
         for ex in expand_conversation(row, max_seq, include_all_turns):
             h = hashlib.sha256()
-            h.update(bytes(int(x) & 0xFF for x in ex.input_ids if 0 <= x < 256))
             h.update(str(ex.input_ids).encode("ascii"))
+            h.update(str(ex.targets).encode("ascii"))
             key = h.hexdigest()
             if key in seen:
                 continue
@@ -165,26 +161,52 @@ def build_buckets(examples: list[EncodedChatExample], buckets=DEFAULT_BUCKETS) -
     return {width: indices for width, indices in out.items() if indices}
 
 
-class TokenBudgetSampler:
-    """Deterministic length-bucket sampler with an approximately fixed token budget per step."""
+def normalize_batch_profile(profile: dict | None, known_widths: set[int]) -> dict[int, int]:
+    if profile is None:
+        return {}
+    normalized = {int(k): int(v) for k, v in profile.items()}
+    if any(width not in known_widths for width in normalized):
+        raise ValueError("batch profile contains unknown bucket width")
+    if any(rows <= 0 for rows in normalized.values()):
+        raise ValueError("batch profile row counts must be positive")
+    return normalized
 
-    def __init__(self, examples: list[EncodedChatExample], token_budget: int, seed: int, buckets=DEFAULT_BUCKETS):
+
+class TokenBudgetSampler:
+    """Deterministic length-bucket sampler with optional measured rows-per-bucket profile."""
+
+    def __init__(
+        self,
+        examples: list[EncodedChatExample],
+        token_budget: int,
+        seed: int,
+        buckets=DEFAULT_BUCKETS,
+        batch_profile: dict | None = None,
+    ):
         if token_budget < min(buckets):
             raise ValueError("token_budget too small")
         self.examples = examples
         self.token_budget = int(token_budget)
         self.rng = random.Random(seed)
         self.buckets = build_buckets(examples, buckets)
+        self.batch_profile = normalize_batch_profile(batch_profile, set(self.buckets))
         self.orders = {w: list(v) for w, v in self.buckets.items()}
         self.cursors = {w: 0 for w in self.buckets}
         for order in self.orders.values():
             self.rng.shuffle(order)
-        # Weight bucket selection by number of examples, not padded bytes.
         self.width_population = [(w, len(v)) for w, v in self.buckets.items()]
+
+    def rows_for_width(self, width: int) -> int:
+        return self.batch_profile.get(width, max(1, self.token_budget // width))
+
+    @property
+    def maximum_padded_tokens(self) -> int:
+        return max(width * self.rows_for_width(width) for width in self.buckets)
 
     def state_dict(self) -> dict:
         return {
             "token_budget": self.token_budget,
+            "batch_profile": self.batch_profile,
             "orders": self.orders,
             "cursors": self.cursors,
             "rng": self.rng.getstate(),
@@ -193,6 +215,9 @@ class TokenBudgetSampler:
     def load_state_dict(self, state: dict) -> None:
         if int(state["token_budget"]) != self.token_budget:
             raise ValueError("sampler token budget changed")
+        stored_profile = {int(k): int(v) for k, v in state.get("batch_profile", {}).items()}
+        if stored_profile != self.batch_profile:
+            raise ValueError("sampler hardware batch profile changed")
         orders = {int(k): list(v) for k, v in state["orders"].items()}
         cursors = {int(k): int(v) for k, v in state["cursors"].items()}
         if set(orders) != set(self.orders):
@@ -216,7 +241,7 @@ class TokenBudgetSampler:
     def next_indices(self) -> tuple[int, list[int]]:
         width = self._choose_width()
         order = self.orders[width]
-        count = max(1, self.token_budget // width)
+        count = self.rows_for_width(width)
         picked: list[int] = []
         while len(picked) < count:
             cursor = self.cursors[width]
@@ -231,7 +256,6 @@ class TokenBudgetSampler:
 
 
 def collate_pinned(examples: list[EncodedChatExample], indices: list[int], width: int):
-    """Create compact int16 pinned host tensors; conversion to int64 occurs on the GPU."""
     if not indices:
         raise ValueError("empty chat batch")
     pin = bool(torch.cuda.is_available())
