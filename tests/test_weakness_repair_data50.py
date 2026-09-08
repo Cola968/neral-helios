@@ -32,6 +32,7 @@ def test_selection_is_deterministic_and_domain_focused():
     assert [x["pair_sha256"] for x in a]==[x["pair_sha256"] for x in b]
     s=selection_summary(a)
     assert s["examples"]==1000
+    assert s["prompt_groups"]==1000
     assert s["buckets"]["math"]>=380
     assert s["buckets"]["code"]>=230
     assert .25<=s["de_fraction"]<=.45
@@ -44,3 +45,18 @@ def test_shortage_fills_without_duplicate_groups():
     picked=select_profile_mix(eligible_rows(rows,seq=768),max_examples=100,min_examples=100)
     assert len(picked)==100
     assert len({r["prompt_group_sha256"] for r in picked})==100
+
+
+def test_multiple_answers_for_same_prompt_group_are_deduplicated_deterministically():
+    rows=[row(i,"chat","de" if i%4==0 else "en") for i in range(1,121)]
+    duplicate=dict(rows[0])
+    duplicate["id"]="duplicate-answer"
+    duplicate["pair_sha256"]=f"{999999:064x}"
+    duplicate["answer"]="another acceptable answer"
+    duplicate["answer_bytes"]=len(duplicate["answer"].encode("utf8"))
+    with_duplicate=eligible_rows(rows+[duplicate],seq=768)
+    a=select_profile_mix(with_duplicate,max_examples=100,min_examples=100)
+    b=select_profile_mix(list(reversed(with_duplicate)),max_examples=100,min_examples=100)
+    assert [r["pair_sha256"] for r in a]==[r["pair_sha256"] for r in b]
+    assert len(a)==100
+    assert len({r["prompt_group_sha256"] for r in a})==100
