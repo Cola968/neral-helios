@@ -17,7 +17,8 @@ import json
 import math
 from pathlib import Path
 
-from neral_intelligence_score import components_from_reports as nis1_components
+from neral_intelligence_score import nis_v1
+from summarize_strong50 import metrics as direct_metrics
 from weakness_repair_gate50 import extract
 
 SCORE_VERSION = "NIS-2.0"
@@ -43,6 +44,10 @@ def _mean(*values: float) -> float:
     return sum(float(v) for v in values) / len(values)
 
 
+def _load(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
 def generation_health(metrics: dict) -> float:
     """Map generation diagnostics to 0-100 against explicit project quality targets.
 
@@ -61,9 +66,13 @@ def components_from_reports(report_dir: str | Path) -> dict[str, float]:
     if not chat_path.is_file():
         raise FileNotFoundError(f"NIS 2.0 requires {chat_path}; partial scores are forbidden")
 
-    old = nis1_components(report_dir)
+    free = _load(report_dir / "free.json")
+    v3 = _load(report_dir / "v3.json")
+    v4 = _load(report_dir / "v4.json")
+    raw = _load(report_dir / "rawmath.json")
+    old = nis_v1(direct_metrics(free, v3, v4, raw))["components"]
     metrics = extract(report_dir)
-    chat = json.loads(chat_path.read_text(encoding="utf-8-sig"))["scores"]
+    chat = _load(chat_path)["scores"]
 
     math_generalization = (
         0.45 * float(metrics["rawmath_exact_pct"])
