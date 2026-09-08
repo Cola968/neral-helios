@@ -1,0 +1,86 @@
+name: Neral 50M Stage Ablation
+
+on:
+  push:
+    branches:
+      - stage-ablation-run
+    paths:
+      - stage_ablation_requests/request.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-stage-ablation
+  cancel-in-progress: false
+
+jobs:
+  ablate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        working-directory: src
+    steps:
+      - name: Checkout trusted code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: src
+          clean: true
+          persist-credentials: false
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: requestsrc
+          clean: true
+          persist-credentials: false
+      - name: Validate request and GPU
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path '..\requestsrc' 'stage_ablation_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'Ablation request missing.'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,request_id,version'){throw 'Unsupported request fields.'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'compare_i1_rawmath_instruct'){throw 'Unsupported ablation request.'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'Invalid request_id.'}
+          $verifiedAssets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{$verifiedAssets}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){throw 'CUDA validation failed.'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+      - name: Run read-only stage ablation
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          & $py -u -X utf8 run_stage_ablation50.py --assets $assets --out stage_ablation_reports
+          if($LASTEXITCODE -ne 0){throw 'Stage ablation failed.'}
+      - name: Reject private checkpoint or corpus uploads
+        if: always()
+        run: |
+          if(Test-Path stage_ablation_reports){
+            $bad=Get-ChildItem stage_ablation_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private model/corpus found in report directory.'}
+          }
+      - name: Persist reports locally
+        if: always()
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';if(-not $assets){exit 0}
+          $dest=Join-Path $assets ('reports\stage_ablation_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
+          if(Test-Path stage_ablation_reports){Copy-Item stage_ablation_reports\* $dest -Recurse -Force}
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-stage-ablation-${{ github.run_id }}
+          path: src/stage_ablation_reports/
+          if-no-files-found: warn
+          retention-days: 14
