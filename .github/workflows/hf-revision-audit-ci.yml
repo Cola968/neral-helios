@@ -7,6 +7,7 @@ on:
       - 'hf_source_policy50.py'
       - 'tests/test_hf_revision_audit50.py'
       - '.github/workflows/hf-revision-audit-ci.yml'
+      - '.github/workflows/hf-revision-live.yml'
 
 permissions:
   contents: read
