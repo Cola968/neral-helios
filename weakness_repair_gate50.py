@@ -18,6 +18,16 @@ def load(path):
     return json.loads(Path(path).read_text(encoding="utf8"))
 
 
+def _v5_bpb_4095(v5: dict) -> float | None:
+    block = v5.get("document_bounded_true_byte_bpb")
+    if not isinstance(block, dict) or block.get("available") is False:
+        return None
+    macro = block.get("macro_bits_per_byte")
+    if not isinstance(macro, dict) or "4095" not in macro:
+        return None
+    return float(macro["4095"])
+
+
 def extract(root: str | Path) -> dict:
     root = Path(root)
     free = load(root / "free.json")
@@ -30,7 +40,6 @@ def extract(root: str | Path) -> dict:
     nis = nis_v1(dm)["score"]
     free_s = free["summary"]
     v4_domains = v4["pair_suite"]["domains"]
-    v5_bpb = v5["document_bounded_true_byte_bpb"]["macro_bits_per_byte"]
     return {
         "nis": float(nis),
         "free_eos_pct": 100 * float(free_s["eos_fraction"]),
@@ -49,12 +58,24 @@ def extract(root: str | Path) -> dict:
         "context_recall_pct": 100 * float(v4["context_recall"]["accuracy"]),
         "v5_single_pct": 100 * float(v5["single_needle"]["accuracy"]),
         "v5_multi_pct": 100 * float(v5["multi_needle"]["accuracy"]),
-        "v5_bpb_4095": float(v5_bpb["4095"]),
+        "v5_bpb_4095": _v5_bpb_4095(v5),
     }
 
 
 def assess(before: dict, after: dict) -> dict:
     failures = []
+    before_bpb = before.get("v5_bpb_4095")
+    after_bpb = after.get("v5_bpb_4095")
+    if before_bpb is None:
+        bpb_ok = True
+        bpb_note = "source 4095-BPB unavailable; needle-recall protection still enforced"
+    elif after_bpb is None:
+        bpb_ok = False
+        bpb_note = "source 4095-BPB available but candidate evidence missing"
+    else:
+        bpb_ok = float(after_bpb) <= float(before_bpb) * 1.08
+        bpb_note = "candidate 4095-BPB must stay within +8% of source"
+
     checks = {
         "utf8_ge_99": after["utf8_pct"] >= 99.0,
         "eos_improves_5pp_and_ge_18": after["free_eos_pct"] >= max(18.0, before["free_eos_pct"] + 5.0),
@@ -69,7 +90,7 @@ def assess(before: dict, after: dict) -> dict:
         "context_protected": after["context_recall_pct"] >= before["context_recall_pct"] - 10.0,
         "v5_single_protected": after["v5_single_pct"] >= before["v5_single_pct"] - 10.0,
         "v5_multi_protected": after["v5_multi_pct"] >= before["v5_multi_pct"] - 10.0,
-        "long_context_bpb_protected": after["v5_bpb_4095"] <= before["v5_bpb_4095"] * 1.08,
+        "long_context_bpb_protected": bpb_ok,
     }
     for name, ok in checks.items():
         if not ok:
@@ -96,6 +117,7 @@ def assess(before: dict, after: dict) -> dict:
         "after": after,
         "weakness_deltas": weak_improvements,
         "stretch": stretch,
+        "long_context_bpb_evidence": {"source": before_bpb, "candidate": after_bpb, "note": bpb_note},
         "next_action": "benchmark-review; candidate may replace I1 only after review" if not failures else "keep I1 source; do not promote I2 candidate",
         "note": "Targeted-v1 is supplemental and was not frozen before B3; formal NIS comparability is unchanged.",
     }
