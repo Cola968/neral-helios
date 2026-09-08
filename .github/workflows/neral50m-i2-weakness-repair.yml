@@ -1,0 +1,176 @@
+name: Neral 50M I2 Weakness Repair
+
+on:
+  push:
+    branches:
+      - i2-train-run
+    paths:
+      - i2_requests/request.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-50m-i2-weakness-repair
+  cancel-in-progress: false
+
+jobs:
+  train-benchmark-i2:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 600
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        working-directory: src
+
+    steps:
+      - name: Checkout trusted I2 code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: src
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: requestsrc
+          clean: true
+          persist-credentials: false
+
+      - name: Validate exact authorization and RTX environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $requestPath=Join-Path '..\requestsrc' 'i2_requests\request.json'
+          if(-not(Test-Path $requestPath -PathType Leaf)){throw 'I2 request missing.'}
+          $r=Get-Content $requestPath -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,request_id,version'){throw 'Unsupported I2 request fields.'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'train_i2'){throw 'Unsupported I2 request.'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'Invalid request_id.'}
+          $verifiedAssets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $verifiedPython='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{$verifiedAssets}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$verifiedPython}
+          if(-not(Test-Path $assets -PathType Container)){throw "Assets missing: $assets"}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Resolve completed I1 source and screened data
+        id: source
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}'
+          $run=Join-Path $assets 'runs\neral50m_i1_instruct_d3'
+          $summary=Join-Path $run 'summary.json'
+          $best=Join-Path $run 'best_instruct.pt'
+          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'Completed I1 instruction checkpoint missing.'}
+          $s=Get-Content $summary -Raw|ConvertFrom-Json
+          if(-not $s.complete){throw "I1 source is incomplete: $($s.stop)"}
+          $actual=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
+          if($s.best_sha256 -and $actual -ne ([string]$s.best_sha256).ToLower()){throw 'I1 best checkpoint SHA-256 mismatch.'}
+          $data=Join-Path $assets 'i1_work_v3_oasst2\sft_data'
+          foreach($f in @('train.jsonl','val.jsonl','test.jsonl','holdout.jsonl','manifest.json')){
+            if(-not(Test-Path (Join-Path $data $f) -PathType Leaf)){throw "I1 screened SFT file missing: $f"}
+          }
+          $manifest=Get-Content (Join-Path $data 'manifest.json') -Raw|ConvertFrom-Json
+          if($manifest.i1_targeted_v1_screened_from_sft -ne $true){throw 'I1 SFT data lacks targeted-v1 screen marker.'}
+          if([int]$manifest.target_train_examples -lt 10000){throw 'I1 SFT data is unexpectedly small.'}
+          $replay=Join-Path $assets 'pretrain50_b2_data'
+          foreach($f in @('train_de.bin','train_en.bin','val_de.bin','val_en.bin','documents.jsonl','manifest.json')){
+            if(-not(Test-Path (Join-Path $replay $f) -PathType Leaf)){throw "B2 replay file missing: $f"}
+          }
+          "checkpoint=$best" >> $env:GITHUB_OUTPUT
+          "checkpoint_sha=$actual" >> $env:GITHUB_OUTPUT
+          "data=$data" >> $env:GITHUB_OUTPUT
+          "replay=$replay" >> $env:GITHUB_OUTPUT
+
+      - name: Train or resume bounded I2 weakness repair
+        id: train
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
+          $out=Join-Path $assets 'runs\neral50m_i2_weakness_e1'
+          "out=$out" >> $env:GITHUB_OUTPUT
+          & $py -u -X utf8 train_weakness_repair50.py `
+            --init-from '${{ steps.source.outputs.checkpoint }}' --expected-source-sha '${{ steps.source.outputs.checkpoint_sha }}' `
+            --data '${{ steps.source.outputs.data }}' --replay-data '${{ steps.source.outputs.replay }}' --out $out `
+            --steps 1600 --seq 768 --batch-size 8 --replay-batch 8 --sft-weight 0.72 --eos-weight 3.0 `
+            --peak-lr 0.000008 --min-lr 0.0000008 --warmup-fraction 0.05 --eval-every 100 --patience 8 `
+            --max-train-examples 8000 --max-val-examples 512 --dev-generation-examples 96 --desired-de-fraction 0.35 `
+            --min-answer-bytes 2 --max-answer-bytes 384 --max-lm-regression 0.02 --max-math-regression 0.02 `
+            --min-health-gain 1.5 --min-sft-nll-gain 0.003 --min-score-gain 0.50
+          if($LASTEXITCODE -ne 0){throw 'I2 training failed or was interrupted; latest.pt is retained for resume.'}
+
+      - name: Resolve selected I2 candidate
+        id: candidate
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='${{ steps.train.outputs.out }}';$summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_repair.pt'
+          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'I2 outputs missing.'}
+          $s=Get-Content $summary -Raw|ConvertFrom-Json
+          if(-not $s.complete){throw "I2 incomplete: $($s.stop)"}
+          $sha=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
+          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'I2 best checkpoint SHA mismatch.'}
+          "best=$best" >> $env:GITHUB_OUTPUT
+          "best_sha=$sha" >> $env:GITHUB_OUTPUT
+          "selected_step=$($s.selected_step)" >> $env:GITHUB_OUTPUT
+          "effective=$($s.effective_weight_candidate)" >> $env:GITHUB_OUTPUT
+
+      - name: Benchmark unchanged I1 source and I2 candidate
+        run: |
+          $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}'
+          New-Item -ItemType Directory -Force i2_reports|Out-Null
+          & $py -X utf8 benchmark_bundle50.py '${{ steps.source.outputs.checkpoint }}' --out-dir i2_reports\before
+          if($LASTEXITCODE -ne 0){throw 'I1 source benchmark failed.'}
+          & $py -X utf8 benchmark_bundle50.py '${{ steps.candidate.outputs.best }}' --out-dir i2_reports\after
+          if($LASTEXITCODE -ne 0){throw 'I2 candidate benchmark failed.'}
+
+      - name: Apply weakness-repair gate
+        run: |
+          $ErrorActionPreference='Continue';$py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 weakness_repair_gate50.py --before-dir i2_reports\before --after-dir i2_reports\after --out i2_reports\I2_WEAKNESS_GATE.json
+          $gateCode=$LASTEXITCODE
+          [ordered]@{
+            stage='I2 weakness repair E1';source_sha='${{ steps.source.outputs.checkpoint_sha }}';candidate_sha='${{ steps.candidate.outputs.best_sha }}';
+            selected_step=[int]'${{ steps.candidate.outputs.selected_step }}';effective_weight_candidate=('${{ steps.candidate.outputs.effective }}' -eq 'True');
+            weakness_gate_pass=($gateCode -eq 0);gate_exit_code=$gateCode;
+            next_action=if($gateCode -eq 0){'Review rich benchmark; candidate may replace I1 only after review.'}else{'Keep I1 as selected model; do not promote I2 candidate.'}
+          }|ConvertTo-Json|Set-Content -Encoding utf8 i2_reports\I2_RESULT.json
+          Get-Content i2_reports\I2_RESULT.json
+
+      - name: Reject private checkpoint or corpus uploads
+        if: always()
+        run: |
+          if(Test-Path i2_reports){
+            $bad=Get-ChildItem i2_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private model/corpus found in I2 report directory.'}
+          }
+
+      - name: Persist I2 reports locally
+        if: always()
+        run: |
+          $assets='${{ steps.env.outputs.assets }}'
+          if(-not $assets){exit 0}
+          $dest=Join-Path $assets ('reports\runner_50m_i2_'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force $dest|Out-Null
+          if(Test-Path i2_reports){Copy-Item i2_reports\* $dest -Recurse -Force}
+          $summary=Join-Path '${{ steps.train.outputs.out }}' 'summary.json'
+          if(Test-Path $summary){Copy-Item $summary (Join-Path $dest 'training_summary.json') -Force}
+          Write-Host "Persisted I2 reports to $dest"
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-50m-i2-weakness-repair-${{ github.run_id }}
+          path: src/i2_reports/
+          if-no-files-found: warn
+          retention-days: 14
