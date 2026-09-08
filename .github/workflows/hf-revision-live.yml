@@ -1,0 +1,59 @@
+name: Neral Hugging Face Revision Audit
+
+on:
+  push:
+    branches:
+      - hf-audit-run
+    paths:
+      - hf_audit_requests/request.json
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted audit code from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: src
+          persist-credentials: false
+      - name: Checkout authorization request only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: requestsrc
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate request
+        working-directory: src
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib, re
+          p=pathlib.Path('../requestsrc/hf_audit_requests/request.json')
+          r=json.loads(p.read_text(encoding='utf8'))
+          if sorted(r) != ['action','request_id','version']:
+              raise SystemExit('unsupported request fields')
+          if r['action'] != 'audit_hf_revisions' or r['version'] != 1:
+              raise SystemExit('unsupported request')
+          if not re.fullmatch(r'[A-Za-z0-9._-]{1,64}', str(r['request_id'])):
+              raise SystemExit('invalid request_id')
+          PY
+      - name: Resolve live immutable revisions
+        working-directory: src
+        run: |
+          mkdir -p hf_audit_reports
+          python hf_revision_audit50.py --out hf_audit_reports/HF_REVISION_AUDIT.json
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-hf-revision-audit-${{ github.run_id }}
+          path: src/hf_audit_reports/
+          if-no-files-found: error
+          retention-days: 30
