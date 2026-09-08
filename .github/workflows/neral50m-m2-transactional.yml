@@ -81,33 +81,33 @@ jobs:
           "replay=$replay" >> $env:GITHUB_OUTPUT
           "b1=$b1" >> $env:GITHUB_OUTPUT
 
-      - name: Train transactional M2 from D3 I1
+      - name: Train transactional M2.1 from D3 I1
         id: train
         run: |
           $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';$assets='${{ steps.env.outputs.assets }}'
-          $out=Join-Path $assets ('runs\neral50m_m2_transactional_'+$env:GITHUB_RUN_ID)
+          $out=Join-Path $assets ('runs\neral50m_m21_transactional_'+$env:GITHUB_RUN_ID)
           "out=$out" >> $env:GITHUB_OUTPUT
           & $py -u -X utf8 train_m2_pareto50.py `
             --init-from '${{ steps.source.outputs.checkpoint }}' --expected-source-sha '${{ steps.source.outputs.checkpoint_sha }}' `
             --data '${{ steps.source.outputs.data }}' --replay-data '${{ steps.source.outputs.replay }}' --out $out `
-            --blocks 12 --steps-per-block 50 --math-seq 256 --sft-seq 768 `
-            --id-math-batch 8 --transfer-math-batch 10 --sft-batch 8 --replay-batch 8 `
-            --id-math-weight 0.18 --transfer-math-weight 0.22 --sft-weight 0.30 --lm-weight 0.30 `
-            --eos-weight 2.25 --peak-lr 0.0000025 --min-lr 0.00000025 --warmup-fraction 0.05 `
-            --max-sft-train 6000 --max-sft-val 512 --dev-generation-examples 72 --desired-de-fraction 0.38 `
-            --exact-per-category 3 --min-score-gain 0.05
-          if($LASTEXITCODE -ne 0){throw 'M2 training failed.'}
+            --blocks 20 --steps-per-block 30 --math-seq 256 --sft-seq 768 `
+            --id-math-batch 8 --transfer-math-batch 14 --sft-batch 8 --replay-batch 10 `
+            --id-math-weight 0.16 --transfer-math-weight 0.30 --sft-weight 0.30 --lm-weight 0.24 `
+            --eos-weight 2.25 --peak-lr 0.0000018 --min-lr 0.00000018 --warmup-fraction 0.05 `
+            --max-sft-train 7000 --max-sft-val 768 --dev-generation-examples 192 --desired-de-fraction 0.45 `
+            --exact-per-category 8 --min-score-gain 0.05
+          if($LASTEXITCODE -ne 0){throw 'M2.1 training failed.'}
 
-      - name: Resolve selected M2 anchor
+      - name: Resolve selected M2.1 anchor
         id: candidate
         run: |
           $ErrorActionPreference='Stop';$out='${{ steps.train.outputs.out }}'
           $summary=Join-Path $out 'summary.json';$best=Join-Path $out 'best_m2.pt'
-          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'M2 outputs missing.'}
+          if((-not(Test-Path $summary -PathType Leaf)) -or (-not(Test-Path $best -PathType Leaf))){throw 'M2.1 outputs missing.'}
           $s=Get-Content $summary -Raw|ConvertFrom-Json
-          if(-not $s.complete){throw 'M2 run incomplete.'}
+          if(-not $s.complete){throw 'M2.1 run incomplete.'}
           $sha=(Get-FileHash $best -Algorithm SHA256).Hash.ToLower()
-          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'M2 best SHA mismatch.'}
+          if($s.best_sha256 -and $sha -ne ([string]$s.best_sha256).ToLower()){throw 'M2.1 best SHA mismatch.'}
           "best=$best" >> $env:GITHUB_OUTPUT
           "best_sha=$sha" >> $env:GITHUB_OUTPUT
           "selected_block=$($s.selected_block)" >> $env:GITHUB_OUTPUT
@@ -123,22 +123,22 @@ jobs:
             New-Item -ItemType Junction -Path $link -Target $target|Out-Null
           }
 
-      - name: Benchmark source and selected M2 anchor
+      - name: Benchmark source and selected M2.1 anchor
         run: |
           $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}';New-Item -ItemType Directory -Force m2_reports|Out-Null
           & $py -X utf8 benchmark_bundle50.py '${{ steps.source.outputs.checkpoint }}' --out-dir m2_reports\before
-          if($LASTEXITCODE -ne 0){throw 'M2 source benchmark failed.'}
+          if($LASTEXITCODE -ne 0){throw 'M2.1 source benchmark failed.'}
           & $py -X utf8 benchmark_bundle50.py '${{ steps.candidate.outputs.best }}' --out-dir m2_reports\after
-          if($LASTEXITCODE -ne 0){throw 'M2 candidate benchmark failed.'}
+          if($LASTEXITCODE -ne 0){throw 'M2.1 candidate benchmark failed.'}
 
       - name: Apply strict frozen Pareto gate
         run: |
           $ErrorActionPreference='Continue';$py='${{ steps.env.outputs.python }}'
           & $py -X utf8 m1_gate50.py --before-dir m2_reports\before --after-dir m2_reports\after --out m2_reports\M2_FROZEN_GATE.json
           $gateCode=$LASTEXITCODE
-          if($gateCode -notin @(0,2)){throw "M2 gate execution error: $gateCode"}
+          if($gateCode -notin @(0,2)){throw "M2.1 gate execution error: $gateCode"}
           [ordered]@{
-            stage='M2 transactional Pareto';source='D3/I1';source_sha='${{ steps.source.outputs.checkpoint_sha }}';candidate_sha='${{ steps.candidate.outputs.best_sha }}';
+            stage='M2.1 transactional Pareto';source='D3/I1';source_sha='${{ steps.source.outputs.checkpoint_sha }}';candidate_sha='${{ steps.candidate.outputs.best_sha }}';
             selected_block=[int]'${{ steps.candidate.outputs.selected_block }}';effective_weight_candidate=('${{ steps.candidate.outputs.effective }}' -eq 'True');
             independent_transfer_exact_growth=('${{ steps.candidate.outputs.transfer_growth }}' -eq 'True');frozen_gate_pass=($gateCode -eq 0);gate_exit_code=$gateCode;
             promotion_eligible=(($gateCode -eq 0) -and ('${{ steps.candidate.outputs.effective }}' -eq 'True'));
@@ -151,22 +151,22 @@ jobs:
         run: |
           if(Test-Path m2_reports){$bad=Get-ChildItem m2_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'};if($bad){throw 'Private model/corpus found in M2 reports.'}}
 
-      - name: Persist M2 reports locally
+      - name: Persist M2.1 reports locally
         if: always()
         run: |
           $assets='${{ steps.env.outputs.assets }}';if(-not $assets){exit 0}
-          $dest=Join-Path $assets ('reports\runner_50m_m2_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
+          $dest=Join-Path $assets ('reports\runner_50m_m21_'+$env:GITHUB_RUN_ID);New-Item -ItemType Directory -Force $dest|Out-Null
           if(Test-Path m2_reports){Copy-Item m2_reports\* $dest -Recurse -Force}
           $out='${{ steps.train.outputs.out }}'
           foreach($name in @('summary.json','run.json','source_dev.json','metrics.jsonl')){$p=Join-Path $out $name;if(Test-Path $p){Copy-Item $p (Join-Path $dest $name) -Force}}
           Get-ChildItem $out -Filter 'dev_block_*.json' -ErrorAction SilentlyContinue|Copy-Item -Destination $dest -Force
-          Write-Host "Persisted M2 reports to $dest"
+          Write-Host "Persisted M2.1 reports to $dest"
 
       - name: Upload reports only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neral-50m-m2-${{ github.run_id }}
+          name: neral-50m-m21-${{ github.run_id }}
           path: m2_reports/
           if-no-files-found: warn
           retention-days: 14
