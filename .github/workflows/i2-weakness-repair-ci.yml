@@ -1,0 +1,30 @@
+name: I2 weakness repair CI
+
+on:
+  pull_request:
+    paths:
+      - weakness_repair_data50.py
+      - train_weakness_repair50.py
+      - weakness_repair_gate50.py
+      - tests/test_weakness_repair_data50.py
+      - tests/test_weakness_repair_gate50.py
+      - .github/workflows/neral50m-i2-weakness-repair.yml
+      - .github/workflows/i2-weakness-repair-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  i2-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile I2 sources
+        run: python -m py_compile weakness_repair_data50.py train_weakness_repair50.py weakness_repair_gate50.py
+      - name: Install lightweight tests
+        run: python -m pip install --disable-pip-version-check pytest numpy
+      - name: Run I2 pure contract tests
+        run: python -m pytest tests/test_weakness_repair_data50.py tests/test_weakness_repair_gate50.py -q
