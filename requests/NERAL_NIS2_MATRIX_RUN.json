@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "stage": "nis2_lineage_evaluation",
+  "authorize": true,
+  "request_id": "nis2-20260908-lineage-01",
+  "note": "Frozen model-only NIS2 lineage evaluation; no training or weight changes."
+}
