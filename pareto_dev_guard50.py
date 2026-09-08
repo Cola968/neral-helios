@@ -27,6 +27,7 @@ METRICS = (
     MetricSpec("sft_reasoning_nll", "lower"),
     MetricSpec("sft_de_nll", "lower"),
     MetricSpec("lm_macro", "lower"),
+    MetricSpec("free_utf8_pct", "higher"),
     MetricSpec("free_eos_pct", "higher"),
     MetricSpec("free_repetition_pct", "lower"),
     MetricSpec("free_health_score", "higher"),
@@ -106,8 +107,8 @@ def assess_dev(before: dict, after: dict, atol: float = 1e-6) -> dict:
         },
         "score": score,
         "policy": (
-            "Training-time independent-dev Pareto guard. No tracked metric may regress; "
-            "math must improve by exact match or by >=0.5% on both ID and transfer NLL. "
-            "Frozen release benchmarks are not used for checkpoint selection."
+            "Training-time independent-dev Pareto guard. No tracked metric may regress, "
+            "including greedy UTF-8 validity; math must improve by exact match or by >=0.5% "
+            "on both ID and transfer NLL. Frozen release benchmarks are not used for checkpoint selection."
         ),
     }
