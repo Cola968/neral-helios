@@ -1,0 +1,28 @@
+name: RawMath transfer curriculum CI
+
+on:
+  pull_request:
+    paths:
+      - raw_math50_transfer_data.py
+      - tests/test_raw_math50_transfer_data.py
+      - .github/workflows/rawmath-transfer-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  transfer-data-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile transfer curriculum
+        run: python -m py_compile raw_math50_transfer_data.py
+      - name: Install tests
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Validate transfer curriculum
+        run: python raw_math50_transfer_data.py
+      - name: Run transfer curriculum tests
+        run: python -m pytest tests/test_raw_math50_transfer_data.py -q
