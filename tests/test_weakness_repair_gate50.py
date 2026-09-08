@@ -26,3 +26,23 @@ def test_gate_rejects_cosmetic_eos_gain_with_repetition_regression():
     result=assess(before,after)
     assert result["pass"] is False
     assert "repetition_improves_and_le_6" in result["failures"]
+
+
+def test_gate_does_not_crash_when_bpb_unavailable_for_both():
+    before=base();after=dict(before)
+    before["v5_bpb_4095"]=None;after["v5_bpb_4095"]=None
+    after.update(free_eos_pct=24.0,free_repeated_trigram_pct=4.8,rawmath_exact_pct=12.0,
+                 targeted_math_pct=50.0,targeted_code_pct=55.0,nis=65.0)
+    result=assess(before,after)
+    assert result["pass"] is True
+    assert result["checks"]["long_context_bpb_protected"] is True
+    assert result["long_context_bpb_evidence"]["source"] is None
+
+
+def test_gate_rejects_candidate_missing_bpb_when_source_has_it():
+    before=base();after=dict(before)
+    after.update(free_eos_pct=24.0,free_repeated_trigram_pct=4.8,rawmath_exact_pct=12.0,
+                 targeted_math_pct=50.0,targeted_code_pct=55.0,nis=65.0,v5_bpb_4095=None)
+    result=assess(before,after)
+    assert result["pass"] is False
+    assert "long_context_bpb_protected" in result["failures"]
