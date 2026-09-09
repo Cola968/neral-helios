@@ -50,8 +50,6 @@ jobs:
           $ErrorActionPreference='Stop'
           if(-not(Get-Command wsl.exe -ErrorAction SilentlyContinue)){throw 'WSL executable not installed'}
 
-          # Use the default WSL distribution directly. This avoids UTF-16/null-byte
-          # corruption observed when parsing `wsl --list --quiet` in the Windows runner.
           wsl.exe -- bash -lc "set -e; printf 'wsl-ok\n'; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
           if($LASTEXITCODE -ne 0){throw 'Default WSL distro/CUDA probe failed'}
 
@@ -84,7 +82,11 @@ jobs:
           $train='${{ steps.wsl.outputs.train_wsl }}'
           $out='${{ steps.wsl.outputs.out_wsl }}'
           New-Item -ItemType Directory -Force frontier350_stage4_report | Out-Null
-          wsl.exe -- bash "$repo/frontier350/run_stage4_triton_wsl.sh" "$repo" "$train" "$out"
+
+          # The checkout is performed by Git for Windows, which can materialize shell
+          # scripts with CRLF line endings. Normalize only the temporary WSL copy so bash
+          # sees a valid `set -euo pipefail` line without mutating the repository file.
+          wsl.exe -- bash -lc "set -e; tr -d '\r' < '$repo/frontier350/run_stage4_triton_wsl.sh' > /tmp/neral-stage4-triton.sh; chmod +x /tmp/neral-stage4-triton.sh; /tmp/neral-stage4-triton.sh '$repo' '$train' '$out'"
           if($LASTEXITCODE -ne 0){throw 'Stage-4 WSL Triton bootstrap/benchmark failed'}
 
       - name: Print Stage-4 decision
