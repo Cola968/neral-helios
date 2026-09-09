@@ -1,0 +1,144 @@
+name: Neral 50M Mobile Progressive Scale
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - '.github/workflows/mobile-progressive-scale50.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  artifact-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait for immutable mobile data artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo='${{ github.repository }}'
+          first_run=34325843766
+          scale_run=34326465067
+          for attempt in $(seq 1 60); do
+            first=$(gh api "repos/$repo/actions/runs/$first_run/artifacts" --jq '[.artifacts[].name] | index("neral-mobile-policy-safe-reserve-512m-34325843766") != null')
+            w1=$(gh api "repos/$repo/actions/runs/$scale_run/artifacts" --jq '[.artifacts[].name] | index("neral-mobile-disjoint-w1-34326465067") != null')
+            w2=$(gh api "repos/$repo/actions/runs/$scale_run/artifacts" --jq '[.artifacts[].name] | index("neral-mobile-disjoint-w2-34326465067") != null')
+            echo "attempt=$attempt first=$first w1=$w1 w2=$w2"
+            if [[ "$first" == true && "$w1" == true && "$w2" == true ]]; then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo 'Required mobile artifacts were not ready inside preflight budget.' >&2
+          exit 1
+
+  gpu-campaign:
+    needs: artifact-preflight
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 300
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download base 512M reserve
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-mobile-policy-safe-reserve-512m-34325843766
+          path: mobile_scale_data/base512
+          run-id: 34325843766
+          github-token: ${{ github.token }}
+
+      - name: Download disjoint w1 reserve
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-mobile-disjoint-w1-34326465067
+          path: mobile_scale_data/w1
+          run-id: 34326465067
+          github-token: ${{ github.token }}
+
+      - name: Download disjoint w2 reserve
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-mobile-disjoint-w2-34326465067
+          path: mobile_scale_data/w2
+          run-id: 34326465067
+          github-token: ${{ github.token }}
+
+      - name: Resolve local Neral assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          $b2=Join-Path $assets 'runs\neral50m_b2_100m\best_validation.pt'
+          if(-not(Test-Path $b2 -PathType Leaf)){$b2=Join-Path $assets 'runs\neral50m_b2_100m\latest.pt'}
+          $old=Join-Path $assets 'pretrain50_b2_data'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          if(-not(Test-Path $b2 -PathType Leaf)){throw "B2 checkpoint missing: $b2"}
+          if(-not(Test-Path $old -PathType Container)){throw "B2 data missing: $old"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 unavailable'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "b2=$b2" >> $env:GITHUB_OUTPUT
+          "old=$old" >> $env:GITHUB_OUTPUT
+
+      - name: Compile progressive campaign
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile run_mobile_scale_campaign50.py train_mobile_data_pilot50.py fastpath50.py model50.py
+          if($LASTEXITCODE -ne 0){throw 'compile failed'}
+
+      - name: Run gated 350M-token continuation
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path '${{ steps.env.outputs.assets }}' ('runs\neral50m_mobile_progressive_' + $env:GITHUB_RUN_ID)
+          if(Test-Path $out){throw "Refusing existing campaign dir: $out"}
+          & '${{ steps.env.outputs.python }}' -u run_mobile_scale_campaign50.py `
+            --init-from '${{ steps.env.outputs.b2 }}' `
+            --old-data '${{ steps.env.outputs.old }}' `
+            --out $out `
+            --data mobile_scale_data/base512 `
+            --tokens 100000000 `
+            --data mobile_scale_data/w1 `
+            --tokens 125000000 `
+            --data mobile_scale_data/w2 `
+            --tokens 125000000 `
+            --seq 512 `
+            --batch 16 `
+            --max-cumulative-old-regression 0.03
+          if($LASTEXITCODE -ne 0){throw 'progressive mobile scale campaign failed'}
+          New-Item -ItemType Directory -Path mobile_scale_report -Force | Out-Null
+          Copy-Item (Join-Path $out 'campaign_report.json') mobile_scale_report\campaign_report.json
+          Get-ChildItem $out -Directory | ForEach-Object {
+            $r=Join-Path $_.FullName 'report.json'
+            if(Test-Path $r){Copy-Item $r (Join-Path 'mobile_scale_report' ($_.Name + '_report.json'))}
+          }
+          Write-Output "Local candidate lineage preserved at $out; no checkpoint will be uploaded."
+
+      - name: Reject checkpoint or corpus upload
+        if: always()
+        run: |
+          if(Test-Path mobile_scale_report){
+            $bad=Get-ChildItem mobile_scale_report -Recurse -File | Where-Object {$_.Extension -in '.pt','.pth','.safetensors','.ckpt','.bin'}
+            if($bad){throw 'Model/corpus artifact would be uploaded'}
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral50-mobile-progressive-report-${{ github.run_id }}
+          path: mobile_scale_report/
+          if-no-files-found: warn
+          retention-days: 30

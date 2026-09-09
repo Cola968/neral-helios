@@ -1,0 +1,115 @@
+name: Neral Mobile Data Reserve Scale-Out
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - '.github/workflows/mobile-data-reserve-scaleout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-window:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - name: w1
+            skip_base: 536870912
+            target: 268435456
+          - name: w2
+            skip_base: 805306368
+            target: 268435456
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_DATASETS_DISABLE_PROGRESS_BARS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pinned data tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'datasets>=3.2,<5' 'huggingface_hub>=0.30,<1' 'numpy>=2,<3'
+
+      - name: Compile disjoint window builder
+        run: |
+          python -m py_compile build_mobile_data_pack.py build_mobile_data_pack_v2.py build_mobile_data_window.py hf_source_policy50.py tokenizer.py
+
+      - name: Build disjoint ${{ matrix.name }} window
+        run: |
+          python -u build_mobile_data_window.py \
+            --out mobile_window_${{ matrix.name }} \
+            --target-bytes ${{ matrix.target }} \
+            --skip-base-bytes ${{ matrix.skip_base }} \
+            --shard-tokens 33554432 \
+            --max-docs-per-source 2500000
+
+      - name: Validate disjoint window
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib
+          name = '${{ matrix.name }}'
+          root = pathlib.Path(f'mobile_window_{name}')
+          m = json.loads((root/'manifest.json').read_text(encoding='utf8'))
+          assert m['candidate_only'] is True
+          assert m['automatic_training_admission'] is False
+          assert m['foreign_model_weights_used'] is False
+          assert m['accepted_utf8_bytes'] >= int(${{ matrix.target }}) * 0.95
+          assert m['skip_base_utf8_bytes'] == int(${{ matrix.skip_base }})
+          assert m['skip_safety_factor'] >= 1.02
+          assert m['total_tokens'] >= int(${{ matrix.target }}) * 0.95
+          sources = {s['name']: s for s in m['sources']}
+          assert set(sources) == {'fineweb2_de', 'fineweb_en', 'fineweb_edu'}
+          assert all(s['skipped_filtered_unique_bytes'] >= s['skip_target_bytes'] for s in m['sources'])
+          assert all('finemath' not in s['repo'].lower() for s in m['sources'])
+          for row in m['train_shards'] + m['val_shards']:
+              p = root / row['file']
+              assert p.stat().st_size == row['tokens'] * 2
+              h = hashlib.sha256()
+              with p.open('rb') as f:
+                  for chunk in iter(lambda: f.read(8*1024*1024), b''):
+                      h.update(chunk)
+              assert h.hexdigest() == row['sha256']
+          print(json.dumps({
+              'window': name,
+              'validated': True,
+              'accepted_utf8_bytes': m['accepted_utf8_bytes'],
+              'tokens': m['total_tokens'],
+              'skipped_filtered_unique_bytes': m['skipped_filtered_unique_bytes'],
+              'sources': [(s['name'], s['accepted_utf8_bytes'], s['skipped_filtered_unique_bytes']) for s in m['sources']],
+          }, indent=2))
+          PY
+
+      - name: Reject unsafe artifact content
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path('mobile_window_${{ matrix.name }}')
+          banned = {'.pt', '.pth', '.safetensors', '.ckpt', '.pem', '.key'}
+          bad = [str(p) for p in root.rglob('*') if p.is_file() and p.suffix.lower() in banned]
+          if bad:
+              raise SystemExit('banned files: ' + repr(bad))
+          text = (root/'manifest.json').read_text(encoding='utf8').lower()
+          for blocked in ('huggingfacetb/finemath', 'open-web-math', 'stack-edu', 'codeparrot'):
+              if blocked in text:
+                  raise SystemExit('unapproved source leaked into reserve: ' + blocked)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral-mobile-disjoint-${{ matrix.name }}-${{ github.run_id }}
+          path: mobile_window_${{ matrix.name }}/
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 7
