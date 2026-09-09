@@ -1,0 +1,129 @@
+name: Neral 50M Mobile Data Pilot
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - 'train_mobile_data_pilot50.py'
+      - '.github/workflows/mobile-50m-data-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-pilot-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_DATASETS_DISABLE_PROGRESS_BARS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install data tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'datasets>=3.2,<5' 'huggingface_hub>=0.30,<1' 'numpy>=2,<3'
+      - name: Compile pilot tooling
+        run: python -m py_compile build_mobile_data_pack.py train_mobile_data_pilot50.py tokenizer.py
+      - name: Build 32 MiB immutable-revision pilot pack
+        run: |
+          python -u build_mobile_data_pack.py \
+            --out mobile_pilot_data \
+            --target-bytes 33554432 \
+            --shard-tokens 8388608 \
+            --max-docs-per-source 200000
+      - name: Validate pilot manifest
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          m=json.loads(pathlib.Path('mobile_pilot_data/manifest.json').read_text())
+          assert m['candidate_only'] is True and m['foreign_model_weights_used'] is False
+          assert m['accepted_utf8_bytes'] >= 30_000_000
+          assert m['total_tokens'] >= 30_000_000
+          print(json.dumps({'tokens':m['total_tokens'],'sources':[(s['name'],s['accepted_utf8_bytes']) for s in m['sources']]},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral-mobile-pilot-data-${{ github.run_id }}
+          path: mobile_pilot_data/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+  gpu-pilot:
+    needs: prepare-pilot-data
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: neral-mobile-pilot-data-${{ github.run_id }}
+          path: mobile_pilot_data
+      - name: Resolve local Neral assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          $b2=Join-Path $assets 'runs\neral50m_b2_100m\best_validation.pt'
+          if(-not(Test-Path $b2 -PathType Leaf)){$b2=Join-Path $assets 'runs\neral50m_b2_100m\latest.pt'}
+          $old=Join-Path $assets 'pretrain50_b2_data'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          if(-not(Test-Path $b2 -PathType Leaf)){throw "B2 checkpoint missing: $b2"}
+          if(-not(Test-Path $old -PathType Container)){throw "B2 data missing: $old"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 unavailable'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "b2=$b2" >> $env:GITHUB_OUTPUT
+          "old=$old" >> $env:GITHUB_OUTPUT
+      - name: Compile isolated trainer
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile train_mobile_data_pilot50.py fastpath50.py model50.py
+          if($LASTEXITCODE -ne 0){throw 'compile failed'}
+      - name: Train isolated 25M-token candidate
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path '${{ steps.env.outputs.assets }}' ('runs\neral50m_mobile_data_pilot_' + $env:GITHUB_RUN_ID)
+          if(Test-Path $out){throw "Refusing existing pilot dir: $out"}
+          & '${{ steps.env.outputs.python }}' -u train_mobile_data_pilot50.py `
+            --init-from '${{ steps.env.outputs.b2 }}' `
+            --data mobile_pilot_data `
+            --old-data '${{ steps.env.outputs.old }}' `
+            --out $out `
+            --tokens 25000000 `
+            --seq 512 `
+            --batch 16
+          if($LASTEXITCODE -ne 0){throw 'mobile 50M pilot failed'}
+          New-Item -ItemType Directory -Path mobile_pilot_report -Force | Out-Null
+          Copy-Item (Join-Path $out 'report.json') mobile_pilot_report\report.json
+          Copy-Item mobile_pilot_data\manifest.json mobile_pilot_report\data_manifest.json
+          Write-Output "Local candidate preserved at $out; checkpoint is intentionally not uploaded."
+      - name: Reject checkpoint upload
+        if: always()
+        run: |
+          if(Test-Path mobile_pilot_report){
+            $bad=Get-ChildItem mobile_pilot_report -Recurse -File | Where-Object {$_.Extension -in '.pt','.pth','.safetensors','.ckpt','.bin'}
+            if($bad){throw 'Model/corpus artifact would be uploaded'}
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral50-mobile-data-pilot-report-${{ github.run_id }}
+          path: mobile_pilot_report/
+          if-no-files-found: warn
+          retention-days: 30
