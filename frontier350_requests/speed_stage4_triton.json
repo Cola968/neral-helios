@@ -4,5 +4,5 @@
   "architecture": "frontier350-v1",
   "seq": 512,
   "target_tps": 15000,
-  "request_id": "stage4-triton-20260909-r8"
+  "request_id": "stage4-triton-20260909-r9"
 }
