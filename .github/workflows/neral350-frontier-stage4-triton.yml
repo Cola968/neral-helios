@@ -53,13 +53,20 @@ jobs:
           wsl.exe -- bash -lc "set -e; printf 'wsl-ok\n'; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
           if($LASTEXITCODE -ne 0){throw 'Default WSL distro/CUDA probe failed'}
 
+          function Convert-ToWslPath([string]$Path) {
+            $full=[System.IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') {
+              throw "Unsupported Windows path for WSL conversion: $Path"
+            }
+            $drive=$matches[1].ToLower()
+            $rest=$matches[2] -replace '\\','/'
+            return "/mnt/$drive/$rest"
+          }
+
           $repo=(Get-Location).Path
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-
-          $repoWsl=(wsl.exe -- wslpath -a $repo | Select-Object -First 1).Trim()
-          if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoWsl)){throw 'Failed to convert repository path with wslpath'}
-          $assetsWsl=(wsl.exe -- wslpath -a $assets | Select-Object -First 1).Trim()
-          if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($assetsWsl)){throw 'Failed to convert assets path with wslpath'}
+          $repoWsl=Convert-ToWslPath $repo
+          $assetsWsl=Convert-ToWslPath $assets
 
           $trainWsl="$assetsWsl/frontier350_bpe_pilot_v1/train"
           $outWsl="$repoWsl/frontier350_stage4_report/stage4_triton.json"
