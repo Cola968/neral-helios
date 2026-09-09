@@ -1,0 +1,106 @@
+name: Neral Mobile Data Reserve 512M
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - '.github/workflows/mobile-data-reserve-512m.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-reserve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_DATASETS_DISABLE_PROGRESS_BARS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pinned data tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'datasets>=3.2,<5' 'huggingface_hub>=0.30,<1' 'numpy>=2,<3'
+
+      - name: Compile policy-safe feeder
+        run: |
+          python -m py_compile build_mobile_data_pack.py build_mobile_data_pack_v2.py hf_source_policy50.py tokenizer.py
+
+      - name: Build 512 MiB policy-safe Neral reserve
+        run: |
+          python -u build_mobile_data_pack_v2.py \
+            --out mobile_data_reserve_512m \
+            --target-bytes 536870912 \
+            --shard-tokens 33554432 \
+            --max-docs-per-source 1500000
+
+      - name: Validate source policy and corpus integrity
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('mobile_data_reserve_512m')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf8'))
+          assert manifest['candidate_only'] is True
+          assert manifest['automatic_training_admission'] is False
+          assert manifest['foreign_model_weights_used'] is False
+          assert manifest['accepted_utf8_bytes'] >= 500_000_000, manifest['accepted_utf8_bytes']
+          assert manifest['total_tokens'] >= 500_000_000, manifest['total_tokens']
+          sources = {row['name']: row for row in manifest['sources']}
+          assert set(sources) == {'fineweb2_de', 'fineweb_en', 'fineweb_edu'}, set(sources)
+          assert sources['fineweb2_de']['config'] in {'deu_Latn', 'deu'}
+          assert sources['fineweb_en']['repo'] == 'HuggingFaceFW/fineweb'
+          assert sources['fineweb_edu']['repo'] == 'HuggingFaceFW/fineweb-edu'
+          assert all('finemath' not in row['repo'].lower() for row in manifest['sources'])
+          for row in manifest['train_shards'] + manifest['val_shards']:
+              p = root / row['file']
+              assert p.is_file()
+              assert p.stat().st_size == row['tokens'] * 2
+              h = hashlib.sha256()
+              with p.open('rb') as f:
+                  for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):
+                      h.update(chunk)
+              assert h.hexdigest() == row['sha256'], row['file']
+          docs = sum(1 for _ in (root / 'documents.jsonl').open(encoding='utf8'))
+          assert docs >= 50_000, docs
+          print(json.dumps({
+              'validated': True,
+              'accepted_utf8_bytes': manifest['accepted_utf8_bytes'],
+              'tokens': manifest['total_tokens'],
+              'documents': docs,
+              'sources': [(s['name'], s['accepted_docs'], s['accepted_utf8_bytes']) for s in manifest['sources']],
+              'train_shards': len(manifest['train_shards']),
+              'val_shards': len(manifest['val_shards']),
+          }, indent=2))
+          PY
+
+      - name: Reject model weights, secrets and quarantined source names
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path('mobile_data_reserve_512m')
+          banned_suffixes = {'.pt', '.pth', '.safetensors', '.ckpt', '.pem', '.key'}
+          bad = [str(p) for p in root.rglob('*') if p.is_file() and p.suffix.lower() in banned_suffixes]
+          if bad:
+              raise SystemExit('banned files: ' + repr(bad))
+          manifest = json.loads((root/'manifest.json').read_text(encoding='utf8'))
+          text = json.dumps(manifest).lower()
+          if 'huggingfacetb/finemath' in text:
+              raise SystemExit('quarantined FineMath source leaked into reserve')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral-mobile-policy-safe-reserve-512m-${{ github.run_id }}
+          path: mobile_data_reserve_512m/
+          if-no-files-found: error
+          compression-level: 3
+          retention-days: 30
