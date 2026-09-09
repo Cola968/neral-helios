@@ -1,0 +1,78 @@
+name: Neral 50M Ultra RTX Probe
+
+on:
+  push:
+    branches:
+      - perf/neral50-v3-ultra
+    paths:
+      - 'probe_50m_ultra.py'
+      - 'model50_ultra.py'
+      - 'replay50_prefetch.py'
+      - 'fastpath50.py'
+      - 'model50.py'
+      - '.github/workflows/neral50-ultra-gpu-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-contracts:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile new ultra modules
+        run: python -m py_compile model50_ultra.py replay50_prefetch.py probe_50m_ultra.py
+
+  rtx4070-ultra:
+    needs: syntax-contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve local Neral Python
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 unavailable'}
+          "python=$python" >> $env:GITHUB_OUTPUT
+      - name: Compile with target Torch environment
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile model50_ultra.py replay50_prefetch.py probe_50m_ultra.py
+          if($LASTEXITCODE -ne 0){throw 'Ultra modules failed to compile'}
+      - name: Benchmark exact SDPA and foreach candidates
+        run: |
+          New-Item -ItemType Directory -Force reports | Out-Null
+          & '${{ steps.env.outputs.python }}' -u probe_50m_ultra.py --out reports/neral50_ultra_probe.json --warmup 4 --repeats 8
+          if($LASTEXITCODE -ne 0){throw 'Neral 50M ultra probe failed'}
+      - name: Reject model/corpus artifacts
+        if: always()
+        run: |
+          if(Test-Path reports){
+            $bad=Get-ChildItem reports -Recurse -File | Where-Object {$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Unexpected model/corpus artifact'}
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral50-ultra-rtx-probe-${{ github.run_id }}
+          path: reports/neral50_ultra_probe.json
+          if-no-files-found: warn
+          retention-days: 30
