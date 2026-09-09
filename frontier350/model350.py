@@ -19,11 +19,11 @@ from torch.utils.checkpoint import checkpoint as activation_checkpoint
 @dataclass(frozen=True)
 class Neral350Config:
     vocab_size: int = 260
-    d_model: int = 896
-    n_layers: int = 30
-    n_heads: int = 14
+    d_model: int = 1024
+    n_layers: int = 32
+    n_heads: int = 16
     n_kv_heads: int = 2
-    ffn_hidden: int = 2432
+    ffn_hidden: int = 2816
     max_seq_len: int = 8192
     rope_theta: float = 250_000.0
     rms_eps: float = 1e-5
