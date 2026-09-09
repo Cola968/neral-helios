@@ -44,30 +44,34 @@ jobs:
         run: |
           & '${{ steps.env.outputs.python }}' -m py_compile frontier350/model350.py frontier350/bench350.py
           if($LASTEXITCODE -ne 0){throw 'compile failed'}
-      - name: 512 mb2 no checkpointing
+      - name: Byte 512 mb2 no checkpointing
         run: |
           New-Item -ItemType Directory -Force frontier350_pilot_report | Out-Null
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/nogc_512_mb2.json --seq 512 --microbatch 2 --steps 16 --warmup 4 --no-gradient-checkpointing
-          if($LASTEXITCODE -ne 0){throw '512 mb2 pilot failed'}
-      - name: 512 mb4 no checkpointing
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_nogc_512_mb2.json --seq 512 --microbatch 2 --steps 16 --warmup 4 --no-gradient-checkpointing --label byte260
+          if($LASTEXITCODE -ne 0){throw 'byte 512 mb2 pilot failed'}
+      - name: Byte 512 mb4 no checkpointing
         continue-on-error: true
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/nogc_512_mb4.json --seq 512 --microbatch 4 --steps 12 --warmup 3 --no-gradient-checkpointing
-      - name: 512 mb4 checkpointing
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_nogc_512_mb4.json --seq 512 --microbatch 4 --steps 12 --warmup 3 --no-gradient-checkpointing --label byte260
+      - name: Byte 512 mb4 checkpointing
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/gc_512_mb4.json --seq 512 --microbatch 4 --steps 12 --warmup 3
-          if($LASTEXITCODE -ne 0){throw '512 mb4 GC pilot failed'}
-      - name: 1024 mb1 no checkpointing reference
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_gc_512_mb4.json --seq 512 --microbatch 4 --steps 12 --warmup 3 --label byte260
+          if($LASTEXITCODE -ne 0){throw 'byte 512 mb4 GC pilot failed'}
+      - name: Byte 1024 mb1 no checkpointing reference
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/nogc_1024_mb1.json --seq 1024 --microbatch 1 --steps 12 --warmup 3 --no-gradient-checkpointing
-          if($LASTEXITCODE -ne 0){throw '1024 reference failed'}
-      - name: 1024 mb2 no checkpointing capacity edge
-        continue-on-error: true
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_nogc_1024_mb1.json --seq 1024 --microbatch 1 --steps 12 --warmup 3 --no-gradient-checkpointing --label byte260
+          if($LASTEXITCODE -ne 0){throw 'byte 1024 reference failed'}
+      - name: BPE16K 512 mb2 no checkpointing
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/nogc_1024_mb2.json --seq 1024 --microbatch 2 --steps 10 --warmup 3 --no-gradient-checkpointing
-      - name: 2048 mb1 checkpointing long-context reference
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/bpe16k_nogc_512_mb2.json --seq 512 --microbatch 2 --steps 16 --warmup 4 --no-gradient-checkpointing --vocab-size 16384 --ffn-hidden 2624 --label bpe16k
+          if($LASTEXITCODE -ne 0){throw 'BPE16K 512 mb2 pilot failed'}
+      - name: BPE16K 1024 mb1 no checkpointing
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/gc_2048_mb1.json --seq 2048 --microbatch 1 --steps 10 --warmup 3
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/bpe16k_nogc_1024_mb1.json --seq 1024 --microbatch 1 --steps 12 --warmup 3 --no-gradient-checkpointing --vocab-size 16384 --ffn-hidden 2624 --label bpe16k
+          if($LASTEXITCODE -ne 0){throw 'BPE16K 1024 pilot failed'}
+      - name: Byte 2048 mb1 checkpointing long-context reference
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_gc_2048_mb1.json --seq 2048 --microbatch 1 --steps 10 --warmup 3 --label byte260
           if($LASTEXITCODE -ne 0){throw '2048 pilot failed'}
       - name: Upload report only
         if: always()
