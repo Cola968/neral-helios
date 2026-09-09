@@ -1,0 +1,34 @@
+name: Neral Mobile Trainer V2 Contracts
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - 'train_mobile_data_pilot50_v2.py'
+      - 'test_mobile_pilot_v2.py'
+      - '.github/workflows/mobile-pilot-v2-ci.yml'
+  pull_request:
+    paths:
+      - 'train_mobile_data_pilot50_v2.py'
+      - 'test_mobile_pilot_v2.py'
+      - '.github/workflows/mobile-pilot-v2-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test runtime
+        run: pip install --disable-pip-version-check torch numpy pytest
+      - name: Compile packed trainer
+        run: python -m py_compile train_mobile_data_pilot50_v2.py test_mobile_pilot_v2.py
+      - name: Run packed-data contracts
+        run: python -m pytest -q test_mobile_pilot_v2.py
