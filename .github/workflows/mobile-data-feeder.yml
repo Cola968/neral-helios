@@ -1,0 +1,78 @@
+name: Neral Mobile Data Feeder 128M
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - 'build_mobile_data_pack.py'
+      - 'tokenizer.py'
+      - '.github/workflows/mobile-data-feeder.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_DATASETS_DISABLE_PROGRESS_BARS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install pinned data tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'datasets>=3.2,<5' 'huggingface_hub>=0.30,<1' 'numpy>=2,<3'
+      - name: Compile feeder
+        run: python -m py_compile build_mobile_data_pack.py tokenizer.py
+      - name: Build 128 MiB candidate corpus
+        run: |
+          python -u build_mobile_data_pack.py \
+            --out mobile_data_pack \
+            --target-bytes 134217728 \
+            --shard-tokens 16777216 \
+            --max-docs-per-source 500000
+      - name: Validate portable pack
+        run: |
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('mobile_data_pack')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['candidate_only'] is True
+          assert m['automatic_training_admission'] is False
+          assert m['foreign_model_weights_used'] is False
+          assert m['total_tokens'] >= 120_000_000, m['total_tokens']
+          assert m['accepted_utf8_bytes'] >= 120_000_000, m['accepted_utf8_bytes']
+          assert m['train_shards'] and m['val_shards']
+          for row in m['train_shards']+m['val_shards']:
+              p=root/row['file']; assert p.is_file()
+              assert p.stat().st_size == row['tokens']*2
+              h=hashlib.sha256(p.read_bytes()).hexdigest(); assert h==row['sha256']
+          docs=sum(1 for _ in (root/'documents.jsonl').open(encoding='utf8'))
+          assert docs > 1000, docs
+          print(json.dumps({'validated':True,'tokens':m['total_tokens'],'docs':docs,'sources':[(s['name'],s['accepted_docs']) for s in m['sources']]},indent=2))
+          PY
+      - name: Reject accidental sensitive/model files
+        run: |
+          python - <<'PY'
+          import pathlib
+          root=pathlib.Path('mobile_data_pack')
+          banned={'.pt','.pth','.safetensors','.ckpt','.pem','.key'}
+          bad=[str(p) for p in root.rglob('*') if p.is_file() and p.suffix.lower() in banned]
+          if bad: raise SystemExit('banned files: '+repr(bad))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral-mobile-data-pack-128m-${{ github.run_id }}
+          path: mobile_data_pack/
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 30
