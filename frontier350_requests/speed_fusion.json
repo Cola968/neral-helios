@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "speed_fusion_frontier350",
+  "architecture": "frontier350-v1",
+  "seq": 512,
+  "target_tps": 15000,
+  "request_id": "frontier350-15k-fusion-20260909"
+}
