@@ -44,67 +44,48 @@ jobs:
           if([int]$r.target_tps -ne 15000){throw 'Stage-4 target must be 15000 tok/s'}
           if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
 
-      - name: Resolve WSL2 and CUDA paths
+      - name: Resolve default WSL2 Ubuntu and CUDA paths
         id: wsl
         run: |
           $ErrorActionPreference='Stop'
           if(-not(Get-Command wsl.exe -ErrorAction SilentlyContinue)){throw 'WSL executable not installed'}
-          $distro=(wsl.exe --list --quiet | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -First 1)
-          if(-not $distro){throw 'No WSL Linux distribution installed'}
+
+          # Use the default WSL distribution directly. This avoids UTF-16/null-byte
+          # corruption observed when parsing `wsl --list --quiet` in the Windows runner.
+          wsl.exe -- bash -lc "set -e; printf 'wsl-ok\n'; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
+          if($LASTEXITCODE -ne 0){throw 'Default WSL distro/CUDA probe failed'}
+
+          function Convert-ToWslPath([string]$Path) {
+            $full=[System.IO.Path]::GetFullPath($Path).Replace('\','/')
+            if($full -match '^([A-Za-z]):/(.*)$') {
+              return "/mnt/$($matches[1].ToLower())/$($matches[2])"
+            }
+            throw "Unsupported Windows path for WSL conversion: $Path"
+          }
+
           $repo=(Get-Location).Path
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $repoWsl=(wsl.exe -d $distro -- wslpath -a $repo).Trim()
-          $assetsWsl=(wsl.exe -d $distro -- wslpath -a $assets).Trim()
+          $repoWsl=Convert-ToWslPath $repo
+          $assetsWsl=Convert-ToWslPath $assets
           $trainWsl="$assetsWsl/frontier350_bpe_pilot_v1/train"
-          $venvWsl="$assetsWsl/.venv-wsl-triton"
-          wsl.exe -d $distro -- bash -lc "set -e; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader; test -d '$trainWsl'"
-          if($LASTEXITCODE -ne 0){throw 'WSL/CUDA/data probe failed'}
-          "distro=$distro" >> $env:GITHUB_OUTPUT
+          $outWsl="$repoWsl/frontier350_stage4_report/stage4_triton.json"
+
+          wsl.exe -- bash -lc "set -e; test -d '$trainWsl'; test -f '$repoWsl/frontier350/run_stage4_triton_wsl.sh'; printf 'repo=%s\ntrain=%s\n' '$repoWsl' '$trainWsl'"
+          if($LASTEXITCODE -ne 0){throw 'WSL data/repository path probe failed'}
+
           "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
           "train_wsl=$trainWsl" >> $env:GITHUB_OUTPUT
-          "venv_wsl=$venvWsl" >> $env:GITHUB_OUTPUT
+          "out_wsl=$outWsl" >> $env:GITHUB_OUTPUT
 
-      - name: Prepare isolated Linux Triton environment
+      - name: Prepare Triton and benchmark TorchInductor
         run: |
           $ErrorActionPreference='Stop'
-          $d='${{ steps.wsl.outputs.distro }}'
-          $v='${{ steps.wsl.outputs.venv_wsl }}'
-          $cmd=@"
-          set -euo pipefail
-          if [ ! -x '$v/bin/python' ]; then
-            python3 -m venv '$v'
-          fi
-          P='$v/bin/python'
-          if ! "`$P" -c 'import numpy, torch, triton; assert torch.__version__.startswith("2.8.")' >/dev/null 2>&1; then
-            "`$P" -m pip install --upgrade pip wheel
-            "`$P" -m pip install numpy
-            "`$P" -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
-            "`$P" -c 'import triton' >/dev/null 2>&1 || "`$P" -m pip install triton==3.4.0
-          fi
-          "`$P" -c 'import torch,triton; print("torch",torch.__version__); print("cuda",torch.version.cuda); print("triton",getattr(triton,"__version__","unknown")); print("gpu",torch.cuda.get_device_name(0)); assert torch.cuda.is_available() and torch.cuda.is_bf16_supported()'
-          "@
-          wsl.exe -d $d -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'isolated WSL Triton environment setup failed'}
-
-      - name: Verify Stage-4 parameter contract
-        run: |
-          $ErrorActionPreference='Stop'
-          $d='${{ steps.wsl.outputs.distro }}'
           $repo='${{ steps.wsl.outputs.repo_wsl }}'
-          $py='${{ steps.wsl.outputs.venv_wsl }}/bin/python'
-          wsl.exe -d $d -- bash -lc "set -e; cd '$repo'; '$py' -m py_compile frontier350/model350.py frontier350/model350_fast.py frontier350/speed_triton350.py; '$py' -c \"import sys; sys.path.insert(0,'frontier350'); from model350 import Neral350M; from model350_fast import Neral350MFast; a=Neral350M().parameter_report(); b=Neral350MFast().parameter_report(); print(a,b); assert a['total']==349825152 and b['total']==349825152\""
-          if($LASTEXITCODE -ne 0){throw 'Stage-4 parameter contract failed'}
-
-      - name: Benchmark WSL2 Triton and TorchInductor
-        run: |
-          $ErrorActionPreference='Stop'
-          $d='${{ steps.wsl.outputs.distro }}'
-          $repo='${{ steps.wsl.outputs.repo_wsl }}'
-          $py='${{ steps.wsl.outputs.venv_wsl }}/bin/python'
           $train='${{ steps.wsl.outputs.train_wsl }}'
+          $out='${{ steps.wsl.outputs.out_wsl }}'
           New-Item -ItemType Directory -Force frontier350_stage4_report | Out-Null
-          wsl.exe -d $d -- bash -lc "set -e; cd '$repo'; '$py' -u frontier350/speed_triton350.py --train-data '$train' --out frontier350_stage4_report/stage4_triton.json --seq 512 --steps 8 --warmup 3"
-          if($LASTEXITCODE -ne 0){throw 'Stage-4 Triton benchmark failed'}
+          wsl.exe -- bash "$repo/frontier350/run_stage4_triton_wsl.sh" "$repo" "$train" "$out"
+          if($LASTEXITCODE -ne 0){throw 'Stage-4 WSL Triton bootstrap/benchmark failed'}
 
       - name: Print Stage-4 decision
         if: always()
@@ -120,6 +101,8 @@ jobs:
               Write-Host ("best_mb=" + $r.best.microbatch)
               Write-Host ("best_compile=" + $r.best.compile_mode)
             }
+          } else {
+            Write-Host 'No Stage-4 report produced.'
           }
 
       - name: Upload aggregate Stage-4 report only
