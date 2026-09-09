@@ -13,30 +13,33 @@ mkdir -p "$HOME/.venvs" "$CACHE"
 # Ubuntu 26.04 exposes Python 3.14 by default, while the locked PyTorch
 # 2.8.0/cu128 baseline has no cp314 wheel. Bootstrap user-local Python 3.12
 # via uv so Stage-4 stays directly comparable without requiring sudo.
-if [ ! -x "$VENV/bin/python" ] || ! "$VENV/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 12)' >/dev/null 2>&1; then
-  if [ ! -x "$BOOT/bin/python" ]; then
-    if ! python3 -m venv "$BOOT"; then
-      echo "python3 -m venv unavailable; bootstrapping virtualenv without sudo"
-      python3 - <<'PY'
+if [ ! -x "$BOOT/bin/python" ]; then
+  if ! python3 -m venv "$BOOT"; then
+    echo "python3 -m venv unavailable; bootstrapping virtualenv without sudo"
+    python3 - <<'PY'
 import urllib.request
 urllib.request.urlretrieve('https://bootstrap.pypa.io/virtualenv.pyz', '/tmp/neral-virtualenv.pyz')
 PY
-      python3 /tmp/neral-virtualenv.pyz "$BOOT"
-    fi
+    python3 /tmp/neral-virtualenv.pyz "$BOOT"
   fi
-  "$BOOT/bin/python" -m pip install --upgrade pip wheel setuptools uv
-  "$BOOT/bin/uv" python install 3.12
+fi
+"$BOOT/bin/python" -m pip install --upgrade pip wheel setuptools uv
+UV="$BOOT/bin/uv"
+
+if [ ! -x "$VENV/bin/python" ] || ! "$VENV/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 12)' >/dev/null 2>&1; then
+  "$UV" python install 3.12
   rm -rf "$VENV"
-  "$BOOT/bin/uv" venv --python 3.12 "$VENV"
+  "$UV" venv --python 3.12 "$VENV"
 fi
 
 P="$VENV/bin/python"
 
+# uv-created environments intentionally may not contain pip. Use `uv pip`
+# against the environment explicitly instead of requiring `python -m pip`.
 if ! "$P" -c 'import numpy, torch, triton; assert torch.__version__.startswith("2.8."); assert torch.cuda.is_available()' >/dev/null 2>&1; then
-  "$P" -m pip install --upgrade pip wheel setuptools
-  "$P" -m pip install --upgrade numpy
-  "$P" -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
-  "$P" -c 'import triton' >/dev/null 2>&1 || "$P" -m pip install triton==3.4.0
+  "$UV" pip install --python "$P" --upgrade numpy
+  "$UV" pip install --python "$P" torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+  "$P" -c 'import triton' >/dev/null 2>&1 || "$UV" pip install --python "$P" triton==3.4.0
 fi
 
 export TORCHINDUCTOR_CACHE_DIR="$CACHE"
