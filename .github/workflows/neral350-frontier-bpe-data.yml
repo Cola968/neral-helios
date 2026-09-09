@@ -1,0 +1,86 @@
+name: Neral 350M Frontier Locked BPE Data
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_bpe_data_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-bpe-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+      - name: Validate explicit bounded request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_bpe_data_requests\request.json' -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,request_id,target_tokens,valid_tokens,version'){throw 'unsupported BPE data request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'build_frontier350_bpe_pilot'){throw 'invalid BPE pilot action'}
+          if([Int64]$r.target_tokens -lt 2000000 -or [Int64]$r.target_tokens -gt 50000000){throw 'pilot token budget outside [2M,50M]'}
+          if([Int64]$r.valid_tokens -lt 200000 -or [Int64]$r.valid_tokens -ge [Int64]$r.target_tokens){throw 'invalid validation budget'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request_id'}
+          "target=$($r.target_tokens)" >> $env:GITHUB_OUTPUT
+          "valid=$($r.valid_tokens)" >> $env:GITHUB_OUTPUT
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+      - name: Resolve locked tokenizer and data environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets = if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          if(-not(Test-Path $python -PathType Leaf)){throw 'Frontier data Python missing'}
+          if(-not(Test-Path $tokenizer -PathType Leaf)){throw 'Audited Frontier tokenizer not promoted'}
+          $root=Join-Path $assets ('frontier350_bpe_pilot_' + '${{ steps.req.outputs.request_id }}')
+          if(Test-Path $root){throw "Refusing existing BPE pilot path: $root"}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "root=$root" >> $env:GITHUB_OUTPUT
+      - name: Compile locked production builder
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/source_lock350.py frontier350/build_frontier_bpe_data.py frontier350/security_policy350_bpe.py
+          if($LASTEXITCODE -ne 0){throw 'BPE production data scripts do not compile'}
+      - name: Build bounded locked BPE corpus
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/build_frontier_bpe_data.py --root '${{ steps.env.outputs.root }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --target-tokens '${{ steps.req.outputs.target }}' --valid-tokens '${{ steps.req.outputs.valid }}' --shard-tokens 5000000
+          if($LASTEXITCODE -ne 0){throw 'locked BPE corpus build failed'}
+      - name: Fail-closed BPE corpus admission
+        run: |
+          $root='${{ steps.env.outputs.root }}'
+          $manifest=Join-Path $root 'manifest.json'
+          & '${{ steps.env.outputs.python }}' -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$manifest'),Path(r'$root'),Path(r'${{ steps.env.outputs.tokenizer }}')))"
+          if($LASTEXITCODE -ne 0){throw 'locked BPE corpus rejected'}
+      - name: Prepare metadata-only report
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force frontier350_bpe_data_report | Out-Null
+          $p=Join-Path '${{ steps.env.outputs.root }}' 'manifest.json'
+          if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_bpe_data_report\manifest.json -Force}
+      - name: Upload metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-bpe-data-${{ github.run_id }}
+          path: frontier350_bpe_data_report/
+          retention-days: 30
+          if-no-files-found: warn
