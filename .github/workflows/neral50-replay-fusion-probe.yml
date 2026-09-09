@@ -1,0 +1,60 @@
+name: Neral 50M Replay Fusion RTX Probe
+
+on:
+  push:
+    branches:
+      - perf/neral50-v3-ultra
+    paths:
+      - 'mixed_loss50.py'
+      - 'probe_50m_replay_fusion.py'
+      - '.github/workflows/neral50-replay-fusion-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-contracts:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m py_compile mixed_loss50.py probe_50m_replay_fusion.py
+
+  rtx4070-replay-fusion:
+    needs: syntax-contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve local Neral Python
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 unavailable'}
+          "python=$python" >> $env:GITHUB_OUTPUT
+      - name: Benchmark dual versus single-forward replay
+        run: |
+          New-Item -ItemType Directory -Force reports | Out-Null
+          & '${{ steps.env.outputs.python }}' -u probe_50m_replay_fusion.py --out reports/neral50_replay_fusion.json --warmup 3 --repeats 8
+          if($LASTEXITCODE -ne 0){throw 'Replay fusion probe failed'}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral50-replay-fusion-${{ github.run_id }}
+          path: reports/neral50_replay_fusion.json
+          if-no-files-found: warn
+          retention-days: 30
