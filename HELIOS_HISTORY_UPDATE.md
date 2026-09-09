@@ -31,3 +31,9 @@ Training scripts, training data, checkpoints and architectures were not edited. 
 Replaced the welcome-card layout and blue accents with a restrained monochrome chat layout matching the supplied reference: narrow history sidebar, centered opening question and composer, own-model selection inside its bottom row, and a slim SOLVE/code/projects toolbar. Rename, import/export, theme and model details moved into a keyboard-accessible overflow menu. Dark is the default for new sessions; existing saved theme choices remain respected. Removed decorative branding, feature marketing panels and repeated runtime labels from the main canvas. Existing project tools and runtime protection remain in place.
 
 Revalidated: 58 Python CPU/security tests, 8 Node tests, JavaScript syntax and the headless browser suite (desktop/mobile, light/dark, menu actions and persisted chats). Browser tests use fixtures and send zero model requests. No training or model files changed.
+
+## Model picker refinement — 2026-09-09
+
+Moved the model name to the left side of the composer. Replaced the native dropdown with a keyboard-accessible panel containing model name, version, a short description and an active indicator. Preparation mode permits browsing the catalog but disables switching. Added warm neutral surfaces, restrained sage accents, less rounded controls and an open tool row for a distinct Neral identity.
+
+Validation: 58 Python CPU/security tests, 8 Node tests, syntax checks and the browser suite passed. Browser coverage includes the picker panel, Escape, mobile bounds, active state and disabled preparation-mode choices; zero model requests. No runtime or model/training files edited.
