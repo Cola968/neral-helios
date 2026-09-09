@@ -55,14 +55,18 @@ jobs:
           if (-not $base20) { throw '20M Preview02 checkpoint required for final promotion comparison.' }
           "base20=$base20" >> $env:GITHUB_OUTPUT
 
-      - name: Build contamination-screened human DE EN SFT corpus
+      - name: Build contamination-screened OASST2 targeted DE EN SFT corpus
         run: |
           $ErrorActionPreference='Stop';$py='${{ steps.env.outputs.python }}'
-          if (Test-Path sft50_sources\oasst1_ready.messages.jsonl.gz) { Remove-Item sft50_sources\oasst1_ready.messages.jsonl.gz -Force }
-          & $py fetch_oasst1_sft50.py --out sft50_sources --max-en 14000 --max-de 5000
+          if (Test-Path sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz) { Remove-Item sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz -Force }
+          & $py fetch_oasst2_sft50.py --out sft50_sources --max-en 16000 --max-de 6000
+          & $py build_targeted_sft50_oasst2.py --root sft50_sources --per-generated-source 6000
           if (Test-Path sft50_data) { Remove-Item sft50_data -Recurse -Force }
           & $py prepare_sft50.py --source-root sft50_sources --out sft50_data --target-train-examples 0 --max-seq 1024
-          $m=Get-Content sft50_data\manifest.json -Raw|ConvertFrom-Json;if ([int]$m.target_train_examples -lt 3000) { throw 'Too few clean SFT examples.' }
+          $m=Get-Content sft50_data\manifest.json -Raw|ConvertFrom-Json
+          if ([int]$m.target_train_examples -lt 19000) { throw 'Targeted OASST2 SFT mix fell below 19k clean train examples.' }
+          $de=[int]$m.splits.train.by_language.de
+          if ($de -lt 5000) { throw "Too little German coverage in Stage D corpus: $de" }
 
       - name: Frozen benchmark before Stage D
         run: |

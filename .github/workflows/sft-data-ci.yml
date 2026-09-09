@@ -4,10 +4,14 @@ on:
   pull_request:
     paths:
       - 'fetch_oasst1_sft50.py'
+      - 'fetch_oasst2_sft50.py'
+      - 'build_targeted_sft50_oasst2.py'
       - 'prepare_sft50.py'
       - 'tests/test_sft50_data.py'
+      - 'tests/test_oasst2_sft50.py'
       - 'sft50_sources/README.md'
       - '.github/workflows/sft-data-ci.yml'
+      - '.github/workflows/neral50m-instruct-reviewed.yml'
 
 permissions:
   contents: read
@@ -24,4 +28,4 @@ jobs:
       - name: Install pytest
         run: python -m pip install --disable-pip-version-check pytest
       - name: Run Stage D data tests
-        run: python -m pytest tests/test_sft50_data.py -q
+        run: python -m pytest tests/test_sft50_data.py tests/test_oasst2_sft50.py -q
