@@ -2,73 +2,117 @@ from __future__ import annotations
 
 """Frozen release gate for Neral 350M Frontier.
 
-Input is a JSON scorecard produced by the existing frozen benchmark stack. Training
-must never inspect or select on benchmark examples; this gate is post-training only.
+Input is a JSON scorecard produced by the frozen benchmark stack. Training and checkpoint
+selection must never inspect benchmark examples. This gate is post-training only and is
+intentionally difficult: 350M is the first model line intended for a public Helios release.
 """
 
-import argparse, json
+import argparse
+import json
+import math
 from pathlib import Path
 
+# Hard model-quality gate. Missing, NaN or infinite values always fail closed.
 MINIMUMS = {
-    'nis2': 82.0,
-    'rawmath_exact': 42.0,
-    'targeted_math': 80.0,
-    'code': 78.0,
-    'de': 96.0,
-    'reasoning': 92.0,
-    'context': 100.0,
-    'free_eos': 85.0,
-    'utf8': 99.9,
+    "nis2": 85.0,
+    "rawmath_exact": 50.0,
+    "targeted_math": 85.0,
+    "code": 82.0,
+    "de": 97.0,
+    "reasoning": 94.0,
+    "context": 100.0,
+    "free_eos": 92.0,
+    "utf8": 99.99,
 }
 MAXIMUMS = {
-    'repetition': 2.5,
-    'bpb4095': 1.32,
+    "repetition": 1.5,
+    "bpb4095": 1.25,
 }
-STRETCH = {
-    'nis2': 86.0,
-    'rawmath_exact': 50.0,
-    'targeted_math': 88.0,
-    'code': 84.0,
-    'de': 98.0,
-    'reasoning': 95.0,
-    'free_eos': 92.0,
-    'repetition': 1.5,
-    'bpb4095': 1.25,
+
+# Research targets beyond the Play Store model gate. They are not assumed achievable and
+# must only be reported when actually measured by the frozen suite.
+STRETCH_MINIMUMS = {
+    "nis2": 88.0,
+    "rawmath_exact": 60.0,
+    "targeted_math": 92.0,
+    "code": 88.0,
+    "de": 99.0,
+    "reasoning": 97.0,
+    "context": 100.0,
+    "free_eos": 97.0,
+    "utf8": 99.99,
+}
+STRETCH_MAXIMUMS = {
+    "repetition": 1.0,
+    "bpb4095": 1.18,
 }
 
 
-def assess(m: dict) -> dict:
-    missing=[k for k in [*MINIMUMS,*MAXIMUMS] if k not in m]
-    if missing:
-        return {'pass':False,'failures':[f'missing:{x}' for x in missing],'stretch_hits':{}}
-    failures=[]
-    for k,v in MINIMUMS.items():
-        if float(m[k]) < v: failures.append(f'{k}<{v}')
-    for k,v in MAXIMUMS.items():
-        if float(m[k]) > v: failures.append(f'{k}>{v}')
-    stretch_hits={}
-    for k,v in STRETCH.items():
-        if k in ('repetition','bpb4095'): stretch_hits[k]=float(m.get(k,1e9)) <= v
-        else: stretch_hits[k]=float(m.get(k,-1e9)) >= v
+def finite_number(value) -> float:
+    x = float(value)
+    if not math.isfinite(x):
+        raise ValueError("non-finite metric")
+    return x
+
+
+def assess(metrics: dict) -> dict:
+    required = [*MINIMUMS, *MAXIMUMS]
+    missing = [k for k in required if k not in metrics]
+    failures = [f"missing:{x}" for x in missing]
+    clean: dict[str, float] = {}
+    for key in required:
+        if key in metrics:
+            try:
+                clean[key] = finite_number(metrics[key])
+            except (TypeError, ValueError):
+                failures.append(f"nonfinite:{key}")
+
+    for key, threshold in MINIMUMS.items():
+        if key in clean and clean[key] < threshold:
+            failures.append(f"{key}<{threshold}")
+    for key, threshold in MAXIMUMS.items():
+        if key in clean and clean[key] > threshold:
+            failures.append(f"{key}>{threshold}")
+
+    stretch_hits = {}
+    for key, threshold in STRETCH_MINIMUMS.items():
+        stretch_hits[key] = key in clean and clean[key] >= threshold
+    for key, threshold in STRETCH_MAXIMUMS.items():
+        stretch_hits[key] = key in clean and clean[key] <= threshold
+
+    passed = not failures
+    all_stretch = passed and all(stretch_hits.values())
     return {
-        'pass': not failures,
-        'release_candidate': not failures,
-        'failures': failures,
-        'minimums': MINIMUMS,
-        'maximums': MAXIMUMS,
-        'stretch': STRETCH,
-        'stretch_hits': stretch_hits,
-        'metrics': m,
-        'policy': 'No Play Store model promotion unless every hard release metric passes. Stretch metrics are aspirational and never fabricated.'
+        "pass": passed,
+        "release_candidate": passed,
+        "frontier_stretch_complete": all_stretch,
+        "failures": failures,
+        "minimums": MINIMUMS,
+        "maximums": MAXIMUMS,
+        "stretch_minimums": STRETCH_MINIMUMS,
+        "stretch_maximums": STRETCH_MAXIMUMS,
+        "stretch_hits": stretch_hits,
+        "metrics": metrics,
+        "policy": (
+            "No public Helios model promotion unless every hard frozen model-quality metric passes. "
+            "NIS2 is necessary but not sufficient; math, code, German, reasoning, context, EOS, "
+            "repetition, UTF-8 and BPB must pass simultaneously. Separate safety/privacy/mobile "
+            "release gates are also required before Play Store publication."
+        ),
     }
 
 
-def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--scorecard',required=True); ap.add_argument('--out',required=True); a=ap.parse_args()
-    m=json.loads(Path(a.scorecard).read_text(encoding='utf8'))
-    result=assess(m)
-    Path(a.out).write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf8')
-    print(json.dumps(result,ensure_ascii=False))
-    raise SystemExit(0 if result['pass'] else 2)
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--scorecard", required=True)
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args()
+    metrics = json.loads(Path(args.scorecard).read_text(encoding="utf8"))
+    result = assess(metrics)
+    Path(args.out).write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf8")
+    print(json.dumps(result, ensure_ascii=False), flush=True)
+    raise SystemExit(0 if result["pass"] else 2)
 
-if __name__=='__main__': main()
+
+if __name__ == "__main__":
+    main()
