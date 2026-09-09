@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Neral 350M Frontier v1.
 
-From-scratch byte-level decoder-only LM derived from Neral Helix principles, but sized
-for ~350M parameters and optimized for RTX-class training plus compact mobile inference.
-No foreign weights are loaded.
+From-scratch decoder-only LM sized for ~350M parameters and optimized for RTX-class
+training plus compact mobile inference. The release-candidate backbone uses Neral's own
+16K byte-level BPE tokenizer; no foreign weights, vocabulary, or merges are loaded.
 """
 
 from dataclasses import dataclass, asdict
@@ -21,12 +21,12 @@ _ROPE_CACHE: dict[tuple, tuple[torch.Tensor, torch.Tensor]] = {}
 
 @dataclass(frozen=True)
 class Neral350Config:
-    vocab_size: int = 260
-    d_model: int = 1024
-    n_layers: int = 32
-    n_heads: int = 16
+    vocab_size: int = 16_384
+    d_model: int = 1152
+    n_layers: int = 24
+    n_heads: int = 18
     n_kv_heads: int = 2
-    ffn_hidden: int = 2816
+    ffn_hidden: int = 3136
     max_seq_len: int = 8192
     rope_theta: float = 250_000.0
     rms_eps: float = 1e-5
@@ -60,6 +60,8 @@ class Neral350Config:
         return asdict(self)
 
 
+# Hardware winner on the project's RTX 4070: 24 layers x 1152 width, 18 Q heads / 2 KV
+# heads, 3136 SwiGLU hidden, 16K own BPE. Measured parameter count: 349,825,152.
 FRONTIER_350 = Neral350Config()
 
 
