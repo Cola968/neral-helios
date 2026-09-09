@@ -16,6 +16,9 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint as activation_checkpoint
 
 
+_ROPE_CACHE: dict[tuple, tuple[torch.Tensor, torch.Tensor]] = {}
+
+
 @dataclass(frozen=True)
 class Neral350Config:
     vocab_size: int = 260
@@ -77,12 +80,28 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
     return torch.stack((-b, a), dim=-1).flatten(-2)
 
 
-def rope(q: torch.Tensor, k: torch.Tensor, theta: float, offset: int = 0):
-    t, d = q.size(-2), q.size(-1)
-    pos = torch.arange(offset, offset + t, device=q.device, dtype=torch.float32)
-    inv = 1.0 / (theta ** (torch.arange(0, d, 2, device=q.device, dtype=torch.float32) / d))
-    phase = torch.outer(pos, inv).repeat_interleave(2, -1)[None, None]
-    c, s = phase.cos().to(q.dtype), phase.sin().to(q.dtype)
+def _rope_table(max_seq_len: int, dim: int, theta: float, device: torch.device, dtype: torch.dtype):
+    key = (device.type, device.index, str(dtype), int(max_seq_len), int(dim), float(theta))
+    cached = _ROPE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    with torch.no_grad():
+        pos = torch.arange(max_seq_len, device=device, dtype=torch.float32)
+        inv = 1.0 / (theta ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
+        phase = torch.outer(pos, inv).repeat_interleave(2, -1)[None, None]
+        result = phase.cos().to(dtype=dtype), phase.sin().to(dtype=dtype)
+    _ROPE_CACHE[key] = result
+    return result
+
+
+def rope(q: torch.Tensor, k: torch.Tensor, theta: float, max_seq_len: int, offset: int = 0):
+    t = q.size(-2)
+    end = offset + t
+    if end > max_seq_len:
+        raise ValueError("RoPE position exceeds max_seq_len")
+    c, s = _rope_table(max_seq_len, q.size(-1), theta, q.device, q.dtype)
+    c = c[..., offset:end, :]
+    s = s[..., offset:end, :]
     return q * c + rotate_half(q) * s, k * c + rotate_half(k) * s
 
 
@@ -104,7 +123,7 @@ class GQA(nn.Module):
         k = self.k(x).view(b, t, self.cfg.n_kv_heads, self.cfg.head_dim).transpose(1, 2)
         v = self.v(x).view(b, t, self.cfg.n_kv_heads, self.cfg.head_dim).transpose(1, 2)
         q, k = self.qn(q), self.kn(k)
-        q, k = rope(q, k, self.cfg.rope_theta)
+        q, k = rope(q, k, self.cfg.rope_theta, self.cfg.max_seq_len)
         try:
             y = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=self.cfg.dropout if self.training else 0.0, enable_gqa=True)
         except (TypeError, RuntimeError):
