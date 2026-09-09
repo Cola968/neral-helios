@@ -1,0 +1,14 @@
+{
+  "environment": "sandbox",
+  "livemode": false,
+  "products": {
+    "plus": "prod_VEEV8LRf8s0wQ8",
+    "pro": "prod_VEEVnyRYb74myc"
+  },
+  "prices": {
+    "plus_monthly": "price_1UDm2pAHzgzpPLMPQt2ArbIp",
+    "plus_annual": "price_1UDm2uAHzgzpPLMPvrNXjXrV",
+    "pro_monthly": "price_1UDm2zAHzgzpPLMP5lV1Jii2",
+    "pro_annual": "price_1UDm34AHzgzpPLMPNq7LzZMI"
+  }
+}
