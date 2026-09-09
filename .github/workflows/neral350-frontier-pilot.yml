@@ -44,35 +44,31 @@ jobs:
         run: |
           & '${{ steps.env.outputs.python }}' -m py_compile frontier350/model350.py frontier350/bench350.py
           if($LASTEXITCODE -ne 0){throw 'compile failed'}
-      - name: Byte 512 mb2 no checkpointing
+      - name: Deep32 BPE16K 512 mb4
         run: |
           New-Item -ItemType Directory -Force frontier350_pilot_report | Out-Null
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_nogc_512_mb2.json --seq 512 --microbatch 2 --steps 16 --warmup 4 --no-gradient-checkpointing --label byte260
-          if($LASTEXITCODE -ne 0){throw 'byte 512 mb2 pilot failed'}
-      - name: Byte 512 mb4 no checkpointing
-        continue-on-error: true
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/deep32_512_mb4.json --seq 512 --microbatch 4 --steps 16 --warmup 4 --no-gradient-checkpointing --vocab-size 16384 --d-model 1024 --layers 32 --heads 16 --kv-heads 2 --ffn-hidden 2624 --label bpe16k-deep32
+          if($LASTEXITCODE -ne 0){throw 'deep32 512 pilot failed'}
+      - name: Wide24 BPE16K 512 mb4
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_nogc_512_mb4.json --seq 512 --microbatch 4 --steps 12 --warmup 3 --no-gradient-checkpointing --label byte260
-      - name: Byte 512 mb4 checkpointing
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/wide24_512_mb4.json --seq 512 --microbatch 4 --steps 16 --warmup 4 --no-gradient-checkpointing --vocab-size 16384 --d-model 1152 --layers 24 --heads 18 --kv-heads 2 --ffn-hidden 3136 --label bpe16k-wide24
+          if($LASTEXITCODE -ne 0){throw 'wide24 512 pilot failed'}
+      - name: Deep32 BPE16K 1024 mb1
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_gc_512_mb4.json --seq 512 --microbatch 4 --steps 12 --warmup 3 --label byte260
-          if($LASTEXITCODE -ne 0){throw 'byte 512 mb4 GC pilot failed'}
-      - name: Byte 1024 mb1 no checkpointing reference
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/deep32_1024_mb1.json --seq 1024 --microbatch 1 --steps 14 --warmup 3 --no-gradient-checkpointing --vocab-size 16384 --d-model 1024 --layers 32 --heads 16 --kv-heads 2 --ffn-hidden 2624 --label bpe16k-deep32
+          if($LASTEXITCODE -ne 0){throw 'deep32 1024 pilot failed'}
+      - name: Wide24 BPE16K 1024 mb1
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_nogc_1024_mb1.json --seq 1024 --microbatch 1 --steps 12 --warmup 3 --no-gradient-checkpointing --label byte260
-          if($LASTEXITCODE -ne 0){throw 'byte 1024 reference failed'}
-      - name: BPE16K 512 mb2 no checkpointing
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/wide24_1024_mb1.json --seq 1024 --microbatch 1 --steps 14 --warmup 3 --no-gradient-checkpointing --vocab-size 16384 --d-model 1152 --layers 24 --heads 18 --kv-heads 2 --ffn-hidden 3136 --label bpe16k-wide24
+          if($LASTEXITCODE -ne 0){throw 'wide24 1024 pilot failed'}
+      - name: Deep32 BPE16K 2048 mb1 checkpointed
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/bpe16k_nogc_512_mb2.json --seq 512 --microbatch 2 --steps 16 --warmup 4 --no-gradient-checkpointing --vocab-size 16384 --ffn-hidden 2624 --label bpe16k
-          if($LASTEXITCODE -ne 0){throw 'BPE16K 512 mb2 pilot failed'}
-      - name: BPE16K 1024 mb1 no checkpointing
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/deep32_2048_gc.json --seq 2048 --microbatch 1 --steps 10 --warmup 3 --vocab-size 16384 --d-model 1024 --layers 32 --heads 16 --kv-heads 2 --ffn-hidden 2624 --label bpe16k-deep32
+          if($LASTEXITCODE -ne 0){throw 'deep32 2048 pilot failed'}
+      - name: Wide24 BPE16K 2048 mb1 checkpointed
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/bpe16k_nogc_1024_mb1.json --seq 1024 --microbatch 1 --steps 12 --warmup 3 --no-gradient-checkpointing --vocab-size 16384 --ffn-hidden 2624 --label bpe16k
-          if($LASTEXITCODE -ne 0){throw 'BPE16K 1024 pilot failed'}
-      - name: Byte 2048 mb1 checkpointing long-context reference
-        run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/byte_gc_2048_mb1.json --seq 2048 --microbatch 1 --steps 10 --warmup 3 --label byte260
-          if($LASTEXITCODE -ne 0){throw '2048 pilot failed'}
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/wide24_2048_gc.json --seq 2048 --microbatch 1 --steps 10 --warmup 3 --vocab-size 16384 --d-model 1152 --layers 24 --heads 18 --kv-heads 2 --ffn-hidden 3136 --label bpe16k-wide24
+          if($LASTEXITCODE -ne 0){throw 'wide24 2048 pilot failed'}
       - name: Upload report only
         if: always()
         uses: actions/upload-artifact@v4
