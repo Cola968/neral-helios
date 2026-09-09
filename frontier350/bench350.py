@@ -2,9 +2,8 @@ from __future__ import annotations
 
 """Bounded RTX hardware/architecture pilot for Neral 350M Frontier.
 
-This script never touches release benchmarks or long-run corpora. It measures the exact
-frontier architecture on synthetic byte-token batches so the 10B campaign is not started
-before VRAM, throughput and numerics are proven on the target GPU.
+This script never touches release benchmarks or long-run corpora. It measures candidate
+Frontier shapes on synthetic token batches before any expensive pretraining commitment.
 """
 
 import argparse
@@ -15,7 +14,7 @@ from pathlib import Path
 
 import torch
 
-from model350 import Neral350M
+from model350 import Neral350Config, Neral350M
 
 
 def main() -> None:
@@ -26,6 +25,9 @@ def main() -> None:
     ap.add_argument("--steps", type=int, default=30)
     ap.add_argument("--warmup", type=int, default=5)
     ap.add_argument("--no-gradient-checkpointing", action="store_true")
+    ap.add_argument("--vocab-size", type=int, default=260)
+    ap.add_argument("--ffn-hidden", type=int, default=2816)
+    ap.add_argument("--label", default="byte260")
     args = ap.parse_args()
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
@@ -37,7 +39,8 @@ def main() -> None:
     torch.cuda.manual_seed_all(350)
     torch.backends.cuda.matmul.allow_tf32 = True
     device = torch.device("cuda")
-    model = Neral350M().to(device=device, dtype=torch.bfloat16)
+    cfg = Neral350Config(vocab_size=args.vocab_size, ffn_hidden=args.ffn_hidden)
+    model = Neral350M(cfg).to(device=device, dtype=torch.bfloat16)
     use_gc = not args.no_gradient_checkpointing
     model.set_gradient_checkpointing(use_gc)
     report = model.parameter_report()
@@ -70,12 +73,15 @@ def main() -> None:
             measured_s += elapsed
             total_tokens += args.microbatch * args.seq
             losses.append(float(loss.detach()))
-        print(json.dumps({"step": step + 1, "loss": float(loss.detach()), "grad_norm": float(grad), "peak_vram_gb": torch.cuda.max_memory_allocated()/1e9}), flush=True)
+        print(json.dumps({"step": step + 1, "label": args.label, "loss": float(loss.detach()), "grad_norm": float(grad), "peak_vram_gb": torch.cuda.max_memory_allocated()/1e9}), flush=True)
 
     tps = total_tokens / measured_s if measured_s else 0.0
     result = {
         "architecture": "Neral 350M Frontier v1",
+        "candidate_label": args.label,
         "parameters": report,
+        "vocab_size": cfg.vocab_size,
+        "ffn_hidden": cfg.ffn_hidden,
         "seq": args.seq,
         "microbatch": args.microbatch,
         "gradient_checkpointing": use_gc,
