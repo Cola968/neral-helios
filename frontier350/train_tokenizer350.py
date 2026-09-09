@@ -10,7 +10,6 @@ merges from scratch. The tokenizer remains local until its vocabulary receives a
 import argparse
 import hashlib
 import json
-import random
 from pathlib import Path
 
 from build_frontier_data import DEFAULT_SOURCES, content_hash, extract_text, normalize, quality_ok, resolve_revision, stream_rows
@@ -57,8 +56,6 @@ def combined_iterator(revisions: dict[str, str], total_chars: int):
 def evaluation_texts(revisions: dict[str, str], per_source: int = 200):
     for spec in DEFAULT_SOURCES:
         accepted = 0
-        # Separate stream traversal; skip a deterministic prefix so the measurement is not
-        # dominated by the exact first documents used to fit merges.
         for index, row in enumerate(stream_rows(spec, revisions[spec.name])):
             if index < 1000:
                 continue
@@ -176,7 +173,8 @@ def main() -> None:
         "release_review_required": True,
     }
     (out / "tokenizer_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf8")
-    print(json.dumps(report, ensure_ascii=False), flush=True)
+    # ASCII-escaped stdout is intentional on Windows runners whose console may still be CP1252.
+    print(json.dumps(report, ensure_ascii=True), flush=True)
 
 
 if __name__ == "__main__":
