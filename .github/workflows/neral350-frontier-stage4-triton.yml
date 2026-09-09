@@ -32,7 +32,7 @@ jobs:
       - name: Validate explicit Stage-4 request
         run: |
           $ErrorActionPreference='Stop'
-          $p='frontier350_requests\\speed_stage4_triton.json'
+          $p='frontier350_requests\speed_stage4_triton.json'
           if(-not(Test-Path $p -PathType Leaf)){throw 'Stage-4 request missing'}
           $r=Get-Content $p -Raw | ConvertFrom-Json
           $props=@($r.PSObject.Properties.Name | Sort-Object)
@@ -50,25 +50,21 @@ jobs:
           $ErrorActionPreference='Stop'
           if(-not(Get-Command wsl.exe -ErrorAction SilentlyContinue)){throw 'WSL executable not installed'}
 
-          wsl.exe -- bash -lc "set -e; printf 'wsl-ok\\n'; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
+          wsl.exe -- bash -lc "set -e; printf 'wsl-ok\n'; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
           if($LASTEXITCODE -ne 0){throw 'Default WSL distro/CUDA probe failed'}
 
-          function Convert-ToWslPath([string]$Path) {
-            $full=[System.IO.Path]::GetFullPath($Path).Replace('\\','/')
-            if($full -match '^([A-Za-z]):/(.*)$') {
-              return "/mnt/$($matches[1].ToLower())/$($matches[2])"
-            }
-            throw "Unsupported Windows path for WSL conversion: $Path"
-          }
-
           $repo=(Get-Location).Path
-          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral'}
-          $repoWsl=Convert-ToWslPath $repo
-          $assetsWsl=Convert-ToWslPath $assets
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+
+          $repoWsl=(wsl.exe -- wslpath -a $repo | Select-Object -First 1).Trim()
+          if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoWsl)){throw 'Failed to convert repository path with wslpath'}
+          $assetsWsl=(wsl.exe -- wslpath -a $assets | Select-Object -First 1).Trim()
+          if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($assetsWsl)){throw 'Failed to convert assets path with wslpath'}
+
           $trainWsl="$assetsWsl/frontier350_bpe_pilot_v1/train"
           $outWsl="$repoWsl/frontier350_stage4_report/stage4_triton.json"
 
-          wsl.exe -- bash -lc "set -e; test -d '$trainWsl'; test -f '$repoWsl/frontier350/run_stage4_triton_wsl.sh'; printf 'repo=%s\\ntrain=%s\\n' '$repoWsl' '$trainWsl'"
+          wsl.exe -- bash -lc "set -e; test -d '$trainWsl'; test -f '$repoWsl/frontier350/run_stage4_triton_wsl.sh'; printf 'repo=%s\ntrain=%s\n' '$repoWsl' '$trainWsl'"
           if($LASTEXITCODE -ne 0){throw 'WSL data/repository path probe failed'}
 
           "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
@@ -97,16 +93,13 @@ jobs:
           $out='${{ steps.wsl.outputs.out_wsl }}'
           New-Item -ItemType Directory -Force frontier350_stage4_report | Out-Null
 
-          # The checkout is performed by Git for Windows, which can materialize shell
-          # scripts with CRLF line endings. Normalize only the temporary WSL copy so bash
-          # sees a valid `set -euo pipefail` line without mutating the repository file.
-          wsl.exe -- bash -lc "set -e; tr -d '\\r' < '$repo/frontier350/run_stage4_triton_wsl.sh' > /tmp/neral-stage4-triton.sh; chmod +x /tmp/neral-stage4-triton.sh; /tmp/neral-stage4-triton.sh '$repo' '$train' '$out'"
+          wsl.exe -- bash -lc "set -e; tr -d '\r' < '$repo/frontier350/run_stage4_triton_wsl.sh' > /tmp/neral-stage4-triton.sh; chmod +x /tmp/neral-stage4-triton.sh; /tmp/neral-stage4-triton.sh '$repo' '$train' '$out'"
           if($LASTEXITCODE -ne 0){throw 'Stage-4 WSL Triton bootstrap/benchmark failed'}
 
       - name: Print Stage-4 decision
         if: always()
         run: |
-          $p='frontier350_stage4_report\\stage4_triton.json'
+          $p='frontier350_stage4_report\stage4_triton.json'
           if(Test-Path $p -PathType Leaf){
             $r=Get-Content $p -Raw | ConvertFrom-Json
             Write-Host ("target_reached=" + $r.target_reached)
