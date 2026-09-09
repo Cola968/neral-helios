@@ -42,8 +42,21 @@ if ! "$P" -c 'import numpy, torch, triton; assert torch.__version__.startswith("
   "$P" -c 'import triton' >/dev/null 2>&1 || "$UV" pip install --python "$P" triton==3.4.0
 fi
 
+# TorchInductor/Triton generates small host-side C/C++ launch stubs. Keep the
+# compiler choice explicit so the benchmark cannot silently depend on shell PATH.
+export CC="${CC:-$(command -v gcc || true)}"
+export CXX="${CXX:-$(command -v g++ || true)}"
+if [ -z "$CC" ] || [ -z "$CXX" ]; then
+  echo "Stage-4 requires gcc/g++ for TorchInductor" >&2
+  exit 43
+fi
 export TORCHINDUCTOR_CACHE_DIR="$CACHE"
 export PYTHONUNBUFFERED=1
+
+echo "cc=$CC"
+echo "cxx=$CXX"
+"$CC" --version | head -n1
+"$CXX" --version | head -n1
 
 "$P" - <<'PY'
 import sys, torch, triton
