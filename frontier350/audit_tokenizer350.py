@@ -3,8 +3,8 @@ from __future__ import annotations
 """Fail-closed privacy/integrity audit for a locally trained Frontier tokenizer.
 
 The tokenizer is model architecture, not training data. Before it can become a locked release
-asset, its vocabulary is inspected for obvious PII/secret-like atomic tokens and its special
-IDs, vocabulary size and file digest must match the measured tokenizer report.
+asset, its learned vocabulary is inspected for obvious PII/secret-like atomic tokens and its
+special IDs, vocabulary size and file digest must match the measured tokenizer report.
 """
 
 import argparse
@@ -35,7 +35,7 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    from tokenizers import Tokenizer
+    from tokenizers import Tokenizer, pre_tokenizers
 
     tokenizer_path = Path(args.tokenizer)
     report = json.loads(Path(args.report).read_text(encoding="utf8"))
@@ -56,12 +56,19 @@ def main() -> None:
         if tid is None or special_ids.get(token) != tid:
             failures.append(f"special_id_mismatch:{token}")
 
+    # A ByteLevel BPE deliberately includes the complete 256-symbol byte fallback alphabet.
+    # Some of those symbols decode to ASCII control bytes; they are required for lossless UTF-8
+    # coverage and are not learned from corpus content. Only learned/non-base tokens are subject
+    # to the control-character privacy rule. PII/secret checks still apply to every non-special token.
+    base_alphabet = set(pre_tokenizers.ByteLevel.alphabet())
+    if len(base_alphabet) != 256:
+        failures.append("bytelevel_base_alphabet_not_256")
+
     suspicious: list[dict] = []
+    learned_checked = 0
     for token, tid in tok.get_vocab().items():
         if token in EXPECTED_SPECIALS:
             continue
-        # ByteLevel vocab entries may contain encoded whitespace glyphs; inspect both literal
-        # token strings and a best-effort decoded single-token representation.
         decoded = tok.decode([tid], skip_special_tokens=True)
         candidates = {token, decoded}
         reason = None
@@ -72,10 +79,12 @@ def main() -> None:
                 reason = "secret_like"
             elif LONG_DIGITS_RE.search(text):
                 reason = "long_digit_sequence"
-            elif CONTROL_RE.search(text):
-                reason = "control_character"
+            elif token not in base_alphabet and CONTROL_RE.search(text):
+                reason = "learned_control_character"
             if reason:
                 break
+        if token not in base_alphabet:
+            learned_checked += 1
         if reason:
             suspicious.append({"id": int(tid), "reason": reason})
 
@@ -95,10 +104,12 @@ def main() -> None:
         "failures": failures,
         "tokenizer_sha256": digest,
         "vocab_size": tok.get_vocab_size(),
+        "mandatory_bytelevel_base_symbols": len(base_alphabet),
+        "learned_tokens_privacy_checked": learned_checked,
         "suspicious_entry_count": len(suspicious),
         "suspicious_ids_only": suspicious[:50],
         "sequence_reduction_vs_raw_bytes_pct": compression,
-        "policy": "Tokenizer promotion requires integrity, UTF-8 roundtrip, >=40% measured sequence reduction, and no obvious PII/secret-like atomic vocabulary entries.",
+        "policy": "Tokenizer promotion requires integrity, UTF-8 roundtrip, >=40% measured sequence reduction, complete lossless ByteLevel fallback, and no obvious PII/secret-like learned atomic vocabulary entries.",
     }
     Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf8")
     print(json.dumps(result), flush=True)
