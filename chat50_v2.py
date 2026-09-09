@@ -9,6 +9,10 @@ prefix->assistant example per assistant turn.
 The sampler supports either a portable fixed token budget or an explicit per-bucket batch profile
 measured on the target GPU. The latter matters because causal-attention memory/compute is not
 linear in sequence length, so equal padded-token budgets are not equally efficient.
+
+The pure encoding/sampling layer intentionally remains importable without PyTorch. This allows
+GitHub-hosted CPU data audits to build and validate ChatMix manifests without downloading a large
+ML runtime. Tensor collation/device transfer still fail explicitly if PyTorch is unavailable.
 """
 
 from dataclasses import dataclass
@@ -18,7 +22,10 @@ import random
 from pathlib import Path
 from typing import Iterable
 
-import torch
+try:
+    import torch
+except ModuleNotFoundError:  # data-only hosted jobs do not need a full Torch installation
+    torch = None
 
 from tokenizer import ByteTokenizer
 
@@ -255,12 +262,19 @@ class TokenBudgetSampler:
         return width, picked
 
 
+def _require_torch():
+    if torch is None:
+        raise RuntimeError("PyTorch is required for tensor collation/device transfer, not for pure ChatMix encoding")
+    return torch
+
+
 def collate_pinned(examples: list[EncodedChatExample], indices: list[int], width: int):
+    t = _require_torch()
     if not indices:
         raise ValueError("empty chat batch")
-    pin = bool(torch.cuda.is_available())
-    x = torch.full((len(indices), width), TOKENIZER.pad_id, dtype=torch.int16, pin_memory=pin)
-    y = torch.full((len(indices), width), -100, dtype=torch.int16, pin_memory=pin)
+    pin = bool(t.cuda.is_available())
+    x = t.full((len(indices), width), TOKENIZER.pad_id, dtype=t.int16, pin_memory=pin)
+    y = t.full((len(indices), width), -100, dtype=t.int16, pin_memory=pin)
     supervised = 0
     true_tokens = 0
     for r, idx in enumerate(indices):
@@ -268,15 +282,16 @@ def collate_pinned(examples: list[EncodedChatExample], indices: list[int], width
         if ex.length > width:
             raise ValueError("example exceeds selected bucket")
         n = ex.length
-        x[r, :n] = torch.tensor(ex.input_ids, dtype=torch.int16)
-        y[r, :n] = torch.tensor(ex.targets, dtype=torch.int16)
+        x[r, :n] = t.tensor(ex.input_ids, dtype=t.int16)
+        y[r, :n] = t.tensor(ex.targets, dtype=t.int16)
         supervised += ex.supervised_tokens
         true_tokens += n
     return x, y, {"width": width, "rows": len(indices), "true_tokens": true_tokens, "padded_tokens": x.numel(), "supervised_tokens": supervised}
 
 
-def to_device(host_x: torch.Tensor, host_y: torch.Tensor, device: torch.device):
+def to_device(host_x, host_y, device):
+    t = _require_torch()
     non_blocking = host_x.is_pinned() and device.type == "cuda"
-    x = host_x.to(device=device, dtype=torch.long, non_blocking=non_blocking)
-    y = host_y.to(device=device, dtype=torch.long, non_blocking=non_blocking)
+    x = host_x.to(device=device, dtype=t.long, non_blocking=non_blocking)
+    y = host_y.to(device=device, dtype=t.long, non_blocking=non_blocking)
     return x, y
