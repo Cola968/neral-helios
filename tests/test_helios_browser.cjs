@@ -7,9 +7,9 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{
-  const file=req.url==='/'?'templates/index.html':req.url.slice(1);
-  if(!['templates/index.html','static/neral.css','static/neral.js','static/helios-core.js','static/projects.js'].includes(file)){res.writeHead(404);res.end();return;}
-  res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');
+  const file=req.url==='/'?'templates/index.html':req.url==='/manifest.webmanifest'?'static/manifest.webmanifest':req.url==='/sw.js'?'static/sw.js':req.url.slice(1);
+  if(!['templates/index.html','static/neral.css','static/neral.js','static/helios-core.js','static/projects.js','static/install.js','static/manifest.webmanifest','static/sw.js','static/icon.svg','static/icon-192.png','static/icon-512.png'].includes(file)){res.writeHead(404);res.end();return;}
+  res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webmanifest')?'application/manifest+json':file.endsWith('.png')?'image/png':file.endsWith('.svg')?'image/svg+xml':'text/html');
   res.end(fs.readFileSync(path.join(root,file)));
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
