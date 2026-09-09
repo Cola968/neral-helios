@@ -1,0 +1,120 @@
+name: Neral Dual OASST Human ChatMix Preflight
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - '.github/workflows/oasst-dual-human-chatmix-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile human ChatMix tooling
+        run: |
+          python -m py_compile \
+            fetch_oasst1_sft50.py fetch_oasst2_sft50.py \
+            fetch_oasst1_multiturn50.py fetch_oasst2_multiturn50.py merge_oasst_multiturn50.py \
+            build_targeted_sft50_oasst2.py prepare_sft50.py prepare_chatmix50_v2.py chat50_v2.py
+
+      - name: Build pinned OASST1 human multi-turn
+        run: |
+          python fetch_oasst1_multiturn50.py \
+            --out "$RUNNER_TEMP/oasst1_mt" \
+            --max-assistant-turns 4 \
+            --max-seq 2048
+
+      - name: Build pinned OASST2 human multi-turn
+        run: |
+          python fetch_oasst2_multiturn50.py \
+            --out "$RUNNER_TEMP/oasst2_mt" \
+            --max-assistant-turns 4 \
+            --max-seq 2048
+
+      - name: Cross-release dedup and re-split
+        run: |
+          python merge_oasst_multiturn50.py \
+            --oasst1 "$RUNNER_TEMP/oasst1_mt" \
+            --oasst2 "$RUNNER_TEMP/oasst2_mt" \
+            --out "$RUNNER_TEMP/oasst_dual_mt"
+
+      - name: Rebuild deterministic I1 targeted source pool
+        run: |
+          python fetch_oasst2_sft50.py --out "$RUNNER_TEMP/i1_sources" --max-en 16000 --max-de 6000
+          python build_targeted_sft50_oasst2.py --root "$RUNNER_TEMP/i1_sources" --per-generated-source 6000
+          python prepare_sft50.py \
+            --source-root "$RUNNER_TEMP/i1_sources" \
+            --out "$RUNNER_TEMP/i1_data" \
+            --target-train-examples 0 \
+            --max-seq 1024
+
+      - name: Build final dual-human ChatMix V2
+        run: |
+          python prepare_chatmix50_v2.py \
+            --i1-data "$RUNNER_TEMP/i1_data" \
+            --multiturn-data "$RUNNER_TEMP/oasst_dual_mt" \
+            --out "$RUNNER_TEMP/chatmix_dual" \
+            --max-seq 2048
+
+      - name: Enforce human-majority and leakage contracts
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          temp = pathlib.Path('${{ runner.temp }}')
+          merged = json.loads((temp/'oasst_dual_mt'/'manifest.json').read_text(encoding='utf8'))
+          chat = json.loads((temp/'chatmix_dual'/'manifest.json').read_text(encoding='utf8'))
+          train = chat['splits']['train']
+          assert merged['license'] == 'Apache-2.0'
+          assert merged['external_model_calls'] is False
+          assert merged['raw_user_ids_exported'] is False
+          assert merged['cross_split_exact_conversation_overlap'] == 0
+          assert chat['human_majority_required'] is True
+          assert chat['external_model_generated_chat_added'] is False
+          assert chat['benchmark_holdouts_added'] is False
+          assert chat['cross_split_exact_chat_overlap'] == 0
+          assert train['human_fraction'] >= 0.60, train
+          assert train['human_conversations'] >= 1000, train
+          summary = {
+              'dual_human_counts': merged['counts'],
+              'dual_human_sources': merged['source_conversations'],
+              'cross_release_duplicates': merged['cross_release_duplicates'],
+              'chatmix_train': train,
+              'chatmix_val': chat['splits']['val'],
+              'chatmix_test': chat['splits']['test'],
+              'chatmix_holdout': chat['splits']['holdout'],
+              'train_selection': chat['train_selection'],
+              'rejected': chat['rejected'],
+          }
+          out = pathlib.Path('dual_oasst_audit')
+          out.mkdir(exist_ok=True)
+          (out/'DUAL_OASST_CHATMIX_PREFLIGHT.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False)+'\n', encoding='utf8')
+          (out/'DUAL_OASST_MANIFEST.json').write_text(json.dumps(merged, indent=2, ensure_ascii=False)+'\n', encoding='utf8')
+          (out/'CHATMIX_MANIFEST.json').write_text(json.dumps(chat, indent=2, ensure_ascii=False)+'\n', encoding='utf8')
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Assert no raw dialogue export
+        run: |
+          find dual_oasst_audit -type f -maxdepth 1 -print
+          test ! -f dual_oasst_audit/train.jsonl
+          test ! -f dual_oasst_audit/val.jsonl
+          test ! -f dual_oasst_audit/test.jsonl
+          test ! -f dual_oasst_audit/holdout.jsonl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral50-dual-oasst-chatmix-preflight-${{ github.run_id }}
+          path: dual_oasst_audit/
+          if-no-files-found: error
+          retention-days: 30
