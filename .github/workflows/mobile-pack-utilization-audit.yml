@@ -1,0 +1,85 @@
+name: Neral Mobile Pack Utilization Audit
+
+on:
+  push:
+    branches:
+      - data/mobile-feeder-v1
+    paths:
+      - '.github/workflows/mobile-pack-utilization-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download validated 512M reserve
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-mobile-policy-safe-reserve-512m-34325843766
+          path: pack
+          run-id: 34325843766
+          github-token: ${{ github.token }}
+
+      - name: Measure document-bounded vs packed utilization
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path('pack')
+          m = json.loads((root/'manifest.json').read_text(encoding='utf8'))
+          docs = [json.loads(line) for line in (root/'documents.jsonl').read_text(encoding='utf8').splitlines() if line.strip()]
+          result = {
+              'pack_total_tokens': int(m['total_tokens']),
+              'pack_train_tokens': int(m['train_tokens']),
+              'pack_val_tokens': int(m['val_tokens']),
+              'documents': len(docs),
+              'seq': {},
+          }
+          for seq in (256, 512, 1024, 2048):
+              train = [d for d in docs if d['split']=='train']
+              short = [d for d in train if int(d['end'])-int(d['start']) < seq+1]
+              long = [d for d in train if int(d['end'])-int(d['start']) >= seq+1]
+              short_tokens = sum(int(d['end'])-int(d['start']) for d in short)
+              long_tokens = sum(int(d['end'])-int(d['start']) for d in long)
+              current_block_targets = 0
+              unique_eligible_targets = 0
+              for d in long:
+                  start,end=int(d['start']),int(d['end'])
+                  starts=list(range(start,end-seq,seq))
+                  tail=end-seq-1
+                  if not starts or starts[-1]!=tail:
+                      starts.append(tail)
+                  current_block_targets += len(starts)*seq
+                  unique_eligible_targets += max(0,end-start-1)
+              # Packed stream can use nearly every target token, losing only <=seq positions per shard tail.
+              packed_lower_bound = sum(max(0,int(s['tokens'])-seq) for s in m['train_shards'])
+              current_unique_fraction = unique_eligible_targets / max(1,int(m['train_tokens']))
+              packed_fraction = packed_lower_bound / max(1,int(m['train_tokens']))
+              result['seq'][str(seq)] = {
+                  'short_documents_skipped': len(short),
+                  'short_document_tokens_skipped': short_tokens,
+                  'long_documents_used': len(long),
+                  'long_document_tokens': long_tokens,
+                  'current_block_target_positions_per_full_pass': current_block_targets,
+                  'current_unique_eligible_target_positions': unique_eligible_targets,
+                  'current_unique_token_utilization': current_unique_fraction,
+                  'packed_lower_bound_target_positions': packed_lower_bound,
+                  'packed_token_utilization_lower_bound': packed_fraction,
+                  'recoverable_unique_fraction': max(0.0, packed_fraction-current_unique_fraction),
+                  'packed_vs_current_unique_ratio': packed_fraction/max(current_unique_fraction,1e-12),
+              }
+          pathlib.Path('audit').mkdir()
+          pathlib.Path('audit/MOBILE_PACK_UTILIZATION.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf8')
+          print(json.dumps(result,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral50-mobile-pack-utilization-${{ github.run_id }}
+          path: audit/MOBILE_PACK_UTILIZATION.json
+          if-no-files-found: error
+          retention-days: 30
