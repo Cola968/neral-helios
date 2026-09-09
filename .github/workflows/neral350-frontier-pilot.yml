@@ -1,0 +1,64 @@
+name: Neral 350M Frontier RTX Pilot
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350/model350.py'
+      - 'frontier350/bench350.py'
+      - '.github/workflows/neral350-frontier-pilot.yml'
+
+permissions:
+  contents: read
+
+actions: read
+
+concurrency:
+  group: neral-350m-frontier-pilot
+  cancel-in-progress: true
+
+jobs:
+  rtx-pilot:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+      - name: Resolve GPU environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets = if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python = if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{Join-Path $assets '.venv\Scripts\python.exe'}
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__); print(torch.version.cuda)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed'}
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+          "python=$python" >> $env:GITHUB_OUTPUT
+      - name: Compile Frontier pilot
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/model350.py frontier350/bench350.py
+          if($LASTEXITCODE -ne 0){throw 'compile failed'}
+      - name: Run 1024-token hardware pilot
+        run: |
+          New-Item -ItemType Directory -Force frontier350_pilot_report | Out-Null
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/pilot_1024.json --seq 1024 --microbatch 1 --steps 30 --warmup 5
+          if($LASTEXITCODE -ne 0){throw '1024 pilot failed'}
+      - name: Run 2048-token memory probe
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/pilot_2048.json --seq 2048 --microbatch 1 --steps 12 --warmup 3
+          if($LASTEXITCODE -ne 0){throw '2048 pilot failed'}
+      - name: Upload report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-pilot-${{ github.run_id }}
+          path: frontier350_pilot_report/
+          retention-days: 30
+          if-no-files-found: warn
