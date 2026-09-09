@@ -6,6 +6,7 @@ on:
       - data/mobile-feeder-v1
     paths:
       - 'build_mobile_data_pack.py'
+      - 'build_mobile_data_pack_v2.py'
       - 'tokenizer.py'
       - '.github/workflows/mobile-data-feeder.yml'
   workflow_dispatch:
@@ -32,10 +33,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install 'datasets>=3.2,<5' 'huggingface_hub>=0.30,<1' 'numpy>=2,<3'
       - name: Compile feeder
-        run: python -m py_compile build_mobile_data_pack.py tokenizer.py
+        run: python -m py_compile build_mobile_data_pack.py build_mobile_data_pack_v2.py tokenizer.py
       - name: Build 128 MiB candidate corpus
         run: |
-          python -u build_mobile_data_pack.py \
+          python -u build_mobile_data_pack_v2.py \
             --out mobile_data_pack \
             --target-bytes 134217728 \
             --shard-tokens 16777216 \
@@ -52,6 +53,8 @@ jobs:
           assert m['total_tokens'] >= 120_000_000, m['total_tokens']
           assert m['accepted_utf8_bytes'] >= 120_000_000, m['accepted_utf8_bytes']
           assert m['train_shards'] and m['val_shards']
+          names={s['name'] for s in m['sources']}
+          assert 'fineweb_en' in names and 'fineweb2_en' not in names, names
           for row in m['train_shards']+m['val_shards']:
               p=root/row['file']; assert p.is_file()
               assert p.stat().st_size == row['tokens']*2
