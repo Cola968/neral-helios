@@ -1,0 +1,74 @@
+name: Neral 350M Frontier Tokenizer Audit
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350/tokenizer_candidate_lock.json'
+      - 'frontier350/audit_tokenizer350.py'
+      - '.github/workflows/neral350-frontier-tokenizer-promote.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-frontier-tokenizer-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+      - name: Resolve candidate assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets = if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){throw 'Frontier data Python missing'}
+          $lock=Get-Content 'frontier350\tokenizer_candidate_lock.json' -Raw | ConvertFrom-Json
+          $src=Join-Path $assets $lock.local_source_dir
+          $tok=Join-Path $src 'tokenizer.json'
+          $report=Join-Path $src 'tokenizer_report.json'
+          if(-not(Test-Path $tok -PathType Leaf)){throw "candidate tokenizer missing: $tok"}
+          if(-not(Test-Path $report -PathType Leaf)){throw "candidate report missing: $report"}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "tok=$tok" >> $env:GITHUB_OUTPUT
+          "report=$report" >> $env:GITHUB_OUTPUT
+      - name: Audit tokenizer privacy and integrity
+        run: |
+          New-Item -ItemType Directory -Force frontier350_tokenizer_audit_report | Out-Null
+          & '${{ steps.env.outputs.python }}' -u frontier350/audit_tokenizer350.py --tokenizer '${{ steps.env.outputs.tok }}' --report '${{ steps.env.outputs.report }}' --out frontier350_tokenizer_audit_report/audit.json
+          if($LASTEXITCODE -ne 0){throw 'Tokenizer privacy/integrity audit failed'}
+      - name: Promote locally only after audit passes
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}'
+          $dest=Join-Path $assets 'frontier350_assets'
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          $candidate='${{ steps.env.outputs.tok }}'
+          $tmp=Join-Path $dest 'tokenizer.json.tmp'
+          $final=Join-Path $dest 'tokenizer.json'
+          Copy-Item $candidate $tmp -Force
+          Move-Item $tmp $final -Force
+          Copy-Item '${{ steps.env.outputs.report }}' (Join-Path $dest 'tokenizer_report.json') -Force
+          Copy-Item frontier350_tokenizer_audit_report/audit.json (Join-Path $dest 'tokenizer_audit.json') -Force
+          Write-Host "Promoted audited Frontier tokenizer locally: $final"
+      - name: Upload audit report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-tokenizer-audit-${{ github.run_id }}
+          path: frontier350_tokenizer_audit_report/
+          retention-days: 30
+          if-no-files-found: warn
