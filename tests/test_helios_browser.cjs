@@ -27,6 +27,11 @@ const root=path.resolve(__dirname,'..');
   });
   await page.goto('http://127.0.0.1:'+server.address().port);
   await page.locator('#checkpoint option[value=pilot_02]').waitFor({state:'attached'});
+  await page.locator('#modelPicker summary').click();
+  assert.equal(await page.locator('#modelOptions button').count(),2);
+  assert.equal(await page.locator('#modelOptions button[aria-pressed=true]').count(),1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#modelPicker').getAttribute('open'),null);
   assert.equal(await page.locator('.composer-model #checkpoint').count(),1);
   assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
   await page.locator('#chatActions summary').click();await page.locator('#theme').click();await page.reload();
@@ -48,16 +53,24 @@ const root=path.resolve(__dirname,'..');
   for(const width of [390,360,1440]){
    await page.setViewportSize({width,height:900});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'horizontal overflow at '+width);
-   const box=await page.locator('#checkpoint').boundingBox();assert(box&&box.x>=0&&box.x+box.width<=width,'model picker outside viewport');
+   const box=await page.locator('#modelPicker summary').boundingBox();assert(box&&box.x>=0&&box.x+box.width<=width,'model picker outside viewport');
    if(width<730){await page.locator('#menu').click();await page.locator('#sidebarBackdrop').click({position:{x:width-10,y:300}});assert.equal(await page.locator('#sidebarBackdrop').isVisible(),false);}
   }
   await page.locator('#welcomeProjects').click();await page.locator('#projectWorkspace').waitFor({state:'visible'});
   await page.keyboard.press('Escape');assert.equal(await page.locator('#projectWorkspace').isVisible(),false);
   await page.locator('#chatActions summary').click();await page.locator('#theme').click();
   fs.mkdirSync(path.join(root,'.browser-artifacts'),{recursive:true});
+  await page.locator('#modelPicker summary').click();
   await page.screenshot({path:path.join(root,'.browser-artifacts/desktop-dark.png')});
+  await page.keyboard.press('Escape');
   await page.locator('#chatActions summary').click();await page.locator('#theme').click();await page.setViewportSize({width:390,height:844});
+  await page.locator('#modelPicker summary').click();
+  const popup=await page.locator('.model-menu').boundingBox();assert(popup.x>=0&&popup.x+popup.width<=390);
   await page.screenshot({path:path.join(root,'.browser-artifacts/mobile-light.png')});
+  await page.keyboard.press('Escape');
+  await page.route('**/api/info',route=>route.fulfill({json:{parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:false,checkpoints:['pilot_02','neral50m'],preparation_mode:true}}));
+  await page.reload();await page.locator('#modelOptions button').first().waitFor({state:'attached'});
+  assert.equal(await page.locator('#modelOptions button:disabled').count(),2);
   assert.deepEqual(errors,[]);assert.equal(modelCalls,0);
   console.log('PASS: light/dark, draft/reload, import/Markdown/XSS, variants/delete, model picker, mobile navigation, projects; zero model requests');
  }finally{if(browser)await browser.close();server.close();}
