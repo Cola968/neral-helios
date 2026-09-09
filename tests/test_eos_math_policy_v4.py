@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from eos_math_policy_v4 import (
     E3_OBJECTIVE_MIX,
     MATH_REPAIR_DATA_MIX,
@@ -93,3 +96,31 @@ def test_math_policy_prefers_transfer_over_id_memorization():
     assert E3_OBJECTIVE_MIX["rawmath_transfer"] > E3_OBJECTIVE_MIX["rawmath_id"]
     assert MATH_REPAIR_DATA_MIX["math_transfer"] > MATH_REPAIR_DATA_MIX["math_id"]
     assert "transfer/OOD" in report["principle"]
+
+
+def test_hf_math_eos_manifest_keeps_risky_sources_fail_closed():
+    manifest = json.loads(Path("hf_math_eos_sources_v4.json").read_text(encoding="utf8"))
+    by_id = {row["dataset_id"]: row for row in manifest["sources"]}
+    assert by_id["OpenAssistant/oasst2"]["decision"] == "approved_filtered_eos_sft"
+    assert by_id["HuggingFaceTB/finemath"]["decision"].startswith("quarantine")
+    assert by_id["microsoft/orca-math-word-problems-200k"]["decision"].startswith("quarantine")
+    assert by_id["TIGER-Lab/MathInstruct"]["decision"].startswith("quarantine")
+    assert by_id["nvidia/OpenMathInstruct-2"]["decision"] == "blocked_for_current_benchmark_purity"
+    assert manifest["e3_external_data_policy"]["math_external_admitted_now"] == []
+
+
+def test_e3_source_contract_is_transfer_heavy_and_eos_explicit():
+    text = Path("train_weakness_repair50_e3.py").read_text(encoding="utf8")
+    required = [
+        "TransferTrainingProblemSampler",
+        "transfer_math_weight",
+        "math_eos_weight",
+        "free_eos_guard",
+        "terminal_eos_guard",
+        "repetition_guard",
+        "transfer_math_guard",
+        "forced_eos\": False",
+        "foreign_weights_used\": False",
+    ]
+    for needle in required:
+        assert needle in text

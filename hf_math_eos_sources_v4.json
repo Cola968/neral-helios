@@ -1,0 +1,97 @@
+{
+  "schema": 4,
+  "audited_at": "2026-09-09",
+  "purpose": "EOS and mathematics source decisions for Neral; metadata inspected through Hugging Face Hub, no foreign weights allowed",
+  "foreign_model_weights_allowed": false,
+  "sources": [
+    {
+      "dataset_id": "OpenAssistant/oasst2",
+      "license": "Apache-2.0",
+      "languages": ["de", "en", "multilingual"],
+      "size_category": "100K<n<1M",
+      "origin": "crowdsourced human-feedback conversation trees",
+      "decision": "approved_filtered_eos_sft",
+      "why": "human dialogue is directly useful for instruction following and real terminal-boundary supervision",
+      "required_filters": [
+        "human rows only",
+        "DE/EN language filter",
+        "PII/secret screen",
+        "prompt-group split before packing",
+        "near-dedup",
+        "reject embedded assistant/user turn markers",
+        "answer-length buckets for EOS repair"
+      ],
+      "curriculum_role": "35% screened-human-SFT component inside E3 objective, with short/medium answer balancing but no row duplication"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/finemath",
+      "license": "ODC-By-1.0",
+      "languages": ["en"],
+      "size_note": "34B FineMath-3+ tokens; 54B when combined with InfiMM-WebMath-3+ according to dataset card",
+      "origin": "mathematical educational web text filtered from CommonCrawl; classifier training used model-generated annotations",
+      "decision": "quarantine_until_contamination_audit",
+      "why": "high-value math prose, but benchmark-family contamination and cross-source near-duplication must be screened before Neral training",
+      "required_filters": [
+        "immutable HF revision",
+        "holdout registry hash",
+        "exact dedup",
+        "MinHash near-dedup",
+        "GSM8K/MATH-family contamination probes",
+        "PII/secret/Unicode quality filters"
+      ],
+      "curriculum_role": "future math-pretraining lane after admission, not E3 source yet"
+    },
+    {
+      "dataset_id": "microsoft/orca-math-word-problems-200k",
+      "license": "MIT",
+      "languages": ["en"],
+      "size_note": "approximately 200K grade-school word problems",
+      "origin": "answers generated with Azure GPT-4-Turbo",
+      "decision": "quarantine_synthetic_secondary",
+      "why": "permissive metadata and useful word-problem diversity, but content is synthetic and must not silently replace human/project-generated math",
+      "required_filters": [
+        "synthetic provenance flag retained",
+        "benchmark contamination scan",
+        "near-dedup against frozen math tests",
+        "use only as optional secondary lane if project policy later admits it"
+      ],
+      "curriculum_role": "optional transfer/word-problem augmentation only after explicit admission"
+    },
+    {
+      "dataset_id": "TIGER-Lab/MathInstruct",
+      "license": "MIT",
+      "languages": ["en"],
+      "size_category": "100K<n<1M",
+      "origin": "compiled from 13 math rationale datasets with chain-of-thought and program-of-thought rationales",
+      "decision": "quarantine_component_lineage",
+      "why": "mixed-source rationale corpus is attractive for reasoning but component-by-component benchmark lineage must be resolved before commercial training",
+      "required_filters": [
+        "component source inventory",
+        "license/provenance check per component",
+        "GSM8K/MATH/competition family exclusion",
+        "frozen-holdout near-dedup"
+      ],
+      "curriculum_role": "research reference; not admitted into E3"
+    },
+    {
+      "dataset_id": "nvidia/OpenMathInstruct-2",
+      "license": "CC-BY-4.0",
+      "languages": ["en"],
+      "size_note": "14M generated problem-solution pairs",
+      "origin": "generated with Llama3.1-405B-Instruct; dataset card explicitly uses GSM8K and MATH training sets for construction",
+      "decision": "blocked_for_current_benchmark_purity",
+      "why": "Neral keeps GSM8K as a permanent external holdout family; direct lineage to GSM8K/MATH makes this unsuitable for the current clean evaluation regime",
+      "required_filters": [],
+      "curriculum_role": "none under current holdout policy"
+    }
+  ],
+  "e3_external_data_policy": {
+    "admitted_now": ["OpenAssistant/oasst2"],
+    "math_external_admitted_now": [],
+    "math_training_now": [
+      "project RawMath ID generator",
+      "project range-disjoint transfer generator"
+    ],
+    "principle": "Improve mathematics immediately with contamination-safe project generators; admit web/synthetic math only after source-specific evidence, not because it is large."
+  }
+}

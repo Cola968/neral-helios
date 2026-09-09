@@ -6,6 +6,7 @@ on:
       - sprint/eos-math-hardening-20260909
     paths:
       - 'hf_dataset_manifest_v3.json'
+      - 'hf_math_eos_sources_v4.json'
       - 'data_quality_v3.py'
       - 'holdout_registry_v3.py'
       - 'math_curriculum_v3.py'
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - 'hf_dataset_manifest_v3.json'
+      - 'hf_math_eos_sources_v4.json'
       - 'data_quality_v3.py'
       - 'holdout_registry_v3.py'
       - 'math_curriculum_v3.py'
@@ -52,6 +54,7 @@ jobs:
         run: |
           python -m py_compile data_quality_v3.py holdout_registry_v3.py math_curriculum_v3.py promotion_gate_v3.py eos_math_policy_v4.py train_weakness_repair50_e3.py
           python -m json.tool hf_dataset_manifest_v3.json >/dev/null
+          python -m json.tool hf_math_eos_sources_v4.json >/dev/null
       - name: Governance contract tests
         run: |
           pytest -q \
@@ -72,6 +75,7 @@ jobs:
           python promotion_gate_v3.py > governance_report/promotion_policy.json
           python eos_math_policy_v4.py > governance_report/eos_math_policy_v4.json
           cp hf_dataset_manifest_v3.json governance_report/hf_dataset_manifest_v3.json
+          cp hf_math_eos_sources_v4.json governance_report/hf_math_eos_sources_v4.json
       - name: Enforce report-only artifact boundary
         run: |
           if find governance_report -type f \( -name '*.pt' -o -name '*.pth' -o -name '*.safetensors' -o -name '*.ckpt' -o -name '*.bin' -o -name '*.npy' -o -name '*.npz' \) | grep -q .; then
