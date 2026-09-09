@@ -1,0 +1,41 @@
+name: ORION A5 CPU Smoke
+
+on:
+  push:
+    branches:
+      - orion-a5-cpu-smoke
+    paths:
+      - 'orion100.py'
+      - 'orion_a5.py'
+      - 'cpu_smoke_orion_a5.py'
+      - 'test_orion_a5.py'
+      - '.github/workflows/orion-a5-cpu-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check pytest datasets
+      - name: Run ORION A5 CPU contracts
+        run: python -m pytest -q test_orion_a5.py
+      - name: Run one real full-size optimizer update
+        run: python -u cpu_smoke_orion_a5.py --seq 32 --hf | tee orion_a5_cpu_smoke.json
+      - name: Upload smoke report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orion-a5-cpu-smoke-${{ github.run_id }}
+          path: orion_a5_cpu_smoke.json
+          if-no-files-found: warn
+          retention-days: 30
