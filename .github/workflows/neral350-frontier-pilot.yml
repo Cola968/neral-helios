@@ -44,14 +44,30 @@ jobs:
         run: |
           & '${{ steps.env.outputs.python }}' -m py_compile frontier350/model350.py frontier350/bench350.py
           if($LASTEXITCODE -ne 0){throw 'compile failed'}
-      - name: Run 1024-token hardware pilot
+      - name: Baseline 1024 mb1 checkpointing
         run: |
           New-Item -ItemType Directory -Force frontier350_pilot_report | Out-Null
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/pilot_1024.json --seq 1024 --microbatch 1 --steps 30 --warmup 5
-          if($LASTEXITCODE -ne 0){throw '1024 pilot failed'}
-      - name: Run 2048-token memory probe
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/gc_1024_mb1.json --seq 1024 --microbatch 1 --steps 20 --warmup 4
+          if($LASTEXITCODE -ne 0){throw 'baseline pilot failed'}
+      - name: Probe 1024 mb2 checkpointing
         run: |
-          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/pilot_2048.json --seq 2048 --microbatch 1 --steps 12 --warmup 3
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/gc_1024_mb2.json --seq 1024 --microbatch 2 --steps 16 --warmup 4
+          if($LASTEXITCODE -ne 0){throw 'mb2 checkpointing pilot failed'}
+      - name: Probe 1024 mb4 checkpointing
+        continue-on-error: true
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/gc_1024_mb4.json --seq 1024 --microbatch 4 --steps 10 --warmup 3
+      - name: Probe 1024 mb1 without checkpointing
+        continue-on-error: true
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/nogc_1024_mb1.json --seq 1024 --microbatch 1 --steps 14 --warmup 3 --no-gradient-checkpointing
+      - name: Probe 1024 mb2 without checkpointing
+        continue-on-error: true
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/nogc_1024_mb2.json --seq 1024 --microbatch 2 --steps 10 --warmup 3 --no-gradient-checkpointing
+      - name: Probe 2048 mb1 checkpointing
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/bench350.py --out frontier350_pilot_report/gc_2048_mb1.json --seq 2048 --microbatch 1 --steps 10 --warmup 3
           if($LASTEXITCODE -ne 0){throw '2048 pilot failed'}
       - name: Upload report only
         if: always()
