@@ -1,0 +1,74 @@
+name: ORION CPU contracts
+
+on:
+  push:
+    branches:
+      - sprint/orion-cpu-contracts-20260909
+    paths:
+      - 'orion100.py'
+      - 'orion_static_metrics.py'
+      - 'checkpoint_io_v3.py'
+      - 'probe_perf_v2.py'
+      - 'test_perf_v2.py'
+      - 'tests/test_orion_cpu_contracts.py'
+      - '.github/workflows/orion-cpu-contracts.yml'
+  pull_request:
+    paths:
+      - 'orion100.py'
+      - 'orion_static_metrics.py'
+      - 'checkpoint_io_v3.py'
+      - 'probe_perf_v2.py'
+      - 'test_perf_v2.py'
+      - 'tests/test_orion_cpu_contracts.py'
+      - '.github/workflows/orion-cpu-contracts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CUDA_VISIBLE_DEVICES: ''
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install CPU-only test runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch>=2.4,<3'
+      - name: Syntax contracts
+        run: |
+          python -m py_compile orion100.py orion_static_metrics.py checkpoint_io_v3.py probe_perf_v2.py fastpath50.py
+      - name: CPU architecture and crash-safety tests
+        run: |
+          pytest -q test_perf_v2.py tests/test_orion_cpu_contracts.py
+      - name: Generate static reports
+        run: |
+          mkdir -p cpu_orion_report
+          python orion_static_metrics.py --json cpu_orion_report/orion_static.json --markdown cpu_orion_report/orion_static.md
+          python - <<'PY'
+          import json
+          r=json.load(open('cpu_orion_report/orion_static.json',encoding='utf8'))
+          assert r['gpu_measurements_present'] is False
+          assert r['quality_scores_for_untrained_orion_present'] is False
+          assert r['models']['orion_a3']['parameter_partition']['total'] == 100_002_304
+          assert r['models']['orion_a4']['parameter_partition']['total'] == 100_103_936
+          PY
+      - name: Enforce report-only artifact boundary
+        run: |
+          if find cpu_orion_report -type f \( -name '*.pt' -o -name '*.pth' -o -name '*.safetensors' -o -name '*.ckpt' -o -name '*.bin' \) | grep -q .; then
+            echo 'Forbidden model/corpus artifact' >&2; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orion-cpu-static-${{ github.run_id }}
+          path: cpu_orion_report/
+          if-no-files-found: error
+          retention-days: 30
