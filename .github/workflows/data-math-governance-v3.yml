@@ -1,0 +1,75 @@
+name: Neral data and math governance v3
+
+on:
+  push:
+    branches:
+      - sprint/cpu-orion-data-hardening-20260909
+    paths:
+      - 'hf_dataset_manifest_v3.json'
+      - 'data_quality_v3.py'
+      - 'holdout_registry_v3.py'
+      - 'math_curriculum_v3.py'
+      - 'promotion_gate_v3.py'
+      - 'tests/test_data_math_governance_v3.py'
+      - '.github/workflows/data-math-governance-v3.yml'
+  pull_request:
+    paths:
+      - 'hf_dataset_manifest_v3.json'
+      - 'data_quality_v3.py'
+      - 'holdout_registry_v3.py'
+      - 'math_curriculum_v3.py'
+      - 'promotion_gate_v3.py'
+      - 'tests/test_data_math_governance_v3.py'
+      - '.github/workflows/data-math-governance-v3.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CUDA_VISIBLE_DEVICES: ''
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install CPU-only test runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+      - name: Static syntax and manifest validation
+        run: |
+          python -m py_compile data_quality_v3.py holdout_registry_v3.py math_curriculum_v3.py promotion_gate_v3.py
+          python -m json.tool hf_dataset_manifest_v3.json >/dev/null
+      - name: Governance contract tests
+        run: |
+          pytest -q \
+            tests/test_data_math_governance_v3.py \
+            tests/test_public_eval_policy50.py \
+            tests/test_hf_data_policy50.py \
+            tests/test_raw_math50_transfer_data.py \
+            tests/test_m2_transactional50.py \
+            tests/test_nis2.py
+      - name: Render CPU governance evidence
+        run: |
+          mkdir -p governance_report
+          python holdout_registry_v3.py > governance_report/holdout_registry.json
+          python math_curriculum_v3.py > governance_report/math_curriculum.json
+          python promotion_gate_v3.py > governance_report/promotion_policy.json
+          cp hf_dataset_manifest_v3.json governance_report/hf_dataset_manifest_v3.json
+      - name: Enforce report-only artifact boundary
+        run: |
+          if find governance_report -type f \( -name '*.pt' -o -name '*.pth' -o -name '*.safetensors' -o -name '*.ckpt' -o -name '*.bin' -o -name '*.npy' -o -name '*.npz' \) | grep -q .; then
+            echo 'Forbidden checkpoint/corpus artifact' >&2; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral-data-math-governance-${{ github.run_id }}
+          path: governance_report/
+          if-no-files-found: error
+          retention-days: 30
