@@ -1,0 +1,84 @@
+name: Neral 350M Frontier RTX Speed Sweep
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_requests/speed_sweep.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-speed-sweep
+  cancel-in-progress: false
+
+jobs:
+  speed-sweep:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit speed-sweep request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_requests\speed_sweep.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'speed sweep request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,microbatches,request_id,seq,version'){throw 'unsupported speed sweep request fields'}
+          if([int]$r.version -ne 1){throw 'unsupported request version'}
+          if($r.action -ne 'speed_sweep_frontier350'){throw 'wrong action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([int]$r.seq -ne 512){throw 'speed sweep sequence contract must be 512'}
+          if(($r.microbatches -join ',') -ne '4,5,6,8'){throw 'unexpected microbatch sweep'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+
+      - name: Resolve isolated RTX environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{Join-Path $assets '.venv\Scripts\python.exe'}
+          $train=Join-Path $assets 'frontier350_bpe_pilot_v1\train'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          if(-not(Test-Path $train -PathType Container)){throw "real BPE train shards missing: $train"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__); print(torch.version.cuda)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed'}
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "train=$train" >> $env:GITHUB_OUTPUT
+
+      - name: Compile locked speed path
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/model350.py frontier350/speed_sweep350.py
+          if($LASTEXITCODE -ne 0){throw 'speed sweep compile failed'}
+          & '${{ steps.env.outputs.python }}' -c "import sys; sys.path.insert(0,'frontier350'); from model350 import Neral350M; r=Neral350M().parameter_report(); print(r); assert r['total']==349825152"
+          if($LASTEXITCODE -ne 0){throw 'locked parameter contract failed'}
+
+      - name: Benchmark mb4-8 cached mmap plus torch.compile
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force frontier350_speed_report | Out-Null
+          & '${{ steps.env.outputs.python }}' -u frontier350/speed_sweep350.py --train-data '${{ steps.env.outputs.train }}' --out frontier350_speed_report/speed_sweep.json --seq 512 --microbatches '4,5,6,8' --steps 12 --warmup 4 --with-compile
+          if($LASTEXITCODE -ne 0){throw 'speed sweep failed'}
+
+      - name: Upload aggregate speed report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-speed-sweep-${{ github.run_id }}
+          path: frontier350_speed_report/
+          retention-days: 30
+          if-no-files-found: warn
