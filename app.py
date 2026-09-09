@@ -4,7 +4,7 @@ import hashlib,json,math,os,re,secrets,threading,time
 from collections import defaultdict,deque
 from pathlib import Path
 import torch
-from flask import Flask,jsonify,render_template,request
+from flask import Flask,jsonify,render_template,request,send_from_directory
 from werkzeug.exceptions import HTTPException
 from config import NeralConfig
 from model import Neral20M
@@ -36,7 +36,7 @@ cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.par
 assert report['trainable']==EXPECTED_PARAMS
 PREPARATION_MODE=os.environ.get('HELIOS_PREPARATION_MODE','0')=='1'
 device_name='cpu' if PREPARATION_MODE else os.environ.get('HELIOS_DEVICE','cpu')
-if device_name not in {'cpu','cuda'}:raise ValueError('HELIOS_DEVICE must be cpu or cuda')
+if device_name!='cpu':raise ValueError('This Helios app release is CPU-only.')
 device=torch.device(device_name)
 runtime_error=None
 checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original'
@@ -78,7 +78,10 @@ def initialize_runtime():
     if PREPARATION_MODE:
         runtime_error='Vorbereitungsmodus: keine Modellinferenz. SOLVE, Codeprüfung und Projekte sind bereit.'
         return
-    name='pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original'
+    name=os.environ.get('HELIOS_CHECKPOINT') or ('pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original')
+    if name not in checkpoint_paths():
+        runtime_error='Der ausgewählte eigene Checkpoint ist nicht installiert.'
+        return
     if not checkpoint_paths()[name][0].is_file():
         runtime_error='Kein eigener Checkpoint verfügbar. SOLVE, Codeprüfung und Projekte sind bereit.'
         return
@@ -155,6 +158,11 @@ def body():
     return data,None
 @app.get('/')
 def index():return render_template('index.html')
+@app.get('/manifest.webmanifest')
+def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',mimetype='application/manifest+json')
+@app.get('/sw.js')
+def service_worker():return send_from_directory(BASE/'static','sw.js',mimetype='text/javascript')
+
 @app.get('/api/info')
 def info():return jsonify(info_payload())
 @app.get('/api/metrics')
