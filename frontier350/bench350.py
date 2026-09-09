@@ -4,7 +4,7 @@ from __future__ import annotations
 
 This script never touches release benchmarks or long-run corpora. It measures the exact
 frontier architecture on synthetic byte-token batches so the 10B campaign is not started
-before VRAM, throughput, numerics and resume mechanics are proven on the target GPU.
+before VRAM, throughput and numerics are proven on the target GPU.
 """
 
 import argparse
@@ -25,18 +25,23 @@ def main() -> None:
     ap.add_argument("--microbatch", type=int, default=1)
     ap.add_argument("--steps", type=int, default=30)
     ap.add_argument("--warmup", type=int, default=5)
+    ap.add_argument("--no-gradient-checkpointing", action="store_true")
     args = ap.parse_args()
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise SystemExit("CUDA BF16 GPU required")
+    if args.microbatch <= 0 or args.seq <= 0 or args.steps <= args.warmup:
+        raise SystemExit("invalid pilot dimensions")
 
     torch.manual_seed(350)
     torch.cuda.manual_seed_all(350)
+    torch.backends.cuda.matmul.allow_tf32 = True
     device = torch.device("cuda")
     model = Neral350M().to(device=device, dtype=torch.bfloat16)
-    model.set_gradient_checkpointing(True)
+    use_gc = not args.no_gradient_checkpointing
+    model.set_gradient_checkpointing(use_gc)
     report = model.parameter_report()
-    if not 330_000_000 <= report["total"] <= 370_000_000:
+    if not 345_000_000 <= report["total"] <= 360_000_000:
         raise SystemExit(f"parameter contract failed: {report}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.9, 0.95), weight_decay=0.1, fused=True)
@@ -73,7 +78,9 @@ def main() -> None:
         "parameters": report,
         "seq": args.seq,
         "microbatch": args.microbatch,
-        "measured_steps": max(0, args.steps-args.warmup),
+        "gradient_checkpointing": use_gc,
+        "effective_tokens_per_step": args.seq * args.microbatch,
+        "measured_steps": args.steps - args.warmup,
         "tokens_per_second": tps,
         "peak_vram_gb": torch.cuda.max_memory_allocated()/1e9,
         "peak_reserved_gb": torch.cuda.max_memory_reserved()/1e9,
