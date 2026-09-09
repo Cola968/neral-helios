@@ -106,6 +106,11 @@ def run_case(pool: MMapPool, *, layout: str, mb: int, seq: int, updates: int,
             running_loss = 0.0
             for _ in range(grad_accum):
                 x, y = pool.batch(mb, seq, rng, device)
+                # reduce-overhead uses CUDA Graphs. Explicitly mark every logical
+                # invocation boundary because gradient accumulation calls the same
+                # compiled model multiple times before the optimizer step.
+                if compile_mode != "none" and hasattr(torch.compiler, "cudagraph_mark_step_begin"):
+                    torch.compiler.cudagraph_mark_step_begin()
                 _, loss = model(x, y)
                 if loss is None or not torch.isfinite(loss):
                     raise RuntimeError("non-finite loss")
@@ -175,8 +180,10 @@ def main() -> None:
 
     specs = [
         ("unfused", 4, "none", False),
+        ("unfused", 4, "default", False),
         ("unfused", 4, "reduce-overhead", False),
         ("unfused", 5, "reduce-overhead", False),
+        ("fused", 4, "default", False),
         ("fused", 4, "reduce-overhead", False),
         ("fused", 5, "reduce-overhead", False),
     ]
