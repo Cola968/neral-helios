@@ -10,8 +10,7 @@ on:
 
 permissions:
   contents: read
-
-actions: read
+  actions: read
 
 concurrency:
   group: neral-350m-frontier-pilot
