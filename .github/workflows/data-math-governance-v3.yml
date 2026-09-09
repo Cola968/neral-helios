@@ -1,16 +1,19 @@
-name: Neral data and math governance v3
+name: Neral data, EOS and math governance v4
 
 on:
   push:
     branches:
-      - sprint/cpu-orion-data-hardening-20260909
+      - sprint/eos-math-hardening-20260909
     paths:
       - 'hf_dataset_manifest_v3.json'
       - 'data_quality_v3.py'
       - 'holdout_registry_v3.py'
       - 'math_curriculum_v3.py'
       - 'promotion_gate_v3.py'
+      - 'eos_math_policy_v4.py'
+      - 'train_weakness_repair50_e3.py'
       - 'tests/test_data_math_governance_v3.py'
+      - 'tests/test_eos_math_policy_v4.py'
       - '.github/workflows/data-math-governance-v3.yml'
   pull_request:
     paths:
@@ -19,7 +22,10 @@ on:
       - 'holdout_registry_v3.py'
       - 'math_curriculum_v3.py'
       - 'promotion_gate_v3.py'
+      - 'eos_math_policy_v4.py'
+      - 'train_weakness_repair50_e3.py'
       - 'tests/test_data_math_governance_v3.py'
+      - 'tests/test_eos_math_policy_v4.py'
       - '.github/workflows/data-math-governance-v3.yml'
 
 permissions:
@@ -44,23 +50,27 @@ jobs:
           python -m pip install pytest
       - name: Static syntax and manifest validation
         run: |
-          python -m py_compile data_quality_v3.py holdout_registry_v3.py math_curriculum_v3.py promotion_gate_v3.py
+          python -m py_compile data_quality_v3.py holdout_registry_v3.py math_curriculum_v3.py promotion_gate_v3.py eos_math_policy_v4.py train_weakness_repair50_e3.py
           python -m json.tool hf_dataset_manifest_v3.json >/dev/null
       - name: Governance contract tests
         run: |
           pytest -q \
             tests/test_data_math_governance_v3.py \
+            tests/test_eos_math_policy_v4.py \
             tests/test_public_eval_policy50.py \
             tests/test_hf_data_policy50.py \
             tests/test_raw_math50_transfer_data.py \
-            tests/test_m2_transactional50.py \
-            tests/test_nis2.py
+            tests/test_m2_transactional50.py
+      - name: NIS2 dependency boundary
+        run: |
+          echo 'NIS2 model tests are intentionally excluded here because they import torch. This governance lane is dependency-light CPU-only; NIS2 has its own workflow.'
       - name: Render CPU governance evidence
         run: |
           mkdir -p governance_report
           python holdout_registry_v3.py > governance_report/holdout_registry.json
           python math_curriculum_v3.py > governance_report/math_curriculum.json
           python promotion_gate_v3.py > governance_report/promotion_policy.json
+          python eos_math_policy_v4.py > governance_report/eos_math_policy_v4.json
           cp hf_dataset_manifest_v3.json governance_report/hf_dataset_manifest_v3.json
       - name: Enforce report-only artifact boundary
         run: |
@@ -69,7 +79,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: neral-data-math-governance-${{ github.run_id }}
+          name: neral-data-eos-math-governance-${{ github.run_id }}
           path: governance_report/
           if-no-files-found: error
           retention-days: 30
