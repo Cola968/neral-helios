@@ -26,6 +26,10 @@ def main() -> None:
     ap.add_argument("--warmup", type=int, default=5)
     ap.add_argument("--no-gradient-checkpointing", action="store_true")
     ap.add_argument("--vocab-size", type=int, default=260)
+    ap.add_argument("--d-model", type=int, default=1024)
+    ap.add_argument("--layers", type=int, default=32)
+    ap.add_argument("--heads", type=int, default=16)
+    ap.add_argument("--kv-heads", type=int, default=2)
     ap.add_argument("--ffn-hidden", type=int, default=2816)
     ap.add_argument("--label", default="byte260")
     args = ap.parse_args()
@@ -39,7 +43,14 @@ def main() -> None:
     torch.cuda.manual_seed_all(350)
     torch.backends.cuda.matmul.allow_tf32 = True
     device = torch.device("cuda")
-    cfg = Neral350Config(vocab_size=args.vocab_size, ffn_hidden=args.ffn_hidden)
+    cfg = Neral350Config(
+        vocab_size=args.vocab_size,
+        d_model=args.d_model,
+        n_layers=args.layers,
+        n_heads=args.heads,
+        n_kv_heads=args.kv_heads,
+        ffn_hidden=args.ffn_hidden,
+    )
     model = Neral350M(cfg).to(device=device, dtype=torch.bfloat16)
     use_gc = not args.no_gradient_checkpointing
     model.set_gradient_checkpointing(use_gc)
@@ -81,6 +92,11 @@ def main() -> None:
         "candidate_label": args.label,
         "parameters": report,
         "vocab_size": cfg.vocab_size,
+        "d_model": cfg.d_model,
+        "layers": cfg.n_layers,
+        "heads": cfg.n_heads,
+        "kv_heads": cfg.n_kv_heads,
+        "head_dim": cfg.head_dim,
         "ffn_hidden": cfg.ffn_hidden,
         "seq": args.seq,
         "microbatch": args.microbatch,
