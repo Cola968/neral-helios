@@ -1,0 +1,68 @@
+name: Neral 350M Frontier Tokenizer Pilot
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350/train_tokenizer350.py'
+      - 'frontier350/build_frontier_data.py'
+      - '.github/workflows/neral350-frontier-tokenizer-pilot.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-tokenizer-pilot
+  cancel-in-progress: true
+
+jobs:
+  tokenizer-pilot:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+      - name: Resolve isolated data environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets = if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python = Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){throw 'Frontier data environment missing; data pilot must establish it first'}
+          & $python -m pip install --disable-pip-version-check --quiet 'tokenizers>=0.21,<1'
+          if($LASTEXITCODE -ne 0){throw 'tokenizers dependency failed'}
+          $out=Join-Path $assets ('frontier350_tokenizer_pilot_' + $env:GITHUB_RUN_ID)
+          if(Test-Path $out){throw "Refusing existing tokenizer pilot path: $out"}
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "out=$out" >> $env:GITHUB_OUTPUT
+      - name: Compile tokenizer pilot
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/train_tokenizer350.py frontier350/build_frontier_data.py
+          if($LASTEXITCODE -ne 0){throw 'tokenizer pilot compile failed'}
+      - name: Train own 16K Byte-BPE and measure compression
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/train_tokenizer350.py --out-dir '${{ steps.env.outputs.out }}' --vocab-size 16384 --training-chars 50000000 --eval-per-source 200
+          if($LASTEXITCODE -ne 0){throw 'Frontier tokenizer pilot failed'}
+      - name: Prepare safe tokenizer report only
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force frontier350_tokenizer_report | Out-Null
+          $p=Join-Path '${{ steps.env.outputs.out }}' 'tokenizer_report.json'
+          if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_tokenizer_report\tokenizer_report.json -Force}
+          # tokenizer.json stays local until vocabulary/privacy review.
+      - name: Upload aggregate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-tokenizer-pilot-${{ github.run_id }}
+          path: frontier350_tokenizer_report/
+          retention-days: 30
+          if-no-files-found: warn
