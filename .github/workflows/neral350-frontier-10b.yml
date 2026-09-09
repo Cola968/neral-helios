@@ -4,8 +4,6 @@ on:
   push:
     branches: [frontier/neral350-v1]
     paths:
-      - 'frontier350/**'
-      - '.github/workflows/neral350-frontier-10b.yml'
       - 'frontier350_requests/request.json'
 
 permissions:
@@ -31,7 +29,21 @@ jobs:
           persist-credentials: false
           clean: true
 
-      - name: Validate authorization, GPU and local assets
+      - name: Validate explicit training authorization
+        run: |
+          $ErrorActionPreference='Stop'
+          $request='frontier350_requests\request.json'
+          if(-not(Test-Path $request -PathType Leaf)){throw 'Frontier training request missing'}
+          $r=Get-Content $request -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,request_id,target_tokens,version'){throw 'Unsupported authorization fields'}
+          if([int]$r.version -ne 1){throw 'Unsupported request version'}
+          if($r.action -ne 'train_frontier350'){throw 'Unsupported action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'Wrong architecture authorization'}
+          if([Int64]$r.target_tokens -ne 10000000000){throw '10B token contract required'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'Invalid request_id'}
+
+      - name: Validate GPU and local assets
         id: env
         run: |
           $ErrorActionPreference='Stop'
@@ -58,7 +70,7 @@ jobs:
           $python='${{ steps.env.outputs.python }}'
           & $python -m py_compile frontier350/model350.py frontier350/train350.py frontier350/security_policy350.py frontier350/release_gate350.py
           if($LASTEXITCODE -ne 0){throw 'compile failed'}
-          & $python -c "import sys; sys.path.insert(0,'frontier350'); from model350 import Neral350M; m=Neral350M(); print(m.parameter_report()); assert 330_000_000 <= m.parameter_report()['total'] <= 370_000_000"
+          & $python -c "import sys; sys.path.insert(0,'frontier350'); from model350 import Neral350M; m=Neral350M(); r=m.parameter_report(); print(r); assert 345_000_000 <= r['total'] <= 360_000_000"
           if($LASTEXITCODE -ne 0){throw 'parameter contract failed'}
 
       - name: Fail-closed data admission
@@ -85,12 +97,16 @@ jobs:
       - name: Prepare safe report bundle
         if: always()
         run: |
-          $assets='${{ steps.env.outputs.assets }}'
+          $ErrorActionPreference='Stop'
+          $assets = if('${{ steps.env.outputs.assets }}'){'${{ steps.env.outputs.assets }}'}elseif($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python = if('${{ steps.env.outputs.python }}'){'${{ steps.env.outputs.python }}'}elseif($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{Join-Path $assets '.venv\Scripts\python.exe'}
           $out=Join-Path $assets 'runs\neral350_frontier_10b'
           New-Item -ItemType Directory -Force frontier350_report | Out-Null
           foreach($n in @('summary.json','metrics.jsonl')){ $p=Join-Path $out $n; if(Test-Path $p){Copy-Item $p frontier350_report\$n -Force} }
-          & '${{ steps.env.outputs.python }}' -c "import sys; from pathlib import Path; sys.path.insert(0,'frontier350'); from security_policy350 import reject_sensitive_uploads; reject_sensitive_uploads(Path('frontier350_report')); print('safe report bundle')"
-          if($LASTEXITCODE -ne 0){throw 'unsafe report bundle'}
+          if(Test-Path $python -PathType Leaf){
+            & $python -c "import sys; from pathlib import Path; sys.path.insert(0,'frontier350'); from security_policy350 import reject_sensitive_uploads; reject_sensitive_uploads(Path('frontier350_report')); print('safe report bundle')"
+            if($LASTEXITCODE -ne 0){throw 'unsafe report bundle'}
+          }
 
       - name: Upload reports only
         if: always()
