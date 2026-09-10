@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   actions: read
+  issues: write
 
 concurrency:
   group: neral-350m-frontier-500m
@@ -69,14 +70,37 @@ jobs:
           "valid=$(W (Join-Path $data 'valid'))" >> $env:GITHUB_OUTPUT
           "out=$(W $out)" >> $env:GITHUB_OUTPUT
           "out_win=$out" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
           "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
 
       - name: Resume 100M checkpoint only to 500M cumulative tokens
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.env.outputs.repo }}'
-          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 500000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 500 --save-every 500 --log-every 10 --resume '${{ steps.env.outputs.source }}' --compile-mode default --numerical-check-every 1 --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
-          if($LASTEXITCODE -ne 0){throw 'bounded 500M continuation failed'}
+          $metrics=Join-Path '${{ steps.env.outputs.out_win }}' 'metrics.jsonl'
+          $telemetryArgs=@(
+            'frontier350\live_telemetry.py',
+            '--metrics',$metrics,
+            '--repo','${{ github.repository }}',
+            '--issue','97',
+            '--run-id','${{ github.run_id }}',
+            '--workflow','neral350-frontier-500m',
+            '--interval','60'
+          )
+          $telemetry=Start-Process -FilePath '${{ steps.env.outputs.python }}' -ArgumentList $telemetryArgs -PassThru -NoNewWindow
+          $trainExit=0
+          try {
+            wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 500000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 500 --save-every 500 --log-every 10 --resume '${{ steps.env.outputs.source }}' --compile-mode default --numerical-check-every 1 --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
+            $trainExit=$LASTEXITCODE
+          } finally {
+            if($trainExit -eq 0 -and -not $telemetry.HasExited){
+              Wait-Process -Id $telemetry.Id -Timeout 70 -ErrorAction SilentlyContinue
+            }
+            if(-not $telemetry.HasExited){Stop-Process -Id $telemetry.Id -Force -ErrorAction SilentlyContinue}
+          }
+          if($trainExit -ne 0){throw 'bounded 500M continuation failed'}
 
       - name: Collect reports only
         if: always()
