@@ -56,13 +56,11 @@ jobs:
           }
           $repo=(Get-Location).Path
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          # The first real 25M-token burn-in persisted its checkpoint here.
           $source=Join-Path $assets 'runs\neral350_frontier_bpe_v1\resume.pt'
-          # Reuse the exact locked BPE corpus admitted by the first burn-in.
           $train=Join-Path $assets 'frontier350_bpe_pilot_v1\train'
           $valid=Join-Path $assets 'frontier350_bpe_pilot_v1\valid'
           $out=Join-Path $assets 'runs\neral350_frontier_compiled_100m'
-          foreach($p in @($source)){if(-not(Test-Path $p -PathType Leaf)){throw "missing checkpoint: $p"}}
+          if(-not(Test-Path $source -PathType Leaf)){throw "missing checkpoint: $source"}
           foreach($p in @($train,$valid)){if(-not(Test-Path $p -PathType Container)){throw "missing data: $p"}}
           New-Item -ItemType Directory -Force $out | Out-Null
           $repoWsl=Convert-ToWslPath $repo
@@ -70,8 +68,14 @@ jobs:
           $trainWsl=Convert-ToWslPath $train
           $validWsl=Convert-ToWslPath $valid
           $outWsl=Convert-ToWslPath $out
-          wsl.exe -- bash -lc "set -e; test -x \"$HOME/.venvs/neral-triton-py312/bin/python\"; test -f '$sourceWsl'; test -d '$trainWsl'; test -d '$validWsl'; '$HOME/.venvs/neral-triton-py312/bin/python' -c 'import torch; assert torch.__version__.startswith(\"2.8.\"); assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0))'"
-          if($LASTEXITCODE -ne 0){throw 'WSL compile environment unavailable'}
+
+          wsl.exe -- bash -lc "set -e; test -x ~/.venvs/neral-triton-py312/bin/python"
+          if($LASTEXITCODE -ne 0){throw 'WSL Python environment unavailable'}
+          wsl.exe -- bash -lc "set -e; test -f '$sourceWsl'; test -d '$trainWsl'; test -d '$validWsl'"
+          if($LASTEXITCODE -ne 0){throw 'WSL checkpoint/data path unavailable'}
+          wsl.exe -- bash -lc "~/.venvs/neral-triton-py312/bin/python -c 'import torch; assert torch.__version__.startswith(\"2.8.\"); assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0))'"
+          if($LASTEXITCODE -ne 0){throw 'WSL CUDA/BF16 environment unavailable'}
+
           "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
           "source_wsl=$sourceWsl" >> $env:GITHUB_OUTPUT
           "train_wsl=$trainWsl" >> $env:GITHUB_OUTPUT
@@ -84,14 +88,14 @@ jobs:
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Force frontier350_compiled_report | Out-Null
           $repo='${{ steps.env.outputs.repo_wsl }}'
-          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=\"$HOME/.cache/neral_inductor\"; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; '$HOME/.venvs/neral-triton-py312/bin/python' -u frontier350/validate_compile350.py --checkpoint '${{ steps.env.outputs.source_wsl }}' --valid-data '${{ steps.env.outputs.valid_wsl }}' --out '$repo/frontier350_compiled_report/compile_gate.json' --seq 256 --batch 1 --eval-batches 4"
+          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/validate_compile350.py --checkpoint '${{ steps.env.outputs.source_wsl }}' --valid-data '${{ steps.env.outputs.valid_wsl }}' --out '$repo/frontier350_compiled_report/compile_gate.json' --seq 256 --batch 1 --eval-batches 4"
           if($LASTEXITCODE -ne 0){throw 'compile/eager equivalence gate rejected candidate'}
 
       - name: Resume only to 100M cumulative tokens
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.env.outputs.repo_wsl }}'
-          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=\"$HOME/.cache/neral_inductor\"; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; '$HOME/.venvs/neral-triton-py312/bin/python' -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train_wsl }}' --valid-data '${{ steps.env.outputs.valid_wsl }}' --out '${{ steps.env.outputs.out_wsl }}' --target-tokens 10000000000 --stop-after-tokens 100000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 250 --save-every 250 --log-every 10 --resume '${{ steps.env.outputs.source_wsl }}' --compile-mode default --numerical-check-every 1"
+          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train_wsl }}' --valid-data '${{ steps.env.outputs.valid_wsl }}' --out '${{ steps.env.outputs.out_wsl }}' --target-tokens 10000000000 --stop-after-tokens 100000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 250 --save-every 250 --log-every 10 --resume '${{ steps.env.outputs.source_wsl }}' --compile-mode default --numerical-check-every 1"
           if($LASTEXITCODE -ne 0){throw 'bounded compiled burn-in failed'}
 
       - name: Collect safe reports only
