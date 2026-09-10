@@ -1,0 +1,35 @@
+{
+  "profile": "arctus-24k-candidate-v1",
+  "status": "unverified-no-gpu-run",
+  "target_bpe_tokens_per_second": 24000,
+  "measured_references": {
+    "stage5_mb8_ga4_default_fullgraph_bpe_tps": 20585.4367,
+    "production_100m_median_bpe_tps": 18463.72
+  },
+  "training": {
+    "seq": 512,
+    "microbatch": 8,
+    "grad_accum": 4,
+    "compile_mode": "default",
+    "compile_fullgraph": true,
+    "numerical_check_every": 20,
+    "log_every": 20,
+    "eval_every": 1000,
+    "save_every": 1000
+  },
+  "invariants": {
+    "architecture": "frontier350-v1",
+    "parameters": 349825152,
+    "tokens_per_update": 16384,
+    "optimizer": "fused AdamW",
+    "effective_batch_tokens_unchanged_vs_mb4_ga8": true,
+    "checkpoint_layout": "checkpoint-native-unfused"
+  },
+  "notes": [
+    "24k BPE tok/s is a target, not a measured result.",
+    "No GPU benchmark or training job is triggered by this file.",
+    "MB8/GA4 plus fullgraph is based on the project's previously measured Stage-5 winner.",
+    "The lower host-readback cadence removes most per-update device-to-host scalar synchronizations without changing optimizer updates.",
+    "Evaluation/checkpoint cadence is relaxed to reduce interruptions; model update math is unchanged."
+  ]
+}
