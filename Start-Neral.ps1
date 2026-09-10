@@ -1,11 +1,13 @@
+param([switch]$NoBrowser)
 $ErrorActionPreference='Stop'
 
 function Resolve-NeralRoot {
     $candidates=@(
         $PSScriptRoot,
-        (Join-Path (Split-Path -Parent $PSScriptRoot) 'Neral-CPU-App'),
-        (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Neral-CPU-App')
+        (Join-Path (Split-Path -Parent $PSScriptRoot) 'Neral-CPU-App')
     )
+    $desktop=[Environment]::GetFolderPath('Desktop')
+    if($desktop){$candidates += (Join-Path $desktop 'Neral-CPU-App')}
     if($env:OneDrive){$candidates += (Join-Path $env:OneDrive 'Desktop\Neral-CPU-App')}
 
     foreach($candidate in $candidates | Select-Object -Unique){
@@ -35,9 +37,25 @@ function Test-Python311 {
 function Find-SystemPython {
     $known=@(
         $env:NERAL_PYTHON,
+        (Join-Path $state 'bootstrap-python312\python.exe'),
         (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),
         (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe')
     )
+    # A Python installer can enter maintenance mode and leave the interpreter
+    # in its registered original directory, even with a different TargetDir.
+    foreach($registryRoot in @('HKCU:\Software\Python\PythonCore','HKLM:\Software\Python\PythonCore','HKLM:\Software\WOW6432Node\Python\PythonCore')){
+        foreach($versionKey in Get-ChildItem -LiteralPath $registryRoot -ErrorAction SilentlyContinue){
+            $install=Get-ItemProperty -LiteralPath (Join-Path $versionKey.PSPath 'InstallPath') -ErrorAction SilentlyContinue
+            if($install.ExecutablePath){$known += $install.ExecutablePath}
+            if($install.'(default)'){$known += (Join-Path $install.'(default)' 'python.exe')}
+        }
+    }
+    # Also recognize previous Neral packages when registration is unavailable.
+    $desktops=@([Environment]::GetFolderPath('Desktop'))
+    if($env:OneDrive){$desktops += (Join-Path $env:OneDrive 'Desktop')}
+    foreach($desktop in $desktops | Select-Object -Unique){
+        if($desktop){$known += (Join-Path $desktop 'Neral-CPU-App\local_state\bootstrap-python312\python.exe')}
+    }
     foreach($exe in $known){if(Test-Python311 $exe){return [pscustomobject]@{Exe=$exe;Prefix=@()}}}
 
     foreach($candidate in @(
@@ -70,17 +88,19 @@ function Install-NeralPython {
     }
 
     if((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'Valid'){throw 'Die Signatur des Python-Installers ist ungueltig. Installation abgebrochen.'}
-    $args=@(
-        '/quiet','InstallAllUsers=0',"TargetDir=$bootstrapRoot",'Include_pip=1','Include_launcher=0',
+    $installArgs=@(
+        '/quiet','InstallAllUsers=0',('TargetDir="'+$bootstrapRoot+'"'),'Include_pip=1','Include_launcher=0',
         'Include_test=0','Include_doc=0','Include_tcltk=0','Include_dev=0','Shortcuts=0',
         'AssociateFiles=0','PrependPath=0','SimpleInstall=1','CompileAll=0'
     )
-    $process=Start-Process -FilePath $installer -ArgumentList $args -WindowStyle Hidden -Wait -PassThru
+    $process=Start-Process -FilePath $installer -ArgumentList $installArgs -WindowStyle Hidden -Wait -PassThru
     Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
-    if($process.ExitCode -ne 0 -or -not(Test-Python311 $pythonExe)){
+    if($process.ExitCode -notin @(0,3010)){
         throw "Die automatische Python-Installation ist fehlgeschlagen (Code $($process.ExitCode))."
     }
-    return [pscustomobject]@{Exe=$pythonExe;Prefix=@()}
+    $installed=Find-SystemPython
+    if($installed){return $installed}
+    throw 'Python-Installer beendet, aber kein startbares Python gefunden. Die vorhandene Python-Installation muss repariert werden; Details stehen im Python-Installationsprotokoll unter %TEMP%.'
 }
 
 $pythonCandidates=@(
@@ -144,5 +164,7 @@ if(-not $ready){
 if(-not $ready){throw 'Neral konnte nicht gestartet werden. Siehe local_state\app-error.log. Port 9686 muss frei sein.'}
 
 $edge=Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
-if(Test-Path -LiteralPath $edge){Start-Process -FilePath $edge -ArgumentList @('--disable-gpu',"--app=$url")}else{Start-Process $url}
+if(-not $NoBrowser){
+    if(Test-Path -LiteralPath $edge){Start-Process -FilePath $edge -ArgumentList @('--disable-gpu',"--app=$url")}else{Start-Process $url}
+}
 Write-Host 'Neral laeuft. Ab jetzt reicht fuer jeden Start ein Doppelklick auf Start Neral.cmd.' -ForegroundColor Green
