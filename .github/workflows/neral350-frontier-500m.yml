@@ -81,6 +81,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           Write-Host "Resume source: ${{ steps.env.outputs.resume_source }}"
+          Write-Host "Execution profile: arctus-24k-candidate-v1 (target only; not a measured claim)"
           $repo='${{ steps.env.outputs.repo }}'
           $metrics=Join-Path '${{ steps.env.outputs.out_win }}' 'metrics.jsonl'
           $telemetryArgs=@(
@@ -95,7 +96,10 @@ jobs:
           $telemetry=Start-Process -FilePath '${{ steps.env.outputs.python }}' -ArgumentList $telemetryArgs -PassThru -NoNewWindow
           $trainExit=0
           try {
-            wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 500000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 500 --save-every 500 --log-every 10 --resume '${{ steps.env.outputs.resume }}' --compile-mode default --numerical-check-every 1 --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
+            # Candidate v1 preserves 16,384 tokens/update: MB8*512*GA4 = MB4*512*GA8.
+            # It uses the measured Stage-5 winning shape/fullgraph and removes most host
+            # scalar readbacks plus half of log/eval/checkpoint interruptions.
+            wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 500000000 --seq 512 --microbatch 8 --grad-accum 4 --lr 0.0003 --eval-every 1000 --save-every 1000 --log-every 20 --resume '${{ steps.env.outputs.resume }}' --compile-mode default --compile-fullgraph --numerical-check-every 20 --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
             $trainExit=$LASTEXITCODE
           } finally {
             if($trainExit -eq 0 -and -not $telemetry.HasExited){
