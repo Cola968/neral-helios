@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "build_frontier350_bpe_1b",
+  "architecture": "frontier350-v1",
+  "target_tokens": 1100000000,
+  "valid_tokens": 50000000,
+  "request_id": "arctus1b-20260910-v1"
+}
