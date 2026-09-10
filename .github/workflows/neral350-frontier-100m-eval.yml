@@ -64,8 +64,7 @@ jobs:
       - name: Ensure pinned tokenizer runtime in WSL
         run: |
           $ErrorActionPreference='Stop'
-          $cmd = 'set -euo pipefail; P="$HOME/.venvs/neral-triton-py312/bin/python"; test -x "$P"; "$P" -m ensurepip --upgrade >/dev/null 2>&1 || true; "$P" -m pip install --disable-pip-version-check --quiet tokenizers==0.21.4; "$P" -m pip show tokenizers | grep -F "Version: 0.21.4"'
-          wsl.exe -- bash -lc $cmd
+          wsl.exe -- bash -lc '~/.venvs/neral-triton-py312/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --quiet tokenizers==0.21.4; ~/.venvs/neral-triton-py312/bin/python -m pip show tokenizers | grep -F "Version: 0.21.4"'
           if($LASTEXITCODE -ne 0){throw 'pinned tokenizer runtime unavailable'}
 
       - name: Run fixed-protocol 100M evaluation
