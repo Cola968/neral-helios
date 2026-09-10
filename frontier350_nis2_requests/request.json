@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "action": "evaluate_nis2_core",
+  "architecture": "frontier350-v1",
+  "checkpoint_tokens": 500000000,
+  "request_id": "arctus500m-nis2-20260910-v1"
+}
