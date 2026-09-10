@@ -56,9 +56,11 @@ jobs:
           }
           $repo=(Get-Location).Path
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $source=Join-Path $assets 'runs\neral350_frontier_10b\resume.pt'
-          $train=Join-Path $assets 'frontier350_data\train'
-          $valid=Join-Path $assets 'frontier350_data\valid'
+          # The first real 25M-token burn-in persisted its checkpoint here.
+          $source=Join-Path $assets 'runs\neral350_frontier_bpe_v1\resume.pt'
+          # Reuse the exact locked BPE corpus admitted by the first burn-in.
+          $train=Join-Path $assets 'frontier350_bpe_pilot_v1\train'
+          $valid=Join-Path $assets 'frontier350_bpe_pilot_v1\valid'
           $out=Join-Path $assets 'runs\neral350_frontier_compiled_100m'
           foreach($p in @($source)){if(-not(Test-Path $p -PathType Leaf)){throw "missing checkpoint: $p"}}
           foreach($p in @($train,$valid)){if(-not(Test-Path $p -PathType Container)){throw "missing data: $p"}}
@@ -98,6 +100,10 @@ jobs:
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Force frontier350_compiled_report | Out-Null
           $out='${{ steps.env.outputs.out_win }}'
+          if([string]::IsNullOrWhiteSpace($out)){
+            Write-Host 'No resolved output path; nothing to collect.'
+            exit 0
+          }
           foreach($n in @('summary.json','metrics.jsonl')){
             $p=Join-Path $out $n
             if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_compiled_report\$n -Force}
