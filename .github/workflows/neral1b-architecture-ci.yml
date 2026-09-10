@@ -1,0 +1,29 @@
+name: Neral Nova 1B Architecture CI
+
+on:
+  push:
+    branches: [research/neral1b-nova-v1]
+    paths:
+      - 'frontier1b/**'
+      - '.github/workflows/neral1b-architecture-ci.yml'
+  pull_request:
+    paths:
+      - 'frontier1b/**'
+      - '.github/workflows/neral1b-architecture-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Nova sources
+        run: python -m py_compile frontier1b/architecture1b.py frontier1b/model1b.py frontier1b/bench1b.py
+      - name: Verify analytical parameter and schedule contract
+        run: python frontier1b/architecture1b.py
