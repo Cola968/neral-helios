@@ -42,10 +42,11 @@ jobs:
           if([int]$r.version -ne 1 -or $r.action -ne 'resume_500m_to_1b'){throw 'invalid 1B action'}
           if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
           if([Int64]$r.stop_after_tokens -ne 1000000000){throw 'continuation locked to 1B cumulative tokens'}
-          if($r.execution_profile -ne 'stable-18k'){throw 'unverified speed profiles are forbidden for the 1B run'}
+          if(@('stable-18k','arctus-23k-resume-candidate-v1') -notcontains $r.execution_profile){throw 'unsupported 1B execution profile'}
           foreach($x in @($r.request_id,$r.data_request_id,$r.base_data_request_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request identifier'}}
           "data_id=$($r.data_request_id)" >> $env:GITHUB_OUTPUT
           "base_id=$($r.base_data_request_id)" >> $env:GITHUB_OUTPUT
+          "profile=$($r.execution_profile)" >> $env:GITHUB_OUTPUT
 
       - name: Resolve admitted focus corpus original holdout and resumable checkpoint
         id: env
@@ -87,8 +88,19 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
+          $profile='${{ steps.req.outputs.profile }}'
+          if($profile -eq 'stable-18k'){
+            $profileArgs='--seq 512 --microbatch 4 --grad-accum 8 --eval-every 500 --save-every 500 --log-every 10 --compile-mode default --numerical-check-every 1'
+          } elseif($profile -eq 'arctus-23k-resume-candidate-v1') {
+            $profileArgs='--seq 512 --microbatch 8 --grad-accum 4 --eval-every 1000 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 20'
+          } else {
+            throw 'unreachable execution profile'
+          }
           Write-Host "Resume source: ${{ steps.env.outputs.resume_source }}"
-          Write-Host 'Execution profile: stable-18k (measured baseline; 24k candidate intentionally not promoted)'
+          Write-Host "Execution profile: $profile"
+          if($profile -eq 'arctus-23k-resume-candidate-v1'){
+            Write-Host 'Performance target: 23k-24k BPE tok/s; candidate is not yet GPU-validated. Checkpoint cadence remains 500 updates for interruption safety.'
+          }
           Write-Host 'Continuation curriculum: 35% FineWeb-Edu, 10% FineWeb, 20% German FineWeb2, 35% FineMath'
           $repo='${{ steps.env.outputs.repo }}'
           $metrics=Join-Path '${{ steps.env.outputs.out_win }}' 'metrics.jsonl'
@@ -104,7 +116,7 @@ jobs:
           $telemetry=Start-Process -FilePath '${{ steps.env.outputs.python }}' -ArgumentList $telemetryArgs -PassThru -NoNewWindow
           $trainExit=0
           try {
-            wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 1000000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 500 --save-every 500 --log-every 10 --resume '${{ steps.env.outputs.resume }}' --compile-mode default --numerical-check-every 1 --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
+            wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 1000000000 --lr 0.0003 $profileArgs --resume '${{ steps.env.outputs.resume }}' --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
             $trainExit=$LASTEXITCODE
           } finally {
             if($trainExit -eq 0 -and -not $telemetry.HasExited){Wait-Process -Id $telemetry.Id -Timeout 70 -ErrorAction SilentlyContinue}
