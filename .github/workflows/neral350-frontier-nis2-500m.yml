@@ -1,0 +1,98 @@
+name: Neral 350M Frontier 500M NIS2 Core
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_nis2_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-nis2-500m
+  cancel-in-progress: false
+
+jobs:
+  nis2core500m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit NIS2 request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_nis2_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'NIS2 request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,checkpoint_tokens,request_id,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'evaluate_nis2_core'){throw 'invalid NIS2 action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.checkpoint_tokens -ne 500000000){throw 'NIS2 run locked to 500M checkpoint'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+
+      - name: Resolve final 500M checkpoint and tokenizer
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\','/';return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_500m\resume.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          foreach($p in @($checkpoint,$tokenizer)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          $report=Join-Path (Get-Location).Path 'frontier350_nis2_report'
+          New-Item -ItemType Directory -Force $report | Out-Null
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "report=$(W $report)" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure stable WSL evaluation runtime
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh"
+          if($LASTEXITCODE -ne 0){throw 'WSL NIS2 runtime bootstrap failed'}
+
+      - name: Run frozen NIS2 chat core on Arctus 500M
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nis2_core350.py --checkpoint '${{ steps.env.outputs.checkpoint }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --out '${{ steps.env.outputs.report }}/nis2_core500m.json' --expected-tokens 500000000 --max-new 24"
+          if($LASTEXITCODE -ne 0){throw 'Arctus NIS2 core evaluation failed'}
+
+      - name: Print NIS2 analytical summary
+        if: always()
+        run: |
+          $p='frontier350_nis2_report\nis2_core500m.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw|ConvertFrom-Json
+            Write-Host ('checkpoint_tokens='+$r.checkpoint_processed_tokens)
+            Write-Host ('pair_overall_pct='+$r.scores.pair_overall_pct)
+            Write-Host ('instruction_following_pct='+$r.scores.instruction_following_pct)
+            Write-Host ('dialogue_state_pct='+$r.scores.dialogue_state_pct)
+            Write-Host ('truthfulness_pct='+$r.scores.truthfulness_pct)
+            Write-Host ('robustness_pct='+$r.scores.robustness_pct)
+            Write-Host ('compositional_reasoning_pct='+$r.scores.compositional_reasoning_pct)
+            Write-Host ('generation_eos_pct='+$r.scores.generation_eos_pct)
+            Write-Host ('generation_repeated_trigram_pct='+$r.scores.generation_repeated_trigram_pct)
+            Write-Host ('full_nis2_status='+$r.full_nis2.status)
+          }
+
+      - name: Upload NIS2 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-nis2-500m-${{ github.run_id }}
+          path: frontier350_nis2_report/
+          retention-days: 30
+          if-no-files-found: warn
