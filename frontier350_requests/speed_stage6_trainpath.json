@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "speed_stage6_trainpath_frontier350",
+  "architecture": "frontier350-v1",
+  "seq": 512,
+  "updates": 12,
+  "request_id": "arctus-stage6-20260910"
+}
