@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Keep this file LF-only; it is executed inside WSL from a Windows runner.
 set -euo pipefail
 
 P="${HOME}/.venvs/neral-triton-py312/bin/python"
