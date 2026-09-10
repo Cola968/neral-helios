@@ -5,7 +5,9 @@ import app
 @pytest.fixture
 def client(monkeypatch):
     app._hits.clear();monkeypatch.setattr(app,'checkpoint_loaded',False)
-    return app.app.test_client()
+    client=app.app.test_client()
+    client.get('/',base_url='http://localhost')
+    return client
 
 @pytest.mark.parametrize('history',[[{'role':'assistant','content':'x'}],[{'role':'assistant','content':'x'},{'role':'user','content':'y'}],[{'role':'user','content':'x'},{'role':'user','content':'y'}]])
 def test_orphan_or_wrong_order_history_rejected(client,history):

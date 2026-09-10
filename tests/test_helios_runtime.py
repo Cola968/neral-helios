@@ -9,7 +9,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime,'checkpoint_loaded',False)
     monkeypatch.setattr(runtime,'runtime_error','Modell fehlt; Werkzeuge bereit.')
     monkeypatch.setattr(runtime,'project_store',runtime.ProjectStore(tmp_path/'projects.sqlite3'))
-    return runtime.app.test_client()
+    client=runtime.app.test_client()
+    client.get('/',base_url='http://localhost')
+    return client
 
 
 def test_cpu_default_and_truthful_status(client):

@@ -64,7 +64,7 @@ def test_linear_solver_rejects(expr):
 def test_api_projects_confirmation_and_security(tmp_path,monkeypatch):
     import app
     monkeypatch.setattr(app,'project_store',ProjectStore(tmp_path/'api.sqlite3'))
-    app._hits.clear();client=app.app.test_client();kw={'base_url':'http://localhost'}
+    app._hits.clear();client=app.app.test_client();kw={'base_url':'http://localhost'};client.get('/',**kw)
     p=client.post('/api/projects',json={'name':'Test'},**kw).get_json();path='/api/projects/'+p['id']
     assert client.post(path+'/nodes',json={'id':'budget','title':'Budget','kind':'fact','value':'1200'},**kw).status_code==200
     preview=client.post(path+'/preview',json={'node':'budget','value':'1600'},**kw).get_json()

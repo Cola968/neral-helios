@@ -1,10 +1,10 @@
 """Local Neral/Helios browser test: own unchanged 20M architecture."""
 from __future__ import annotations
-import hashlib,json,math,os,re,secrets,threading,time
+import hashlib,io,json,math,os,re,secrets,threading,time
 from collections import defaultdict,deque
 from pathlib import Path
 import torch
-from flask import Flask,jsonify,render_template,request,send_from_directory
+from flask import Flask,jsonify,render_template,request,send_from_directory,Response
 from werkzeug.exceptions import HTTPException
 from config import NeralConfig
 from model import Neral20M
@@ -14,7 +14,9 @@ from solve import solve
 from code_check import check_code
 from architectures import expected_parameters
 from project_store import ProjectStore,ripple
-
+from chat_store import ChatStore,Conflict
+from stream_runtime import response_stream
+from model_catalog import catalog
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -28,8 +30,14 @@ ALLOWED_ORIGINS={f'http://127.0.0.1:{APP_PORT}',f'http://localhost:{APP_PORT}'}
 RATE_LIMIT=30
 RATE_WINDOW_S=60
 app=Flask(__name__)
-app.config.update(MAX_CONTENT_LENGTH=24*1024,JSON_SORT_KEYS=False)
-project_store=ProjectStore(BASE/'local_state/projects.sqlite3')
+app.config.update(MAX_CONTENT_LENGTH=256*1024,JSON_SORT_KEYS=False)
+STATE=Path(os.environ.get('HELIOS_STATE_ROOT',str(BASE/'local_state'))).resolve();STATE.mkdir(parents=True,exist_ok=True)
+SESSION_TOKEN=secrets.token_urlsafe(32)
+(STATE/'gateway-token').write_text(SESSION_TOKEN,encoding='ascii')
+try:os.chmod(STATE/'gateway-token',0o600)
+except OSError:pass
+project_store=ProjectStore(STATE/'projects.sqlite3')
+chat_store=ChatStore(STATE/'chats.sqlite3')
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
 torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
@@ -40,7 +48,9 @@ if device_name!='cpu':raise ValueError('This Helios app release is CPU-only.')
 device=torch.device(device_name)
 runtime_error=None
 checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original'
-
+def imported_models():
+    try:return catalog(ASSETS)
+    except (ValueError,OSError,KeyError):return {}
 def checkpoint_paths():
     paths={'original':(ASSETS/'checkpoints/neral20m.pt',ASSETS/'checkpoints/neral20m.sha256')}
     if (ASSETS/'export/neral20m.pt').exists():paths['pilot_01']=(ASSETS/'export/neral20m.pt',ASSETS/'export/neral20m.sha256')
@@ -49,6 +59,7 @@ def checkpoint_paths():
     if (ASSETS/'export/neral50m/neral50m.pt').exists():paths['neral50m']=(ASSETS/'export/neral50m/neral50m.pt',ASSETS/'export/neral50m/neral50m.sha256')
     i1=ASSETS/'export/neral50m_i1/neral50m.pt';digest=i1.with_suffix('.sha256')
     if i1.is_file() and digest.is_file():paths['neral50m_i1']=(i1,digest)
+    paths.update({key:row["paths"] for key,row in imported_models().items()})
     return paths
 def load_runtime(name):
     global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error
@@ -57,9 +68,9 @@ def load_runtime(name):
     path,hash_path=checkpoint_paths()[name]
     if not path.is_file() or not hash_path.is_file():raise ValueError('Checkpoint oder SHA-256-Datei fehlt.')
     if path.stat().st_size>200*1024*1024:raise ValueError('Inferenz-Checkpoint zu groß.')
-    actual=hashlib.sha256(path.read_bytes()).hexdigest();hash_parts=hash_path.read_text(encoding='ascii').split();expected=hash_parts[0] if hash_parts else ''
+    raw=path.read_bytes();actual=hashlib.sha256(raw).hexdigest();hash_parts=hash_path.read_text(encoding='ascii').split();expected=hash_parts[0] if hash_parts else ''
     if not re.fullmatch('[a-fA-F0-9]{64}',expected) or not secrets.compare_digest(actual,expected.lower()):raise ValueError('Checkpoint-Integrität fehlgeschlagen.')
-    payload=torch.load(path,map_location='cpu',weights_only=True);state=payload['model']
+    payload=torch.load(io.BytesIO(raw),map_location='cpu',weights_only=True);state=payload['model']
     candidate_cfg=NeralConfig(**payload.get('config',{}));expected=expected_parameters(candidate_cfg)
     if name=='neral50m_i1' and expected!=50_012_976:raise ValueError('I1 erfordert exakt Neral-50M.')
     if not torch.equal(state['tok_emb.weight'],state['lm_head.weight']):raise ValueError('Inkonsistente gebundene Gewichte.')
@@ -89,9 +100,7 @@ def initialize_runtime():
     except Exception:
         app.logger.exception('Eigener Checkpoint konnte nicht geladen werden')
         runtime_error='Checkpoint konnte nicht sicher geladen werden. SOLVE, Codeprüfung und Projekte sind bereit.'
-
 initialize_runtime()
-
 @app.route('/api/projects',methods=['GET','POST'])
 def projects():
     if request.method=='GET':return jsonify(projects=project_store.list())
@@ -99,12 +108,10 @@ def projects():
     if error:return error
     try:return jsonify(project_store.create(data.get('name'))),201
     except ValueError as e:return jsonify(error=str(e)),400
-
 @app.get('/api/projects/<project>')
 def project_detail(project):
     try:return jsonify(project_store.get(project))
     except ValueError as e:return jsonify(error=str(e)),404
-
 @app.post('/api/projects/<project>/<action>')
 def project_action(project,action):
     data,error=body()
@@ -122,14 +129,11 @@ def project_action(project,action):
         else:return jsonify(error='Unbekannte Projektaktion.'),404
         return jsonify(result)
     except (ValueError,KeyError) as e:return jsonify(error=str(e)),400
-
 def text_key(value):
     if not isinstance(value,str) or not re.fullmatch(r'[a-zA-Z0-9_\-]{1,64}',value):raise ValueError('Ungültiger Schlüssel.')
     return value
-
 def info_payload():
-    return {'name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
-
+    return {'app_version':'2.0','name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'model_labels':{k:v['label'] for k,v in imported_models().items()},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 @app.before_request
 def local_and_rate_guard():
     if request.remote_addr not in {'127.0.0.1','::1'}:return jsonify(error='Nur lokale Verbindungen erlaubt.'),403
@@ -137,14 +141,16 @@ def local_and_rate_guard():
     if request.headers.get('Sec-Fetch-Site')=='cross-site':return jsonify(error='Cross-Site-Anfrage blockiert.'),403
     origin=request.headers.get('Origin')
     if origin and origin not in ALLOWED_ORIGINS:return jsonify(error='Ungültiger Origin-Header.'),403
-    if request.path.startswith('/api/') and request.path!='/api/cancel':
-        now=time.monotonic();key=request.remote_addr
+    if request.path.startswith('/api/'):
+        supplied=request.cookies.get('neral_local','') or request.headers.get('X-Helios-Gateway','')
+        if not secrets.compare_digest(supplied,SESSION_TOKEN):return jsonify(error='Sitzung abgelaufen. Bitte App neu laden.',code='session_expired'),401
+    if request.path.startswith('/api/'):
+        now=time.monotonic();key=(request.remote_addr,'generation' if request.path=='/api/generate' else 'control')
         with _hit_lock:
             q=_hits[key]
             while q and now-q[0]>RATE_WINDOW_S:q.popleft()
-            if len(q)>=RATE_LIMIT:return jsonify(error='Zu viele Anfragen. Bitte kurz warten.'),429
+            if len(q)>=(RATE_LIMIT if key[1]=='generation' else 180):return jsonify(error='Zu viele Anfragen. Bitte kurz warten.'),429
             q.append(now)
-
 @app.after_request
 def security_headers(resp):
     resp.headers.update({'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
@@ -157,12 +163,14 @@ def body():
     if not isinstance(data,dict):return None,(jsonify(error='Ein JSON-Objekt wird erwartet.'),400)
     return data,None
 @app.get('/')
-def index():return render_template('index.html')
+def index():
+    response=app.make_response(render_template('index.html'))
+    response.set_cookie('neral_local',SESSION_TOKEN,httponly=True,samesite='Strict',max_age=28800,secure=False)
+    return response
 @app.get('/manifest.webmanifest')
 def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',mimetype='application/manifest+json')
 @app.get('/sw.js')
 def service_worker():return send_from_directory(BASE/'static','sw.js',mimetype='text/javascript')
-
 @app.get('/api/info')
 def info():return jsonify(info_payload())
 @app.get('/api/metrics')
@@ -190,11 +198,11 @@ def cancel():
         event=_jobs.get(job)
         if event:event.set()
     return jsonify(cancelled=event is not None)
-
 @torch.inference_mode()
-def generate_tokens(ids,max_new,temperature,top_k,event):
-    x=torch.tensor([ids],device=device,dtype=torch.long);output=[]
+def generate_tokens(ids,max_new,temperature,top_k,event,on_tokens=None):
+    x=torch.tensor([ids],device=device,dtype=torch.long);output=[];deadline=time.monotonic()+120
     for _ in range(max_new):
+        if time.monotonic()>deadline:event.set()
         if event.is_set():break
         with torch.autocast('cuda',dtype=torch.bfloat16,enabled=device.type=='cuda' and torch.cuda.is_bf16_supported()):
             logits,_=model(x);logits=logits[:,-1,:].float()
@@ -205,13 +213,14 @@ def generate_tokens(ids,max_new,temperature,top_k,event):
                 threshold=torch.topk(logits,top_k).values[:,-1,None];logits=logits.masked_fill(logits<threshold,float('-inf'))
             next_id=torch.multinomial(torch.softmax(logits,dim=-1),1)
         token=int(next_id.item());output.append(token);x=torch.cat([x,next_id],dim=1)
+        if on_tokens and (len(output)%4==0 or token==tokenizer.eos_id):on_tokens(tokenizer.decode(output),len(output))
         if token==tokenizer.eos_id:break
     return output
-
 @app.post('/api/generate')
 def generate():
     data,error=body()
     if error:return error
+    if type(data.get('stream',False)) is not bool:return jsonify(error='Ungültige Stream-Option.'),400
     prompt=data.get('prompt')
     if not isinstance(prompt,str) or not prompt.strip():return jsonify(error='Bitte gib einen Text ein.'),400
     try:prompt_bytes=len(prompt.encode('utf-8'))
@@ -263,18 +272,41 @@ def generate():
     if not _generation_lock.acquire(blocking=False):return jsonify(error='Eine Antwort wird bereits berechnet.'),429
     event=threading.Event()
     with _job_lock:_jobs[job]=event
-    try:
-        if device.type=='cuda':torch.cuda.synchronize()
-        start=time.perf_counter();continuation=generate_tokens(ids,params['max_new_tokens'],params['temperature'],params['top_k'],event)
-        if device.type=='cuda':torch.cuda.synchronize()
+    def finish():
+        with _job_lock:_jobs.pop(job,None)
+        _generation_lock.release()
+    def run(callback=None):
+        start=time.perf_counter()
+        args=(ids,params['max_new_tokens'],params['temperature'],params['top_k'],event)
+        continuation=generate_tokens(*args,on_tokens=callback) if callback else generate_tokens(*args)
         elapsed=time.perf_counter()-start;text,redacted=sanitize_output(tokenizer.decode(continuation))
-        return jsonify(mode='trained-generation',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+        return dict(mode='trained-generation',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+    if data.get('stream'):
+        response=Response(response_stream(run,event,finish),mimetype='application/x-ndjson')
+        response.headers['X-Accel-Buffering']='no'
+        response.call_on_close(event.set)
+        return response
+    try:return jsonify(run())
     except Exception:
         app.logger.exception('Lokale Inferenz fehlgeschlagen')
         return jsonify(error='Die lokale Berechnung ist fehlgeschlagen. Prüfe das Serverprotokoll.'),500
-    finally:
-        with _job_lock:_jobs.pop(job,None)
-        _generation_lock.release()
+    finally:finish()
+@app.get('/api/chats')
+def list_chats():return jsonify(chats=chat_store.all())
+@app.post('/api/chats/<key>')
+def save_chat(key):
+    data,error=body()
+    if error:return error
+    try:return jsonify(revision=chat_store.put(key,data.get('revision'),data.get('chat'),data.get('deleted',False)))
+    except Conflict:return jsonify(error='Versionskonflikt. Lokale Kopie behalten und neu synchronisieren.',code='revision_conflict'),409
+    except ValueError as e:return jsonify(error=str(e)),400
+@app.get('/api/health')
+def health():return jsonify(status='ready' if checkpoint_loaded else 'tools-only',device='cpu',busy=_generation_lock.locked(),streaming=True,sync=True)
+@app.errorhandler(Exception)
+def unexpected_error(error):
+    incident=secrets.token_hex(6)
+    app.logger.error('App incident %s: %s',incident,type(error).__name__)
+    return jsonify(error='Interner Fehler. Deine lokalen Entwürfe bleiben erhalten.',incident=incident),500
 if __name__=='__main__':
     from waitress import serve
     print(f'Neral bereit: {report["trainable"]:,} Parameter, {device}, {active_checkpoint}',flush=True)

@@ -19,6 +19,6 @@ if(-not(Test-Path -LiteralPath 'local_state/phone/config.json')){
     & $setupPython setup_phone.py
     if($LASTEXITCODE -ne 0){throw 'Handy-Zugang konnte nicht vorbereitet werden.'}
 }
-Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','phone_gateway.py') -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'phone.log') -RedirectStandardError (Join-Path $state 'phone-error.log') | Out-Null
+Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','phone_gateway.py','--backend-port','9686') -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'phone.log') -RedirectStandardError (Join-Path $state 'phone-error.log') | Out-Null
 Write-Host 'Handy-Zugang siehe local_state/phone/HANDY-ZUGANG.txt. CPU-App muss laufen. Bei IP-Wechsel Zugang neu einrichten.'
 Get-Content -LiteralPath 'local_state/phone/HANDY-ZUGANG.txt'

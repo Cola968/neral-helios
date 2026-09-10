@@ -2,7 +2,7 @@
 import argparse,hashlib,json,zipfile
 from pathlib import Path
 
-FILES=['app.py','project_store.py','security_guard.py','security_cases.py','solve.py','code_check.py','phone_gateway.py','setup_phone.py','Start Neral.cmd','Start-Neral.ps1','Start Android.cmd','Start-Android.ps1','HELIOS_INSTALL.md']
+FILES=['chat_store.py','storage_codec.py','stream_runtime.py','model_catalog.py','import_neral.py','HELIOS_V2.md','app.py','project_store.py','security_guard.py','security_cases.py','solve.py','code_check.py','phone_gateway.py','setup_phone.py','Start Neral.cmd','Start-Neral.ps1','Start Android.cmd','Start-Android.ps1','HELIOS_INSTALL.md']
 MODELS=['config.py','model.py','model50.py','architectures.py','tokenizer.py']
 
 def package(base,model_source,out):

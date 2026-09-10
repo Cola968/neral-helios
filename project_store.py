@@ -1,3 +1,4 @@
+import storage_codec
 """Local, transactional project graph. No network or model-generated actions."""
 import ast,copy,json,re,sqlite3,uuid
 from datetime import datetime,timezone
@@ -59,10 +60,10 @@ class ProjectStore:
     def _load(self,db,project):
         row=db.execute('SELECT state FROM projects WHERE id=?',(project,)).fetchone()
         if not row:raise ValueError('Projekt nicht gefunden.')
-        return json.loads(row[0])
-    def _save(self,db,state):db.execute('UPDATE projects SET state=? WHERE id=?',(json.dumps(state,ensure_ascii=True),state['id']))
+        return storage_codec.loads(row[0])
+    def _save(self,db,state):db.execute('UPDATE projects SET state=? WHERE id=?',(storage_codec.dumps(state,ensure_ascii=True),state['id']))
     def list(self):
-        with self.connect() as db:return [{'id':s['id'],'name':s['name'],'revision':s['revision']} for row in db.execute('SELECT state FROM projects ORDER BY rowid') for s in [json.loads(row[0])]]
+        with self.connect() as db:return [{'id':s['id'],'name':s['name'],'revision':s['revision']} for row in db.execute('SELECT state FROM projects ORDER BY rowid') for s in [storage_codec.loads(row[0])]]
     def get(self,project):
         with self.connect() as db:return self._load(db,project)
     def create(self,name):
@@ -71,7 +72,7 @@ class ProjectStore:
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT count(*) FROM projects').fetchone()[0]>=30:raise ValueError('Maximal 30 Projekte.')
-            db.execute('INSERT INTO projects VALUES (?,?)',(state['id'],json.dumps(state)))
+            db.execute('INSERT INTO projects VALUES (?,?)',(state['id'],storage_codec.dumps(state)))
         return state
     def add(self,project,data):
         key=text(data.get('id'),32)
@@ -106,16 +107,16 @@ class ProjectStore:
             for k in affected:
                 if k!=key and after['nodes'][k]['kind'] in ['task','fact']:after['nodes'][k]['stale']=True
             impacts=[{'id':k,'title':s['nodes'][k]['title'],'before':s['nodes'][k]['result'],'after':after['nodes'][k]['result'],'needs_review':after['nodes'][k]['stale']} for k in s['nodes'] if k in affected]
-            preview_id=uid();db.execute('INSERT INTO previews(id,project,revision,after_state,impacts) VALUES(?,?,?,?,?)',(preview_id,project,s['revision'],json.dumps(after),json.dumps(impacts)))
+            preview_id=uid();db.execute('INSERT INTO previews(id,project,revision,after_state,impacts) VALUES(?,?,?,?,?)',(preview_id,project,s['revision'],storage_codec.dumps(after),storage_codec.dumps(impacts)))
         return {'id':preview_id,'revision':s['revision'],'impacts':impacts,'paths':paths,'external_actions':False,'requires_confirmation':True}
     def apply(self,project,preview_id):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE');s=self._load(db,project)
             p=db.execute('SELECT revision,after_state,impacts,used FROM previews WHERE id=? AND project=?',(preview_id,project)).fetchone()
             if not p or p[3] or p[0]!=s['revision']:raise ValueError('Vorschau ist veraltet oder bereits angewendet. Erstelle eine neue Vorschau.')
-            after=json.loads(p[1]);affected={i['id'] for i in json.loads(p[2])};version_live(after,s['nodes'],'CASCADE angewendet',affected)
+            after=storage_codec.loads(p[1]);affected={i['id'] for i in storage_codec.loads(p[2])};version_live(after,s['nodes'],'CASCADE angewendet',affected)
             tx=uid();after['revision']=s['revision']+1;after['updated_at']=now();after['last_transaction']=tx
-            db.execute('INSERT INTO transactions(id,project,revision,before_state) VALUES(?,?,?,?)',(tx,project,after['revision'],json.dumps(s)))
+            db.execute('INSERT INTO transactions(id,project,revision,before_state) VALUES(?,?,?,?)',(tx,project,after['revision'],storage_codec.dumps(s)))
             db.execute('UPDATE previews SET used=1 WHERE id=?',(preview_id,));self._save(db,after)
         return after
     def undo(self,project,transaction):
@@ -123,7 +124,7 @@ class ProjectStore:
             db.execute('BEGIN IMMEDIATE');s=self._load(db,project)
             row=db.execute('SELECT revision,before_state,undone FROM transactions WHERE id=? AND project=?',(transaction,project)).fetchone()
             if not row or row[2] or row[0]!=s['revision']:raise ValueError('Undo nur direkt nach der letzten CASCADE-Änderung möglich.')
-            restored=json.loads(row[1]);version_live(restored,s['nodes'],'CASCADE rückgängig gemacht');restored['revision']=s['revision']+1;restored['updated_at']=now();restored['last_transaction']=None
+            restored=storage_codec.loads(row[1]);version_live(restored,s['nodes'],'CASCADE rückgängig gemacht');restored['revision']=s['revision']+1;restored['updated_at']=now();restored['last_transaction']=None
             db.execute('UPDATE transactions SET undone=1 WHERE id=?',(transaction,));self._save(db,restored)
         return restored
     def refresh(self,project):
