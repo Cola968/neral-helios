@@ -61,6 +61,12 @@ jobs:
           "tokenizer=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
           "valid=$(W $valid)" >> $env:GITHUB_OUTPUT
 
+      - name: Ensure pinned tokenizer runtime in WSL
+        run: |
+          $ErrorActionPreference='Stop'
+          wsl.exe -- bash -lc "set -e; P=~/.venvs/neral-triton-py312/bin/python; if ! `$P -c 'import tokenizers; print(tokenizers.__version__)' >/dev/null 2>&1; then `$P -m ensurepip --upgrade >/dev/null; `$P -m pip install --disable-pip-version-check 'tokenizers==0.21.4'; fi; `$P -c 'import tokenizers; assert tokenizers.__version__ == \"0.21.4\"; print(tokenizers.__version__)'"
+          if($LASTEXITCODE -ne 0){throw 'pinned tokenizer runtime unavailable'}
+
       - name: Run fixed-protocol 100M evaluation
         run: |
           $ErrorActionPreference='Stop'
