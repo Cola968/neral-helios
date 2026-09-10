@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "action": "benchmark_30k_target",
+  "architecture": "frontier350-v1",
+  "target_tokens_per_second": 30000,
+  "source_checkpoint": "neral350_frontier_compiled_500m/resume.pt",
+  "promotion": false,
+  "request_id": "arctus350-stage7-30k-after-500m"
+}
