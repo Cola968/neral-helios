@@ -69,12 +69,13 @@ function Install-NeralPython {
         throw 'Python konnte nicht automatisch von python.org geladen werden. Pruefe die Internetverbindung und starte Neral erneut.'
     }
 
+    if((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'Valid'){throw 'Die Signatur des Python-Installers ist ungueltig. Installation abgebrochen.'}
     $args=@(
         '/quiet','InstallAllUsers=0',"TargetDir=$bootstrapRoot",'Include_pip=1','Include_launcher=0',
         'Include_test=0','Include_doc=0','Include_tcltk=0','Include_dev=0','Shortcuts=0',
         'AssociateFiles=0','PrependPath=0','SimpleInstall=1','CompileAll=0'
     )
-    $process=Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+    $process=Start-Process -FilePath $installer -ArgumentList $args -WindowStyle Hidden -Wait -PassThru
     Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
     if($process.ExitCode -ne 0 -or -not(Test-Python311 $pythonExe)){
         throw "Die automatische Python-Installation ist fehlgeschlagen (Code $($process.ExitCode))."
@@ -94,7 +95,7 @@ if(-not $appPython){
     if(-not $systemPython){$systemPython=Install-NeralPython}
 
     $venvPath=Join-Path $state 'python'
-    if(Test-Path -LiteralPath $venvPath){Remove-Item -LiteralPath $venvPath -Recurse -Force}
+    if(Test-Path -LiteralPath $venvPath){throw 'Vorhandene Python-Umgebung ist defekt. Bitte den App-Ordner erneut entpacken; vorhandene Daten bleiben erhalten.'}
     $venvArgs=@($systemPython.Prefix)+@('-m','venv',$venvPath)
     & $systemPython.Exe @venvArgs
     if($LASTEXITCODE -ne 0){throw 'Die lokale Python-Umgebung fuer Neral konnte nicht erstellt werden.'}
@@ -111,16 +112,22 @@ if(-not $appPython){
 
 $env:PYTHONDONTWRITEBYTECODE='1'
 $env:HELIOS_DEVICE='cpu'
+$env:CUDA_VISIBLE_DEVICES=''
+$env:HELIOS_STATE_ROOT=$state
 $env:HELIOS_PREPARATION_MODE='0'
 $env:HELIOS_CHECKPOINT='neral50m_i1'
-$env:HELIOS_PORT='9684'
+$env:HELIOS_PORT='9686'
 $env:HELIOS_ASSETS_ROOT=Join-Path $appRoot 'deployment'
 
-$url='http://127.0.0.1:9684/'
+$url='http://127.0.0.1:9686/'
+function Get-NeralInfo {
+    $null=Invoke-WebRequest $url -UseBasicParsing -SessionVariable appSession -TimeoutSec 2
+    Invoke-RestMethod ($url+'api/info') -WebSession $appSession -TimeoutSec 2
+}
 $ready=$false
 try{
-    $info=Invoke-RestMethod ($url+'api/info') -TimeoutSec 2
-    $ready=($info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
+    $info=Get-NeralInfo
+    $ready=($info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
 }catch{}
 
 if(-not $ready){
@@ -128,13 +135,13 @@ if(-not $ready){
     for($attempt=0;$attempt -lt 45;$attempt++){
         Start-Sleep -Seconds 1
         try{
-            $info=Invoke-RestMethod ($url+'api/info') -TimeoutSec 2
-            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
+            $info=Get-NeralInfo
+            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and $info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
         }catch{}
     }
 }
 
-if(-not $ready){throw 'Neral konnte nicht gestartet werden. Siehe local_state\app-error.log. Port 9684 muss frei sein.'}
+if(-not $ready){throw 'Neral konnte nicht gestartet werden. Siehe local_state\app-error.log. Port 9686 muss frei sein.'}
 
 $edge=Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
 if(Test-Path -LiteralPath $edge){Start-Process -FilePath $edge -ArgumentList @('--disable-gpu',"--app=$url")}else{Start-Process $url}

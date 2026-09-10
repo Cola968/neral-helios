@@ -27,7 +27,7 @@ def create_server(config, backend_port=9684):
             if self.headers.get('Transfer-Encoding'):return self.answer(400,'Unsupported transfer encoding')
             try:length=int(self.headers.get('Content-Length','0'))
             except ValueError:return self.answer(400,'Invalid length')
-            if not 0<=length<=24576:return self.answer(413,'Request too large')
+            if not 0<=length<=262144:return self.answer(413,'Request too large')
             if not self.path.startswith('/') or self.path.startswith('//') or urlsplit(self.path).netloc:return self.answer(400,'Invalid path')
             body=self.rfile.read(length)
             now=time.time()
@@ -47,6 +47,9 @@ def create_server(config, backend_port=9684):
             cookie=SimpleCookie()
             try:cookie.load(self.headers.get('Cookie',''));token=cookie['neral_session'].value if 'neral_session' in cookie else ''
             except Exception:token=''
+            if self.command=='POST' and self.path=='/logout':
+                sessions.pop(token,None)
+                return self.answer(200,'Abgemeldet.',cookie='neral_session=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0')
             if sessions.get(token,0)<now:
                 if self.command=='GET' and self.path=='/':
                     return self.answer(200,'<!doctype html><html lang="de"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Neral verbinden</title><h1>Mit deinem PC verbinden</h1><p>Den Kopplungscode findest du in HANDY-ZUGANG.txt auf deinem PC.</p><form action="/pair" method="post"><label>Kopplungscode <input name="code" type="password" autocomplete="off" required></label><button>Verbinden</button></form></html>','text/html; charset=utf-8')
@@ -54,9 +57,23 @@ def create_server(config, backend_port=9684):
             # Never forward client authentication or arbitrary proxy headers.
             connection=http.client.HTTPConnection('127.0.0.1',backend_port,timeout=180)
             headers={'Host':f'127.0.0.1:{backend_port}','Origin':f'http://127.0.0.1:{backend_port}'}
+            token_path=Path(config.get('backend_token_file',str(Path(__file__).parent/'local_state/gateway-token')))
+            try:headers['X-Helios-Gateway']=token_path.read_text(encoding='ascii').strip()
+            except OSError:return self.answer(502,'PC-App bitte zuerst starten.')
             if self.headers.get('Content-Type'):headers['Content-Type']=self.headers['Content-Type']
             try:
-                connection.request(self.command,self.path,body=body,headers=headers);response=connection.getresponse();data=response.read()
+                connection.request(self.command,self.path,body=body,headers=headers);response=connection.getresponse()
+                if 'application/x-ndjson' in response.getheader('Content-Type',''):
+                    self.send_response(response.status);self.send_header('Content-Type','application/x-ndjson');self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Connection','close');self.end_headers();self.close_connection=True
+                    try:
+                        while True:
+                            line=response.readline(16385)
+                            if not line:break
+                            if len(line)>16384:raise ValueError('Oversize stream frame')
+                            self.wfile.write(line);self.wfile.flush()
+                    except (OSError,ValueError):pass
+                    return
+                data=response.read()
                 self.send_response(response.status)
                 for key,value in response.getheaders():
                     if key.lower() in {'content-type','content-security-policy','x-content-type-options','x-frame-options','referrer-policy','permissions-policy','service-worker-allowed'}:self.send_header(key,value)

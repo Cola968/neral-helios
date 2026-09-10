@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{
   const file=req.url==='/'?'templates/index.html':req.url==='/manifest.webmanifest'?'static/manifest.webmanifest':req.url==='/sw.js'?'static/sw.js':req.url.slice(1);
-  if(!['templates/index.html','static/neral.css','static/neral.js','static/helios-core.js','static/projects.js','static/install.js','static/manifest.webmanifest','static/sw.js','static/icon.svg','static/icon-192.png','static/icon-512.png'].includes(file)){res.writeHead(404);res.end();return;}
+  if(!['templates/index.html','static/neral.css','static/neral.js','static/helios-core.js','static/projects.js','static/install.js','static/workspace.js','static/manifest.webmanifest','static/sw.js','static/icon.svg','static/icon-192.png','static/icon-512.png'].includes(file)){res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webmanifest')?'application/manifest+json':file.endsWith('.png')?'image/png':file.endsWith('.svg')?'image/svg+xml':'text/html');
   res.end(fs.readFileSync(path.join(root,file)));
  });
@@ -19,7 +19,7 @@ const root=path.resolve(__dirname,'..');
   const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];let modelCalls=0;
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/api/**',async route=>{
-   const url=new URL(route.request().url());let data={available:false};
+   const url=new URL(route.request().url());let data={available:false};if(url.pathname==='/api/chats')data={chats:[]};
    if(url.pathname==='/api/info')data={parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},checkpoint_sha256:'test-fixture',device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:true,checkpoints:['pilot_02','neral50m'],i1_export_available:false};
    if(url.pathname==='/api/projects')data={projects:[]};
    if(url.pathname==='/api/generate'||url.pathname==='/api/model'){modelCalls++;throw Error('Model requests forbidden in UI tests');}

@@ -2,7 +2,7 @@
 
 ## Jetzt schreiben
 
-Am PC: http://127.0.0.1:9684/ öffnen. Neral 50M D3/I1 ist als eigener Checkpoint auf der CPU aktiv. Die GPU wird nicht verwendet. Im Menü oben rechts „App installieren“ wählen. Alternativ das ZIP entpacken und `Start Neral.cmd` ausführen: öffnet ein eigenes App-Fenster. Python 3.11+ ist erforderlich; bei einer frischen Installation installiert der Starter ausschließlich CPU-PyTorch und die App-Abhängigkeiten. Der lokale Modell-Export ist im ZIP enthalten, keine fremden Gewichte.
+Am PC: http://127.0.0.1:9686/ öffnen. Neral 50M D3/I1 ist als eigener Checkpoint auf der CPU aktiv. Die GPU wird nicht verwendet. Im Menü oben rechts „App installieren“ wählen. Alternativ das ZIP entpacken und `Start Neral.cmd` ausführen: öffnet ein eigenes App-Fenster. Python 3.11+ ist erforderlich; bei einer frischen Installation installiert der Starter ausschließlich CPU-PyTorch und die App-Abhängigkeiten. Der lokale Modell-Export ist im ZIP enthalten, keine fremden Gewichte.
 
 ## Android
 
@@ -26,9 +26,9 @@ Quellcheckpoint SHA-256: `ab48ea9266444c19c67325a9f344813f5b69692cf65749d6abf5b5
 
 ## Datenschutz und Betrieb
 
-Chats bleiben im Browserspeicher des jeweiligen Geräts. PC- und Handy-Chats werden noch nicht automatisch synchronisiert; Import/Export ist vorhanden. Die neue Adresse hat einen eigenen Speicherbereich; alte Chats bei Bedarf im alten Fenster exportieren und hier importieren. Projekte liegen auf dem PC. Offline können gespeicherte Chats gelesen werden; Antworten und Projekte benötigen den laufenden PC. Der Service Worker speichert ausschließlich die App-Oberfläche, keine API-Antworten oder Kopplungscodes.
+Chats und Entwürfe synchronisieren sich mit dem PC; gleichzeitige Änderungen bleiben als Konfliktkopien erhalten. Temporäre Chats sind ausgenommen. Einstellungen erlauben das Abschalten der Synchronisierung. Projekte liegen zentral auf dem PC. Offline bleiben Oberfläche, lokale Chats und Entwürfe verfügbar; Antworten und Projekte benötigen den PC. Der Service Worker speichert keine API-Antworten oder Kopplungscodes. Neue Windows-Datenbankinhalte sind mit DPAPI geschützt, Browserkopien bleiben unverschlüsselt. Details und Post-Training-Import: HELIOS_V2.md.
 
-Der normale Server bindet nur 127.0.0.1. Android nutzt einen separaten TLS-Gateway mit Host/Origin-Prüfung, begrenzten Kopplungsversuchen und Secure/HttpOnly/SameSite-Cookie. CPU-App-Port ist 9684, TLS-Port 9443. `HELIOS_PREPARATION_MODE=1` sperrt Modellladen und Inferenz weiterhin optional.
+Der normale Server bindet nur 127.0.0.1. Android nutzt einen separaten TLS-Gateway mit Host/Origin-Prüfung, begrenzten Kopplungsversuchen und Secure/HttpOnly/SameSite-Cookie. CPU-App-Port ist 9686, TLS-Port 9443. `HELIOS_PREPARATION_MODE=1` sperrt Modellladen und Inferenz weiterhin optional.
 
 ## Ausgeführte Prüfungen
 
