@@ -1,0 +1,118 @@
+name: Neral 350M Frontier 1B Evaluation
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_1b_eval_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-eval-1b
+  cancel-in-progress: false
+
+jobs:
+  eval1b:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit 1B evaluation request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_1b_eval_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw '1B evaluation request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,base_data_request_id,checkpoint_tokens,request_id,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'evaluate_1b'){throw 'invalid evaluation action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.checkpoint_tokens -ne 1000000000){throw 'evaluation locked to 1B checkpoint'}
+          foreach($x in @($r.request_id,$r.base_data_request_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request identifier'}}
+          "base_id=$($r.base_data_request_id)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve 1B checkpoint tokenizer and frozen holdout
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\','/';return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $base=Join-Path $assets ('frontier350_bpe_foundation_1b_'+'${{ steps.req.outputs.base_id }}')
+          $valid=Join-Path $base 'valid'
+          foreach($p in @($checkpoint,$tokenizer,$valid)){if(-not(Test-Path $p)){throw "missing required path: $p"}}
+          $report=Join-Path (Get-Location).Path 'frontier350_1b_eval_report'
+          New-Item -ItemType Directory -Force $report | Out-Null
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "valid=$(W $valid)" >> $env:GITHUB_OUTPUT
+          "report=$(W $report)" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure stable WSL evaluation runtime
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh"
+          if($LASTEXITCODE -ne 0){throw 'WSL evaluation runtime bootstrap failed'}
+
+      - name: Validate frozen evaluators
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/eval500m_diagnostic.py frontier350/nis2_core350.py"
+          if($LASTEXITCODE -ne 0){throw 'frozen evaluator syntax check failed'}
+
+      - name: Run exact frozen 500M diagnostic suite at 1B
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval500m_diagnostic.py --checkpoint '${{ steps.env.outputs.checkpoint }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --valid-data '${{ steps.env.outputs.valid }}' --out-dir '${{ steps.env.outputs.report }}/diagnostic' --expected-tokens 1000000000 --max-new 48 --val-seq 512 --val-batch 4 --val-batches 64"
+          if($LASTEXITCODE -ne 0){throw 'frozen 1B diagnostic failed'}
+
+      - name: Run frozen NIS2 chat core at 1B
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nis2_core350.py --checkpoint '${{ steps.env.outputs.checkpoint }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --out '${{ steps.env.outputs.report }}/nis2_core1b.json' --expected-tokens 1000000000 --max-new 24"
+          if($LASTEXITCODE -ne 0){throw '1B NIS2 chat-core evaluation failed'}
+
+      - name: Print comparison metrics
+        if: always()
+        run: |
+          $p='frontier350_1b_eval_report\diagnostic\arctus500m_diagnostic.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw|ConvertFrom-Json
+            Write-Host ('checkpoint_tokens='+$r.checkpoint_processed_tokens)
+            Write-Host ('heldout_loss='+$r.heldout_validation.loss)
+            Write-Host ('preference_accuracy_pct='+$r.preference.accuracy_pct)
+            foreach($x in $r.preference.categories.PSObject.Properties){Write-Host ('category_'+$x.Name+'_pct='+$x.Value.accuracy_pct)}
+            Write-Host ('exact_instruction_pct='+$r.generation.exact.accuracy_pct)
+            Write-Host ('generation_eos_pct='+$r.generation.health.eos_pct)
+            Write-Host ('generation_repeat3_mean_pct='+$r.generation.health.mean_repeated_trigram_pct)
+          }
+          $n='frontier350_1b_eval_report\nis2_core1b.json'
+          if(Test-Path $n -PathType Leaf){
+            $j=Get-Content $n -Raw|ConvertFrom-Json
+            Write-Host ('nis2_pair_overall_pct='+$j.scores.pair_overall_pct)
+            Write-Host ('nis2_instruction_following_pct='+$j.scores.instruction_following_pct)
+          }
+
+      - name: Upload 1B evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-eval-1b-${{ github.run_id }}
+          path: frontier350_1b_eval_report/
+          retention-days: 30
+          if-no-files-found: warn
