@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "status": "draft_not_admitted",
+  "purpose": "candidate source contract for a separate Helios/Arctus 350M post-training fork; never foundation training",
+  "source": {
+    "repo": "OpenAssistant/oasst1",
+    "hub_type": "dataset",
+    "revision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",
+    "license": "apache-2.0",
+    "observed_last_modified": "2023-05-02T13:21:21Z",
+    "observed_train_examples": 84437,
+    "observed_validation_examples": 4401,
+    "observed_languages_include": ["en", "de"],
+    "observed_human_generated_and_annotated": true
+  },
+  "lineage_policy": {
+    "foreign_model_weights": false,
+    "foreign_tokenizer": false,
+    "use_native_neral_16k_tokenizer": true,
+    "foundation_checkpoint_is_immutable_input": true,
+    "post_training_checkpoint_must_be_separate": true
+  },
+  "provisional_filter_contract": {
+    "languages": ["en", "de"],
+    "synthetic": false,
+    "deleted": false,
+    "review_result": true,
+    "roles_allowed": ["prompter", "assistant"],
+    "require_nonempty_text": true,
+    "drop_user_id_and_nonessential_metadata": true,
+    "reject_model_generated_rows": true,
+    "reject_benchmark_exact_matches": true,
+    "reject_benchmark_near_duplicates": true
+  },
+  "dialogue_format_contract": {
+    "preserve_parent_child_turn_order": true,
+    "start_with_prompter": true,
+    "end_training_target_on_assistant": true,
+    "assistant_turn_eos": "exactly_one_native_neral_eos",
+    "no_foreign_chat_template": true,
+    "sibling_ranking_policy": "must_be_verified_against_oasst1_rank_semantics_before_admission"
+  },
+  "training_targets": [
+    "instruction_following",
+    "clean_answer_termination",
+    "German-English dialogue",
+    "reduced_repetition",
+    "direct_question_answering"
+  ],
+  "explicit_non_targets": [
+    "foundation_world_knowledge_replacement",
+    "benchmark_memorization",
+    "architecture_change"
+  ],
+  "required_before_admission": [
+    "verify exact rank semantics and tree extraction policy",
+    "materialize a deterministic DE/EN filtered manifest with hashes",
+    "run PII and unsafe-content filtering",
+    "run benchmark contamination checks against all Arctus dev/audit/NIS2 prompts",
+    "freeze train/dev split and tokenizer digest",
+    "define SFT learning-rate and token-budget pilot grid",
+    "require foundation-capability no-regression gate after SFT"
+  ]
+}
