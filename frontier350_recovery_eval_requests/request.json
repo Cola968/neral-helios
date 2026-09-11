@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "action": "evaluate_recovery_dev",
+  "architecture": "frontier350-v1",
+  "expected_tokens": 1000000000,
+  "request_id": "arctus-recovery-dev-1b-20260911-v1"
+}
