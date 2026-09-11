@@ -5,10 +5,10 @@
     {
       "repo": "HuggingFaceTB/smollm-corpus",
       "hub_type": "dataset",
-      "license_observed": "odc-by",
-      "status": "promising_pending_subset_revision_and_contamination_audit",
-      "possible_roles": ["small-model educational pretraining", "python/code educational data", "general educational diversity"],
-      "notes": "Hugging Face describes this corpus as curated high-quality educational/synthetic data designed for small language models. Prefer non-synthetic educational/code subsets first if provenance policy requires avoiding synthetic text. Do not admit until exact revision, subset, license, dedupe, benchmark-separation and sample-quality checks are pinned."
+      "license_observed": "odc-by repository metadata",
+      "status": "promising_for_general_education_but_code_subset_not_admitted",
+      "possible_roles": ["small-model educational pretraining", "general educational diversity"],
+      "notes": "Hugging Face describes this corpus as curated high-quality educational/synthetic data designed for small language models. The Python-Edu subset is educational code filtered from Stack v2 and its dataset card explicitly directs users to The Stack v2 for the underlying data license, so repository-level ODC-BY metadata is not enough to admit Python-Edu into Neral. Cosmopedia is synthetic. FineWeb-Edu-dedup overlaps conceptually with an already admitted source. Do not admit any subset until exact revision, subset-specific license/provenance, dedupe, benchmark-separation and sample-quality checks are pinned."
     },
     {
       "repo": "bigcode/the-stack-v2-dedup",
