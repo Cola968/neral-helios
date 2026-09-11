@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "architecture": "frontier350-v1",
+  "checkpoint_processed_tokens": 1000003584,
+  "source": "frozen 1B evaluation run 34626468354",
+  "higher_is_better": {
+    "preference_overall_pct": 53.57142857142857,
+    "bilingual_pct": 37.5,
+    "code_pct": 75.0,
+    "factual_pct": 62.5,
+    "language_pct": 37.5,
+    "math_pct": 25.0,
+    "reasoning_pct": 62.5,
+    "science_pct": 75.0,
+    "exact_instruction_pct": 0.0,
+    "generation_eos_pct": 0.0,
+    "nis2_pair_overall_pct": 55.0,
+    "nis2_instruction_following_pct": 25.0,
+    "nis2_instruction_pair_pct": 50.0,
+    "nis2_instruction_exact_generation_pct": 0.0,
+    "nis2_dialogue_state_pct": 75.0,
+    "nis2_truthfulness_pct": 37.5,
+    "nis2_robustness_pct": 62.5,
+    "nis2_compositional_reasoning_pct": 50.0,
+    "nis2_generation_eos_pct": 0.0,
+    "nis2_generation_utf8_pct": 100.0
+  },
+  "lower_is_better": {
+    "heldout_loss": 3.2607421875,
+    "heldout_perplexity": 26.06887795973488,
+    "generation_repeat3_mean_pct": 60.21739130434782,
+    "nis2_generation_repeated_trigram_pct": 43.18181818181818
+  },
+  "notes": [
+    "This baseline is an immutable promotion floor/ceiling for the 1B -> 2B line.",
+    "The current frozen categorical suites are small, so exact no-regression is intentionally conservative.",
+    "Do not train on benchmark cases or use them as corpus material."
+  ]
+}
