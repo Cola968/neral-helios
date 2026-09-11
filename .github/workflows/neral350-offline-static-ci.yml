@@ -30,11 +30,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Compile Arctus training sources
+      - name: Compile Arctus training and speed sources
         run: |
           python -m py_compile \
             frontier350/train350.py \
             frontier350/train350_compiled.py \
+            frontier350/model350_fast.py \
+            frontier350/convert_checkpoint350_fast.py \
+            frontier350/speed_stage7_checkpoint_ab.py \
             frontier350/build_weakness_recovery_pilot_bpe_data.py \
             frontier350/eval_recovery_dev_v2.py \
             frontier350/select_recovery_lr_pilot.py
@@ -47,6 +50,7 @@ jobs:
           for path in [
               Path('frontier350/recovery_source_candidates.json'),
               Path('frontier350/arctus_recovery_dev_1b_baseline.json'),
+              Path('frontier350/perf24k_profile.json'),
           ]:
               json.loads(path.read_text(encoding='utf8'))
               print('json-ok', path)
@@ -71,4 +75,19 @@ jobs:
           assert 'rng.randrange(0, len(a) - seq)' in eager
           assert 'rng.randrange(0, len(a) - seq)' in compiled
           print('Arctus resume/sampling static contract OK')
+          PY
+
+      - name: Assert speed-gate safety contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          gate = Path('frontier350/speed_stage7_checkpoint_ab.py').read_text(encoding='utf8')
+          assert 'checkpoint_mutated": False' in gate
+          assert 'promotion_allowed": False' in gate
+          assert 'convert_optimizer' in gate
+          assert 'TOKENS_PER_UPDATE = 16_384' in gate
+          assert 'mode="default"' in gate
+          assert 'fullgraph=True' in gate
+          assert 'reduce-overhead' not in gate
+          print('Arctus Stage-7 speed gate remains report-only and checkpoint-native')
           PY
