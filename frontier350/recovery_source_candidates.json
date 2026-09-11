@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "purpose": "research-only source candidates for Arctus recovery; none are admitted to training by this file",
+  "candidates": [
+    {
+      "repo": "HuggingFaceTB/smollm-corpus",
+      "hub_type": "dataset",
+      "license_observed": "odc-by",
+      "status": "promising_pending_subset_revision_and_contamination_audit",
+      "possible_roles": ["small-model educational pretraining", "python/code educational data", "general educational diversity"],
+      "notes": "Hugging Face describes this corpus as curated high-quality educational/synthetic data designed for small language models. Prefer non-synthetic educational/code subsets first if provenance policy requires avoiding synthetic text. Do not admit until exact revision, subset, license, dedupe, benchmark-separation and sample-quality checks are pinned."
+    },
+    {
+      "repo": "bigcode/the-stack-v2-dedup",
+      "hub_type": "dataset",
+      "license_observed": "other",
+      "status": "rejected_for_now",
+      "possible_roles": ["code pretraining"],
+      "notes": "Hub metadata marks the dataset gated with license 'other'. Do not add to the locked source set without a separate license/provenance review and user approval."
+    },
+    {
+      "repo": "HuggingFaceTB/finemath",
+      "hub_type": "dataset",
+      "license_observed": "odc-by",
+      "status": "already_admitted_existing_source",
+      "possible_roles": ["math pretraining"],
+      "notes": "Already source-locked in Neral. 1B results show benefit, but the previous 35% continuation share was likely too aggressive for preserving general/bilingual language, so the 2B candidate mix reduces it to 20%."
+    }
+  ]
+}
