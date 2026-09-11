@@ -70,16 +70,16 @@ jobs:
           $seedDedupe=Join-Path $seed 'dedupe.sqlite3'
           $pilot=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.request_id }}')
           foreach($p in @($dataPython,$tokenizer,$checkpoint,$seedManifest,$seedDedupe)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
-          $ck=& $dataPython -c "import torch; c=torch.load(r'$checkpoint',map_location='cpu',weights_only=False); print(int(c.get('processed_tokens',0))); print(c.get('tokenizer_sha256',''))"
-          if($LASTEXITCODE -ne 0){throw 'failed to inspect immutable 1B checkpoint'}
-          if([Int64]$ck[0] -lt 1000000000 -or [Int64]$ck[0] -gt 1000032768){throw "unexpected 1B checkpoint token count: $($ck[0])"}
+          $seedObj=Get-Content $seedManifest -Raw|ConvertFrom-Json
+          $tokenizerSha=[string]$seedObj.tokenizer.tokenizer_sha256
+          if($tokenizerSha -notmatch '^[0-9a-f]{64}$'){throw 'seed manifest tokenizer digest missing/invalid'}
           "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
           "assets=$assets" >> $env:GITHUB_OUTPUT
           "assets_wsl=$(W $assets)" >> $env:GITHUB_OUTPUT
           "data_python=$dataPython" >> $env:GITHUB_OUTPUT
           "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
           "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
-          "tokenizer_sha=$($ck[1])" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$tokenizerSha" >> $env:GITHUB_OUTPUT
           "checkpoint=$checkpoint" >> $env:GITHUB_OUTPUT
           "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
           "seed=$seed" >> $env:GITHUB_OUTPUT
@@ -112,11 +112,11 @@ jobs:
           & '${{ steps.env.outputs.data_python }}' -c "import sys,json;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;p=Path(r'$manifest');root=Path(r'$root');tok=Path(r'${{ steps.env.outputs.tokenizer }}');print(validate_manifest(p,root,tok));m=json.loads(p.read_text());assert m.get('continuation_profile')=='arctus-2b-balanced-pilot-v1';assert m.get('pilot_only') is True;assert int(m['train_tokens'])==20000000;assert int(m['validation_tokens'])==200000"
           if($LASTEXITCODE -ne 0){throw 'pilot corpus admission failed'}
 
-      - name: Ensure WSL evaluation runtime
+      - name: Ensure WSL evaluation runtime and verify 1B checkpoint
         run: |
-          $repo='${{ steps.env.outputs.repo_wsl }}'
-          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh"
-          if($LASTEXITCODE -ne 0){throw 'WSL runtime bootstrap failed'}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -c \"import torch; c=torch.load('$ck',map_location='cpu',weights_only=False); p=int(c.get('processed_tokens',0)); assert 1000000000 <= p <= 1000032768, p; assert c.get('tokenizer_sha256') in ('','$sha'); print('checkpoint_tokens='+str(p))\""
+          if($LASTEXITCODE -ne 0){throw 'WSL runtime/checkpoint verification failed'}
 
       - name: Evaluate immutable 1B baseline on pilot validation
         run: |
@@ -171,8 +171,11 @@ jobs:
       - name: Copy pilot corpus metadata
         if: always()
         run: |
-          $m=Join-Path '${{ steps.env.outputs.pilot }}' 'manifest.json'
-          if(Test-Path $m -PathType Leaf){New-Item -ItemType Directory -Force frontier350_recovery_pilot_report | Out-Null;Copy-Item $m frontier350_recovery_pilot_report\pilot_manifest.json -Force}
+          $root='${{ steps.env.outputs.pilot }}'
+          if(-not[string]::IsNullOrWhiteSpace($root)){
+            $m=Join-Path $root 'manifest.json'
+            if(Test-Path $m -PathType Leaf){New-Item -ItemType Directory -Force frontier350_recovery_pilot_report | Out-Null;Copy-Item $m frontier350_recovery_pilot_report\pilot_manifest.json -Force}
+          }
 
       - name: Upload reports only
         if: always()
