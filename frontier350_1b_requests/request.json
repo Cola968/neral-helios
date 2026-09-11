@@ -5,6 +5,6 @@
   "stop_after_tokens": 1000000000,
   "base_data_request_id": "arctus1b-20260910-v1",
   "data_request_id": "arctus1b-focus-20260910-v2",
-  "execution_profile": "stable-18k",
-  "request_id": "arctus1b-20260910-r2"
+  "execution_profile": "arctus-23k-resume-candidate-v1",
+  "request_id": "arctus1b-20260911-r3"
 }
