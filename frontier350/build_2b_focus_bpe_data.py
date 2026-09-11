@@ -122,6 +122,7 @@ def main() -> None:
         "continuation_from_tokens": 1_000_003_584,
         "target_cumulative_tokens": 2_000_000_000,
         "tokenizer": tokenizer.contract(),
+        "target_tokens": args.train_tokens + args.valid_tokens,
         "train_tokens": sum(x["tokens"] for x in train_files),
         "validation_tokens": sum(x["tokens"] for x in valid_files),
         "benchmark_content_included": False,
