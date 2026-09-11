@@ -1,0 +1,74 @@
+name: Neral 350M Offline Static CI
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350/**/*.py'
+      - 'frontier350/*.json'
+      - '.github/workflows/neral350-offline-static-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontier350/**/*.py'
+      - 'frontier350/*.json'
+      - '.github/workflows/neral350-offline-static-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile Arctus training sources
+        run: |
+          python -m py_compile \
+            frontier350/train350.py \
+            frontier350/train350_compiled.py \
+            frontier350/build_weakness_recovery_pilot_bpe_data.py \
+            frontier350/eval_recovery_dev_v2.py \
+            frontier350/select_recovery_lr_pilot.py
+
+      - name: Validate JSON research contracts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in [
+              Path('frontier350/recovery_source_candidates.json'),
+              Path('frontier350/arctus_recovery_dev_1b_baseline.json'),
+          ]:
+              json.loads(path.read_text(encoding='utf8'))
+              print('json-ok', path)
+          PY
+
+      - name: Assert resume and sampling hardening contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          eager = Path('frontier350/train350.py').read_text(encoding='utf8')
+          compiled = Path('frontier350/train350_compiled.py').read_text(encoding='utf8')
+
+          assert 'train_sampler_rng' in eager, 'eager trainer does not persist sampler RNG'
+          assert 'train_sampler_rng' in compiled, 'compiled trainer does not persist sampler RNG'
+          assert 'rng.setstate(ck["train_sampler_rng"])' in eager
+          assert 'rng.setstate(ck["train_sampler_rng"])' in compiled
+          assert 'validation_seed = args.seed + 999' in eager
+          assert 'validation_seed = args.seed + 999' in compiled
+          assert 'rng.randrange(0, len(a) - seq - 1)' not in eager
+          assert 'rng.randrange(0, len(a) - seq - 1)' not in compiled
+          assert 'rng.randrange(0, len(a) - seq)' in eager
+          assert 'rng.randrange(0, len(a) - seq)' in compiled
+          print('Arctus resume/sampling static contract OK')
+          PY
