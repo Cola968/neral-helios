@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "action": "run_targeted_weakness_recovery_v1",
+  "architecture": "frontier350-v1",
+  "request_id": "arctus-weakness-20260911-r1",
+  "pilot_data_id": "arctus-recovery-lr-20260911-r2",
+  "v4_run_id": 34644602374,
+  "stop_after_tokens": 1010003584,
+  "fallback_lr": 0.00005,
+  "profiles": ["control", "math_language", "bilingual_math"]
+}
