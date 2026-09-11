@@ -8,7 +8,8 @@ Design goals:
 - ability to pause after a bounded burn-in and resume the SAME optimizer/model run
 - BF16 + fused AdamW + cosine decay + warmup
 - optional activation checkpointing
-- atomic checkpoints with optimizer and RNG state
+- atomic checkpoints with optimizer plus global and train-sampler RNG state
+- deterministic internal validation sampling for comparable learning curves
 - JSONL + stdout live metrics for GitHub/Trackio bridges
 - periodic validation and fail-fast numerical checks
 
@@ -28,6 +29,9 @@ import numpy as np
 import torch
 
 from model350 import Neral350M, FRONTIER_350
+
+
+CHECKPOINT_SCHEMA = 2
 
 
 def atomic_save(obj, path: Path):
@@ -59,7 +63,9 @@ def sample_batch(shards, batch, seq, device, rng, vocab_size):
         a = np.memmap(p, dtype=np.uint16, mode="r")
         if len(a) < seq + 1:
             raise ValueError(f"shard too short: {p}")
-        start = rng.randrange(0, len(a) - seq - 1)
+        # There are len(a) - seq valid windows of length seq+1. The previous
+        # upper bound excluded the last valid window and failed when len(a)==seq+1.
+        start = rng.randrange(0, len(a) - seq)
         chunk = np.asarray(a[start:start + seq + 1], dtype=np.int64)
         if chunk.max(initial=0) >= vocab_size:
             raise ValueError(f"token id outside vocabulary in {p}")
@@ -91,8 +97,18 @@ def evaluate(model, shards, seq, batch, batches, device, seed):
     return sum(vals) / len(vals)
 
 
-def checkpoint_state(model, opt, step, processed, best, target_tokens, tokenizer_sha256):
-    return {
+def checkpoint_state(
+    model,
+    opt,
+    step,
+    processed,
+    best,
+    target_tokens,
+    tokenizer_sha256,
+    train_sampler_rng: random.Random | None = None,
+):
+    state = {
+        "checkpoint_schema": CHECKPOINT_SCHEMA,
         "model": model.state_dict(),
         "optimizer": opt.state_dict(),
         "step": step,
@@ -106,6 +122,9 @@ def checkpoint_state(model, opt, step, processed, best, target_tokens, tokenizer
         "target_tokens": target_tokens,
         "tokenizer_sha256": tokenizer_sha256,
     }
+    if train_sampler_rng is not None:
+        state["train_sampler_rng"] = train_sampler_rng.getstate()
+    return state
 
 
 def main():
@@ -160,6 +179,7 @@ def main():
     train = list_shards(Path(args.train_data))
     valid = list_shards(Path(args.valid_data))
     rng = random.Random(args.seed + 1)
+    sampler_resume_source = "fresh_seed"
 
     model = Neral350M().to(device=device, dtype=torch.bfloat16)
     model.set_gradient_checkpointing(args.gradient_checkpointing)
@@ -196,13 +216,24 @@ def main():
         np.random.set_state(ck["numpy_rng"])
         if "cuda_rng" in ck:
             torch.cuda.set_rng_state_all(ck["cuda_rng"])
+        if "train_sampler_rng" in ck:
+            rng.setstate(ck["train_sampler_rng"])
+            sampler_resume_source = "checkpoint"
+        else:
+            # Legacy checkpoints did not persist the dedicated sampler RNG. Keep
+            # compatibility, but make the reset explicit in telemetry rather than
+            # silently pretending the exact sample stream was resumed.
+            sampler_resume_source = "legacy_seed_reset"
         if processed >= run_until:
             raise RuntimeError(f"resume already at {processed:,} tokens, requested stop is {run_until:,}")
 
+    invocation_start_tokens = processed
+    validation_seed = args.seed + 999
     startup = {
         "event": "startup",
         "parameters": report,
         "config": FRONTIER_350.to_dict(),
+        "checkpoint_schema": CHECKPOINT_SCHEMA,
         "target_tokens": args.target_tokens,
         "run_until_tokens": run_until,
         "processed_tokens": processed,
@@ -211,6 +242,8 @@ def main():
         "warmup_updates": warmup,
         "gradient_checkpointing": args.gradient_checkpointing,
         "tokenizer_sha256": args.tokenizer_sha256,
+        "train_sampler_rng_source": sampler_resume_source,
+        "validation_seed": validation_seed,
         "gpu": torch.cuda.get_device_name(0),
     }
     print(json.dumps(startup), flush=True)
@@ -249,6 +282,7 @@ def main():
         if step % args.log_every == 0 or processed >= run_until:
             now = time.time()
             tps = (processed - last_tokens) / max(1e-9, now - last_time)
+            invocation_denom = max(1, run_until - invocation_start_tokens)
             row = {
                 "event": "train",
                 "step": step,
@@ -256,7 +290,7 @@ def main():
                 "target_tokens": args.target_tokens,
                 "run_until_tokens": run_until,
                 "progress_total": processed / args.target_tokens,
-                "progress_invocation": processed / run_until,
+                "progress_invocation": (processed - invocation_start_tokens) / invocation_denom,
                 "loss": running / max(1, microsteps),
                 "lr": lr,
                 "grad_norm": grad_norm,
@@ -272,13 +306,14 @@ def main():
             last_tokens = processed
 
         if step % args.eval_every == 0 or processed >= run_until:
-            val = evaluate(model, valid, args.seq, max(1, args.microbatch), args.eval_batches, device, args.seed + 999 + step)
+            val = evaluate(model, valid, args.seq, max(1, args.microbatch), args.eval_batches, device, validation_seed)
             ev = {
                 "event": "validation",
                 "step": step,
                 "processed_tokens": processed,
                 "validation_loss": val,
                 "best_validation_loss": min(best, val),
+                "validation_seed": validation_seed,
             }
             print(json.dumps(ev), flush=True)
             append_jsonl(metrics, ev)
@@ -296,19 +331,29 @@ def main():
 
         if step % args.save_every == 0 or processed >= run_until:
             atomic_save(
-                checkpoint_state(model, opt, step, processed, best, args.target_tokens, args.tokenizer_sha256),
+                checkpoint_state(
+                    model, opt, step, processed, best, args.target_tokens,
+                    args.tokenizer_sha256, train_sampler_rng=rng,
+                ),
                 out / "resume.pt",
             )
 
     if last_eval_step != step:
-        val = evaluate(model, valid, args.seq, max(1, args.microbatch), args.eval_batches, device, args.seed + 999 + step)
+        val = evaluate(model, valid, args.seq, max(1, args.microbatch), args.eval_batches, device, validation_seed)
         best = min(best, val)
-        ev = {"event": "validation", "step": step, "processed_tokens": processed, "validation_loss": val, "best_validation_loss": best}
+        ev = {
+            "event": "validation", "step": step, "processed_tokens": processed,
+            "validation_loss": val, "best_validation_loss": best,
+            "validation_seed": validation_seed,
+        }
         print(json.dumps(ev), flush=True)
         append_jsonl(metrics, ev)
 
     atomic_save(
-        checkpoint_state(model, opt, step, processed, best, args.target_tokens, args.tokenizer_sha256),
+        checkpoint_state(
+            model, opt, step, processed, best, args.target_tokens,
+            args.tokenizer_sha256, train_sampler_rng=rng,
+        ),
         out / "resume.pt",
     )
     complete = processed >= args.target_tokens
@@ -324,6 +369,9 @@ def main():
         "elapsed_s": time.time() - start_time,
         "config": FRONTIER_350.to_dict(),
         "tokenizer_sha256": args.tokenizer_sha256,
+        "checkpoint_schema": CHECKPOINT_SCHEMA,
+        "train_sampler_rng_source": sampler_resume_source,
+        "validation_seed": validation_seed,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf8")
     print(json.dumps(summary), flush=True)
