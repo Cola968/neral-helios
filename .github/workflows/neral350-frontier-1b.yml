@@ -34,7 +34,7 @@ jobs:
         id: req
         run: |
           $ErrorActionPreference='Stop'
-          $p='frontier350_1b_requests\request.json'
+          $p='frontier350_1b_requests\\request.json'
           if(-not(Test-Path $p -PathType Leaf)){throw '1B continuation request missing'}
           $r=Get-Content $p -Raw|ConvertFrom-Json
           $props=@($r.PSObject.Properties.Name|Sort-Object)
@@ -52,16 +52,16 @@ jobs:
         id: env
         run: |
           $ErrorActionPreference='Stop'
-          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\','/';return "/mnt/$d/$r"}
-          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $source500=Join-Path $assets 'runs\neral350_frontier_compiled_500m\resume.pt'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\\\','/';return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral'}
+          $source500=Join-Path $assets 'runs\\neral350_frontier_compiled_500m\\resume.pt'
           $focus=Join-Path $assets ('frontier350_bpe_continuation_1b_'+'${{ steps.req.outputs.data_id }}')
           $focusManifest=Join-Path $focus 'manifest.json'
           $base=Join-Path $assets ('frontier350_bpe_foundation_1b_'+'${{ steps.req.outputs.base_id }}')
           $baseManifest=Join-Path $base 'manifest.json'
-          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
-          $python=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
-          $out=Join-Path $assets 'runs\neral350_frontier_compiled_1b'
+          $tokenizer=Join-Path $assets 'frontier350_assets\\tokenizer.json'
+          $python=Join-Path $assets 'frontier350_data_env\\Scripts\\python.exe'
+          $out=Join-Path $assets 'runs\\neral350_frontier_compiled_1b'
           foreach($p in @($source500,$focusManifest,$baseManifest,$tokenizer,$python)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
           & $python -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$focusManifest'),Path(r'$focus'),Path(r'$tokenizer')))"
           if($LASTEXITCODE -ne 0){throw 'focus corpus admission re-check failed'}
@@ -103,9 +103,14 @@ jobs:
           }
           Write-Host 'Continuation curriculum: 35% FineWeb-Edu, 10% FineWeb, 20% German FineWeb2, 35% FineMath'
           $repo='${{ steps.env.outputs.repo }}'
-          $metrics=Join-Path '${{ steps.env.outputs.out_win }}' 'metrics.jsonl'
+          $outWin='${{ steps.env.outputs.out_win }}'
+          $metrics=Join-Path $outWin 'metrics.jsonl'
+          $diag=Join-Path $outWin 'workflow_diagnostic.txt'
+          $stderr=Join-Path $outWin 'train_stderr.log'
+          $stdout=Join-Path $outWin 'train_stdout.log'
+          Set-Content -Path $diag -Value ("run_id={0}`nprofile={1}`nresume={2}`nstarted_utc={3}" -f '${{ github.run_id }}',$profile,'${{ steps.env.outputs.resume_source }}',(Get-Date).ToUniversalTime().ToString('o'))
           $telemetryArgs=@(
-            'frontier350\live_telemetry.py',
+            'frontier350\\live_telemetry.py',
             '--metrics',$metrics,
             '--repo','${{ github.repository }}',
             '--issue','97',
@@ -116,24 +121,32 @@ jobs:
           $telemetry=Start-Process -FilePath '${{ steps.env.outputs.python }}' -ArgumentList $telemetryArgs -PassThru -NoNewWindow
           $trainExit=0
           try {
-            wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 1000000000 --lr 0.0003 $profileArgs --resume '${{ steps.env.outputs.resume }}' --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}'"
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 1000000000 --lr 0.0003 $profileArgs --resume '${{ steps.env.outputs.resume }}' --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}' > >(tee -a '$stdout') 2> >(tee -a '$stderr' >&2)"
+            wsl.exe -- bash -lc $cmd
             $trainExit=$LASTEXITCODE
+            Add-Content -Path $diag -Value ("`ntrain_exit={0}`nended_utc={1}" -f $trainExit,(Get-Date).ToUniversalTime().ToString('o'))
+          } catch {
+            Add-Content -Path $diag -Value ("`nworkflow_exception={0}`nended_utc={1}" -f $_.Exception.Message,(Get-Date).ToUniversalTime().ToString('o'))
+            throw
           } finally {
             if($trainExit -eq 0 -and -not $telemetry.HasExited){Wait-Process -Id $telemetry.Id -Timeout 70 -ErrorAction SilentlyContinue}
             if(-not $telemetry.HasExited){Stop-Process -Id $telemetry.Id -Force -ErrorAction SilentlyContinue}
           }
-          if($trainExit -ne 0){throw 'bounded 1B continuation failed'}
+          if($trainExit -ne 0){throw "bounded 1B continuation failed with exit code $trainExit; see train_stderr.log and workflow_diagnostic.txt"}
 
-      - name: Collect reports only
+      - name: Collect reports and diagnostics
         if: always()
         run: |
           New-Item -ItemType Directory -Force frontier350_1b_report | Out-Null
           $out='${{ steps.env.outputs.out_win }}'
           if(-not[string]::IsNullOrWhiteSpace($out)){
-            foreach($n in @('summary.json','metrics.jsonl')){$p=Join-Path $out $n;if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_1b_report\$n -Force}}
+            foreach($n in @('summary.json','metrics.jsonl','workflow_diagnostic.txt','train_stderr.log','train_stdout.log')){
+              $p=Join-Path $out $n
+              if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_1b_report\\$n -Force}
+            }
           }
 
-      - name: Upload reports only
+      - name: Upload reports and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
