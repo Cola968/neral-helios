@@ -1,0 +1,187 @@
+name: Neral 350M Targeted Weakness Recovery V1
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_weakness_recovery_v1_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-targeted-weakness-recovery-v1
+  cancel-in-progress: false
+
+jobs:
+  targeted-weakness-recovery:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded targeted request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_weakness_recovery_v1_requests\request.json' -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,fallback_lr,pilot_data_id,profiles,request_id,stop_after_tokens,v4_run_id,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'run_targeted_weakness_recovery_v1'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 1010003584){throw 'pilot stop must be exactly 10M new tokens after immutable 1B checkpoint'}
+          if([Int64]$r.v4_run_id -ne 34644602374){throw 'unexpected V4 run id'}
+          if([math]::Abs([double]$r.fallback_lr-0.00005) -gt 1e-12){throw 'fallback LR must be 5e-5'}
+          $expected=@('control','math_language','bilingual_math')
+          $p=@($r.profiles)
+          if($p.Count -ne 3 -or (($p -join ',') -ne ($expected -join ','))){throw 'unexpected profile set'}
+          foreach($x in @($r.request_id,$r.pilot_data_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid id'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "pilot_id=$($r.pilot_data_id)" >> $env:GITHUB_OUTPUT
+          "stop=$($r.stop_after_tokens)" >> $env:GITHUB_OUTPUT
+          "v4_run_id=$($r.v4_run_id)" >> $env:GITHUB_OUTPUT
+          "fallback_lr=$($r.fallback_lr)" >> $env:GITHUB_OUTPUT
+
+      - name: Download V4 decision report
+        uses: actions/download-artifact@v4
+        with:
+          name: neral350-recovery-lr-pilot-v4-${{ steps.req.outputs.v4_run_id }}
+          path: frontier350_weakness_recovery_v1_report/v4
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.req.outputs.v4_run_id }}
+
+      - name: Choose preservation-first LR from V4
+        id: lr
+        run: |
+          $ErrorActionPreference='Stop'
+          $path='frontier350_weakness_recovery_v1_report\v4\selection.json'
+          if(-not(Test-Path $path -PathType Leaf)){throw 'missing V4 selection report'}
+          $s=Get-Content $path -Raw|ConvertFrom-Json
+          $lr=[double]'${{ steps.req.outputs.fallback_lr }}';$source='fallback_lowest_lr'
+          if($s.selection_allowed -eq $true -and -not[string]::IsNullOrWhiteSpace([string]$s.selected)){
+            switch([string]$s.selected){
+              'lr100u'{$lr=0.0001}
+              'lr75u'{$lr=0.000075}
+              'lr50u'{$lr=0.00005}
+              default{throw 'unknown selected V4 candidate'}
+            }
+            $source='v4_no_regression_winner'
+          }
+          "lr=$lr" >> $env:GITHUB_OUTPUT
+          "source=$source" >> $env:GITHUB_OUTPUT
+          @{selected_lr=$lr;selection_source=$source;v4_selected=$s.selected;v4_selection_allowed=$s.selection_allowed}|ConvertTo-Json|Set-Content 'frontier350_weakness_recovery_v1_report\lr_choice.json'
+          Write-Host "Using LR $lr from $source"
+
+      - name: Resolve immutable assets and balanced pilot seed
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          $seed=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.pilot_id }}')
+          $seedManifest=Join-Path $seed 'manifest.json';$seedDedupe=Join-Path $seed 'dedupe.sqlite3'
+          foreach($p in @($dataPython,$tokenizer,$checkpoint,$seedManifest,$seedDedupe)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          $m=Get-Content $seedManifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or $m.pilot_only -ne $true){throw 'wrong balanced pilot seed'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+          "seed=$seed" >> $env:GITHUB_OUTPUT
+          "seed_wsl=$(W $seed)" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+
+      - name: Revalidate tooling and immutable checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.data_python }}' -m py_compile frontier350/build_weakness_recovery_pilot_bpe_data.py frontier350/security_policy350_bpe.py frontier350/verify_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/select_recovery_lr_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'tooling compile failed'}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1000000000 --max-tokens 1000032768"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'immutable 1B checkpoint verification failed'}
+
+      - name: Build three fresh weakness-targeted corpora
+        id: corpora
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets='${{ steps.env.outputs.assets }}';$seed='${{ steps.env.outputs.seed }}';$tok='${{ steps.env.outputs.tokenizer }}';$py='${{ steps.env.outputs.data_python }}';$rid='${{ steps.req.outputs.request_id }}'
+          foreach($profile in @('control','math_language','bilingual_math')){
+            $root=Join-Path $assets ('frontier350_weakness_'+$rid+'_'+$profile)
+            if(Test-Path $root){throw "corpus output already exists: $root"}
+            & $py frontier350/build_weakness_recovery_pilot_bpe_data.py --root $root --tokenizer $tok --seed-manifest (Join-Path $seed 'manifest.json') --seed-dedupe (Join-Path $seed 'dedupe.sqlite3') --profile $profile --train-tokens 10000000 --valid-tokens 100000 --shard-tokens 5000000
+            if($LASTEXITCODE -ne 0){throw "corpus build failed: $profile"}
+            & $py -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$root\manifest.json'),Path(r'$root'),Path(r'$tok')))"
+            if($LASTEXITCODE -ne 0){throw "corpus admission failed: $profile"}
+            Copy-Item (Join-Path $root 'manifest.json') ("frontier350_weakness_recovery_v1_report\${profile}_manifest.json") -Force
+          }
+
+      - name: Evaluate immutable 1B baseline on leakage-free fixed validation
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_weakness_recovery_v1_report/baseline_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'baseline validation failed'}
+
+      - name: Train three targeted curriculum candidates from immutable 1B
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$assets='${{ steps.env.outputs.assets }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}';$lr='${{ steps.lr.outputs.lr }}'
+          foreach($profile in @('control','math_language','bilingual_math')){
+            $dataWin=Join-Path $assets ('frontier350_weakness_'+$rid+'_'+$profile);$data=W $dataWin
+            $outWin=Join-Path $assets ('runs\neral350_weakness_'+$rid+'_'+$profile)
+            if(Test-Path $outWin){throw "candidate output already exists: $outWin"}
+            New-Item -ItemType Directory -Force $outWin|Out-Null;$out=W $outWin
+            Write-Host ("Training profile {0} at LR {1}" -f $profile,$lr)
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$data/train' --valid-data '$seed/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$lr' --seq 512 --microbatch 8 --grad-accum 4 --eval-every 500 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 20 --resume '$ck' --tokenizer-sha256 '$sha'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("training candidate failed: "+$profile)}
+          }
+
+      - name: Evaluate targeted candidates
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$assets='${{ steps.env.outputs.assets }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}'
+          foreach($profile in @('control','math_language','bilingual_math')){
+            $outWin=Join-Path $assets ('runs\neral350_weakness_'+$rid+'_'+$profile);$ck=W (Join-Path $outWin 'resume.pt')
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_weakness_recovery_v1_report/${profile}_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "validation failed: $profile"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_weakness_recovery_v1_report/${profile}_dev.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "dev evaluation failed: $profile"}
+            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src -PathType Leaf){Copy-Item $src ("frontier350_weakness_recovery_v1_report\${profile}_$f") -Force}}
+          }
+
+      - name: Select only a no-regression curriculum
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$lr='${{ steps.lr.outputs.lr }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350/arctus_recovery_dev_1b_baseline.json --baseline-validation frontier350_weakness_recovery_v1_report/baseline_validation.json --candidate control '$lr' frontier350_weakness_recovery_v1_report/control_dev.json frontier350_weakness_recovery_v1_report/control_validation.json --candidate math_language '$lr' frontier350_weakness_recovery_v1_report/math_language_dev.json frontier350_weakness_recovery_v1_report/math_language_validation.json --candidate bilingual_math '$lr' frontier350_weakness_recovery_v1_report/bilingual_math_dev.json frontier350_weakness_recovery_v1_report/bilingual_math_validation.json --out frontier350_weakness_recovery_v1_report/selection.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'targeted curriculum selector failed'}
+          Get-Content frontier350_weakness_recovery_v1_report\selection.json
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-targeted-weakness-recovery-v1-${{ github.run_id }}
+          path: frontier350_weakness_recovery_v1_report/
+          retention-days: 30
+          if-no-files-found: warn
