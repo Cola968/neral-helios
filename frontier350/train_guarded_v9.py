@@ -1,8 +1,10 @@
 """Own-weight V9 A/B: identical replay and frozen layers, optional gradient protection.
 
-Defaults reproduce the validated 4 x 12 layout. Throughput experiments can pack adjacent
-MAIN microbatches into larger physical forwards while leaving the optimizer-update token
-budget, 25% replay share, three protected replay references, and loss weighting unchanged.
+Defaults reproduce the validated legacy execution. Experimental throughput knobs are
+fail-closed and explicit: adjacent MAIN microbatches may be physically packed, and the
+replay-only fast path removes mathematically redundant gradient vector materialization
+plus per-microbatch host synchronizations. Token budget, replay share and loss weighting
+remain unchanged. Any fast path still requires a full capability canary before adoption.
 """
 import argparse,hashlib,json,math,random,time
 from pathlib import Path
@@ -40,11 +42,13 @@ def main():
     ap.add_argument('--max-updates',type=int,default=0)
     ap.add_argument('--batch-size',type=int,default=4)
     ap.add_argument('--microbatches',type=int,default=12)
-    ap.add_argument('--main-pack',type=int,default=1,help='Pack this many adjacent main microbatches into one larger forward; replay refs remain separate')
+    ap.add_argument('--main-pack',type=int,default=1,help='Pack adjacent main microbatches into larger physical forwards')
+    ap.add_argument('--fast-replay-only',action='store_true',help='Avoid redundant vector copies and defer scalar syncs in replay_only mode')
     ap.add_argument('--compile-mode',choices=('none','default','reduce-overhead','max-autotune-no-cudagraphs'),default='default')
     args=ap.parse_args()
     seq,batch,micros=512,args.batch_size,args.microbatches
     if batch<=0 or micros<4 or args.main_pack<=0:raise ValueError('positive batch/main-pack and >=4 microbatches required')
+    if args.fast_replay_only and args.mode!='replay_only':raise ValueError('fast replay path is valid only for replay_only mode')
     tokens_per_update=seq*batch*micros
     if args.new_tokens<=0 or 0<args.new_tokens%tokens_per_update<3*seq*batch:
         raise ValueError('budget must leave room for all three replay references in the final update')
@@ -76,7 +80,8 @@ def main():
         if hashes[d]!={r['path']:r['sha256'] for r in replay_manifest['domains'][d]['files']}:
             raise ValueError('replay shard identity differs')
     contract={'anchor_sha256':args.anchor_sha,'mode':args.mode,'new_tokens':args.new_tokens,'seed':35901,
-              'seq':seq,'microbatch':batch,'microbatches':micros,'main_pack':args.main_pack,'tokens_per_update':tokens_per_update,
+              'seq':seq,'microbatch':batch,'microbatches':micros,'main_pack':args.main_pack,
+              'fast_replay_only':args.fast_replay_only,'tokens_per_update':tokens_per_update,
               'lr':7.5e-5,'trainable_names':names,'data_sha256':hashes,
               'implementation':{p:file_sha(Path(__file__).parent/p) for p in ('model350.py','protection_v9.py','train_guarded_v9.py')},
               'master_precision':'FP32','autocast':'BF16','compile_mode':args.compile_mode,
@@ -99,6 +104,7 @@ def main():
              'start_tokens':source['processed_tokens'],'new_tokens_already_done':done,'gpu':torch.cuda.get_device_name(0)}
     append_jsonl(out/'metrics.jsonl',startup);print(json.dumps(startup),flush=True)
     start=time.perf_counter();start_done=done;start_step=step
+
     def sample(domain,count,physical_batch):
         nonlocal chain
         arrays=pools[domain].arrays
@@ -110,6 +116,7 @@ def main():
         chain=hashlib.sha256(bytes.fromhex(chain)+domain.encode()+count.to_bytes(8,'little')+rows.tobytes()).hexdigest()
         whole=torch.from_numpy(rows).pin_memory().to('cuda',non_blocking=True)
         return whole[:,:-1],mask_budget_targets(whole[:,1:],count)
+
     def save():
         state={k:v.detach().to(device='cpu',dtype=torch.bfloat16) for k,v in model.state_dict().items()}
         if any(not torch.equal(state[k],source['model'][k]) for k in frozen_names):
@@ -123,49 +130,85 @@ def main():
         ck['v9_provenance']={'anchor_sha256':args.anchor_sha,'mode':args.mode,'frozen_weights_unchanged':True,
                              'data_sha256':hashes,'new_training_tokens':done,'batch_chain':chain}
         atomic_save(ck,out/'resume.pt')
+
     if not args.resume:save()
     while done<args.new_tokens:
         tick=time.perf_counter();token_counts=update_token_counts(args.new_tokens-done,seq*batch,micros)
-        total=sum(token_counts);references=[];weighted=None;loss_value=0.
-        for domain,count in zip(DOMAINS,token_counts[:3]):
-            optimizer.zero_grad(set_to_none=True);x,y=sample(domain,count,batch)
-            with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
-            if not torch.isfinite(loss):raise FloatingPointError('nonfinite replay loss')
-            loss.backward();ref=vector(params,True).detach();references.append(ref)
-            if weighted is None:weighted=ref*(count/total)
-            else:weighted.add_(ref,alpha=count/total)
-            loss_value+=float(loss)*count/total
-        optimizer.zero_grad(set_to_none=True);assign(params,weighted,True)
-        main_counts=token_counts[3:]
-        for i in range(0,len(main_counts),args.main_pack):
-            group=main_counts[i:i+args.main_pack];count=sum(group);physical_batch=batch*len(group)
-            x,y=sample('main',count,physical_batch)
-            with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
-            if not torch.isfinite(loss):raise FloatingPointError('nonfinite main loss')
-            (loss*(count/total)).backward();loss_value+=float(loss)*count/total
-        gradient=vector(params,True);grad_norm=float(gradient.norm())
-        diagnostics={}
-        if args.mode=='projected':
-            gradient,info=project_descent(gradient,references);diagnostics['gradient_projection']=info
-            assign(params,gradient,True)
-        torch.nn.utils.clip_grad_norm_(params,1.,error_if_nonfinite=True)
-        before=vector(params);optimizer.step()
-        if args.mode=='projected':
-            descent=before-vector(params)
-            descent,info=project_descent(descent,references)
-            descent,factor=bound_step(descent,before,.0005)
-            assign(params,before-descent)
-            diagnostics.update(step_projection=info,step_radius_scale=factor,
-                               reference_descent_dots=[float(torch.dot(descent,r)) for r in references])
-        if not all(torch.isfinite(p).all() for p in params):raise FloatingPointError('nonfinite parameter after update')
+        total=sum(token_counts);diagnostics={}
+        loss_value=0.;grad_norm=0.;post_step_finite=None
+
+        if args.fast_replay_only:
+            # Mathematically equivalent weighted accumulation for replay_only: there is no
+            # projection consumer for the three explicit flattened reference vectors.
+            optimizer.zero_grad(set_to_none=True)
+            loss_acc=torch.zeros((),device='cuda',dtype=torch.float32)
+            finite_flags=[]
+            for domain,count in zip(DOMAINS,token_counts[:3]):
+                x,y=sample(domain,count,batch)
+                with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
+                finite_flags.append(torch.isfinite(loss))
+                weight=count/total
+                (loss*weight).backward();loss_acc.add_(loss.detach().float()*weight)
+            main_counts=token_counts[3:]
+            for i in range(0,len(main_counts),args.main_pack):
+                group=main_counts[i:i+args.main_pack];count=sum(group);physical_batch=batch*len(group)
+                x,y=sample('main',count,physical_batch)
+                with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
+                finite_flags.append(torch.isfinite(loss))
+                weight=count/total
+                (loss*weight).backward();loss_acc.add_(loss.detach().float()*weight)
+            clipped=torch.nn.utils.clip_grad_norm_(params,1.,error_if_nonfinite=False)
+            pre_step_ok=torch.stack(finite_flags+[torch.isfinite(clipped)]).all()
+            if not bool(pre_step_ok):raise FloatingPointError('nonfinite loss/gradient before optimizer step')
+            optimizer.step()
+            post_step_finite=torch.stack([torch.isfinite(p).all() for p in params]).all()
+            grad_norm_tensor=clipped.detach();loss_value_tensor=loss_acc.detach()
+        else:
+            references=[];weighted=None
+            for domain,count in zip(DOMAINS,token_counts[:3]):
+                optimizer.zero_grad(set_to_none=True);x,y=sample(domain,count,batch)
+                with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
+                if not torch.isfinite(loss):raise FloatingPointError('nonfinite replay loss')
+                loss.backward();ref=vector(params,True).detach();references.append(ref)
+                if weighted is None:weighted=ref*(count/total)
+                else:weighted.add_(ref,alpha=count/total)
+                loss_value+=float(loss)*count/total
+            optimizer.zero_grad(set_to_none=True);assign(params,weighted,True)
+            main_counts=token_counts[3:]
+            for i in range(0,len(main_counts),args.main_pack):
+                group=main_counts[i:i+args.main_pack];count=sum(group);physical_batch=batch*len(group)
+                x,y=sample('main',count,physical_batch)
+                with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
+                if not torch.isfinite(loss):raise FloatingPointError('nonfinite main loss')
+                (loss*(count/total)).backward();loss_value+=float(loss)*count/total
+            gradient=vector(params,True);grad_norm=float(gradient.norm())
+            if args.mode=='projected':
+                gradient,info=project_descent(gradient,references);diagnostics['gradient_projection']=info
+                assign(params,gradient,True)
+            torch.nn.utils.clip_grad_norm_(params,1.,error_if_nonfinite=True)
+            before=vector(params);optimizer.step()
+            if args.mode=='projected':
+                descent=before-vector(params)
+                descent,info=project_descent(descent,references)
+                descent,factor=bound_step(descent,before,.0005)
+                assign(params,before-descent)
+                diagnostics.update(step_projection=info,step_radius_scale=factor,
+                                   reference_descent_dots=[float(torch.dot(descent,r)) for r in references])
+            if not all(torch.isfinite(p).all() for p in params):raise FloatingPointError('nonfinite parameter after update')
+
         done+=total;step+=1
         for i,count in enumerate(token_counts):counts[DOMAINS[i] if i<3 else 'main']+=count
-        torch.cuda.synchronize();elapsed=time.perf_counter()-tick
+        torch.cuda.synchronize()
+        if args.fast_replay_only:
+            if not bool(post_step_finite):raise FloatingPointError('nonfinite parameter after optimizer step')
+            loss_value=float(loss_value_tensor);grad_norm=float(grad_norm_tensor)
+        elapsed=time.perf_counter()-tick
         row={'event':'train','step':step,'processed_tokens':int(source['processed_tokens'])+done,
              'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':7.5e-5,'seconds':elapsed,
              'tokens_per_second':total/elapsed,'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
              'peak_reserved_bytes':torch.cuda.max_memory_reserved(),'batch_size':batch,'microbatches':micros,
-             'main_pack':args.main_pack,'max_main_physical_batch':batch*min(args.main_pack,max(1,micros-3)),
+             'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
+             'max_main_physical_batch':batch*min(args.main_pack,max(1,micros-3)),
              'tokens_per_update':total,'batch_chain':chain,**diagnostics}
         append_jsonl(out/'metrics.jsonl',row)
         if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)
@@ -174,9 +217,9 @@ def main():
     summary={'complete':done==args.new_tokens,'new_tokens':done,'processed_tokens':int(source['processed_tokens'])+done,
              'updates':step,'elapsed_session':time.perf_counter()-start,'tokens_this_session':done-start_done,
              'peak_allocated_bytes':torch.cuda.max_memory_allocated(),'peak_reserved_bytes':torch.cuda.max_memory_reserved(),
-             'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'tokens_per_update':tokens_per_update,
-             'batch_chain':chain,'source_tokens':counts,'checkpoint_sha256':file_sha(out/'resume.pt'),
-             'frozen_weights_unchanged':True,'promoted':False}
+             'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
+             'tokens_per_update':tokens_per_update,'batch_chain':chain,'source_tokens':counts,
+             'checkpoint_sha256':file_sha(out/'resume.pt'),'frozen_weights_unchanged':True,'promoted':False}
     (out/'summary.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary),flush=True)
 
 
