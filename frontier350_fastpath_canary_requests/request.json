@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "action": "run_fastpath_canary_v1",
+  "request_id": "neral-fastpath-canary-v1-20260912-r1",
+  "new_tokens": 1000000
+}
