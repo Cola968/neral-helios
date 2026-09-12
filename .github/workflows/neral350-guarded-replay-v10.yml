@@ -11,7 +11,7 @@ concurrency:
 jobs:
   conservative-salvage:
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 120
+    timeout-minutes: 150
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
@@ -21,7 +21,7 @@ jobs:
           ref: ${{ github.sha }}
           clean: true
           persist-credentials: false
-      - name: Verify bounded V10 request and resources
+      - name: Verify V10 request and scratch capacity
         id: request
         run: |
           $ErrorActionPreference='Stop'
@@ -31,25 +31,80 @@ jobs:
           if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
           if($request.v9_request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe V9 request id'}
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
-          Write-Host ("FreeBytes="+$drive.Free)
-          if($drive.Free -lt 3GB){throw 'V10 requires at least 3 GiB free before checkout/evaluation'}
+          $cdrive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+          $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+          Write-Host ("AssetsFreeBytes="+$cdrive.Free)
+          Write-Host ("ScratchDriveFreeBytes="+$ddrive.Free)
+          if($cdrive.Free -lt 2GB){throw 'V10 requires at least 2 GiB free on the assets drive at startup'}
+          if($ddrive.Free -lt 20GB){throw 'V10 requires at least 20 GiB free on D: scratch'}
+          $scratchWin=Join-Path 'D:\NeralScratchV10' $request.request_id
+          if(Test-Path -LiteralPath $scratchWin){throw 'V10 scratch path already exists; refusing overwrite'}
           function W([string]$p){$p=[IO.Path]::GetFullPath($p);return '/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')}
           "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
           "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
+          "assets_win=$assets" >> $env:GITHUB_OUTPUT
+          "scratch=$(W $scratchWin)" >> $env:GITHUB_OUTPUT
+          "scratch_win=$scratchWin" >> $env:GITHUB_OUTPUT
           "request_id=$($request.request_id)" >> $env:GITHUB_OUTPUT
           "v9_request_id=$($request.v9_request_id)" >> $env:GITHUB_OUTPUT
-      - name: Runtime and source checks
+      - name: Runtime, source and baseline checks
         run: |
           $repo='${{ steps.request.outputs.repo }}'
-          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_guarded_v10.py frontier350/interpolate_recovery_checkpoint.py"
-          if($LASTEXITCODE -ne 0){throw 'V10 runtime checks failed'}
-      - name: Re-evaluate retained V9 confirmation with tighter anchor interpolation
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; test -s frontier350/v10_baseline_evidence/v9_anchor_dev.json; test -s frontier350/v10_baseline_evidence/v9_anchor_validation.json; test -s frontier350/v10_baseline_evidence/v9_anchor_bilingual.json; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_guarded_v10.py frontier350/interpolate_recovery_checkpoint.py"
+          if($LASTEXITCODE -ne 0){throw 'V10 runtime/source checks failed'}
+      - name: Evaluate conservative V10 interpolations on D scratch
+        id: evaluation
         run: |
-          $repo='${{ steps.request.outputs.repo }}';$assets='${{ steps.request.outputs.assets }}';$rid='${{ steps.request.outputs.request_id }}';$v9rid='${{ steps.request.outputs.v9_request_id }}'
-          $cmd="set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_guarded_v10.py --assets '$assets' --report frontier350_guarded_replay_v10_report --request-id '$rid' --v9-request-id '$v9rid'"
+          $repo='${{ steps.request.outputs.repo }}';$assets='${{ steps.request.outputs.assets }}';$scratch='${{ steps.request.outputs.scratch }}';$rid='${{ steps.request.outputs.request_id }}';$v9rid='${{ steps.request.outputs.v9_request_id }}'
+          $cmd="set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_guarded_v10.py --assets '$assets' --report frontier350_guarded_replay_v10_report --request-id '$rid' --v9-request-id '$v9rid' --scratch '$scratch'"
           wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'V10 stopped; temporary snapshots are cleaned by the runner'}
+          if($LASTEXITCODE -ne 0){throw 'V10 evaluation failed; no candidate is promoted'}
+      - name: Release WSL pressure and promote only a passed selection
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.request.outputs.assets_win }}'
+          $scratch='${{ steps.request.outputs.scratch_win }}'
+          $rid='${{ steps.request.outputs.request_id }}'
+          $reportDir=Join-Path (Get-Location).Path 'frontier350_guarded_replay_v10_report'
+          $selectionPath=Join-Path $reportDir 'selection.json'
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 3
+          if(!(Test-Path -LiteralPath $selectionPath)){
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            if('${{ steps.evaluation.outcome }}' -eq 'success'){throw 'evaluation succeeded without selection.json'}
+            Write-Host 'No complete selection evidence; scratch cleaned.'
+            exit 0
+          }
+          $selection=Get-Content -LiteralPath $selectionPath -Raw|ConvertFrom-Json
+          if(-not $selection.selection_passed){
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Write-Host 'No alpha passed all gates; nothing promoted.'
+            exit 0
+          }
+          $staged=Join-Path $scratch 'selected.pt'
+          if(!(Test-Path -LiteralPath $staged)){throw 'selection passed but staged checkpoint is missing'}
+          $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+          Write-Host ("AssetsFreeAfterWslShutdown="+$drive.Free)
+          if($drive.Free -lt 2GB){throw 'selection is valid but C: has insufficient room; staged checkpoint intentionally preserved on D:'}
+          $destDir=Join-Path (Join-Path $assets 'runs') ('neral350_v10_'+$rid+'_selected')
+          if(Test-Path -LiteralPath $destDir){throw 'selected destination already exists'}
+          New-Item -ItemType Directory -Path $destDir|Out-Null
+          $dest=Join-Path $destDir 'resume.pt'
+          Move-Item -LiteralPath $staged -Destination $dest
+          $sha=(Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -ne [string]$selection.selected.checkpoint_sha256){throw 'promoted checkpoint hash differs from measured selection'}
+          if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+          [ordered]@{
+            schema=1
+            promoted=$true
+            checkpoint_sha256=$sha
+            request_id=$rid
+            alpha=$selection.selected.alpha
+            processed_tokens=$selection.candidate_tokens
+            final_audit_pending=$true
+          }|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $reportDir 'promotion.json') -Encoding UTF8
+          Write-Host ("Promoted V10 alpha="+$selection.selected.alpha+" sha256="+$sha)
       - name: Upload measured V10 evidence
         if: always()
         uses: actions/upload-artifact@v4
