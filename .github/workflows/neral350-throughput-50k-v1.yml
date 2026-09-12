@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: neral-350m-throughput-50k-v1
@@ -100,6 +101,8 @@ jobs:
 
       - name: Sweep execution geometry toward 50K tok/s
         id: sweep
+        env:
+          NERAL_TELEMETRY_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.request.outputs.repo }}'
@@ -109,9 +112,30 @@ jobs:
           $target='${{ steps.request.outputs.target_tps }}'
           $updates='${{ steps.request.outputs.updates }}'
           $warmup='${{ steps.request.outputs.warmup }}'
+
+          # Live telemetry is a CPU/network sidecar. It never touches model tensors,
+          # CUDA state, optimizer state, datasets or the training process.
+          $scratchWin=Join-Path 'D:\NeralThroughput50kV1' $rid
+          $reportWin=Join-Path (Get-Location).Path 'frontier350_throughput_50k_v1_report'
+          $stopFile=Join-Path $env:RUNNER_TEMP ("neral-live-"+$rid+".stop")
+          Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
+          $telemetryScript=Join-Path (Get-Location).Path 'frontier350\live_telemetry.ps1'
+          $telemetry=Start-Job -ScriptBlock {
+            param($script,$scratchWin,$reportWin,$stopFile,$repoName,$runId,$targetTps,$updatesPerTrial)
+            & $script -ScratchWin $scratchWin -ReportWin $reportWin -StopFile $stopFile -Repo $repoName -IssueNumber 102 -RunId $runId -TargetTps ([double]$targetTps) -UpdatesPerTrial ([int]$updatesPerTrial) -IntervalSeconds 20 -TotalTrials 7
+          } -ArgumentList $telemetryScript,$scratchWin,$reportWin,$stopFile,'${{ github.repository }}','${{ github.run_id }}',$target,$updates
+
           $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_throughput_50k_v1.py --assets '$assets' --report frontier350_throughput_50k_v1_report --scratch '$scratch' --request-id '$rid' --target-tps '$target' --updates '$updates' --warmup-updates '$warmup'"
-          wsl.exe -- bash -lc $cmd
-          $code=$LASTEXITCODE
+          try {
+            wsl.exe -- bash -lc $cmd
+            $code=$LASTEXITCODE
+          } finally {
+            New-Item -ItemType File -Path $stopFile -Force | Out-Null
+            Wait-Job -Job $telemetry -Timeout 30 | Out-Null
+            Receive-Job -Job $telemetry -ErrorAction SilentlyContinue | Out-Null
+            Stop-Job -Job $telemetry -ErrorAction SilentlyContinue
+            Remove-Job -Job $telemetry -Force -ErrorAction SilentlyContinue
+          }
           wsl.exe --shutdown
           Start-Sleep -Seconds 4
           if($code -ne 0){throw 'bounded throughput sweep failed; no training configuration adopted'}
