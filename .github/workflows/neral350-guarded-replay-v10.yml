@@ -1,0 +1,56 @@
+name: Neral 350M Guarded Replay V10
+on:
+  push:
+    branches: [experiment/guarded-replay-v10]
+    paths: ['frontier350_guarded_replay_v10_requests/request.json']
+permissions:
+  contents: read
+concurrency:
+  group: neral-350m-guarded-replay-v10
+  cancel-in-progress: false
+jobs:
+  conservative-salvage:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+      - name: Verify bounded V10 request
+        id: request
+        run: |
+          $ErrorActionPreference='Stop'
+          $request=Get-Content frontier350_guarded_replay_v10_requests/request.json -Raw|ConvertFrom-Json
+          if((($request.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'action,request_id,v9_request_id,version'){throw 'unexpected request fields'}
+          if($request.version -ne 1 -or $request.action -ne 'audit_v9_confirmation_v10'){throw 'invalid V10 request'}
+          if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+          if($request.v9_request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe V9 request id'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          function W([string]$p){$p=[IO.Path]::GetFullPath($p);return '/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
+          "request_id=$($request.request_id)" >> $env:GITHUB_OUTPUT
+          "v9_request_id=$($request.v9_request_id)" >> $env:GITHUB_OUTPUT
+      - name: Runtime and source checks
+        run: |
+          $repo='${{ steps.request.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_guarded_v10.py frontier350/interpolate_recovery_checkpoint.py"
+          if($LASTEXITCODE -ne 0){throw 'V10 runtime checks failed'}
+      - name: Re-evaluate retained V9 confirmation with tighter anchor interpolation
+        run: |
+          $repo='${{ steps.request.outputs.repo }}';$assets='${{ steps.request.outputs.assets }}';$rid='${{ steps.request.outputs.request_id }}';$v9rid='${{ steps.request.outputs.v9_request_id }}'
+          $cmd="set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_guarded_v10.py --assets '$assets' --report frontier350_guarded_replay_v10_report --request-id '$rid' --v9-request-id '$v9rid'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V10 stopped; existing checkpoints retained for diagnosis'}
+      - name: Upload measured V10 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-guarded-replay-v10-${{ github.run_id }}
+          path: frontier350_guarded_replay_v10_report/
+          retention-days: 30
