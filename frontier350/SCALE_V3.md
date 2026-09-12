@@ -1,69 +1,128 @@
-# Neral 350M Scale V3
+# Neral 350M Scale V3 — Success Controller
 
-Scale V3 is the continuation framework for moving Neral 350M from the current safe ~1.01B-token region toward 10B tokens without spending most wall time on exhaustive LR/alpha grids.
+Scale V3 is the continuation framework for moving Neral 350M from the current safe ~1.01B-token region toward 10B tokens. Its two explicit objectives are:
 
-## Primary objective
+1. raise the probability that each training round yields a **safely promotable** checkpoint;
+2. spend far less wall time evaluating candidates that were unlikely to pass anyway.
 
-Increase the probability that a trained block produces a promotable checkpoint **without weakening the existing quality floor**. A promotion still requires no regression in the 140-case development suite, no validation-loss regression, no bilingual overall/direction regression, and at least one strict improvement.
+The acceptance standard itself is **not relaxed**. Every promoted checkpoint still has to preserve the complete 140-case recovery-dev floor, fixed validation loss, the 400-case bilingual overall score and both bilingual directions, while also producing at least one strict improvement.
 
-## What changes versus Scale V2
+## Why V2 was inefficient
 
-### 1. Training is made safer before evaluation
+Scale V2 trained multiple learning rates and then evaluated a large alpha family. The actual 1–2M-token training blocks were short at ~40k tok/s, while repeated full dev/bilingual evaluations dominated wall time. More importantly, changing only LR after a retention failure did not directly attack the failure mechanism.
 
-V2 tried several constant learning rates after a block had already shown retention problems. V3 changes the update itself:
+V3 therefore moves most of the adaptation **before and inside training**, and uses cheap evaluation only for ranking.
 
-- cosine LR decay within every block;
-- replay loss is explicitly boosted and normalized;
-- larger blocks automatically receive a smaller LR;
-- replay protection rises gradually with block size;
-- Pack 6 remains the throughput geometry unless later evidence replaces it.
+## 1. Start with a calibratable 1M rung
 
-This targets the actual failure mode (small reasoning/bilingual regressions) instead of merely searching more interpolation coefficients after the fact.
+The ladder is now:
 
-### 2. One train run produces two useful horizons
+`1M -> 2M -> 5M -> 10M -> 25M -> 50M -> 100M -> 250M -> 500M`
 
-The trainer writes an in-process midpoint checkpoint at ~50% of the block. If the full block fails, V3 can evaluate the midpoint immediately. There is no second training pass, no second compile and no duplicated GPU work just to obtain a 1M fallback from a 2M run.
+V2 showed that 2M was not yet a reliable first hop from the 1.010B anchor, so V3 begins at 1M. The first successful full 1M promotion immediately unlocks 2M. From 2M upward, two repeatable full-horizon promotions are required before increasing the block size again.
 
-### 3. Sequential trust-step search replaces the alpha grid
+A midpoint promotion is useful progress but does not count as proof that the full block size is stable.
 
-V2 evaluated a fixed list of interpolation alphas. V3 starts from one trust step and reacts to the failure:
+## 2. Retention-first recipes
 
-- regression -> shrink alpha;
-- all floors held but no measurable improvement -> grow alpha;
-- hard cap of three attempts.
+The first run no longer begins with the most aggressive recipe. Until the model proves repeatable promotions, the default is `retention`:
 
-The expensive bilingual holdout runs only after validation/dev already pass.
+| Recipe | Start LR | End LR | Replay boost | Mode |
+|---|---:|---:|---:|---|
+| balanced | 3.0e-5 | 1.2e-5 | 1.45 | replay-only fast path |
+| **retention** | **2.2e-5** | **8.0e-6** | **1.65** | replay-only fast path |
+| projected_rescue | 1.5e-5 | 5.0e-6 | 1.90 | replay-gradient projection |
 
-### 4. Adaptive recipes replace the LR matrix
+The LR decays with a cosine-by-token schedule inside each block. As block size grows, V3 automatically scales the LR downward and replay protection upward. Repeated failures add `failure_pressure`, which makes the next recipe more conservative instead of blindly repeating the same update.
 
-There are three retention recipes: `balanced`, `retention`, and `rescue`. At most two are trained in one round. If a round succeeds, the controller moves back toward the faster recipe. If it fails, the next run becomes more conservative.
+## 3. Free half-horizon salvage
 
-### 5. Block size grows from evidence
+Every train run writes a midpoint snapshot at about 50% of its token budget. V3 evaluates the full endpoint first. If it cannot produce a promotable candidate, the midpoint is available immediately without another compile or another training run.
 
-The ladder is:
+This means one 2M training pass can provide both a 2M and approximately 1M recovery opportunity.
 
-`2M -> 5M -> 10M -> 25M -> 50M -> 100M -> 250M -> 500M`
+## 4. Rotating smoke screen before full gates
 
-Two full-block successes are required before moving up one rung. A midpoint promotion does not count as a full-block success. A failed round moves one rung down and increases retention protection.
+`eval_recovery_smoke_v3.py` evaluates 35 cases: 5 cases from each of the seven dev categories. There are four deterministic rotations, so consecutive rounds do not keep optimizing against one tiny fixed subset.
 
-### 6. Safe state survives reboots and cancelled runs
+The smoke screen is used **only to rank recovery candidates**. It compares:
 
-`frontier350_scale_v3_state.json` is written only after a candidate has passed every promotion gate and has been copied into a selected run directory. If Windows is shut down, an unpromoted raw checkpoint cannot replace the safe anchor. The next V3 run discovers the latest promoted Neral 350M anchor automatically.
+- correct-to-wrong regressions;
+- wrong-to-correct gains;
+- option-margin movement;
+- an 8-batch validation probe.
 
-### 7. Evaluation overhead is bounded
+It can never promote a model. The top two smoke-ranked recovery candidates at most are sent to the complete immutable promotion gate.
 
-V3 does not run a full LR x alpha matrix. The controller trains at most two recipes per round, gets the half-block fallback for free, and evaluates at most three sequential trust steps per source checkpoint. The bilingual suite is skipped for any candidate that already fails validation/dev.
+## 5. Learned recovery trust step
 
-### 8. Telemetry understands dynamic blocks
+Instead of a fixed six-alpha grid, the controller keeps a persistent `preferred_alpha`. For each source checkpoint it screens only:
 
-Live telemetry reads the active trainer contract to infer the actual number of updates, so ETA remains meaningful when the block grows beyond 2M. It also reports current LR and replay boost.
+`preferred_alpha`, `0.5 × preferred_alpha`, `1.6 × preferred_alpha`
 
-## Safety invariant
+bounded to `[0.005, 0.10]`.
 
-Scale V3 is designed to raise promotion probability by improving the training trajectory, **not by making the acceptance threshold easier**. If no candidate passes, the last safe promoted checkpoint remains authoritative.
+After a failed round, the result changes the next trust step:
 
-## First-run plan
+- regression / bilingual loss -> smaller alpha;
+- all floors held but no strict gain -> larger alpha.
 
-The first V3 run should start conservatively at the latest promoted anchor found on disk, use the 2M rung, and prove that cosine LR + replay boost + adaptive trust-step recovery can pass the unchanged gate. Only after repeated full-block successes should the controller grow the block size.
+After a successful promotion, the winning alpha becomes the next preferred value. This turns repeated runs into a control loop instead of restarting a grid search from scratch every time.
 
-The design aims for a much higher useful-training/evaluation ratio than Scale V2, but the actual promotion success rate must be measured on the RTX 4070 runs; it is not assumed in advance.
+## 6. Hierarchical evaluation
+
+The intended order is:
+
+`training health -> rotating 35-case smoke + 8-batch validation -> full 140-case dev + 32-batch validation -> 400-case bilingual only if core passes -> promotion`
+
+Thus most weak candidates stop before the expensive bilingual holdout. Full promotion evidence remains identical in strictness to the previous controller.
+
+## 7. Failure does not end the campaign immediately
+
+A failed round:
+
+- preserves the existing safe anchor;
+- raises retention protection;
+- moves toward a safer recipe;
+- reduces block size when possible;
+- updates the preferred recovery alpha.
+
+The controller stops only after two consecutive failed rounds at the minimum 1M rung. This avoids losing an entire overnight campaign to one unlucky candidate while still failing closed.
+
+## 8. Safe state survives shutdowns
+
+`frontier350_scale_v3_state.json` records only the last fully promoted anchor plus control state:
+
+- safe checkpoint path / SHA / token count;
+- block rung;
+- success streak;
+- conservative recipe level;
+- preferred alpha;
+- failure pressure;
+- full baseline metrics for that exact anchor.
+
+An unverified raw or smoke checkpoint never becomes the safe anchor. After a reboot, the next run resumes from the latest fully promoted checkpoint discovered on disk.
+
+## 9. Throughput geometry
+
+Pack 6 remains the current stable geometry. The trainer supports:
+
+- variable start/end LR;
+- cosine token schedule;
+- replay boost with normalized loss weights;
+- midpoint snapshot;
+- fast replay-only path;
+- projected rescue mode;
+- frozen-weight verification and checkpoint identity contracts.
+
+The target is not merely maximum tok/s; it is **safe promoted tokens per hour**.
+
+## Promotion invariant
+
+Smoke results, training loss, throughput, or a GitHub workflow success status are never enough to promote weights. Promotion requires the complete quality gate for the exact candidate checkpoint. On any failure, the previous promoted anchor stays authoritative.
+
+## Expected effect
+
+This architecture is designed to improve promotion probability through smaller initial horizons, retention-first training, stronger replay, adaptive LR, projected rescue, midpoint salvage and learned trust steps. It is also designed to cut evaluation overhead through smoke ranking and early rejection.
+
+The numerical success rate is deliberately **not claimed in advance**. It must be measured on real RTX 4070 runs. Tomorrow's first V3 run should therefore be treated as calibration evidence: if 1M promotes cleanly, the controller can immediately begin climbing the ladder rather than repeating another LR × alpha matrix.
