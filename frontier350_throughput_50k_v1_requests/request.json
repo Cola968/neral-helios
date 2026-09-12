@@ -1,7 +1,7 @@
 {
   "version": 1,
   "action": "run_throughput_50k_v1",
-  "request_id": "neral-throughput-50k-v1-20260912-r3",
+  "request_id": "neral-throughput-50k-v1-20260912-r4",
   "target_tps": 50000,
   "updates": 14,
   "warmup_updates": 4
