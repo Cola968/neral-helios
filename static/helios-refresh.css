@@ -1,0 +1,104 @@
+/* Helios app refresh v1 — visual-only layer. Existing IDs and JS contracts stay intact. */
+:root{
+  --helios-blue:#7da2ff;
+  --helios-blue-soft:rgba(125,162,255,.12);
+  --helios-shadow:0 18px 50px rgba(0,0,0,.22);
+  --helios-radius:16px;
+  --helios-sidebar:284px;
+}
+
+body{letter-spacing:-.005em}
+.workspace{background:var(--bg)}
+.sidebar{width:var(--helios-sidebar);padding:20px 16px 16px;gap:6px;background:color-mix(in srgb,var(--side) 96%,#121827 4%)}
+.brand{margin:0 8px 22px;font-size:25px;line-height:1.05;letter-spacing:-.8px;position:relative;padding-top:15px}
+.brand::before{content:'NERAL';position:absolute;top:0;left:0;font-size:9px;line-height:1;letter-spacing:.14em;color:var(--muted);font-weight:700}
+.brand::after{content:' · Helios';font-size:13px;color:var(--muted);font-weight:500;letter-spacing:-.2px}
+.new-chat{min-height:44px;border:1px solid transparent;border-radius:12px;padding:10px 12px;transition:background .15s ease,border-color .15s ease,transform .15s ease}
+.new-chat:hover{border-color:var(--line)}
+#newChat{background:var(--surface);border-color:var(--line);font-weight:600}
+#newChat::before{content:'＋';margin-right:9px;color:var(--muted)}
+#openProjects::before{content:'◇';margin-right:10px;color:var(--muted)}
+#search{height:40px;border:1px solid transparent;border-radius:11px;margin-top:13px;background:transparent}
+#search:focus{border-color:var(--line);background:var(--soft)}
+.section-label{padding:17px 12px 7px;font-size:10px;letter-spacing:.11em;text-transform:uppercase;font-weight:700}
+.chat-item{min-height:39px;border-radius:10px}.chat-item.active{background:var(--soft)}
+.chat-item>button:first-child{padding:9px 11px}
+.sidebar-foot{margin-top:8px;padding:11px 10px;border-top:1px solid var(--line)}
+.dot{width:7px;height:7px}.dot.ready{box-shadow:0 0 0 4px color-mix(in srgb,var(--green) 14%,transparent)}
+
+header{height:68px;padding:0 26px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(14px)}
+#chatTitle{font-size:13px}.view-switch{padding:3px;border:1px solid var(--line);background:var(--soft)}
+.view-switch button{min-height:34px;padding:6px 20px}.view-switch button.selected{box-shadow:0 1px 2px #0002}
+.chat-actions>summary{font-size:21px;width:42px;height:42px;display:grid;place-items:center;padding:0}
+.action-menu{border-radius:14px;box-shadow:var(--helios-shadow)}
+
+.welcome{max-width:760px;margin:auto auto 35px}.welcome h1{font-size:clamp(26px,3vw,34px);font-weight:600;letter-spacing:-1.1px}
+.welcome h1::after{content:'\A Helios arbeitet lokal mit deinen Neral-Modellen.';white-space:pre;display:block;margin-top:10px;font-size:13px;line-height:1.5;letter-spacing:0;color:var(--muted);font-weight:400}
+.log{padding-top:38px;padding-bottom:34px;scrollbar-gutter:stable}
+.message{max-width:760px;margin-left:auto;margin-right:auto;margin-bottom:34px}
+.message .content{font-size:15px;line-height:1.72}
+.message.user .content{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:10px 15px;box-shadow:0 4px 16px #0000000c}
+.message-label{font-size:11px;color:var(--muted);letter-spacing:.01em}
+.message-label::before{content:'Helios · ';color:var(--text)}
+.message-actions{opacity:.72}.message:hover .message-actions{opacity:1}
+
+.composer-wrap{max-width:900px;padding:0 24px 20px}
+.composer{border:1px solid var(--line);border-radius:22px;padding:16px 16px 11px;background:color-mix(in srgb,var(--surface) 96%,#263044 4%);box-shadow:0 12px 34px #0002}
+.composer:focus-within{border-color:color-mix(in srgb,var(--line) 45%,var(--helios-blue) 55%);box-shadow:0 12px 34px #0002,0 0 0 3px var(--helios-blue-soft)}
+.composer textarea{min-height:62px;font-size:15px;line-height:1.55}
+.composer-bottom{margin-top:5px}.icon{transition:background .15s ease}
+.composer-model{margin-left:auto}
+#modelPicker>summary{min-height:34px;display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:11px;border:1px solid transparent;color:var(--muted);list-style:none}
+#modelPicker>summary:hover{background:var(--soft);border-color:var(--line)}
+#modelPicker>summary::-webkit-details-marker{display:none}
+.model-menu{border:1px solid var(--line)!important;border-radius:14px!important;box-shadow:var(--helios-shadow)!important}
+#send{width:38px;height:38px;font-size:22px;display:grid;place-items:center;transition:transform .12s ease,opacity .12s ease}
+#send:not(:disabled):hover{transform:translateY(-1px)}
+.composer-tools{margin:8px 0 0;padding:7px 4px 0;background:transparent;border-radius:0;border-top:1px solid color-mix(in srgb,var(--line) 65%,transparent)}
+.mode-row{gap:5px}.mode-row button,.text-button{border-radius:10px;min-height:32px}
+.mode-row button.selected{background:var(--helios-blue-soft);color:color-mix(in srgb,var(--text) 84%,var(--helios-blue) 16%)}
+.footnote{margin-top:9px}
+.status{max-width:900px;padding:8px 26px;color:var(--muted)}
+
+.project-workspace{top:68px;padding:28px clamp(20px,4vw,56px);background:var(--bg)}
+.project-workspace> .between,.project-workspace>p,.project-toolbar,.project-create,#projectStatus,#projectContent{max-width:980px;margin-left:auto;margin-right:auto}
+.project-workspace h2{font-size:28px;letter-spacing:-.9px}
+.project-tabs{gap:7px;padding:10px 0 14px;position:sticky;top:-28px;z-index:3;background:var(--bg)}
+.project-tabs button{min-height:37px;padding:8px 12px;border:1px solid transparent;border-radius:11px}
+.project-tabs button.selected{border-color:var(--line);background:var(--surface)}
+.project-nodes{gap:14px}.project-node{border-radius:15px;padding:18px;background:color-mix(in srgb,var(--surface) 34%,transparent)}
+.project-button{min-height:40px;border-radius:11px}.impact-card{border-radius:14px;background:color-mix(in srgb,var(--surface) 44%,transparent)}
+.ripple-path{border-left-color:var(--helios-blue);background:var(--helios-blue-soft);border-radius:0 12px 12px 0}
+#cascadeApply{border-radius:11px}
+
+.inspector{top:68px;width:360px;padding:26px;background:var(--side);box-shadow:-18px 0 45px #0003}
+.inspector h2{font-size:22px;letter-spacing:-.5px}
+
+@media(max-width:1000px){
+  :root{--helios-sidebar:236px}
+  .sidebar{padding-left:12px;padding-right:12px}
+  .composer-wrap{max-width:790px}
+}
+
+@media(max-width:730px){
+  :root{--helios-sidebar:286px}
+  header{height:62px;padding:0 13px}
+  .sidebar.open{display:flex;width:min(86vw,var(--helios-sidebar));padding:18px 14px;box-shadow:22px 0 55px #0008}
+  .brand{font-size:23px;margin-bottom:17px}
+  .view-switch{position:static;transform:none;margin-left:auto}.view-switch button{padding:5px 12px;min-height:32px}
+  .chat-actions{margin-left:4px}
+  .welcome{margin:auto auto 24px;padding:20px 20px 0}.welcome h1{font-size:25px}.welcome h1::after{font-size:12px}
+  .log{padding:23px 14px 20px}.message{margin-bottom:27px}.message .content{font-size:14px}.message.user .content{max-width:92%;border-radius:17px}
+  .composer-wrap{padding:0 10px 10px}.composer{border-radius:19px;padding:13px 12px 9px;box-shadow:0 8px 26px #0003}.composer textarea{min-height:58px;font-size:16px}
+  .composer-tools{margin-top:7px;display:flex;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.composer-tools::-webkit-scrollbar{display:none}.mode-row{flex-shrink:0}.temporary{flex-shrink:0}
+  .mode-row button,.composer-tools .text-button{min-height:36px;padding:7px 9px}
+  #send{width:40px;height:40px}.footnote{display:none}
+  .project-workspace,.inspector{top:62px;padding:20px 14px}.project-workspace h2{font-size:23px}.project-tabs{top:-20px;margin-left:-2px;margin-right:-2px}
+  .project-toolbar{display:grid;grid-template-columns:1fr auto}.project-toolbar .project-button{max-width:none}.project-create{display:grid;grid-template-columns:1fr auto}.project-create input{width:auto}
+}
+
+@media(max-width:420px){
+  #projectShortcut{display:none}.view-switch button{padding-inline:11px}.composer-model{max-width:145px}.temporary{display:none}.welcome h1{font-size:23px}
+}
+
+@media(prefers-reduced-motion:reduce){.new-chat,#send,.message-actions{transition:none!important}}
