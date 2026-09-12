@@ -1,8 +1,8 @@
 """Own-weight V9 A/B: identical replay and frozen layers, optional gradient protection.
 
-The default 4 x 12 microbatch geometry is the validated legacy contract. Throughput
-experiments may change batch size and accumulation count while keeping the effective
-24,576 tokens/update invariant; those knobs are explicit and recorded in the contract.
+Defaults reproduce the validated 4 x 12 layout. Throughput experiments can pack adjacent
+MAIN microbatches into larger physical forwards while leaving the optimizer-update token
+budget, 25% replay share, three protected replay references, and loss weighting unchanged.
 """
 import argparse,hashlib,json,math,random,time
 from pathlib import Path
@@ -40,10 +40,11 @@ def main():
     ap.add_argument('--max-updates',type=int,default=0)
     ap.add_argument('--batch-size',type=int,default=4)
     ap.add_argument('--microbatches',type=int,default=12)
+    ap.add_argument('--main-pack',type=int,default=1,help='Pack this many adjacent main microbatches into one larger forward; replay refs remain separate')
     ap.add_argument('--compile-mode',choices=('none','default','reduce-overhead','max-autotune-no-cudagraphs'),default='default')
     args=ap.parse_args()
     seq,batch,micros=512,args.batch_size,args.microbatches
-    if batch<=0 or micros<4:raise ValueError('batch-size must be positive and microbatches must be >=4 for three replay references plus main data')
+    if batch<=0 or micros<4 or args.main_pack<=0:raise ValueError('positive batch/main-pack and >=4 microbatches required')
     tokens_per_update=seq*batch*micros
     if args.new_tokens<=0 or 0<args.new_tokens%tokens_per_update<3*seq*batch:
         raise ValueError('budget must leave room for all three replay references in the final update')
@@ -75,10 +76,11 @@ def main():
         if hashes[d]!={r['path']:r['sha256'] for r in replay_manifest['domains'][d]['files']}:
             raise ValueError('replay shard identity differs')
     contract={'anchor_sha256':args.anchor_sha,'mode':args.mode,'new_tokens':args.new_tokens,'seed':35901,
-              'seq':seq,'microbatch':batch,'microbatches':micros,'tokens_per_update':tokens_per_update,'lr':7.5e-5,'trainable_names':names,
-              'data_sha256':hashes,'implementation':{p:file_sha(Path(__file__).parent/p) for p in
-               ('model350.py','protection_v9.py','train_guarded_v9.py')},'master_precision':'FP32','autocast':'BF16',
-              'compile_mode':args.compile_mode,'replay_fraction_nominal':.25,'trust_radius_relative':.0005}
+              'seq':seq,'microbatch':batch,'microbatches':micros,'main_pack':args.main_pack,'tokens_per_update':tokens_per_update,
+              'lr':7.5e-5,'trainable_names':names,'data_sha256':hashes,
+              'implementation':{p:file_sha(Path(__file__).parent/p) for p in ('model350.py','protection_v9.py','train_guarded_v9.py')},
+              'master_precision':'FP32','autocast':'BF16','compile_mode':args.compile_mode,
+              'replay_fraction_nominal':3/micros,'trust_radius_relative':.0005}
     optimizer=torch.optim.AdamW(params,lr=7.5e-5,betas=(.9,.95),weight_decay=.1,fused=True)
     rng=random.Random(35902);done=step=0;chain='0'*64;counts={d:0 for d in pools}
     if args.resume:
@@ -97,11 +99,11 @@ def main():
              'start_tokens':source['processed_tokens'],'new_tokens_already_done':done,'gpu':torch.cuda.get_device_name(0)}
     append_jsonl(out/'metrics.jsonl',startup);print(json.dumps(startup),flush=True)
     start=time.perf_counter();start_done=done;start_step=step
-    def sample(domain,count):
+    def sample(domain,count,physical_batch):
         nonlocal chain
         arrays=pools[domain].arrays
-        rows=np.empty((batch,seq+1),dtype=np.int64)
-        for i in range(batch):
+        rows=np.empty((physical_batch,seq+1),dtype=np.int64)
+        for i in range(physical_batch):
             array=rng.choice(arrays);offset=rng.randrange(len(array)-seq)
             rows[i]=array[offset:offset+seq+1]
         if rows.min()<0 or rows.max()>=FRONTIER_350.vocab_size:raise ValueError('invalid token id')
@@ -114,8 +116,6 @@ def main():
             raise RuntimeError('frozen weights changed')
         ck=dict(source);ck.update(model=state,processed_tokens=int(source['processed_tokens'])+done,
                                  step=int(source['step'])+step,best_validation=float('inf'),validation_identity='')
-        # Legacy optimizer is intentionally empty after V8 interpolation. V9 has
-        # a different trainable subset and stores its complete resumable state separately.
         ck['optimizer']={**source['optimizer'],'state':{}}
         ck['v9_training_state']={'contract':contract,'masters':{n:p.detach().cpu() for n,p in named},
             'optimizer':optimizer.state_dict(),'sampler_rng':rng.getstate(),'torch_rng':torch.get_rng_state(),
@@ -128,7 +128,7 @@ def main():
         tick=time.perf_counter();token_counts=update_token_counts(args.new_tokens-done,seq*batch,micros)
         total=sum(token_counts);references=[];weighted=None;loss_value=0.
         for domain,count in zip(DOMAINS,token_counts[:3]):
-            optimizer.zero_grad(set_to_none=True);x,y=sample(domain,count)
+            optimizer.zero_grad(set_to_none=True);x,y=sample(domain,count,batch)
             with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
             if not torch.isfinite(loss):raise FloatingPointError('nonfinite replay loss')
             loss.backward();ref=vector(params,True).detach();references.append(ref)
@@ -136,8 +136,10 @@ def main():
             else:weighted.add_(ref,alpha=count/total)
             loss_value+=float(loss)*count/total
         optimizer.zero_grad(set_to_none=True);assign(params,weighted,True)
-        for count in token_counts[3:]:
-            x,y=sample('main',count)
+        main_counts=token_counts[3:]
+        for i in range(0,len(main_counts),args.main_pack):
+            group=main_counts[i:i+args.main_pack];count=sum(group);physical_batch=batch*len(group)
+            x,y=sample('main',count,physical_batch)
             with torch.autocast('cuda',dtype=torch.bfloat16):_,loss=run(x,y)
             if not torch.isfinite(loss):raise FloatingPointError('nonfinite main loss')
             (loss*(count/total)).backward();loss_value+=float(loss)*count/total
@@ -158,12 +160,12 @@ def main():
         if not all(torch.isfinite(p).all() for p in params):raise FloatingPointError('nonfinite parameter after update')
         done+=total;step+=1
         for i,count in enumerate(token_counts):counts[DOMAINS[i] if i<3 else 'main']+=count
-        torch.cuda.synchronize()
-        elapsed=time.perf_counter()-tick
+        torch.cuda.synchronize();elapsed=time.perf_counter()-tick
         row={'event':'train','step':step,'processed_tokens':int(source['processed_tokens'])+done,
              'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':7.5e-5,'seconds':elapsed,
              'tokens_per_second':total/elapsed,'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
              'peak_reserved_bytes':torch.cuda.max_memory_reserved(),'batch_size':batch,'microbatches':micros,
+             'main_pack':args.main_pack,'max_main_physical_batch':batch*min(args.main_pack,max(1,micros-3)),
              'tokens_per_update':total,'batch_chain':chain,**diagnostics}
         append_jsonl(out/'metrics.jsonl',row)
         if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)
@@ -172,9 +174,9 @@ def main():
     summary={'complete':done==args.new_tokens,'new_tokens':done,'processed_tokens':int(source['processed_tokens'])+done,
              'updates':step,'elapsed_session':time.perf_counter()-start,'tokens_this_session':done-start_done,
              'peak_allocated_bytes':torch.cuda.max_memory_allocated(),'peak_reserved_bytes':torch.cuda.max_memory_reserved(),
-             'batch_size':batch,'microbatches':micros,'tokens_per_update':tokens_per_update,
-             'batch_chain':chain,'source_tokens':counts,
-             'checkpoint_sha256':file_sha(out/'resume.pt'),'frozen_weights_unchanged':True,'promoted':False}
+             'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'tokens_per_update':tokens_per_update,
+             'batch_chain':chain,'source_tokens':counts,'checkpoint_sha256':file_sha(out/'resume.pt'),
+             'frozen_weights_unchanged':True,'promoted':False}
     (out/'summary.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary),flush=True)
 
 
