@@ -1,4 +1,9 @@
-"""Own-weight V9 A/B: identical replay and frozen layers, optional gradient protection."""
+"""Own-weight V9 A/B: identical replay and frozen layers, optional gradient protection.
+
+The default 4 x 12 microbatch geometry is the validated legacy contract. Throughput
+experiments may change batch size and accumulation count while keeping the effective
+24,576 tokens/update invariant; those knobs are explicit and recorded in the contract.
+"""
 import argparse,hashlib,json,math,random,time
 from pathlib import Path
 import numpy as np
@@ -33,10 +38,14 @@ def main():
     ap.add_argument('--new-tokens',type=int,default=2_000_000)
     ap.add_argument('--resume',default='')
     ap.add_argument('--max-updates',type=int,default=0)
-    ap.add_argument('--compile-mode',choices=('none','default'),default='default')
+    ap.add_argument('--batch-size',type=int,default=4)
+    ap.add_argument('--microbatches',type=int,default=12)
+    ap.add_argument('--compile-mode',choices=('none','default','reduce-overhead','max-autotune-no-cudagraphs'),default='default')
     args=ap.parse_args()
-    seq,batch,micros=512,4,12
-    if args.new_tokens<=0 or 0<args.new_tokens%(seq*batch*micros)<3*seq*batch:
+    seq,batch,micros=512,args.batch_size,args.microbatches
+    if batch<=0 or micros<4:raise ValueError('batch-size must be positive and microbatches must be >=4 for three replay references plus main data')
+    tokens_per_update=seq*batch*micros
+    if args.new_tokens<=0 or 0<args.new_tokens%tokens_per_update<3*seq*batch:
         raise ValueError('budget must leave room for all three replay references in the final update')
     if file_sha(args.anchor)!=args.anchor_sha:raise ValueError('anchor checksum changed')
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise RuntimeError('CUDA BF16 required')
@@ -66,7 +75,7 @@ def main():
         if hashes[d]!={r['path']:r['sha256'] for r in replay_manifest['domains'][d]['files']}:
             raise ValueError('replay shard identity differs')
     contract={'anchor_sha256':args.anchor_sha,'mode':args.mode,'new_tokens':args.new_tokens,'seed':35901,
-              'seq':seq,'microbatch':batch,'microbatches':micros,'lr':7.5e-5,'trainable_names':names,
+              'seq':seq,'microbatch':batch,'microbatches':micros,'tokens_per_update':tokens_per_update,'lr':7.5e-5,'trainable_names':names,
               'data_sha256':hashes,'implementation':{p:file_sha(Path(__file__).parent/p) for p in
                ('model350.py','protection_v9.py','train_guarded_v9.py')},'master_precision':'FP32','autocast':'BF16',
               'compile_mode':args.compile_mode,'replay_fraction_nominal':.25,'trust_radius_relative':.0005}
@@ -80,7 +89,7 @@ def main():
         optimizer.load_state_dict(state['optimizer']);rng.setstate(state['sampler_rng'])
         done=state['new_tokens'];step=state['updates'];chain=state['batch_chain'];counts=state['source_tokens']
         torch.set_rng_state(state['torch_rng']);torch.cuda.set_rng_state_all(state['cuda_rng'])
-    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode='default')
+    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode=args.compile_mode)
     total_parameters=sum(p.numel() for p in model.parameters())
     if total_parameters!=349_825_152:raise ValueError('parameter contract changed')
     startup={'event':'startup','contract':contract,'parameters':total_parameters,
@@ -150,17 +159,21 @@ def main():
         done+=total;step+=1
         for i,count in enumerate(token_counts):counts[DOMAINS[i] if i<3 else 'main']+=count
         torch.cuda.synchronize()
+        elapsed=time.perf_counter()-tick
         row={'event':'train','step':step,'processed_tokens':int(source['processed_tokens'])+done,
-             'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':7.5e-5,'seconds':time.perf_counter()-tick,
-             'tokens_per_second':total/(time.perf_counter()-tick),'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
-             'batch_chain':chain,**diagnostics}
+             'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':7.5e-5,'seconds':elapsed,
+             'tokens_per_second':total/elapsed,'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
+             'peak_reserved_bytes':torch.cuda.max_memory_reserved(),'batch_size':batch,'microbatches':micros,
+             'tokens_per_update':total,'batch_chain':chain,**diagnostics}
         append_jsonl(out/'metrics.jsonl',row)
         if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)
         if step%20==0 or done==args.new_tokens:save()
         if args.max_updates and step-start_step>=args.max_updates:save();break
     summary={'complete':done==args.new_tokens,'new_tokens':done,'processed_tokens':int(source['processed_tokens'])+done,
              'updates':step,'elapsed_session':time.perf_counter()-start,'tokens_this_session':done-start_done,
-             'peak_allocated_bytes':torch.cuda.max_memory_allocated(),'batch_chain':chain,'source_tokens':counts,
+             'peak_allocated_bytes':torch.cuda.max_memory_allocated(),'peak_reserved_bytes':torch.cuda.max_memory_reserved(),
+             'batch_size':batch,'microbatches':micros,'tokens_per_update':tokens_per_update,
+             'batch_chain':chain,'source_tokens':counts,
              'checkpoint_sha256':file_sha(out/'resume.pt'),'frozen_weights_unchanged':True,'promoted':False}
     (out/'summary.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary),flush=True)
 
