@@ -11,7 +11,7 @@ concurrency:
 jobs:
   conservative-salvage:
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 150
+    timeout-minutes: 180
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
@@ -49,27 +49,60 @@ jobs:
           "v9_request_id=$($request.v9_request_id)" >> $env:GITHUB_OUTPUT
       - name: Runtime, source and baseline checks
         run: |
+          $ErrorActionPreference='Stop'
           $repo='${{ steps.request.outputs.repo }}'
-          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; test -s frontier350/v10_baseline_evidence/v9_anchor_dev.json; test -s frontier350/v10_baseline_evidence/v9_anchor_validation.json; test -s frontier350/v10_baseline_evidence/v9_anchor_bilingual.json; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_guarded_v10.py frontier350/interpolate_recovery_checkpoint.py"
-          if($LASTEXITCODE -ne 0){throw 'V10 runtime/source checks failed'}
-      - name: Evaluate conservative V10 interpolations on D scratch
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; test -s frontier350/v10_baseline_evidence/v9_anchor_dev.json; test -s frontier350/v10_baseline_evidence/v9_anchor_validation.json; test -s frontier350/v10_baseline_evidence/v9_anchor_bilingual.json; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v10_prepare_alpha.py frontier350/v10_gate_alpha.py frontier350/v10_select_alpha.py frontier350/interpolate_recovery_checkpoint.py"
+          wsl.exe -- bash -lc $cmd
+          $code=$LASTEXITCODE
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 2
+          if($code -ne 0){throw 'V10 runtime/source checks failed'}
+      - name: Evaluate each alpha in fresh WSL sessions
         id: evaluation
         run: |
-          $repo='${{ steps.request.outputs.repo }}';$assets='${{ steps.request.outputs.assets }}';$scratch='${{ steps.request.outputs.scratch }}';$rid='${{ steps.request.outputs.request_id }}';$v9rid='${{ steps.request.outputs.v9_request_id }}'
-          $cmd="set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_guarded_v10.py --assets '$assets' --report frontier350_guarded_replay_v10_report --request-id '$rid' --v9-request-id '$v9rid' --scratch '$scratch'"
-          wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'V10 evaluation failed; no candidate is promoted'}
-      - name: Release WSL pressure and promote only a passed selection
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'
+          $assets='${{ steps.request.outputs.assets }}'
+          $scratchRoot='${{ steps.request.outputs.scratch }}'
+          $v9rid='${{ steps.request.outputs.v9_request_id }}'
+          $python='~/.venvs/neral-triton-py312/bin/python'
+          $reportRoot="$repo/frontier350_guarded_replay_v10_report"
+          $common="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++;"
+
+          function Invoke-FreshWsl([string]$command,[string]$label){
+            Write-Host ("--- "+$label+" ---")
+            wsl.exe -- bash -lc $command
+            $code=$LASTEXITCODE
+            wsl.exe --shutdown
+            Start-Sleep -Seconds 3
+            if($code -ne 0){throw ("V10 failed during "+$label+" with exit code "+$code)}
+          }
+
+          $alphas=@('0.075','0.05','0.025','0.0125')
+          foreach($alpha in $alphas){
+            $tag='v10_a'+$alpha.Replace('.','p')
+            $scratch="$scratchRoot/$tag"
+            $report="$reportRoot/$tag"
+
+            Invoke-FreshWsl "$common $python -u frontier350/v10_prepare_alpha.py --assets '$assets' --v9-request-id '$v9rid' --scratch '$scratch' --alpha '$alpha'" "$tag prepare"
+            Invoke-FreshWsl "$common mkdir -p '$report'; $python -u frontier350/eval_validation_loss350.py --checkpoint '$scratch/candidate.pt' --valid-data '$assets/frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2/valid' --out '$report/validation.json' --seq 512 --batch 4 --batches 32 --seed 351337" "$tag validation"
+            Invoke-FreshWsl "$common mkdir -p '$report'; $python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$scratch/candidate.pt' --tokenizer '$assets/frontier350_assets/tokenizer.json' --out '$report/dev.json' --expected-tokens 1008003584" "$tag development gate"
+            Invoke-FreshWsl "$common mkdir -p '$report'; $python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$scratch/candidate.pt' --tokenizer '$assets/frontier350_assets/tokenizer.json' --cases '$assets/frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05/bilingual_holdout.json' --out '$report/bilingual.json' --expected-tokens 1008003584" "$tag bilingual gate"
+            Invoke-FreshWsl "$common $python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350/v10_baseline_evidence/v9_anchor_dev.json --baseline-validation frontier350/v10_baseline_evidence/v9_anchor_validation.json --candidate '$tag' 7.5e-5 '$report/dev.json' '$report/validation.json' --out '$report/legacy_gate.json'; $python -u frontier350/v10_gate_alpha.py --checkpoint '$scratch/candidate.pt' --alpha '$alpha' --dev '$report/dev.json' --validation '$report/validation.json' --bilingual '$report/bilingual.json' --legacy-gate '$report/legacy_gate.json' --out '$report/result.json'" "$tag strict selection gate"
+          }
+
+          Invoke-FreshWsl "$common $python -u frontier350/v10_select_alpha.py --reports '$reportRoot' --scratch-root '$scratchRoot' --out '$reportRoot/selection.json'" "V10 final alpha selection"
+      - name: Promote only a fully passing staged selection
         if: always()
         run: |
           $ErrorActionPreference='Stop'
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 3
           $assets='${{ steps.request.outputs.assets_win }}'
           $scratch='${{ steps.request.outputs.scratch_win }}'
           $rid='${{ steps.request.outputs.request_id }}'
           $reportDir=Join-Path (Get-Location).Path 'frontier350_guarded_replay_v10_report'
           $selectionPath=Join-Path $reportDir 'selection.json'
-          wsl.exe --shutdown
-          Start-Sleep -Seconds 3
           if(!(Test-Path -LiteralPath $selectionPath)){
             if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
             if('${{ steps.evaluation.outcome }}' -eq 'success'){throw 'evaluation succeeded without selection.json'}
@@ -82,7 +115,8 @@ jobs:
             Write-Host 'No alpha passed all gates; nothing promoted.'
             exit 0
           }
-          $staged=Join-Path $scratch 'selected.pt'
+          $selectedTag=[string]$selection.selected_tag
+          $staged=Join-Path (Join-Path $scratch $selectedTag) 'candidate.pt'
           if(!(Test-Path -LiteralPath $staged)){throw 'selection passed but staged checkpoint is missing'}
           $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
           Write-Host ("AssetsFreeAfterWslShutdown="+$drive.Free)
@@ -100,11 +134,12 @@ jobs:
             promoted=$true
             checkpoint_sha256=$sha
             request_id=$rid
+            tag=$selectedTag
             alpha=$selection.selected.alpha
             processed_tokens=$selection.candidate_tokens
             final_audit_pending=$true
           }|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $reportDir 'promotion.json') -Encoding UTF8
-          Write-Host ("Promoted V10 alpha="+$selection.selected.alpha+" sha256="+$sha)
+          Write-Host ("Promoted V10 "+$selectedTag+" sha256="+$sha)
       - name: Upload measured V10 evidence
         if: always()
         uses: actions/upload-artifact@v4
