@@ -21,7 +21,7 @@ from pathlib import Path
 from recovery_identity import file_sha
 
 ANCHOR_SHA = "ce518b87e19e1064be40b7a33f16cf4b06ab2284af30526c76729ef074c2d3f2"
-ANCHOR_REL = "runs/neral350_autolearn_neral-autolearn-v1-20260912-r2_r02_selected/resume.pt"
+ANCHOR_TOKENS = 1_010_003_584
 SEQ = 512
 BATCH = 4
 MICROBATCHES = 12
@@ -49,6 +49,72 @@ def percentile10(values: list[float]) -> float:
     return ordered[max(0, math.floor((len(ordered) - 1) * 0.10))]
 
 
+def resolve_anchor(assets: Path) -> tuple[Path, list[dict]]:
+    """Resolve the accepted Auto-Learn anchor by content identity, not folder spelling.
+
+    We first scan only likely Auto-Learn selected checkpoints. A broader selected-checkpoint
+    fallback is used only if necessary. Checkpoints are accepted solely by SHA-256, so a
+    renamed/moved run directory cannot silently change the training anchor.
+    """
+    runs = assets / "runs"
+    if not runs.is_dir():
+        raise FileNotFoundError(f"runs directory missing: {runs}")
+
+    likely = sorted(runs.glob("neral350_autolearn_*/resume.pt"))
+    fallback = sorted(runs.glob("neral350_*_selected/resume.pt"))
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for p in [*likely, *fallback]:
+        key = str(p.resolve())
+        if key not in seen and p.is_file():
+            candidates.append(p)
+            seen.add(key)
+
+    print(json.dumps({
+        "event": "anchor_discovery",
+        "expected_sha256": ANCHOR_SHA,
+        "expected_tokens": ANCHOR_TOKENS,
+        "candidate_count": len(candidates),
+        "likely_count": len(likely),
+    }), flush=True)
+
+    matches: list[Path] = []
+    evidence: list[dict] = []
+    for i, path in enumerate(candidates, start=1):
+        started = time.perf_counter()
+        sha = file_sha(path)
+        row = {
+            "path": str(path),
+            "sha256": sha,
+            "match": sha == ANCHOR_SHA,
+            "hash_seconds": time.perf_counter() - started,
+            "index": i,
+            "candidate_count": len(candidates),
+        }
+        evidence.append(row)
+        print(json.dumps({"event": "anchor_candidate", **row}), flush=True)
+        if sha == ANCHOR_SHA:
+            matches.append(path)
+
+    if not matches:
+        raise ValueError(
+            "accepted 1.010B Auto-Learn anchor SHA not found among selected checkpoints; "
+            f"searched {len(candidates)} candidate(s)"
+        )
+
+    # Identical SHA means identical file bytes. Choose deterministically while recording all
+    # copies so provenance remains auditable.
+    chosen = sorted(matches, key=lambda p: str(p))[0]
+    print(json.dumps({
+        "event": "anchor_resolved",
+        "path": str(chosen),
+        "sha256": ANCHOR_SHA,
+        "expected_tokens": ANCHOR_TOKENS,
+        "matching_copies": [str(p) for p in sorted(matches, key=lambda p: str(p))],
+    }), flush=True)
+    return chosen, evidence
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     for name in ("assets", "report", "scratch", "request-id"):
@@ -74,9 +140,14 @@ def main() -> None:
     report.mkdir(parents=True, exist_ok=True)
     scratch.mkdir(parents=True)
 
-    anchor = assets / ANCHOR_REL
-    if not anchor.is_file() or file_sha(anchor) != ANCHOR_SHA:
-        raise ValueError("accepted 1.010B Auto-Learn anchor missing or checksum changed")
+    anchor, anchor_search = resolve_anchor(assets)
+    (report / "anchor_resolution.json").write_text(json.dumps({
+        "expected_sha256": ANCHOR_SHA,
+        "expected_tokens": ANCHOR_TOKENS,
+        "selected_path": str(anchor),
+        "candidates": anchor_search,
+    }, indent=2), encoding="utf-8")
+
     main_data = assets / "frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05/train"
     replay = assets / "frontier350_replay_v9_20260912"
     if not main_data.is_dir() or not replay.is_dir():
@@ -92,6 +163,16 @@ def main() -> None:
         metrics_copy = report / f"{name}_metrics.jsonl"
         summary_copy = report / f"{name}_summary.json"
         before = gpu_state()
+        print(json.dumps({
+            "event": "trial_start",
+            "name": name,
+            "main_pack": pack,
+            "compile_mode": compile_mode,
+            "fast_replay_only": fast,
+            "gpu": before,
+            "updates": a.updates,
+            "tokens": budget,
+        }), flush=True)
         cmd = [
             sys.executable, "-u", str(trainer),
             "--anchor", str(anchor), "--anchor-sha", ANCHOR_SHA,
@@ -147,7 +228,9 @@ def main() -> None:
             p10 = percentile10(rates)
             mean = statistics.fmean(rates)
             peak = max(rates)
-            pass_memory = peak_alloc <= MAX_ALLOCATED and peak_res <= MAX_RESERVED
+            peak_alloc_ok = peak_alloc <= MAX_ALLOCATED
+            peak_res_ok = peak_res <= MAX_RESERVED
+            pass_memory = peak_alloc_ok and peak_res_ok
             stable_ok = p10 >= 0.90 * med
             row.update(
                 median_tps=med, mean_tps=mean, p10_tps=p10, peak_tps=peak,
@@ -166,12 +249,12 @@ def main() -> None:
 
     # Exact legacy baseline first.
     baseline = run_trial("legacy_pack1_default", 1, "default", False)
-    results.append(baseline);print(json.dumps({"event":"trial",**baseline}),flush=True)
+    results.append(baseline); print(json.dumps({"event": "trial", **baseline}), flush=True)
 
     # Fast path: same update semantics, then progressively larger main physical batches.
     for pack in (1, 2, 3, 4):
         row = run_trial(f"fast_pack{pack}_default", pack, "default", True)
-        results.append(row);print(json.dumps({"event":"trial",**row}),flush=True)
+        results.append(row); print(json.dumps({"event": "trial", **row}), flush=True)
 
     valid_fast = [r for r in results if r.get("fast_replay_only") and r.get("returncode") == 0 and r.get("pass_memory") and r.get("stable") and "median_tps" in r]
     if not valid_fast:
@@ -181,7 +264,7 @@ def main() -> None:
     # Compiler-mode sweep only on the best safe fast-path geometry.
     for mode in ("reduce-overhead", "max-autotune-no-cudagraphs"):
         row = run_trial(f"fast_pack{best_default['main_pack']}_{mode}", int(best_default["main_pack"]), mode, True)
-        results.append(row);print(json.dumps({"event":"trial",**row}),flush=True)
+        results.append(row); print(json.dumps({"event": "trial", **row}), flush=True)
 
     eligible = [r for r in results if r.get("fast_replay_only") and r.get("returncode") == 0 and r.get("pass_memory") and r.get("stable") and "median_tps" in r]
     best = max(eligible, key=lambda r: r["median_tps"])
@@ -189,11 +272,12 @@ def main() -> None:
         raise RuntimeError("legacy baseline did not produce a valid measurement")
     speedup = best["median_tps"] / baseline["median_tps"]
     selection = {
-        "schema": 2,
+        "schema": 3,
         "benchmark": "neral350-throughput-50k-v1",
         "request_id": a.request_id,
         "anchor_sha256": ANCHOR_SHA,
-        "anchor_tokens": 1_010_003_584,
+        "anchor_tokens": ANCHOR_TOKENS,
+        "anchor_path": str(anchor),
         "target_tps": a.target_tps,
         "updates_per_trial": a.updates,
         "warmup_updates_excluded": a.warmup_updates,
@@ -210,7 +294,7 @@ def main() -> None:
         "next_gate": "Winning fast path must pass a bounded 1M-token canary with validation/dev/bilingual retention gates before adoption.",
     }
     (report / "selection.json").write_text(json.dumps(selection, indent=2), encoding="utf-8")
-    print(json.dumps({"event":"selection",**selection}),flush=True)
+    print(json.dumps({"event": "selection", **selection}), flush=True)
     shutil.rmtree(scratch, ignore_errors=True)
 
 
