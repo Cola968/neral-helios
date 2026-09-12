@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "action": "run_guarded_replay_v9",
+  "new_tokens": 2000000,
+  "request_id": "arctus-guarded-v9-20260912-r1"
+}
