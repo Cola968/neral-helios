@@ -56,6 +56,9 @@ def interpolate(anchor_path: Path, candidate_path: Path, out_path: Path, alpha: 
             merged[key] = value
 
     result_ck = dict(candidate)
+    # A projected/interpolated evaluation snapshot must never resume stale FP32
+    # master weights or Adam moments from the unaligned V9 candidate.
+    result_ck.pop('v9_training_state', None)
     result_ck["model"] = merged
     result_ck["best_validation"] = float("inf")
     result_ck["validation_identity"] = ""

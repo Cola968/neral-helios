@@ -74,7 +74,7 @@ class RMSNorm(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         xf = x.float()
         y = xf * torch.rsqrt(xf.square().mean(-1, keepdim=True) + self.eps)
-        return y.to(x.dtype) * self.weight
+        return y.to(x.dtype) * self.weight.to(x.dtype)
 
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:

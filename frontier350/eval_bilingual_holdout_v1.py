@@ -13,7 +13,7 @@ from tokenizers import Tokenizer
 
 from eval500m_diagnostic import conditional_mean_nll
 from model350 import FRONTIER_350, Neral350M
-from recovery_identity import file_sha
+from recovery_identity import file_sha, object_sha
 
 
 def main() -> None:
@@ -90,6 +90,8 @@ def main() -> None:
     }
     correct = sum(int(row["correct"]) for row in rows)
     summary = {
+        "protocol_sha256": object_sha({p: file_sha(Path(__file__).parent / p) for p in
+            ('model350.py', 'eval500m_diagnostic.py', 'eval_bilingual_holdout_v1.py')}),
         "schema": 1,
         "suite": spec["suite"],
         "checkpoint_sha256": file_sha(args.checkpoint),

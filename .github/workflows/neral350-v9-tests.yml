@@ -1,0 +1,20 @@
+name: ARCTUS V9 CPU Regression Tests
+on:
+  push:
+    branches: [experiment/guarded-replay-v9]
+  pull_request:
+    paths: ['frontier350/*v9.py', 'tests/test_protection_v9.py']
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install numpy pytest
+      - run: python -m pytest -q tests/test_protection_v9.py tests/test_arctus_recovery_hardening.py

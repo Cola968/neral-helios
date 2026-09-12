@@ -1,0 +1,134 @@
+{
+    "schema":  1,
+    "status":  "partial_safe_progress",
+    "start_tokens":  1002003584,
+    "final_tokens":  1004003584,
+    "completed_segments":  1,
+    "requested_segments":  5,
+    "segment_tokens":  2000000,
+    "stop_reason":  "segment_2_no_safe_step",
+    "checkpoint_sha256":  "4a2e2682fa215b02132f552bc3cdf251abbbfc5944cd4631d6f9065c03583eab",
+    "policy":  "monotonic no-regression gate on validation, 140-case dev categories/overall, and 400-case bilingual overall plus both directions; largest safe alpha",
+    "records":  [
+                    {
+                        "segment":  1,
+                        "start_tokens":  1002003584,
+                        "stop_tokens":  1004003584,
+                        "alpha":  1,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  69.5,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  1,
+                        "start_tokens":  1002003584,
+                        "stop_tokens":  1004003584,
+                        "alpha":  0.85,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  69.5,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  1,
+                        "start_tokens":  1002003584,
+                        "stop_tokens":  1004003584,
+                        "alpha":  0.7,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  69.25,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  1,
+                        "start_tokens":  1002003584,
+                        "stop_tokens":  1004003584,
+                        "alpha":  0.55,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  68.75,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  1,
+                        "start_tokens":  1002003584,
+                        "stop_tokens":  1004003584,
+                        "alpha":  0.4,
+                        "legacy_gate":  true,
+                        "holdout_gate":  true,
+                        "holdout_overall":  67.75,
+                        "pass":  true
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  1,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  71.25,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  0.85,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  70.75,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  0.7,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  70.5,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  0.55,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  70.25,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  0.4,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  69.5,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  0.25,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  69.25,
+                        "pass":  false
+                    },
+                    {
+                        "segment":  2,
+                        "start_tokens":  1004003584,
+                        "stop_tokens":  1006003584,
+                        "alpha":  0.1,
+                        "legacy_gate":  false,
+                        "holdout_gate":  true,
+                        "holdout_overall":  68.5,
+                        "pass":  false
+                    }
+                ]
+}

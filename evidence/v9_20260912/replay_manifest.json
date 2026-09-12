@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "purpose": "training replay only; source domains are capability proxies",
+  "parent_manifest_sha256": "e58c373a90efbab09b246c05d16c4e7387cab54f5551693e43e9bb3fc3e95c2b",
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "domains": {
+    "education": {
+      "source": "fineweb_edu_en",
+      "parent_train_offset": 86500000,
+      "tokens": 2000000,
+      "files": [
+        {
+          "path": "replay_00000.bin",
+          "tokens": 2000000,
+          "sha256": "64907d62dcaf9b8d83ece98d6ae586f4d77057e21c7574a86d1922284905a033"
+        }
+      ]
+    },
+    "general": {
+      "source": "fineweb_en",
+      "parent_train_offset": 199000000,
+      "tokens": 2000000,
+      "files": [
+        {
+          "path": "replay_00000.bin",
+          "tokens": 2000000,
+          "sha256": "52fb3fca126e6346e566f9e22ace214249b3b2c7898f3c9089204f43bbd0e38c"
+        }
+      ]
+    },
+    "math_reasoning": {
+      "source": "finemath",
+      "parent_train_offset": 411500000,
+      "tokens": 2000000,
+      "files": [
+        {
+          "path": "replay_00000.bin",
+          "tokens": 2000000,
+          "sha256": "f4b598d515d0cbab41164b6637facf3b0b3496f7a5313e1166de02e74a0242d5"
+        }
+      ]
+    }
+  },
+  "benchmarks_used_for_training": false
+}
