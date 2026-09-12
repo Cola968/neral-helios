@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "action": "run_safe_confirmation_v8",
+  "architecture": "frontier350-v1",
+  "request_id": "arctus-safe-v8-20260912-r1",
+  "pilot_data_id": "arctus-recovery-lr-20260911-r2",
+  "profile": "xling_05",
+  "candidate_lr": 0.000075,
+  "segment_tokens": 2000000,
+  "segments": 5
+}
