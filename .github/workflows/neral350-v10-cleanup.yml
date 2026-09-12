@@ -1,0 +1,36 @@
+name: Neral 350M V10 Targeted Cleanup
+on:
+  push:
+    branches: [experiment/guarded-replay-v10]
+    paths: ['frontier350_guarded_replay_v10_cleanup_requests/request.json']
+permissions:
+  contents: read
+concurrency:
+  group: neral-350m-guarded-replay-v10
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    steps:
+      - name: Remove only failed V10 salvage outputs and report disk state
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $targets=@(
+            'neral350_v10_arctus-guarded-v10-salvage-20260912-r1',
+            'neral350_v10_arctus-guarded-v10-salvage-20260912-r2'
+          )
+          foreach($name in $targets){
+            $path=Join-Path (Join-Path $assets 'runs') $name
+            if(Test-Path $path){
+              Write-Host "Removing failed V10 output: $path"
+              Remove-Item -LiteralPath $path -Recurse -Force
+            }
+          }
+          $report='C:\actions-runner\_work\neral-helios\neral-helios\frontier350_guarded_replay_v10_report'
+          if(Test-Path $report){Remove-Item -LiteralPath $report -Recurse -Force}
+          $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+          Write-Host ("FreeBytes="+$drive.Free)
+          if($drive.Free -lt 2GB){throw 'Less than 2 GiB free after targeted cleanup; block further checkpoint creation'}
