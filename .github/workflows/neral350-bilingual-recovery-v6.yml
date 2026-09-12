@@ -1,0 +1,218 @@
+name: Neral 350M Cross-Lingual Recovery V6
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_bilingual_recovery_v6_requests/request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-bilingual-recovery-v6
+  cancel-in-progress: true
+
+jobs:
+  bilingual-recovery-v6:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded V6 request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_bilingual_recovery_v6_requests\request.json' -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,fixed_lr,pilot_data_id,profiles,request_id,stop_after_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'run_bilingual_recovery_v6'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 1010003584){throw 'V6 stop must be exactly +10M from immutable 1B'}
+          if([math]::Abs([double]$r.fixed_lr-0.000075) -gt 1e-12){throw 'V6 LR must be constant 7.5e-5'}
+          $expected=@('xling_05','xling_10','xling_15');$p=@($r.profiles)
+          if($p.Count -ne 3 -or (($p -join ',') -ne ($expected -join ','))){throw 'unexpected V6 profiles'}
+          foreach($x in @($r.request_id,$r.pilot_data_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid id'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "pilot_id=$($r.pilot_data_id)" >> $env:GITHUB_OUTPUT
+          "stop=$($r.stop_after_tokens)" >> $env:GITHUB_OUTPUT
+          "lr=$($r.fixed_lr)" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Force frontier350_bilingual_recovery_v6_report|Out-Null
+
+      - name: Resolve immutable assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          if((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLower() -ne 'be1e0d2ae6b95b734fadd516dc012b8d92935c69ebe830d7358637cefb0e2498'){throw 'immutable 1B checkpoint digest differs'}
+          $seed=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.pilot_id }}')
+          foreach($p in @($dataPython,$tokenizer,$checkpoint,(Join-Path $seed 'manifest.json'))){if(-not(Test-Path $p -PathType Leaf)){throw "missing asset: $p"}}
+          $m=Get-Content (Join-Path $seed 'manifest.json') -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or [Int64]$m.train_tokens -ne 20000000 -or [Int64]$m.validation_tokens -ne 200000){throw 'wrong recovery seed'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+          "seed=$seed" >> $env:GITHUB_OUTPUT
+          "seed_wsl=$(W $seed)" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+
+      - name: Revalidate tooling and immutable checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.data_python }}' -m py_compile frontier350/build_bilingual_recovery_v6.py frontier350/eval_bilingual_holdout_v1.py frontier350/select_bilingual_recovery_v6.py frontier350/eval_recovery_dev_v2.py frontier350/select_recovery_lr_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'V6 tooling compile failed'}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1000000000 --max-tokens 1000032768"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'immutable 1B checkpoint verification failed'}
+
+      - name: Preflight disk
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';$root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets));$drive=Get-PSDrive -Name $root.Substring(0,1)
+          $freeGiB=[math]::Round($drive.Free/1GB,2);Write-Host "free_disk_gib=$freeGiB"
+          if($drive.Free -lt 9GB){throw "insufficient free disk: ${freeGiB} GiB; need >= 9 GiB"}
+
+      - name: Download pinned Tatoeba DE-EN snapshot
+        id: tatoeba
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}';$cache=Join-Path $assets 'source_cache';New-Item -ItemType Directory -Force $cache|Out-Null
+          $zip=Join-Path $cache 'tatoeba-v2021-07-22-de-en.txt.zip'
+          if(-not(Test-Path $zip -PathType Leaf)){
+            & '${{ steps.env.outputs.data_python }}' -c "import urllib.request; urllib.request.urlretrieve('https://object.pouta.csc.fi/OPUS-Tatoeba/v2021-07-22/moses/de-en.txt.zip', r'$zip')"
+            if($LASTEXITCODE -ne 0){throw 'Tatoeba download failed'}
+          }
+          $sha=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "tatoeba_archive_sha256=$sha"
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Build three DE-EN preservation corpora
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}';$seed='${{ steps.env.outputs.seed }}';$tok='${{ steps.env.outputs.tokenizer }}';$py='${{ steps.env.outputs.data_python }}';$zip='${{ steps.tatoeba.outputs.zip }}';$rid='${{ steps.req.outputs.request_id }}'
+          $holdoutSha=$null
+          foreach($profile in @('xling_05','xling_10','xling_15')){
+            $root=Join-Path $assets ('frontier350_bilingual_v6_'+$rid+'_'+$profile)
+            if(Test-Path $root){throw "V6 corpus already exists: $root"}
+            & $py frontier350/build_bilingual_recovery_v6.py --seed $seed --root $root --tokenizer $tok --tatoeba-zip $zip --profile $profile
+            if($LASTEXITCODE -ne 0){throw "V6 corpus build failed: $profile"}
+            Copy-Item (Join-Path $root 'manifest.json') ("frontier350_bilingual_recovery_v6_report\${profile}_manifest.json") -Force
+            $h=(Get-FileHash -LiteralPath (Join-Path $root 'bilingual_holdout.json') -Algorithm SHA256).Hash.ToLower()
+            if($null -eq $holdoutSha){$holdoutSha=$h;Copy-Item (Join-Path $root 'bilingual_holdout.json') 'frontier350_bilingual_recovery_v6_report\bilingual_holdout.json' -Force}
+            elseif($h -ne $holdoutSha){throw 'V6 holdout differs across profile builds'}
+          }
+
+      - name: Evaluate immutable 1B baseline
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_bilingual_recovery_v6_report/baseline_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline validation failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_bilingual_recovery_v6_report/baseline_dev.json --expected-tokens 1000003584"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline dev failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350_bilingual_recovery_v6_report/bilingual_holdout.json --out frontier350_bilingual_recovery_v6_report/baseline_holdout.json --expected-tokens 1000003584"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline bilingual holdout failed'}
+
+      - name: Train and evaluate V6 profiles sequentially
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck0='${{ steps.env.outputs.checkpoint_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$assets='${{ steps.env.outputs.assets }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}';$lr='${{ steps.req.outputs.lr }}'
+          foreach($profile in @('xling_05','xling_10','xling_15')){
+            $dataWin=Join-Path $assets ('frontier350_bilingual_v6_'+$rid+'_'+$profile);$data=W $dataWin
+            $outWin=Join-Path $assets ('runs\neral350_bilingual_v6_'+$rid+'_'+$profile)
+            if(Test-Path $outWin){throw "candidate output exists: $outWin"}
+            New-Item -ItemType Directory -Force $outWin|Out-Null;$out=W $outWin
+            Write-Host "Training V6 profile $profile at constant LR $lr"
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$data/train' --valid-data '$seed/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$lr' --lr-schedule constant --resume-only --seq 512 --microbatch 8 --grad-accum 4 --eval-every 500 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 1 --resume '$ck0' --tokenizer-sha256 '$sha'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "training failed: $profile"}
+            $ck=W (Join-Path $outWin 'resume.pt')
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_bilingual_recovery_v6_report/${profile}_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "validation failed: $profile"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_bilingual_recovery_v6_report/${profile}_dev.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "dev failed: $profile"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350_bilingual_recovery_v6_report/bilingual_holdout.json --out frontier350_bilingual_recovery_v6_report/${profile}_holdout.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "holdout failed: $profile"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350_bilingual_recovery_v6_report/baseline_dev.json --baseline-validation frontier350_bilingual_recovery_v6_report/baseline_validation.json --candidate '$profile' '$lr' frontier350_bilingual_recovery_v6_report/${profile}_dev.json frontier350_bilingual_recovery_v6_report/${profile}_validation.json --out frontier350_bilingual_recovery_v6_report/${profile}_gate.json"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "old gate failed to run: $profile"}
+            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src -PathType Leaf){Copy-Item $src ("frontier350_bilingual_recovery_v6_report\${profile}_$f") -Force}}
+            $gate=Get-Content ("frontier350_bilingual_recovery_v6_report/${profile}_gate.json") -Raw|ConvertFrom-Json
+            $baseH=Get-Content 'frontier350_bilingual_recovery_v6_report\baseline_holdout.json' -Raw|ConvertFrom-Json
+            $candH=Get-Content ("frontier350_bilingual_recovery_v6_report/${profile}_holdout.json") -Raw|ConvertFrom-Json
+            $holdPass=([double]$candH.overall_accuracy_pct -ge [double]$baseH.overall_accuracy_pct)
+            foreach($dir in @('de_to_en','en_to_de')){
+              $b=($baseH.directions.PSObject.Properties|Where-Object Name -eq $dir).Value
+              $c=($candH.directions.PSObject.Properties|Where-Object Name -eq $dir).Value
+              if($null -eq $b -or $null -eq $c -or [double]$c.accuracy_pct -lt [double]$b.accuracy_pct){$holdPass=$false}
+            }
+            if($gate.selection_allowed -ne $true -or -not $holdPass){
+              foreach($name in @('resume.pt','best_validation.pt')){$p=Join-Path $outWin $name;if(Test-Path $p){Remove-Item $p -Force}}
+              Write-Host "Rejected V6 profile $profile; reports retained, weights removed"
+            } else { Write-Host "Preserved double-gated V6 checkpoint: $outWin" }
+          }
+
+      - name: Select only a double-gated V6 candidate
+        id: select
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='${{ steps.env.outputs.data_python }}';$assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}'
+          $args=@('frontier350/select_bilingual_recovery_v6.py','--baseline-holdout','frontier350_bilingual_recovery_v6_report/baseline_holdout.json')
+          foreach($profile in @('xling_05','xling_10','xling_15')){
+            $outWin=Join-Path $assets ('runs\neral350_bilingual_v6_'+$rid+'_'+$profile)
+            $args += @('--candidate',$profile,"frontier350_bilingual_recovery_v6_report/${profile}_gate.json","frontier350_bilingual_recovery_v6_report/${profile}_holdout.json",$outWin)
+          }
+          $args += @('--out','frontier350_bilingual_recovery_v6_report/selection.json')
+          & $py @args
+          if($LASTEXITCODE -ne 0){throw 'V6 selector failed'}
+          $s=Get-Content 'frontier350_bilingual_recovery_v6_report\selection.json' -Raw|ConvertFrom-Json
+          "selected=$($s.selected)" >> $env:GITHUB_OUTPUT
+          "allowed=$($s.selection_allowed)" >> $env:GITHUB_OUTPUT
+
+      - name: Retain only selected V6 checkpoint
+        if: steps.select.outputs.allowed == 'True'
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}';$selected='${{ steps.select.outputs.selected }}'
+          foreach($profile in @('xling_05','xling_10','xling_15')){
+            $outWin=Join-Path $assets ('runs\neral350_bilingual_v6_'+$rid+'_'+$profile)
+            if($profile -ne $selected){
+              foreach($name in @('resume.pt','best_validation.pt')){$p=Join-Path $outWin $name;if(Test-Path $p){Remove-Item $p -Force}}
+            }
+          }
+          $retained=Join-Path $assets ('runs\neral350_bilingual_v6_'+$rid+'_'+$selected+'\resume.pt')
+          if(-not(Test-Path $retained -PathType Leaf)){throw 'selected V6 checkpoint missing'}
+          @{status='retained';profile=$selected;checkpoint=$retained;processed_tokens=1010003584;source='immutable_1b_plus_10m_v6'}|ConvertTo-Json|Set-Content 'frontier350_bilingual_recovery_v6_report\retained_checkpoint.json'
+
+      - name: Record V6 no-promotion outcome
+        if: steps.select.outputs.allowed != 'True'
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}'
+          foreach($profile in @('xling_05','xling_10','xling_15')){
+            $outWin=Join-Path $assets ('runs\neral350_bilingual_v6_'+$rid+'_'+$profile)
+            foreach($name in @('resume.pt','best_validation.pt')){$p=Join-Path $outWin $name;if(Test-Path $p){Remove-Item $p -Force}}
+          }
+          @{status='no_promotion';reason='no V6 candidate passed immutable dev/validation plus independent bilingual holdout gates'}|ConvertTo-Json|Set-Content 'frontier350_bilingual_recovery_v6_report\retained_checkpoint.json'
+
+      - name: Upload V6 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-bilingual-recovery-v6-${{ github.run_id }}
+          path: frontier350_bilingual_recovery_v6_report/
+          retention-days: 30
