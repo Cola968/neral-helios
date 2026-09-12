@@ -1,6 +1,6 @@
 """RTX 4070 throughput sweep for the guarded Neral 350M continuation path.
 
-No benchmark checkpoint is promoted. Every trial starts from the same accepted 1.010B
+No benchmark checkpoint is promoted. Every trial starts from the same accepted 1.009B
 checkpoint. The sweep compares the exact legacy path against a replay-only fast path that
 removes redundant flattened gradient copies and per-microbatch host synchronizations, then
 packs adjacent MAIN microbatches into larger physical forwards. The optimizer-update token
@@ -20,8 +20,8 @@ from pathlib import Path
 
 from recovery_identity import file_sha
 
-ANCHOR_SHA = "ce518b87e19e1064be40b7a33f16cf4b06ab2284af30526c76729ef074c2d3f2"
-ANCHOR_TOKENS = 1_010_003_584
+ANCHOR_SHA = "b780d089a72a54dea94b4669b696924259c24add909b010ee62670fe0c066894"
+ANCHOR_TOKENS = 1_009_003_584
 SEQ = 512
 BATCH = 4
 MICROBATCHES = 12
@@ -98,12 +98,10 @@ def resolve_anchor(assets: Path) -> tuple[Path, list[dict]]:
 
     if not matches:
         raise ValueError(
-            "accepted 1.010B Auto-Learn anchor SHA not found among selected checkpoints; "
+            "accepted 1.009B Auto-Learn anchor SHA not found among selected checkpoints; "
             f"searched {len(candidates)} candidate(s)"
         )
 
-    # Identical SHA means identical file bytes. Choose deterministically while recording all
-    # copies so provenance remains auditable.
     chosen = sorted(matches, key=lambda p: str(p))[0]
     print(json.dumps({
         "event": "anchor_resolved",
@@ -247,11 +245,9 @@ def main() -> None:
         finally:
             shutil.rmtree(out, ignore_errors=True)
 
-    # Exact legacy baseline first.
     baseline = run_trial("legacy_pack1_default", 1, "default", False)
     results.append(baseline); print(json.dumps({"event": "trial", **baseline}), flush=True)
 
-    # Fast path: same update semantics, then progressively larger main physical batches.
     for pack in (1, 2, 3, 4):
         row = run_trial(f"fast_pack{pack}_default", pack, "default", True)
         results.append(row); print(json.dumps({"event": "trial", **row}), flush=True)
@@ -261,7 +257,6 @@ def main() -> None:
         raise RuntimeError("no stable fast-path candidate survived")
     best_default = max(valid_fast, key=lambda r: r["median_tps"])
 
-    # Compiler-mode sweep only on the best safe fast-path geometry.
     for mode in ("reduce-overhead", "max-autotune-no-cudagraphs"):
         row = run_trial(f"fast_pack{best_default['main_pack']}_{mode}", int(best_default["main_pack"]), mode, True)
         results.append(row); print(json.dumps({"event": "trial", **row}), flush=True)
