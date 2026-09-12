@@ -1,0 +1,107 @@
+name: Neral 350M Auto-Learn V1
+
+on:
+  push:
+    branches: [experiment/auto-learn-v1]
+    paths: ['frontier350_auto_learn_v1_requests/request.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-auto-learn-v1
+  cancel-in-progress: false
+
+jobs:
+  guarded-autolearn:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify bounded Auto-Learn request and RTX 4070
+        id: request
+        run: |
+          $ErrorActionPreference='Stop'
+          $request=Get-Content frontier350_auto_learn_v1_requests/request.json -Raw|ConvertFrom-Json
+          if((($request.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'action,max_rounds,new_tokens_per_round,request_id,version'){throw 'unexpected request fields'}
+          if($request.version -ne 1 -or $request.action -ne 'run_auto_learn_v1'){throw 'invalid action/version'}
+          if($request.max_rounds -ne 2){throw 'first Auto-Learn run is intentionally capped at 2 rounds'}
+          if($request.new_tokens_per_round -ne 1000000){throw 'first Auto-Learn run requires exactly 1M tokens per round'}
+          if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host ("GPU="+$gpu)
+          Write-Host ("GPUStartTempC="+$temp)
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
+          if($temp -ge 85){throw 'GPU is already too hot to start bounded training'}
+
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $cdrive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+          $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+          Write-Host ("AssetsFreeBytes="+$cdrive.Free)
+          Write-Host ("ScratchFreeBytes="+$ddrive.Free)
+          if($cdrive.Free -lt 10GB){throw 'Auto-Learn requires at least 10 GiB free on assets drive'}
+          if($ddrive.Free -lt 20GB){throw 'Auto-Learn requires at least 20 GiB free on D: scratch'}
+
+          $scratchWin=Join-Path 'D:\NeralAutoLearnV1' $request.request_id
+          if(Test-Path -LiteralPath $scratchWin){throw 'scratch path already exists; refusing overwrite'}
+          function W([string]$p){$p=[IO.Path]::GetFullPath($p);return '/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
+          "scratch=$(W $scratchWin)" >> $env:GITHUB_OUTPUT
+          "request_id=$($request.request_id)" >> $env:GITHUB_OUTPUT
+          "max_rounds=$($request.max_rounds)" >> $env:GITHUB_OUTPUT
+          "new_tokens=$($request.new_tokens_per_round)" >> $env:GITHUB_OUTPUT
+
+      - name: Runtime and source checks
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_auto_learn_v1.py frontier350/train_guarded_v9.py frontier350/interpolate_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/eval_bilingual_holdout_v1.py frontier350/select_recovery_lr_pilot.py"
+          wsl.exe -- bash -lc $cmd
+          $code=$LASTEXITCODE
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 3
+          if($code -ne 0){throw 'Auto-Learn runtime/source checks failed'}
+
+      - name: Run bounded autonomous learning loop
+        id: autolearn
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'
+          $assets='${{ steps.request.outputs.assets }}'
+          $scratch='${{ steps.request.outputs.scratch }}'
+          $rid='${{ steps.request.outputs.request_id }}'
+          $rounds='${{ steps.request.outputs.max_rounds }}'
+          $newTokens='${{ steps.request.outputs.new_tokens }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_auto_learn_v1.py --assets '$assets' --report frontier350_auto_learn_v1_report --scratch '$scratch' --request-id '$rid' --max-rounds '$rounds' --new-tokens-per-round '$newTokens'"
+          wsl.exe -- bash -lc $cmd
+          $code=$LASTEXITCODE
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 4
+          if($code -ne 0){throw 'Auto-Learn stopped fail-closed; no unmeasured checkpoint is promoted'}
+
+      - name: Final runner health
+        if: always()
+        run: |
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 2
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+
+      - name: Upload Auto-Learn evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-auto-learn-v1-${{ github.run_id }}
+          path: frontier350_auto_learn_v1_report/
+          retention-days: 30
