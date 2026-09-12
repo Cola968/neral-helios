@@ -1,0 +1,136 @@
+name: Neral 350M Scale V1
+
+on:
+  push:
+    branches: [experiment/scale-v1]
+    paths: ['frontier350_scale_v1_requests/request.json']
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: neral-350m-scale-v1
+  cancel-in-progress: false
+
+jobs:
+  scale:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify Scale V1 request and RTX 4070
+        id: request
+        run: |
+          $ErrorActionPreference='Stop'
+          try {
+            $request=Get-Content frontier350_scale_v1_requests/request.json -Raw|ConvertFrom-Json
+            if((($request.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'action,request_id,version'){throw 'unexpected request fields'}
+            if($request.version -ne 1 -or $request.action -ne 'run_scale_v1'){throw 'invalid action/version'}
+            if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+            wsl.exe --shutdown
+            Start-Sleep -Seconds 5
+            $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+            $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+            $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+            Write-Host ("GPU="+$gpu); Write-Host ("GPUStartTempC="+$temp); Write-Host ("GPUFreeVRAMMiB="+$free)
+            if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
+            if($temp -ge 85){throw 'GPU too hot'}
+            if($free -lt 9000){throw ("Need >=9000 MiB free VRAM; found "+$free)}
+            $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+            $cdrive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+            $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+            if($cdrive.Free -lt 10GB){throw 'need >=10 GiB free on assets drive'}
+            if($ddrive.Free -lt 20GB){throw 'need >=20 GiB free on D: scratch'}
+            $scratchWin=Join-Path 'D:\NeralScaleV1' ([string]$request.request_id)
+            if(Test-Path -LiteralPath $scratchWin){throw 'scratch path already exists; refusing overwrite'}
+            function W([string]$p){$full=[IO.Path]::GetFullPath($p); return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')}
+            $outputs=@("repo=$(W (Get-Location).Path)","assets=$(W $assets)","scratch=$(W $scratchWin)","scratch_win=$scratchWin","request_id=$($request.request_id)")
+            $utf8NoBom=New-Object System.Text.UTF8Encoding($false)
+            foreach($line in $outputs){[IO.File]::AppendAllText($env:GITHUB_OUTPUT,$line+[Environment]::NewLine,$utf8NoBom); Write-Host ("OUTPUT "+$line)}
+            exit 0
+          } catch { Write-Error ("Scale V1 preflight failed: "+$_.Exception.Message); exit 1 }
+
+      - name: Runtime and source checks
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v1.py frontier350/train_guarded_v9.py frontier350/interpolate_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/eval_bilingual_holdout_v1.py frontier350/select_recovery_lr_pilot.py"
+          wsl.exe -- bash -lc $cmd
+          $code=$LASTEXITCODE
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          if($code -ne 0){throw 'runtime/source checks failed'}
+          exit 0
+
+      - name: Sweep geometry and run guarded 2M continuation
+        id: scale
+        env:
+          NERAL_TELEMETRY_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'; $assets='${{ steps.request.outputs.assets }}'; $scratch='${{ steps.request.outputs.scratch }}'
+          $scratchWin='${{ steps.request.outputs.scratch_win }}'; $rid='${{ steps.request.outputs.request_id }}'
+          $reportWin=Join-Path (Get-Location).Path 'frontier350_scale_v1_report'
+          $stopFile=Join-Path $env:RUNNER_TEMP ("neral-scale-live-"+$rid+".stop")
+          Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
+          $telemetryScript=Join-Path (Get-Location).Path 'frontier350\live_telemetry.ps1'
+          $telemetry=Start-Job -ScriptBlock {
+            param($script,$scratchWin,$reportWin,$stopFile,$repoName,$runId)
+            & $script -ScratchWin $scratchWin -ReportWin $reportWin -StopFile $stopFile -Repo $repoName -IssueNumber 102 -RunId $runId -TargetTps 50000 -UpdatesPerTrial 82 -IntervalSeconds 20 -TotalTrials 5
+          } -ArgumentList $telemetryScript,$scratchWin,$reportWin,$stopFile,'Cola968/neral-helios','${{ github.run_id }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v1.py --assets '$assets' --report frontier350_scale_v1_report --scratch '$scratch' --request-id '$rid'"
+          try { wsl.exe -- bash -lc $cmd; $code=$LASTEXITCODE }
+          finally {
+            New-Item -ItemType File -Path $stopFile -Force | Out-Null
+            Wait-Job -Job $telemetry -Timeout 30 | Out-Null
+            Receive-Job -Job $telemetry -ErrorAction SilentlyContinue | Out-Null
+            Stop-Job -Job $telemetry -ErrorAction SilentlyContinue
+            Remove-Job -Job $telemetry -Force -ErrorAction SilentlyContinue
+          }
+          wsl.exe --shutdown; Start-Sleep -Seconds 4
+          if($code -ne 0){throw 'Scale V1 controller failed; safe 1.010B anchor remains unchanged'}
+          exit 0
+
+      - name: Print final Scale V1 result
+        if: always()
+        run: |
+          if(Test-Path frontier350_scale_v1_report/selection.json){
+            $r=Get-Content frontier350_scale_v1_report/selection.json -Raw|ConvertFrom-Json
+            Write-Host ("SUCCESS="+$r.success)
+            Write-Host ("BEST_PACK="+$r.best_pack.pack)
+            Write-Host ("BEST_SWEEP_MEDIAN_TPS="+$r.best_pack.median_tps)
+            Write-Host ("TRAIN_MEDIAN_TPS="+$r.train_throughput.median_tps)
+            if($r.selected){
+              Write-Host ("SELECTED_ALPHA="+$r.selected.alpha)
+              Write-Host ("TARGET_TOKENS="+$r.target_tokens)
+              Write-Host ("VALIDATION_LOSS="+$r.selected.validation_loss)
+              Write-Host ("OVERALL="+$r.selected.overall_pct)
+              Write-Host ("BILINGUAL="+$r.selected.bilingual_pct)
+              Write-Host ("SHA="+$r.selected.checkpoint_sha256)
+            }
+          }
+          exit 0
+
+      - name: Final runner health
+        if: always()
+        run: |
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+          exit 0
+
+      - name: Upload Scale V1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-scale-v1-${{ github.run_id }}
+          path: frontier350_scale_v1_report/
+          retention-days: 30
