@@ -1,4 +1,4 @@
-name: Neral 350M Scale V3 Adaptive
+name: Neral 350M Scale V3 Success
 
 on:
   push:
@@ -70,14 +70,14 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.request.outputs.repo }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v3_controller.py frontier350/train_guarded_v9.py frontier350/interpolate_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/eval_bilingual_holdout_v1.py frontier350/recovery_identity.py"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v3_success.py frontier350/eval_recovery_smoke_v3.py frontier350/train_guarded_v9.py frontier350/interpolate_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/eval_bilingual_holdout_v1.py frontier350/recovery_identity.py"
           wsl.exe -- bash -lc $cmd
           $code=$LASTEXITCODE
           wsl.exe --shutdown; Start-Sleep -Seconds 3
           if($code -ne 0){throw 'runtime/source checks failed'}
           exit 0
 
-      - name: Run adaptive guarded continuation
+      - name: Run success-optimized guarded continuation
         id: scale
         env:
           NERAL_TELEMETRY_TOKEN: ${{ github.token }}
@@ -94,7 +94,7 @@ jobs:
             param($script,$scratchWin,$reportWin,$stopFile,$repoName,$runId)
             & $script -ScratchWin $scratchWin -ReportWin $reportWin -StopFile $stopFile -Repo $repoName -IssueNumber 102 -RunId $runId -TargetTps 50000 -UpdatesPerTrial 82 -IntervalSeconds 20 -TotalTrials 32
           } -ArgumentList $telemetryScript,$scratchWin,$reportWin,$stopFile,'Cola968/neral-helios','${{ github.run_id }}'
-          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v3_controller.py --assets '$assets' --report frontier350_scale_v3_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds '$rounds' --max-wall-minutes '$wall'"
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v3_success.py --assets '$assets' --report frontier350_scale_v3_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds '$rounds' --max-wall-minutes '$wall'"
           try { wsl.exe -- bash -lc $cmd; $code=$LASTEXITCODE }
           finally {
             New-Item -ItemType File -Path $stopFile -Force | Out-Null
@@ -112,10 +112,14 @@ jobs:
         run: |
           if(Test-Path frontier350_scale_v3_report/selection.json){
             $r=Get-Content frontier350_scale_v3_report/selection.json -Raw|ConvertFrom-Json
+            Write-Host ("CONTROLLER="+$r.controller)
             Write-Host ("FINAL_SAFE_TOKENS="+$r.final_safe_tokens)
             Write-Host ("FINAL_SAFE_SHA="+$r.final_safe_sha256)
             Write-Host ("TARGET_TOKENS="+$r.target_tokens)
             Write-Host ("ROUNDS="+$r.rounds.Count)
+            Write-Host ("PREFERRED_ALPHA="+$r.preferred_alpha)
+            Write-Host ("CONSERVATIVE_LEVEL="+$r.conservative_level)
+            Write-Host ("FAILURE_PRESSURE="+$r.failure_pressure)
             Write-Host ("WALL_MINUTES="+$r.wall_minutes)
           }
           exit 0
