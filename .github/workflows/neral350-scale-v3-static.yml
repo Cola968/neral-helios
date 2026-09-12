@@ -1,0 +1,55 @@
+name: Neral 350M Scale V3 Static Checks
+
+on:
+  push:
+    branches: [experiment/scale-v3]
+    paths:
+      - 'frontier350/run_scale_v3_success.py'
+      - 'frontier350/eval_recovery_smoke_v3.py'
+      - 'frontier350/train_guarded_v9.py'
+      - 'frontier350/recovery_identity.py'
+      - '.github/workflows/neral350-scale-v3.yml'
+      - '.github/workflows/neral350-scale-v3-static.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Scale V3 Python sources
+        run: |
+          python -m py_compile \
+            frontier350/run_scale_v3_success.py \
+            frontier350/eval_recovery_smoke_v3.py \
+            frontier350/train_guarded_v9.py \
+            frontier350/interpolate_recovery_checkpoint.py \
+            frontier350/eval_validation_loss350.py \
+            frontier350/eval_recovery_dev_v2.py \
+            frontier350/eval_bilingual_holdout_v1.py \
+            frontier350/recovery_identity.py
+      - name: Guard promotion-policy markers
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontier350/run_scale_v3_success.py').read_text(encoding='utf-8')
+          required = [
+              'full_promotion_gate_unchanged',
+              'smoke_is_ranking_only',
+              'safe_anchor_preserved_on_failure',
+              'benchmarks_used_for_training',
+              'eval_bilingual_holdout_v1.py',
+              'eval_recovery_dev_v2.py',
+          ]
+          missing = [x for x in required if x not in p]
+          if missing:
+              raise SystemExit(f'missing Scale V3 safety markers: {missing}')
+          print('Scale V3 static policy markers present.')
+          PY
