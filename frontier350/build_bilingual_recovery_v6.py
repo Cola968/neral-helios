@@ -12,6 +12,7 @@ This is a development experiment, not a release corpus.
 """
 
 import argparse
+import ast
 import hashlib
 import io
 import json
@@ -24,7 +25,6 @@ import numpy as np
 
 from build_frontier_bpe_data import LocalBPE, StreamingShardWriter, sha256
 from build_weakness_recovery_pilot_bpe_data import PROFILES, START_TOKENS
-from eval_recovery_dev import CASES
 from remix_recovery_corpus import slice_stream, source_ranges
 from security_policy350_bpe import validate_manifest
 
@@ -60,11 +60,25 @@ def pair_hash(de: str, en: str) -> str:
     return hashlib.sha256((de + "\0" + en).encode("utf-8")).hexdigest()
 
 
+def recovery_bilingual_cases() -> list[tuple[str, str, list[str]]]:
+    """Read the dev-suite bilingual literals without importing torch-dependent eval code."""
+    eval_path = Path(__file__).with_name("eval_recovery_dev.py")
+    tree = ast.parse(eval_path.read_text(encoding="utf8"), filename=str(eval_path))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "bilingual" for target in node.targets):
+            continue
+        value = ast.literal_eval(node.value)
+        if not isinstance(value, list) or len(value) != 20:
+            raise RuntimeError("unexpected bilingual recovery-dev case count")
+        return value
+    raise RuntimeError("bilingual recovery-dev cases not found")
+
+
 def benchmark_blacklist() -> set[str]:
     blocked: set[str] = set()
-    for _case_id, category, prefix, preferred, distractors in CASES:
-        if category != "bilingual":
-            continue
+    for prefix, preferred, distractors in recovery_bilingual_cases():
         for value in [preferred, *distractors]:
             value_key = key(value)
             if value_key:
