@@ -31,37 +31,61 @@ jobs:
         id: request
         run: |
           $ErrorActionPreference='Stop'
-          $request=Get-Content frontier350_auto_learn_v1_requests/request.json -Raw|ConvertFrom-Json
-          if((($request.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'action,max_rounds,new_tokens_per_round,request_id,version'){throw 'unexpected request fields'}
-          if($request.version -ne 1 -or $request.action -ne 'run_auto_learn_v1'){throw 'invalid action/version'}
-          if($request.max_rounds -ne 2){throw 'first Auto-Learn run is intentionally capped at 2 rounds'}
-          if($request.new_tokens_per_round -ne 1000000){throw 'first Auto-Learn run requires exactly 1M tokens per round'}
-          if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+          try {
+            $request=Get-Content frontier350_auto_learn_v1_requests/request.json -Raw|ConvertFrom-Json
+            if((($request.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'action,max_rounds,new_tokens_per_round,request_id,version'){throw 'unexpected request fields'}
+            if($request.version -ne 1 -or $request.action -ne 'run_auto_learn_v1'){throw 'invalid action/version'}
+            if($request.max_rounds -ne 2){throw 'first Auto-Learn run is intentionally capped at 2 rounds'}
+            if($request.new_tokens_per_round -ne 1000000){throw 'first Auto-Learn run requires exactly 1M tokens per round'}
+            if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
 
-          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
-          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
-          Write-Host ("GPU="+$gpu)
-          Write-Host ("GPUStartTempC="+$temp)
-          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
-          if($temp -ge 85){throw 'GPU is already too hot to start bounded training'}
+            # Release stale WSL/CUDA allocations from previous jobs before measuring headroom.
+            wsl.exe --shutdown
+            Start-Sleep -Seconds 5
+            $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+            $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+            $vramFree=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+            Write-Host ("GPU="+$gpu)
+            Write-Host ("GPUStartTempC="+$temp)
+            Write-Host ("GPUFreeVRAMMiB="+$vramFree)
+            if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
+            if($temp -ge 85){throw 'GPU is already too hot to start bounded training'}
+            if($vramFree -lt 9000){throw ("Auto-Learn needs at least 9000 MiB free VRAM; currently "+$vramFree+" MiB. Close GPU-heavy apps and retry.")}
 
-          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $cdrive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
-          $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
-          Write-Host ("AssetsFreeBytes="+$cdrive.Free)
-          Write-Host ("ScratchFreeBytes="+$ddrive.Free)
-          if($cdrive.Free -lt 10GB){throw 'Auto-Learn requires at least 10 GiB free on assets drive'}
-          if($ddrive.Free -lt 20GB){throw 'Auto-Learn requires at least 20 GiB free on D: scratch'}
+            $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+            $cdrive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+            $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+            Write-Host ("AssetsFreeBytes="+$cdrive.Free)
+            Write-Host ("ScratchFreeBytes="+$ddrive.Free)
+            if($cdrive.Free -lt 10GB){throw 'Auto-Learn requires at least 10 GiB free on assets drive'}
+            if($ddrive.Free -lt 20GB){throw 'Auto-Learn requires at least 20 GiB free on D: scratch'}
 
-          $scratchWin=Join-Path 'D:\NeralAutoLearnV1' $request.request_id
-          if(Test-Path -LiteralPath $scratchWin){throw 'scratch path already exists; refusing overwrite'}
-          function W([string]$p){$p=[IO.Path]::GetFullPath($p);return '/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')}
-          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
-          "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
-          "scratch=$(W $scratchWin)" >> $env:GITHUB_OUTPUT
-          "request_id=$($request.request_id)" >> $env:GITHUB_OUTPUT
-          "max_rounds=$($request.max_rounds)" >> $env:GITHUB_OUTPUT
-          "new_tokens=$($request.new_tokens_per_round)" >> $env:GITHUB_OUTPUT
+            $scratchWin=Join-Path 'D:\NeralAutoLearnV1' ([string]$request.request_id)
+            if(Test-Path -LiteralPath $scratchWin){throw 'scratch path already exists; refusing overwrite'}
+            function W([string]$p){
+              $full=[IO.Path]::GetFullPath($p)
+              return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')
+            }
+            $outputs=@(
+              "repo=$(W (Get-Location).Path)",
+              "assets=$(W $assets)",
+              "scratch=$(W $scratchWin)",
+              "request_id=$($request.request_id)",
+              "max_rounds=$($request.max_rounds)",
+              "new_tokens=$($request.new_tokens_per_round)"
+            )
+            $utf8NoBom=New-Object System.Text.UTF8Encoding($false)
+            foreach($line in $outputs){
+              [IO.File]::AppendAllText($env:GITHUB_OUTPUT,$line+[Environment]::NewLine,$utf8NoBom)
+              Write-Host ("OUTPUT "+$line)
+            }
+            $global:LASTEXITCODE=0
+            Write-Host 'Auto-Learn preflight passed.'
+            exit 0
+          } catch {
+            Write-Error ("Auto-Learn preflight failed: "+$_.Exception.Message)
+            exit 1
+          }
 
       - name: Runtime and source checks
         run: |
@@ -73,6 +97,7 @@ jobs:
           wsl.exe --shutdown
           Start-Sleep -Seconds 3
           if($code -ne 0){throw 'Auto-Learn runtime/source checks failed'}
+          exit 0
 
       - name: Run bounded autonomous learning loop
         id: autolearn
@@ -90,13 +115,15 @@ jobs:
           wsl.exe --shutdown
           Start-Sleep -Seconds 4
           if($code -ne 0){throw 'Auto-Learn stopped fail-closed; no unmeasured checkpoint is promoted'}
+          exit 0
 
       - name: Final runner health
         if: always()
         run: |
           wsl.exe --shutdown
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
           nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+          exit 0
 
       - name: Upload Auto-Learn evidence
         if: always()
