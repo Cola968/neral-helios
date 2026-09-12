@@ -1,0 +1,67 @@
+name: Neral 350M Tatoeba Cache Bootstrap
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_tatoeba_cache_requests/request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-tatoeba-cache-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  bootstrap-tatoeba-cache:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate request
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_tatoeba_cache_requests\request.json' -Raw|ConvertFrom-Json
+          if([int]$r.version -ne 1 -or $r.action -ne 'bootstrap_tatoeba_de_en_cache'){throw 'invalid cache request'}
+
+      - name: Download Tatoeba with Windows trust store
+        id: tatoeba
+        run: |
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $cache=Join-Path $assets 'source_cache';New-Item -ItemType Directory -Force $cache|Out-Null
+          $zip=Join-Path $cache 'tatoeba-v2021-07-22-de-en.txt.zip'
+          $tmp="$zip.partial"
+          $url='https://object.pouta.csc.fi/OPUS-Tatoeba/v2021-07-22/moses/de-en.txt.zip'
+          if(Test-Path $tmp){Remove-Item $tmp -Force}
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 120
+          } catch {
+            Write-Host "Invoke-WebRequest failed; trying Windows curl with certificate verification: $($_.Exception.Message)"
+            & curl.exe --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 --max-time 120 --output $tmp $url
+            if($LASTEXITCODE -ne 0){throw 'both secure download methods failed'}
+          }
+          if(-not(Test-Path $tmp -PathType Leaf) -or (Get-Item $tmp).Length -lt 10000){throw 'download missing or implausibly small'}
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive=[IO.Compression.ZipFile]::OpenRead($tmp)
+          try {
+            $names=@($archive.Entries|ForEach-Object FullName)
+            if(-not($names|Where-Object { $_ -match '\.de$' }) -or -not($names|Where-Object { $_ -match '\.en$' })){throw 'archive does not contain DE and EN text files'}
+          } finally {$archive.Dispose()}
+          Move-Item -LiteralPath $tmp -Destination $zip -Force
+          $sha=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "cached=$zip"
+          Write-Host "tatoeba_archive_sha256=$sha"
+          "### Tatoeba cache ready`n- file: $zip`n- sha256: $sha" >> $env:GITHUB_STEP_SUMMARY
