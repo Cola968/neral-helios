@@ -74,6 +74,24 @@ jobs:
           "tokenizer_sha=$sha" >> $env:GITHUB_OUTPUT
           "data_python=$dataPython" >> $env:GITHUB_OUTPUT
 
+      - name: Recover disk space from failed r5 scratch and preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}'
+          $runs=Join-Path $assets 'runs'
+          foreach($name in @('lr100u','lr75u','lr50u')){
+            $stale=Join-Path $runs ('neral350_recovery_arctus-recovery-lr-20260912-r5_'+$name)
+            if(Test-Path $stale){
+              Write-Host "Removing failed r5 scratch: $stale"
+              Remove-Item $stale -Recurse -Force
+            }
+          }
+          $root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets))
+          $drive=Get-PSDrive -Name $root.Substring(0,1)
+          $freeGiB=[math]::Round($drive.Free/1GB,2)
+          Write-Host "free_disk_gib=$freeGiB"
+          if($drive.Free -lt 4GB){throw "insufficient free disk after cleanup: ${freeGiB} GiB; need >= 4 GiB"}
+
       - name: Revalidate pilot corpus and compile tooling
         run: |
           $ErrorActionPreference='Stop'
@@ -100,11 +118,11 @@ jobs:
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'baseline validation failed'}
 
-      - name: Run three lower-LR identical-data continuations from 1B
+      - name: Run and evaluate LR candidates sequentially with bounded scratch
         run: |
           $ErrorActionPreference='Stop'
           function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
-          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$pilot='${{ steps.env.outputs.pilot_wsl }}';$assets='${{ steps.env.outputs.assets }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}'
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck0='${{ steps.env.outputs.checkpoint_wsl }}';$pilot='${{ steps.env.outputs.pilot_wsl }}';$assets='${{ steps.env.outputs.assets }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}'
           $candidates=@(@{name='lr100u';lr='0.0001'},@{name='lr75u';lr='0.000075'},@{name='lr50u';lr='0.00005'})
           foreach($c in $candidates){
             $outWin=Join-Path $assets ('runs\neral350_recovery_'+$rid+'_'+$c.name)
@@ -112,23 +130,23 @@ jobs:
             New-Item -ItemType Directory -Force $outWin | Out-Null
             $out=W $outWin
             Write-Host ("Training {0} at LR {1}" -f $c.name,$c.lr)
-            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$pilot/train' --valid-data '$pilot/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$($c.lr)' --seq 512 --microbatch 8 --grad-accum 4 --eval-every 500 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 20 --resume '$ck' --tokenizer-sha256 '$sha'"
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$pilot/train' --valid-data '$pilot/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$($c.lr)' --seq 512 --microbatch 8 --grad-accum 4 --eval-every 500 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 20 --resume '$ck0' --tokenizer-sha256 '$sha'"
             wsl.exe -- bash -lc $cmd
             if($LASTEXITCODE -ne 0){throw ("training candidate failed: "+$c.name)}
-          }
 
-      - name: Evaluate LR candidates on fixed development suite
-        run: |
-          $ErrorActionPreference='Stop'
-          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
-          $repo='${{ steps.env.outputs.repo_wsl }}';$pilot='${{ steps.env.outputs.pilot_wsl }}';$assets='${{ steps.env.outputs.assets }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}'
-          foreach($name in @('lr100u','lr75u','lr50u')){
-            $outWin=Join-Path $assets ('runs\neral350_recovery_'+$rid+'_'+$name);$ck=W (Join-Path $outWin 'resume.pt')
-            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$pilot/valid' --out frontier350_recovery_pilot_v4_report/${name}_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
-            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "validation failed: $name"}
-            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_recovery_pilot_v4_report/${name}_dev.json --expected-tokens '$stop'"
-            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "dev evaluation failed: $name"}
-            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src -PathType Leaf){Copy-Item $src ("frontier350_recovery_pilot_v4_report\${name}_$f") -Force}}
+            $ck=W (Join-Path $outWin 'resume.pt')
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$pilot/valid' --out frontier350_recovery_pilot_v4_report/$($c.name)_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("validation failed: "+$c.name)}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_recovery_pilot_v4_report/$($c.name)_dev.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("dev evaluation failed: "+$c.name)}
+            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src -PathType Leaf){Copy-Item $src ("frontier350_recovery_pilot_v4_report\$($c.name)_$f") -Force}}
+
+            Write-Host ("Candidate {0} evaluated successfully; deleting scratch checkpoint" -f $c.name)
+            Remove-Item $outWin -Recurse -Force
+            $root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets));$drive=Get-PSDrive -Name $root.Substring(0,1)
+            Write-Host ("free_disk_gib_after_{0}={1}" -f $c.name,[math]::Round($drive.Free/1GB,2))
           }
 
       - name: Select only a no-regression candidate
