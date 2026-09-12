@@ -1,0 +1,15 @@
+{
+  "checkpoint_sha256": "16656c86ff7846a39c3f75d7ddc8a629efe31245f4ed3d6fa58f1867f63b059e",
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "protocol_sha256": "8314cab9dab4ea3b4a618c3efddf18661055d3203571b216b81efc99961371b6",
+  "schema": 1,
+  "architecture": "frontier350-v1",
+  "checkpoint_processed_tokens": 1006003584,
+  "validation_loss": 3.28369140625,
+  "validation_perplexity": 26.674055963439,
+  "seq": 512,
+  "batch": 4,
+  "batches": 32,
+  "seed": 351337,
+  "evidence_origin": "measured V9 anchor evaluation from GitHub Actions run 34702497152; copied verbatim except this provenance field"
+}
