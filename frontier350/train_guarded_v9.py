@@ -1,8 +1,9 @@
 """Own-weight guarded continuation trainer for Neral 350M.
 
-The validated V9 execution remains the default. Scale V3 adds two opt-in controls that
-improve retention without weakening promotion gates: a token-progress cosine LR schedule
-and normalized replay-loss boosting. Both are part of the immutable resume contract.
+The validated V9 execution remains the default. Scale V3 adds opt-in controls that
+improve retention without weakening promotion gates: token-progress cosine LR, normalized
+replay-loss boosting, and an in-process midpoint snapshot so a shorter fallback candidate
+can be evaluated without retraining or recompiling.
 """
 import argparse,hashlib,json,math,random,time
 from pathlib import Path
@@ -46,6 +47,7 @@ def main():
     ap.add_argument('--lr',type=float,default=7.5e-5,help='Starting AdamW learning rate')
     ap.add_argument('--lr-end',type=float,default=None,help='Final cosine learning rate; defaults to --lr for legacy constant-LR behavior')
     ap.add_argument('--replay-boost',type=float,default=1.0,help='Loss multiplier for replay tokens before normalization; 1.0 preserves legacy behavior')
+    ap.add_argument('--snapshot-fraction',type=float,default=0.0,help='Optional one-shot in-process snapshot fraction in (0,1), written as midpoint.pt')
     args=ap.parse_args()
     if args.lr_end is None:args.lr_end=args.lr
     seq,batch,micros=512,args.batch_size,args.microbatches
@@ -53,6 +55,7 @@ def main():
     if not (0.0 < args.lr <= 1e-3 and 0.0 < args.lr_end <= 1e-3):raise ValueError('learning rates must be in (0, 1e-3]')
     if args.lr_end>args.lr:raise ValueError('--lr-end must not exceed --lr')
     if not (1.0 <= args.replay_boost <= 3.0):raise ValueError('replay boost must be in [1, 3]')
+    if args.snapshot_fraction and not (0.0 < args.snapshot_fraction < 1.0):raise ValueError('snapshot fraction must be 0 or in (0,1)')
     if args.fast_replay_only and args.mode!='replay_only':raise ValueError('fast replay path is valid only for replay_only mode')
     tokens_per_update=seq*batch*micros
     if args.new_tokens<=0 or 0<args.new_tokens%tokens_per_update<3*seq*batch:
@@ -89,7 +92,7 @@ def main():
               'seq':seq,'microbatch':batch,'microbatches':micros,'main_pack':args.main_pack,
               'fast_replay_only':args.fast_replay_only,'tokens_per_update':tokens_per_update,
               'lr':args.lr,'lr_end':args.lr_end,'lr_schedule':schedule,'replay_boost':args.replay_boost,
-              'trainable_names':names,'data_sha256':hashes,
+              'snapshot_fraction':args.snapshot_fraction,'trainable_names':names,'data_sha256':hashes,
               'implementation':{p:file_sha(Path(__file__).parent/p) for p in ('model350.py','protection_v9.py','train_guarded_v9.py')},
               'master_precision':'FP32','autocast':'BF16','compile_mode':args.compile_mode,
               'replay_fraction_nominal':3/micros,'trust_radius_relative':.0005}
@@ -111,6 +114,8 @@ def main():
              'start_tokens':source['processed_tokens'],'new_tokens_already_done':done,'gpu':torch.cuda.get_device_name(0)}
     append_jsonl(out/'metrics.jsonl',startup);print(json.dumps(startup),flush=True)
     start=time.perf_counter();start_done=done;start_step=step
+    snapshot_target=math.ceil(args.new_tokens*args.snapshot_fraction) if args.snapshot_fraction else 0
+    snapshot_path=out/'midpoint.pt'
 
     def scheduled_lr(tokens_done):
         if args.lr_end==args.lr:return args.lr
@@ -129,7 +134,7 @@ def main():
         whole=torch.from_numpy(rows).pin_memory().to('cuda',non_blocking=True)
         return whole[:,:-1],mask_budget_targets(whole[:,1:],count)
 
-    def save():
+    def save(path=None):
         state={k:v.detach().to(device='cpu',dtype=torch.bfloat16) for k,v in model.state_dict().items()}
         if any(not torch.equal(state[k],source['model'][k]) for k in frozen_names):
             raise RuntimeError('frozen weights changed')
@@ -142,7 +147,7 @@ def main():
         ck['v9_provenance']={'anchor_sha256':args.anchor_sha,'mode':args.mode,'frozen_weights_unchanged':True,
                              'data_sha256':hashes,'new_training_tokens':done,'batch_chain':chain,
                              'lr_start':args.lr,'lr_end':args.lr_end,'replay_boost':args.replay_boost}
-        atomic_save(ck,out/'resume.pt')
+        atomic_save(ck,path or out/'resume.pt')
 
     if not args.resume:save()
     while done<args.new_tokens:
@@ -231,6 +236,8 @@ def main():
              'tokens_per_update':total,'batch_chain':chain,**diagnostics}
         append_jsonl(out/'metrics.jsonl',row)
         if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)
+        if snapshot_target and not snapshot_path.exists() and done>=snapshot_target:
+            save(snapshot_path);print(json.dumps({'event':'snapshot','path':str(snapshot_path),'new_tokens':done,'processed_tokens':int(source['processed_tokens'])+done,'sha256':file_sha(snapshot_path)}),flush=True)
         if step%20==0 or done==args.new_tokens:save()
         if args.max_updates and step-start_step>=args.max_updates:save();break
     summary={'complete':done==args.new_tokens,'new_tokens':done,'processed_tokens':int(source['processed_tokens'])+done,
@@ -239,6 +246,8 @@ def main():
              'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
              'lr_start':args.lr,'lr_end':args.lr_end,'lr_schedule':schedule,'replay_boost':args.replay_boost,
              'tokens_per_update':tokens_per_update,'batch_chain':chain,'source_tokens':counts,
+             'midpoint_checkpoint':str(snapshot_path) if snapshot_path.exists() else None,
+             'midpoint_sha256':file_sha(snapshot_path) if snapshot_path.exists() else None,
              'checkpoint_sha256':file_sha(out/'resume.pt'),'frozen_weights_unchanged':True,'promoted':False}
     (out/'summary.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary),flush=True)
 
