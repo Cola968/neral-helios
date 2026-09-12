@@ -45,9 +45,11 @@ def main():
     ap.add_argument('--main-pack',type=int,default=1,help='Pack adjacent main microbatches into larger physical forwards')
     ap.add_argument('--fast-replay-only',action='store_true',help='Avoid redundant vector copies and defer scalar syncs in replay_only mode')
     ap.add_argument('--compile-mode',choices=('none','default','reduce-overhead','max-autotune-no-cudagraphs'),default='default')
+    ap.add_argument('--lr',type=float,default=7.5e-5,help='AdamW learning rate; recorded in the immutable resume contract')
     args=ap.parse_args()
     seq,batch,micros=512,args.batch_size,args.microbatches
     if batch<=0 or micros<4 or args.main_pack<=0:raise ValueError('positive batch/main-pack and >=4 microbatches required')
+    if not (0.0 < args.lr <= 1e-3):raise ValueError('learning rate must be in (0, 1e-3]')
     if args.fast_replay_only and args.mode!='replay_only':raise ValueError('fast replay path is valid only for replay_only mode')
     tokens_per_update=seq*batch*micros
     if args.new_tokens<=0 or 0<args.new_tokens%tokens_per_update<3*seq*batch:
@@ -82,11 +84,11 @@ def main():
     contract={'anchor_sha256':args.anchor_sha,'mode':args.mode,'new_tokens':args.new_tokens,'seed':35901,
               'seq':seq,'microbatch':batch,'microbatches':micros,'main_pack':args.main_pack,
               'fast_replay_only':args.fast_replay_only,'tokens_per_update':tokens_per_update,
-              'lr':7.5e-5,'trainable_names':names,'data_sha256':hashes,
+              'lr':args.lr,'trainable_names':names,'data_sha256':hashes,
               'implementation':{p:file_sha(Path(__file__).parent/p) for p in ('model350.py','protection_v9.py','train_guarded_v9.py')},
               'master_precision':'FP32','autocast':'BF16','compile_mode':args.compile_mode,
               'replay_fraction_nominal':3/micros,'trust_radius_relative':.0005}
-    optimizer=torch.optim.AdamW(params,lr=7.5e-5,betas=(.9,.95),weight_decay=.1,fused=True)
+    optimizer=torch.optim.AdamW(params,lr=args.lr,betas=(.9,.95),weight_decay=.1,fused=True)
     rng=random.Random(35902);done=step=0;chain='0'*64;counts={d:0 for d in pools}
     if args.resume:
         ck=torch.load(args.resume,map_location='cpu',weights_only=False);state=ck['v9_training_state']
@@ -138,8 +140,6 @@ def main():
         loss_value=0.;grad_norm=0.;post_step_finite=None
 
         if args.fast_replay_only:
-            # Mathematically equivalent weighted accumulation for replay_only: there is no
-            # projection consumer for the three explicit flattened reference vectors.
             optimizer.zero_grad(set_to_none=True)
             loss_acc=torch.zeros((),device='cuda',dtype=torch.float32)
             finite_flags=[]
@@ -204,7 +204,7 @@ def main():
             loss_value=float(loss_value_tensor);grad_norm=float(grad_norm_tensor)
         elapsed=time.perf_counter()-tick
         row={'event':'train','step':step,'processed_tokens':int(source['processed_tokens'])+done,
-             'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':7.5e-5,'seconds':elapsed,
+             'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':args.lr,'seconds':elapsed,
              'tokens_per_second':total/elapsed,'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
              'peak_reserved_bytes':torch.cuda.max_memory_reserved(),'batch_size':batch,'microbatches':micros,
              'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
@@ -218,7 +218,7 @@ def main():
              'updates':step,'elapsed_session':time.perf_counter()-start,'tokens_this_session':done-start_done,
              'peak_allocated_bytes':torch.cuda.max_memory_allocated(),'peak_reserved_bytes':torch.cuda.max_memory_reserved(),
              'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
-             'tokens_per_update':tokens_per_update,'batch_chain':chain,'source_tokens':counts,
+             'lr':args.lr,'tokens_per_update':tokens_per_update,'batch_chain':chain,'source_tokens':counts,
              'checkpoint_sha256':file_sha(out/'resume.pt'),'frozen_weights_unchanged':True,'promoted':False}
     (out/'summary.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary),flush=True)
 
