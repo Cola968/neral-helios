@@ -1,0 +1,215 @@
+name: Neral 350M Safe Confirmation V8
+
+on:
+  push:
+    branches: [experiment/safe-continuation-v8-confirm]
+    paths:
+      - 'frontier350_safe_confirmation_v8_requests/request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-safe-confirmation-v8
+  cancel-in-progress: true
+
+jobs:
+  safe-confirmation-v8:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted V8 branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded V8 request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_safe_confirmation_v8_requests\request.json' -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,candidate_lr,pilot_data_id,profile,request_id,segment_tokens,segments,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'run_safe_confirmation_v8'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.segment_tokens -ne 2000000 -or [int]$r.segments -ne 5){throw 'V8 is locked to five guarded +2M segments'}
+          if([math]::Abs([double]$r.candidate_lr-0.000075) -gt 1e-12){throw 'V8 candidate LR must be 7.5e-5'}
+          if($r.profile -ne 'xling_05'){throw 'V8 is locked to the V7 winning replay profile'}
+          foreach($x in @($r.request_id,$r.pilot_data_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid id'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "pilot_id=$($r.pilot_data_id)" >> $env:GITHUB_OUTPUT
+          "segment_tokens=$($r.segment_tokens)" >> $env:GITHUB_OUTPUT
+          "segments=$($r.segments)" >> $env:GITHUB_OUTPUT
+          "lr=$($r.candidate_lr)" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Force frontier350_safe_confirmation_v8_report|Out-Null
+
+      - name: Resolve V7 anchor and immutable assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $anchor=Join-Path $assets 'runs\neral350_safe_v7_arctus-safe-v7-20260912-r1_selected\resume.pt'
+          $seed=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.pilot_id }}')
+          foreach($p in @($dataPython,$tokenizer,$anchor,(Join-Path $seed 'manifest.json'))){if(-not(Test-Path $p -PathType Leaf)){throw "missing asset: $p"}}
+          $m=Get-Content (Join-Path $seed 'manifest.json') -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or [Int64]$m.train_tokens -ne 20000000 -or [Int64]$m.validation_tokens -ne 200000){throw 'wrong recovery seed'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "anchor=$anchor" >> $env:GITHUB_OUTPUT
+          "anchor_wsl=$(W $anchor)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+          "seed=$seed" >> $env:GITHUB_OUTPUT
+          "seed_wsl=$(W $seed)" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+
+      - name: Revalidate V8 tooling and V7 checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.data_python }}' -m py_compile frontier350/reset_optimizer_state.py frontier350/interpolate_recovery_checkpoint.py frontier350/build_bilingual_recovery_v6.py frontier350/eval_bilingual_holdout_v1.py frontier350/eval_recovery_dev_v2.py frontier350/select_recovery_lr_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'V8 tooling compile failed'}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.anchor_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1002003584 --max-tokens 1002036352"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V7 selected checkpoint verification failed'}
+          $anchorSha=(Get-FileHash -LiteralPath '${{ steps.env.outputs.anchor }}' -Algorithm SHA256).Hash.ToLower()
+          @{schema=1;source='V7 selected';checkpoint_sha256=$anchorSha;processed_tokens=1002003584}|ConvertTo-Json|Set-Content 'frontier350_safe_confirmation_v8_report\source_anchor.json'
+
+      - name: Preflight disk
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';$root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets));$drive=Get-PSDrive -Name $root.Substring(0,1)
+          $freeGiB=[math]::Round($drive.Free/1GB,2);Write-Host "free_disk_gib=$freeGiB"
+          if($drive.Free -lt 7GB){throw "insufficient free disk: ${freeGiB} GiB; need >= 7 GiB"}
+
+      - name: Ensure pinned Tatoeba cache
+        id: tatoeba
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}';$cache=Join-Path $assets 'source_cache';New-Item -ItemType Directory -Force $cache|Out-Null
+          $zip=Join-Path $cache 'tatoeba-v2021-07-22-de-en.txt.zip';$url='https://object.pouta.csc.fi/OPUS-Tatoeba/v2021-07-22/moses/de-en.txt.zip'
+          if(-not(Test-Path $zip -PathType Leaf)){
+            try { Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing }
+            catch { & curl.exe -L --fail --retry 3 --output $zip $url;if($LASTEXITCODE -ne 0){throw 'Tatoeba download failed'} }
+          }
+          $sha=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          if($sha -ne '7d32f37b4976c8c6ffe9cd8e53c0e36e2c2d5d44fdb9df9bc1571f5befc4fa4d'){throw "unexpected Tatoeba archive digest: $sha"}
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Build locked V8 replay corpus and holdout
+        id: corpus
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}';$root=Join-Path $assets ('frontier350_safe_v8_'+$rid+'_xling05')
+          if(Test-Path $root){throw "V8 corpus already exists: $root"}
+          & '${{ steps.env.outputs.data_python }}' frontier350/build_bilingual_recovery_v6.py --seed '${{ steps.env.outputs.seed }}' --root $root --tokenizer '${{ steps.env.outputs.tokenizer }}' --tatoeba-zip '${{ steps.tatoeba.outputs.zip }}' --profile xling_05
+          if($LASTEXITCODE -ne 0){throw 'V8 corpus build failed'}
+          Copy-Item (Join-Path $root 'manifest.json') 'frontier350_safe_confirmation_v8_report\corpus_manifest.json' -Force
+          Copy-Item (Join-Path $root 'bilingual_holdout.json') 'frontier350_safe_confirmation_v8_report\bilingual_holdout.json' -Force
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "root_wsl=$(W $root)" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare and evaluate V8 starting anchor
+        id: base
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}';$repo='${{ steps.env.outputs.repo_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}'
+          $tmp=Join-Path $assets ('safe_v8_tmp_'+$rid);if(Test-Path $tmp){throw "V8 temp already exists: $tmp"};New-Item -ItemType Directory -Force $tmp|Out-Null
+          $anchor=Join-Path $tmp 'anchor_0.pt';$anchorW=W $anchor
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/reset_optimizer_state.py --src '${{ steps.env.outputs.anchor_wsl }}' --out '$anchorW' --reason v8_guarded_confirmation_start"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'V8 anchor optimizer reset failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$anchorW' --valid-data '$seed/valid' --out frontier350_safe_confirmation_v8_report/current_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'V8 starting validation failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$anchorW' --tokenizer '$tok' --out frontier350_safe_confirmation_v8_report/current_dev.json --expected-tokens 1002003584"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'V8 starting dev failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$anchorW' --tokenizer '$tok' --cases frontier350_safe_confirmation_v8_report/bilingual_holdout.json --out frontier350_safe_confirmation_v8_report/current_holdout.json --expected-tokens 1002003584"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'V8 starting holdout failed'}
+          "tmp=$tmp" >> $env:GITHUB_OUTPUT
+          "anchor=$anchor" >> $env:GITHUB_OUTPUT
+          "anchor_wsl=$anchorW" >> $env:GITHUB_OUTPUT
+
+      - name: Run five guarded +2M confirmation segments
+        id: loop
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$assets='${{ steps.env.outputs.assets }}';$data='${{ steps.corpus.outputs.root_wsl }}';$rid='${{ steps.req.outputs.request_id }}';$lr='${{ steps.req.outputs.lr }}';$tmp='${{ steps.base.outputs.tmp }}'
+          $anchorWin='${{ steps.base.outputs.anchor }}';$anchor=W $anchorWin;$currentTokens=[Int64]1002003584;$completed=0;$records=@();$stopReason=$null
+          :segmentLoop foreach($seg in 1..5){
+            $stop=$currentTokens+[Int64]2000000
+            Write-Host "=== V8 guarded segment $seg : $currentTokens -> $stop ==="
+            $outWin=Join-Path $assets ("runs\neral350_safe_v8_${rid}_segment${seg}_candidate")
+            if(Test-Path $outWin){throw "candidate output exists: $outWin"};New-Item -ItemType Directory -Force $outWin|Out-Null;$out=W $outWin
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$data/train' --valid-data '$seed/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$lr' --lr-schedule constant --resume-only --seq 512 --microbatch 8 --grad-accum 4 --eval-every 100 --save-every 100 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 1 --resume '$anchor' --tokenizer-sha256 '$sha'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "V8 training failed at segment $seg"}
+            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src){Copy-Item $src ("frontier350_safe_confirmation_v8_report\segment${seg}_candidate_$f") -Force}}
+            $candResetWin=Join-Path $tmp ("segment${seg}_candidate_reset.pt");$candReset=W $candResetWin;$resume=W (Join-Path $outWin 'resume.pt')
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/reset_optimizer_state.py --src '$resume' --out '$candReset' --reason v8_segment_alignment"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "candidate reset failed at segment $seg"};Remove-Item (Join-Path $outWin 'resume.pt') -Force
+
+            $baseH=Get-Content 'frontier350_safe_confirmation_v8_report\current_holdout.json' -Raw|ConvertFrom-Json
+            $selectedWin=$null;$selectedAlpha=$null;$selectedTag=$null
+            foreach($alpha in @(1.0,0.85,0.70,0.55,0.40,0.25,0.10)){
+              $tag=('s'+$seg+'_a'+([int]([double]$alpha*100)).ToString('000'));$ckWin=Join-Path $tmp ($tag+'.pt');$ck=W $ckWin
+              if([double]$alpha -eq 1.0){Copy-Item $candResetWin $ckWin -Force}
+              else {$cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/interpolate_recovery_checkpoint.py --anchor '$anchor' --candidate '$candReset' --out '$ck' --alpha '$alpha'";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "alignment failed: segment $seg alpha $alpha"}}
+              $val="frontier350_safe_confirmation_v8_report/${tag}_validation.json";$dev="frontier350_safe_confirmation_v8_report/${tag}_dev.json";$hold="frontier350_safe_confirmation_v8_report/${tag}_holdout.json";$gate="frontier350_safe_confirmation_v8_report/${tag}_gate.json"
+              $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out '$val' --seq 512 --batch 4 --batches 32 --seed 351337";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "validation failed: $tag"}
+              $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out '$dev' --expected-tokens '$stop'";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "dev failed: $tag"}
+              $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350_safe_confirmation_v8_report/bilingual_holdout.json --out '$hold' --expected-tokens '$stop'";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "holdout failed: $tag"}
+              $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350_safe_confirmation_v8_report/current_dev.json --baseline-validation frontier350_safe_confirmation_v8_report/current_validation.json --candidate '$tag' '$lr' '$dev' '$val' --out '$gate'";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "gate execution failed: $tag"}
+              $g=Get-Content $gate -Raw|ConvertFrom-Json;$h=Get-Content $hold -Raw|ConvertFrom-Json
+              $holdPass=([double]$h.overall_accuracy_pct -ge [double]$baseH.overall_accuracy_pct)
+              foreach($dir in @('de_to_en','en_to_de')){$b=($baseH.directions.PSObject.Properties|Where-Object Name -eq $dir).Value;$c=($h.directions.PSObject.Properties|Where-Object Name -eq $dir).Value;if([double]$c.accuracy_pct -lt [double]$b.accuracy_pct){$holdPass=$false}}
+              $pass=($g.selection_allowed -eq $true -and $holdPass)
+              $records += [pscustomobject]@{segment=$seg;start_tokens=$currentTokens;stop_tokens=$stop;alpha=[double]$alpha;legacy_gate=[bool]$g.selection_allowed;holdout_gate=[bool]$holdPass;holdout_overall=[double]$h.overall_accuracy_pct;pass=[bool]$pass}
+              if($pass){$selectedWin=$ckWin;$selectedAlpha=[double]$alpha;$selectedTag=$tag;break}
+              Remove-Item $ckWin -Force
+            }
+            if($null -eq $selectedWin){$stopReason="segment_${seg}_no_safe_step";Remove-Item $candResetWin -Force -ErrorAction SilentlyContinue;break segmentLoop}
+
+            $nextAnchorWin=Join-Path $tmp ("anchor_${seg}.pt");Move-Item $selectedWin $nextAnchorWin -Force
+            if(Test-Path $anchorWin){Remove-Item $anchorWin -Force}
+            Remove-Item $candResetWin -Force -ErrorAction SilentlyContinue
+            Copy-Item ("frontier350_safe_confirmation_v8_report\${selectedTag}_validation.json") 'frontier350_safe_confirmation_v8_report\current_validation.json' -Force
+            Copy-Item ("frontier350_safe_confirmation_v8_report\${selectedTag}_dev.json") 'frontier350_safe_confirmation_v8_report\current_dev.json' -Force
+            Copy-Item ("frontier350_safe_confirmation_v8_report\${selectedTag}_holdout.json") 'frontier350_safe_confirmation_v8_report\current_holdout.json' -Force
+            $anchorWin=$nextAnchorWin;$anchor=W $anchorWin;$currentTokens=$stop;$completed=$seg
+            Write-Host "segment $seg accepted at alpha=$selectedAlpha; safe anchor now $currentTokens tokens"
+          }
+
+          $selected=$completed -gt 0;$finalPath=$null;$finalSha=$null
+          if($selected){$destDir=Join-Path $assets ('runs\neral350_safe_v8_'+$rid+'_selected');if(Test-Path $destDir){throw "selected V8 output exists: $destDir"};New-Item -ItemType Directory -Force $destDir|Out-Null;$finalPath=Join-Path $destDir 'resume.pt';Move-Item $anchorWin $finalPath -Force;$finalSha=(Get-FileHash -LiteralPath $finalPath -Algorithm SHA256).Hash.ToLower()}
+          else {Remove-Item $anchorWin -Force -ErrorAction SilentlyContinue}
+          $summary=[ordered]@{schema=1;status=$(if($completed -eq 5){'confirmed_10m'}elseif($completed -gt 0){'partial_safe_progress'}else{'no_progress'});start_tokens=1002003584;final_tokens=$currentTokens;completed_segments=$completed;requested_segments=5;segment_tokens=2000000;stop_reason=$stopReason;checkpoint_sha256=$finalSha;policy='monotonic no-regression gate on validation, 140-case dev categories/overall, and 400-case bilingual overall plus both directions; largest safe alpha';records=$records}
+          $summary|ConvertTo-Json -Depth 10|Set-Content 'frontier350_safe_confirmation_v8_report\selection.json'
+          "selected=$($selected.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "final_tokens=$currentTokens" >> $env:GITHUB_OUTPUT
+          if($selected){"checkpoint=$finalPath" >> $env:GITHUB_OUTPUT}
+
+      - name: Verify final safe checkpoint
+        if: steps.loop.outputs.selected == 'true'
+        run: |
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck=W '${{ steps.loop.outputs.checkpoint }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$min=[Int64]'${{ steps.loop.outputs.final_tokens }}';$max=$min+32768
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens '$min' --max-tokens '$max'"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'final V8 checkpoint verification failed'}
+
+      - name: Upload V8 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-safe-confirmation-v8-${{ github.run_id }}
+          path: frontier350_safe_confirmation_v8_report/
+          retention-days: 30
