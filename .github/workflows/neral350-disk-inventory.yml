@@ -1,0 +1,37 @@
+name: Neral 350M Disk Inventory
+on:
+  push:
+    branches: [experiment/guarded-replay-v10]
+    paths: ['frontier350_disk_inventory_requests/request.json']
+permissions:
+  contents: read
+concurrency:
+  group: neral-350m-guarded-replay-v10
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    steps:
+      - name: Report Neral run directory sizes without modifying files
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $runs=Join-Path $assets 'runs'
+          $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
+          Write-Host ("FreeBytes="+$drive.Free)
+          Write-Host '--- RUN DIRECTORY SIZES ---'
+          Get-ChildItem -LiteralPath $runs -Directory | ForEach-Object {
+            $sum=(Get-ChildItem -LiteralPath $_.FullName -File -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+            [pscustomobject]@{Name=$_.Name;Bytes=[int64]$sum}
+          } | Sort-Object Bytes -Descending | Select-Object -First 40 | ForEach-Object {
+            Write-Host ($_.Name+'|'+$_.Bytes)
+          }
+          Write-Host '--- LARGE TOP-LEVEL ASSET DIRECTORIES ---'
+          Get-ChildItem -LiteralPath $assets -Directory | ForEach-Object {
+            $sum=(Get-ChildItem -LiteralPath $_.FullName -File -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+            [pscustomobject]@{Name=$_.Name;Bytes=[int64]$sum}
+          } | Sort-Object Bytes -Descending | Select-Object -First 25 | ForEach-Object {
+            Write-Host ($_.Name+'|'+$_.Bytes)
+          }
