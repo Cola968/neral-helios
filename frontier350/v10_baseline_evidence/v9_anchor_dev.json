@@ -1,0 +1,21 @@
+{
+  "checkpoint_sha256": "16656c86ff7846a39c3f75d7ddc8a629efe31245f4ed3d6fa58f1867f63b059e",
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "protocol_sha256": "1b7fa3d1bd9e18ce2924ff94ffceed3e647510cdfc198a3de8627171da068c83",
+  "suite": "arctus-recovery-dev-v1",
+  "checkpoint_processed_tokens": 1006003584,
+  "architecture": "frontier350-v1",
+  "cases": 140,
+  "overall_accuracy_pct": 48.57142857142857,
+  "categories": {
+    "bilingual": {"correct": 8, "total": 20, "accuracy_pct": 40.0},
+    "code": {"correct": 15, "total": 20, "accuracy_pct": 75.0},
+    "factual": {"correct": 14, "total": 20, "accuracy_pct": 70.0},
+    "language": {"correct": 5, "total": 20, "accuracy_pct": 25.0},
+    "math": {"correct": 3, "total": 20, "accuracy_pct": 15.0},
+    "reasoning": {"correct": 10, "total": 20, "accuracy_pct": 50.0},
+    "science": {"correct": 13, "total": 20, "accuracy_pct": 65.0}
+  },
+  "purpose": "development-only recovery diagnostic; not final audit/public benchmark",
+  "evidence_origin": "measured V9 anchor evaluation from GitHub Actions run 34702497152; summary copied verbatim except this provenance field"
+}
