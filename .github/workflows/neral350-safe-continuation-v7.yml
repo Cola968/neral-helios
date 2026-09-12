@@ -1,0 +1,220 @@
+name: Neral 350M Safe Continuation V7
+
+on:
+  push:
+    branches: [experiment/safe-continuation-v7]
+    paths:
+      - 'frontier350_safe_continuation_v7_requests/request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-safe-continuation-v7
+  cancel-in-progress: true
+
+jobs:
+  safe-continuation-v7:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted V7 branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded V7 request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_safe_continuation_v7_requests\request.json' -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,candidate_lr,pilot_data_id,profile,request_id,stop_after_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'run_safe_continuation_v7'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 1002003584){throw 'V7 pilot is locked to +2M tokens'}
+          if([math]::Abs([double]$r.candidate_lr-0.000075) -gt 1e-12){throw 'V7 candidate LR must be 7.5e-5'}
+          if($r.profile -ne 'xling_05'){throw 'V7 is locked to the safest V6 replay profile'}
+          foreach($x in @($r.request_id,$r.pilot_data_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid id'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "pilot_id=$($r.pilot_data_id)" >> $env:GITHUB_OUTPUT
+          "stop=$($r.stop_after_tokens)" >> $env:GITHUB_OUTPUT
+          "lr=$($r.candidate_lr)" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Force frontier350_safe_continuation_v7_report|Out-Null
+
+      - name: Resolve immutable assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          if((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLower() -ne 'be1e0d2ae6b95b734fadd516dc012b8d92935c69ebe830d7358637cefb0e2498'){throw 'immutable 1B checkpoint digest differs'}
+          $seed=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.pilot_id }}')
+          foreach($p in @($dataPython,$tokenizer,$checkpoint,(Join-Path $seed 'manifest.json'))){if(-not(Test-Path $p -PathType Leaf)){throw "missing asset: $p"}}
+          $m=Get-Content (Join-Path $seed 'manifest.json') -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or [Int64]$m.train_tokens -ne 20000000 -or [Int64]$m.validation_tokens -ne 200000){throw 'wrong recovery seed'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+          "seed=$seed" >> $env:GITHUB_OUTPUT
+          "seed_wsl=$(W $seed)" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+
+      - name: Revalidate V7 tooling and checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.data_python }}' -m py_compile frontier350/reset_optimizer_state.py frontier350/interpolate_recovery_checkpoint.py frontier350/build_bilingual_recovery_v6.py frontier350/eval_bilingual_holdout_v1.py frontier350/eval_recovery_dev_v2.py frontier350/select_recovery_lr_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'V7 tooling compile failed'}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1000000000 --max-tokens 1000032768"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'immutable 1B checkpoint verification failed'}
+
+      - name: Preflight disk
+        run: |
+          $assets='${{ steps.env.outputs.assets }}';$root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets));$drive=Get-PSDrive -Name $root.Substring(0,1)
+          $freeGiB=[math]::Round($drive.Free/1GB,2);Write-Host "free_disk_gib=$freeGiB"
+          if($drive.Free -lt 7GB){throw "insufficient free disk: ${freeGiB} GiB; need >= 7 GiB"}
+
+      - name: Ensure pinned Tatoeba cache
+        id: tatoeba
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}';$cache=Join-Path $assets 'source_cache';New-Item -ItemType Directory -Force $cache|Out-Null
+          $zip=Join-Path $cache 'tatoeba-v2021-07-22-de-en.txt.zip'
+          $url='https://object.pouta.csc.fi/OPUS-Tatoeba/v2021-07-22/moses/de-en.txt.zip'
+          if(-not(Test-Path $zip -PathType Leaf)){
+            try { Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing }
+            catch {
+              Write-Host "Invoke-WebRequest failed; trying Windows curl"
+              & curl.exe -L --fail --retry 3 --output $zip $url
+              if($LASTEXITCODE -ne 0){throw 'Tatoeba download failed'}
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          if($sha -ne '7d32f37b4976c8c6ffe9cd8e53c0e36e2c2d5d44fdb9df9bc1571f5befc4fa4d'){throw "unexpected Tatoeba archive digest: $sha"}
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Build safe replay corpus and frozen bilingual holdout
+        id: corpus
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}'
+          $root=Join-Path $assets ('frontier350_safe_v7_'+$rid+'_xling05')
+          if(Test-Path $root){throw "V7 corpus already exists: $root"}
+          & '${{ steps.env.outputs.data_python }}' frontier350/build_bilingual_recovery_v6.py --seed '${{ steps.env.outputs.seed }}' --root $root --tokenizer '${{ steps.env.outputs.tokenizer }}' --tatoeba-zip '${{ steps.tatoeba.outputs.zip }}' --profile xling_05
+          if($LASTEXITCODE -ne 0){throw 'V7 corpus build failed'}
+          Copy-Item (Join-Path $root 'manifest.json') 'frontier350_safe_continuation_v7_report\corpus_manifest.json' -Force
+          Copy-Item (Join-Path $root 'bilingual_holdout.json') 'frontier350_safe_continuation_v7_report\bilingual_holdout.json' -Force
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "root_wsl=$(W $root)" >> $env:GITHUB_OUTPUT
+
+      - name: Evaluate immutable anchor
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_safe_continuation_v7_report/baseline_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline validation failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_safe_continuation_v7_report/baseline_dev.json --expected-tokens 1000003584"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline dev failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350_safe_continuation_v7_report/bilingual_holdout.json --out frontier350_safe_continuation_v7_report/baseline_holdout.json --expected-tokens 1000003584"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline holdout failed'}
+
+      - name: Train one short candidate with fresh optimizer moments
+        id: train
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}';$repo='${{ steps.env.outputs.repo_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $tmp=Join-Path $assets ('safe_v7_tmp_'+$rid);New-Item -ItemType Directory -Force $tmp|Out-Null
+          $anchor=Join-Path $tmp 'anchor_reset.pt';$anchorW=W $anchor
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/reset_optimizer_state.py --src '${{ steps.env.outputs.checkpoint_wsl }}' --out '$anchorW' --reason v7_distribution_shift"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'optimizer reset failed'}
+          $outWin=Join-Path $assets ('runs\neral350_safe_v7_'+$rid+'_candidate');if(Test-Path $outWin){throw 'candidate output already exists'};New-Item -ItemType Directory -Force $outWin|Out-Null
+          $out=W $outWin;$data='${{ steps.corpus.outputs.root_wsl }}';$stop='${{ steps.req.outputs.stop }}';$lr='${{ steps.req.outputs.lr }}'
+          $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$data/train' --valid-data '$seed/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$lr' --lr-schedule constant --resume-only --seq 512 --microbatch 8 --grad-accum 4 --eval-every 100 --save-every 100 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 1 --resume '$anchorW' --tokenizer-sha256 '$sha'"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'V7 candidate training failed'}
+          foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src){Copy-Item $src ("frontier350_safe_continuation_v7_report\candidate_$f") -Force}}
+          $candReset=Join-Path $tmp 'candidate_reset.pt';$candResetW=W $candReset;$resumeW=W (Join-Path $outWin 'resume.pt')
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/reset_optimizer_state.py --src '$resumeW' --out '$candResetW' --reason v7_post_segment_alignment"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'candidate optimizer strip failed'}
+          Remove-Item (Join-Path $outWin 'resume.pt') -Force
+          "tmp=$tmp" >> $env:GITHUB_OUTPUT
+          "anchor_wsl=$anchorW" >> $env:GITHUB_OUTPUT
+          "candidate_wsl=$candResetW" >> $env:GITHUB_OUTPUT
+
+      - name: Trust-region line search in weight space
+        id: align
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}';$lr='${{ steps.req.outputs.lr }}';$stop=[Int64]'${{ steps.req.outputs.stop }}'
+          $tmp='${{ steps.train.outputs.tmp }}';$anchor='${{ steps.train.outputs.anchor_wsl }}';$candidate='${{ steps.train.outputs.candidate_wsl }}'
+          $baseH=Get-Content 'frontier350_safe_continuation_v7_report\baseline_holdout.json' -Raw|ConvertFrom-Json
+          $selected=$null;$selectedAlpha=$null;$records=@()
+          foreach($alpha in @(1.0,0.85,0.70,0.55,0.40,0.25,0.10)){
+            $tag=('a'+([int]([double]$alpha*100)).ToString('000'))
+            $ckWin=Join-Path $tmp ($tag+'.pt');$ck=W $ckWin
+            if([double]$alpha -eq 1.0){Copy-Item (Join-Path $tmp 'candidate_reset.pt') $ckWin -Force}
+            else {
+              $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/interpolate_recovery_checkpoint.py --anchor '$anchor' --candidate '$candidate' --out '$ck' --alpha '$alpha'"
+              wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "alignment failed: $alpha"}
+            }
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_safe_continuation_v7_report/${tag}_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "validation failed: $alpha"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_safe_continuation_v7_report/${tag}_dev.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "dev failed: $alpha"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_bilingual_holdout_v1.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350_safe_continuation_v7_report/bilingual_holdout.json --out frontier350_safe_continuation_v7_report/${tag}_holdout.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "holdout failed: $alpha"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350_safe_continuation_v7_report/baseline_dev.json --baseline-validation frontier350_safe_continuation_v7_report/baseline_validation.json --candidate '$tag' '$lr' frontier350_safe_continuation_v7_report/${tag}_dev.json frontier350_safe_continuation_v7_report/${tag}_validation.json --out frontier350_safe_continuation_v7_report/${tag}_gate.json"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "legacy gate execution failed: $alpha"}
+            $g=Get-Content ("frontier350_safe_continuation_v7_report\${tag}_gate.json") -Raw|ConvertFrom-Json
+            $h=Get-Content ("frontier350_safe_continuation_v7_report\${tag}_holdout.json") -Raw|ConvertFrom-Json
+            $holdPass=([double]$h.overall_accuracy_pct -ge ([double]$baseH.overall_accuracy_pct + 1.0))
+            foreach($dir in @('de_to_en','en_to_de')){
+              $b=($baseH.directions.PSObject.Properties|Where-Object Name -eq $dir).Value;$c=($h.directions.PSObject.Properties|Where-Object Name -eq $dir).Value
+              if([double]$c.accuracy_pct -lt [double]$b.accuracy_pct){$holdPass=$false}
+            }
+            $pass=($g.selection_allowed -eq $true -and $holdPass)
+            $records += [pscustomobject]@{alpha=[double]$alpha;tag=$tag;legacy_gate=[bool]$g.selection_allowed;holdout_gate=[bool]$holdPass;holdout_overall=[double]$h.overall_accuracy_pct;pass=[bool]$pass}
+            if($pass){$selected=$ckWin;$selectedAlpha=[double]$alpha;break}
+            Remove-Item $ckWin -Force
+          }
+          if($null -ne $selected){
+            $selectedDir=Join-Path $assets ('runs\neral350_safe_v7_'+$rid+'_selected');New-Item -ItemType Directory -Force $selectedDir|Out-Null
+            $dest=Join-Path $selectedDir 'resume.pt';Move-Item $selected $dest -Force
+            $sha=(Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLower()
+            @{schema=1;status='selected';alpha=$selectedAlpha;checkpoint_sha256=$sha;processed_tokens=$stop;policy='largest safe alpha with immutable no-regression gate plus >=1pp bilingual holdout progress';records=$records}|ConvertTo-Json -Depth 8|Set-Content 'frontier350_safe_continuation_v7_report\selection.json'
+            "selected=true" >> $env:GITHUB_OUTPUT;"alpha=$selectedAlpha" >> $env:GITHUB_OUTPUT;"checkpoint=$dest" >> $env:GITHUB_OUTPUT
+          } else {
+            @{schema=1;status='no_promotion';reason='no positive trust-region step passed all immutable gates';records=$records}|ConvertTo-Json -Depth 8|Set-Content 'frontier350_safe_continuation_v7_report\selection.json'
+            "selected=false" >> $env:GITHUB_OUTPUT
+          }
+          foreach($p in @((Join-Path $tmp 'anchor_reset.pt'),(Join-Path $tmp 'candidate_reset.pt'))){if(Test-Path $p){Remove-Item $p -Force}}
+
+      - name: Verify selected checkpoint
+        if: steps.align.outputs.selected == 'true'
+        run: |
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck=W '${{ steps.align.outputs.checkpoint }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1002003584 --max-tokens 1002036352"
+          wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'selected V7 checkpoint verification failed'}
+
+      - name: Upload V7 reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-safe-continuation-v7-${{ github.run_id }}
+          path: frontier350_safe_continuation_v7_report/
+          retention-days: 30
