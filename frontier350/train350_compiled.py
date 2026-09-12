@@ -20,8 +20,26 @@ import torch
 
 from model350 import FRONTIER_350, Neral350M
 from train350 import CHECKPOINT_SCHEMA, append_jsonl, atomic_save, checkpoint_state, cosine_lr
+from recovery_identity import file_sha, object_sha
 
 PARAMETERS = 349_825_152
+
+
+def update_token_counts(remaining: int, micro_tokens: int, accumulation: int) -> list[int]:
+    if min(remaining, micro_tokens, accumulation) <= 0:
+        raise ValueError("positive update dimensions required")
+    budget = min(remaining, micro_tokens * accumulation)
+    return [min(micro_tokens, budget - i) for i in range(0, budget, micro_tokens)]
+
+
+def mask_budget_targets(targets: torch.Tensor, count: int) -> torch.Tensor:
+    if not 0 < count <= targets.numel():
+        raise ValueError("invalid target budget")
+    if count == targets.numel():
+        return targets
+    result = targets.contiguous().clone()
+    result.view(-1)[count:] = -100
+    return result
 
 
 class PersistentMMapPool:
@@ -60,7 +78,10 @@ def evaluate(model: Neral350M, pool: PersistentMMapPool, *, seq: int, batch: int
             _, loss = model(x, y)
             if loss is None:
                 raise RuntimeError("validation returned no loss")
-            vals.append(float(loss))
+            value = float(loss)
+            if not math.isfinite(value):
+                raise FloatingPointError("non-finite validation loss")
+            vals.append(value)
     model.train()
     return sum(vals) / len(vals)
 
@@ -76,6 +97,8 @@ def main() -> None:
     ap.add_argument("--microbatch", type=int, default=4)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--lr-schedule", choices=("cosine", "constant"), default="cosine")
+    ap.add_argument("--resume-only", action="store_true", help="Keep resumable weights; omit redundant model-only best snapshots")
     ap.add_argument("--weight-decay", type=float, default=0.1)
     ap.add_argument("--warmup-frac", type=float, default=0.01)
     ap.add_argument("--eval-every", type=int, default=100)
@@ -97,8 +120,11 @@ def main() -> None:
     run_until = args.stop_after_tokens or args.target_tokens
     if run_until <= 0 or run_until > args.target_tokens:
         raise ValueError("stop-after-tokens must be in (0,target-tokens]")
-    if min(args.seq, args.microbatch, args.grad_accum, args.numerical_check_every) <= 0:
+    if min(args.seq, args.microbatch, args.grad_accum, args.numerical_check_every,
+           args.log_every, args.eval_every, args.save_every, args.eval_batches) <= 0:
         raise ValueError("invalid batch/check dimensions")
+    if not math.isfinite(args.lr) or args.lr <= 0 or not math.isfinite(args.weight_decay) or args.weight_decay < 0:
+        raise ValueError("invalid optimizer settings")
     if args.seq > FRONTIER_350.max_seq_len:
         raise ValueError("sequence exceeds architecture context")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
@@ -113,10 +139,14 @@ def main() -> None:
     torch.set_float32_matmul_precision("high")
 
     out = Path(args.out)
+    if out.exists() and any(out.iterdir()) and (not args.resume or Path(args.resume).resolve() != (out / "resume.pt").resolve()):
+        raise RuntimeError("existing output must be resumed from its own resume.pt")
     out.mkdir(parents=True, exist_ok=True)
     metrics = out / "metrics.jsonl"
     train_pool = PersistentMMapPool(Path(args.train_data), FRONTIER_350.vocab_size)
     valid_pool = PersistentMMapPool(Path(args.valid_data), FRONTIER_350.vocab_size)
+    validation_identity = object_sha({'shards':[(p.name,file_sha(p)) for p in valid_pool.paths],
+                                     'seq':args.seq,'batch':args.microbatch,'batches':args.eval_batches,'seed':args.seed+999})
     rng = random.Random(args.seed + 1)
     sampler_resume_source = "fresh_seed"
 
@@ -144,13 +174,16 @@ def main() -> None:
             raise RuntimeError("resume architecture differs from locked Frontier 350M config")
         if int(ck.get("target_tokens", -1)) != args.target_tokens:
             raise RuntimeError("resume target token schedule differs")
-        if args.tokenizer_sha256 and ck.get("tokenizer_sha256") not in ("", args.tokenizer_sha256):
+        if args.tokenizer_sha256 and ck.get("tokenizer_sha256") != args.tokenizer_sha256:
             raise RuntimeError("resume tokenizer digest differs")
         model.load_state_dict(ck["model"])
         opt.load_state_dict(ck["optimizer"])
         step = int(ck["step"])
         processed = int(ck["processed_tokens"])
         best = float(ck.get("best_validation", best))
+        if ck.get('validation_identity') != validation_identity:
+            best = evaluate(model, valid_pool, seq=args.seq, batch=args.microbatch,
+                            batches=args.eval_batches, device=device, seed=args.seed+999)
         torch.set_rng_state(ck["torch_rng"])
         random.setstate(ck["python_rng"])
         np.random.set_state(ck["numpy_rng"])
@@ -184,6 +217,8 @@ def main() -> None:
         "compile_mode": args.compile_mode,
         "compile_fullgraph": args.compile_fullgraph,
         "persistent_mmap": True,
+        "source_checkpoint_sha256": file_sha(args.resume) if args.resume else None,
+        "train_shards_sha256": {p.name:file_sha(p) for p in train_pool.paths},
         "checkpoint_schema": CHECKPOINT_SCHEMA,
         "target_tokens": args.target_tokens,
         "run_until_tokens": run_until,
@@ -196,6 +231,10 @@ def main() -> None:
         "tokenizer_sha256": args.tokenizer_sha256,
         "train_sampler_rng_source": sampler_resume_source,
         "validation_seed": validation_seed,
+        "validation_identity": validation_identity,
+        "lr_schedule": args.lr_schedule,
+        "lr_peak": args.lr,
+        "numerical_checks": "every optimizer update, before mutation",
         "gpu": torch.cuda.get_device_name(0),
     }
     print(json.dumps(startup), flush=True)
@@ -210,33 +249,31 @@ def main() -> None:
     last_grad_value = float("nan")
 
     while processed < run_until:
-        lr = cosine_lr(step, warmup, total_updates, args.lr)
+        lr = args.lr if args.lr_schedule == "constant" else cosine_lr(step, warmup, total_updates, args.lr)
         for g in opt.param_groups:
             g["lr"] = lr
         opt.zero_grad(set_to_none=True)
         loss_acc = torch.zeros((), device=device, dtype=torch.float32)
         microsteps = 0
-
-        for _ in range(args.grad_accum):
+        token_counts = update_token_counts(run_until - processed, args.seq * args.microbatch, args.grad_accum)
+        update_tokens = sum(token_counts)
+        for count in token_counts:
             x, y = train_pool.batch(args.microbatch, args.seq, device, rng)
+            y = mask_budget_targets(y, count)
             _, loss = train_model(x, y)
             if loss is None:
                 raise RuntimeError(f"no loss at step {step}")
-            (loss / args.grad_accum).backward()
-            loss_acc.add_(loss.detach().float())
+            (loss * (count / update_tokens)).backward()
+            loss_acc.add_(loss.detach().float() * (count / update_tokens))
             microsteps += 1
-            processed += x.numel()
-            if processed >= run_until:
-                break
 
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        check_now = ((step + 1) % args.numerical_check_every == 0) or processed >= run_until
-        if check_now:
-            last_loss_value = float(loss_acc / max(1, microsteps))
-            last_grad_value = float(grad_norm)
-            if not math.isfinite(last_loss_value) or not math.isfinite(last_grad_value):
-                raise RuntimeError(f"non-finite loss/grad at step {step}")
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
+        last_loss_value = float(loss_acc)
+        last_grad_value = float(grad_norm)
+        if not math.isfinite(last_loss_value):
+            raise FloatingPointError(f"non-finite loss at step {step}")
         opt.step()
+        processed += update_tokens
         step += 1
 
         if step % args.log_every == 0 or processed >= run_until:
@@ -288,7 +325,7 @@ def main() -> None:
             last_eval_step = step
             if val < best:
                 best = val
-                atomic_save({
+                if not args.resume_only: atomic_save({
                     "model": model.state_dict(),
                     "step": step,
                     "processed_tokens": processed,
@@ -301,7 +338,7 @@ def main() -> None:
             atomic_save(
                 checkpoint_state(
                     model, opt, step, processed, best, args.target_tokens,
-                    args.tokenizer_sha256, train_sampler_rng=rng,
+                    args.tokenizer_sha256, train_sampler_rng=rng, validation_identity=validation_identity,
                 ),
                 out / "resume.pt",
             )
@@ -323,7 +360,7 @@ def main() -> None:
     atomic_save(
         checkpoint_state(
             model, opt, step, processed, best, args.target_tokens,
-            args.tokenizer_sha256, train_sampler_rng=rng,
+            args.tokenizer_sha256, train_sampler_rng=rng, validation_identity=validation_identity,
         ),
         out / "resume.pt",
     )

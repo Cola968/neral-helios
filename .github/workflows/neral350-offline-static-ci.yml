@@ -7,12 +7,14 @@ on:
       - 'frontier350/**/*.py'
       - 'frontier350/*.json'
       - '.github/workflows/neral350-offline-static-ci.yml'
+      - 'tests/test_arctus_recovery_hardening.py'
   pull_request:
     branches: [main]
     paths:
       - 'frontier350/**/*.py'
       - 'frontier350/*.json'
       - '.github/workflows/neral350-offline-static-ci.yml'
+      - 'tests/test_arctus_recovery_hardening.py'
 
 permissions:
   contents: read
@@ -42,6 +44,14 @@ jobs:
             frontier350/build_weakness_recovery_pilot_bpe_data.py \
             frontier350/eval_recovery_dev_v2.py \
             frontier350/select_recovery_lr_pilot.py
+
+      - name: Install CPU regression-test dependencies
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy pytest
+
+      - name: Run recovery numerical and admission regression tests
+        run: python -m pytest -q tests/test_arctus_recovery_hardening.py
 
       - name: Validate JSON research contracts
         run: |

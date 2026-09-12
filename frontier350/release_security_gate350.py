@@ -35,8 +35,10 @@ MAXIMUMS = {
 
 
 def _number(value) -> float:
+    if isinstance(value, bool):
+        raise ValueError("boolean metric")
     x = float(value)
-    if not math.isfinite(x):
+    if not math.isfinite(x) or not 0 <= x <= 100:
         raise ValueError("non-finite metric")
     return x
 

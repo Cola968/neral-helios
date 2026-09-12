@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import math
 from pathlib import Path
 
 import torch
@@ -13,6 +14,7 @@ from tokenizers import Tokenizer
 from model350 import FRONTIER_350, Neral350M
 from eval500m_diagnostic import conditional_mean_nll
 from eval_recovery_dev import CASES, SUITE_VERSION
+from recovery_identity import file_sha, object_sha
 
 
 def main() -> None:
@@ -37,6 +39,8 @@ def main() -> None:
     if ck.get("config") != FRONTIER_350.to_dict():
         raise RuntimeError("checkpoint architecture mismatch")
     processed = int(ck.get("processed_tokens", 0))
+    if ck.get("tokenizer_sha256") != file_sha(args.tokenizer):
+        raise RuntimeError("checkpoint/tokenizer digest mismatch")
     if not args.expected_tokens <= processed <= args.expected_tokens + 32_768:
         raise RuntimeError(f"expected bounded checkpoint near {args.expected_tokens:,}, got {processed:,}")
 
@@ -49,6 +53,8 @@ def main() -> None:
     for case_id, cat, prefix, preferred, distractors in CASES:
         options = [preferred, *distractors]
         losses = [conditional_mean_nll(model, tok, prefix, x, device, int(bos_id)) for x in options]
+        if not all(math.isfinite(value) for value in losses):
+            raise FloatingPointError(f"non-finite option scores: {case_id}")
         chosen = min(range(len(losses)), key=losses.__getitem__)
         ok = chosen == 0
         by_cat[cat].append(ok)
@@ -71,6 +77,10 @@ def main() -> None:
     }
     total_correct = sum(int(x["correct"]) for x in rows)
     summary = {
+        "checkpoint_sha256": file_sha(args.checkpoint),
+        "tokenizer_sha256": file_sha(args.tokenizer),
+        "protocol_sha256": object_sha({"cases": CASES, "implementation": {
+            p: file_sha(Path(__file__).parent / p) for p in ('model350.py', 'eval500m_diagnostic.py', 'eval_recovery_dev_v2.py')}}),
         "suite": SUITE_VERSION,
         "checkpoint_processed_tokens": processed,
         "architecture": "frontier350-v1",

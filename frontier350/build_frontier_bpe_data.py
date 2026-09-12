@@ -147,7 +147,10 @@ def quota(total: int, index: int) -> int:
 
 
 def build_source(spec, revision: str, target_tokens: int, writer: StreamingShardWriter, seen: PersistentSeen, tokenizer: LocalBPE) -> dict:
+    if target_tokens <= 0:
+        raise ValueError("positive source quota required")
     raw_rows = accepted = rejected = emitted = 0
+    truncated_documents = 0
     reasons: dict[str, int] = {}
     start = time.time()
     for row in stream_rows(spec, revision):
@@ -161,13 +164,10 @@ def build_source(spec, revision: str, target_tokens: int, writer: StreamingShard
         ids = tokenizer.encode_document(text)
         remaining = target_tokens - emitted
         if len(ids) > remaining:
-            # Never turn a truncated document tail into a false EOS. The last partial allocation
-            # is used only if it has enough room for BOS + body + EOS; otherwise leave a tiny
-            # quota underfill that the caller detects and handles by continuing with another doc.
-            if remaining < 3:
-                continue
+            # A budget boundary is not a real document ending. Preserve the actual
+            # prefix, even for a 1/2-token remainder; never invent an EOS target.
             ids = ids[:remaining]
-            ids[-1] = int(tokenizer.special_ids["<|eos|>"])
+            truncated_documents += 1
         writer.add(ids)
         emitted += len(ids); accepted += 1
         if emitted >= target_tokens:
@@ -180,6 +180,8 @@ def build_source(spec, revision: str, target_tokens: int, writer: StreamingShard
         "source": asdict(spec), "revision": revision, "raw_rows": raw_rows,
         "accepted_rows": accepted, "rejected_rows": rejected, "rejection_reasons": reasons,
         "emitted_tokens": emitted, "elapsed_s": time.time() - start,
+        "budget_truncated_documents": truncated_documents,
+        "synthetic_eos_targets": 0,
     }
 
 

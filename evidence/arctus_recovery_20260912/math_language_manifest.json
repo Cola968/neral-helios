@@ -1,0 +1,320 @@
+{
+  "schema": 2,
+  "architecture": "frontier350-v1",
+  "corpus_role": "foundation-pretraining",
+  "continuation_profile": "arctus-v5-local-remix-math_language",
+  "continuation_from_tokens": 1000003584,
+  "target_cumulative_tokens": 1010003584,
+  "pilot_only": true,
+  "tokenizer": {
+    "type": "byte-bpe-v1",
+    "vocab_size": 16384,
+    "special_token_ids": {
+      "<|bos|>": 0,
+      "<|eos|>": 1,
+      "<|sep|>": 2,
+      "<|pad|>": 3
+    },
+    "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd"
+  },
+  "target_tokens": 10200000,
+  "train_tokens": 10000000,
+  "validation_tokens": 200000,
+  "benchmark_content_included": false,
+  "licenses": [
+    "odc-by"
+  ],
+  "resolved_revisions": {
+    "fineweb_edu_en": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+    "fineweb_en": "9bb295ddab0e05d785b879661af7260fed5140fc",
+    "fineweb2_de": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+    "finemath": "e92b25a616738fe95dc186b64dfb19f9c8525594"
+  },
+  "focus_shares": {
+    "fineweb_edu_en": 0.35,
+    "fineweb_en": 0.15,
+    "fineweb2_de": 0.25,
+    "finemath": 0.25
+  },
+  "sources": [
+    {
+      "partition": "valid",
+      "source": {
+        "name": "fineweb_edu_en",
+        "repo": "HuggingFaceFW/fineweb-edu",
+        "config": "sample-10BT",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.35,
+        "language": "en",
+        "kind": "education"
+      },
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "raw_rows": 887677,
+      "accepted_rows": 75,
+      "rejected_rows": 887602,
+      "rejection_reasons": {
+        "duplicate": 772570,
+        "phone": 94698,
+        "email": 20159,
+        "utf8_replacement": 139,
+        "secret_pattern": 18,
+        "nonprintable": 12,
+        "too_long": 6
+      },
+      "emitted_tokens": 70000,
+      "elapsed_s": 926.1324255466461
+    },
+    {
+      "partition": "valid",
+      "source": {
+        "name": "fineweb_en",
+        "repo": "HuggingFaceFW/fineweb",
+        "config": "sample-10BT",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.2,
+        "language": "en",
+        "kind": "general"
+      },
+      "revision": "9bb295ddab0e05d785b879661af7260fed5140fc",
+      "raw_rows": 445216,
+      "accepted_rows": 54,
+      "rejected_rows": 445162,
+      "rejection_reasons": {
+        "duplicate": 388333,
+        "phone": 39552,
+        "email": 17151,
+        "utf8_replacement": 94,
+        "secret_pattern": 14,
+        "too_short": 10,
+        "too_long": 4,
+        "nonprintable": 4
+      },
+      "emitted_tokens": 40000,
+      "elapsed_s": 375.6495478153229
+    },
+    {
+      "partition": "valid",
+      "source": {
+        "name": "fineweb2_de",
+        "repo": "HuggingFaceFW/fineweb-2",
+        "config": "deu_Latn",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.25,
+        "language": "de",
+        "kind": "general"
+      },
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "raw_rows": 366568,
+      "accepted_rows": 73,
+      "rejected_rows": 366495,
+      "rejection_reasons": {
+        "duplicate": 329509,
+        "email": 13217,
+        "phone": 23713,
+        "secret_pattern": 5,
+        "too_long": 8,
+        "utf8_replacement": 39,
+        "nonprintable": 2,
+        "word_repetition": 2
+      },
+      "emitted_tokens": 50000,
+      "elapsed_s": 273.06195044517517
+    },
+    {
+      "partition": "valid",
+      "source": {
+        "name": "finemath",
+        "repo": "HuggingFaceTB/finemath",
+        "config": "finemath-3plus",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.2,
+        "language": "multi",
+        "kind": "math"
+      },
+      "revision": "e92b25a616738fe95dc186b64dfb19f9c8525594",
+      "raw_rows": 393716,
+      "accepted_rows": 31,
+      "rejected_rows": 393685,
+      "rejection_reasons": {
+        "duplicate": 273203,
+        "phone": 96911,
+        "too_short": 980,
+        "email": 10955,
+        "nonprintable": 10551,
+        "too_long": 116,
+        "line_repetition": 662,
+        "utf8_replacement": 169,
+        "word_repetition": 120,
+        "secret_pattern": 18
+      },
+      "emitted_tokens": 40000,
+      "elapsed_s": 437.60940074920654
+    },
+    {
+      "partition": "train",
+      "source": {
+        "name": "fineweb_edu_en",
+        "repo": "HuggingFaceFW/fineweb-edu",
+        "config": "sample-10BT",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.35,
+        "language": "en",
+        "kind": "education"
+      },
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "raw_rows": 895619,
+      "accepted_rows": 6965,
+      "rejected_rows": 888654,
+      "rejection_reasons": {
+        "duplicate": 772693,
+        "phone": 95439,
+        "email": 20345,
+        "utf8_replacement": 141,
+        "secret_pattern": 18,
+        "nonprintable": 12,
+        "too_long": 6
+      },
+      "emitted_tokens": 3500000,
+      "elapsed_s": 948.1645936965942,
+      "parent_train_offset": 0,
+      "parent_train_tokens": 7000000,
+      "accounting": "token-prefix remix; row counts belong to parent source"
+    },
+    {
+      "partition": "train",
+      "source": {
+        "name": "fineweb_en",
+        "repo": "HuggingFaceFW/fineweb",
+        "config": "sample-10BT",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.15,
+        "language": "en",
+        "kind": "general"
+      },
+      "revision": "9bb295ddab0e05d785b879661af7260fed5140fc",
+      "raw_rows": 451925,
+      "accepted_rows": 5848,
+      "rejected_rows": 446077,
+      "rejection_reasons": {
+        "duplicate": 388391,
+        "phone": 40122,
+        "email": 17436,
+        "utf8_replacement": 96,
+        "secret_pattern": 14,
+        "too_short": 10,
+        "too_long": 4,
+        "nonprintable": 4
+      },
+      "emitted_tokens": 1500000,
+      "elapsed_s": 379.8804316520691,
+      "parent_train_offset": 7000000,
+      "parent_train_tokens": 4000000,
+      "accounting": "token-prefix remix; row counts belong to parent source"
+    },
+    {
+      "partition": "train",
+      "source": {
+        "name": "fineweb2_de",
+        "repo": "HuggingFaceFW/fineweb-2",
+        "config": "deu_Latn",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.25,
+        "language": "de",
+        "kind": "general"
+      },
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "raw_rows": 374527,
+      "accepted_rows": 7234,
+      "rejected_rows": 367293,
+      "rejection_reasons": {
+        "duplicate": 329582,
+        "email": 13510,
+        "phone": 24144,
+        "secret_pattern": 5,
+        "too_long": 8,
+        "utf8_replacement": 40,
+        "nonprintable": 2,
+        "word_repetition": 2
+      },
+      "emitted_tokens": 2500000,
+      "elapsed_s": 296.6906771659851,
+      "parent_train_offset": 11000000,
+      "parent_train_tokens": 5000000,
+      "accounting": "token-prefix remix; row counts belong to parent source"
+    },
+    {
+      "partition": "train",
+      "source": {
+        "name": "finemath",
+        "repo": "HuggingFaceTB/finemath",
+        "config": "finemath-3plus",
+        "split": "train",
+        "license": "odc-by",
+        "text_field": "text",
+        "share": 0.25,
+        "language": "multi",
+        "kind": "math"
+      },
+      "revision": "e92b25a616738fe95dc186b64dfb19f9c8525594",
+      "raw_rows": 398356,
+      "accepted_rows": 3201,
+      "rejected_rows": 395155,
+      "rejection_reasons": {
+        "duplicate": 273234,
+        "phone": 98052,
+        "too_short": 994,
+        "email": 11080,
+        "nonprintable": 10696,
+        "too_long": 118,
+        "line_repetition": 668,
+        "utf8_replacement": 171,
+        "word_repetition": 124,
+        "secret_pattern": 18
+      },
+      "emitted_tokens": 2500000,
+      "elapsed_s": 445.9466781616211,
+      "parent_train_offset": 16000000,
+      "parent_train_tokens": 4000000,
+      "accounting": "token-prefix remix; row counts belong to parent source"
+    }
+  ],
+  "train_files": [
+    {
+      "path": "train_00000.bin",
+      "tokens": 5000000,
+      "sha256": "8c926bc023ad7d73c7c68a8ab25a17ee4d6c7bed93f594cc3497ffece564c7c3"
+    },
+    {
+      "path": "train_00001.bin",
+      "tokens": 5000000,
+      "sha256": "291a18e0bbec6c3c7b9b35ba49b0bc2cb202fea9b5410f54efa1f13bedda853a"
+    }
+  ],
+  "valid_files": [
+    {
+      "path": "valid_00000.bin",
+      "tokens": 200000,
+      "sha256": "104d8e2deb5d5adb9ff05903431b8c50f8977833df82ccf5138542e0e9ee0352"
+    }
+  ],
+  "seed_manifest_sha256": "e58c373a90efbab09b246c05d16c4e7387cab54f5551693e43e9bb3fc3e95c2b",
+  "seed_deduplicated_documents": 1761116,
+  "parent_manifest_sha256": "dfd982e0e6f862b876598cb78249537fe237cc095bb00d3eafd08398dd983a54",
+  "synthetic_eos_added": 0,
+  "prior_rejected_pilot_data": true,
+  "development_only": true
+}

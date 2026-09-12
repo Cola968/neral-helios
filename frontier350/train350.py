@@ -106,6 +106,7 @@ def checkpoint_state(
     target_tokens,
     tokenizer_sha256,
     train_sampler_rng: random.Random | None = None,
+    validation_identity: str = "",
 ):
     state = {
         "checkpoint_schema": CHECKPOINT_SCHEMA,
@@ -121,6 +122,7 @@ def checkpoint_state(
         "config": FRONTIER_350.to_dict(),
         "target_tokens": target_tokens,
         "tokenizer_sha256": tokenizer_sha256,
+        "validation_identity": validation_identity,
     }
     if train_sampler_rng is not None:
         state["train_sampler_rng"] = train_sampler_rng.getstate()

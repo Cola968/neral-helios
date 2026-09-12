@@ -11,6 +11,7 @@ import torch
 
 from model350 import FRONTIER_350, Neral350M
 from train350_compiled import PersistentMMapPool, evaluate
+from recovery_identity import file_sha, object_sha
 
 
 def main() -> None:
@@ -40,6 +41,11 @@ def main() -> None:
     pool = PersistentMMapPool(Path(args.valid_data), FRONTIER_350.vocab_size)
     val = evaluate(model, pool, seq=args.seq, batch=args.batch, batches=args.batches, device=device, seed=args.seed)
     result = {
+        "checkpoint_sha256": file_sha(args.checkpoint),
+        "tokenizer_sha256": ck.get("tokenizer_sha256"),
+        "protocol_sha256": object_sha({"seq": args.seq, "batch": args.batch, "batches": args.batches, "seed": args.seed,
+            "shards": [(p.name, file_sha(p)) for p in pool.paths],
+            "implementation": {p: file_sha(Path(__file__).parent / p) for p in ('model350.py', 'train350_compiled.py', 'eval_validation_loss350.py')}}),
         "schema": 1,
         "architecture": "frontier350-v1",
         "checkpoint_processed_tokens": processed,

@@ -28,6 +28,11 @@ def _check_shards(root: Path, subdir: str, items: list[dict]) -> int:
         raise ValueError(f"no {subdir} shards")
     total = 0
     base = (root / subdir).resolve()
+    names = [str(item.get("path", "")) for item in items]
+    if len(names) != len(set(names)):
+        raise ValueError("duplicate shard entries")
+    if set(names) != {p.name for p in base.glob("*.bin")}:
+        raise ValueError("manifest does not cover exactly the loaded shards")
     for item in items:
         name = str(item.get("path", ""))
         digest = str(item.get("sha256", "")).lower()
@@ -71,6 +76,9 @@ def validate_manifest(manifest_path: Path, root: Path, tokenizer_path: Path) -> 
     values = [int(v) for v in special.values()]
     if len(set(values)) != 4 or min(values) < 0 or max(values) >= 16_384:
         raise ValueError("invalid BPE special token IDs")
+    from build_frontier_bpe_data import LocalBPE
+    if LocalBPE(tokenizer_path).contract() != tokenizer:
+        raise ValueError("manifest differs from actual tokenizer special-token contract")
 
     expected_revisions = locked_revisions(DEFAULT_SOURCES)
     if obj.get("resolved_revisions") != expected_revisions:
@@ -88,6 +96,10 @@ def validate_manifest(manifest_path: Path, root: Path, tokenizer_path: Path) -> 
         repo = str(spec.get("repo", ""))
         if name not in expected_revisions or report.get("revision") != expected_revisions[name]:
             raise ValueError(f"source revision mismatch: {name}")
+        from dataclasses import asdict
+        locked = asdict(next(s for s in DEFAULT_SOURCES if s.name == name))
+        if any(spec.get(k) != v for k, v in locked.items() if k != "share"):
+            raise ValueError(f"source identity/license differs from lock: {name}")
         if any(word in (name + " " + repo).lower() for word in FORBIDDEN):
             raise ValueError(f"benchmark-like source: {name}")
         if int(report.get("emitted_tokens", 0)) <= 0:
