@@ -1,0 +1,17 @@
+{
+  "protocol_sha256": "03b62c730b6b232376ab399395a45af37463c5dc3565f0079eaf3df343c8149b",
+  "schema": 1,
+  "suite": "arctus-bilingual-holdout-v1",
+  "checkpoint_sha256": "16656c86ff7846a39c3f75d7ddc8a629efe31245f4ed3d6fa58f1867f63b059e",
+  "checkpoint_processed_tokens": 1006003584,
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "cases_sha256": "efb393e61eb08cc403477b63aad33772a43b1d6360d0f95955fcbd7314814530",
+  "cases": 400,
+  "overall_accuracy_pct": 67.75,
+  "directions": {
+    "de_to_en": {"correct": 124, "total": 200, "accuracy_pct": 62.0},
+    "en_to_de": {"correct": 147, "total": 200, "accuracy_pct": 73.5}
+  },
+  "purpose": "development-only independent bilingual recovery check; not final audit/public benchmark",
+  "evidence_origin": "measured V9 anchor evaluation from GitHub Actions run 34702497152; summary copied verbatim except this provenance field"
+}
