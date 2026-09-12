@@ -1,7 +1,7 @@
 {
   "version": 1,
   "action": "run_auto_learn_v1",
-  "request_id": "neral-autolearn-v1-20260912-r1",
+  "request_id": "neral-autolearn-v1-20260912-r2",
   "max_rounds": 2,
   "new_tokens_per_round": 1000000
 }
