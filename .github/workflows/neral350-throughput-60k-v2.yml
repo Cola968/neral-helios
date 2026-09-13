@@ -1,0 +1,88 @@
+name: Neral 350M Throughput 60K V2
+
+on:
+  push:
+    branches: [experiment/throughput-60k-v2]
+    paths: ['frontier350_throughput_60k_v2_requests/request.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-throughput-60k-v2
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Preflight RTX 4070 and request
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_throughput_60k_v2_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 2 -or $r.action -ne 'run_throughput_60k_v2'){throw 'invalid request'}
+          if([int]$r.updates -lt 10 -or [int]$r.updates -gt 30){throw 'updates out of range'}
+          if([int]$r.warmup -lt 2 -or [int]$r.warmup -ge [int]$r.updates-2){throw 'warmup out of range'}
+          wsl.exe --shutdown; Start-Sleep -Seconds 4
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 85){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $scratchWin=Join-Path 'D:\NeralThroughput60kV2' ([string]$r.request_id)
+          if(Test-Path $scratchWin){throw 'scratch already exists'}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
+          "scratch=$(W $scratchWin)" >> $env:GITHUB_OUTPUT
+          "updates=$($r.updates)" >> $env:GITHUB_OUTPUT
+          "warmup=$($r.warmup)" >> $env:GITHUB_OUTPUT
+
+      - name: Runtime and source checks
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/benchmark_pack9_v2.py frontier350/benchmark_replay_fusion_v2.py frontier350/train_guarded_v9.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'runtime/source check failed'}
+
+      - name: Pack 6 vs Pack 9
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'; $assets='${{ steps.env.outputs.assets }}'; $scratch='${{ steps.env.outputs.scratch }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; mkdir -p frontier350_throughput_60k_v2_report; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_pack9_v2.py --assets '$assets' --report frontier350_throughput_60k_v2_report --scratch '$scratch/pack' --updates '${{ steps.env.outputs.updates }}' --warmup '${{ steps.env.outputs.warmup }}'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'pack benchmark failed'}
+
+      - name: Replay fusion numerical/speed probe
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'; $assets='${{ steps.env.outputs.assets }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_replay_fusion_v2.py --assets '$assets' --out frontier350_throughput_60k_v2_report/replay_fusion.json --repeats 8 --warmup 3"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'replay fusion probe failed'}
+
+      - name: Final GPU health
+        if: always()
+        run: |
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-throughput-60k-v2-${{ github.run_id }}
+          path: frontier350_throughput_60k_v2_report/
+          retention-days: 30
