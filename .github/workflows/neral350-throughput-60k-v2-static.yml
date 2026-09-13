@@ -6,7 +6,11 @@ on:
     paths:
       - 'frontier350/benchmark_pack9_v2.py'
       - 'frontier350/benchmark_replay_fusion_v2.py'
+      - 'frontier350/benchmark_fused_execution_v3.py'
+      - 'frontier350/benchmark_checkpoint_resume_v3.py'
+      - 'frontier350/select_speed_adoption_v3.py'
       - '.github/workflows/neral350-throughput-60k-v2-static.yml'
+      - '.github/workflows/neral350-throughput-60k-v3.yml'
   workflow_dispatch:
 
 permissions:
@@ -21,22 +25,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile speed-v2 probes
+      - name: Compile speed qualification sources
         run: |
           python -m py_compile \
             frontier350/benchmark_pack9_v2.py \
-            frontier350/benchmark_replay_fusion_v2.py
-      - name: Guard non-promotion contract
+            frontier350/benchmark_replay_fusion_v2.py \
+            frontier350/benchmark_fused_execution_v3.py \
+            frontier350/benchmark_checkpoint_resume_v3.py \
+            frontier350/select_speed_adoption_v3.py \
+            frontier350/model350_fast.py
+      - name: Guard non-promotion and canary contracts
         run: |
           python - <<'PY'
           from pathlib import Path
-          files = [
+          probes = [
               Path('frontier350/benchmark_pack9_v2.py'),
               Path('frontier350/benchmark_replay_fusion_v2.py'),
+              Path('frontier350/benchmark_fused_execution_v3.py'),
+              Path('frontier350/benchmark_checkpoint_resume_v3.py'),
+              Path('frontier350/select_speed_adoption_v3.py'),
           ]
-          for path in files:
+          for path in probes:
               text = path.read_text(encoding='utf-8')
               if 'promotion_allowed' not in text or 'False' not in text:
                   raise SystemExit(f'missing non-promotion marker: {path}')
-          print('Speed V2 probes are syntax-valid and non-promoting.')
+          selector = Path('frontier350/select_speed_adoption_v3.py').read_text(encoding='utf-8')
+          required = ['automatic_production_adoption', 'quality_gate_unchanged', 'validation/dev/bilingual']
+          missing = [x for x in required if x not in selector]
+          if missing:
+              raise SystemExit(f'missing fail-closed selector markers: {missing}')
+          print('Speed V3 sources are syntax-valid and remain non-promoting.')
           PY
