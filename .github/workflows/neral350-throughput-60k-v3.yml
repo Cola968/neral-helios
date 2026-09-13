@@ -37,24 +37,38 @@ jobs:
           if([int]$r.updates -lt 10 -or [int]$r.updates -gt 30){throw 'updates out of range'}
           if([int]$r.warmup -lt 2 -or [int]$r.warmup -ge [int]$r.updates-2){throw 'warmup out of range'}
           if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
-          wsl.exe --shutdown; Start-Sleep -Seconds 4
+
+          # WSL may legitimately already be stopped. Do not let its native exit code
+          # poison an otherwise successful PowerShell preflight.
+          wsl.exe --shutdown 2>$null | Out-Null
+          $global:LASTEXITCODE=0
+          Start-Sleep -Seconds 4
+
           $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
           $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
           $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host ("GPU="+$gpu)
+          Write-Host ("GPU_TEMP_C="+$temp)
+          Write-Host ("GPU_FREE_VRAM_MIB="+$free)
           if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
           if($temp -ge 85){throw 'GPU too hot'}
           if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
           $scratchWin=Join-Path 'D:\NeralThroughput60kV3' ([string]$r.request_id)
           if(Test-Path $scratchWin){throw 'scratch already exists'}
           $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+          Write-Host ("D_FREE_GIB="+[math]::Round($ddrive.Free/1GB,1))
           if($ddrive.Free -lt 30GB){throw 'need >=30 GiB free on D scratch'}
+
           function W([string]$p){$f=[IO.Path]::GetFullPath($p); return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
           "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
           "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
           "scratch=$(W $scratchWin)" >> $env:GITHUB_OUTPUT
           "updates=$($r.updates)" >> $env:GITHUB_OUTPUT
           "warmup=$($r.warmup)" >> $env:GITHUB_OUTPUT
+          $global:LASTEXITCODE=0
+          exit 0
 
       - name: Runtime and source checks
         run: |
@@ -109,8 +123,11 @@ jobs:
       - name: Final GPU health
         if: always()
         run: |
-          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          wsl.exe --shutdown 2>$null | Out-Null
+          $global:LASTEXITCODE=0
+          Start-Sleep -Seconds 3
           nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+          exit 0
 
       - name: Upload evidence
         if: always()
