@@ -1,0 +1,122 @@
+name: Neral 350M Throughput 60K V3
+
+on:
+  push:
+    branches: [experiment/throughput-60k-v2]
+    paths: ['frontier350_throughput_60k_v3_requests/request.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-throughput-60k-v3
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded request and RTX 4070 headroom
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_throughput_60k_v3_requests/request.json -Raw|ConvertFrom-Json
+          if((($r.PSObject.Properties.Name|Sort-Object)-join ',') -ne 'action,request_id,updates,version,warmup'){throw 'unexpected request fields'}
+          if($r.version -ne 3 -or $r.action -ne 'run_throughput_60k_v3'){throw 'invalid request'}
+          if([int]$r.updates -lt 10 -or [int]$r.updates -gt 30){throw 'updates out of range'}
+          if([int]$r.warmup -lt 2 -or [int]$r.warmup -ge [int]$r.updates-2){throw 'warmup out of range'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+          wsl.exe --shutdown; Start-Sleep -Seconds 4
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 85){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $scratchWin=Join-Path 'D:\NeralThroughput60kV3' ([string]$r.request_id)
+          if(Test-Path $scratchWin){throw 'scratch already exists'}
+          $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+          if($ddrive.Free -lt 30GB){throw 'need >=30 GiB free on D scratch'}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$(W $assets)" >> $env:GITHUB_OUTPUT
+          "scratch=$(W $scratchWin)" >> $env:GITHUB_OUTPUT
+          "updates=$($r.updates)" >> $env:GITHUB_OUTPUT
+          "warmup=$($r.warmup)" >> $env:GITHUB_OUTPUT
+
+      - name: Runtime and source checks
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/benchmark_pack9_v2.py frontier350/benchmark_replay_fusion_v2.py frontier350/benchmark_fused_execution_v3.py frontier350/benchmark_checkpoint_resume_v3.py frontier350/select_speed_adoption_v3.py frontier350/model350_fast.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'runtime/source checks failed'}
+
+      - name: Pack 6 vs Pack 9
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'; $assets='${{ steps.env.outputs.assets }}'; $scratch='${{ steps.env.outputs.scratch }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; mkdir -p frontier350_throughput_60k_v3_report; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_pack9_v2.py --assets '$assets' --report frontier350_throughput_60k_v3_report --scratch '$scratch/pack' --updates '${{ steps.env.outputs.updates }}' --warmup '${{ steps.env.outputs.warmup }}'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'pack benchmark failed'}
+
+      - name: Replay fusion equivalence and speed
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'; $assets='${{ steps.env.outputs.assets }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_replay_fusion_v2.py --assets '$assets' --out frontier350_throughput_60k_v3_report/replay_fusion.json --repeats 8 --warmup 3"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'replay fusion probe failed'}
+
+      - name: Fused QKV and SwiGLU execution probe
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'; $assets='${{ steps.env.outputs.assets }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_fused_execution_v3.py --assets '$assets' --out frontier350_throughput_60k_v3_report/fused_execution.json --repeats 8 --warmup 3"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'fused execution probe failed'}
+
+      - name: Compact resume serialization probe
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'; $assets='${{ steps.env.outputs.assets }}'; $scratch='${{ steps.env.outputs.scratch }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/benchmark_checkpoint_resume_v3.py --assets '$assets' --scratch '$scratch/checkpoint' --out frontier350_throughput_60k_v3_report/checkpoint_resume.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'checkpoint resume probe failed'}
+
+      - name: Fail-closed speed candidate selector
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_speed_adoption_v3.py --report frontier350_throughput_60k_v3_report --out frontier350_throughput_60k_v3_report/adoption.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'speed selector failed'}
+
+      - name: Print qualification summary
+        if: success()
+        run: |
+          $r=Get-Content frontier350_throughput_60k_v3_report/adoption.json -Raw|ConvertFrom-Json
+          Write-Host ("ANCHOR_IDENTITY_OK="+$r.anchor_identity_ok)
+          Write-Host ("CANARY_ORDER="+(($r.canary_order)-join ','))
+          Write-Host ("PRODUCTION_ADOPTION="+$r.automatic_production_adoption)
+
+      - name: Final GPU health
+        if: always()
+        run: |
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-throughput-60k-v3-${{ github.run_id }}
+          path: frontier350_throughput_60k_v3_report/
+          retention-days: 30
+          if-no-files-found: warn
