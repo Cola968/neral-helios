@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "benchmark_55k",
+  "target_tps": 55000,
+  "minimum_major_improvement_tps": 50000,
+  "production_adoption": false,
+  "requires_real_canary": true
+}
