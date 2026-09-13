@@ -1,0 +1,76 @@
+name: Neral 350M Throughput 55K V4
+
+on:
+  push:
+    branches: [experiment/throughput-55k-v4]
+    paths: ['frontier350/throughput_55k_request.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-throughput-55k-v4
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify request and GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $request=Get-Content frontier350/throughput_55k_request.json -Raw|ConvertFrom-Json
+          if($request.action -ne 'benchmark_55k' -or [int]$request.target_tps -ne 55000){throw 'invalid benchmark request'}
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host ("GPU="+$gpu)
+          Write-Host ("GPUStartTempC="+$temp)
+          Write-Host ("GPUFreeVRAMMiB="+$free)
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
+          if($temp -ge 85){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+
+      - name: Runtime checks
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=(wsl.exe wslpath -a ((Get-Location).Path)).Trim()
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/train_guarded_v9.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'runtime/source checks failed'}
+
+      - name: Run measured candidate matrix
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=(wsl.exe wslpath -a ((Get-Location).Path)).Trim()
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $assetsW=(wsl.exe wslpath -a $assets).Trim()
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; ~/.venvs/neral-triton-py312/bin/python -u frontier350/throughput_55k_v4.py --assets '$assetsW' --report frontier350_throughput_55k_v4_report"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw '55k benchmark failed'}
+
+      - name: Final GPU health
+        if: always()
+        run: |
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-throughput-55k-v4-${{ github.run_id }}
+          path: frontier350_throughput_55k_v4_report/
+          retention-days: 30
