@@ -1,0 +1,115 @@
+name: Neral 350M Scale V3 Pack9 Canary
+
+on:
+  push:
+    branches: [experiment/scale-v3]
+    paths: ['frontier350_scale_v3_canary_requests/request.json']
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: neral-350m-scale-v3-pack9-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded canary request and RTX 4070
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_scale_v3_canary_requests/request.json -Raw|ConvertFrom-Json
+          $expected='action,max_wall_minutes,request_id,target_tokens,version'
+          if((($r.PSObject.Properties.Name|Sort-Object)-join ',') -ne $expected){throw 'unexpected request fields'}
+          if($r.version -ne 1 -or $r.action -ne 'run_pack9_canary'){throw 'invalid request'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+          if([long]$r.target_tokens -ne 1011003584){throw 'canary target must be exactly 1,011,003,584'}
+          if([int]$r.max_wall_minutes -lt 15 -or [int]$r.max_wall_minutes -gt 60){throw 'wall limit out of range'}
+          wsl.exe --shutdown 2>$null | Out-Null
+          $global:LASTEXITCODE=0
+          Start-Sleep -Seconds 4
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host ("GPU="+$gpu); Write-Host ("GPU_TEMP_C="+$temp); Write-Host ("GPU_FREE_VRAM_MIB="+$free)
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 85){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $scratchWin=Join-Path 'D:\NeralScaleV3Canary' ([string]$r.request_id)
+          if(Test-Path -LiteralPath $scratchWin){throw 'scratch already exists'}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          $out=@(
+            "repo=$(W (Get-Location).Path)",
+            "assets=$(W $assets)",
+            "scratch=$(W $scratchWin)",
+            "request_id=$($r.request_id)",
+            "target_tokens=$($r.target_tokens)",
+            "max_wall_minutes=$($r.max_wall_minutes)"
+          )
+          $enc=New-Object System.Text.UTF8Encoding($false)
+          foreach($line in $out){[IO.File]::AppendAllText($env:GITHUB_OUTPUT,$line+[Environment]::NewLine,$enc)}
+          exit 0
+
+      - name: Runtime and source checks
+        run: |
+          $repo='${{ steps.req.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v3_pack9_canary.py frontier350/run_scale_v3_success.py frontier350/train_guarded_v9.py frontier350/eval_recovery_smoke_v3.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/eval_bilingual_holdout_v1.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'runtime/source checks failed'}
+
+      - name: Run 1M Pack9 guarded canary
+        env:
+          NERAL_TELEMETRY_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.req.outputs.repo }}'; $assets='${{ steps.req.outputs.assets }}'; $scratch='${{ steps.req.outputs.scratch }}'
+          $rid='${{ steps.req.outputs.request_id }}'; $target='${{ steps.req.outputs.target_tokens }}'; $wall='${{ steps.req.outputs.max_wall_minutes }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v3_pack9_canary.py --assets '$assets' --report frontier350_scale_v3_canary_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds 1 --max-wall-minutes '$wall'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Pack9 canary failed; safe anchor remains unchanged'}
+
+      - name: Print canary result
+        if: always()
+        run: |
+          if(Test-Path frontier350_scale_v3_canary_report/selection.json){
+            $r=Get-Content frontier350_scale_v3_canary_report/selection.json -Raw|ConvertFrom-Json
+            Write-Host ("FINAL_SAFE_TOKENS="+$r.final_safe_tokens)
+            Write-Host ("FINAL_SAFE_SHA="+$r.final_safe_sha256)
+            Write-Host ("TARGET_TOKENS="+$r.target_tokens)
+            Write-Host ("ROUNDS="+$r.rounds.Count)
+            Write-Host ("WALL_MINUTES="+$r.wall_minutes)
+          }
+          exit 0
+
+      - name: Final GPU health
+        if: always()
+        run: |
+          wsl.exe --shutdown 2>$null | Out-Null
+          $global:LASTEXITCODE=0
+          Start-Sleep -Seconds 3
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+          exit 0
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-scale-v3-pack9-canary-${{ github.run_id }}
+          path: frontier350_scale_v3_canary_report/
+          retention-days: 30
+          if-no-files-found: warn
