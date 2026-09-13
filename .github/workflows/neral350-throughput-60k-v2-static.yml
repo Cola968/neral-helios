@@ -1,0 +1,42 @@
+name: Neral 350M Throughput 60K V2 Static
+
+on:
+  push:
+    branches: [experiment/throughput-60k-v2]
+    paths:
+      - 'frontier350/benchmark_pack9_v2.py'
+      - 'frontier350/benchmark_replay_fusion_v2.py'
+      - '.github/workflows/neral350-throughput-60k-v2-static.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile speed-v2 probes
+        run: |
+          python -m py_compile \
+            frontier350/benchmark_pack9_v2.py \
+            frontier350/benchmark_replay_fusion_v2.py
+      - name: Guard non-promotion contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          files = [
+              Path('frontier350/benchmark_pack9_v2.py'),
+              Path('frontier350/benchmark_replay_fusion_v2.py'),
+          ]
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              if 'promotion_allowed' not in text or 'False' not in text:
+                  raise SystemExit(f'missing non-promotion marker: {path}')
+          print('Speed V2 probes are syntax-valid and non-promoting.')
+          PY
