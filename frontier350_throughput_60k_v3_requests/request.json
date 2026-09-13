@@ -1,7 +1,7 @@
 {
   "version": 3,
   "action": "run_throughput_60k_v3",
-  "request_id": "speedv3-20260913-a",
+  "request_id": "speedv3-20260913-b",
   "updates": 16,
   "warmup": 5
 }
