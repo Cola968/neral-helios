@@ -1,140 +1,17 @@
-name: Neral 350M Scale V4 Staged
+name: Neral 350M Scale V4 Stop
 
 on:
   push:
     branches: [experiment/scale-v4]
     paths: ['frontier350_scale_v4_requests/request.json']
 
-permissions:
-  contents: read
-  issues: write
-
 concurrency:
   group: neral-350m-scale-v4
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  scale:
-    runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 720
-    defaults:
-      run:
-        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
-
+  stop:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          clean: true
-          persist-credentials: false
-
-      - name: Verify Scale V4 request and RTX 4070
-        id: request
-        run: |
-          $ErrorActionPreference='Stop'
-          try {
-            $request=Get-Content frontier350_scale_v4_requests/request.json -Raw|ConvertFrom-Json
-            $expected='action,max_rounds,max_wall_minutes,request_id,target_tokens,version'
-            if((($request.PSObject.Properties.Name|Sort-Object) -join ',') -ne $expected){throw 'unexpected request fields'}
-            if($request.version -ne 4 -or $request.action -ne 'run_scale_v4'){throw 'invalid action/version'}
-            if($request.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
-            if([long]$request.target_tokens -lt 1010003584 -or [long]$request.target_tokens -gt 10000000000){throw 'target_tokens out of range'}
-            if([int]$request.max_rounds -lt 1 -or [int]$request.max_rounds -gt 32){throw 'max_rounds out of range'}
-            if([int]$request.max_wall_minutes -lt 15 -or [int]$request.max_wall_minutes -gt 660){throw 'max_wall_minutes out of range'}
-            wsl.exe --shutdown; Start-Sleep -Seconds 4
-            $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
-            $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
-            $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
-            Write-Host ("GPU="+$gpu); Write-Host ("GPUStartTempC="+$temp); Write-Host ("GPUFreeVRAMMiB="+$free)
-            if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
-            if($temp -ge 85){throw 'GPU too hot'}
-            if($free -lt 9000){throw ("Need >=9000 MiB free VRAM; found "+$free)}
-            $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-            $cdrive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($assets).Substring(0,1))
-            $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
-            if($cdrive.Free -lt 10GB){throw 'need >=10 GiB free on assets drive'}
-            if($ddrive.Free -lt 30GB){throw 'need >=30 GiB free on D: scratch'}
-            $scratchWin=Join-Path 'D:\NeralScaleV4' ([string]$request.request_id)
-            if(Test-Path -LiteralPath $scratchWin){throw 'scratch path already exists; refusing overwrite'}
-            function W([string]$p){$full=[IO.Path]::GetFullPath($p); return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')}
-            $outputs=@(
-              "repo=$(W (Get-Location).Path)","assets=$(W $assets)","scratch=$(W $scratchWin)","scratch_win=$scratchWin",
-              "request_id=$($request.request_id)","target_tokens=$($request.target_tokens)","max_rounds=$($request.max_rounds)","max_wall_minutes=$($request.max_wall_minutes)"
-            )
-            $utf8NoBom=New-Object System.Text.UTF8Encoding($false)
-            foreach($line in $outputs){[IO.File]::AppendAllText($env:GITHUB_OUTPUT,$line+[Environment]::NewLine,$utf8NoBom); Write-Host ("OUTPUT "+$line)}
-            exit 0
-          } catch { Write-Error ("Scale V4 preflight failed: "+$_.Exception.Message); exit 1 }
-
-      - name: Runtime and source checks
-        run: |
-          $ErrorActionPreference='Stop'
-          $repo='${{ steps.request.outputs.repo }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v4.py frontier350/eval_recovery_smoke_v3.py frontier350/train_guarded_v9.py frontier350/interpolate_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/eval_bilingual_holdout_v1.py frontier350/recovery_identity.py"
-          wsl.exe -- bash -lc $cmd
-          $code=$LASTEXITCODE
-          wsl.exe --shutdown; Start-Sleep -Seconds 3
-          if($code -ne 0){throw 'runtime/source checks failed'}
-          exit 0
-
-      - name: Run staged guarded continuation
-        id: scale
-        env:
-          NERAL_TELEMETRY_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference='Stop'
-          $repo='${{ steps.request.outputs.repo }}'; $assets='${{ steps.request.outputs.assets }}'; $scratch='${{ steps.request.outputs.scratch }}'
-          $scratchWin='${{ steps.request.outputs.scratch_win }}'; $rid='${{ steps.request.outputs.request_id }}'
-          $target='${{ steps.request.outputs.target_tokens }}'; $rounds='${{ steps.request.outputs.max_rounds }}'; $wall='${{ steps.request.outputs.max_wall_minutes }}'
-          $reportWin=Join-Path (Get-Location).Path 'frontier350_scale_v4_report'
-          $stopFile=Join-Path $env:RUNNER_TEMP ("neral-scale-v4-live-"+$rid+".stop")
-          Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
-          $telemetryScript=Join-Path (Get-Location).Path 'frontier350\live_telemetry.ps1'
-          $telemetry=Start-Job -ScriptBlock {
-            param($script,$scratchWin,$reportWin,$stopFile,$repoName,$runId)
-            & $script -ScratchWin $scratchWin -ReportWin $reportWin -StopFile $stopFile -Repo $repoName -IssueNumber 102 -RunId $runId -TargetTps 50000 -UpdatesPerTrial 2048 -IntervalSeconds 20 -TotalTrials 16
-          } -ArgumentList $telemetryScript,$scratchWin,$reportWin,$stopFile,'Cola968/neral-helios','${{ github.run_id }}'
-          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v4.py --assets '$assets' --report frontier350_scale_v4_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds '$rounds' --max-wall-minutes '$wall'"
-          try { wsl.exe -- bash -lc $cmd; $code=$LASTEXITCODE }
-          finally {
-            New-Item -ItemType File -Path $stopFile -Force | Out-Null
-            Wait-Job -Job $telemetry -Timeout 30 | Out-Null
-            Receive-Job -Job $telemetry -ErrorAction SilentlyContinue | Out-Null
-            Stop-Job -Job $telemetry -ErrorAction SilentlyContinue
-            Remove-Job -Job $telemetry -Force -ErrorAction SilentlyContinue
-          }
-          wsl.exe --shutdown; Start-Sleep -Seconds 4
-          if($code -ne 0){throw 'Scale V4 controller failed; last safe anchor remains recoverable'}
-          exit 0
-
-      - name: Print final Scale V4 result
-        if: always()
-        run: |
-          if(Test-Path frontier350_scale_v4_report/selection.json){
-            $r=Get-Content frontier350_scale_v4_report/selection.json -Raw|ConvertFrom-Json
-            Write-Host ("CONTROLLER="+$r.controller)
-            Write-Host ("FINAL_SAFE_TOKENS="+$r.final_safe_tokens)
-            Write-Host ("FINAL_SAFE_SHA="+$r.final_safe_sha256)
-            Write-Host ("FINAL_TRAIN_TOKENS="+$r.final_train_tokens)
-            Write-Host ("FINAL_STATUS="+$r.final_status)
-            Write-Host ("TARGET_TOKENS="+$r.target_tokens)
-            Write-Host ("ROUNDS="+$r.rounds.Count)
-            Write-Host ("PACK="+$r.pack)
-            Write-Host ("WALL_MINUTES="+$r.wall_minutes)
-          }
-          exit 0
-
-      - name: Final runner health
-        if: always()
-        run: |
-          wsl.exe --shutdown; Start-Sleep -Seconds 3
-          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
-          exit 0
-
-      - name: Upload Scale V4 evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: neral350-scale-v4-${{ github.run_id }}
-          path: frontier350_scale_v4_report/
-          retention-days: 30
+      - name: Stop active Scale V4 run
+        run: echo "Stop request received; prior run in this concurrency group is cancelled."
