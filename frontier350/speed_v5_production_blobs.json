@@ -1,0 +1,12 @@
+{
+  "model350.py": "997a4a77753b8b113785fa70403989deca08f527",
+  "protection_v9.py": "48edcbdaf08e31c4134ad52fcd0c0fbbafd4c9f1",
+  "train_guarded_v9.py": "dc2584f036400adf7dee79d9dc5408c4428f4ced",
+  "train350.py": "75f1de4014d797d408097b33cc1e8ccb3460ffa6",
+  "train350_compiled.py": "f41d08c0054f4230ae616582a87a4c5be32a9004",
+  "run_scale_v4.py": "3dd08551404c2eff3e354f5a6b3c70006dfec8bd",
+  "recovery_identity.py": "66f1e1df8de7b6c0350f6e8fe4c01046e6dba6e7",
+  "eval_validation_loss350.py": "291ea44a1abb6a5d408c536e2567ec74b871db48",
+  "eval_recovery_dev_v2.py": "354a0b3a492a54490bce23f8722cab0eaf5dee20",
+  "eval_bilingual_holdout_v1.py": "54ebcb98eb3dbfdb2d8289033febdf45473c7d2c"
+}

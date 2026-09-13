@@ -1,0 +1,77 @@
+name: Neral 350M Speed V5 isolated GPU A-B
+on:
+  workflow_dispatch:
+    inputs:
+      anchor_path:
+        description: 'Immutable accepted checkpoint copy, absolute Windows path'
+        required: true
+        type: string
+      anchor_sha256:
+        description: 'Expected SHA-256 of that checkpoint'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: neral-speed-v5-isolated
+  cancel-in-progress: false
+jobs:
+  experiment:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Refuse active Scale V4 before checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $run=Invoke-RestMethod -Uri 'https://api.github.com/repos/Cola968/neral-helios/actions/runs/34755193140' -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github+json'}
+          if($run.id -ne 34755193140 -or $run.status -ne 'completed'){throw 'Protected Scale V4 is active; refusing experiment'}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: speed-v5-${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Run isolated A-B and quality canary
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NERAL_V5_ANCHOR: ${{ inputs.anchor_path }}
+          NERAL_V5_ANCHOR_SHA: ${{ inputs.anchor_sha256 }}
+          V5_RUN_ID: ${{ github.run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:NERAL_V5_ANCHOR_SHA -notmatch '^[0-9a-f]{64}$'){throw 'Invalid checkpoint SHA-256'}
+          function W([string]$p){
+            if($p -notmatch '^[A-Za-z]:[\/]'){throw 'Expected absolute Windows drive path'}
+            $full=[IO.Path]::GetFullPath($p)
+            return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('speed-v5-'+$env:V5_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $output=Join-Path 'D:\NeralSpeedV5' ('run-'+$env:V5_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $output){throw 'Experiment output already exists'}
+          $env:NERAL_V5_REPO=W $repo
+          $env:NERAL_V5_ASSETS=W $assets
+          $env:NERAL_V5_ANCHOR=W $env:NERAL_V5_ANCHOR
+          $env:NERAL_V5_OUT=W $output
+          $env:WSLENV=(@($env:WSLENV,'GITHUB_TOKEN','NERAL_V5_REPO','NERAL_V5_ASSETS','NERAL_V5_ANCHOR','NERAL_V5_ANCHOR_SHA','NERAL_V5_OUT') | Where-Object {$_}) -join ':'
+          $script=$env:NERAL_V5_REPO+'/frontier350/run_speed_v5_wsl.sh'
+          wsl.exe -- bash $script
+          if($LASTEXITCODE -ne 0){throw 'V5 experiment failed; inspect evidence, no adoption'}
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-speed-v5-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            D:/NeralSpeedV5/run-${{ github.run_id }}-${{ github.run_attempt }}/*.json
+            D:/NeralSpeedV5/run-${{ github.run_id }}-${{ github.run_attempt }}/*.log
+            D:/NeralSpeedV5/run-${{ github.run_id }}-${{ github.run_attempt }}/*/metrics.jsonl
+            D:/NeralSpeedV5/run-${{ github.run_id }}-${{ github.run_attempt }}/*/summary.json
+          if-no-files-found: warn
+          retention-days: 30
