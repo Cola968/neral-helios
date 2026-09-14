@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import sys
+from pathlib import Path
 
 import numpy as np
 
-from frontier350.v7_1_policy import choose_io_profile, update_batch_chain
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "frontier350"))
+
+from v7_1_policy import choose_io_profile, update_batch_chain
 
 
 def test_streaming_batch_chain_is_byte_identical_to_legacy_concat():
