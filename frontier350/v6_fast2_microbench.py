@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from model350 import FRONTIER_350, Neral350M
+from model350 import FRONTIER_350, Neral350M, _rope_table
 from protection_v9 import configure_trainable
 
 BATCH = 48
@@ -45,11 +45,24 @@ def weighted_loss(logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return (rloss * REPLAY_BOOST + mloss) / (mv + REPLAY_BOOST * rv)
 
 
+def prewarm_rope_cache() -> None:
+    # _rope_table stores tensors in a Python global cache. If the first cache miss happens
+    # while torch.compile is capturing a CUDA Graph, those tensors can become graph outputs
+    # whose storage is legally reused on the next replay. Keeping such an output in the
+    # Python cache then produces the "overwritten by a subsequent run" failure. Build the
+    # immutable table once outside torch.compile so the graph only reads stable storage.
+    _rope_table(
+        FRONTIER_350.max_seq_len,
+        FRONTIER_350.head_dim,
+        FRONTIER_350.rope_theta,
+        torch.device("cuda"),
+        torch.bfloat16,
+    )
+
+
 def mark_compile_step() -> None:
-    # PyTorch 2.8 CUDA Graph trees can reuse output storage between repeated
-    # torch.compile invocations. Marking the iteration boundary prevents a
-    # previous graph output (notably the RoPE cos/sin tensors) from being
-    # treated as live when the next invocation reuses that storage.
+    # This remains as an additional explicit iteration boundary for PyTorch CUDA Graph
+    # trees. The RoPE prewarm above is the primary fix for the persistent cached tensor.
     mark = getattr(torch.compiler, "cudagraph_mark_step_begin", None)
     if mark is not None:
         mark()
@@ -122,15 +135,16 @@ def main() -> None:
     torch.manual_seed(62000); torch.cuda.manual_seed_all(62000)
     model = Neral350M().to("cuda", dtype=torch.bfloat16).train()
     configure_trainable(model, 4)
+    prewarm_rope_cache()
     x, y = make_inputs()
     current = bench_current(model, x, y, a.warmup, a.measured)
     fast2 = bench_fast2(model, x, y, a.warmup, a.measured)
     ratio = fast2["median_tps"] / current["median_tps"]
     loss_diff = abs(fast2["loss"] - current["loss"])
     use_fast2 = ratio >= a.min_ratio and loss_diff <= 2e-4
-    report = {"schema":1,"gpu":gpu,"torch":torch.__version__,"batch":BATCH,"seq":SEQ,
+    report = {"schema":2,"gpu":gpu,"torch":torch.__version__,"batch":BATCH,"seq":SEQ,
               "current":current,"fast2":fast2,"fast2_ratio":ratio,"loss_abs_diff":loss_diff,
-              "min_ratio":a.min_ratio,"use_fast2":use_fast2,
+              "min_ratio":a.min_ratio,"use_fast2":use_fast2,"rope_cache_prewarmed":True,
               "note":"synthetic execution benchmark; no checkpoint/data/continuity state touched"}
     p = Path(a.out); p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2), flush=True)
