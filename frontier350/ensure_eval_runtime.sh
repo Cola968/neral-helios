@@ -7,6 +7,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCH="${HERE}/apply_scale_v4_recovery_patch.py"
 ROLLBACK_CAP="${HERE}/../sitecustomize.py"
 V5_TURBO="${HERE}/apply_v5_turbo_patch.py"
+V5_LAUNCHER="${HERE}/train_v5_stage_launcher.py"
 
 if [[ ! -x "$P" ]]; then
   echo "missing WSL eval python: $P" >&2
@@ -24,12 +25,13 @@ if [[ -f "$ROLLBACK_CAP" ]]; then
   "$P" "$ROLLBACK_CAP"
 fi
 
-# V5 keeps the same 5M continuity policy but uses a faster replay_only execution path:
-# one fused replay+main physical batch and TorchInductor max-autotune. Projected rescue
-# remains on the reference-gradient path. Promotion/quality gates are unchanged.
+# V5 keeps the same 5M continuity policy but uses an execution-only turbo ladder:
+# turbo60 = fused replay+main + max-autotune/cudagraphs; turbo50 = fused +
+# max-autotune-no-cudagraphs; safe = legacy fast replay_only/default compile.
+# A failed fast profile automatically retries the same stage with the safer profile.
 if [[ -f "$V5_TURBO" ]]; then
   "$P" "$V5_TURBO"
-  "$P" -m py_compile "$V5_TURBO" "$HERE/run_scale_v5.py" "$HERE/train_guarded_v9.py"
+  "$P" -m py_compile "$V5_TURBO" "$V5_LAUNCHER" "$HERE/run_scale_v5.py" "$HERE/train_guarded_v9.py"
 fi
 
 if ! "$P" -c 'import tokenizers; assert tokenizers.__version__ == "0.21.4"' >/dev/null 2>&1; then
