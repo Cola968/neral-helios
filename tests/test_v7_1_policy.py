@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "frontier350"))
 
 from v7_1_policy import choose_io_profile, update_batch_chain
+from v7_policy import semantic_resume_contract
 
 
 def test_streaming_batch_chain_is_byte_identical_to_legacy_concat():
@@ -21,6 +22,15 @@ def test_streaming_batch_chain_is_byte_identical_to_legacy_concat():
         bytes.fromhex(previous)+domain.encode()+count.to_bytes(8,'little')+rows.tobytes()
     ).hexdigest()
     assert update_batch_chain(previous,domain,count,rows)==expected
+
+
+def test_fast3_input_flags_are_execution_only_for_exact_resume():
+    fast3={'lr':2.6e-5,'data_sha256':{'main':{'x':'abc'}},'compile_mode':'max-autotune-no-cudagraphs',
+           'fast_replay_only':True,'fused_replay_main':True,'v71_coalesced_input':True,
+           'v71_input_transfer':'direct-pageable'}
+    fallback={**fast3,'compile_mode':'default','fused_replay_main':False,
+              'v71_coalesced_input':False,'v71_input_transfer':'legacy-pin'}
+    assert semantic_resume_contract(fast3)==semantic_resume_contract(fallback)
 
 
 def test_io_gate_selects_fastest_exact_candidate():
