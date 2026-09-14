@@ -41,7 +41,8 @@ def patch_trainer(text: str) -> str:
         text,
         "    if args.fast_replay_only and args.mode!='replay_only':raise ValueError('fast replay path is valid only for replay_only mode')\n",
         "    if args.fast_replay_only and args.mode!='replay_only':raise ValueError('fast replay path is valid only for replay_only mode')\n"
-        "    if args.fused_replay_main and args.mode!='replay_only':raise ValueError('fused replay/main path is valid only for replay_only mode')\n",
+        "    if args.fused_replay_main and args.mode!='replay_only':raise ValueError('fused replay/main path is valid only for replay_only mode')\n"
+        "    if args.fused_replay_main:args.fast_replay_only=True\n",
         "trainer validation",
     )
     text = once(
@@ -67,35 +68,55 @@ def patch_trainer(text: str) -> str:
             replay_x=[];replay_y=[]
             for domain,count in zip(DOMAINS,token_counts[:3]):
                 x,y=sample(domain,count,batch);replay_x.append(x);replay_y.append(y)
-            main_counts=token_counts[3:];main_count=sum(main_counts)
-            mx,my=sample('main',main_count,batch*len(main_counts))
+            main_counts=token_counts[3:]
+            parts_x=list(replay_x);parts_y=list(replay_y)
+            if main_counts:
+                main_count=sum(main_counts)
+                mx,my=sample('main',main_count,batch*len(main_counts))
+                parts_x.append(mx);parts_y.append(my)
             replay_rows=batch*len(replay_x)
-            x_all=torch.cat((*replay_x,mx),dim=0)
-            y_all=torch.cat((*replay_y,my),dim=0)
+            x_all=torch.cat(parts_x,dim=0);y_all=torch.cat(parts_y,dim=0)
             with torch.autocast('cuda',dtype=torch.bfloat16):
                 logits,_=run(x_all,None)
                 rloss=torch.nn.functional.cross_entropy(
                     logits[:replay_rows].reshape(-1,logits.size(-1)),
                     y_all[:replay_rows].reshape(-1),ignore_index=-100,reduction='sum')
-                mloss=torch.nn.functional.cross_entropy(
-                    logits[replay_rows:].reshape(-1,logits.size(-1)),
-                    y_all[replay_rows:].reshape(-1),ignore_index=-100,reduction='sum')
+                if main_counts:
+                    mloss=torch.nn.functional.cross_entropy(
+                        logits[replay_rows:].reshape(-1,logits.size(-1)),
+                        y_all[replay_rows:].reshape(-1),ignore_index=-100,reduction='sum')
+                else:
+                    mloss=rloss.new_zeros(())
                 fused_loss=(rloss*args.replay_boost+mloss)/weight_denominator
             if not bool(torch.isfinite(fused_loss)):raise FloatingPointError('nonfinite fused replay/main loss')
             fused_loss.backward()
             clipped=torch.nn.utils.clip_grad_norm_(params,1.,error_if_nonfinite=True)
             optimizer.step()
-            # Full parameter finiteness is checked periodically instead of scanning every
-            # tensor every update. Loss/gradient checks remain per-update; every fifth
-            # update bounds any optimizer-only fault to << one 5M continuity stage.
+            # Loss/gradient finiteness remains checked on every update. A full parameter
+            # scan is every fifth update and at the stage boundary; an optimizer-only fault
+            # can therefore never cross a 5M continuity commit unnoticed.
             check_params=(step%5==0) or (done+total>=args.new_tokens)
-            if check_params and not all(bool(torch.isfinite(p).all()) for p in params):
+            if check_params and not bool(torch.stack([torch.isfinite(p).all() for p in params]).all()):
                 raise FloatingPointError('nonfinite parameter after fused optimizer step')
             grad_norm_tensor=clipped.detach();loss_value_tensor=fused_loss.detach()
             post_step_finite=torch.tensor(True,device='cuda')
         elif args.fast_replay_only:
 """
     text = once(text, anchor, fused, "fused training branch")
+    text = once(
+        text,
+        "             'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n",
+        "             'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n"
+        "             'fused_replay_main':args.fused_replay_main,\n",
+        "trainer metric metadata",
+    )
+    text = once(
+        text,
+        "             'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n",
+        "             'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n"
+        "             'fused_replay_main':args.fused_replay_main,\n",
+        "trainer summary metadata",
+    )
     return text
 
 
