@@ -2,16 +2,17 @@ from __future__ import annotations
 
 """Runtime speed patch for Scale V5.
 
-The patch is deliberately limited to execution mechanics. It does not change the model
-architecture, sampled token counts, replay weighting, learning-rate schedule, optimizer,
-SAFE gates, or V5's 5M rollback cap.
+Execution-only optimizations. The model architecture, sampled token counts, replay
+weighting, LR schedule, optimizer, SAFE gates and V5's 5M rollback cap stay unchanged.
 
-For replay_only stages the existing objective is algebraically separable: every replay
-source uses the same replay_boost. Therefore the three replay batches and the packed main
-batch can be concatenated into one physical batch and evaluated with one model
-forward/backward while preserving the same token-weighted objective. Projected-rescue
-stages keep the legacy separate-gradient path because they need per-domain reference
-gradients.
+Turbo profiles:
+- turbo60: fused replay+main physical batch + TorchInductor max-autotune/cudagraph path.
+- turbo50: same exact fused objective with max-autotune-no-cudagraphs.
+- safe: legacy fast replay_only path with default compile.
+
+The launcher automatically falls back when a faster profile is unsupported/OOM. Fused
+replay/main is algebraically equivalent for replay_only because all replay domains share
+the same replay_boost. Projected rescue keeps the reference-gradient path.
 """
 
 from pathlib import Path
@@ -35,7 +36,13 @@ def patch_trainer(text: str) -> str:
         "    ap.add_argument('--fast-replay-only',action='store_true',help='Avoid redundant vector copies and defer scalar syncs in replay_only mode')\n",
         "    ap.add_argument('--fast-replay-only',action='store_true',help='Avoid redundant vector copies and defer scalar syncs in replay_only mode')\n"
         "    ap.add_argument('--fused-replay-main',action='store_true',help='Fuse all replay+main microbatches into one physical forward/backward in replay_only mode')\n",
-        "trainer argument",
+        "trainer fused argument",
+    )
+    text = once(
+        text,
+        "    ap.add_argument('--compile-mode',choices=('none','default','reduce-overhead','max-autotune-no-cudagraphs'),default='default')\n",
+        "    ap.add_argument('--compile-mode',choices=('none','default','reduce-overhead','max-autotune-no-cudagraphs','max-autotune'),default='default')\n",
+        "trainer max-autotune mode",
     )
     text = once(
         text,
@@ -60,10 +67,9 @@ def patch_trainer(text: str) -> str:
     fused = """        effective_replay_fraction=(args.replay_boost*replay_tokens)/weight_denominator
 
         if args.fused_replay_main:
-            # Exact replay_only objective, fewer launches: 3 replay batches + packed main
-            # become one physical batch. All replay domains share the same replay_boost,
-            # so sum-reduction followed by the original denominator is algebraically
-            # equivalent to the previous four backward passes.
+            # Exact replay_only objective, fewer launches: three replay batches plus the
+            # packed main batch become one physical batch. The loss keeps the original
+            # token weighting and replay_boost denominator.
             optimizer.zero_grad(set_to_none=True)
             replay_x=[];replay_y=[]
             for domain,count in zip(DOMAINS,token_counts[:3]):
@@ -92,9 +98,8 @@ def patch_trainer(text: str) -> str:
             fused_loss.backward()
             clipped=torch.nn.utils.clip_grad_norm_(params,1.,error_if_nonfinite=True)
             optimizer.step()
-            # Loss/gradient finiteness remains checked on every update. A full parameter
-            # scan is every fifth update and at the stage boundary; an optimizer-only fault
-            # can therefore never cross a 5M continuity commit unnoticed.
+            # Full parameter scan only at the telemetry boundary and stage endpoint.
+            # Loss/gradient checks remain per update; the 5M commit gate remains intact.
             check_params=(step%5==0) or (done+total>=args.new_tokens)
             if check_params and not bool(torch.stack([torch.isfinite(p).all() for p in params]).all()):
                 raise FloatingPointError('nonfinite parameter after fused optimizer step')
@@ -103,13 +108,64 @@ def patch_trainer(text: str) -> str:
         elif args.fast_replay_only:
 """
     text = once(text, anchor, fused, "fused training branch")
+
     text = once(
         text,
-        "             'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n",
-        "             'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n"
-        "             'fused_replay_main':args.fused_replay_main,\n",
-        "trainer metric metadata",
+        "    start=time.perf_counter();start_done=done;start_step=step\n",
+        "    start=time.perf_counter();start_done=done;start_step=step\n"
+        "    metric_tick=start;metric_done=done\n",
+        "deferred metric timer",
     )
+
+    old_metrics = """        done+=total;step+=1
+        for i,count in enumerate(token_counts):counts[DOMAINS[i] if i<3 else 'main']+=count
+        torch.cuda.synchronize()
+        if args.fast_replay_only:
+            if not bool(post_step_finite):raise FloatingPointError('nonfinite parameter after optimizer step')
+            loss_value=float(loss_value_tensor);grad_norm=float(grad_norm_tensor)
+        elapsed=time.perf_counter()-tick
+        row={'event':'train','step':step,'processed_tokens':int(source['processed_tokens'])+done,
+             'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':current_lr,'seconds':elapsed,
+             'tokens_per_second':total/elapsed,'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
+             'peak_reserved_bytes':torch.cuda.max_memory_reserved(),'batch_size':batch,'microbatches':micros,
+             'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
+             'replay_boost':args.replay_boost,'effective_replay_fraction':effective_replay_fraction,
+             'max_main_physical_batch':batch*min(args.main_pack,max(1,micros-3)),
+             'tokens_per_update':total,'batch_chain':chain,**diagnostics}
+        append_jsonl(out/'metrics.jsonl',row)
+"""
+    new_metrics = """        done+=total;step+=1
+        for i,count in enumerate(token_counts):counts[DOMAINS[i] if i<3 else 'main']+=count
+        # Fused mode only forces a host/GPU synchronization at the existing five-step
+        # telemetry cadence (or endpoint). This removes four scalar-sync/file-write stalls
+        # out of five without reducing numerical checks at a continuity boundary.
+        metric_now=(not args.fused_replay_main) or step%5==0 or done==args.new_tokens
+        if metric_now:
+            torch.cuda.synchronize()
+            if args.fast_replay_only:
+                if not bool(post_step_finite):raise FloatingPointError('nonfinite parameter after optimizer step')
+                loss_value=float(loss_value_tensor);grad_norm=float(grad_norm_tensor)
+            if args.fused_replay_main:
+                elapsed=time.perf_counter()-metric_tick
+                measured_tokens=done-metric_done
+                metric_tick=time.perf_counter();metric_done=done
+            else:
+                elapsed=time.perf_counter()-tick
+                measured_tokens=total
+            row={'event':'train','step':step,'processed_tokens':int(source['processed_tokens'])+done,
+                 'new_tokens':done,'loss':loss_value,'grad_norm':grad_norm,'lr':current_lr,'seconds':elapsed,
+                 'tokens_per_second':measured_tokens/elapsed,'peak_allocated_bytes':torch.cuda.max_memory_allocated(),
+                 'peak_reserved_bytes':torch.cuda.max_memory_reserved(),'batch_size':batch,'microbatches':micros,
+                 'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,
+                 'fused_replay_main':args.fused_replay_main,
+                 'fused_physical_batch':batch*micros if args.fused_replay_main else None,
+                 'replay_boost':args.replay_boost,'effective_replay_fraction':effective_replay_fraction,
+                 'max_main_physical_batch':batch*min(args.main_pack,max(1,micros-3)),
+                 'tokens_per_update':total,'batch_chain':chain,**diagnostics}
+            append_jsonl(out/'metrics.jsonl',row)
+"""
+    text = once(text, old_metrics, new_metrics, "deferred fused telemetry")
+
     text = once(
         text,
         "             'batch_size':batch,'microbatches':micros,'main_pack':args.main_pack,'fast_replay_only':args.fast_replay_only,\n",
@@ -123,8 +179,14 @@ def patch_trainer(text: str) -> str:
 def patch_v5(text: str) -> str:
     text = once(
         text,
+        '        cmd = [sys.executable, "-u", str(Path(__file__).parent / "train_guarded_v9.py"),\n',
+        '        cmd = [sys.executable, "-u", str(Path(__file__).parent / "train_v5_stage_launcher.py"),\n',
+        "V5 reliable launcher",
+    )
+    text = once(
+        text,
         '               "--microbatches", "12", "--main-pack", str(PACK), "--compile-mode", "default",\n',
-        '               "--microbatches", "12", "--main-pack", str(PACK), "--compile-mode", "max-autotune-no-cudagraphs",\n',
+        '               "--microbatches", "12", "--main-pack", str(PACK), "--compile-mode", "max-autotune",\n',
         "V5 compile profile",
     )
     text = once(
@@ -136,7 +198,7 @@ def patch_v5(text: str) -> str:
     text = once(
         text,
         '        print(json.dumps({"event": "v5_train_start", "tag": tag, "from_tokens": train_tokens,\n                          "block_tokens": block_tokens, "recipe": recipe}), flush=True)\n',
-        '        print(json.dumps({"event": "v5_train_start", "tag": tag, "from_tokens": train_tokens,\n                          "block_tokens": block_tokens, "recipe": recipe,\n                          "execution_profile": "fused48_max_autotune" if recipe["mode"] == "replay_only" else "projected_reference"}), flush=True)\n',
+        '        print(json.dumps({"event": "v5_train_start", "tag": tag, "from_tokens": train_tokens,\n                          "block_tokens": block_tokens, "recipe": recipe,\n                          "execution_profile": "auto_turbo60_turbo50_safe" if recipe["mode"] == "replay_only" else "projected_reference"}), flush=True)\n',
         "V5 telemetry profile",
     )
     return text
@@ -156,7 +218,7 @@ def main() -> None:
         if patched_v5 != v5:
             V5.write_text(patched_v5, encoding="utf-8")
 
-    print("Scale V5 turbo patch applied: fused replay/main batch + max-autotune; gates unchanged")
+    print("Scale V5 turbo patch applied: auto turbo60 -> turbo50 -> safe; gates unchanged")
 
 
 if __name__ == "__main__":
