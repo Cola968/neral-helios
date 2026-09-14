@@ -13,15 +13,17 @@ EXECUTION_ONLY_CONTRACT_KEYS = frozenset({
     "compile_mode",
     "fast_replay_only",
     "fused_replay_main",
+    "v71_coalesced_input",
+    "v71_input_transfer",
 })
 
 
 def semantic_resume_contract(contract: dict) -> dict:
     """Return the part of a trainer contract that must remain identical on resume.
 
-    A compile-profile fallback must not invalidate an otherwise exact optimizer/RNG/data
-    resume.  Data identity, model implementation, LR/replay recipe, token budget, pack
-    shape and trainable parameter identities remain part of the contract.
+    A compile/input-profile fallback must not invalidate an otherwise exact optimizer/RNG/
+    data resume.  Data identity, model implementation, LR/replay recipe, token budget,
+    pack shape and trainable parameter identities remain part of the contract.
     """
 
     out = deepcopy(contract)
