@@ -28,8 +28,23 @@ def once(text: str, old: str, new: str, label: str) -> str:
 
 
 def patch_trainer(text: str) -> str:
+    text = once(
+        text,
+        "from model350 import Neral350M,FRONTIER_350\n",
+        "from model350 import Neral350M,FRONTIER_350,_rope_table\n",
+        "RoPE cache helper import",
+    )
+
     old_run = "    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode=args.compile_mode)\n"
-    new_run = """    # Fast2: for fused replay-only stages compile model+weighted CE together so the
+    new_run = """    # _rope_table uses a process-global Python cache. Populate its immutable BF16 CUDA
+    # table before torch.compile so CUDA Graph capture never owns the cached storage. A
+    # first cache miss inside a captured graph can otherwise leave Python holding a graph
+    # output whose storage is overwritten on the next replay.
+    if args.compile_mode!='none':
+        _rope_table(FRONTIER_350.max_seq_len,FRONTIER_350.head_dim,
+                    FRONTIER_350.rope_theta,torch.device('cuda'),torch.bfloat16)
+
+    # Fast2: for fused replay-only stages compile model+weighted CE together so the
     # head, slice/reduction and CE stay in one graph. Non-fused/projected paths retain the
     # existing compiled-model behavior.
     if args.fused_replay_main:
@@ -88,7 +103,7 @@ def main() -> None:
     patched = patch_trainer(trainer)
     if patched != trainer:
         TRAINER.write_text(patched, encoding="utf-8")
-    print("V6 Fast2 patch prepared: compiled exact fused objective; gates/objective unchanged")
+    print("V6 Fast2 patch prepared: prewarmed RoPE cache + compiled exact fused objective; gates/objective unchanged")
 
 
 if __name__ == "__main__":
