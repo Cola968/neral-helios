@@ -30,9 +30,10 @@ import torch
 from recovery_identity import file_sha, validate_pair
 
 TARGET_DEFAULT = 10_000_000_000
-# Larger stages deliberately reduce benchmark/evaluation churn. 250M is capped so a
-# single bad stage cannot burn many hours before a quality boundary.
-LADDER = (5_000_000, 10_000_000, 25_000_000, 50_000_000, 100_000_000, 250_000_000)
+# Keep stages at <=100M. The trainer always writes a 50%-point snapshot, so the largest
+# stage now has a 50M recovery point and cannot burn another full 250M before a quality
+# boundary. This preserves the SAFE/SHADOW gates and training recipe math.
+LADDER = (5_000_000, 10_000_000, 25_000_000, 50_000_000, 100_000_000)
 PACK, SEQ, BATCH, MICROS = 9, 512, 4, 12
 TOKENS_PER_UPDATE = SEQ * BATCH * MICROS
 MIN_REPLAY_TAIL = 3 * SEQ * BATCH
