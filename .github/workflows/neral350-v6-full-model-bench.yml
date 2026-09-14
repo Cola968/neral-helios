@@ -32,11 +32,15 @@ jobs:
       - name: Verify idle RTX 4070
         run: |
           $ErrorActionPreference='Stop'
-          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          wsl.exe --shutdown 2>$null
+          Start-Sleep -Seconds 3
           $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
           $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host ("GPU="+$gpu)
+          Write-Host ("GPUFreeVRAMMiB="+$free)
           if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
           if($free -lt 9000){throw ("GPU not idle enough for V6 benchmark; free MiB="+$free)}
+          exit 0
 
       - name: Run isolated full-model benchmark
         run: |
@@ -46,14 +50,17 @@ jobs:
           $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v6_full_model_benchmark.py frontier350/v6_chunked_frozen_head_ce.py; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v6_full_model_benchmark.py --out frontier350_v6_full_model_bench/report.json --seq 512 --batches 24,16,8,4 --warmup 1 --measured 3"
           wsl.exe -- bash -lc $cmd
           $code=$LASTEXITCODE
-          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          wsl.exe --shutdown 2>$null
+          Start-Sleep -Seconds 3
           if($code -ne 0){throw 'V6 full-model benchmark failed'}
+          exit 0
 
       - name: Print benchmark
         if: always()
         run: |
           if(Test-Path frontier350_v6_full_model_bench/report.json){Get-Content frontier350_v6_full_model_bench/report.json -Raw | Write-Host}
           nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+          exit 0
 
       - name: Upload benchmark evidence
         if: always()
