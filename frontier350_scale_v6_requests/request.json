@@ -1,0 +1,8 @@
+{
+  "version": 6,
+  "action": "run_scale_v6_fast",
+  "request_id": "v6fast-20260914-2b-a",
+  "target_tokens": 2000000000,
+  "max_rounds": 128,
+  "max_wall_minutes": 900
+}
