@@ -1,7 +1,7 @@
 {
   "version": 4,
-  "action": "stop_scale_v4",
-  "request_id": "scalev4-stop-20260913",
+  "action": "run_scale_v4",
+  "request_id": "scalev4-20260914-resume-b",
   "target_tokens": 2500000000,
   "max_rounds": 16,
   "max_wall_minutes": 660
