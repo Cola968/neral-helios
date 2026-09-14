@@ -45,12 +45,23 @@ def weighted_loss(logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return (rloss * REPLAY_BOOST + mloss) / (mv + REPLAY_BOOST * rv)
 
 
+def mark_compile_step() -> None:
+    # PyTorch 2.8 CUDA Graph trees can reuse output storage between repeated
+    # torch.compile invocations. Marking the iteration boundary prevents a
+    # previous graph output (notably the RoPE cos/sin tensors) from being
+    # treated as live when the next invocation reuses that storage.
+    mark = getattr(torch.compiler, "cudagraph_mark_step_begin", None)
+    if mark is not None:
+        mark()
+
+
 def bench_current(model: Neral350M, x: torch.Tensor, y: torch.Tensor, warmup: int, measured: int) -> dict:
     run = torch.compile(model, fullgraph=True, dynamic=False, mode="max-autotune")
     rates, losses = [], []
     torch.cuda.reset_peak_memory_stats()
     for i in range(warmup + measured):
         model.zero_grad(set_to_none=True)
+        mark_compile_step()
         torch.cuda.synchronize(); t0 = time.perf_counter()
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logits, _ = run(x, None)
@@ -60,6 +71,7 @@ def bench_current(model: Neral350M, x: torch.Tensor, y: torch.Tensor, warmup: in
         torch.cuda.synchronize(); dt = time.perf_counter() - t0
         if i >= warmup:
             rates.append(int(y.ne(-100).sum()) / dt); losses.append(float(loss.detach()))
+        del logits, loss
     out = {"median_tps": statistics.median(rates), "mean_tps": statistics.fmean(rates), "loss": losses[-1],
            "peak_allocated_gib": torch.cuda.max_memory_allocated()/1073741824,
            "peak_reserved_gib": torch.cuda.max_memory_reserved()/1073741824}
@@ -76,6 +88,7 @@ def bench_fast2(model: Neral350M, x: torch.Tensor, y: torch.Tensor, warmup: int,
     torch.cuda.reset_peak_memory_stats()
     for i in range(warmup + measured):
         model.zero_grad(set_to_none=True)
+        mark_compile_step()
         torch.cuda.synchronize(); t0 = time.perf_counter()
         with torch.autocast("cuda", dtype=torch.bfloat16):
             loss = run(x, y)
@@ -84,6 +97,7 @@ def bench_fast2(model: Neral350M, x: torch.Tensor, y: torch.Tensor, warmup: int,
         torch.cuda.synchronize(); dt = time.perf_counter() - t0
         if i >= warmup:
             rates.append(int(y.ne(-100).sum()) / dt); losses.append(float(loss.detach()))
+        del loss
     out = {"median_tps": statistics.median(rates), "mean_tps": statistics.fmean(rates), "loss": losses[-1],
            "peak_allocated_gib": torch.cuda.max_memory_allocated()/1073741824,
            "peak_reserved_gib": torch.cuda.max_memory_reserved()/1073741824}
