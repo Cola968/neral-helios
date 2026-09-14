@@ -63,7 +63,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.request.outputs.repo }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v6_fast2_microbench.py frontier350/v7_fast2_gate.py frontier350/v7_policy.py frontier350/v7_recovery.py frontier350/apply_v7_guardrails.py frontier350/train_v7_stage_launcher.py"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v6_fast2_microbench.py frontier350/v7_fast2_gate.py frontier350/v7_policy.py frontier350/v7_recovery.py frontier350/apply_v7_guardrails.py frontier350/apply_v7_storage_cleanup.py frontier350/train_v7_stage_launcher.py"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'V7 base runtime preparation failed'}
           exit 0
@@ -96,7 +96,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $p=(Get-Location).Path; $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
-          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/train_v7_stage_launcher.py frontier350/v7_policy.py frontier350/v7_recovery.py"
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/train_v7_stage_launcher.py frontier350/v7_policy.py frontier350/v7_recovery.py frontier350/apply_v7_storage_cleanup.py"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'V7 guardrail patch failed'}
           exit 0
