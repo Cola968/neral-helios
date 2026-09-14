@@ -1,7 +1,7 @@
 {
   "version": 6,
   "action": "run_scale_v6_fast2",
-  "request_id": "scalev6-fast2-20260914-2b-b",
+  "request_id": "scalev6-fast2-20260914-2b-c",
   "target_tokens": 2000000000,
   "max_rounds": 4096,
   "max_wall_minutes": 900
