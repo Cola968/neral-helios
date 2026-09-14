@@ -1,0 +1,70 @@
+name: Neral 350M V6 GPU Preflight
+
+on:
+  push:
+    branches: [experiment/scale-v6]
+    paths:
+      - 'frontier350/v6_gpu_preflight.py'
+      - 'frontier350/streamguard_v6_policy.py'
+      - 'frontier350/v6_chunked_frozen_head_ce.py'
+      - '.github/workflows/neral350-v6-gpu-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deliberately shares the V5 concurrency group. With cancel-in-progress=false this
+# preflight cannot interrupt the active V5 training run and will wait behind it.
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  gpu-preflight:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify idle RTX 4070 and source
+        run: |
+          $ErrorActionPreference='Stop'
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070 runner'}
+          if($free -lt 9000){throw ("GPU not idle enough for V6 preflight; free MiB="+$free)}
+          wsl.exe -- bash -lc "cd /mnt/$((Get-Location).Path.Substring(0,1).ToLower())/$((Get-Location).Path.Substring(3).Replace('\','/')); ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v6_gpu_preflight.py frontier350/streamguard_v6_policy.py frontier350/v6_chunked_frozen_head_ce.py"
+          if($LASTEXITCODE -ne 0){throw 'V6 source check failed'}
+
+      - name: Run isolated V6 BF16 GPU preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=(Get-Location).Path
+          $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v6_gpu_preflight.py --out frontier350_v6_gpu_preflight/report.json"
+          wsl.exe -- bash -lc $cmd
+          $code=$LASTEXITCODE
+          wsl.exe --shutdown; Start-Sleep -Seconds 3
+          if($code -ne 0){throw 'V6 GPU preflight failed'}
+
+      - name: Print V6 preflight result
+        if: always()
+        run: |
+          if(Test-Path frontier350_v6_gpu_preflight/report.json){Get-Content frontier350_v6_gpu_preflight/report.json -Raw | Write-Host}
+          nvidia-smi --query-gpu=name,temperature.gpu,memory.used,memory.total --format=csv,noheader
+
+      - name: Upload V6 preflight evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-v6-gpu-preflight-${{ github.run_id }}
+          path: frontier350_v6_gpu_preflight/
+          retention-days: 30
