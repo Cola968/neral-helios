@@ -2,15 +2,14 @@ from __future__ import annotations
 
 """Experimental V6 Fast2 execution patch.
 
-Prepared while the current guarded V6 run continues. It is intentionally NOT wired into
-an already-running job: GitHub Actions checks out a fixed commit, so hot-patching that
-process would be unsafe.
-
 Fast2 keeps model architecture, sampled tokens, optimizer, LR/replay recipe, 5M health
 checks, SAFE gates and rollback semantics unchanged. It only moves the existing exact
-weighted replay+main CE objective inside the compiled graph for fused replay-only stages.
-The launcher can still fall back to the non-fused safe profile if compilation/runtime
-fails.
+weighted replay+main CE objective inside one compiled graph for fused replay-only stages.
+
+PyTorch 2.8 CUDA Graph replay is deliberately disabled for this fused objective. The model
+uses a process-global RoPE tensor cache; under CUDA Graph capture that cached storage can
+become graph-owned and then be overwritten on a later replay. TorchInductor and max-autotune
+remain enabled through max-autotune-no-cudagraphs.
 """
 
 from pathlib import Path
@@ -36,17 +35,15 @@ def patch_trainer(text: str) -> str:
     )
 
     old_run = "    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode=args.compile_mode)\n"
-    new_run = """    # _rope_table uses a process-global Python cache. Populate its immutable BF16 CUDA
-    # table before torch.compile so CUDA Graph capture never owns the cached storage. A
-    # first cache miss inside a captured graph can otherwise leave Python holding a graph
-    # output whose storage is overwritten on the next replay.
+    new_run = """    # Populate the immutable RoPE table before compilation. This keeps the global
+    # Python cache independent from compiled graph lifetime.
     if args.compile_mode!='none':
         _rope_table(FRONTIER_350.max_seq_len,FRONTIER_350.head_dim,
                     FRONTIER_350.rope_theta,torch.device('cuda'),torch.bfloat16)
 
-    # Fast2: for fused replay-only stages compile model+weighted CE together so the
-    # head, slice/reduction and CE stay in one graph. Non-fused/projected paths retain the
-    # existing compiled-model behavior.
+    # Fast2 compiles the exact fused objective with TorchInductor/autotune but explicitly
+    # without CUDA Graphs. PyTorch 2.8 CUDAGraph trees conflict with the process-global
+    # RoPE cache and can overwrite cached tensor storage on replay.
     if args.fused_replay_main:
         replay_rows_const=batch*3
         def _v6_fused_objective(x_all,y_all):
@@ -59,15 +56,12 @@ def patch_trainer(text: str) -> str:
             mloss=torch.nn.functional.cross_entropy(
                 logits[replay_rows_const:].reshape(-1,logits.size(-1)),
                 mtargets.reshape(-1),ignore_index=-100,reduction='sum')
-            # Derive the exact denominator from the same -100 mask used by CE. This is
-            # algebraically identical to main_tokens + replay_boost*replay_tokens and
-            # keeps the final partial update shape-static.
             replay_valid=rtargets.ne(-100).sum(dtype=torch.float32)
             main_valid=mtargets.ne(-100).sum(dtype=torch.float32)
             denom=main_valid+args.replay_boost*replay_valid
             return (rloss*args.replay_boost+mloss)/denom
         fused_run=_v6_fused_objective if args.compile_mode=='none' else torch.compile(
-            _v6_fused_objective,fullgraph=True,dynamic=False,mode=args.compile_mode)
+            _v6_fused_objective,fullgraph=True,dynamic=False,mode='max-autotune-no-cudagraphs')
         run=model
     else:
         fused_run=None
@@ -93,8 +87,6 @@ def patch_trainer(text: str) -> str:
 """
     text = once(text, old_loss, new_loss, "compiled fused objective use")
 
-    # Fast2 only changes graph placement. Keep the existing telemetry/finite-scan cadence
-    # supplied by apply_v6_fast_patch.py and all continuity gates unchanged.
     return text
 
 
@@ -103,7 +95,7 @@ def main() -> None:
     patched = patch_trainer(trainer)
     if patched != trainer:
         TRAINER.write_text(patched, encoding="utf-8")
-    print("V6 Fast2 patch prepared: prewarmed RoPE cache + compiled exact fused objective; gates/objective unchanged")
+    print("V6 Fast2 patch prepared: RoPE prewarm + max-autotune-no-cudagraphs fused objective; gates/objective unchanged")
 
 
 if __name__ == "__main__":
