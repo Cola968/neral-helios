@@ -42,5 +42,15 @@ def test_fast2_gate_requires_speed_fidelity_and_memory():
     assert not allowed and "peak_reserved_vram" in failures
 
 
+def test_fast2_gate_reports_multiple_reasons():
+    allowed, failures = fast2_gate({
+        "fast2_ratio": 1.01,
+        "loss_abs_diff": 5e-4,
+        "fast2": {"peak_reserved_gib": 9.5},
+    })
+    assert not allowed
+    assert set(failures) == {"speed_ratio", "loss_equivalence", "peak_reserved_vram"}
+
+
 def test_recovery_targets_exclude_endpoint():
     assert recovery_targets(5_000_000, 1_000_000) == [1_000_000, 2_000_000, 3_000_000, 4_000_000]
