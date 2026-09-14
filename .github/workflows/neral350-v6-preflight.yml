@@ -1,0 +1,28 @@
+name: Neral 350M V6 Preflight CPU
+
+on:
+  push:
+    branches:
+      - experiment/scale-v4
+    paths:
+      - frontier350/streamguard_v6_policy.py
+      - frontier350/v6_chunked_frozen_head_ce.py
+      - frontier350/test_streamguard_v6_preflight.py
+      - .github/workflows/neral350-v6-preflight.yml
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU PyTorch
+        run: python -m pip install --upgrade pip && python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Syntax checks
+        run: python -m py_compile frontier350/streamguard_v6_policy.py frontier350/v6_chunked_frozen_head_ce.py frontier350/test_streamguard_v6_preflight.py
+      - name: Run V6 policy and CE preflight tests
+        run: python -m unittest -v frontier350.test_streamguard_v6_preflight
