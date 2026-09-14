@@ -56,7 +56,7 @@
     if(bytes(text)>2*1024*1024)throw Error('Import ist größer als 2 MB.');
     const data=JSON.parse(text);
     if(data?.format!=='neral-chat-v1'||typeof data.title!=='string'||!Array.isArray(data.messages)||data.messages.length>500)throw Error('Ungültiges Chat-Exportformat.');
-    const modes=new Set(['chat','solve','code','trained-generation','solve-tool','code-tool','guarded-response']);
+    const modes=new Set(['chat','solve','code','trained-generation','cloud-generation','solve-tool','code-tool','guarded-response']);
     const messages=data.messages.map(m=>{
       if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||bytes(m.content)>32768||!modes.has(m.mode))throw Error('Ungültige Nachricht im Import.');
       return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,meta:'Importierter Verlauf · nicht neu berechnet'};
