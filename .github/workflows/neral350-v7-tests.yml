@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'frontier350/apply_v7_guardrails.py'
+      - 'frontier350/apply_v7_storage_cleanup.py'
       - 'frontier350/v7_*.py'
       - 'frontier350/train_v7_stage_launcher.py'
       - 'tests/test_v7_policy.py'
@@ -13,6 +14,7 @@ on:
     branches: [experiment/scale-v7]
     paths:
       - 'frontier350/apply_v7_guardrails.py'
+      - 'frontier350/apply_v7_storage_cleanup.py'
       - 'frontier350/v7_*.py'
       - 'frontier350/train_v7_stage_launcher.py'
       - 'tests/test_v7_policy.py'
@@ -44,6 +46,7 @@ jobs:
           python frontier350/apply_v6_fast_patch.py
           python frontier350/apply_v6_fast2_patch.py
           python frontier350/apply_v7_guardrails.py
+          python frontier350/apply_v7_storage_cleanup.py
       - name: Compile patched runtime
         run: |
           python -m py_compile \
@@ -52,6 +55,7 @@ jobs:
             frontier350/train_v7_stage_launcher.py \
             frontier350/v7_policy.py \
             frontier350/v7_recovery.py \
-            frontier350/v7_fast2_gate.py
+            frontier350/v7_fast2_gate.py \
+            frontier350/apply_v7_storage_cleanup.py
       - name: Patch hygiene
         run: git diff --check
