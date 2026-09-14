@@ -5,6 +5,7 @@ set -euo pipefail
 P="${HOME}/.venvs/neral-triton-py312/bin/python"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCH="${HERE}/apply_scale_v4_recovery_patch.py"
+ROLLBACK_CAP="${HERE}/../sitecustomize.py"
 
 if [[ ! -x "$P" ]]; then
   echo "missing WSL eval python: $P" >&2
@@ -16,6 +17,13 @@ fi
 # therefore remains untouched.
 if [[ -f "$PATCH" ]]; then
   "$P" "$PATCH"
+fi
+
+# Apply the stricter continuity policy after the generic recovery patch: every fresh
+# stage is capped at 5M tokens and a hard reject returns to the previous qualified
+# SAFE/SHADOW continuity anchor rather than discarding the full shadow trajectory.
+if [[ -f "$ROLLBACK_CAP" ]]; then
+  "$P" "$ROLLBACK_CAP"
 fi
 
 if ! "$P" -c 'import tokenizers; assert tokenizers.__version__ == "0.21.4"' >/dev/null 2>&1; then
