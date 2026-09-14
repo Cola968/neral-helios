@@ -1,0 +1,63 @@
+name: Neral Scale V7.1 CPU Guardrail Tests
+
+on:
+  pull_request:
+    paths:
+      - 'frontier350/apply_v7_1_speed_patch.py'
+      - 'frontier350/v7_1_*.py'
+      - 'frontier350/v7_policy.py'
+      - 'frontier350/train_v7_1_stage_launcher.py'
+      - 'tests/test_v7_1_policy.py'
+      - '.github/workflows/neral350-v7-1-tests.yml'
+      - '.github/workflows/neral350-scale-v7-1.yml'
+  push:
+    branches: [experiment/scale-v7-1]
+    paths:
+      - 'frontier350/apply_v7_1_speed_patch.py'
+      - 'frontier350/v7_1_*.py'
+      - 'frontier350/v7_policy.py'
+      - 'frontier350/train_v7_1_stage_launcher.py'
+      - 'tests/test_v7_1_policy.py'
+      - '.github/workflows/neral350-v7-1-tests.yml'
+      - '.github/workflows/neral350-scale-v7-1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  patch-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          python -m pip install numpy pytest
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Unit tests
+        run: python -m pytest -q tests/test_v7_policy.py tests/test_v7_recovery.py tests/test_v7_1_policy.py
+      - name: Reproduce runtime patch chain
+        run: |
+          python frontier350/apply_scale_v4_recovery_patch.py
+          python frontier350/apply_v5_turbo_patch.py
+          python frontier350/apply_v6_fast_patch.py
+          python frontier350/apply_v6_fast2_patch.py
+          python frontier350/apply_v7_guardrails.py
+          python frontier350/apply_v7_storage_cleanup.py
+          python frontier350/apply_v7_1_speed_patch.py
+      - name: Compile patched runtime
+        run: |
+          python -m py_compile \
+            frontier350/run_scale_v5.py \
+            frontier350/train_guarded_v9.py \
+            frontier350/train_v7_1_stage_launcher.py \
+            frontier350/v7_policy.py \
+            frontier350/v7_recovery.py \
+            frontier350/v7_1_policy.py \
+            frontier350/v7_1_io_microbench.py \
+            frontier350/apply_v7_1_speed_patch.py
+      - name: Patch hygiene
+        run: git diff --check
