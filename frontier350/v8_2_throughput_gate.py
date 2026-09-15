@@ -2,14 +2,14 @@ from __future__ import annotations
 
 """Read-only A/B throughput gate for Scale V8.2 on the current continuity checkpoint.
 
-The gate never promotes a benchmark checkpoint and never writes the controller state.  Each
+The gate never promotes a benchmark checkpoint and never writes the controller state. Each
 trial starts from the same current continuity checkpoint, writes only to disposable scratch,
 and the checkpoint/state identities are verified again after all trials.
 
 Gate A is intentionally short: it decides whether Fast2 + coalesced input is worth a longer
-5M-token thermal soak.  Stable 50k here means median >=50k tok/s, p10 >=45k tok/s and p10
->=90% of the candidate median after warmup.  It is NOT by itself a claim of multi-hour
-thermal stability.
+5M-token thermal soak. Stable 50k here means median >=50k tok/s, p10 >=45k tok/s and p10
+>=90% of the candidate median after warmup. A candidate must also preserve the plain-Fast2
+loss trajectory within 2e-4. Gate A alone is NOT a multi-hour thermal-stability claim.
 """
 
 import argparse
@@ -25,8 +25,8 @@ from pathlib import Path
 
 from apply_v6_fast2_patch import patch_trainer as patch_fast2
 from recovery_identity import file_sha
-from train_v8_2_stage_launcher import profile_command_args
 from v7_1_runtime_hotfix import patch_trainer as patch_runtime
+from v8_2_profile_contract import profile_command_args
 
 SEQ = 512
 BATCH = 4
@@ -35,6 +35,7 @@ MAIN_PACK = 9
 TOKENS_PER_UPDATE = SEQ * BATCH * MICROBATCHES
 MAX_RESERVED_BYTES = int(11.0 * 1024**3)
 MAX_ALLOCATED_BYTES = int(10.25 * 1024**3)
+MAX_LOSS_DIFF = 2e-4
 
 
 def load_json(path: Path) -> dict:
@@ -169,21 +170,16 @@ def main() -> None:
         for name, profile, input_profile in variants:
             out = scratch / name
             trial_base = [*base, "--out", str(out)]
-            cli, selected_input = profile_command_args(
-                trial_base, profile, None, "off", input_profile
-            )
+            cli, selected_input = profile_command_args(trial_base, profile, None, "off", input_profile)
             before_gpu = cool_to()
             log = report / f"{name}.log"
-            cmd = [sys.executable, "-u", str(fast2_trainer), *cli]
-            code, wall, gpu = run_process_with_gpu_sampling(cmd, log)
+            code, wall, gpu = run_process_with_gpu_sampling(
+                [sys.executable, "-u", str(fast2_trainer), *cli], log
+            )
             row: dict = {
-                "name": name,
-                "profile": profile,
-                "input_profile": selected_input,
-                "returncode": code,
-                "wall_seconds": wall,
-                "gpu_before": before_gpu,
-                "gpu_samples": gpu,
+                "name": name, "profile": profile, "input_profile": selected_input,
+                "returncode": code, "wall_seconds": wall,
+                "gpu_before": before_gpu, "gpu_samples": gpu,
             }
             if code != 0:
                 row["error_tail"] = log.read_text(encoding="utf-8", errors="replace")[-6000:]
@@ -199,6 +195,7 @@ def main() -> None:
                 raise RuntimeError(f"{name}: expected {args.updates} train rows, got {len(train)}")
             stable_rows = train[args.warmup_updates:]
             rates = [float(x["tokens_per_second"]) for x in stable_rows]
+            losses = [float(x["loss"]) for x in train]
             med = statistics.median(rates)
             low = p10(rates)
             mean = statistics.fmean(rates)
@@ -214,19 +211,15 @@ def main() -> None:
             )
             summary = load_json(out / "summary.json")
             row.update({
-                "median_tps": med,
-                "mean_tps": mean,
-                "p10_tps": low,
-                "peak_tps": peak,
-                "stable_samples": len(rates),
-                "stable": stable,
-                "target_reached": target_reached,
+                "median_tps": med, "mean_tps": mean, "p10_tps": low, "peak_tps": peak,
+                "stable_samples": len(rates), "stable": stable, "target_reached": target_reached,
                 "peak_allocated_gib": peak_alloc / 1024**3,
                 "peak_reserved_gib": peak_reserved / 1024**3,
-                "memory_ok": memory_ok,
-                "max_temp_c": max_temp,
+                "memory_ok": memory_ok, "max_temp_c": max_temp,
                 "summary_tokens": summary.get("new_tokens"),
                 "tokens_per_update": summary.get("tokens_per_update"),
+                "checkpoint_sha256": summary.get("checkpoint_sha256"),
+                "losses": losses,
             })
             shutil.copy2(metrics_path, report / f"{name}_metrics.jsonl")
             shutil.copy2(out / "summary.json", report / f"{name}_summary.json")
@@ -237,7 +230,6 @@ def main() -> None:
         fast2_trainer.unlink(missing_ok=True)
         shutil.rmtree(scratch, ignore_errors=True)
 
-    # Read-only proof: neither the accepted checkpoint nor the controller state may change.
     anchor_sha_after = file_sha(anchor)
     state_sha_after = sha256_file(state_path)
     read_only_ok = anchor_sha_after == anchor_sha_before and state_sha_after == state_sha_before
@@ -247,18 +239,33 @@ def main() -> None:
     valid = [r for r in rows if r.get("returncode") == 0 and "median_tps" in r]
     if not valid:
         raise RuntimeError("no V8.2 throughput trial completed")
-    best = max(valid, key=lambda r: float(r["median_tps"]))
     plain = next((r for r in valid if r["name"] == "fast2_plain"), None)
-    speedup = (float(best["median_tps"]) / float(plain["median_tps"])) if plain else None
-    gate_pass = bool(best.get("target_reached"))
+    if plain is None:
+        raise RuntimeError("plain Fast2 reference failed; semantic A/B is invalid")
+    plain_losses = list(plain["losses"])
+    for row in valid:
+        losses = list(row["losses"])
+        if len(losses) != len(plain_losses):
+            row["semantic_max_loss_diff"] = float("inf")
+            row["semantic_ok"] = False
+        else:
+            diff = max(abs(a - b) for a, b in zip(losses, plain_losses)) if losses else 0.0
+            row["semantic_max_loss_diff"] = diff
+            row["semantic_ok"] = diff <= MAX_LOSS_DIFF
+    eligible = [r for r in valid if r.get("semantic_ok")]
+    if not eligible:
+        raise RuntimeError("no numerically equivalent V8.2 candidate survived")
+    best = max(eligible, key=lambda r: float(r["median_tps"]))
+    speedup = float(best["median_tps"]) / float(plain["median_tps"])
+    gate_pass = bool(best.get("target_reached") and best.get("semantic_ok"))
+
     result = {
-        "schema": 1,
+        "schema": 2,
         "benchmark": "neral350-v8.2-throughput-gate-a",
-        "anchor_path": str(anchor),
-        "anchor_sha256": anchor_sha,
-        "anchor_tokens": anchor_tokens,
+        "anchor_path": str(anchor), "anchor_sha256": anchor_sha, "anchor_tokens": anchor_tokens,
         "target_tps": args.target_tps,
-        "stable_definition": "post-warmup median >= target; p10 >= 90% target and >=90% median; memory within limits; no >=83C sample",
+        "stable_definition": "post-warmup median >= target; p10 >=90% target and >=90% median; memory within limits; no >=83C sample; max loss-trajectory delta vs plain Fast2 <=2e-4",
+        "max_loss_diff": MAX_LOSS_DIFF,
         "updates_per_trial": args.updates,
         "warmup_updates_excluded": args.warmup_updates,
         "tokens_per_update": TOKENS_PER_UPDATE,
@@ -268,7 +275,7 @@ def main() -> None:
         "best_speedup_vs_plain_fast2": speedup,
         "gate_a_pass": gate_pass,
         "promotion": False,
-        "next_gate": "If Gate A passes, run the winner for a disposable 5M-token thermal soak before production adoption.",
+        "next_gate": "Gate-A winner must pass a disposable 5M-token zero-throttle thermal soak before production adoption.",
         "results": rows,
     }
     (report / "selection.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
