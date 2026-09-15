@@ -1,5 +1,5 @@
 {
-  "action": "benchmark_compile_modes",
-  "request_id": "v7-2-compile-modes-20260915-r2",
+  "action": "benchmark_hybrid_prefix",
+  "request_id": "v7-2-hybrid-prefix-20260915-r1",
   "version": 72
 }
