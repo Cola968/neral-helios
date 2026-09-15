@@ -1,0 +1,8 @@
+{
+  "action": "run_scale_v8_chunk",
+  "request_id": "v8-close-2b-or-next-150m",
+  "target_tokens": 2000000000,
+  "max_rounds": 40,
+  "max_wall_minutes": 220,
+  "version": 80
+}
