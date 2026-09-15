@@ -1,0 +1,118 @@
+name: Neral 350M Scale V8 3B Chunk
+
+on:
+  push:
+    branches: [experiment/scale-v8-3b]
+    paths: ['frontier350_scale_v8_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  scale-chunk:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify V8 chunk request and RTX 4070
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_scale_v8_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 80 -or $r.action -ne 'run_scale_v8_chunk'){throw 'invalid V8 chunk request'}
+          $target=[long]$r.target_tokens
+          if($target -le 0 -or $target -gt 3000000000){throw 'target must be in (0, 3B]'}
+          if([int]$r.max_rounds -lt 1 -or [int]$r.max_rounds -gt 64){throw 'max_rounds outside 1..64'}
+          if([int]$r.max_wall_minutes -lt 30 -or [int]$r.max_wall_minutes -gt 240){throw 'max_wall_minutes outside 30..240'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 82){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $statePath=Join-Path $assets 'frontier350_scale_v5_state.json'
+          if(!(Test-Path $statePath)){throw 'continuity state missing'}
+          $state=Get-Content $statePath -Raw|ConvertFrom-Json
+          $current=[long]$state.continuity.tokens
+          $delta=$target-$current
+          Write-Host "CurrentTokens=$current TargetTokens=$target Delta=$delta GPU=$gpu TempC=$temp FreeVRAMMiB=$free"
+          if($delta -le 0){throw 'target must be newer than current continuity'}
+          if($current -lt 2000000000){
+            if($target -ne 2000000000){throw 'first V8 chunk must close exact 2B milestone'}
+          } elseif($delta -gt 150000000){
+            throw 'V8 chunk may advance at most 150M tokens per workflow run'
+          }
+          $scratchWin=Join-Path 'D:\NeralScaleV8' ([string]$r.request_id)
+          if(Test-Path -LiteralPath $scratchWin){throw 'scratch already exists'}
+          function W([string]$p){$full=[IO.Path]::GetFullPath($p); return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "scratch=$(W $scratchWin)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "scratch_win=$scratchWin"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "request_id=$($r.request_id)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "target_tokens=$target"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "max_rounds=$($r.max_rounds)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "max_wall_minutes=$($r.max_wall_minutes)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Assemble proven V5-V8 runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_2_fast2_profile.py; ~/.venvs/neral-triton-py312/bin/python frontier350/v7_2_checkpoint_cadence_hotfix.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_target_closure.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/apply_v8_target_closure.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V5-V8 runtime patch chain failed'}
+          exit 0
+
+      - name: Run guarded V8 chunk to exact milestone
+        env:
+          NERAL_LIVE_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'; $assets='${{ steps.guard.outputs.assets }}'; $scratch='${{ steps.guard.outputs.scratch }}'
+          $scratchWin='${{ steps.guard.outputs.scratch_win }}'; $rid='${{ steps.guard.outputs.request_id }}'; $target='${{ steps.guard.outputs.target_tokens }}'; $rounds='${{ steps.guard.outputs.max_rounds }}'; $wall='${{ steps.guard.outputs.max_wall_minutes }}'
+          $reportWin=Join-Path (Get-Location) 'frontier350_scale_v8_report'
+          $telemetryScript=Join-Path (Get-Location) 'frontier350\publish_live_status.ps1'
+          $telemetry=Start-Job -ScriptBlock {
+            param($script,$report,$scratch,$repository,$branch,$token,$runId,$targetTokens)
+            & $script -ReportPath $report -ScratchPath $scratch -Repository $repository -Branch $branch -Token $token -RunId $runId -TargetTokens ([long]$targetTokens) -IntervalSeconds 60
+          } -ArgumentList $telemetryScript,$reportWin,$scratchWin,'${{ github.repository }}','${{ github.ref_name }}',$env:NERAL_LIVE_TOKEN,'${{ github.run_id }}',$target
+          try {
+            $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v8_3b; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; export NERAL_V71_INPUT_PROFILE=off; export NERAL_V72_FAST2=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v5.py --assets '$assets' --report frontier350_scale_v8_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds '$rounds' --max-wall-minutes '$wall' --target-finish-grace-minutes 20 --require-target"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw 'V8 chunk did not reach requested exact milestone; continuity state is preserved'}
+          } finally {
+            Stop-Job -Job $telemetry -ErrorAction SilentlyContinue
+            Receive-Job -Job $telemetry -ErrorAction SilentlyContinue | Write-Host
+            Remove-Job -Job $telemetry -Force -ErrorAction SilentlyContinue
+          }
+          exit 0
+
+      - name: Print final selection
+        if: always()
+        run: |
+          if(Test-Path frontier350_scale_v8_report/selection.json){Get-Content frontier350_scale_v8_report/selection.json -Raw|Write-Host}
+          exit 0
+
+      - name: Upload V8 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-scale-v8-${{ github.run_id }}
+          path: frontier350_scale_v8_report/
+          retention-days: 30
