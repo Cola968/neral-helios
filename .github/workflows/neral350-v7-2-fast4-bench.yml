@@ -1,0 +1,69 @@
+name: Neral V7.2 Fast4 Benchmark Only
+
+on:
+  push:
+    branches: [experiment/scale-v7-2]
+    paths: ['frontier350_scale_v7_2_bench_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  fast4-bench:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify benchmark-only request and cool RTX 4070
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_scale_v7_2_bench_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 72 -or $r.action -ne 'benchmark_fast4'){throw 'invalid V7.2 benchmark request'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host "GPU=$gpu TempC=$temp FreeVRAMMiB=$free"
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 82){throw 'GPU too hot for benchmark'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          exit 0
+
+      - name: Prepare runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=(Get-Location).Path; $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v7_2_fast4_microbench.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V7.2 benchmark runtime preparation failed'}
+          exit 0
+
+      - name: Benchmark turbo50 versus Fast4
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=(Get-Location).Path; $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v7_2_fast4_microbench.py --out frontier350_v7_2_bench/fast4.json --warmup 2 --measured 5 --min-ratio 1.08 --max-loss-diff 0.0002 --max-peak-reserved-gib 9.0"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Fast4 benchmark process failed'}
+          Get-Content frontier350_v7_2_bench/fast4.json -Raw | Write-Host
+          exit 0
+
+      - name: Upload benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v7-2-fast4-${{ github.run_id }}
+          path: frontier350_v7_2_bench/fast4.json
+          retention-days: 30
