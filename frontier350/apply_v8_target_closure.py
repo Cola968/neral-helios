@@ -80,17 +80,22 @@ def patch_controller(text: str) -> str:
         "schema": 7,
 '''
     text = once(text, result_anchor, result_new, "completion classification")
-    text = once(
-        text,
-        '        "target_tokens": a.target_tokens,\n',
+    target_anchor = (
+        '        "request_id": a.request_id,\n'
+        '        "target_tokens": a.target_tokens,\n'
+        '        "final_safe_tokens": safe_tokens,\n'
+    )
+    target_new = (
+        '        "request_id": a.request_id,\n'
         '        "target_tokens": a.target_tokens,\n'
         '        "target_reached": target_reached,\n'
         '        "remaining_tokens": max(0, a.target_tokens - train_tokens),\n'
         '        "completion_status": "TARGET_REACHED" if target_reached else "PARTIAL_PROGRESS",\n'
         '        "stop_reason": stop_reason,\n'
-        '        "target_finish_grace_minutes": a.target_finish_grace_minutes,\n',
-        "result target metadata",
+        '        "target_finish_grace_minutes": a.target_finish_grace_minutes,\n'
+        '        "final_safe_tokens": safe_tokens,\n'
     )
+    text = once(text, target_anchor, target_new, "result target metadata")
     text = once(
         text,
         '        "wall_minutes": (time.monotonic() - started) / 60,\n',
