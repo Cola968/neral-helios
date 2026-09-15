@@ -32,7 +32,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $r=Get-Content frontier350_scale_v7_2_bench_requests/request.json -Raw|ConvertFrom-Json
-          if($r.version -ne 72 -or $r.action -notin @('benchmark_fast4','benchmark_liger')){throw 'invalid V7.2 benchmark request'}
+          if($r.version -ne 72 -or $r.action -notin @('benchmark_fast4','benchmark_liger','benchmark_fused_layout')){throw 'invalid V7.2 benchmark request'}
           "action=$($r.action)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
           $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
@@ -48,7 +48,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $p=(Get-Location).Path; $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v7_2_fast4_microbench.py frontier350/v7_2_liger_flce_microbench.py"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v7_2_fast4_microbench.py frontier350/v7_2_liger_flce_microbench.py frontier350/v7_2_fused_layout_microbench.py"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'V7.2 benchmark runtime preparation failed'}
           exit 0
@@ -82,6 +82,17 @@ jobs:
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'Liger FLCE benchmark process failed'}
           Get-Content frontier350_v7_2_bench/liger_flce.json -Raw | Write-Host
+          exit 0
+
+      - name: Benchmark unfused versus fused transformer layout
+        if: steps.request.outputs.action == 'benchmark_fused_layout'
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=(Get-Location).Path; $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fused; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v7_2_fused_layout_microbench.py --out frontier350_v7_2_bench/fused_layout.json --warmup 2 --measured 5 --min-ratio 1.10 --max-loss-diff 0.0002 --min-grad-cosine 0.999 --max-grad-rel-l2 0.01"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Fused layout benchmark process failed'}
+          Get-Content frontier350_v7_2_bench/fused_layout.json -Raw | Write-Host
           exit 0
 
       - name: Upload benchmark evidence
