@@ -19,44 +19,12 @@ import sys
 from pathlib import Path
 
 from apply_v6_fast2_patch import patch_trainer as patch_fast2
-from train_v7_1_stage_launcher import arg_value, profile_args
 from v7_1_runtime_hotfix import patch_trainer as patch_runtime
-from v7_recovery import list_recovery_states
+from v8_2_profile_contract import arg_value, execution_profiles, profile_command_args
 
 ROOT = Path(__file__).resolve().parent
 TRAINER = ROOT / "train_guarded_v9.py"
 FAST2_TRAINER = ROOT / "_v82_fast2_train_guarded_v9.py"
-_ALLOWED_INPUT = ("off", "coalesced-pin", "coalesced-pageable")
-
-
-def execution_profiles(*, replay_only: bool, use_fast2: bool,
-                       legacy_input: str, fast2_input: str) -> tuple[str, ...]:
-    """Return the fail-closed execution order without touching training state."""
-    if legacy_input not in _ALLOWED_INPUT:
-        raise ValueError(f"invalid legacy input profile: {legacy_input!r}")
-    if fast2_input not in _ALLOWED_INPUT:
-        raise ValueError(f"invalid Fast2 input profile: {fast2_input!r}")
-    if not replay_only:
-        return ("safe",)
-
-    legacy = (("fast3", "turbo60", "turbo50", "safe") if legacy_input != "off"
-              else ("turbo60", "turbo50", "safe"))
-    if not use_fast2:
-        return legacy
-    fast_profiles = (("fast2c", "fast2") if fast2_input != "off" else ("fast2",))
-    return fast_profiles + legacy
-
-
-def profile_command_args(base_args: list[str], profile: str, recovery: Path | None,
-                         legacy_input: str, fast2_input: str) -> tuple[list[str], str]:
-    """Build one profile's CLI and report the input profile actually selected."""
-    if profile == "fast2c":
-        args = profile_args(base_args, "fast3", recovery, fast2_input)
-        return args, fast2_input
-    if profile == "fast2":
-        return profile_args(base_args, "turbo50", recovery, "off"), "off"
-    args = profile_args(base_args, profile, recovery, legacy_input)
-    return args, legacy_input if profile == "fast3" else "off"
 
 
 def run_one(trainer: Path, args: list[str], label: str, recovery: Path | None,
@@ -71,6 +39,10 @@ def run_one(trainer: Path, args: list[str], label: str, recovery: Path | None,
 
 
 def main() -> None:
+    # Recovery imports torch/numpy and is intentionally lazy: pure V8.2 profile contracts
+    # stay testable on CPU CI without loading the training runtime.
+    from v7_recovery import list_recovery_states
+
     base_args = sys.argv[1:]
     out_value = arg_value(base_args, "--out")
     if not out_value:
@@ -78,7 +50,6 @@ def main() -> None:
     out = Path(out_value)
     replay_only = arg_value(base_args, "--mode") == "replay_only"
 
-    # Keep the old V7.1 fallback admission independent from the new Fast2 input path.
     legacy_input = os.environ.get("NERAL_V71_INPUT_PROFILE", "off").strip().lower()
     fast2_input = os.environ.get("NERAL_V82_FAST2_INPUT_PROFILE", "off").strip().lower()
     use_fast2 = os.environ.get("NERAL_V72_FAST2", "0").strip().lower() in ("1", "true", "yes")
@@ -96,7 +67,7 @@ def main() -> None:
     fallback_text = patch_runtime(base_text)
     TRAINER.write_text(fallback_text, encoding="utf-8")
     if use_fast2 and replay_only:
-        # base_text already contains the V7.1 coalesced-input implementation because the
+        # base_text already contains V7.1's coalesced-input implementation because the
         # workflow applies apply_v7_1_speed_patch.py before routing through this launcher.
         fast2_text = patch_runtime(patch_fast2(base_text))
         FAST2_TRAINER.write_text(fast2_text, encoding="utf-8")
