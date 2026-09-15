@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "frontier350"))
 
 from v7_1_policy import choose_io_profile, update_batch_chain
+from v7_1_runtime_hotfix import patch_trainer
 from v7_policy import semantic_resume_contract
 
 
@@ -62,3 +63,25 @@ def test_io_gate_rejects_memory_regression():
     }
     selected,_=choose_io_profile(report,min_speedup=1.05,max_extra_reserved_gib=.25)
     assert selected=='off'
+
+
+def test_runtime_hotfix_guards_deferred_row_print_and_marks_cudagraph_step():
+    source=(
+        "            with torch.autocast('cuda',dtype=torch.bfloat16):\n"
+        "                logits,_=run(x_all,None)\n"
+        "        if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)\n"
+    )
+    patched=patch_trainer(source)
+    assert "if metric_now and (step%5==0 or done==args.new_tokens)" in patched
+    assert "torch.compiler.cudagraph_mark_step_begin()" in patched
+
+
+def test_runtime_hotfix_accepts_fast2_no_cudagraph_objective():
+    source=(
+        "            with torch.autocast('cuda',dtype=torch.bfloat16):\n"
+        "                fused_loss=fused_run(x_all,y_all)\n"
+        "        if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)\n"
+    )
+    patched=patch_trainer(source)
+    assert "if metric_now and (step%5==0 or done==args.new_tokens)" in patched
+    assert "fused_loss=fused_run(x_all,y_all)" in patched
