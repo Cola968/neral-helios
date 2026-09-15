@@ -27,9 +27,9 @@ The arithmetic component is the weighted mean. NIS 2.0 then applies a balance te
 
 The geometric term floors each component at 5 only inside the balance calculation. This prevents one zero from collapsing the whole score while still penalizing a model whose average hides a severe capability hole. The report always names the lowest component as the current bottleneck. Missing NIS2 evidence is not silently imputed: a full NIS2 score requires the new frozen chat benchmark.
 
-## New internal frozen suite
+## Frozen NIS2 Core
 
-`benchmark_nis2_chat50.py` adds 48 model-only cases covering five areas not directly measured by NIS1:
+`benchmark_nis2_chat50.py` contains the unchanged **48-case Core** used for historical comparison:
 
 - strict instruction following: eight pair-preference cases plus eight exact-generation contracts;
 - multi-turn dialogue-state retention: eight cases;
@@ -37,11 +37,23 @@ The geometric term floors each component at 5 only inside the balance calculatio
 - robustness to casing, punctuation and light typos/noise: eight cases;
 - compositional/negation/relation reasoning: eight cases.
 
-The suite has a deterministic SHA-256 over its complete case definition. It is frozen evaluation evidence and is forbidden as training/checkpoint-selection feedback.
+The Core suite has a deterministic SHA-256 over its complete case definition. It is frozen evaluation evidence and is forbidden as training/checkpoint-selection feedback.
+
+## NIS2 Extended
+
+`benchmark_nis2_extended50.py` adds **40 harder diagnostic cases** for the 2B-3B-token training phase without changing the Core score or its weights. It reports a separate `nis2-extended-v1` result with eight cases in each of five areas:
+
+- multi-step mathematics;
+- code semantics and debugging;
+- conflicting/updated context;
+- uncertainty calibration and evidence limits;
+- multi-hop dependency chains.
+
+Core and Extended must always be reported separately. A new checkpoint therefore remains directly comparable with all earlier NIS2 Core results while Extended exposes weaknesses that the original 48 cases can miss. Extended is diagnostic evidence only and is not permitted as checkpoint-selection or training feedback.
 
 ## External Hugging Face audit lane
 
-NIS2 itself stays internally reproducible. Independent public benchmarks are tracked separately so an internal score cannot hide overfitting. The source policy now permanently reserves these additional Hugging Face datasets from training:
+NIS2 itself stays internally reproducible. Independent public benchmarks are tracked separately so an internal score cannot hide overfitting. The source policy permanently reserves these additional Hugging Face datasets from training:
 
 - `google/IFEval` — instruction following, Apache-2.0;
 - `truthfulqa/truthful_qa` — truthfulness/misconceptions, Apache-2.0;
