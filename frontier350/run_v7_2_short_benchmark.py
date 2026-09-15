@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""Read-only short benchmark suite for the final Neral 350M V7.2 continuity checkpoint.
+"""Read-only short benchmark suite for a Neral 350M V7.2 continuity checkpoint.
 
 The suite never trains, saves a checkpoint, changes optimizer state, or edits continuity
-metadata. It verifies the exact 2B checkpoint identity before and after evaluation.
+metadata. It verifies the requested checkpoint token identity before and after evaluation.
 """
 
 import argparse
@@ -15,8 +15,6 @@ import time
 from pathlib import Path
 
 from recovery_identity import file_sha
-
-TARGET_TOKENS = 2_000_000_000
 
 
 def read_json(path: Path) -> dict:
@@ -36,8 +34,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--assets", required=True)
     ap.add_argument("--report", required=True)
+    ap.add_argument("--expected-tokens", type=int, required=True)
     ap.add_argument("--rotation", type=int, choices=range(4), default=0)
     args = ap.parse_args()
+
+    expected_tokens = int(args.expected_tokens)
+    if expected_tokens <= 0:
+        raise ValueError("expected tokens must be positive")
 
     assets = Path(args.assets).resolve()
     report = Path(args.report).resolve()
@@ -53,8 +56,8 @@ def main() -> None:
     expected_sha = str(cont.get("sha256", ""))
     tokens = int(cont.get("tokens", -1))
 
-    if tokens != TARGET_TOKENS:
-        raise RuntimeError(f"expected exact 2B continuity, got {tokens:,}")
+    if tokens != expected_tokens:
+        raise RuntimeError(f"expected continuity at {expected_tokens:,} tokens, got {tokens:,}")
     if not checkpoint.is_file():
         raise FileNotFoundError(checkpoint)
     checkpoint_sha_before = file_sha(checkpoint)
@@ -83,7 +86,7 @@ def main() -> None:
     run_eval(
         "eval_recovery_smoke_v3.py",
         ["--checkpoint", str(checkpoint), "--tokenizer", str(tokenizer), "--out", str(smoke_out),
-         "--expected-tokens", str(TARGET_TOKENS), "--rotation", str(args.rotation)],
+         "--expected-tokens", str(expected_tokens), "--rotation", str(args.rotation)],
         report, timings,
     )
 
@@ -91,7 +94,7 @@ def main() -> None:
     run_eval(
         "nis2_core350.py",
         ["--checkpoint", str(checkpoint), "--tokenizer", str(tokenizer), "--out", str(nis_out),
-         "--expected-tokens", str(TARGET_TOKENS), "--max-new", "24"],
+         "--expected-tokens", str(expected_tokens), "--max-new", "24"],
         report, timings,
     )
 
@@ -110,11 +113,11 @@ def main() -> None:
         raise RuntimeError("non-finite validation loss")
 
     summary = {
-        "schema": 1,
-        "suite": "neral350-v7.2-2b-short-benchmark",
+        "schema": 2,
+        "suite": "neral350-v7.2-continuity-short-benchmark",
         "checkpoint": str(checkpoint),
         "checkpoint_sha256": checkpoint_sha_after,
-        "checkpoint_processed_tokens": TARGET_TOKENS,
+        "checkpoint_processed_tokens": expected_tokens,
         "read_only_verified": True,
         "validation": {
             "loss": val,
