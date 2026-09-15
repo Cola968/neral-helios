@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from v7_recovery import list_recovery_states
+from v7_1_runtime_hotfix import main as apply_runtime_hotfix
 
 
 def arg_value(args: list[str], name: str) -> str | None:
@@ -85,6 +86,11 @@ def run_profile(trainer: Path, base_args: list[str], profile: str, recovery: Pat
 
 
 def main() -> None:
+    # The patch chain is assembled at workflow runtime. Apply the narrowly scoped fixes
+    # discovered by the first RTX 4070 smoke run only after V5/V6/V7/V7.1 have patched
+    # train_guarded_v9.py, so none of their proven contracts are replaced.
+    apply_runtime_hotfix()
+
     base_args = sys.argv[1:]
     out_value = arg_value(base_args, "--out")
     if not out_value:
