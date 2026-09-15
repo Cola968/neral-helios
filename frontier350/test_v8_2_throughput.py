@@ -8,7 +8,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from apply_v8_2_throughput import patch_controller
-from train_v8_2_stage_launcher import execution_profiles, profile_command_args
+from v8_2_profile_contract import execution_profiles, profile_command_args
 
 
 def test_controller_routing_is_exact_and_idempotent() -> None:
