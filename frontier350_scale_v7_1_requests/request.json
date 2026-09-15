@@ -1,8 +1,8 @@
 {
   "action": "run_scale_v7_1",
-  "max_rounds": 2,
-  "max_wall_minutes": 25,
-  "request_id": "v7-1-smoke-20260915-r2",
-  "target_tokens": 2000000000,
+  "max_rounds": 0,
+  "max_wall_minutes": 5,
+  "request_id": "v7-1-bench-20260915-r3",
+  "target_tokens": 1800035200,
   "version": 71
 }
