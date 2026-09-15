@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-"""Arctus 350M adapter for the frozen NIS2 chat-core suite.
+"""Arctus 350M adapter for the frozen NIS2 chat-core v2 suite.
 
-This evaluates the existing frozen NIS2 chat-core cases against the native Arctus
-16K BPE checkpoint. It does not redefine NIS2 and deliberately does not emit a
-full NIS2 score: the full score also requires Arctus-compatible evidence for the
-legacy language/math/code/science/translation/context components.
+V2 expands the model-only diagnostic to 140 cases while preserving the original v1
+benchmark file unchanged for historical comparisons. This adapter still does not emit a
+full NIS2 score: canonical NIS2 requires the separate language/math/code/science/
+bilingual/context lineage reports in addition to chat-core evidence.
 """
 
 import argparse
 import collections
 import json
-import math
+import statistics
 import sys
 from pathlib import Path
 
@@ -23,8 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from benchmark_nis2_chat50 import (  # noqa: E402
+from benchmark_nis2_chat140 import (  # noqa: E402
     EXACT_GENERATION_CASES,
+    GENERATION_HEALTH_CASES,
     PAIR_CASES,
     SUITE_VERSION,
     suite_sha256,
@@ -57,9 +58,6 @@ def conditional_mean_nll(
     y = torch.tensor(cont_ids, dtype=torch.long, device=device)
     with torch.inference_mode():
         logits, _ = model(x)
-        # target index prefix_len predicts the first continuation token because
-        # y_full would be seq[1:]. Continuations are tokenized separately on both
-        # sides of each pair, giving a stable BPE-conditional preference test.
         start = len(prefix_ids)
         pred = logits[0, start:start + len(cont_ids)]
         if pred.size(0) != y.numel():
@@ -70,32 +68,42 @@ def conditional_mean_nll(
 
 def pair_eval(model: Neral350M, tok: Tokenizer, device: torch.device, bos_id: int) -> dict:
     rows = []
-    by_category: dict[str, list[bool]] = collections.defaultdict(list)
+    by_category: dict[str, list[dict]] = collections.defaultdict(list)
     for i, (category, prefix, preferred, distractor) in enumerate(PAIR_CASES):
         good = conditional_mean_nll(model, tok, prefix, preferred, device, bos_id)
         bad = conditional_mean_nll(model, tok, prefix, distractor, device, bos_id)
-        correct = good < bad
+        margin = bad - good
+        correct = margin > 0.0
         row = {
-            "id": f"nis2-pair-{i:03d}",
+            "id": f"nis2-v2-pair-{i:03d}",
             "category": category,
             "correct": bool(correct),
             "preferred_mean_nll": good,
             "distractor_mean_nll": bad,
-            "margin_nats_per_bpe": bad - good,
+            "margin_nats_per_bpe": margin,
         }
         rows.append(row)
-        by_category[category].append(bool(correct))
+        by_category[category].append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
+
+    categories = {}
+    for category, items in sorted(by_category.items()):
+        margins = [float(x["margin_nats_per_bpe"]) for x in items]
+        categories[category] = {
+            "correct": sum(bool(x["correct"]) for x in items),
+            "total": len(items),
+            "accuracy_pct": 100.0 * sum(bool(x["correct"]) for x in items) / len(items),
+            "mean_margin_nats_per_bpe": statistics.fmean(margins),
+            "median_margin_nats_per_bpe": statistics.median(margins),
+            "near_tie_pct": 100.0 * sum(abs(x) <= 0.05 for x in margins) / len(margins),
+        }
+    margins = [float(r["margin_nats_per_bpe"]) for r in rows]
     return {
         "overall_pct": 100.0 * sum(r["correct"] for r in rows) / len(rows),
-        "categories": {
-            k: {
-                "correct": sum(v),
-                "total": len(v),
-                "accuracy_pct": 100.0 * sum(v) / len(v),
-            }
-            for k, v in sorted(by_category.items())
-        },
+        "mean_margin_nats_per_bpe": statistics.fmean(margins),
+        "median_margin_nats_per_bpe": statistics.median(margins),
+        "near_tie_pct": 100.0 * sum(abs(x) <= 0.05 for x in margins) / len(margins),
+        "categories": categories,
         "cases": rows,
     }
 
@@ -105,6 +113,16 @@ def repeated_ngram_ratio(ids: list[int], n: int = 3) -> float:
         return 0.0
     grams = [tuple(ids[i:i+n]) for i in range(len(ids)-n+1)]
     return (len(grams) - len(set(grams))) / max(1, len(grams))
+
+
+def max_token_run(ids: list[int]) -> int:
+    if not ids:
+        return 0
+    best = cur = 1
+    for a, b in zip(ids, ids[1:]):
+        cur = cur + 1 if a == b else 1
+        best = max(best, cur)
+    return best
 
 
 def generate(
@@ -132,11 +150,15 @@ def generate(
                 break
             generated.append(nxt)
     text = tok.decode(generated, skip_special_tokens=True)
+    unique_ratio = len(set(generated)) / max(1, len(generated))
     return {
         "raw_output": text,
         "generated_tokens": len(generated),
         "eos_reached": eos,
+        "hit_max_new": (not eos and len(generated) >= max_new),
         "repeated_trigram_ratio": repeated_ngram_ratio(generated, 3),
+        "unique_token_ratio": unique_ratio,
+        "max_identical_token_run": max_token_run(generated),
         "utf8_ok": True,
     }
 
@@ -160,26 +182,60 @@ def exact_generation_eval(
     return {
         "accuracy_pct": 100.0 * sum(r["correct"] for r in rows) / len(rows),
         "eos_pct": 100.0 * sum(r["eos_reached"] for r in rows) / len(rows),
-        "mean_repeated_trigram_pct": 100.0 * sum(r["repeated_trigram_ratio"] for r in rows) / len(rows),
+        "hit_max_new_pct": 100.0 * sum(r["hit_max_new"] for r in rows) / len(rows),
+        "mean_repeated_trigram_pct": 100.0 * statistics.fmean(r["repeated_trigram_ratio"] for r in rows),
+        "mean_unique_token_pct": 100.0 * statistics.fmean(r["unique_token_ratio"] for r in rows),
         "utf8_pct": 100.0 * sum(r["utf8_ok"] for r in rows) / len(rows),
         "cases": rows,
     }
 
 
-def score_summary(pair: dict, exact: dict) -> dict:
+def generation_health_eval(
+    model: Neral350M,
+    tok: Tokenizer,
+    device: torch.device,
+    bos_id: int,
+    eos_id: int,
+    max_new: int,
+) -> dict:
+    rows = []
+    for case_id, prompt in GENERATION_HEALTH_CASES:
+        result = generate(model, tok, prompt, device, bos_id, eos_id, max_new)
+        degenerative = result["repeated_trigram_ratio"] >= 0.25 or result["max_identical_token_run"] >= 4
+        row = {"id": case_id, "degenerative": bool(degenerative), **result}
+        rows.append(row)
+        print(json.dumps(row, ensure_ascii=False), flush=True)
+    return {
+        "cases_count": len(rows),
+        "eos_pct": 100.0 * sum(r["eos_reached"] for r in rows) / len(rows),
+        "hit_max_new_pct": 100.0 * sum(r["hit_max_new"] for r in rows) / len(rows),
+        "degenerative_pct": 100.0 * sum(r["degenerative"] for r in rows) / len(rows),
+        "mean_repeated_trigram_pct": 100.0 * statistics.fmean(r["repeated_trigram_ratio"] for r in rows),
+        "mean_unique_token_pct": 100.0 * statistics.fmean(r["unique_token_ratio"] for r in rows),
+        "max_identical_token_run": max(r["max_identical_token_run"] for r in rows),
+        "cases": rows,
+    }
+
+
+def score_summary(pair: dict, exact: dict, health: dict) -> dict:
     cats = pair["categories"]
     pair_instruction = cats["instruction_following"]["accuracy_pct"]
+    category_scores = {k: v["accuracy_pct"] for k, v in cats.items()}
+    chat_pair_macro = statistics.fmean(category_scores.values())
     return {
         "instruction_following_pct": 0.5 * pair_instruction + 0.5 * exact["accuracy_pct"],
         "instruction_pair_pct": pair_instruction,
         "instruction_exact_generation_pct": exact["accuracy_pct"],
-        "dialogue_state_pct": cats["dialogue_state"]["accuracy_pct"],
-        "truthfulness_pct": cats["truthfulness"]["accuracy_pct"],
-        "robustness_pct": cats["robustness"]["accuracy_pct"],
-        "compositional_reasoning_pct": cats["compositional_reasoning"]["accuracy_pct"],
         "pair_overall_pct": pair["overall_pct"],
-        "generation_eos_pct": exact["eos_pct"],
-        "generation_repeated_trigram_pct": exact["mean_repeated_trigram_pct"],
+        "pair_macro_pct": chat_pair_macro,
+        "category_accuracy_pct": category_scores,
+        "pair_near_tie_pct": pair["near_tie_pct"],
+        "generation_exact_eos_pct": exact["eos_pct"],
+        "generation_exact_repeated_trigram_pct": exact["mean_repeated_trigram_pct"],
+        "generation_health_eos_pct": health["eos_pct"],
+        "generation_health_degenerative_pct": health["degenerative_pct"],
+        "generation_health_repeated_trigram_pct": health["mean_repeated_trigram_pct"],
+        "generation_health_unique_token_pct": health["mean_unique_token_pct"],
         "generation_utf8_pct": exact["utf8_pct"],
     }
 
@@ -189,10 +245,16 @@ def main() -> None:
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--tokenizer", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--expected-tokens", type=int, default=500_000_000)
-    ap.add_argument("--max-new", type=int, default=24)
+    ap.add_argument("--expected-tokens", type=int, required=True)
+    ap.add_argument("--token-tolerance", type=int, default=0)
+    ap.add_argument("--max-new", type=int, default=32)
+    ap.add_argument("--health-max-new", type=int, default=48)
     args = ap.parse_args()
 
+    if args.expected_tokens <= 0 or args.token_tolerance < 0:
+        raise ValueError("invalid expected token contract")
+    if args.max_new <= 0 or args.health_max_new <= 0:
+        raise ValueError("generation budgets must be positive")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise SystemExit("CUDA BF16 GPU required")
     torch.manual_seed(92020)
@@ -204,8 +266,10 @@ def main() -> None:
     if ck.get("config") != FRONTIER_350.to_dict():
         raise RuntimeError("checkpoint architecture mismatch")
     processed = int(ck.get("processed_tokens", -1))
-    if not args.expected_tokens <= processed <= args.expected_tokens + 32_768:
-        raise RuntimeError(f"expected bounded {args.expected_tokens:,}-token checkpoint, got {processed:,}")
+    if not args.expected_tokens <= processed <= args.expected_tokens + args.token_tolerance:
+        raise RuntimeError(
+            f"expected {args.expected_tokens:,}..{args.expected_tokens + args.token_tolerance:,} tokens, got {processed:,}"
+        )
 
     tok = Tokenizer.from_file(args.tokenizer)
     if tok.get_vocab_size() != FRONTIER_350.vocab_size:
@@ -224,7 +288,8 @@ def main() -> None:
 
     pair = pair_eval(model, tok, device, int(bos_id))
     exact = exact_generation_eval(model, tok, device, int(bos_id), int(eos_id), args.max_new)
-    scores = score_summary(pair, exact)
+    health = generation_health_eval(model, tok, device, int(bos_id), int(eos_id), args.health_max_new)
+    scores = score_summary(pair, exact, health)
     report = {
         "benchmark": SUITE_VERSION,
         "suite_sha256": suite_sha256(),
@@ -232,23 +297,30 @@ def main() -> None:
         "parameters": PARAMETERS,
         "checkpoint_processed_tokens": processed,
         "checkpoint_step": int(ck.get("step", -1)),
+        "case_counts": {
+            "pair_preference": len(PAIR_CASES),
+            "exact_generation": len(EXACT_GENERATION_CASES),
+            "generation_health": len(GENERATION_HEALTH_CASES),
+            "total": len(PAIR_CASES) + len(EXACT_GENERATION_CASES) + len(GENERATION_HEALTH_CASES),
+        },
         "foreign_model_or_tool_assistance": False,
         "used_for_checkpoint_selection": False,
         "tokenization_note": "Arctus native 16K BPE; pair continuations tokenized separately for stable conditional comparison.",
         "pair_preference": pair,
         "exact_generation": exact,
+        "generation_health": health,
         "scores": scores,
         "full_nis2": {
             "score": None,
             "coverage_pct": None,
             "status": "not_yet_computable",
-            "reason": "The canonical NIS2 scorer also requires Arctus-compatible language, math-transfer/OOD, code, science, bilingual, context and generation-health lineage reports. Partial-score imputation is forbidden by NIS2.md.",
+            "reason": "Canonical full NIS2 still requires separate Arctus-compatible language, math-transfer/OOD, code, science, bilingual, context and generation-health lineage reports. Chat-core v2 is a larger diagnostic, not a substitute for those frozen components.",
         },
     }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({"scores": scores, "full_nis2": report["full_nis2"], "out": str(out)}, ensure_ascii=False), flush=True)
+    print(json.dumps({"scores": scores, "case_counts": report["case_counts"], "out": str(out)}, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
