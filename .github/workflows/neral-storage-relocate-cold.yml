@@ -1,0 +1,120 @@
+name: Neral Storage Relocate Cold Scratch
+
+on:
+  push:
+    branches: [experiment/scale-v7-2]
+    paths: ['frontier350_storage_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize with all scale workflows so no scratch directory is moved while training uses it.
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  relocate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Relocate cold scratch from D to C
+        run: |
+          $ErrorActionPreference='Stop'
+          $req=Get-Content frontier350_storage_requests/request.json -Raw | ConvertFrom-Json
+          if($req.action -ne 'relocate_cold_scratch' -or $req.version -ne 1){throw 'invalid storage request'}
+
+          $archiveRoot='C:\NeralColdStorage'
+          $reserveBytes=[int64]20GB
+          New-Item -ItemType Directory -Force -Path $archiveRoot | Out-Null
+
+          $roots=@('D:\NeralScaleV71','D:\NeralScaleV72')
+          $protectedNames=@('_continuity_v5')
+          $cDrive=Get-PSDrive -Name C -ErrorAction Stop
+          $dDrive=Get-PSDrive -Name D -ErrorAction Stop
+          $dBefore=[int64]$dDrive.Free
+          $cBefore=[int64]$cDrive.Free
+          $moved=@()
+          $skipped=@()
+
+          foreach($root in $roots){
+            if(-not (Test-Path -LiteralPath $root)){continue}
+            $rootLeaf=Split-Path $root -Leaf
+            $dirs=Get-ChildItem -LiteralPath $root -Directory -Force |
+              Where-Object { $_.Name -notin $protectedNames } |
+              Sort-Object LastWriteTime
+
+            foreach($dir in $dirs){
+              # Only request scratch directories are movable. Never move journals or unknown roots.
+              if($dir.Name -notmatch '^(v7-|v7_|neral-|smoke|scale|fast)'){ 
+                $skipped += [pscustomobject]@{source=$dir.FullName;reason='name_not_allowlisted'}
+                continue
+              }
+              $files=Get-ChildItem -LiteralPath $dir.FullName -File -Recurse -Force -ErrorAction Stop
+              $bytes=[int64](($files | Measure-Object -Property Length -Sum).Sum)
+              $count=[int64]$files.Count
+              $cDrive=Get-PSDrive -Name C -ErrorAction Stop
+              if(([int64]$cDrive.Free - $bytes) -lt $reserveBytes){
+                $skipped += [pscustomobject]@{source=$dir.FullName;reason='C_reserve';bytes=$bytes}
+                continue
+              }
+
+              $destRoot=Join-Path $archiveRoot $rootLeaf
+              New-Item -ItemType Directory -Force -Path $destRoot | Out-Null
+              $dest=Join-Path $destRoot $dir.Name
+              if(Test-Path -LiteralPath $dest){
+                $skipped += [pscustomobject]@{source=$dir.FullName;reason='destination_exists';destination=$dest}
+                continue
+              }
+
+              Write-Host ("MOVING " + $dir.FullName + " -> " + $dest + " bytes=" + $bytes + " files=" + $count)
+              & robocopy.exe $dir.FullName $dest /E /MOVE /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XJ /NFL /NDL /NP /NJH /NJS
+              $rc=$LASTEXITCODE
+              if($rc -ge 8){throw ("robocopy failed rc="+$rc+" source="+$dir.FullName)}
+
+              $destFiles=Get-ChildItem -LiteralPath $dest -File -Recurse -Force -ErrorAction Stop
+              $destBytes=[int64](($destFiles | Measure-Object -Property Length -Sum).Sum)
+              $destCount=[int64]$destFiles.Count
+              if($destBytes -ne $bytes -or $destCount -ne $count){
+                throw ("verification mismatch for "+$dest)
+              }
+              if(Test-Path -LiteralPath $dir.FullName){Remove-Item -LiteralPath $dir.FullName -Recurse -Force}
+              $moved += [pscustomobject]@{source=$dir.FullName;destination=$dest;bytes=$bytes;files=$count}
+            }
+          }
+
+          $dAfter=[int64](Get-PSDrive -Name D -ErrorAction Stop).Free
+          $cAfter=[int64](Get-PSDrive -Name C -ErrorAction Stop).Free
+          $result=[ordered]@{
+            schema=1
+            action='relocate_cold_scratch'
+            archive_root=$archiveRoot
+            protected=@('D:\NeralScaleV71\_continuity_v5','D:\NeralScaleV72\_continuity_v5')
+            moved=$moved
+            skipped=$skipped
+            d_free_before_bytes=$dBefore
+            d_free_after_bytes=$dAfter
+            d_freed_bytes=($dAfter-$dBefore)
+            c_free_before_bytes=$cBefore
+            c_free_after_bytes=$cAfter
+          }
+          $result | ConvertTo-Json -Depth 8 | Tee-Object -FilePath neral_storage_relocation_result.json
+          exit 0
+
+      - name: Upload relocation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-storage-relocation-${{ github.run_id }}
+          path: neral_storage_relocation_result.json
+          retention-days: 30
