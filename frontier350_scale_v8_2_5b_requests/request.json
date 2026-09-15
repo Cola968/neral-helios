@@ -1,6 +1,6 @@
 {
   "action": "run_scale_v8_2_5b",
-  "request_id": "v8-2p5b-fast-20260915-r1",
+  "request_id": "v8-2p5b-fast-20260915-r2",
   "target_tokens": 2500000000,
   "max_rounds": 140,
   "max_wall_minutes": 660,
