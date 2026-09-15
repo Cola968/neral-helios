@@ -34,7 +34,7 @@ jobs:
           $r=Get-Content frontier350_scale_v7_2_io_requests/request.json -Raw|ConvertFrom-Json
           if($r.version -ne 72 -or $r.action -ne 'run_checkpoint_cadence_smoke'){throw 'invalid request'}
           if([int]$r.max_rounds -ne 1){throw 'smoke must be exactly one 5M round'}
-          if([long]$r.target_tokens -ne 1810035200){throw 'unexpected smoke target'}
+          if([long]$r.target_tokens -ne 1815035200){throw 'unexpected smoke target'}
           wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
           $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
           $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
