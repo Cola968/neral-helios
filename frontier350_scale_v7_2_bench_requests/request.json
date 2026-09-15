@@ -1,5 +1,5 @@
 {
-  "action": "benchmark_fused_layout",
-  "request_id": "v7-2-fused-20260915-r1",
+  "action": "benchmark_compile_modes",
+  "request_id": "v7-2-compile-modes-20260915-r1",
   "version": 72
 }
