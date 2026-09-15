@@ -2,7 +2,7 @@
   "action": "run_fast2_smoke",
   "max_rounds": 1,
   "max_wall_minutes": 25,
-  "request_id": "v7-2-fast2-real-20260915-r2",
+  "request_id": "v7-2-fast2-real-20260915-r3",
   "target_tokens": 1805035200,
   "version": 72
 }
