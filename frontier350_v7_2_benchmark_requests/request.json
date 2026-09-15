@@ -1,5 +1,6 @@
 {
   "action": "benchmark_2b_short",
-  "request_id": "v7-2-2b-short-20260915-r1",
+  "request_id": "v7-2-short-1997102016-20260915-r2",
+  "expected_tokens": 1997102016,
   "version": 72
 }
