@@ -1,0 +1,94 @@
+name: Neral 350M Scale V8.1 2.5B Thermal Guarded
+
+on:
+  push:
+    branches: [experiment/scale-v8-3b]
+    paths: ['frontier350_scale_v8_1_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  scale-to-2-5b:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify request and cool RTX 4070
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_scale_v8_1_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 81 -or $r.action -ne 'run_scale_v8_1_2_5b'){throw 'invalid V8.1 request'}
+          if([long]$r.target_tokens -ne 2500000000){throw 'target must be 2.5B'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 5
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          for($i=0;$i -lt 36;$i++){
+            $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+            if($temp -le 65){break}; Start-Sleep -Seconds 5
+          }
+          if($temp -gt 70){throw "GPU did not cool enough: ${temp}C"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $state=Get-Content (Join-Path $assets 'frontier350_scale_v5_state.json') -Raw|ConvertFrom-Json
+          $current=[long]$state.continuity.tokens; $target=[long]$r.target_tokens; $delta=$target-$current
+          Write-Host "CurrentTokens=$current TargetTokens=$target Delta=$delta StartTempC=$temp"
+          if($delta -le 0){throw 'target already reached'}
+          if($current -lt 2000000000){throw 'continuity below 2.0B'}
+          $scratchWin=Join-Path 'D:\NeralScaleV81' ([string]$r.request_id)
+          if(Test-Path $scratchWin){throw 'scratch already exists'}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "scratch=$(W $scratchWin)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "scratch_win=$scratchWin"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "request_id=$($r.request_id)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "target=$target"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Assemble V8.1 runtime
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_2_fast2_profile.py; ~/.venvs/neral-triton-py312/bin/python frontier350/v7_2_checkpoint_cadence_hotfix.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_target_closure.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_1_thermal_governor.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/train_v7_2_stage_launcher.py frontier350/apply_v8_1_thermal_governor.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V8.1 runtime assembly failed'}
+
+      - name: Resume to exact 2.5B
+        env:
+          NERAL_LIVE_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'; $assets='${{ steps.guard.outputs.assets }}'; $scratch='${{ steps.guard.outputs.scratch }}'
+          $scratchWin='${{ steps.guard.outputs.scratch_win }}'; $rid='${{ steps.guard.outputs.request_id }}'; $target='${{ steps.guard.outputs.target }}'
+          $reportWin=Join-Path (Get-Location) 'frontier350_scale_v8_1_report'
+          $telemetryScript=Join-Path (Get-Location) 'frontier350\publish_live_status.ps1'
+          $telemetry=Start-Job -ScriptBlock { param($s,$r,$x,$repo,$br,$tok,$id,$target); & $s -ReportPath $r -ScratchPath $x -Repository $repo -Branch $br -Token $tok -RunId $id -TargetTokens ([long]$target) -IntervalSeconds 120 -LivePath 'frontier350_live/v8_1.json' } -ArgumentList $telemetryScript,$reportWin,$scratchWin,'${{ github.repository }}','${{ github.ref_name }}',$env:NERAL_LIVE_TOKEN,'${{ github.run_id }}',$target
+          try {
+            $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v81; export NERAL_V71_INPUT_PROFILE=off; export NERAL_V72_FAST2=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v5.py --assets '$assets' --report frontier350_scale_v8_1_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds 150 --max-wall-minutes 660 --target-finish-grace-minutes 20 --require-target"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw 'V8.1 did not reach exact 2.5B; recovery is preserved'}
+          } finally {
+            Stop-Job $telemetry -ErrorAction SilentlyContinue
+            Receive-Job $telemetry -ErrorAction SilentlyContinue|Write-Host
+            Remove-Job $telemetry -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload V8.1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-scale-v8-1-2-5b-${{ github.run_id }}
+          path: frontier350_scale_v8_1_report/
+          retention-days: 30
