@@ -1,0 +1,77 @@
+name: Neral V8.2 Stable 50k Throughput Gate
+
+on:
+  push:
+    branches: [experiment/scale-v8-2-throughput]
+    paths: ['frontier350_v8_2_gate_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  throughput-gate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify V8.2 benchmark request and cool RTX 4070
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_v8_2_gate_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 82 -or $r.action -ne 'benchmark_stable_50k'){throw 'invalid V8.2 gate request'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 5
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          for($i=0;$i -lt 36;$i++){
+            $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+            if($temp -le 65){break}; Start-Sleep -Seconds 5
+          }
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          Write-Host "GPU=$gpu TempC=$temp FreeVRAMMiB=$free"
+          if($temp -gt 68){throw "GPU did not cool enough: ${temp}C"}
+          if($free -lt 9000){throw "need >=9000 MiB free VRAM, got $free"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $scratchWin=Join-Path 'D:\NeralV82Gate' ([string]$r.request_id)
+          if(Test-Path $scratchWin){throw 'V8.2 gate scratch already exists'}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "scratch=$(W $scratchWin)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "request_id=$($r.request_id)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Assemble benchmark runtime
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.req.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_1_thermal_governor.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/v8_2_profile_contract.py frontier350/v8_2_throughput_gate.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V8.2 benchmark runtime assembly failed'}
+
+      - name: A/B Fast2 versus Fast2 coalesced input
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.req.outputs.repo }}'; $assets='${{ steps.req.outputs.assets }}'; $scratch='${{ steps.req.outputs.scratch }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v82; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v8_2_throughput_gate.py --assets '$assets' --report frontier350_v8_2_gate_report --scratch '$scratch' --updates 24 --warmup-updates 6 --target-tps 50000"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V8.2 did not yet prove stable 50k; inspect evidence before changing production'}
+
+      - name: Upload V8.2 throughput evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-v8-2-throughput-gate-${{ github.run_id }}
+          path: frontier350_v8_2_gate_report/
+          retention-days: 30
