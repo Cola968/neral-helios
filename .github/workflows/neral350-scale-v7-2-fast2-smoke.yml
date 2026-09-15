@@ -61,7 +61,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.request.outputs.repo }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fast2; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v6_fast2_microbench.py --out frontier350_v7_2_train_bench/fast2.json --warmup 2 --measured 7 --min-ratio 1.0; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v7_2_fast2_gate.py --report frontier350_v7_2_train_bench/fast2.json --out frontier350_v7_2_train_bench/fast2_gate.json --min-ratio 1.045 --max-loss-diff 0.0002 --max-peak-reserved-gib 9.0"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fast2; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v6_fast2_microbench.py --out frontier350_v7_2_train_bench/fast2.json --warmup 2 --measured 7 --min-ratio 1.0; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v7_2_fast2_gate.py --report frontier350_v7_2_train_bench/fast2.json --out frontier350_v7_2_train_bench/fast2_gate.json --min-ratio 1.04 --max-loss-diff 0.0002 --max-peak-reserved-gib 9.0"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'fresh Fast2 benchmark/gate failed'}
           $g=Get-Content frontier350_v7_2_train_bench/fast2_gate.json -Raw|ConvertFrom-Json
