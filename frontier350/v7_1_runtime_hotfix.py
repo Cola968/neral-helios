@@ -11,8 +11,9 @@ Fixes:
   references ``row`` before that row is created;
 - mark a new CUDA-Graph step before the manual fused max-autotune forward;
 - prewarm the process-global RoPE cache before torch.compile using the model's actual
-  CUDA device (cuda:0).  ``torch.device('cuda')`` has index=None and therefore does not
-  match the cache key created by tensors whose device is cuda:0.
+  CUDA device (cuda:0);
+- accept the V6 Fast2 patch when it already supplies the exact-device prewarm and a
+  no-CUDAGraph compiled fused objective.
 """
 
 from pathlib import Path
@@ -43,7 +44,12 @@ def patch_trainer(text: str) -> str:
         "                    next(model.parameters()).device,torch.bfloat16)\n"
         "    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode=args.compile_mode)\n"
     )
-    if new_compile not in text:
+    fast2_exact_prewarm = (
+        "def _v6_fused_objective" in text
+        and "next(model.parameters()).device,torch.bfloat16" in text
+        and "mode='max-autotune-no-cudagraphs'" in text
+    )
+    if new_compile not in text and not fast2_exact_prewarm:
         if text.count(old_compile) != 1:
             raise RuntimeError(f"V7.2 RoPE prewarm compile anchor mismatch: {text.count(old_compile)}")
         text = text.replace(old_compile, new_compile, 1)
@@ -61,8 +67,6 @@ def patch_trainer(text: str) -> str:
     if new_forward not in text and old_forward in text:
         text = text.replace(old_forward, new_forward, 1)
     elif new_forward not in text and old_forward not in text:
-        # Fast2 replaces the manual fused forward with a no-cudagraph compiled objective.
-        # In that case no CUDA-Graph marker is necessary.
         if "fused_loss=fused_run(x_all,y_all)" not in text:
             raise RuntimeError("V7.1 hotfix could not identify manual or Fast2 fused objective")
 
@@ -74,7 +78,7 @@ def main() -> None:
     patched = patch_trainer(trainer)
     if patched != trainer:
         TRAINER.write_text(patched, encoding="utf-8")
-    print("V7.2 runtime hotfix applied: deferred-row guard + CUDA-Graph marker + exact-device RoPE prewarm")
+    print("V7.2 runtime hotfix applied: row guard + graph marker + exact-device RoPE/Fast2 compatibility")
 
 
 if __name__ == "__main__":
