@@ -1,0 +1,73 @@
+name: Neral 350M V7.2 2B Short Benchmark
+
+on:
+  push:
+    branches: [experiment/scale-v7-2]
+    paths: ['frontier350_v7_2_benchmark_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  short-benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify benchmark request and RTX 4070
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_v7_2_benchmark_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 72 -or $r.action -ne 'benchmark_2b_short'){throw 'invalid benchmark request'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          Write-Host "GPU=$gpu TempC=$temp FreeVRAMMiB=$free"
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 82){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          function W([string]$p){$full=[IO.Path]::GetFullPath($p); return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "request_id=$($r.request_id)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Run exact-2B read-only short suite
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'; $assets='${{ steps.guard.outputs.assets }}'
+          if(Test-Path frontier350_v72_short_benchmark_report){Remove-Item frontier350_v72_short_benchmark_report -Recurse -Force}
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_v7_2_short_benchmark.py --assets '$assets' --report frontier350_v72_short_benchmark_report --rotation 0"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'short benchmark suite failed'}
+          exit 0
+
+      - name: Print benchmark summary
+        if: always()
+        run: |
+          if(Test-Path frontier350_v72_short_benchmark_report/summary.json){Get-Content frontier350_v72_short_benchmark_report/summary.json -Raw|Write-Host}
+          exit 0
+
+      - name: Upload short benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-v7-2-2b-short-benchmark-${{ github.run_id }}
+          path: frontier350_v72_short_benchmark_report/
+          retention-days: 30
