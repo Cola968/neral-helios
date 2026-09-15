@@ -6,7 +6,9 @@ on:
     paths:
       - 'frontier350/train_v8_2_stage_launcher.py'
       - 'frontier350/apply_v8_2_throughput.py'
+      - 'frontier350/v8_2_profile_contract.py'
       - 'frontier350/v8_2_throughput_gate.py'
+      - 'frontier350/v8_2_thermal_soak.py'
       - 'frontier350/test_v8_2_throughput.py'
       - '.github/workflows/neral350-v8-2-static-ci.yml'
   workflow_dispatch:
@@ -28,7 +30,9 @@ jobs:
           python -m py_compile \
             frontier350/train_v8_2_stage_launcher.py \
             frontier350/apply_v8_2_throughput.py \
+            frontier350/v8_2_profile_contract.py \
             frontier350/v8_2_throughput_gate.py \
+            frontier350/v8_2_thermal_soak.py \
             frontier350/test_v8_2_throughput.py
       - name: Install pytest
         run: python -m pip install --disable-pip-version-check pytest
