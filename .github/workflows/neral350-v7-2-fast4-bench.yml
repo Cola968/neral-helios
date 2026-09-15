@@ -68,8 +68,7 @@ jobs:
         if: steps.request.outputs.action == 'benchmark_liger'
         run: |
           $ErrorActionPreference='Stop'
-          $p=(Get-Location).Path; $repo='/mnt/'+$p.Substring(0,1).ToLower()+'/'+$p.Substring(3).Replace('\','/')
-          $cmd="set -e; deps=~/.cache/neral_liger_082; mkdir -p \"$deps\"; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --no-deps --upgrade --target \"$deps\" liger-kernel==0.8.2"
+          $cmd="set -e; mkdir -p ~/.cache/neral_liger_082; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --no-deps --upgrade --target ~/.cache/neral_liger_082 liger-kernel==0.8.2"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'Pinned Liger install failed'}
           exit 0
