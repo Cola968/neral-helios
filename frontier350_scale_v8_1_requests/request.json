@@ -1,0 +1,6 @@
+{
+  "action": "run_scale_v8_1_2_5b",
+  "request_id": "v8-1-2p5b-thermal-20260915-r1",
+  "target_tokens": 2500000000,
+  "version": 81
+}
