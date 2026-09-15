@@ -6,10 +6,9 @@ Fast2 keeps model architecture, sampled tokens, optimizer, LR/replay recipe, 5M 
 checks, SAFE gates and rollback semantics unchanged. It only moves the existing exact
 weighted replay+main CE objective inside one compiled graph for fused replay-only stages.
 
-PyTorch 2.8 CUDA Graph replay is deliberately disabled for this fused objective. The model
-uses a process-global RoPE tensor cache; under CUDA Graph capture that cached storage can
-become graph-owned and then be overwritten on a later replay. TorchInductor and max-autotune
-remain enabled through max-autotune-no-cudagraphs.
+PyTorch 2.8 CUDA Graph replay remains disabled for this fused objective.  RoPE is
+prewarmed on the model's actual CUDA device (normally cuda:0), matching the cache key
+used by forward execution.
 """
 
 from pathlib import Path
@@ -35,15 +34,16 @@ def patch_trainer(text: str) -> str:
     )
 
     old_run = "    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode=args.compile_mode)\n"
-    new_run = """    # Populate the immutable RoPE table before compilation. This keeps the global
-    # Python cache independent from compiled graph lifetime.
+    new_run = """    # Populate the immutable RoPE table before compilation on the exact device used
+    # by model tensors. torch.device('cuda') has index=None and is a different cache key
+    # from cuda:0, so using the actual model device is required for true prewarming.
     if args.compile_mode!='none':
         _rope_table(FRONTIER_350.max_seq_len,FRONTIER_350.head_dim,
-                    FRONTIER_350.rope_theta,torch.device('cuda'),torch.bfloat16)
+                    FRONTIER_350.rope_theta,next(model.parameters()).device,torch.bfloat16)
 
     # Fast2 compiles the exact fused objective with TorchInductor/autotune but explicitly
-    # without CUDA Graphs. PyTorch 2.8 CUDAGraph trees conflict with the process-global
-    # RoPE cache and can overwrite cached tensor storage on replay.
+    # without CUDA Graphs. This path measured consistently faster on the RTX 4070 while
+    # avoiding graph-lifetime coupling to process-global cached tensors.
     if args.fused_replay_main:
         replay_rows_const=batch*3
         def _v6_fused_objective(x_all,y_all):
@@ -95,7 +95,7 @@ def main() -> None:
     patched = patch_trainer(trainer)
     if patched != trainer:
         TRAINER.write_text(patched, encoding="utf-8")
-    print("V6 Fast2 patch prepared: RoPE prewarm + max-autotune-no-cudagraphs fused objective; gates/objective unchanged")
+    print("V6 Fast2 patch prepared: exact-device RoPE prewarm + no-cudagraph fused objective; semantic gates unchanged")
 
 
 if __name__ == "__main__":
