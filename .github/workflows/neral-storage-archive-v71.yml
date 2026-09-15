@@ -1,0 +1,90 @@
+name: Neral Storage Archive Superseded V7.1 Journal
+
+on:
+  push:
+    branches: [experiment/scale-v7-2]
+    paths: ['frontier350_storage_v71_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  archive-v71:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify V7.2 active continuity and archive V7.1 journal
+        run: |
+          $ErrorActionPreference='Stop'
+          $req=Get-Content frontier350_storage_v71_requests/request.json -Raw | ConvertFrom-Json
+          if($req.action -ne 'archive_superseded_v71_journal' -or $req.version -ne 1){throw 'invalid request'}
+
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $statePath=Join-Path $assets 'frontier350_scale_v5_state.json'
+          if(-not (Test-Path -LiteralPath $statePath)){throw 'scale state missing'}
+          $state=Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+          $cont=$state.continuity
+          if($null -eq $cont){throw 'continuity state missing'}
+          $tokens=[int64]$cont.tokens
+          $path=[string]$cont.path
+          $sha=[string]$cont.sha256
+          if($tokens -lt 1805035200){throw ("active continuity too old: "+$tokens)}
+          if($path -notmatch '^/mnt/d/NeralScaleV72/_continuity_v5/'){throw ("active continuity is not V7.2 journal: "+$path)}
+          if($sha -notmatch '^[0-9a-f]{64}$'){throw 'invalid active continuity sha'}
+          $activeWin=$path -replace '^/mnt/d/','D:\\' -replace '/','\'
+          if(-not (Test-Path -LiteralPath $activeWin)){throw ("active V7.2 checkpoint missing: "+$activeWin)}
+
+          $source='D:\NeralScaleV71\_continuity_v5'
+          $dest='C:\NeralColdStorage\NeralScaleV71\_continuity_v5'
+          $dBefore=[int64](Get-PSDrive D).Free
+          $cBefore=[int64](Get-PSDrive C).Free
+          if(-not (Test-Path -LiteralPath $source)){
+            $result=[ordered]@{schema=1;status='already_absent';active_tokens=$tokens;active_path=$path;d_freed_bytes=0}
+            $result|ConvertTo-Json -Depth 5|Tee-Object -FilePath neral_storage_v71_archive_result.json
+            exit 0
+          }
+          if(Test-Path -LiteralPath $dest){throw 'archive destination already exists'}
+          $files=Get-ChildItem -LiteralPath $source -File -Recurse -Force
+          $bytes=[int64](($files|Measure-Object Length -Sum).Sum)
+          $count=[int64]$files.Count
+          if(([int64](Get-PSDrive C).Free - $bytes) -lt [int64]20GB){throw 'C: would fall below 20 GiB reserve'}
+          New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent)|Out-Null
+          & robocopy.exe $source $dest /E /MOVE /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XJ /NFL /NDL /NP /NJH /NJS
+          $rc=$LASTEXITCODE
+          if($rc -ge 8){throw ("robocopy failed rc="+$rc)}
+          $destFiles=Get-ChildItem -LiteralPath $dest -File -Recurse -Force
+          $destBytes=[int64](($destFiles|Measure-Object Length -Sum).Sum)
+          if($destBytes -ne $bytes -or [int64]$destFiles.Count -ne $count){throw 'archive verification failed'}
+          if(Test-Path -LiteralPath $source){Remove-Item -LiteralPath $source -Recurse -Force}
+          $dAfter=[int64](Get-PSDrive D).Free
+          $cAfter=[int64](Get-PSDrive C).Free
+          $result=[ordered]@{
+            schema=1;status='moved';active_tokens=$tokens;active_path=$path;active_sha256=$sha
+            source=$source;destination=$dest;bytes=$bytes;files=$count
+            d_free_before_bytes=$dBefore;d_free_after_bytes=$dAfter;d_freed_bytes=($dAfter-$dBefore)
+            c_free_before_bytes=$cBefore;c_free_after_bytes=$cAfter
+          }
+          $result|ConvertTo-Json -Depth 5|Tee-Object -FilePath neral_storage_v71_archive_result.json
+          exit 0
+
+      - name: Upload archive evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-storage-v71-archive-${{ github.run_id }}
+          path: neral_storage_v71_archive_result.json
+          retention-days: 30
