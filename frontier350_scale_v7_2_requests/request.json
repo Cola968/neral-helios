@@ -1,0 +1,8 @@
+{
+  "action": "run_scale_v7_2",
+  "max_rounds": 64,
+  "max_wall_minutes": 240,
+  "request_id": "v7-2-scale-20260915-2b-r1",
+  "target_tokens": 2000000000,
+  "version": 72
+}
