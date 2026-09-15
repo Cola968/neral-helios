@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: neral-350m-scale-v4
@@ -51,6 +51,7 @@ jobs:
           "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "scratch=$(W $scratchWin)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "scratch_win=$scratchWin"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "request_id=$($r.request_id)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "target_tokens=$($r.target_tokens)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "max_rounds=$($r.max_rounds)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -67,13 +68,27 @@ jobs:
           exit 0
 
       - name: Continue guarded training to 2B
+        env:
+          NERAL_LIVE_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
           $repo='${{ steps.guard.outputs.repo }}'; $assets='${{ steps.guard.outputs.assets }}'; $scratch='${{ steps.guard.outputs.scratch }}'
-          $rid='${{ steps.guard.outputs.request_id }}'; $target='${{ steps.guard.outputs.target_tokens }}'; $rounds='${{ steps.guard.outputs.max_rounds }}'; $wall='${{ steps.guard.outputs.max_wall_minutes }}'
-          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fast2_long; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; export NERAL_V71_INPUT_PROFILE=off; export NERAL_V72_FAST2=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v5.py --assets '$assets' --report frontier350_scale_v7_2_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds '$rounds' --max-wall-minutes '$wall'"
-          wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'guarded continuation stopped; inspect newest 1M recovery before retry'}
+          $scratchWin='${{ steps.guard.outputs.scratch_win }}'; $rid='${{ steps.guard.outputs.request_id }}'; $target='${{ steps.guard.outputs.target_tokens }}'; $rounds='${{ steps.guard.outputs.max_rounds }}'; $wall='${{ steps.guard.outputs.max_wall_minutes }}'
+          $reportWin=Join-Path (Get-Location) 'frontier350_scale_v7_2_report'
+          $telemetryScript=Join-Path (Get-Location) 'frontier350\publish_live_status.ps1'
+          $telemetry=Start-Job -ScriptBlock {
+            param($script,$report,$scratch,$repository,$branch,$token,$runId,$targetTokens)
+            & $script -ReportPath $report -ScratchPath $scratch -Repository $repository -Branch $branch -Token $token -RunId $runId -TargetTokens ([long]$targetTokens) -IntervalSeconds 60
+          } -ArgumentList $telemetryScript,$reportWin,$scratchWin,'${{ github.repository }}','${{ github.ref_name }}',$env:NERAL_LIVE_TOKEN,'${{ github.run_id }}',$target
+          try {
+            $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fast2_long; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; export NERAL_V71_INPUT_PROFILE=off; export NERAL_V72_FAST2=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v5.py --assets '$assets' --report frontier350_scale_v7_2_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds '$rounds' --max-wall-minutes '$wall'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw 'guarded continuation stopped; inspect newest 1M recovery before retry'}
+          } finally {
+            Stop-Job -Job $telemetry -ErrorAction SilentlyContinue
+            Receive-Job -Job $telemetry -ErrorAction SilentlyContinue | Write-Host
+            Remove-Job -Job $telemetry -Force -ErrorAction SilentlyContinue
+          }
           exit 0
 
       - name: Print final selection
