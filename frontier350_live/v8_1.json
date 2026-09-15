@@ -2,7 +2,7 @@
     "schema":  1,
     "run_id":  "35009327761",
     "state":  "running",
-    "updated_at_utc":  "2026-09-15T18:44:54.1001876Z",
+    "updated_at_utc":  "2026-09-15T18:46:57.4488716Z",
     "target_tokens":  2500000000,
     "processed_tokens_live":  null,
     "accepted_continuity_tokens":  null,
@@ -15,10 +15,10 @@
     "health_last":  null,
     "audit_last":  null,
     "gpu":  {
-                "temp_c":  48,
-                "vram_used_mib":  2025,
-                "vram_free_mib":  9987,
-                "util_pct":  37
+                "temp_c":  55,
+                "vram_used_mib":  7123,
+                "vram_free_mib":  4889,
+                "util_pct":  21
             },
     "source_metrics":  null,
     "note":  "Live telemetry is observational only; it never changes training, gates, checkpoints, or recovery."
