@@ -1,0 +1,106 @@
+name: Neral 350M V7.2 Fast2 Guarded Smoke
+
+on:
+  push:
+    branches: [experiment/scale-v7-2]
+    paths: ['frontier350_scale_v7_2_train_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  fast2-smoke:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify V7.2 request and cool RTX 4070
+        id: request
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_scale_v7_2_train_requests/request.json -Raw|ConvertFrom-Json
+          $expected='action,max_rounds,max_wall_minutes,request_id,target_tokens,version'
+          if((($r.PSObject.Properties.Name|Sort-Object) -join ',') -ne $expected){throw 'unexpected request fields'}
+          if($r.version -ne 72 -or $r.action -ne 'run_fast2_smoke'){throw 'invalid V7.2 request'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'unsafe request id'}
+          if([long]$r.target_tokens -lt 1800035200 -or [long]$r.target_tokens -gt 1810035200){throw 'V7.2 smoke target out of range'}
+          if([int]$r.max_rounds -ne 1){throw 'V7.2 smoke must be exactly one 5M round'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1).Trim())
+          Write-Host "GPU=$gpu TempC=$temp FreeVRAMMiB=$free"
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 82){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $scratchWin=Join-Path 'D:\NeralScaleV72' ([string]$r.request_id)
+          if(Test-Path -LiteralPath $scratchWin){throw 'scratch path already exists'}
+          $ddrive=Get-PSDrive -Name 'D' -ErrorAction Stop
+          if($ddrive.Free -lt 25GB){throw 'need >=25 GiB free on D:'}
+          function W([string]$p){$full=[IO.Path]::GetFullPath($p); return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')}
+          $lines=@("repo=$(W (Get-Location).Path)","assets=$(W $assets)","scratch=$(W $scratchWin)","request_id=$($r.request_id)","target_tokens=$($r.target_tokens)","max_rounds=$($r.max_rounds)","max_wall_minutes=$($r.max_wall_minutes)")
+          foreach($line in $lines){$line | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append; Write-Host "OUTPUT $line"}
+
+      - name: Prepare runtime and benchmark fresh Fast2
+        id: gate
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fast2; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v6_fast2_microbench.py --out frontier350_v7_2_train_bench/fast2.json --warmup 2 --measured 7 --min-ratio 1.0; ~/.venvs/neral-triton-py312/bin/python -u frontier350/v7_2_fast2_gate.py --report frontier350_v7_2_train_bench/fast2.json --out frontier350_v7_2_train_bench/fast2_gate.json --min-ratio 1.045 --max-loss-diff 0.0002 --max-peak-reserved-gib 9.0"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'fresh Fast2 benchmark/gate failed'}
+          $g=Get-Content frontier350_v7_2_train_bench/fast2_gate.json -Raw|ConvertFrom-Json
+          Write-Host (Get-Content frontier350_v7_2_train_bench/fast2.json -Raw)
+          Write-Host (Get-Content frontier350_v7_2_train_bench/fast2_gate.json -Raw)
+          if(-not $g.use_fast2){throw 'Fast2 not admitted by V7.2 gate'}
+          "use_fast2=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Assemble V7.2 guarded patch chain
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_2_fast2_profile.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/train_v7_1_stage_launcher.py frontier350/train_v7_2_stage_launcher.py frontier350/v7_1_runtime_hotfix.py frontier350/apply_v6_fast2_patch.py frontier350/v7_recovery.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V7.2 patch chain failed'}
+
+      - name: Run one real guarded 5M Fast2 stage
+        env:
+          NERAL_V71_INPUT_PROFILE: off
+          NERAL_V72_FAST2: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.request.outputs.repo }}'; $assets='${{ steps.request.outputs.assets }}'; $scratch='${{ steps.request.outputs.scratch }}'
+          $rid='${{ steps.request.outputs.request_id }}'; $target='${{ steps.request.outputs.target_tokens }}'; $wall='${{ steps.request.outputs.max_wall_minutes }}'
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor_v72_fast2_real; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; export NERAL_V71_INPUT_PROFILE=off; export NERAL_V72_FAST2=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_scale_v5.py --assets '$assets' --report frontier350_scale_v7_2_report --scratch '$scratch' --request-id '$rid' --target-tokens '$target' --max-rounds 1 --max-wall-minutes '$wall'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V7.2 real Fast2 smoke failed; exact recovery remains available'}
+
+      - name: Print V7.2 result
+        if: always()
+        run: |
+          if(Test-Path frontier350_v7_2_train_bench/fast2_gate.json){Get-Content frontier350_v7_2_train_bench/fast2_gate.json -Raw|Write-Host}
+          if(Test-Path frontier350_scale_v7_2_report/selection.json){Get-Content frontier350_scale_v7_2_report/selection.json -Raw|Write-Host}
+
+      - name: Upload V7.2 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-v7-2-fast2-${{ github.run_id }}
+          path: |
+            frontier350_v7_2_train_bench/
+            frontier350_scale_v7_2_report/
+          retention-days: 30
