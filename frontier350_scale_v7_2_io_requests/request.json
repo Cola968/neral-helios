@@ -2,7 +2,7 @@
   "action": "run_checkpoint_cadence_smoke",
   "max_rounds": 1,
   "max_wall_minutes": 25,
-  "request_id": "v7-2-cadence-smoke-20260915-r2",
-  "target_tokens": 1810035200,
+  "request_id": "v7-2-endpoint-smoke-20260915-r3",
+  "target_tokens": 1815035200,
   "version": 72
 }
