@@ -1,0 +1,83 @@
+name: Neral 350M V8 NIS2 Readiness
+
+on:
+  push:
+    branches: [experiment/scale-v8-3b]
+    paths: ['frontier350_v8_readiness_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  nis2-readiness:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify request and RTX 4070
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_v8_readiness_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 80 -or $r.action -ne 'nis2_readiness'){throw 'invalid V8 readiness request'}
+          if([long]$r.expected_tokens -le 0){throw 'expected_tokens must be positive'}
+          wsl.exe --shutdown 2>$null; Start-Sleep -Seconds 3
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          Write-Host "GPU=$gpu TempC=$temp FreeVRAMMiB=$free ExpectedTokens=$($r.expected_tokens)"
+          if($gpu -notmatch 'RTX 4070'){throw 'expected RTX 4070'}
+          if($temp -ge 82){throw 'GPU too hot'}
+          if($free -lt 9000){throw 'need >=9000 MiB free VRAM'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          function W([string]$p){$full=[IO.Path]::GetFullPath($p); return '/mnt/'+$full.Substring(0,1).ToLower()+'/'+$full.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "expected_tokens=$($r.expected_tokens)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Validate V5-V8 runtime patch chain
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_2_fast2_profile.py; ~/.venvs/neral-triton-py312/bin/python frontier350/v7_2_checkpoint_cadence_hotfix.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_target_closure.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile benchmark_nis2_chat140.py frontier350/nis2_core350.py frontier350/run_v8_nis2_readiness.py frontier350/run_scale_v5.py frontier350/train_guarded_v9.py; ~/.venvs/neral-triton-py312/bin/python -c \"import benchmark_nis2_chat140 as b; print({'pairs':len(b.PAIR_CASES),'exact':len(b.EXACT_GENERATION_CASES),'health':len(b.GENERATION_HEALTH_CASES),'sha':b.suite_sha256()})\""
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V8 runtime/readiness validation failed'}
+          exit 0
+
+      - name: Run read-only NIS2 v2 140-case suite
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'; $assets='${{ steps.guard.outputs.assets }}'; $expected='${{ steps.guard.outputs.expected_tokens }}'
+          if(Test-Path frontier350_v8_nis2_report){Remove-Item frontier350_v8_nis2_report -Recurse -Force}
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_v8_nis2_readiness.py --assets '$assets' --report frontier350_v8_nis2_report --expected-tokens '$expected'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'NIS2 v2 readiness suite failed'}
+          exit 0
+
+      - name: Print readiness summary
+        if: always()
+        run: |
+          if(Test-Path frontier350_v8_nis2_report/summary.json){Get-Content frontier350_v8_nis2_report/summary.json -Raw|Write-Host}
+          exit 0
+
+      - name: Upload readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-v8-nis2-readiness-${{ github.run_id }}
+          path: frontier350_v8_nis2_report/
+          retention-days: 30
