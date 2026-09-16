@@ -4,16 +4,17 @@
 
 ## Nachweisstand – strikt unterscheiden
 
-- **Tatsächliche eigene SAFE-Inferenz bestanden:** [Windows-Self-Hosted-Run 35130240477](https://github.com/Cola968/neral-helios/actions/runs/35130240477) verifizierte den fest gepinnten SAFE-Checkpoint und generierte auf acht öffentlichen Engineering-Eingaben jeweils ein Token. Acht von acht Ausgaben nichtleer, alle acht am Ein-Token-Limit, gemessene Generierung zusammen 1,1 Sekunden. Das belegt nur Ladbarkeit und Decoder-Ausführung, nicht sinnvolle Antworten oder echte EOS-Fähigkeit.
-- **Längerer SAFE-Entwicklungsdiagnostikversuch NICHT gelaufen:** [Run 35130560673](https://github.com/Cola968/neral-helios/actions/runs/35130560673) verweigerte acht bis zu 64 Token lange Generationen bereits vor dem Checkpointladen wegen belegter/heißer GPU laut Guard. Welcher Grenzwert ausschlaggebend war, geht aus diesem Log nicht hervor. Schutzgrenzen nicht aufweichen und nicht bei belegter GPU wiederholt starten. Kein Qualitätsbefund.
-- **Synthetische Offline-CPU-CI:** [aktuellen Testlauf](https://github.com/Cola968/neral-helios/actions/runs/35131393100) auf GitHub einsehen. Sie prüft Verträge und Eingabefehler ohne Gewichte, GPU oder SFT. Ein bestandener Vertragstest ist kein neuer NIS2-Wert.
-- **Keine real geprüften SFT-Daten und kein Kandidatenmodell:** Die vorhandenen `sft_contract.py` und `train_sft_pilot.py` sind lediglich opt-in Trainingsvorbereitung beziehungsweise Experiment; ihre Daten-/GPU-Freigaben sind offen.
+- **Tatsächliche eigene SAFE-Inferenz bestanden:** [Windows-Self-Hosted-Run 35130240477](https://github.com/Cola968/neral-helios/actions/runs/35130240477) verifizierte den fest gepinnten SAFE-Checkpoint und generierte auf acht öffentlichen Engineering-Eingaben jeweils ein Token. Das belegt nur Ladbarkeit und Decoder-Ausführung, nicht Chatqualität.
+- **Echte längere SAFE-Baseline liegt jetzt vor:** [Run 35130560673, erfolgreicher zweiter Jobversuch](https://github.com/Cola968/neral-helios/actions/runs/35130560673) führte nach dem anfänglichen Abbruch durch den GPU-Leerlaufschutz acht öffentliche, vorab im Code festgelegte Prompts mit jeweils höchstens 64 generierten Tokens auf den eigenen SAFE-Gewichten aus: 8/8 nichtleere Antworten, 5/8 echte EOS-Enden, 3/8 Budgetende, insgesamt 233 Tokens, 19,77 s innerhalb der Diagnoseroutine. `phoenix_gate.metrics` zählte **47 % wiederholte Wort-Trigramme** und Rollenkennzeichen in **25 % der Antworten (2/8)**. Diese Werte sind diagnostische Warnsignale und keine Antwortkorrektheit, NIS2-Wertung oder Trainings-Tokens/s. Rohantworten blieben aus den GitHub-Logs heraus; Gewichte unverändert, kein Training.
+- **Synthetische Offline-CPU-CI:** [Run 35136782879](https://github.com/Cola968/neral-helios/actions/runs/35136782879): 47 Phoenix- plus 30 SFT-Vertragstests bestanden. [Separater Syntaxlauf 35136783104](https://github.com/Cola968/neral-helios/actions/runs/35136783104) ebenfalls erfolgreich. Vertragstests sind keine Modellqualität.
+- **SFT-Validierung verbessert, real noch nicht vermessen:** bis zu 16 deterministisch über den gesamten Validierungssplit verteilte Zeilen statt der ersten 8, Loss pro beaufsichtigtem Token gewichtet statt pro Zeile, dynamische Batch-Länge statt fester Kontext-Paddinglänge. Stichprobe und neue Pad-Strategie ergeben weder eine vollständige noch unabhängige Evaluation; Geschwindigkeitssparen muss auf GPU separat gemessen werden.
+- **Keine real geprüften SFT-Daten und kein Kandidatenmodell:** `sft_contract.py` und `train_sft_pilot.py` sind ausschließlich opt-in Vorbereitung/Experiment; Daten-/GPU-Gates sind noch offen.
 
 ## 7-Tage-Plan mit Stop/Go
 
 | Tag | Umsetzung | Nur weiter nach belegtem Gate |
 | --- | --- | --- |
-| 1 | SHA-gepinnten SAFE-Baseline-Checkpoint und ruhende GPU prüfen; unabhängiges fixiertes Testset lokal mit bis zu 64 Tokens ausführen. | Echte, vollständig abgeschlossene Rohantworten und getrennte EOS-Zählung. 1-Token-Smoke allein reicht nicht. |
+| 1 | Eigene SAFE-Baseline zunächst technisch prüfen, dann Antworten **lokal** mit vorab fixiertem Promptset inhaltlich auswerten. | Acht öffentliche 64-Token-Entwicklungsdiagnosen liegen vor; blinde Korrektheit und repräsentative Evaluation fehlen noch. |
 | 2 | Menschliche DE/EN-Dialogdaten nach Herkunft, Lizenz, PII, exakter und semantischer Überlappung prüfen. | Unabhängige Quellen-/Lizenzfreigabe, train/validation/holdout disjunkt; erst dann lokal SFT-Pack erzeugen. |
 | 3 | 1–50 SFT-Schritte mit geprüften Daten, isoliertem Ergebnis und **Kopie** des stabilen Checkpoints, nur auf freier GPU. | Echte GPU-/Loss-Logs, Temperatur/VRAM, valide gespeicherter Kandidat; SAFE bleibt unverändert. |
 | 4 | Unverändertes Promptset mit identischem Decoder für SAFE und Kandidat ausführen, blind Antwortkorrektheit, EOS, Wiederholungen, DE/EN, Mathe, Code und volles NIS2 prüfen. | Korrektheit nachweislich besser ohne unzulässige Regression. Niedrigerer Loss genügt nicht. |
@@ -64,6 +65,7 @@ Identische Fall-IDs, **eindeutige** originale UTF-8-Prompt-Hashes, Protokoll und
 
 ```powershell
 python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'
+python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_sft_*.py'
 ```
 
 GitHub Actions: `.github/workflows/phoenix-gate-ci.yml` ist gehostete synthetische CPU-Prüfung. `.github/workflows/phoenix-own-weight-smoke.yml` ist read-only, eigens isolierter Self-Hosted-Engineering-Lauf mit festem öffentlichen Promptset und GPU-Leerlaufschutz. Keine automatische lange SFT-Kampagne und keinerlei Modellpromotion. Der bestehende `SFT_PILOT.md` enthält die noch ausstehenden realen SFT-Voraussetzungen.
