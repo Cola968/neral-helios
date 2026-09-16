@@ -1,0 +1,34 @@
+name: Neral locate 2B continuation read only
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-sft-locate-2b.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inventory bounded project checkpoint paths without reading weights
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $bases=@((Join-Path $root 'runs'), 'D:\NeralScaleV81', (Join-Path $root 'frontier350_runs'))
+          foreach($base in $bases){
+            if (-not (Test-Path -LiteralPath $base -PathType Container)){continue}
+            $dirs=@(Get-ChildItem -LiteralPath $base -Directory -ErrorAction Stop | Where-Object {$_.Name -match '2b|continuity|v8|v9|arctus|frontier|350'} | Select-Object -First 65)
+            Write-Host ('searched='+$base+' candidate_directories='+$dirs.Count)
+            foreach($dir in $dirs){
+              $files=@(Get-ChildItem -LiteralPath $dir.FullName -File -ErrorAction Stop | Where-Object {$_.Name -match '(resume|checkpoint|snapshot|selected).*\.(pt|pth)$'} | Select-Object -First 5)
+              foreach($file in $files){Write-Host ('candidate='+$file.FullName+' bytes='+$file.Length)}
+              $subdirs=@(Get-ChildItem -LiteralPath $dir.FullName -Directory -ErrorAction Stop | Where-Object {$_.Name -match '2b|continuity|v8|v9|selected|stage|run'} | Select-Object -First 12)
+              foreach($sub in $subdirs){
+                $nested=@(Get-ChildItem -LiteralPath $sub.FullName -File -ErrorAction Stop | Where-Object {$_.Name -match '(resume|checkpoint|snapshot|selected).*\.(pt|pth)$'} | Select-Object -First 3)
+                foreach($file in $nested){Write-Host ('candidate='+$file.FullName+' bytes='+$file.Length)}
+              }
+            }
+          }
+          Write-Host 'Inventory finished; no deserialization, modification or GPU operation.'
