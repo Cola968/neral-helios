@@ -58,7 +58,6 @@ class FallbackGuardTests(unittest.TestCase):
         except (OSError, NotImplementedError):
             self.skipTest("platform does not support symlinks")
         self.assertFalse(fallback_allowed(self.out, link))
-        self.assertFalse(fallback_allowed(self.root / "output_link", None) if False else False)
         output_link = self.root / "output_link"
         output_link.symlink_to(self.out, target_is_directory=True)
         self.assertFalse(fallback_allowed(output_link, None))
