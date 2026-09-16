@@ -13,13 +13,12 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
-import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from fetch_oasst2_sft50 import (DATASET_ID, UPSTREAM_REVISION, UPSTREAM_SHA256,
-                                choose_pairs, sha256_file)
+                                choose_pairs, reviewed_human, sha256_file)
 from sft_contract import FORBIDDEN, hex_digest, prompt_hash, sha
 from phoenix_gate import unique_object
 
@@ -88,6 +87,15 @@ def select_tree_disjoint(pairs: dict, messages: list[dict], frozen: set[str]) ->
             prompt, answer = pair.get("prompt"), pair.get("answer")
             if not isinstance(prompt, str) or not isinstance(answer, str):
                 raise ValueError("OASST2 pair has invalid text types")
+            # Never trust the converted pair independently of its pinned raw messages.
+            # A byte-consistent archive can still be mismatched by a buggy converter.
+            if (parent.get("lang") != language or assistant.get("lang") != language
+                    or not reviewed_human(parent) or not reviewed_human(assistant)
+                    or not isinstance(parent.get("text"), str)
+                    or not isinstance(assistant.get("text"), str)
+                    or prompt.strip() != parent["text"].strip()
+                    or answer.strip() != assistant["text"].strip()):
+                raise ValueError("OASST2 converted pair does not match reviewed human source")
             if not prompt.strip() or not answer.strip() or max(len(prompt), len(answer)) > 8192 or any(
                     marker in text for text in (prompt, answer) for marker in FORBIDDEN):
                 skipped_incompatible_text += 1
@@ -141,7 +149,7 @@ def prepare(root: Path, archive: Path, holdout: Path, out: Path,
               "upstream_archive_sha256": UPSTREAM_SHA256,
               "frozen_registry_sha256": sha(holdout), "source_id": SOURCE_ID,
               **summary,
-              "note": "Only SHA, tree-disjointness and exact-hash checks; independent license, PII, near/semantic duplicate and source-row review still required. No training and no approval."}
+              "note": "Only SHA, human-row/lineage/tree-disjointness and exact-hash checks; independent license, PII, near/semantic duplicate and source-row review still required. No training and no approval."}
     try:
         for name, rows in splits.items():
             path = out / f"{name}.jsonl"
