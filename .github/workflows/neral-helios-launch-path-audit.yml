@@ -1,0 +1,31 @@
+name: Helios localhost launcher read-only audit
+on:
+  push:
+    paths:
+      - '.github/workflows/neral-helios-launch-path-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    name: diagnose-local-launch-without-starting-model
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read only launcher, SAFE asset, Python and port diagnostics
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='C:\actions-runner\_work\neral-helios\neral-helios\helios_fast_source_35120295815\start-helios350-fast.ps1'
+          $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $safe=Join-Path $root 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $tok=Join-Path $root 'frontier350_assets\tokenizer.json'
+          Write-Host ('launcher_exists='+[bool](Test-Path -LiteralPath $p -PathType Leaf))
+          Write-Host ('preview_code_exists='+[bool](Test-Path -LiteralPath (Join-Path (Split-Path $p -Parent) 'frontier350\nextgen_v1\helios350_fast_preview.py') -PathType Leaf))
+          Write-Host ('safe_exists='+[bool](Test-Path -LiteralPath $safe -PathType Leaf))
+          Write-Host ('tokenizer_exists='+[bool](Test-Path -LiteralPath $tok -PathType Leaf))
+          Write-Host ('wsl_exe_exists='+[bool](Get-Command wsl.exe -ErrorAction SilentlyContinue))
+          try { & wsl.exe -- bash -lc 'test -f ~/.venvs/neral-triton-py312/bin/python && echo wsl_python_exists=true || echo wsl_python_exists=false' } catch { Write-Host ('wsl_check_error='+$_.Exception.Message) }
+          try { $port=Get-NetTCPConnection -LocalPort 9681 -State Listen -ErrorAction SilentlyContinue;Write-Host ('port_9681_listening='+[bool]$port) } catch {Write-Host ('port_check_error='+$_.Exception.Message)}
+          try {$result=Invoke-WebRequest -Uri 'http://127.0.0.1:9681/health' -UseBasicParsing -TimeoutSec 2;Write-Host ('local_health_status='+$result.StatusCode)}catch{Write-Host ('local_health_unreachable='+$_.Exception.Message)}
+          Write-Host 'Read-only launcher audit completed. No server, checkpoint, training, or user processes changed.'
