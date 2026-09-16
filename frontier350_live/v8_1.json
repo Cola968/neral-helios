@@ -2,7 +2,7 @@
     "schema":  1,
     "run_id":  "35069331704",
     "state":  "running",
-    "updated_at_utc":  "2026-09-16T07:44:06.8498781Z",
+    "updated_at_utc":  "2026-09-16T07:46:09.3153352Z",
     "target_tokens":  2500000000,
     "processed_tokens_live":  2026107904,
     "accepted_continuity_tokens":  null,
@@ -15,10 +15,10 @@
     "health_last":  null,
     "audit_last":  null,
     "gpu":  {
-                "temp_c":  48,
-                "vram_used_mib":  1594,
-                "vram_free_mib":  10418,
-                "util_pct":  0
+                "temp_c":  53,
+                "vram_used_mib":  2215,
+                "vram_free_mib":  9797,
+                "util_pct":  43
             },
     "source_metrics":  "D:\\NeralScaleV81\\v8-1-2p5b-thermal-20260916-r3\\v5_r0001_projected_rescue_5000000\\metrics.jsonl",
     "note":  "Live telemetry is observational only; it never changes training, gates, checkpoints, or recovery."
