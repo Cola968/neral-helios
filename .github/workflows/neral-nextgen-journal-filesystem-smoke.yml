@@ -1,0 +1,55 @@
+name: Neral checkpoint journal real filesystem smoke
+
+# Single synthetic filesystem validation. Absolutely NO GPU training or model load.
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-journal-filesystem-smoke.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-journal-fs-smoke
+  cancel-in-progress: false
+
+jobs:
+  synthetic-real-filesystem:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Isolated source checkout; never clean or delete existing user assets
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: neral_journal_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Create tiny synthetic checkpoints, inject crash and verify nonoverwriting recovery on D
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid absolute Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('neral_journal_source_'+$env:GITHUB_RUN_ID)
+          $base='D:\NeralScaleV81'
+          $root=Join-Path $base ('_journal_synthetic_smoke_'+$env:GITHUB_RUN_ID)
+          $report=Join-Path $env:GITHUB_WORKSPACE ('journal_synthetic_report_'+$env:GITHUB_RUN_ID)
+          if(-not(Test-Path -LiteralPath $base -PathType Container) -or (Test-Path -LiteralPath $root) -or (Test-Path -LiteralPath $report)){throw 'missing D parent or destination already exists'}
+          New-Item -ItemType Directory -Path $report | Out-Null
+          $cmd="set -euo pipefail; cd '$(W $repo)'; export PYTHONPATH='$(W $repo)/frontier350:$(W $repo)/frontier350/nextgen_v1'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/journal_local_smoke.py --root '$(W $root)' --report '$(W $report)/smoke.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'real filesystem recovery check failed'}
+          $r=Get-Content -LiteralPath (Join-Path $report 'smoke.json') -Raw|ConvertFrom-Json
+          if($r.status -ne 'synthetic_torch_ntfs_crash_recovery_passed' -or $r.real_gpu_training -ne $false -or $r.max_window_tokens -gt 1000000 -or $r.recovered_checkpoint_valid -ne $true){throw 'synthetic recovery evidence contract failed'}
+          Write-Host 'Confirmed: synthetic crash recovered with <=1M rollback. This is NOT a 350M GPU training test.'
+      - name: Publish JSON receipt ONLY, not even synthetic checkpoint files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-checkpoint-journal-smoke-${{ github.run_id }}
+          path: journal_synthetic_report_${{ github.run_id }}/smoke.json
+          if-no-files-found: warn
+          retention-days: 30
