@@ -1,0 +1,44 @@
+name: Helios 350M verified SAFE KV-cache parity (CPU, READ ONLY)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-kv-test.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  verified-own-checkpoint-parity:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Isolated source checkout without modifying user training files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: helios_kv_test_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Compare real SAFE full-forward logits with cached decoder on CPU
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'absolute Windows path required'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('helios_kv_test_source_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $safe=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          if(-not(Test-Path -LiteralPath $safe -PathType Leaf)){throw 'SAFE anchor unavailable; no test'}
+          $expected='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          if((Get-FileHash -LiteralPath $safe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'SAFE anchor hash mismatch'}
+          $cmd="set -euo pipefail; cd '$(W $repo)'; export PYTHONPATH='$(W $repo)/frontier350:$(W $repo)/frontier350/nextgen_v1'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/kv_decode_real_test.py --assets-root '$(W $assets)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Real 350M cached inference parity failed; preview code unchanged'}
+          Write-Host 'Own SAFE full-forward versus cached inference parity passed. No GPU, no training, no asset writes; preview unchanged.'
