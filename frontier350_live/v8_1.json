@@ -2,7 +2,7 @@
     "schema":  1,
     "run_id":  "35069331704",
     "state":  "running",
-    "updated_at_utc":  "2026-09-16T10:00:45.8009198Z",
+    "updated_at_utc":  "2026-09-16T10:02:48.0072649Z",
     "target_tokens":  2500000000,
     "processed_tokens_live":  2078161216,
     "accepted_continuity_tokens":  2073161216,
@@ -15,7 +15,7 @@
     "health_last":  null,
     "audit_last":  null,
     "gpu":  {
-                "temp_c":  41,
+                "temp_c":  44,
                 "vram_used_mib":  879,
                 "vram_free_mib":  11133,
                 "util_pct":  0
