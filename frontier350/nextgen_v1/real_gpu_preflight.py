@@ -20,6 +20,8 @@ import subprocess
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 MIN_FREE_DISK_BYTES = 16 * 1024 ** 3
+MIN_FREE_GPU_MIB = 9000
+MAX_GPU_TEMP_C = 78
 
 
 def require_sha(value: str, label: str) -> str:
@@ -79,12 +81,19 @@ def verify_shards(directory: Path, records: object) -> int:
         name = record["path"]
         if name in (".", "..") or Path(name).name != name or not name or "\\" in name or "/" in name:
             raise ValueError("shard path must be a basename")
+        if not name.endswith(".bin"):
+            raise ValueError("training shard must be a *.bin file")
         if name in seen:
             raise ValueError("duplicate shard")
         seen.add(name)
         expected = require_sha(record.get("sha256"), "shard")
         if not hmac.compare_digest(hash_file(directory / name), expected):
             raise ValueError("training shard SHA-256 mismatch")
+    # PersistentMMapPool opens every *.bin file, not merely manifest-listed files.
+    # Detect extras before allocating GPU/model memory (also checks missing files).
+    discovered = {path.name for path in directory.glob("*.bin")}
+    if discovered != seen:
+        raise ValueError("unlisted or missing *.bin training shards")
     return len(seen)
 
 
@@ -98,13 +107,17 @@ def query_gpu() -> dict:
     if len(parts) != 3 or "RTX 4070" not in parts[0]:
         raise ValueError("unexpected GPU identity")
     free, temp = int(parts[1]), int(parts[2])
-    if free < 9000 or temp > 78:
-        raise ValueError("GPU not cool and sufficiently free")
     apps = subprocess.run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader,nounits"],
                           capture_output=True, text=True, timeout=10, check=True)
     running = [line.strip() for line in apps.stdout.splitlines() if line.strip()]
-    if running and running != ["No running processes found"]:
-        raise ValueError("GPU compute process already active")
+    if running == ["No running processes found"]:
+        running = []
+    if free < MIN_FREE_GPU_MIB or temp > MAX_GPU_TEMP_C or running:
+        raise ValueError(
+            f"GPU not ready: free_mib={free} (min {MIN_FREE_GPU_MIB}); "
+            f"temperature_c={temp} (max {MAX_GPU_TEMP_C}); "
+            f"compute_processes={len(running)} (required 0)"
+        )
     return {"gpu": "RTX 4070", "free_mib": free, "temperature_c": temp,
             "compute_processes": 0}
 
@@ -113,6 +126,12 @@ def verify(anchor: Path, anchor_sha256: str, main_data: Path, replay: Path,
            tokenizer_sha256: str, arm_a: Path, arm_b: Path, *, gpu_probe=query_gpu) -> dict:
     expected_anchor = require_sha(anchor_sha256, "safe anchor")
     expected_tokenizer = require_sha(tokenizer_sha256, "tokenizer")
+    # On a busy shared GPU, reject before rehashing multi-GB local assets.
+    gpu = gpu_probe()
+    if (gpu.get("gpu") != "RTX 4070" or gpu.get("free_mib", 0) < MIN_FREE_GPU_MIB
+            or gpu.get("temperature_c", 999) > MAX_GPU_TEMP_C
+            or gpu.get("compute_processes") != 0):
+        raise ValueError("GPU readiness verification failed: " + json.dumps(gpu, sort_keys=True))
     if not hmac.compare_digest(hash_file(anchor), expected_anchor):
         raise ValueError("safe anchor bytes differ from independently pinned SHA-256")
     main = json_manifest(main_data.parent / "manifest.json")
@@ -143,9 +162,6 @@ def verify(anchor: Path, anchor_sha256: str, main_data: Path, replay: Path,
             raise ValueError("experiment output overlaps input/anchor storage")
         if shutil.disk_usage(output.parent).free < MIN_FREE_DISK_BYTES:
             raise ValueError("insufficient disk for isolated A/B artifacts")
-    gpu = gpu_probe()
-    if gpu.get("gpu") != "RTX 4070" or gpu.get("free_mib", 0) < 9000 or gpu.get("temperature_c", 999) > 78 or gpu.get("compute_processes") != 0:
-        raise ValueError("GPU readiness verification failed")
     return {"schema": 1, "status": "preflight_passed_not_training_evidence",
             "anchor_sha256": expected_anchor, "tokenizer_sha256": expected_tokenizer,
             "main_shards_verified": main_files, "replay_shards_verified": replay_files,
