@@ -1,4 +1,4 @@
-"""CPU-only contract checks; no synthetic test is evidence of model capability."""
+"""CPU-only contract checks; generated fixtures are NOT real training evidence."""
 import copy
 import unittest
 
@@ -14,12 +14,12 @@ def fixture(phase="post_training", seconds=80.0):
         "checkpoint_sha256": "e" * 64,
         "validation_loss": 3.5,
         "repeated_trigram_pct": 50.0,
-        "dev_categories": {"math": 30.0, "language": 50.0},
+        "dev_categories": {"math": 30.0, "language": 50.0, "code": 40.0, "science": 45.0},
         "generation": {"protocol_sha256": "f" * 64, "cases": 24, "exact_correct": 0, "eos_correct": 0},
     }
     candidate = copy.deepcopy(base)
     candidate.update(checkpoint_sha256="1" * 64, validation_loss=3.4, repeated_trigram_pct=45.0)
-    candidate["dev_categories"] = {"math": 35.0, "language": 50.0}
+    candidate["dev_categories"] = {"math": 35.0, "language": 50.0, "code": 42.0, "science": 45.0}
     candidate["generation"].update(exact_correct=1, eos_correct=1)
     return {
         "evidence_version": 1,
@@ -46,19 +46,28 @@ class AdmissionTests(unittest.TestCase):
     def test_valid_synthetic_contract_not_real_promotion(self):
         result = validate_evidence(fixture())
         self.assertTrue(result["admitted"])
-        self.assertEqual(result["target_accepted_tps"], 50000)
+        self.assertEqual(result["target_accepted_tps"], 44000)
         self.assertAlmostEqual(result["combined_accepted_tps"], 62500)
-        self.assertFalse(result["stretch_70k_verified"])
         self.assertIn("not a production promotion", result["warning"])
+        self.assertIn("complete NIS2", result["warning"])
 
-    def test_exact_50k_boundary_is_inclusive(self):
-        result = validate_evidence(fixture(seconds=100))
+    def test_exact_44k_boundary_is_inclusive(self):
+        e = fixture(seconds=125)
+        for stage in e["stages"]:
+            stage["accepted_tokens"] = 5_500_000
+        result = validate_evidence(e)
         self.assertTrue(result["admitted"])
-        self.assertEqual(result["combined_accepted_tps"], 50000)
-        self.assertFalse(result["stretch_70k_verified"])
+        self.assertEqual(result["combined_accepted_tps"], 44000)
+        self.assertEqual(result["stage_accepted_tps"], [44000] * 3)
 
-    def test_stretch_is_separate(self):
-        self.assertTrue(validate_evidence(fixture(seconds=70))["stretch_70k_verified"])
+    def test_below_44k_fails_per_stage_and_combined(self):
+        e = fixture(seconds=125.01)
+        for stage in e["stages"]:
+            stage["accepted_tokens"] = 5_500_000
+        result = validate_evidence(e)
+        self.assertFalse(result["admitted"])
+        self.assertIn("stage_0_below_44k", result["failures"])
+        self.assertIn("combined_below_44k", result["failures"])
 
     def test_rejects_short_or_incomplete_stages(self):
         e = fixture(); e["stages"] = e["stages"][:2]
@@ -75,10 +84,11 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse(validate_evidence(e)["admitted"])
 
     def test_slow_tail_fails_despite_fast_other_stages(self):
-        e = fixture(); e["stages"][0]["wall_seconds"] = 101
+        e = fixture(); e["stages"][0]["wall_seconds"] = 120
         result = validate_evidence(e)
         self.assertFalse(result["admitted"])
-        self.assertIn("stage_0_below_50k", result["failures"])
+        self.assertIn("stage_0_below_44k", result["failures"])
+        self.assertGreater(result["combined_accepted_tps"], 44000)
 
     def test_health_failure_cannot_be_masked(self):
         e = fixture(); e["stages"][0]["health_pass"] = False
@@ -91,6 +101,15 @@ class AdmissionTests(unittest.TestCase):
     def test_per_category_regression_rejected(self):
         e = fixture(); e["candidate"]["dev_categories"]["math"] = 29
         self.assertFalse(validate_evidence(e)["admitted"])
+        e = fixture(); e["candidate"]["dev_categories"]["code"] = 39
+        self.assertFalse(validate_evidence(e)["admitted"])
+
+    def test_faster_model_never_overrides_quality_regression(self):
+        e = fixture(seconds=60)
+        e["candidate"]["repeated_trigram_pct"] = 51
+        result = validate_evidence(e)
+        self.assertFalse(result["admitted"])
+        self.assertIn("regression_repeated_trigram_pct", result["failures"])
 
     def test_post_training_requires_real_generation_improvement(self):
         e = fixture(); e["candidate"]["generation"]["eos_correct"] = 0
