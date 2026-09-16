@@ -18,6 +18,7 @@ import sys
 import time
 
 from sft_contract import sha
+from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
 
 PARAMETERS = 349_825_152
 MAX_RESERVED = 9 * 1024 ** 3
@@ -167,11 +168,15 @@ def main() -> int:
     optimizer = torch.optim.AdamW(params, lr=2e-5, betas=(0.9, 0.95), weight_decay=0.01, fused=True)
     rng = random.Random(20260916)
     seq = report["context"]
+    # Same reproducible spread before/after. This subset is NOT a blind quality test.
+    validation_selection = validation_indices(len(splits["validation"]))
 
     def batch(rows: list[dict], picks: list[int]):
         selected = [rows[index] for index in picks]
-        x = torch.full((len(selected), seq), report["eos_id"], dtype=torch.long)
-        y = torch.full((len(selected), seq), -100, dtype=torch.long)
+        # Padding to the full pack context wasted attention/FFN work on short rows.
+        width = dynamic_batch_width(selected, seq)
+        x = torch.full((len(selected), width), report["eos_id"], dtype=torch.long)
+        y = torch.full((len(selected), width), -100, dtype=torch.long)
         for index, row in enumerate(selected):
             length = len(row["input_ids"])
             x[index, :length] = torch.tensor(row["input_ids"], dtype=torch.long)
@@ -180,17 +185,19 @@ def main() -> int:
 
     def validation_loss() -> float:
         model.eval()
-        losses = []
+        pairs = []
         with torch.inference_mode():
-            for index in range(min(8, len(splits["validation"]))):
+            for index in validation_selection:
                 x, y = batch(splits["validation"], [index])
                 with torch.autocast("cuda", dtype=torch.bfloat16):
                     _, loss = model(x, y)
                 if not bool(torch.isfinite(loss)):
                     raise FloatingPointError("nonfinite SFT validation")
-                losses.append(float(loss))
+                # model.forward returns mean CE over labels != -100; weight by
+                # supervised tokens so short and long answers have equal token weight.
+                pairs.append((float(loss), int((y != -100).sum().item())))
         model.train()
-        return sum(losses) / len(losses)
+        return token_weighted_loss(pairs)
 
     baseline = validation_loss()
     if torch.cuda.memory_reserved() > MAX_RESERVED:
@@ -235,6 +242,12 @@ def main() -> int:
         "pack_report_sha256": sha(args.pack / "pack_report.json"),
         "train_sha256": report["train_packed_sha256"],
         "validation_sha256": report["validation_packed_sha256"],
+        "validation_sampling": "deterministic_spread_16_or_all_if_fewer",
+        "validation_rows_evaluated": len(validation_selection),
+        "validation_supervised_tokens": sum(
+            splits["validation"][index]["answer_tokens_including_eos"]
+            for index in validation_selection),
+        "validation_loss_aggregation": "supervised_token_weighted",
         "train_blocks": args.train_blocks, "steps": args.steps,
         "validation_loss_before": baseline, "validation_loss_after": after,
         "validation_loss_improved": after < baseline,
@@ -244,7 +257,7 @@ def main() -> int:
         "temperature_c_end": temperature(),
         "eligible_for_production": False,
         "throughput_60k_70k_verified": False,
-        "note": "Bounded single-batch SFT experiment, NOT an end-to-end 5M stage; no independent NIS2/EOS or generation quality result. No resumable long run."}
+        "note": "Bounded SFT experiment with deterministic sampled validation, NOT an end-to-end 5M stage, complete validation or independent NIS2/EOS/quality result. No resumable long run."}
     if after < baseline:
         state = {"checkpoint_schema": "nextgen_sft_pilot_v1", "model": {
             name: tensor.detach().to(device="cpu", dtype=torch.bfloat16)
