@@ -1,0 +1,84 @@
+name: Neral NextGen V1 Matched Batch-8 GPU Sweep
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-batch8-sweep.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# This job never replaces the previously scheduled V8.2 evaluation or V8.1 run.
+# Single-job RTX 4070 runner and independent concurrency group avoid eviction
+# of another pending workflow; fail-closed preflight verifies both finished.
+concurrency:
+  group: neral-nextgen-v1-batch8-sweep
+  cancel-in-progress: false
+
+jobs:
+  batch8-matched-ab:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify previous workflows finished and GPU is idle
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          foreach($id in @(35069331704,35080263936,35084101942)){
+            $url="https://api.github.com/repos/${{ github.repository }}/actions/runs/$id"
+            $r=Invoke-RestMethod -Uri $url -Headers $headers -Method Get -TimeoutSec 15
+            if($r.status -ne 'completed'){throw "Earlier GPU workflow $id still $($r.status); no contention"}
+          }
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          if($gpu -notmatch 'RTX 4070' -or $temp -gt 78 -or $free -lt 9000){throw "GPU unavailable: name=$gpu temp=$temp C free=$free MiB"}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Validate synthetic probe syntax
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/probe.py"
+          if($LASTEXITCODE -ne 0){throw 'Probe syntax invalid'}
+          exit 0
+
+      - name: Matched eager batch 8 x 512
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/probe.py --execute --train-blocks 4 --execution eager --batch 8 --seq 512 --warmup 5 --steps 20 --out frontier350_nextgen_batch8/eager_b8_s512.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Eager batch-8 candidate failed; do not promote'}
+          exit 0
+
+      - name: Matched compiled batch 8 x 512
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/probe.py --execute --train-blocks 4 --execution compile-default --batch 8 --seq 512 --warmup 5 --steps 20 --out frontier350_nextgen_batch8/compiled_b8_s512.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Compiled batch-8 candidate failed; no automatic retry/promotion'}
+          exit 0
+
+      - name: Upload bounded experimental measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-v1-batch8-synthetic-${{ github.run_id }}
+          path: frontier350_nextgen_batch8/*.json
+          if-no-files-found: warn
+          retention-days: 30
