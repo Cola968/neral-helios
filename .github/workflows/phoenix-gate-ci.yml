@@ -11,6 +11,8 @@ on:
       - frontier350/nextgen_v1/phoenix_real_smoke.py
       - frontier350/nextgen_v1/test_phoenix_real_smoke.py
       - frontier350/nextgen_v1/test_phoenix_real_diagnostic.py
+      - frontier350/nextgen_v1/phoenix_data_audit.py
+      - frontier350/nextgen_v1/test_phoenix_data_audit.py
       - .github/workflows/phoenix-gate-ci.yml
   pull_request:
     branches:
@@ -23,6 +25,8 @@ on:
       - frontier350/nextgen_v1/phoenix_real_smoke.py
       - frontier350/nextgen_v1/test_phoenix_real_smoke.py
       - frontier350/nextgen_v1/test_phoenix_real_diagnostic.py
+      - frontier350/nextgen_v1/phoenix_data_audit.py
+      - frontier350/nextgen_v1/test_phoenix_data_audit.py
       - .github/workflows/phoenix-gate-ci.yml
 permissions:
   contents: read
@@ -37,8 +41,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Syntax check
-        run: python -m py_compile frontier350/nextgen_v1/phoenix_gate.py frontier350/nextgen_v1/phoenix_capture.py frontier350/nextgen_v1/phoenix_real_smoke.py frontier350/nextgen_v1/test_phoenix_gate.py frontier350/nextgen_v1/test_phoenix_capture.py frontier350/nextgen_v1/test_phoenix_real_smoke.py frontier350/nextgen_v1/test_phoenix_real_diagnostic.py
+        run: python -m py_compile frontier350/nextgen_v1/phoenix_gate.py frontier350/nextgen_v1/phoenix_capture.py frontier350/nextgen_v1/phoenix_real_smoke.py frontier350/nextgen_v1/phoenix_data_audit.py frontier350/nextgen_v1/test_phoenix_gate.py frontier350/nextgen_v1/test_phoenix_capture.py frontier350/nextgen_v1/test_phoenix_real_smoke.py frontier350/nextgen_v1/test_phoenix_real_diagnostic.py frontier350/nextgen_v1/test_phoenix_data_audit.py
       - name: Run isolated synthetic contract tests
         run: python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'
       - name: Evidence boundary
-        run: echo 'Hosted CPU synthetic contracts only; NO GPU training, own-weight inference, quality improvement or promotion.'
+        run: echo 'Hosted CPU synthetic contracts only. Data prescreen NEVER approves a corpus. No GPU training, own-weight inference, quality improvement or promotion.'
