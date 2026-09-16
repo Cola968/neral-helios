@@ -5,12 +5,16 @@ on:
     paths:
       - 'frontier350/nextgen_v1/phoenix_*.py'
       - 'frontier350/nextgen_v1/test_phoenix_*.py'
+      - 'frontier350/nextgen_v1/train_sft_pilot.py'
+      - 'frontier350/nextgen_v1/test_sft_pilot.py'
       - '.github/workflows/phoenix-gate-ci.yml'
   pull_request:
     branches: [experiment/nextgen-v1-isolated]
     paths:
       - 'frontier350/nextgen_v1/phoenix_*.py'
       - 'frontier350/nextgen_v1/test_phoenix_*.py'
+      - 'frontier350/nextgen_v1/train_sft_pilot.py'
+      - 'frontier350/nextgen_v1/test_sft_pilot.py'
       - '.github/workflows/phoenix-gate-ci.yml'
 permissions:
   contents: read
@@ -25,8 +29,10 @@ jobs:
         with:
           python-version: '3.12'
       - name: Syntax check
-        run: python -m compileall -q frontier350/nextgen_v1/phoenix_gate.py frontier350/nextgen_v1/phoenix_capture.py frontier350/nextgen_v1/phoenix_real_smoke.py frontier350/nextgen_v1/phoenix_data_audit.py frontier350/nextgen_v1/test_phoenix_*.py
+        run: python -m compileall -q frontier350/nextgen_v1/phoenix_gate.py frontier350/nextgen_v1/phoenix_capture.py frontier350/nextgen_v1/phoenix_real_smoke.py frontier350/nextgen_v1/phoenix_data_audit.py frontier350/nextgen_v1/train_sft_pilot.py frontier350/nextgen_v1/test_sft_pilot.py frontier350/nextgen_v1/test_phoenix_*.py
       - name: Run isolated synthetic contract tests
         run: python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'
+      - name: Verify causal SFT alignment without Torch or GPU
+        run: python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_sft_pilot.py'
       - name: Evidence boundary
-        run: echo 'Hosted CPU synthetic contracts only. Data prescreen NEVER approves corpus. NO GPU training, own-weight inference, quality improvement or promotion.'
+        run: echo 'Hosted CPU synthetic contracts and SFT pack schema only. Data prescreen NEVER approves corpus. NO GPU training, own-weight inference, quality improvement or promotion.'
