@@ -1,0 +1,74 @@
+name: Neral guarded ALL 350M optimizer VRAM feasibility (NO SAVED TRAINING)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-full-350m-feasibility.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  full-parameter-two-step-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout unique isolated source; never clean existing project files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: neral_full350_feasibility_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Require exact SAFE and independent backup, dataset integrity and idle cool GPU
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'absolute Windows drive path needed'};return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('neral_full350_feasibility_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $toksha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $backup='D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-'+$sha
+          if(-not(Test-Path -LiteralPath $backup -PathType Container)){throw 'independent D backup absent; do not load GPU'}
+          if(-not(Test-Path -LiteralPath (Join-Path $backup 'resume.pt') -PathType Leaf)){throw 'backup resume.pt missing'}
+          if((Get-FileHash -LiteralPath (Join-Path $backup 'resume.pt') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'backup hash mismatch'}
+          $parent='D:\NeralScaleV81'
+          $a=Join-Path $parent ('unused_full_feas_a_'+$env:GITHUB_RUN_ID)
+          $b=Join-Path $parent ('unused_full_feas_b_'+$env:GITHUB_RUN_ID)
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/full_model_vram_smoke.py; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$(W $anchor)' --anchor-sha256 '$sha' --main-data '$(W $main)' --replay '$(W $replay)' --tokenizer-sha256 '$toksha' --arm-a '$(W $a)' --arm-b '$(W $b)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'preflight FAILED; no full-model optimizer step attempted'}
+          "repo=$(W $repo)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "anchor=$(W $anchor)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "main=$(W $main)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tokenizer=$(W $tokenizer)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "anchor_win=$anchor"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "backup_win=$(Join-Path $backup 'resume.pt')"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host 'Pinned original + independent vault verified. Two-step fully trainable test only; no persistent training writes.'
+      - name: Train every parameter for ONLY two distinct 128-token in-memory steps
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -euo pipefail; cd '$repo'; export PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/full_model_vram_smoke.py --anchor '${{ steps.guard.outputs.anchor }}' --train-data '${{ steps.guard.outputs.main }}' --tokenizer '${{ steps.guard.outputs.tokenizer }}'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'full-model feasibility failed; NO long training authorized'}
+          $expected='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          foreach($p in @('${{ steps.guard.outputs.anchor_win }}','${{ steps.guard.outputs.backup_win }}')){
+            if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'immutable original or vault changed: STOP'}
+          }
+          $gpu=@(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or [int]$gpu[0].Trim() -gt 78){throw 'post-run thermal check failed'}
+          Write-Host 'Two FULL 350M update steps tested with fresh optimizer, no checkpoint written, no durable tokens, SAFE and vault SHA confirmed.'
