@@ -17,11 +17,14 @@ import re
 import shutil
 import stat
 import subprocess
+import time
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 MIN_FREE_DISK_BYTES = 16 * 1024 ** 3
 MIN_FREE_GPU_MIB = 9000
 MAX_GPU_TEMP_C = 78
+MAX_GPU_UTIL_PERCENT = 15
+GPU_UTIL_SAMPLES = 3
 
 
 def require_sha(value: str, label: str) -> str:
@@ -97,29 +100,58 @@ def verify_shards(directory: Path, records: object) -> int:
     return len(seen)
 
 
+def gpu_is_ready(gpu: dict) -> bool:
+    """WDDM lists ordinary GUI clients as compute apps; PID count is advisory.
+
+    Three sampled utilization values are mandatory, not a single idle instant.
+    GPU readiness remains a snapshot, so the short experiment is still isolated.
+    """
+    samples = gpu.get("utilization_percent_samples")
+    return (gpu.get("gpu") == "RTX 4070"
+            and type(gpu.get("free_mib")) is int and gpu["free_mib"] >= MIN_FREE_GPU_MIB
+            and type(gpu.get("temperature_c")) is int and gpu["temperature_c"] <= MAX_GPU_TEMP_C
+            and type(samples) is list and len(samples) == GPU_UTIL_SAMPLES
+            and all(type(sample) is int and 0 <= sample <= MAX_GPU_UTIL_PERCENT for sample in samples)
+            and type(gpu.get("reported_compute_processes")) is int
+            and gpu["reported_compute_processes"] >= 0)
+
+
 def query_gpu() -> dict:
-    command = ["nvidia-smi", "--query-gpu=name,memory.free,temperature.gpu", "--format=csv,noheader,nounits"]
+    command = ["nvidia-smi", "--query-gpu=name,memory.free,temperature.gpu,utilization.gpu",
+               "--format=csv,noheader,nounits"]
     result = subprocess.run(command, capture_output=True, text=True, timeout=10, check=True)
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if len(lines) != 1:
         raise ValueError("exactly one GPU required")
     parts = [part.strip() for part in lines[0].split(",")]
-    if len(parts) != 3 or "RTX 4070" not in parts[0]:
+    if len(parts) != 4 or "RTX 4070" not in parts[0]:
         raise ValueError("unexpected GPU identity")
-    free, temp = int(parts[1]), int(parts[2])
+    free, temp, initial_util = map(int, parts[1:])
     apps = subprocess.run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader,nounits"],
                           capture_output=True, text=True, timeout=10, check=True)
-    running = [line.strip() for line in apps.stdout.splitlines() if line.strip()]
-    if running == ["No running processes found"]:
-        running = []
-    if free < MIN_FREE_GPU_MIB or temp > MAX_GPU_TEMP_C or running:
+    pids = {line.strip() for line in apps.stdout.splitlines() if line.strip().isdigit()}
+    # Under Windows WDDM, this includes e.g. dwm.exe and browsers. Its count
+    # cannot safely establish CUDA contention without actual utilization data.
+    samples = [initial_util]
+    for _ in range(GPU_UTIL_SAMPLES - 1):
+        time.sleep(2)
+        reading = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu",
+                                  "--format=csv,noheader,nounits"],
+                                 capture_output=True, text=True, timeout=10, check=True)
+        values = [line.strip() for line in reading.stdout.splitlines() if line.strip()]
+        if len(values) != 1:
+            raise ValueError("exactly one utilization reading required")
+        samples.append(int(values[0]))
+    report = {"gpu": "RTX 4070", "free_mib": free, "temperature_c": temp,
+              "utilization_percent_samples": samples, "reported_compute_processes": len(pids)}
+    if not gpu_is_ready(report):
         raise ValueError(
             f"GPU not ready: free_mib={free} (min {MIN_FREE_GPU_MIB}); "
             f"temperature_c={temp} (max {MAX_GPU_TEMP_C}); "
-            f"compute_processes={len(running)} (required 0)"
+            f"utilization_percent_samples={samples} (each max {MAX_GPU_UTIL_PERCENT}); "
+            f"reported_compute_processes={len(pids)} (advisory on Windows WDDM)"
         )
-    return {"gpu": "RTX 4070", "free_mib": free, "temperature_c": temp,
-            "compute_processes": 0}
+    return report
 
 
 def verify(anchor: Path, anchor_sha256: str, main_data: Path, replay: Path,
@@ -128,9 +160,7 @@ def verify(anchor: Path, anchor_sha256: str, main_data: Path, replay: Path,
     expected_tokenizer = require_sha(tokenizer_sha256, "tokenizer")
     # On a busy shared GPU, reject before rehashing multi-GB local assets.
     gpu = gpu_probe()
-    if (gpu.get("gpu") != "RTX 4070" or gpu.get("free_mib", 0) < MIN_FREE_GPU_MIB
-            or gpu.get("temperature_c", 999) > MAX_GPU_TEMP_C
-            or gpu.get("compute_processes") != 0):
+    if not gpu_is_ready(gpu):
         raise ValueError("GPU readiness verification failed: " + json.dumps(gpu, sort_keys=True))
     if not hmac.compare_digest(hash_file(anchor), expected_anchor):
         raise ValueError("safe anchor bytes differ from independently pinned SHA-256")
