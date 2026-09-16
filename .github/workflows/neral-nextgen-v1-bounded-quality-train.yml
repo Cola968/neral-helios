@@ -1,0 +1,131 @@
+name: Neral NextGen bounded training and paired quality diagnostics
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-bounded-quality-train.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-bounded-quality-gpu
+  cancel-in-progress: false
+
+jobs:
+  train-and-measure:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout isolated pinned source without cleaning user files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: nextgen_quality_repo
+          clean: false
+          persist-credentials: false
+
+      - name: Check original anchor checksum, tokenizer, training shards, GPU, disk and unused candidate path
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f.Length -lt 3 -or $f[1] -ne ':'){throw 'invalid Windows path'};return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'nextgen_quality_repo'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $candidate=Join-Path 'D:\NeralScaleV81' ('nextgen_quality_'+$env:GITHUB_RUN_ID+'_candidate')
+          $reserve=Join-Path 'D:\NeralScaleV81' ('nextgen_quality_'+$env:GITHUB_RUN_ID+'_unused_reserve')
+          $report=Join-Path $env:GITHUB_WORKSPACE ('nextgen_quality_report_'+$env:GITHUB_RUN_ID)
+          $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tokenizerSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          if(-not(Test-Path $tok -PathType Leaf)){throw 'tokenizer missing'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tokenizerSha){throw 'tokenizer SHA mismatch'}
+          if(Test-Path $report){throw 'report directory already exists; avoid overwrite'}
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/deterministic_live_v9.py frontier350/nextgen_v1/compare_quality_pilot.py frontier350/nis2_core350.py frontier350/eval_recovery_dev_v2.py; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$(W $anchor)' --anchor-sha256 '$sha' --main-data '$(W $main)' --replay '$(W $replay)' --tokenizer-sha256 '$tokenizerSha' --arm-a '$(W $candidate)' --arm-b '$(W $reserve)'"
+          $result=& wsl.exe -- bash -lc $cmd 2>&1;$exit=$LASTEXITCODE
+          $result|Write-Host
+          if($exit -ne 0){throw 'Read-only preflight rejected; no training started'}
+          New-Item -ItemType Directory -Path $report | Out-Null
+          $result|Out-File -LiteralPath (Join-Path $report 'preflight.json') -Encoding utf8
+          "repo=$(W $repo)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor=$(W $anchor)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor_win=$anchor" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "main=$(W $main)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "replay=$(W $replay)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tok=$(W $tok)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "candidate=$(W $candidate)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "candidate_win=$candidate" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "report=$(W $report)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "report_win=$report" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha=$sha" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Baseline fixed development diagnostic before training
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.guard.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '${{ steps.guard.outputs.anchor }}' --tokenizer '${{ steps.guard.outputs.tok }}' --expected-tokens 1010003584 --out '${{ steps.guard.outputs.report }}/base_dev.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Baseline development evaluation failed; training not started'}
+
+      - name: Baseline frozen NIS2 140-case chat-core diagnostic before training
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.guard.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/nis2_core350.py --checkpoint '${{ steps.guard.outputs.anchor }}' --tokenizer '${{ steps.guard.outputs.tok }}' --expected-tokens 1010003584 --out '${{ steps.guard.outputs.report }}/base_nis2_chatcore.json' --max-new 32 --health-max-new 48"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Baseline NIS2 diagnostic failed; training not started'}
+
+      - name: Train isolated candidate for exactly 20 optimizer updates / 491520 tokens with LIVE per-step logs
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$anchor='${{ steps.guard.outputs.anchor }}';$sha='${{ steps.guard.outputs.sha }}'
+          $main='${{ steps.guard.outputs.main }}';$replay='${{ steps.guard.outputs.replay }}';$out='${{ steps.guard.outputs.candidate }}'
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py --anchor '$anchor' --anchor-sha '$sha' --main-data '$main' --replay '$replay' --out '$out' --mode replay_only --new-tokens 491520 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.00002 --lr-end 0.00002 --replay-boost 1.78"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Bounded candidate training failed; no promotion'}
+          $summary=Get-Content -LiteralPath ('${{ steps.guard.outputs.candidate_win }}\summary.json') -Raw|ConvertFrom-Json
+          if(!$summary.complete -or $summary.new_tokens -ne 491520 -or $summary.updates -ne 20 -or !$summary.frozen_weights_unchanged -or $summary.promoted){throw 'Training contract violated; no promotion'}
+          Copy-Item -LiteralPath ('${{ steps.guard.outputs.candidate_win }}\summary.json') -Destination ('${{ steps.guard.outputs.report_win }}\train_summary.json')
+          Copy-Item -LiteralPath ('${{ steps.guard.outputs.candidate_win }}\metrics.jsonl') -Destination ('${{ steps.guard.outputs.report_win }}\train_metrics.jsonl')
+          if((Get-FileHash -LiteralPath '${{ steps.guard.outputs.anchor_win }}' -Algorithm SHA256).Hash.ToLowerInvariant() -ne '${{ steps.guard.outputs.sha }}'){throw 'SAFE original anchor unexpectedly changed'}
+
+      - name: Candidate development diagnostic, same frozen suite
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.guard.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '${{ steps.guard.outputs.candidate }}/resume.pt' --tokenizer '${{ steps.guard.outputs.tok }}' --expected-tokens 1010495104 --out '${{ steps.guard.outputs.report }}/candidate_dev.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Candidate dev failed; do not promote'}
+
+      - name: Candidate frozen NIS2 140-case chat-core diagnostic
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.guard.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/nis2_core350.py --checkpoint '${{ steps.guard.outputs.candidate }}/resume.pt' --tokenizer '${{ steps.guard.outputs.tok }}' --expected-tokens 1010495104 --out '${{ steps.guard.outputs.report }}/candidate_nis2_chatcore.json' --max-new 32 --health-max-new 48"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Candidate NIS2 failed; no promotion'}
+
+      - name: Compare pinned checkpoint identities and metrics without promoting candidate
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='${{ steps.guard.outputs.report_win }}';$c='${{ steps.guard.outputs.candidate_win }}\resume.pt'
+          $hash=(Get-FileHash -LiteralPath $c -Algorithm SHA256).Hash.ToLowerInvariant()
+          $summary=Get-Content -LiteralPath (Join-Path $r 'train_summary.json') -Raw|ConvertFrom-Json
+          if($hash -ne $summary.checkpoint_sha256){throw 'candidate SHA does not match training summary'}
+          if((Get-FileHash -LiteralPath '${{ steps.guard.outputs.anchor_win }}' -Algorithm SHA256).Hash.ToLowerInvariant() -ne '${{ steps.guard.outputs.sha }}'){throw 'original checkpoint changed'}
+          $cmd="set -euo pipefail; cd '${{ steps.guard.outputs.repo }}'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_quality_pilot.py --base-dev '${{ steps.guard.outputs.report }}/base_dev.json' --candidate-dev '${{ steps.guard.outputs.report }}/candidate_dev.json' --base-nis '${{ steps.guard.outputs.report }}/base_nis2_chatcore.json' --candidate-nis '${{ steps.guard.outputs.report }}/candidate_nis2_chatcore.json' --train-summary '${{ steps.guard.outputs.report }}/train_summary.json' --anchor-sha '${{ steps.guard.outputs.sha }}' --candidate-sha '$hash' --start-tokens 1010003584 --extra-tokens 491520 --out '${{ steps.guard.outputs.report }}/comparison.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'quality report identity/protocol mismatch; no promotion'}
+          Write-Host 'RESEARCH ONLY: 140-case NIS2 chat core is not full NIS2 and never authorizes checkpoint promotion.'
+
+      - name: Upload diagnostics, step logs and reports ONLY; no model weights/data/optimizer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-bounded-quality-${{ github.run_id }}
+          path: nextgen_quality_report_${{ github.run_id }}/
+          retention-days: 14
+          if-no-files-found: warn
