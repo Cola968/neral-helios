@@ -2,42 +2,40 @@
     "schema":  1,
     "run_id":  "35069331704",
     "state":  "running",
-    "updated_at_utc":  "2026-09-16T09:03:38.4419363Z",
+    "updated_at_utc":  "2026-09-16T09:05:40.6453142Z",
     "target_tokens":  2500000000,
-    "processed_tokens_live":  2045138368,
-    "accepted_continuity_tokens":  2040138368,
+    "processed_tokens_live":  null,
+    "accepted_continuity_tokens":  2045138368,
     "progress_pct_live":  81.8055,
     "remaining_tokens_live":  454861632,
-    "tokens_per_second_last":  1676.599699910098,
-    "loss_last":  3.17268705368042,
-    "stage_step_last":  204,
-    "pure_compute_eta_seconds":  271300.1,
+    "tokens_per_second_last":  null,
+    "loss_last":  null,
+    "stage_step_last":  null,
+    "pure_compute_eta_seconds":  null,
     "health_last":  {
                         "healthy":  true,
-                        "tokens":  2040138368,
-                        "alpha":  0.006,
-                        "regressions":  1,
+                        "tokens":  2045138368,
+                        "alpha":  0.0063,
+                        "regressions":  0,
                         "gains":  0,
-                        "margin_delta":  -0.0023507646151951383,
+                        "margin_delta":  -0.005625638791493007,
                         "validation_loss":  3.2890625,
                         "validation_delta":  -0.00390625,
-                        "checkpoint_sha256":  "98ecc18ec2a4de8b32e931db315839a9f22a6eb84f2c2dd7a70db7d16652747a",
+                        "checkpoint_sha256":  "f4a83a9563ce93ac8c949fe8fb6db0fdc9b72b84369bd8d6ba14311be568d993",
                         "throughput":  {
-                                           "median_tps":  29752.035336906436,
-                                           "mean_tps":  33055.733439909076,
-                                           "p10_tps":  22506.44860990945,
-                                           "peak_tps":  45702.99492371359
-                                       },
-                        "v7_recovery_salvage":  true,
-                        "recovery_state":  "/mnt/d/NeralScaleV81/v8-1-2p5b-thermal-20260916-r3/v5_r0009_retention_5000000/v7_recovery_000003022848.pt"
+                                           "median_tps":  28779.420022235234,
+                                           "mean_tps":  33450.587338812555,
+                                           "p10_tps":  23109.9108623505,
+                                           "peak_tps":  44092.25599478937
+                                       }
                     },
     "audit_last":  null,
     "gpu":  {
                 "temp_c":  56,
-                "vram_used_mib":  899,
-                "vram_free_mib":  11113,
-                "util_pct":  0
+                "vram_used_mib":  6360,
+                "vram_free_mib":  5652,
+                "util_pct":  93
             },
-    "source_metrics":  "D:\\NeralScaleV81\\v8-1-2p5b-thermal-20260916-r3\\v5_r0010_retention_5000000\\metrics.jsonl",
+    "source_metrics":  null,
     "note":  "Live telemetry is observational only; it never changes training, gates, checkpoints, or recovery."
 }
