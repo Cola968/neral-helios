@@ -52,6 +52,9 @@ jobs:
           "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "scratch=$(W $scratchWin)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "request_id=$($r.request_id)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          # wsl.exe --shutdown may return 1 when WSL is already stopped. All real
+          # preflight guards above throw explicitly; never leak that stale exit code.
+          exit 0
 
       - name: Assemble benchmark runtime
         run: |
