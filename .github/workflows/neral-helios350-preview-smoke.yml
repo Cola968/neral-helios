@@ -21,19 +21,18 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Checkout pinned isolated source without deleting any user files
+      - name: Checkout pinned isolated source without deleting user files
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           path: helios350_smoke_source_${{ github.run_id }}
           clean: false
           persist-credentials: false
-      - name: Verify immutable SAFE identity and launch a single local CPU inference request
+      - name: Verify immutable SAFE identity and execute the local launcher in smoke mode
         run: |
           $ErrorActionPreference='Stop'
-          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid absolute Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
           $repo=Join-Path $env:GITHUB_WORKSPACE ('helios350_smoke_source_'+$env:GITHUB_RUN_ID)
-          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           $safe=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
           $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
           $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
@@ -41,7 +40,8 @@ jobs:
           if(-not(Test-Path -LiteralPath $safe -PathType Leaf) -or -not(Test-Path -LiteralPath $tok -PathType Leaf)){throw 'own SAFE assets missing; no inference'}
           if((Get-FileHash -LiteralPath $safe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'SAFE identity mismatch'}
           if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tokSha){throw 'tokenizer identity mismatch'}
-          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios350_preview.py --assets-root '$(W $assets)' --model safe --device cpu --smoke"
-          & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'verified 350M model could not generate; preview NOT validated'}
-          Write-Host 'Real own 350M CPU inference smoke completed. No HTTP service was left running, no CUDA workload, no training, no checkpoints modified.'
+          $launcher=Join-Path $repo 'start-helios350.ps1'
+          if(-not(Test-Path -LiteralPath $launcher -PathType Leaf)){throw 'launcher not checked out'}
+          & $launcher -Smoke
+          if($LASTEXITCODE -ne 0){throw 'verified 350M launcher failed; preview NOT validated'}
+          Write-Host 'The exact user launcher passed a real, local, one-token SAFE inference smoke. The checkout remains on disk; NO service was left running, no CUDA, no training, no model changes.'
