@@ -14,6 +14,14 @@ from v7_1_runtime_hotfix import patch_trainer
 from v7_policy import semantic_resume_contract
 
 
+# The runtime patch is a strict full-file transformation: snippets without its
+# import and compile anchors MUST fail closed rather than bypass the RoPE fix.
+PATCH_ANCHORS = (
+    "from model350 import Neral350M,FRONTIER_350\n"
+    "    run=model if args.compile_mode=='none' else torch.compile(model,fullgraph=True,dynamic=False,mode=args.compile_mode)\n"
+)
+
+
 def test_streaming_batch_chain_is_byte_identical_to_legacy_concat():
     previous='ab'*32
     domain='math_reasoning'
@@ -66,7 +74,7 @@ def test_io_gate_rejects_memory_regression():
 
 
 def test_runtime_hotfix_guards_deferred_row_print_and_marks_cudagraph_step():
-    source=(
+    source=PATCH_ANCHORS + (
         "            with torch.autocast('cuda',dtype=torch.bfloat16):\n"
         "                logits,_=run(x_all,None)\n"
         "        if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)\n"
@@ -74,10 +82,12 @@ def test_runtime_hotfix_guards_deferred_row_print_and_marks_cudagraph_step():
     patched=patch_trainer(source)
     assert "if metric_now and (step%5==0 or done==args.new_tokens)" in patched
     assert "torch.compiler.cudagraph_mark_step_begin()" in patched
+    assert "from model350 import Neral350M,FRONTIER_350,_rope_table" in patched
+    assert "_rope_table(FRONTIER_350.max_seq_len" in patched
 
 
 def test_runtime_hotfix_accepts_fast2_no_cudagraph_objective():
-    source=(
+    source=PATCH_ANCHORS + (
         "            with torch.autocast('cuda',dtype=torch.bfloat16):\n"
         "                fused_loss=fused_run(x_all,y_all)\n"
         "        if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)\n"
@@ -85,3 +95,17 @@ def test_runtime_hotfix_accepts_fast2_no_cudagraph_objective():
     patched=patch_trainer(source)
     assert "if metric_now and (step%5==0 or done==args.new_tokens)" in patched
     assert "fused_loss=fused_run(x_all,y_all)" in patched
+    assert "_rope_table(FRONTIER_350.max_seq_len" in patched
+
+
+def test_runtime_hotfix_rejects_missing_critical_rope_or_compile_anchors():
+    fragment = (
+        "            with torch.autocast('cuda',dtype=torch.bfloat16):\n"
+        "                logits,_=run(x_all,None)\n"
+        "        if step%5==0 or done==args.new_tokens:print(json.dumps(row),flush=True)\n"
+    )
+    import pytest
+    with pytest.raises(RuntimeError, match="RoPE import anchor mismatch"):
+        patch_trainer(fragment)
+    with pytest.raises(RuntimeError, match="prewarm compile anchor mismatch"):
+        patch_trainer("from model350 import Neral350M,FRONTIER_350\n"+fragment)
