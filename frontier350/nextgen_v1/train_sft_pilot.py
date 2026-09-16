@@ -34,7 +34,7 @@ def temperature() -> int:
 
 
 def load_pack(directory: Path, tokenizer: Path) -> tuple[dict, dict[str, list[dict]]]:
-    """Pure Python pack and label verification, safe to exercise without a GPU."""
+    """Verify packed labels and exact causal shift BEFORE importing Torch or touching GPU."""
     report = json.loads((directory / "pack_report.json").read_text(encoding="utf-8"))
     if (report.get("schema") != 1 or
         report.get("classification") != "local_only_untrained_sft_pack" or
@@ -78,6 +78,12 @@ def load_pack(directory: Path, tokenizer: Path) -> tuple[dict, dict[str, list[di
                     raise ValueError("explicit terminal EOS missing or repeated")
                 if row["answer_tokens_including_eos"] != len(labels) - first:
                     raise ValueError("answer token count does not match mask")
+                # model350.forward compares logits[t] with labels[t] (no internal shift).
+                # sft_contract.encode_row supplies full[:-1] and next-token labels.
+                # Without this check a SHA-consistent but incorrectly prepared pack
+                # could optimize unrelated token targets and silently damage quality.
+                if labels[first:-1] != x[first + 1:]:
+                    raise ValueError("causal next-token label alignment mismatch")
                 rows.append(row)
                 if len(rows) > 20_000:
                     raise ValueError("pilot pack exceeds bounded size")
