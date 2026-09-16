@@ -1,7 +1,6 @@
 """Offline crash-fixture tests; no Torch, GPU or real checkpoint deserialization."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
@@ -10,7 +9,7 @@ from pathlib import Path
 
 from checkpoint_journal import (CheckpointJournal, recover_to_new_file,
                                 safe_save_every, sha256_file)
-from train_full_with_journal import guarded_arguments
+from train_full_with_journal import guarded_arguments, duplicate_terminal_save
 
 
 def state(tokens: int) -> dict:
@@ -40,9 +39,10 @@ class CheckpointJournalTests(unittest.TestCase):
                                  initial_tokens=1_010_003_584, writer=writer)
 
     def test_cadence_full_model_defaults_below_one_million(self):
-        self.assertEqual(safe_save_every(seq=512, microbatch=4, accumulation=8), 60)
-        self.assertEqual(512 * 4 * 8 * 60, 983_040)
+        self.assertEqual(safe_save_every(seq=512, microbatch=4, accumulation=8), 61)
+        self.assertEqual(512 * 4 * 8 * 61, 999_424)
         self.assertEqual(safe_save_every(seq=512, microbatch=4, accumulation=12), 40)
+        self.assertEqual(512 * 4 * 12 * 40, 983_040)
         self.assertEqual(safe_save_every(seq=512, microbatch=4, accumulation=8, requested=20), 20)
         with self.assertRaises(ValueError):
             safe_save_every(seq=2048, microbatch=32, accumulation=16)
@@ -135,14 +135,23 @@ class CheckpointJournalTests(unittest.TestCase):
              '--save-every', '100', '--seq', '512', '--microbatch', '4', '--grad-accum', '8'],
             max_rollback=1_000_000)
         self.assertEqual(path, self.resume.absolute())
-        self.assertEqual(int(window), 983_040)
-        self.assertEqual(args[-2:], ['--save-every', '60'])
+        self.assertEqual(int(window), 999_424)
+        self.assertEqual(args[-2:], ['--save-every', '61'])
         with self.assertRaises(ValueError):
             guarded_arguments(['--', '--out', str(self.folder), '--resume', str(self.folder / 'different.pt')],
                               max_rollback=1_000_000)
         with self.assertRaises(ValueError):
             guarded_arguments(['--', '--out', str(self.folder), '--resume', str(self.resume),
                                '--save-every', '5', '--save-every', '50'], max_rollback=1_000_000)
+
+    def test_redundant_final_save_does_not_count_as_new_progress(self):
+        self.assertTrue(duplicate_terminal_save({'processed_tokens': 999, 'step': 12},
+                                                last_tokens=999, last_step=12))
+        self.assertFalse(duplicate_terminal_save({'processed_tokens': 1000, 'step': 13},
+                                                 last_tokens=999, last_step=12))
+        with self.assertRaisesRegex(ValueError, 'changed optimizer step'):
+            duplicate_terminal_save({'processed_tokens': 999, 'step': 13},
+                                    last_tokens=999, last_step=12)
 
 
 if __name__ == '__main__':
