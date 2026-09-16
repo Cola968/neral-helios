@@ -1,0 +1,73 @@
+name: Neral V8.2 Post-Training Read-Only Quality and Parity Probe
+
+on:
+  push:
+    branches: [experiment/v82-40k-quality-measurement]
+    paths: ['frontier350_v82_probe_requests/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Shared with the active V8.1 training workflow; never contend for the RTX 4070.
+concurrency:
+  group: neral-350m-scale-v4
+  cancel-in-progress: false
+
+jobs:
+  frozen-parity-and-readiness:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded request and available GPU
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content frontier350_v82_probe_requests/request.json -Raw|ConvertFrom-Json
+          if($r.version -ne 82 -or $r.action -ne 'read_only_parity_and_readiness'){throw 'invalid V8.2 request'}
+          $gpu=(nvidia-smi --query-gpu=name --format=csv,noheader|Select-Object -First 1).Trim()
+          $temp=[int]((nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          $free=[int]((nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits|Select-Object -First 1).Trim())
+          if($gpu -notmatch 'RTX 4070'){throw "Unexpected GPU: $gpu"}
+          if($temp -gt 78){throw "GPU above normal thermal guard: $temp C"}
+          if($free -lt 9000){throw "Other GPU workload detected; free VRAM only $free MiB"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          if(-not (Test-Path -LiteralPath $assets)){throw 'Local Neral assets not available; no transfer or download attempted'}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p); '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          "repo=$(W (Get-Location).Path)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "assets=$(W $assets)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Check evaluation environment and code syntax
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_v8_2_idle_probe.py frontier350/eval_health_v8_2_combined.py frontier350/verify_health_parity_v8_2.py frontier350/run_v8_nis2_readiness.py; ~/.venvs/neral-triton-py312/bin/python -m unittest discover -s frontier350 -p test_v8_2_speed_evidence.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Evaluation setup or CPU checks failed; no GPU evaluation started'}
+          exit 0
+
+      - name: Evaluate frozen checkpoint without modifying training
+        run: |
+          $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'; $assets='${{ steps.guard.outputs.assets }}'
+          if(Test-Path frontier350_v82_probe_report){throw 'Probe evidence already exists; refusing overwrite'}
+          $cmd="set -e; cd '$repo'; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export CUDA_MODULE_LOADING=LAZY; ~/.venvs/neral-triton-py312/bin/python -u frontier350/run_v8_2_idle_probe.py --assets '$assets' --report frontier350_v82_probe_report --min-tokens 2000000000"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Parity/readiness probe failed; never enable unproven evaluator'}
+          exit 0
+
+      - name: Publish frozen diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-v82-idle-parity-nis2-${{ github.run_id }}
+          path: frontier350_v82_probe_report/
+          retention-days: 30
