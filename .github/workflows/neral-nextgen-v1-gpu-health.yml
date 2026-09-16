@@ -17,17 +17,26 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Show safe GPU status without training or touching checkpoints
+      - name: Distinguish normal Windows GPU clients from training workloads without modifying anything
         run: |
           $ErrorActionPreference='Stop'
-          $lines=@(nvidia-smi --query-gpu=name,memory.free,memory.used,temperature.gpu --format=csv,noheader,nounits)
+          $lines=@(nvidia-smi --query-gpu=name,memory.free,memory.used,temperature.gpu,utilization.gpu --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1){throw 'GPU query failed or multiple GPUs present'}
           $parts=@($lines[0] -split ',' | ForEach-Object {$_.Trim()})
-          if($parts.Count -ne 4){throw 'Unexpected NVIDIA response'}
-          $name=$parts[0];$free=[int]$parts[1];$used=[int]$parts[2];$temp=[int]$parts[3]
+          if($parts.Count -ne 5){throw 'Unexpected NVIDIA response'}
+          $name=$parts[0];$free=[int]$parts[1];$used=[int]$parts[2];$temp=[int]$parts[3];$util=[int]$parts[4]
           $processes=@(nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
-          if($LASTEXITCODE -ne 0){throw 'GPU compute process query failed'}
-          $active=@($processes | Where-Object {$_ -match '^\s*\d+\s*$'}).Count
-          $ready=$name.Contains('RTX 4070') -and $free -ge 9000 -and $temp -le 78 -and $active -eq 0
-          [ordered]@{event='neral_readonly_gpu_health';gpu=$name;free_mib=$free;used_mib=$used;temperature_c=$temp;compute_processes=$active;preflight_gpu_conditions_satisfied=$ready;training_started=$false} | ConvertTo-Json -Compress | Write-Host
-          Write-Host 'Read-only check complete. No CUDA model load, no checkpoint access, no training.'
+          if($LASTEXITCODE -ne 0){throw 'GPU process query failed'}
+          $pids=@($processes | Where-Object {$_ -match '^\s*\d+\s*$'} | ForEach-Object {[int]$_.Trim()} | Sort-Object -Unique)
+          $names=@(foreach($pidNumber in $pids){try{(Get-Process -Id $pidNumber -ErrorAction Stop).ProcessName.ToLowerInvariant()}catch{'unresolved'}})
+          $named=@($names | Group-Object | Sort-Object Name | ForEach-Object {[ordered]@{name=$_.Name;count=$_.Count}})
+          $samples=@($util)
+          for($i=0;$i -lt 2;$i++){
+            Start-Sleep -Seconds 2
+            $q=@(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits)
+            if($LASTEXITCODE -ne 0 -or $q.Count -ne 1){throw 'GPU utilization sample failed'}
+            $samples+=([int]$q[0].Trim())
+          }
+          $ready=$name.Contains('RTX 4070') -and $free -ge 9000 -and $temp -le 78 -and $pids.Count -eq 0
+          [ordered]@{event='neral_readonly_gpu_process_audit';gpu=$name;free_mib=$free;used_mib=$used;temperature_c=$temp;utilization_percent_samples=$samples;reported_unique_processes=$pids.Count;process_names=$named;original_preflight_gpu_conditions_satisfied=$ready;training_started=$false} | ConvertTo-Json -Compress -Depth 5 | Write-Host
+          Write-Host 'Read-only: no CUDA model load, no checkpoint access, no training and no process termination. A listed Windows graphics process alone is not proof of CUDA training.'
