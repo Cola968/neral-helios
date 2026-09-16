@@ -20,21 +20,57 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Checkout exact recovery code into isolated directory (do not clean private assets)
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          path: phoenix_archive_recovery_${{ github.run_id }}
-          clean: false
-          persist-credentials: false
-      - name: Recover public pinned archive into private root and log status only
+      - name: Recover pinned public OASST2 bytes under private asset root (PowerShell native)
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
-          $script = Join-Path $env:GITHUB_WORKSPACE 'phoenix_archive_recovery_${{ github.run_id }}\frontier350\nextgen_v1\phoenix_recover_oasst2.py'
-          if (!(Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Pinned recovery script missing; nothing downloaded.' }
-          # Suppress any raw filesystem/HTTP exception traceback: only structured safe success is allowed.
-          & python $script --assets-root "$root" --execute 2>$null
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned source recovery blocked; inspect locally; no dataset approval or training.' }
-      - name: Confirm no model training or holdout creation
-        run: Write-Host 'Only one original public OASST2 archive may have been downloaded and SHA-verified locally. No holdout synthesized, training, benchmark approval, GPU load, raw file upload or model modification.'
+          $ProgressPreference = 'SilentlyContinue'
+          $stage = 'preflight'
+          $temp = $null
+          try {
+            $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+            if (!(Test-Path -LiteralPath $root -PathType Container)) { throw 'Missing private root' }
+            $rootItem = Get-Item -LiteralPath $root -Force
+            if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsafe root link' }
+            $resolvedRoot = [IO.Path]::GetFullPath($root).TrimEnd('\')
+            $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')
+            if ($resolvedRoot.Equals($workspace, [StringComparison]::OrdinalIgnoreCase) -or $resolvedRoot.StartsWith($workspace + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Never download into checkout' }
+            $source = Join-Path $root 'sft50_sources'
+            if (Test-Path -LiteralPath $source) {
+              $item = Get-Item -LiteralPath $source -Force
+              if (!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsafe source directory' }
+            } else {
+              New-Item -ItemType Directory -Path $source -ErrorAction Stop | Out-Null
+            }
+            $archive = Join-Path $source '2023-11-05_oasst2_ready.messages.jsonl.gz'
+            $expectedBytes = 54301900
+            $expectedSha = 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'
+            if (Test-Path -LiteralPath $archive) {
+              $stage = 'existing_archive_verification'
+              $item = Get-Item -LiteralPath $archive -Force
+              if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $item.PSIsContainer -or $item.Length -ne $expectedBytes) { throw 'Wrong existing archive' }
+              if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedSha) { throw 'Wrong existing digest' }
+              Write-Host 'PHOENIX_ARCHIVE_RECOVERY {"status":"already_verified","pinned_sha256_match":true,"dataset_approved":false,"training_started":false,"raw_data_uploaded":false}'
+            } else {
+              $stage = 'download'
+              $temp = Join-Path $source ('2023-11-05_oasst2_ready.messages.jsonl.gz.partial-' + $env:GITHUB_RUN_ID)
+              if (Test-Path -LiteralPath $temp) { throw 'Temporary output already exists; no overwrite' }
+              $url = 'https://huggingface.co/datasets/OpenAssistant/oasst2/resolve/179dd21fc55192153d94adb0e0ce8f69e222bf75/2023-11-05_oasst2_ready.messages.jsonl.gz'
+              Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing -TimeoutSec 300 -MaximumRedirection 5 -ErrorAction Stop | Out-Null
+              $stage = 'size_and_sha256'
+              $item = Get-Item -LiteralPath $temp -Force
+              if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $item.Length -ne $expectedBytes) { throw 'Pinned archive byte length mismatch' }
+              if ((Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedSha) { throw 'Pinned archive digest mismatch' }
+              $stage = 'publish_without_overwrite'
+              if (Test-Path -LiteralPath $archive) { throw 'Target appeared during recovery' }
+              [IO.File]::Move($temp, $archive)
+              $temp = $null
+              Write-Host 'PHOENIX_ARCHIVE_RECOVERY {"status":"recovered_verified","pinned_sha256_match":true,"bytes":54301900,"dataset_approved":false,"training_started":false,"raw_data_uploaded":false}'
+            }
+          } catch {
+            Write-Host ('PHOENIX_ARCHIVE_RECOVERY {"status":"blocked","stage":"' + $stage + '","dataset_approved":false,"training_started":false,"raw_data_uploaded":false}')
+            throw 'Pinned archive recovery failed safely. No dataset approval or training.'
+          } finally {
+            if ($temp -and (Test-Path -LiteralPath $temp)) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Confirm scope
+        run: Write-Host 'Only the original public OASST2 archive was downloaded and SHA-verified locally. No private holdout synthesized, corpus export, training, benchmark approval, GPU load, raw upload, or model modification.'
