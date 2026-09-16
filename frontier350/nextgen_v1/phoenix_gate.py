@@ -37,15 +37,19 @@ def load(path: Path):
     cases = data["cases"]
     if not isinstance(cases, list) or not 8 <= len(cases) <= 512:
         raise ValueError("require 8..512 real raw-generation cases")
-    ids = set()
+    ids, prompts = set(), set()
     for case in cases:
         if not isinstance(case, dict) or set(case) != REQUIRED:
             raise ValueError("invalid case schema")
         if not isinstance(case["id"], str) or not 1 <= len(case["id"]) <= 128 or case["id"] in ids:
             raise ValueError("invalid or duplicate case ID")
         ids.add(case["id"])
-        if not isinstance(case["prompt_sha256"], str) or not HEX.fullmatch(case["prompt_sha256"]):
+        digest = case["prompt_sha256"]
+        if not isinstance(digest, str) or not HEX.fullmatch(digest):
             raise ValueError("invalid prompt hash")
+        if digest in prompts:
+            raise ValueError("repeated evaluation prompt hash inflates test population")
+        prompts.add(digest)
         if not isinstance(case["answer"], str) or len(case["answer"]) > 10000:
             raise ValueError("invalid answer")
         if case["raw_model"] is not True or type(case["tool_calls"]) is not int or case["tool_calls"] != 0:
@@ -57,8 +61,7 @@ def load(path: Path):
             raise ValueError("invalid generation budget or counter")
         if case["finish_reason"] == "max_tokens" and generated != budget:
             raise ValueError("claimed budget exhaustion without generating the full budget")
-        # EOS as the first generated token is REAL, but produces an empty, unusable answer.
-        # It is represented accurately and penalized by nonempty_rate, not discarded.
+        # EOS as first token is real, but an empty unusable answer: nonempty_rate penalizes it.
     return data
 
 
@@ -90,6 +93,10 @@ def compare(before, after):
     a = {c["id"]: (c["prompt_sha256"], c["max_tokens"]) for c in after["cases"]}
     if b != a:
         raise ValueError("different evaluation prompts or token budgets")
+    if len({case["prompt_sha256"] for case in before["cases"]}) != len(before["cases"]):
+        raise ValueError("baseline repeats prompt hashes")
+    if len({case["prompt_sha256"] for case in after["cases"]}) != len(after["cases"]):
+        raise ValueError("candidate repeats prompt hashes")
     old, new = metrics(before), metrics(after)
     passed = (new["eos_rate"] >= old["eos_rate"] and
               new["nonempty_rate"] >= old["nonempty_rate"] and
