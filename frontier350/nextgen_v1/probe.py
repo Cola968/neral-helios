@@ -67,7 +67,7 @@ def main() -> int:
     import torch
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root))
-    from model350 import Neral350M, FRONTIER_350
+    from model350 import Neral350M, FRONTIER_350, _rope_table, _ROPE_CACHE
     from protection_v9 import configure_trainable
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
@@ -92,6 +92,23 @@ def main() -> int:
         raise RuntimeError("Changed Neral model architecture")
     optimizer = torch.optim.AdamW(params, lr=2e-5, fused=True)
     execution = model
+    rope_prewarmed_outside_capture = False
+    if args.execution == "compile-overhead":
+        # model350._rope_table caches CUDA tensors globally. If created during
+        # CUDA-Graph capture, replay can overwrite their storage. Construct the
+        # identical immutable table BEFORE torch.compile/first captured forward.
+        # This changes no architecture code, checkpoint or model weights.
+        device = next(model.parameters()).device
+        with torch.no_grad():
+            cos, sin = _rope_table(FRONTIER_350.max_seq_len, FRONTIER_350.head_dim,
+                                   FRONTIER_350.rope_theta, device, torch.bfloat16)
+        cache_key = (device.type, device.index, str(torch.bfloat16),
+                     FRONTIER_350.max_seq_len, FRONTIER_350.head_dim,
+                     float(FRONTIER_350.rope_theta))
+        if (_ROPE_CACHE.get(cache_key) is None or cos.requires_grad or sin.requires_grad
+                or cos.device != device or sin.device != device):
+            raise RuntimeError("RoPE cache could not be safely prewarmed before CUDA graphs")
+        rope_prewarmed_outside_capture = True
     if args.execution != "eager":
         mode = "default" if args.execution == "compile-default" else "reduce-overhead"
         execution = torch.compile(model, mode=mode, dynamic=False, fullgraph=True)
@@ -151,6 +168,7 @@ def main() -> int:
         "trainable_parameters": sum(param.numel() for param in params),
         "train_blocks": args.train_blocks,
         "execution": args.execution,
+        "rope_cache_prewarmed_outside_capture": rope_prewarmed_outside_capture,
         "batch": args.batch, "seq": args.seq, "warmup_steps": args.warmup,
         "measured_steps": args.steps,
         "timed_synthetic_tokens": tokens_timed,
