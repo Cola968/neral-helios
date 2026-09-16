@@ -64,8 +64,8 @@ class CheckpointArtifactsTests(unittest.TestCase):
         self.manifest["checkpoints"].pop()
         with self.assertRaisesRegex(ValueError, "every boundary"):
             self.run_verify()
-        self.manifest["checkpoints"].append({"sha256": "a" * 64, "filename": "other.pt"})
-        with self.assertRaises(ValueError):
+        self.manifest["checkpoints"].append({"sha256": "a" * 64, "filename": self.names[-1]})
+        with self.assertRaisesRegex(ValueError, "bytes do not match"):
             self.run_verify()
 
     def test_path_traversal_and_duplicate_filename_rejected(self):
