@@ -1,4 +1,4 @@
-"""Local, non-approving Phoenix SFT prescreen. NEVER certifies dataset readiness.
+"""Local non-approving Phoenix SFT prescreen. NEVER certifies dataset readiness.
 
 Checks exact prompt/holdout collisions, indicative near duplicates and basic
 privacy warning patterns. Outputs counts/hashes only, never corpus text.
@@ -19,6 +19,7 @@ EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 PHONE = re.compile(r"(?<!\w)(?:\+\d{1,3}[ .-]?)?(?:\d[ .-]?){10,14}(?!\w)")
 MAX_ROWS_PER_SPLIT = 20_000
 MAX_CANDIDATES = 500_000
+MAX_HASHED_SHINGLES = 32  # Deterministic, bounded work; NOT complete similarity detection.
 
 
 def local_file(path: Path, root: Path) -> Path:
@@ -38,11 +39,12 @@ def shingles(text: str) -> set[str]:
 
 
 def simhash(grams: set[str]) -> int:
+    """A sampled, deterministic *hint*; do not treat a missed pair as clean."""
     bits = [0] * 64
-    for gram in grams:
-        val = int.from_bytes(hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest(), "big")
+    for gram in sorted(grams)[:MAX_HASHED_SHINGLES]:
+        value = int.from_bytes(hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest(), "big")
         for bit in range(64):
-            bits[bit] += 1 if val & (1 << bit) else -1
+            bits[bit] += 1 if value & (1 << bit) else -1
     return sum((1 << bit) for bit, score in enumerate(bits) if score >= 0)
 
 
@@ -76,8 +78,7 @@ def audit(train: Path, validation: Path, holdout: Path, root: Path) -> dict:
                 if ident in seen_ids:
                     format_flags += 1
                 seen_ids.add(ident)
-                prompt = row["user"]
-                answer = row["assistant"]
+                prompt, answer = row["user"], row["assistant"]
                 if len(prompt) > 8192 or len(answer) > 8192:
                     raise ValueError(f"{split}:{line_number}: text exceeds pilot limit")
                 fingerprint = prompt_hash(prompt)
@@ -87,10 +88,10 @@ def audit(train: Path, validation: Path, holdout: Path, root: Path) -> dict:
                 if fingerprint in frozen:
                     exact += 1
                 if EMAIL.search(prompt) or EMAIL.search(answer) or PHONE.search(prompt) or PHONE.search(answer):
-                    privacy += 1  # Heuristic only, not a comprehensive PII test.
+                    privacy += 1  # Indicative, NOT comprehensive PII screening.
                 clean = norm(prompt)
                 if len(clean) > 512:
-                    long += 1  # Full-text near-duplicate inspection remains manual.
+                    long += 1  # Unexamined prompt suffix remains manual-review work.
                 grams = shingles(clean)
                 if grams:
                     fp = simhash(grams)
@@ -124,7 +125,7 @@ def audit(train: Path, validation: Path, holdout: Path, root: Path) -> dict:
             "privacy_hits": privacy, "duplicate_id_flags": format_flags,
             "long_prompt_near_screen_incomplete": long,
             "near_candidate_comparisons": compared,
-            "note": "Only indicative automated screening. SimHash can MISS semantic/near duplicates; email/phone regex can MISS PII. License/source, held-out semantic leakage and privacy require independent manual review. Never flip approved to true automatically."}
+            "note": "Only indicative automated screening. Sampled SimHash covers at most 512 prompt characters and 32 shingles; it can MISS near/semantic duplicates. Email/phone regex can MISS PII. License/source, held-out semantic leakage and privacy require independent manual review. Never flip approved to true automatically."}
 
 
 def main() -> None:
