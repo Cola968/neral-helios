@@ -54,6 +54,11 @@ class PhoenixGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare(self.before, self.after)
 
+    def test_rejects_changed_budget_even_if_protocol_claim_matches(self):
+        self.after['cases'][0]['max_tokens'] = 256
+        with self.assertRaises(ValueError):
+            compare(self.before, self.after)
+
     def test_rejects_duplicate_case_ids(self):
         self.after['cases'][1]['id'] = 'case-0'
         with self.assertRaises(ValueError):
@@ -61,7 +66,8 @@ class PhoenixGateTests(unittest.TestCase):
 
     def test_detects_eos_regression(self):
         self.after['cases'][0]['finish_reason'] = 'max_tokens'
-        self.assertFalse(compare(self.before, self.after)['health_nonregression'])
+        self.after['cases'][0]['tokens_generated'] = 128
+        self.assertFalse(compare(self.roundtrip(self.before), self.roundtrip(self.after))['health_nonregression'])
 
     def test_detects_repetition(self):
         self.after['cases'][0]['answer'] = 'loop loop loop loop loop loop loop loop loop loop'
@@ -78,8 +84,27 @@ class PhoenixGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load(path)
 
-    def test_rejects_false_eos_on_empty_answer(self):
+    def test_rejects_falsified_eos_with_zero_generated_tokens(self):
         self.after['cases'][0]['answer'] = ''
+        self.after['cases'][0]['tokens_generated'] = 0
+        with self.assertRaises(ValueError):
+            self.roundtrip(self.after)
+
+    def test_first_token_eos_is_real_but_empty_answer_is_penalized(self):
+        self.after['cases'][0]['answer'] = ''
+        self.after['cases'][0]['tokens_generated'] = 1
+        result = compare(self.roundtrip(self.before), self.roundtrip(self.after))
+        self.assertEqual(result['candidate']['eos_rate'], 1.0)
+        self.assertEqual(result['candidate']['nonempty_rate'], 0.875)
+        self.assertFalse(result['health_nonregression'])
+
+    def test_rejects_incomplete_max_token_claim(self):
+        self.after['cases'][0]['finish_reason'] = 'max_tokens'
+        with self.assertRaises(ValueError):
+            self.roundtrip(self.after)
+
+    def test_rejects_artificial_stop(self):
+        self.after['cases'][0]['finish_reason'] = 'stop'
         with self.assertRaises(ValueError):
             self.roundtrip(self.after)
 
