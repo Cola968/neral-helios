@@ -1,6 +1,6 @@
 name: Neral NextGen three-checkpoint FP32 holdout audit
 
-# Read-only inference, no training; runs when this new workflow is first committed.
+# Read-only inference only. Workflow change triggers one isolated retry.
 on:
   push:
     branches: [experiment/nextgen-v1-isolated]
@@ -22,7 +22,7 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Checkout pinned source without cleaning user assets
+      - name: Checkout pinned code without deleting user files
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -30,11 +30,11 @@ jobs:
           clean: false
           persist-credentials: false
 
-      - name: Read-only pins, SAFE backup, holdout SHA and GPU environment
-        id: files
+      - name: Verify three checkpoint SHA pins, vault, holdout SHA, tokenizer and GPU
+        id: pins
         run: |
           $ErrorActionPreference='Stop'
-          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
           $repo=Join-Path $env:GITHUB_WORKSPACE ('neral_fp32_source_'+$env:GITHUB_RUN_ID)
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
           $base=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
@@ -49,20 +49,20 @@ jobs:
           $corpus=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05'
           $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
           $report=Join-Path $env:GITHUB_WORKSPACE ('neral_fp32_report_'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $report){throw 'report folder exists; no overwrite'}
+          if(Test-Path -LiteralPath $report){throw 'existing report; refuse overwrite'}
           foreach($item in @(@($base,$safeSha),@($mid,$midSha),@($final,$finalSha),@($tok,$tokSha))){
-            if(-not(Test-Path -LiteralPath $item[0] -PathType Leaf) -or (Get-FileHash -LiteralPath $item[0] -Algorithm SHA256).Hash.ToLowerInvariant() -ne $item[1]){throw "missing/changed pinned asset $($item[0])"}
+            if(-not(Test-Path -LiteralPath $item[0] -PathType Leaf) -or (Get-FileHash -LiteralPath $item[0] -Algorithm SHA256).Hash.ToLowerInvariant() -ne $item[1]){throw "changed or missing pinned asset $($item[0])"}
           }
           $gpu=(nvidia-smi --query-gpu=name,memory.free,temperature.gpu --format=csv,noheader,nounits|Select-Object -First 1)
           $parts=@($gpu.Split(',')|ForEach-Object {$_.Trim()})
           Write-Host "GPU=$gpu"
-          if($parts.Count -ne 3 -or $parts[0] -notmatch 'RTX 4070' -or [int]$parts[1] -lt 9000 -or [int]$parts[2] -gt 78){throw 'GPU validation environment not safe'}
+          if($parts.Count -ne 3 -or $parts[0] -notmatch 'RTX 4070' -or [int]$parts[1] -lt 9000 -or [int]$parts[2] -gt 78){throw 'GPU validation environment rejected'}
           New-Item -ItemType Directory -Path $report|Out-Null
           $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/eval_fp32_holdout350.py frontier350/nextgen_v1/compare_fp32_holdout.py; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/checkpoint_vault.py verify --backup '$(W $vault)' --expected-sha '$safeSha'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/verify_holdout_shards.py --corpus-root '$(W $corpus)' --tokenizer-sha '$tokSha' --out '$(W $report)/holdout_integrity.json'"
           & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'pinned backup or validation shards failed'}
+          if($LASTEXITCODE -ne 0){throw 'vault or holdout validation failure'}
           $integrity=Get-Content -LiteralPath (Join-Path $report 'holdout_integrity.json') -Raw|ConvertFrom-Json
-          if($integrity.status -ne 'read_only_holdout_verified' -or $integrity.manifest_sha256 -ne $manifestSha){throw 'independent validation manifest mismatch'}
+          if($integrity.status -ne 'read_only_holdout_verified' -or $integrity.manifest_sha256 -ne $manifestSha){throw 'independent validation SHA mismatch'}
           "repo=$(W $repo)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "base=$(W $base)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "mid=$(W $mid)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -74,37 +74,32 @@ jobs:
           "final_sha=$finalSha"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "tok_sha=$tokSha"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Read-only baseline FP32 CE on locked validation sample
+      - name: Read-only FP32 evaluation of SAFE and two unpromoted candidates on IDENTICAL 65536-token sample
         run: |
           $ErrorActionPreference='Stop'
-          $cmd="set -euo pipefail; cd '${{ steps.files.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/eval_fp32_holdout350.py --checkpoint '${{ steps.files.outputs.base }}' --checkpoint-sha '${{ steps.files.outputs.safe_sha }}' --tokenizer-sha '${{ steps.files.outputs.tok_sha }}' --expected-tokens 1010003584 --valid-data '${{ steps.files.outputs.valid }}' --out '${{ steps.files.outputs.report }}/base_fp32.json'"
-          & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'baseline FP32 validation failed'}
+          $repo='${{ steps.pins.outputs.repo }}';$valid='${{ steps.pins.outputs.valid }}';$report='${{ steps.pins.outputs.report }}'
+          $pairs=@(
+            @('base','${{ steps.pins.outputs.base }}','${{ steps.pins.outputs.safe_sha }}','1010003584'),
+            @('mid','${{ steps.pins.outputs.mid }}','${{ steps.pins.outputs.mid_sha }}','1010249344'),
+            @('final','${{ steps.pins.outputs.final }}','${{ steps.pins.outputs.final_sha }}','1010495104')
+          )
+          foreach($p in $pairs){
+            $name=$p[0];$ck=$p[1];$sha=$p[2];$tokens=$p[3]
+            $cmd="set -euo pipefail; cd '$repo'; export PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/eval_fp32_holdout350.py --checkpoint '$ck' --checkpoint-sha '$sha' --tokenizer-sha '${{ steps.pins.outputs.tok_sha }}' --expected-tokens '$tokens' --valid-data '$valid' --out '$report/${name}_fp32.json'"
+            & wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw "FP32 evaluation failed for $name; no training or promotion"}
+          }
 
-      - name: Read-only step-10 FP32 CE on IDENTICAL validation sample
+      - name: Strict matched-batch FP32 comparison with NO PROMOTION
         run: |
           $ErrorActionPreference='Stop'
-          $cmd="set -euo pipefail; cd '${{ steps.files.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/eval_fp32_holdout350.py --checkpoint '${{ steps.files.outputs.mid }}' --checkpoint-sha '${{ steps.files.outputs.mid_sha }}' --tokenizer-sha '${{ steps.files.outputs.tok_sha }}' --expected-tokens 1010249344 --valid-data '${{ steps.files.outputs.valid }}' --out '${{ steps.files.outputs.report }}/mid_fp32.json'"
+          $r='${{ steps.pins.outputs.report }}';$repo='${{ steps.pins.outputs.repo }}'
+          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_fp32_holdout.py --base '$r/base_fp32.json' --mid '$r/mid_fp32.json' --final '$r/final_fp32.json' --safe-sha '${{ steps.pins.outputs.safe_sha }}' --mid-sha '${{ steps.pins.outputs.mid_sha }}' --final-sha '${{ steps.pins.outputs.final_sha }}' --out '$r/comparison_fp32.json'"
           & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'step-10 FP32 validation failed'}
+          if($LASTEXITCODE -ne 0){throw 'invalid paired FP32 report'}
+          Write-Host 'READ-ONLY. No model promotion or file deletion.'
 
-      - name: Read-only step-20 FP32 CE on IDENTICAL validation sample
-        run: |
-          $ErrorActionPreference='Stop'
-          $cmd="set -euo pipefail; cd '${{ steps.files.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/eval_fp32_holdout350.py --checkpoint '${{ steps.files.outputs.final }}' --checkpoint-sha '${{ steps.files.outputs.final_sha }}' --tokenizer-sha '${{ steps.files.outputs.tok_sha }}' --expected-tokens 1010495104 --valid-data '${{ steps.files.outputs.valid }}' --out '${{ steps.files.outputs.report }}/final_fp32.json'"
-          & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'step-20 FP32 validation failed'}
-
-      - name: Matched per-batch FP32 comparison; absolutely no automatic promotion
-        run: |
-          $ErrorActionPreference='Stop'
-          $r='${{ steps.files.outputs.report }}';$repo='${{ steps.files.outputs.repo }}'
-          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_fp32_holdout.py --base '$r/base_fp32.json' --mid '$r/mid_fp32.json' --final '$r/final_fp32.json' --safe-sha '${{ steps.files.outputs.safe_sha }}' --mid-sha '${{ steps.files.outputs.mid_sha }}' --final-sha '${{ steps.files.outputs.final_sha }}' --out '$r/comparison_fp32.json'"
-          & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'unmatched or invalid FP32 comparison; no promotion'}
-          Write-Host 'READ-ONLY: all candidate checkpoints remain unpromoted; no training, no deletion.'
-
-      - name: Upload ONLY read-only numeric reports and manifest receipts
+      - name: Upload only numerical diagnostics, never weights, optimizer or corpus
         if: always()
         uses: actions/upload-artifact@v4
         with:
