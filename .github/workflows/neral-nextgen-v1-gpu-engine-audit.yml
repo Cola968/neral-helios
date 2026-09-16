@@ -34,7 +34,7 @@ jobs:
                   $engine=$Matches[2]
                   $name=try{(Get-Process -Id $pidNumber -ErrorAction Stop).ProcessName.ToLowerInvariant()}catch{'unresolved'}
                   $value=[math]::Round([double]$counter.CookedValue,2)
-                  if([double]::IsFinite($value) -and $value -gt 0){
+                  if(-not [double]::IsNaN($value) -and -not [double]::IsInfinity($value) -and $value -gt 0){
                     $records+= [pscustomobject]@{pid=$pidNumber;process=$name;engine=$engine;percent=$value}
                   }
                 }
