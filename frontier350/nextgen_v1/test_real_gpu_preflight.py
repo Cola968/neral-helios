@@ -93,6 +93,23 @@ class RealGpuPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "replay tokenizer identity"):
             self.check()
 
+    def test_extra_main_or_replay_bin_rejected_before_training(self):
+        (self.main_data / "unlisted.bin").write_bytes(b"unlisted corpus")
+        with self.assertRaisesRegex(ValueError, "unlisted or missing"):
+            self.check()
+        (self.main_data / "unlisted.bin").unlink()
+        (self.replay / "math_reasoning" / "extra.bin").write_bytes(b"unlisted replay")
+        with self.assertRaisesRegex(ValueError, "unlisted or missing"):
+            self.check()
+
+    def test_non_bin_manifest_entry_is_rejected(self):
+        (self.main_data / "surprise.txt").write_bytes(b"not a trainer shard")
+        data = json.loads(self.main_manifest.read_text())
+        data["train_files"][0] = {"path": "surprise.txt", "sha256": self.sha(self.main_data / "surprise.txt")}
+        self.main_manifest.write_text(json.dumps(data), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "must be a "):
+            self.check()
+
     def test_benchmark_contamination_and_duplicate_json_fields_fail(self):
         self.main_manifest.write_text(self.main_manifest.read_text().replace("false", "true"))
         with self.assertRaisesRegex(ValueError, "benchmark separation"):
@@ -140,6 +157,12 @@ class RealGpuPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "GPU readiness"):
             self.check()
 
+    def test_busy_gpu_does_not_hash_checkpoint_or_data(self):
+        self.gpu["compute_processes"] = 2
+        with mock.patch.object(preflight, "hash_file", side_effect=AssertionError("should not hash")):
+            with self.assertRaisesRegex(ValueError, "GPU readiness"):
+                self.check()
+
     def test_real_gpu_command_requires_idle_single_4070(self):
         output = lambda text: mock.Mock(stdout=text)
         with mock.patch.object(preflight.subprocess, "run", side_effect=[
@@ -147,7 +170,14 @@ class RealGpuPreflightTests(unittest.TestCase):
             self.assertEqual(preflight.query_gpu()["compute_processes"], 0)
         with mock.patch.object(preflight.subprocess, "run", side_effect=[
             output("RTX 4070, 10240, 55\n"), output("1234\n")]):
-            with self.assertRaisesRegex(ValueError, "compute process"):
+            with self.assertRaisesRegex(ValueError, "compute_processes"):
+                preflight.query_gpu()
+
+    def test_gpu_error_explains_memory_temperature_and_process_count(self):
+        output = lambda text: mock.Mock(stdout=text)
+        with mock.patch.object(preflight.subprocess, "run", side_effect=[
+            output("RTX 4070, 8843, 60\n"), output("12\n13\n")]):
+            with self.assertRaisesRegex(ValueError, "free_mib=8843.*temperature_c=60.*compute_processes=2"):
                 preflight.query_gpu()
 
 
