@@ -1,0 +1,62 @@
+name: Neral real-data RTX4070 stage bottleneck profiler (BOUNDED)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-real-stage-profiler.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  three-steps-in-memory-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Isolated pinned source checkout; do not clean user training files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: neral_profile_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Gate exact SHA-pinned own weights, data, free disk and three idle GPU samples
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'absolute Windows path required'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('neral_profile_source_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $parent='D:\NeralScaleV81'
+          $a=Join-Path $parent ('profile_unused_a_'+$env:GITHUB_RUN_ID)
+          $b=Join-Path $parent ('profile_unused_b_'+$env:GITHUB_RUN_ID)
+          $anchorSha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tokSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$(W $anchor)' --anchor-sha256 '$anchorSha' --main-data '$(W $main)' --replay '$(W $replay)' --tokenizer-sha256 '$tokSha' --arm-a '$(W $a)' --arm-b '$(W $b)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'GPU or trust preflight rejected; profile NOT started'}
+          "repo=$(W $repo)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "anchor=$(W $anchor)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "main=$(W $main)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "replay=$(W $replay)"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "anchor_sha=$anchorSha"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tokenizer_sha=$tokSha"|Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Run only three real-data optimizer updates in RAM and profile CUDA phases
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -euo pipefail; cd '$repo'; export PYTHONPATH='$repo/frontier350:$repo/frontier350/nextgen_v1' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/profile_real_v9.py --anchor '${{ steps.guard.outputs.anchor }}' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --main-data '${{ steps.guard.outputs.main }}' --replay '${{ steps.guard.outputs.replay }}' --tokenizer-sha '${{ steps.guard.outputs.tokenizer_sha }}'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Profile failed; NO new training or performance claim is valid'}
+          Write-Host 'Three genuine-data GPU diagnostic steps completed entirely in memory; no checkpoint or dataset output, no model promotion.'
