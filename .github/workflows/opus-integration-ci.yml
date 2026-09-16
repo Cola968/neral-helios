@@ -1,0 +1,48 @@
+name: Opus integration
+
+on:
+  pull_request:
+    paths:
+      - 'app_opus.py'
+      - 'experiential_client.py'
+      - 'static/opus-bridge.js'
+      - 'tests/test_experiential_client.py'
+      - 'Configure-Opus.ps1'
+      - 'Start-Neral-Cloud.ps1'
+      - '.github/workflows/opus-integration-ci.yml'
+  push:
+    paths:
+      - 'app_opus.py'
+      - 'experiential_client.py'
+      - 'static/opus-bridge.js'
+      - 'tests/test_experiential_client.py'
+      - '.github/workflows/opus-integration-ci.yml'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m py_compile experiential_client.py app_opus.py
+      - run: python -m pytest -q tests/test_experiential_client.py
+      - run: node --check static/opus-bridge.js
+
+  powershell-syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell files
+        shell: pwsh
+        run: |
+          $errors=@()
+          foreach($file in @('Configure-Opus.ps1','Start-Neral-Cloud.ps1','Start-Neral.ps1')){
+            $tokens=$null
+            $parseErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$parseErrors) | Out-Null
+            if($parseErrors){$errors += $parseErrors}
+          }
+          if($errors){$errors | Format-List; exit 1}

@@ -13,11 +13,12 @@ function Resolve-NeralRoot {
     foreach($candidate in $candidates | Select-Object -Unique){
         if(-not $candidate){continue}
         if((Test-Path -LiteralPath (Join-Path $candidate 'app.py') -PathType Leaf) -and
+           (Test-Path -LiteralPath (Join-Path $candidate 'app_opus.py') -PathType Leaf) -and
            (Test-Path -LiteralPath (Join-Path $candidate 'deployment') -PathType Container)){
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
-    throw 'Der vollstaendige Neral-CPU-App-Ordner wurde nicht gefunden. Der Starter allein enthaelt weder app.py noch das Modell. Lege den vollstaendigen Ordner Neral-CPU-App auf den Desktop und starte erneut.'
+    throw 'Der vollstaendige Neral-CPU-App-Ordner wurde nicht gefunden. Lege den vollstaendigen Ordner Neral-CPU-App auf den Desktop und starte erneut.'
 }
 
 $appRoot=Resolve-NeralRoot
@@ -147,24 +148,28 @@ function Get-NeralInfo {
 $ready=$false
 try{
     $info=Get-NeralInfo
-    $ready=($info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
+    $ready=($info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode -and $null -ne $info.cloud_gateway)
 }catch{}
 
 if(-not $ready){
-    Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','app.py') -WorkingDirectory $appRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'app.log') -RedirectStandardError (Join-Path $state 'app-error.log') | Out-Null
+    Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','app_opus.py') -WorkingDirectory $appRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'app.log') -RedirectStandardError (Join-Path $state 'app-error.log') | Out-Null
     for($attempt=0;$attempt -lt 45;$attempt++){
         Start-Sleep -Seconds 1
         try{
             $info=Get-NeralInfo
-            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and $info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
+            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and $info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode -and $null -ne $info.cloud_gateway){$ready=$true;break}
         }catch{}
     }
 }
 
-if(-not $ready){throw 'Neral konnte nicht gestartet werden. Siehe local_state\app-error.log. Port 9686 muss frei sein.'}
+if(-not $ready){throw 'Neral konnte nicht mit der Opus-Bridge gestartet werden. Siehe local_state\app-error.log. Port 9686 muss frei sein.'}
 
 $edge=Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
 if(-not $NoBrowser){
     if(Test-Path -LiteralPath $edge){Start-Process -FilePath $edge -ArgumentList @('--disable-gpu',"--app=$url")}else{Start-Process $url}
 }
-Write-Host 'Neral laeuft. Ab jetzt reicht fuer jeden Start ein Doppelklick auf Start Neral.cmd.' -ForegroundColor Green
+if($info.cloud_gateway.configured){
+    Write-Host 'Neral laeuft. Claude Opus 5 ist im Modellmenue verfuegbar.' -ForegroundColor Green
+}else{
+    Write-Host 'Neral laeuft. Claude Opus 5 ist vorbereitet; EXPLABS_API_KEY fehlt noch.' -ForegroundColor Yellow
+}

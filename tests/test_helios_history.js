@@ -8,6 +8,10 @@ test('chat import validates roles and keeps untrusted content literal',()=>{
   assert.throws(()=>core.parseImport('{'));
   assert.throws(()=>core.parseImport('a'.repeat(2*1024*1024+1)));
 });
+test('chat import accepts Claude cloud generations',()=>{
+  const r=core.parseImport(JSON.stringify({format:'neral-chat-v1',title:'Opus',messages:[{role:'user',mode:'chat',content:'Redesign'},{role:'assistant',mode:'cloud-generation',checkpoint:'claude-opus-5',content:'Vorschlag'}]}));
+  assert.equal(r.messages[1].mode,'cloud-generation');assert.equal(r.messages[1].checkpoint,'claude-opus-5');
+});
 const pair=(text,checkpoint='pilot_02')=>[{role:'user',mode:'chat',content:text},{role:'assistant',mode:'trained-generation',content:text,checkpoint}];
 test('history drops whole pairs and respects byte budget',()=>{
   const r=core.context([...pair('😀'.repeat(20)),...pair('neu')],'Hi',30,100,'pilot_02');
