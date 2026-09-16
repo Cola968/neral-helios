@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "action": "run_local_conservative_20step_pilot",
+  "request_id": "conservative-v1-20260916",
+  "anchor_sha256": "ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c",
+  "steps": 20,
+  "tokens": 491520,
+  "learning_rate": 0.000005,
+  "replay_boost": 1.0
+}
