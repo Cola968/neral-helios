@@ -1,7 +1,7 @@
 name: Neral NextGen requested conservative development pilot
 
-# GPU training can start ONLY by adding the single exact dated request file.
-# Workflow edits alone do NOT trigger any GPU training.
+# GPU training can start ONLY by committing the exact, dated request file.
+# Workflow edits alone do NOT trigger GPU training.
 on:
   push:
     branches: [experiment/nextgen-v1-isolated]
@@ -37,8 +37,8 @@ jobs:
           if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'explicit request missing'}
           $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
           $keys=@($r.PSObject.Properties.Name|Sort-Object)
-          if(($keys -join ',') -ne 'action,anchor_sha256,learning_rate,request_id,replay_boost,steps,tokens,version'){throw 'unrecognized request fields'}
-          if($r.version -ne 1 -or $r.action -ne 'run_local_conservative_20step_pilot' -or $r.request_id -ne 'conservative-v1-20260916') {throw 'request contract mismatch'}
+          if(($keys -join ',') -ne 'action,anchor_sha256,learning_rate,replay_boost,request_id,steps,tokens,version'){throw 'unrecognized request fields'}
+          if($r.version -ne 1 -or $r.action -ne 'run_local_conservative_20step_pilot' -or $r.request_id -ne 'conservative-v1-20260916'){throw 'request contract mismatch'}
           if($r.anchor_sha256 -ne 'ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c' -or [int]$r.steps -ne 20 -or [long]$r.tokens -ne 491520){throw 'unsafe checkpoint or token budget'}
           if([math]::Abs([double]$r.learning_rate-0.000005) -gt 1e-12 -or [math]::Abs([double]$r.replay_boost-1.0) -gt 1e-12){throw 'unreviewed training hyperparameters'}
           Write-Host 'Authorized bounded local 20-step research pilot; no production promotion or cloud.'
