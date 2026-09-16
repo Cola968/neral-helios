@@ -1,0 +1,33 @@
+name: Neral NextGen GPU health (READ ONLY)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-gpu-health.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-gpu-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Show safe GPU status without training or touching checkpoints
+        run: |
+          $ErrorActionPreference='Stop'
+          $lines=@(nvidia-smi --query-gpu=name,memory.free,memory.used,temperature.gpu --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1){throw 'GPU query failed or multiple GPUs present'}
+          $parts=@($lines[0] -split ',' | ForEach-Object {$_.Trim()})
+          if($parts.Count -ne 4){throw 'Unexpected NVIDIA response'}
+          $name=$parts[0];$free=[int]$parts[1];$used=[int]$parts[2];$temp=[int]$parts[3]
+          $processes=@(nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0){throw 'GPU compute process query failed'}
+          $active=@($processes | Where-Object {$_ -match '^\s*\d+\s*$'}).Count
+          $ready=$name.Contains('RTX 4070') -and $free -ge 9000 -and $temp -le 78 -and $active -eq 0
+          [ordered]@{event='neral_readonly_gpu_health';gpu=$name;free_mib=$free;used_mib=$used;temperature_c=$temp;compute_processes=$active;preflight_gpu_conditions_satisfied=$ready;training_started=$false} | ConvertTo-Json -Compress | Write-Host
+          Write-Host 'Read-only check complete. No CUDA model load, no checkpoint access, no training.'
