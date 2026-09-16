@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-"""Opt-in localhost-only preview of the actual Neral 350M weights.
+"""Read-only localhost preview of SHA-pinned, own Neral 350M weights.
 
-Read-only: no training, checkpoint writes, weight downloads or remote services.
-Use only trusted own checkpoints with the independently recorded exact SHA256.
-This is a diagnostic preview, NOT a production assistant or a speed benchmark.
+No training, checkpoint writes, downloads, cloud services or production claims.
+Only use local checkpoints whose exact SHA256 was recorded independently.
 """
-
 import argparse
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,12 +21,12 @@ TOKENIZER_SHA = "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7d
 SAFE_RELATIVE = Path("runs/neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected/resume.pt")
 MAX_INPUT_BYTES = 4096
 MAX_PROMPT_CHARS = 1024
-MAX_INPUT_TOKENS = 384  # Training used 512; leave room for the generated answer.
+MAX_INPUT_TOKENS = 384  # Trained seq length 512; reserve space for response.
 MAX_NEW_TOKENS = 64
 
 HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Helios 350M · lokale Vorschau</title><style>
 :root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101625;color:#e9edf6}body{max-width:780px;margin:36px auto;padding:0 16px}h1{font-size:1.8rem}p{line-height:1.5;color:#b5c2d5}textarea{width:100%;box-sizing:border-box;padding:14px;min-height:108px;border:1px solid #52627f;border-radius:12px;background:#19253a;color:inherit;font:inherit}button{padding:11px 19px;border:0;border-radius:10px;background:#77b9ff;color:#091222;font-weight:700;cursor:pointer}button:disabled{opacity:.6;cursor:wait}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#19253a;border:1px solid #384b6b;border-radius:12px;padding:16px;min-height:80px;font:inherit}small{color:#aebcd0}</style></head><body>
-<h1>Helios · echte Neral-350M-Vorschau</h1><p id="status">Lade Modellstatus …</p><p>Experimentelle eigene Gewichte. Antworten können fehlerhaft sein, sich wiederholen oder nicht enden. Dies ist kein Qualitäts- oder Sicherheitstest.</p><label for="prompt">Deine Nachricht</label><textarea id="prompt" maxlength="1024" placeholder="Hallo, wer bist du?"></textarea><p><button id="send">Mit Neral testen</button></p><small>Maximal 64 neue Tokens; pro Anfrage wird nur das lokale Modell auf diesem PC verwendet.</small><h2>Modellantwort</h2><pre id="reply" aria-live="polite"></pre>
+<h1>Helios · echte Neral-350M-Vorschau</h1><p id="status">Lade Modellstatus …</p><p>Experimentelle eigene Gewichte. Antworten können fehlerhaft sein, sich wiederholen oder nicht enden. Dies ist kein Qualitäts- oder Sicherheitstest.</p><label for="prompt">Deine Nachricht</label><textarea id="prompt" maxlength="1024" placeholder="Hallo, wer bist du?"></textarea><p><button id="send">Mit Neral testen</button></p><small>Maximal 64 neue Tokens. Die Gewichte verbleiben auf diesem PC.</small><h2>Modellantwort</h2><pre id="reply" aria-live="polite"></pre>
 <script>const $=id=>document.getElementById(id);fetch('/health').then(r=>r.json()).then(x=>{$('status').textContent=`${x.model} · ${x.processed_tokens.toLocaleString('de-DE')} Tokens · ${x.device} · ${x.status}`}).catch(()=>{$('status').textContent='Keine Verbindung zum lokalen Modell.'});$('send').onclick=async()=>{const p=$('prompt').value.trim();if(!p)return;$('send').disabled=true;$('reply').textContent='Generiere …';try{const r=await fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p,max_new_tokens:64})});const d=await r.json();$('reply').textContent=r.ok?d.answer:(d.error||'Anfrage fehlgeschlagen');}catch(e){$('reply').textContent='Lokale Verbindung fehlgeschlagen.'}finally{$('send').disabled=false;}};</script></body></html>"""
 
 
@@ -72,13 +70,18 @@ def parse_request(raw: bytes) -> tuple[str, int]:
 def permitted_origin(origin: str | None, port: int) -> bool:
     if not origin:
         return True
-    parsed = urlsplit(origin)
-    return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"} and parsed.port == port and parsed.path in {"", "/"} and not parsed.query and not parsed.fragment
+    try:
+        parsed = urlsplit(origin)
+        return (parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+                and parsed.port == port and parsed.path in {"", "/"}
+                and not parsed.username and not parsed.password
+                and not parsed.query and not parsed.fragment)
+    except ValueError:  # malformed URL/port must return 403, not crash the server.
+        return False
 
 
 def load_verified_model(root: Path, checkpoint: Path, model_kind: str, device_name: str):
-    # An attacker-controlled torch pickle must never be deserialized. Only explicitly
-    # SHA-pinned, locally owned checkpoint bytes are permitted for weights_only=False.
+    # Unsafe Torch pickle is decoded only AFTER verifying a pinned known-local SHA.
     expected = SAFE_SHA if model_kind == "safe" else CONTINUITY_SHA
     checkpoint = trusted_asset(root, checkpoint, expected)
     tok_path = trusted_asset(root, root / "frontier350_assets" / "tokenizer.json", TOKENIZER_SHA)
@@ -86,14 +89,12 @@ def load_verified_model(root: Path, checkpoint: Path, model_kind: str, device_na
     from tokenizers import Tokenizer
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from model350 import FRONTIER_350, Neral350M
-
     if device_name == "cuda" and (not torch.cuda.is_available() or not torch.cuda.is_bf16_supported()):
         raise ValueError("CUDA BF16 unavailable; use --device cpu")
     tok = Tokenizer.from_file(str(tok_path))
     if tok.get_vocab_size() != FRONTIER_350.vocab_size:
         raise ValueError("tokenizer vocabulary mismatch")
-    bos = tok.token_to_id("<|bos|>")
-    eos = tok.token_to_id("<|eos|>")
+    bos, eos = tok.token_to_id("<|bos|>"), tok.token_to_id("<|eos|>")
     if bos is None or eos is None:
         raise ValueError("own tokenizer BOS/EOS missing")
     state = torch.load(checkpoint, map_location="cpu", weights_only=False)
@@ -112,8 +113,6 @@ def load_verified_model(root: Path, checkpoint: Path, model_kind: str, device_na
 
 
 def generate(model, tok, bos: int, eos: int, torch, prompt: str, count: int) -> tuple[str, int]:
-    # This checkpoint was trained with 512-token sequences; architectural 8K is not a
-    # validated learned-context claim. No KV-cache: deliberately short local preview.
     ids = [bos] + tok.encode("User: " + prompt + "\nAssistant:").ids
     if len(ids) > MAX_INPUT_TOKENS:
         raise ValueError("message exceeds 384 encoded tokens")
@@ -121,8 +120,7 @@ def generate(model, tok, bos: int, eos: int, torch, prompt: str, count: int) -> 
     device = next(model.parameters()).device
     with torch.inference_mode():
         for _ in range(count):
-            idx = torch.tensor([ids], device=device, dtype=torch.long)
-            logits, _ = model(idx)
+            logits, _ = model(torch.tensor([ids], device=device, dtype=torch.long))
             token = int(logits[0, -1].float().argmax().item())
             if token == eos:
                 break
@@ -136,11 +134,10 @@ def make_handler(model, tok, bos: int, eos: int, torch, processed: int, model_ki
     class PreviewHandler(BaseHTTPRequestHandler):
         def _send(self, status: int, data: bytes, content_type: str):
             self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+            for name, value in (("Content-Type", content_type), ("Content-Length", str(len(data))),
+                                ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                                ("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")):
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
         def _json(self, status, obj):
@@ -176,21 +173,20 @@ def make_handler(model, tok, bos: int, eos: int, torch, processed: int, model_ki
             except ValueError as exc:
                 self._json(400, {"error": str(exc)})
             except Exception:
-                # Avoid leaking local filesystem paths or untrusted prompts into logs.
                 self._json(500, {"error": "local inference failed; check the terminal"})
         def log_message(self, *_):
-            pass  # Prompts are private and must not be written to server logs.
+            pass  # No prompts in logs.
     return PreviewHandler
 
 
 def main():
     ap = argparse.ArgumentParser(description="Read-only localhost preview of own Neral 350M weights")
-    ap.add_argument("--assets-root", default=os.getenv("NERAL_ASSETS_ROOT"), help="Existing private Neral assets directory (or NERAL_ASSETS_ROOT)")
+    ap.add_argument("--assets-root", default=os.getenv("NERAL_ASSETS_ROOT"), help="Existing private Neral asset directory (or NERAL_ASSETS_ROOT)")
     ap.add_argument("--checkpoint", help="Explicit own checkpoint path; mandatory for continuity-2b")
     ap.add_argument("--model", choices=("safe", "continuity-2b"), default="safe")
     ap.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     ap.add_argument("--port", type=int, default=9681)
-    ap.add_argument("--smoke", action="store_true", help="Read-only one-token real-checkpoint generation; no server")
+    ap.add_argument("--smoke", action="store_true", help="One-token actual checkpoint generation; no server")
     args = ap.parse_args()
     if not args.assets_root:
         ap.error("--assets-root or NERAL_ASSETS_ROOT is required")
@@ -200,7 +196,6 @@ def main():
         ap.error("port must be 1024..65535")
     root = Path(args.assets_root)
     checkpoint = Path(args.checkpoint) if args.checkpoint else root / SAFE_RELATIVE
-    model, tok, bos, eos, torch, processed = None, None, None, None, None, None
     model, tok, bos, eos, processed, torch = load_verified_model(root, checkpoint, args.model, args.device)
     print(f"Verified own Neral 350M {args.model}: {processed:,} tokens; device={args.device}; read-only", flush=True)
     if args.smoke:
