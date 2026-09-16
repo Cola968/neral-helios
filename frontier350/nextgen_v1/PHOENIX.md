@@ -1,53 +1,69 @@
-# NERAL Phoenix — sicherer 7-Tage-Entwicklungsplan
+# NERAL Phoenix – isolierter Entwicklungsstand und 7-Tage-Plan
 
-**Status 16.09.2026:** Opt-in Rohgenerierungs-Exporter und Gesundheitsvergleich sind implementiert und werden ausschließlich durch synthetische CPU-Tests geprüft. **Kein neuer Phoenix-Checkpoint, keine eigene GPU-Inferenz in diesem Zweig, keine nachgewiesene Qualitätssteigerung.** Bestehende SAFE- und 2B-Gewichte bleiben unverändert; PR bleibt Draft. Ein Zeitplan ist keine garantierte Fertigstellung.
+**Stand: 16.09.2026. Entwurf, keine Produktionsfreigabe.** Eigene 350M-Gewichte und Tokenizer bleiben erhalten. Keine Phoenix-SFT-Gewichte trainiert, keine nachgewiesene Chatverbesserung, keine nachgewiesenen 60–70k akzeptierten Trainingstokens/s. Kein langes Training automatisch starten, keine privaten Dialogdaten, Berichte oder Gewichte nach GitHub/Hugging Face hochladen.
 
-## Fahrplan mit Stop/Go-Kriterien
+## Nachweisstand – strikt unterscheiden
 
-| Tag | Umsetzung | Nachweis vor dem nächsten Schritt |
+- **Tatsächliche eigene SAFE-Inferenz bestanden:** [Windows-Self-Hosted-Run 35130240477](https://github.com/Cola968/neral-helios/actions/runs/35130240477) verifizierte den fest gepinnten SAFE-Checkpoint und generierte auf acht öffentlichen Engineering-Eingaben jeweils ein Token. Acht von acht Ausgaben nichtleer, alle acht am Ein-Token-Limit, gemessene Generierung zusammen 1,1 Sekunden. Das belegt nur Ladbarkeit und Decoder-Ausführung, nicht sinnvolle Antworten oder echte EOS-Fähigkeit.
+- **Längerer SAFE-Entwicklungsdiagnostikversuch NICHT gelaufen:** [Run 35130560673](https://github.com/Cola968/neral-helios/actions/runs/35130560673) verweigerte acht bis zu 64 Token lange Generationen bereits vor dem Checkpointladen wegen belegter/heißer GPU laut Guard. Welcher Grenzwert ausschlaggebend war, geht aus diesem Log nicht hervor. Schutzgrenzen nicht aufweichen und nicht bei belegter GPU wiederholt starten. Kein Qualitätsbefund.
+- **Synthetische Offline-CPU-CI:** [aktuellen Testlauf](https://github.com/Cola968/neral-helios/actions/runs/35131393100) auf GitHub einsehen. Sie prüft Verträge und Eingabefehler ohne Gewichte, GPU oder SFT. Ein bestandener Vertragstest ist kein neuer NIS2-Wert.
+- **Keine real geprüften SFT-Daten und kein Kandidatenmodell:** Die vorhandenen `sft_contract.py` und `train_sft_pilot.py` sind lediglich opt-in Trainingsvorbereitung beziehungsweise Experiment; ihre Daten-/GPU-Freigaben sind offen.
+
+## 7-Tage-Plan mit Stop/Go
+
+| Tag | Umsetzung | Nur weiter nach belegtem Gate |
 | --- | --- | --- |
-| 1 | SAFE-Checkpoint/Tokenizer und ruhenden GPU-Zustand verifizieren; Rohantworten mit unverändertem Promptset erfassen. | SHA-256, echte Rohantworten, EOS/Abbruch-Protokoll, keine Änderungen an Gewichten. |
-| 2 | Menschliche Dialogdaten unabhängig auf Lizenz, PII, Naheduplikate, Prompt-Gruppen und Benchmark-Leakage prüfen; SFT-Pack erzeugen. | Nachvollziehbare Quellen, bestätigte Prüfbelege, train/validation/holdout disjunkt. Keine erfundenen Freigaben. |
-| 3 | Bestehenden `train_sft_pilot.py` als begrenzten 1–50-Schritte-Versuch auf einer **Kopie** eines stabilen Checkpoints ausführen, nur wenn GPU frei. | Tatsächliche Trainingslogs, Temperatur/VRAM, Antwort- und EOS-Validierung; nie den SAFE-Checkpoint überschreiben. |
-| 4 | Echte identische Baseline-/Kandidaten-Generierungen und unabhängigen Blind-Korrektheitsvergleich plus NIS2 durchführen. | Gesundheitsprüfung ohne Regression **und** nachgewiesene Antwortverbesserung. Niedrigerer Loss genügt nicht. |
-| 5 | Nur durch Tests belegte Fehler nachbessern; erneute unveränderte Prüfung. | Keine unbemerkte Änderung des eingefrorenen Holdouts; kein blindes Mehrtraining. |
-| 6 | Falls Kandidat alle Gates besteht: zunächst experimentell und explizit in Helios integrieren; Rohmodell und Werkzeuge getrennt anzeigen. | Lokaler Start, Gesprächsverlauf, HTTP-Sicherheit, Laufzeit- und Speichertests. |
-| 7 | Längere Dialoge, Robustheit, Sicherheit, Fehlerfälle und Freigabeentscheidung. | Vorher festgelegte Mindestkriterien und unveränderte SAFE-Rückfalloption. |
+| 1 | SHA-gepinnten SAFE-Baseline-Checkpoint und ruhende GPU prüfen; unabhängiges fixiertes Testset lokal mit bis zu 64 Tokens ausführen. | Echte, vollständig abgeschlossene Rohantworten und getrennte EOS-Zählung. 1-Token-Smoke allein reicht nicht. |
+| 2 | Menschliche DE/EN-Dialogdaten nach Herkunft, Lizenz, PII, exakter und semantischer Überlappung prüfen. | Unabhängige Quellen-/Lizenzfreigabe, train/validation/holdout disjunkt; erst dann lokal SFT-Pack erzeugen. |
+| 3 | 1–50 SFT-Schritte mit geprüften Daten, isoliertem Ergebnis und **Kopie** des stabilen Checkpoints, nur auf freier GPU. | Echte GPU-/Loss-Logs, Temperatur/VRAM, valide gespeicherter Kandidat; SAFE bleibt unverändert. |
+| 4 | Unverändertes Promptset mit identischem Decoder für SAFE und Kandidat ausführen, blind Antwortkorrektheit, EOS, Wiederholungen, DE/EN, Mathe, Code und volles NIS2 prüfen. | Korrektheit nachweislich besser ohne unzulässige Regression. Niedrigerer Loss genügt nicht. |
+| 5 | Fehler gezielt korrigieren, Entwicklungsdaten statt Release-Holdout zur Auswahl nutzen. | Eingefrorene Tests unangetastet; keine verdeckte Überanpassung. |
+| 6 | Nur nach bestandenem Vergleich opt-in Kandidat in experimentelle Helios-Oberfläche einbinden. | Lokalstart/HTTP/Origin/Chatverlauf/Leistungsaufnahme geprüft; Modell- und Tool-Ergebnisse getrennt. |
+| 7 | Mehrturn- und Sicherheits-/Stabilitätsprüfung plus experimentelle Abnahme. | Nachvollziehbare Qualität und SAFE-Rückfalloption; sonst kein Release. |
 
-Ein fehlgeschlagener Gate verlängert den Zeitplan; er darf nicht durch Umbenennung eines Checkpoints umgangen werden. Langfristige 60–70k Tokens/s und ein guter allgemeiner Chatbot sind separate, bisher unbelegte Ziele.
+Zeitplan = Arbeitshypothese, keine Fertigstellungs- oder Qualitätsgarantie. Scheitert ein Gate, nicht die nächste Stufe erzwingen.
 
-## Rohantworten auf deinem eigenen PC erfassen (Tag 1)
+## Vorabprüfung lokaler Dialogdaten – kein automatisches Approve
 
-`phoenix_capture.py` benutzt die echten lokalen Neral-350M-Gewichte, native Tokenizer-/Modellarchitektur und `kv_decode.py`; EOS wird als **wirklich generiertes Token** inklusive Tokenzähler erfasst. Das Skript führt **keinen Trainingslauf** aus, lädt nichts herunter und schreibt nicht in das Repository. Ein GPU-Aufruf wird bei zu wenig VRAM oder belegter/heißer RTX 4070 verweigert; Standard ist CPU. Prüfe selbst zusätzlich, dass kein Training parallel startet.
+`phoenix_data_audit.py` prüft ausschließlich **lokal** die beiden JSONL-Splits (`id`, `source_id`, `user`, `assistant`) und die bestehende SHA-256-Liste der eingefrorenen Holdout-Prompts. Es gibt Zählwerte für exakte Überlappung, doppelte IDs und Hinweise auf nahe Dubletten oder E-Mail-/Telefonmuster aus. Es prüft Ähnlichkeit nur näherungsweise (max. 512 Zeichen/32 Sample-Shingles je Prompt) und erkennt **weder alle Dubletten noch alle privaten Inhalte**. Ergebnis enthält immer `approved: false`; es ist kein Lizenz-, Datenschutz- oder Benchmark-Audit und kann die zwingende unabhängige `sft_contract.py`-Freigabe nicht ersetzen.
 
-Benötigt: eine lokale, vertrauenswürdige, SHA-geprüfte Kopie des eigenen Checkpoints, den passenden eigenen Tokenizer und 8–128 **vorher festgelegte** private Prompts innerhalb des Neral-Assets-Verzeichnisses. Die Prompts stehen in einer JSON-Datei, die ein Array von Objekten mit genau `id` und `prompt` enthält. Beispiel-Eintrag: `{"id":"dialog-01","prompt":"Hallo, wer bist du?"}`. Ein Beispielprompt ist kein unabhängiger Benchmark. Keine eingefrorenen NIS2-Aufgaben in Trainingsdaten verwenden.
+PowerShell aus dem Repo-Stamm (nach Prüfung deiner **eigenen** bestehenden Pfade; neue Ausgabedatei):
 
-Im Repo-Stammverzeichnis, PowerShell, erst nach lokaler Prüfung der Pfade:
+```powershell
+$root = $env:NERAL_ASSETS_ROOT
+python frontier350/nextgen_v1/phoenix_data_audit.py --assets-root "$root" --train "$root/phoenix/train.jsonl" --validation "$root/phoenix/validation.jsonl" --holdout-hashes "$root/phoenix/holdout_hashes.json" --out "$root/phoenix/prescreen-new.json"
+```
+
+Nicht vorhandene Pfade sind Platzhalter – das Skript legt weder ein künstliches Dataset noch eine scheinbar positive Prüfbestätigung an. Erst nach unabhängig überprüfter Datenherkunft, Lizenzen, Datenschutz, tatsächlichen Naheduplikaten und Holdout-Kontamination darf ein Mensch einen separaten, auf den Datei-Hashes beruhenden Freigabebericht ausstellen. `test_phoenix_audit_interlock.py` bestätigt mit künstlichen Daten, dass der Prescreen nicht als Freigabe durch `sft_contract.check_manifest()` durchgeht.
+
+## Echte Rohantworten lokal erzeugen – nur wenn der Rechner frei ist
+
+`phoenix_capture.py` ist opt-in, read-only, SHA-gepinnt und zählt wirklich erzeugte EOS-Tokens inklusive ihrer Tokenposition. Ausgabe enthält private Antworten **nur** in einer lokalen neuen Berichtdatei, nicht im Terminal. Erst selbst verifizieren, dass keine anderen GPU-/Trainingsjobs laufen und genügend RAM/Disk vorhanden sind. `--device cpu` beansprucht keine CUDA-Inferenz, aber dennoch erheblichen RAM/CPU; nicht parallel zu wichtigem laufendem Training.
+
+Benötigt: NERAL_ASSETS_ROOT, die dort liegende selbst geprüfte SAFE-Kopie und eigener Tokenizer sowie 8–128 unterschiedliche **vorab fixierte** Prompts als JSON-Array mit genau `id` und `prompt` in `$root/phoenix/prompts.json`. Der Ordner muss existieren; Beispiele sind keine echten Release-/NIS2-Holdouts. Nie eingefrorene NIS2-Antworten zum Trainieren verwenden.
 
 ```powershell
 $root = $env:NERAL_ASSETS_ROOT
 $safe = Join-Path $root 'runs/neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected/resume.pt'
 $prompts = Join-Path $root 'phoenix/prompts.json'
-$before = Join-Path $root 'phoenix/baseline.json'
+$before = Join-Path $root 'phoenix/baseline-new.json'
 python frontier350/nextgen_v1/phoenix_capture.py --execute --trusted-local-checkpoint --assets-root "$root" --checkpoint "$safe" --checkpoint-sha256 ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c --kind safe --prompts "$prompts" --out "$before" --device cpu --max-new-tokens 64
 ```
 
-`$root` muss tatsächlich gesetzt sein und der Ordner `phoenix` muss bereits existieren. Die Ausgabedatei darf nicht existieren. Diesen Vorgang **nicht** erneut auf denselben Ausgabepfad ausführen. Für einen neu trainierten Kandidaten verwende denselben unveränderten `prompts.json`, `--kind sft-pilot`, dessen **unabhängig überprüften** SHA-256 und einen neuen Ausgabepfad; alte Ausgaben niemals überschreiben. Nur vertrauenswürdige lokale Torch-Pickle-Checkpoints laden (`--trusted-local-checkpoint` ist eine Erklärung, keine Sicherheitsprüfung).
+`phoenix_capture.py` kann die Unabhängigkeit/Testherkunft nicht selber authentifizieren; vor dem Start muss der Operator eindeutige, verschiedene Fragen bestätigen. Die Ausgangsdateien/Reports nicht wiederverwenden oder überschreiben. Für SFT-Kandidat: dasselbe Promptset, identisches Decoderprotokoll, neue Berichtsdatei, `--kind sft-pilot` und unabhängig geprüfter Kandidaten-SHA. Unbekannte Torch-Pickle-Dateien niemals laden; `--trusted-local-checkpoint` ist eine Bestätigung, keine Sicherheitsprüfung.
 
-Während der Erfassung erscheinen echte Fortschrittszeilen mit Fallnummer, Tokenanzahl und `finish_reason`, aber ohne Frage oder Antwort. Der private Bericht enthält die Antworten und bleibt lokal. Keine Reports oder Gewichte nach GitHub/Hugging Face hochladen.
-
-## Auswertung nach einem tatsächlichen GPU-SFT und zweitem Export
+## A/B-Gesundheitsprüfung nach wirklichem SFT
 
 ```powershell
 python frontier350/nextgen_v1/phoenix_gate.py --baseline PFAD_ZUR_BASELINE.json --candidate PFAD_ZUM_KANDIDATEN.json --out NEUER_GESUNDHEITSBERICHT.json
 ```
 
-`phoenix_gate.py` verlangt identische Fall-IDs, SHA-256 der **ursprünglichen UTF-8-Prompts**, identisches Decoderprotokoll und Tokenbudgets, verschiedene Checkpoint-Identitäten, `raw_model=true`, `tool_calls=0` und ein korrektes EOS- oder Budget-Ende. Ein sofortiges echtes EOS zählt als EOS **und gleichzeitig als leere Antwort**. Ein unvollständiger Budgetabbruch oder eine künstliche Stoppsequenz wird abgewiesen. Ergebnisse enthalten nur Aggregatwerte und Hashes. Exit-Code 2 bedeutet Gesundheitsregression. Ein bestandenes Gesundheits-Gate ist **kein Nachweis korrekter Antworten** und keine Produktionsfreigabe. Die Authentizität der Eingabeberichte muss unabhängig geprüft werden.
+Identische Fall-IDs, **eindeutige** originale UTF-8-Prompt-Hashes, Protokoll und Tokenbudget, verschiedene Checkpointidentitäten sowie `raw_model=true` und `tool_calls=0` sind erforderlich. Wirklich erzeugtes EOS zählt als EOS; sofortiges EOS zählt zugleich als leere Antwort. Abgebrochene, künstlich gestoppte oder unvollständige Budget-Runs sind ungültig. Nur aggregierte Raten/Hashes dürfen GitHub erreichen; auch ein bestandener Health-Test sagt **nichts** über tatsächliche Antwortkorrektheit, völlige NIS2-Qualität oder Produktionsreife.
 
-## Tests und echte Logs
+## Tests und Grenzen
 
 ```powershell
 python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'
 ```
 
-GitHub Actions: `.github/workflows/phoenix-gate-ci.yml`. Diese CI prüft nur Syntax und künstliche Offline-Vertragstests. Ohne ausdrücklich gestarteten, lokal verifizierten GPU-Lauf gibt es **keine Trainingslogs** und keine gemessene Phoenix-Chatqualität. Der separate bestehende `SFT_PILOT.md` beschreibt die begrenzte Trainingskomponente und ihre nicht erfüllten Voraussetzungen; seine Ausführung darf nicht durch den bloßen Wunsch nach schnellen Resultaten erzwungen werden.
+GitHub Actions: `.github/workflows/phoenix-gate-ci.yml` ist gehostete synthetische CPU-Prüfung. `.github/workflows/phoenix-own-weight-smoke.yml` ist read-only, eigens isolierter Self-Hosted-Engineering-Lauf mit festem öffentlichen Promptset und GPU-Leerlaufschutz. Keine automatische lange SFT-Kampagne und keinerlei Modellpromotion. Der bestehende `SFT_PILOT.md` enthält die noch ausstehenden realen SFT-Voraussetzungen.
