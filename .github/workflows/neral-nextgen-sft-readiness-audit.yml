@@ -1,0 +1,37 @@
+name: Neral SFT read-only input audit
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-sft-readiness-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Check known paths without loading data or altering processes
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $safe = Join-Path $root 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          Write-Host ('safe_checkpoint_exists=' + (Test-Path -LiteralPath $safe -PathType Leaf))
+          Write-Host ('tokenizer_exists=' + (Test-Path -LiteralPath (Join-Path $root 'frontier350_assets\tokenizer.json') -PathType Leaf))
+          $dirs = @((Join-Path $root 'sft'), (Join-Path $root 'frontier350_sft'), (Join-Path $root 'nextgen_sft'), 'D:\NeralScaleV81\sft', 'D:\NeralScaleV81\sft_pilot', 'D:\NeralScaleV81\sft_data')
+          $needed = @('train.jsonl','validation.jsonl','manifest.json','holdout_hashes.json','screen.json')
+          foreach ($directory in $dirs) {
+            if (Test-Path -LiteralPath $directory -PathType Container) {
+              $presence = foreach ($file in $needed) { "$file=$([bool](Test-Path -LiteralPath (Join-Path $directory $file) -PathType Leaf))" }
+              Write-Host ("candidate_data_dir_present=$directory files=" + ($presence -join ','))
+            }
+          }
+          $runs=Join-Path $root 'runs'
+          if (Test-Path -LiteralPath $runs -PathType Container) {
+            $possible=@(Get-ChildItem -LiteralPath $runs -Directory -ErrorAction Stop | Where-Object { $_.Name -match '2b|continuity|sft' } | Select-Object -First 16)
+            foreach ($d in $possible) { Write-Host ("checkpoint_candidate_directory="+$d.Name+" resume_exists="+[bool](Test-Path -LiteralPath (Join-Path $d.FullName 'resume.pt') -PathType Leaf)) }
+          }
+          $gpu = (& nvidia-smi --query-gpu=name,memory.free,temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>&1)
+          Write-Host ('gpu_snapshot=' + ($gpu -join ' '))
+          Write-Host 'Read-only SFT readiness audit completed. No prompts, token packs, checkpoints, or users programs changed.'
