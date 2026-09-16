@@ -1,0 +1,9 @@
+{
+  "version": 82,
+  "action": "read_only_parity_and_readiness",
+  "request_id": "v82-idle-parity-nis2-20260916-1130",
+  "minimum_accepted_tokens": 2000000000,
+  "no_checkpoint_upload": true,
+  "do_not_modify_training": true,
+  "do_not_enable_combined_evaluator_without_parity": true
+}
