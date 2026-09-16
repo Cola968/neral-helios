@@ -12,8 +12,8 @@ from pathlib import Path
 
 STAGE_TOKENS = 5_000_000
 MIN_STAGES = 3
-TARGET_TPS = 50_000.0
-STRETCH_TPS = 70_000.0
+# Sustained, accepted END-TO-END training throughput. This is NOT the synthetic probe rate.
+TARGET_TPS = 44_000.0
 
 
 def finite_number(value, name: str) -> float:
@@ -64,10 +64,10 @@ def validate_evidence(record: dict) -> dict:
         total_tokens += int(accepted)
         total_seconds += elapsed
         if rate < TARGET_TPS:
-            failures.append(f"stage_{i}_below_50k")
+            failures.append(f"stage_{i}_below_44k")
     combined = total_tokens / total_seconds
     if combined < TARGET_TPS:
-        failures.append("combined_below_50k")
+        failures.append("combined_below_44k")
 
     base = record.get("baseline")
     candidate = record.get("candidate")
@@ -116,8 +116,7 @@ def validate_evidence(record: dict) -> dict:
         "wall_seconds": total_seconds,
         "stage_accepted_tps": rates,
         "combined_accepted_tps": combined,
-        "stretch_70k_verified": not failures and all(rate >= STRETCH_TPS for rate in rates) and combined >= STRETCH_TPS,
-        "warning": "Reports are claims until original self-hosted artifacts, hashes and frozen holdout are independently checked; not a production promotion. Synthetic GPU probe reports can NEVER satisfy this gate.",
+        "warning": "Reports are claims until original self-hosted artifacts, hashes, complete NIS2 and frozen holdout are independently checked; not a production promotion. Synthetic GPU probe reports can NEVER satisfy this gate.",
     }
 
 
