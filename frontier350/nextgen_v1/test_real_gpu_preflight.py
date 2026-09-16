@@ -50,7 +50,7 @@ class RealGpuPreflightTests(unittest.TestCase):
         self.arm_a = self.out_root / "arm_a"
         self.arm_b = self.out_root / "arm_b"
         self.gpu = {"gpu": "RTX 4070", "free_mib": 10240, "temperature_c": 51,
-                    "compute_processes": 0}
+                    "utilization_percent_samples": [2, 4, 3], "reported_compute_processes": 0}
         minimum = mock.patch.object(preflight, "MIN_FREE_DISK_BYTES", 0)
         minimum.start()
         self.addCleanup(minimum.stop)
@@ -149,35 +149,66 @@ class RealGpuPreflightTests(unittest.TestCase):
         with mock.patch.object(preflight, "MIN_FREE_DISK_BYTES", 10 ** 30):
             with self.assertRaisesRegex(ValueError, "insufficient disk"):
                 self.check()
-        self.gpu["compute_processes"] = 1
+        self.gpu["utilization_percent_samples"] = [4, 40, 3]
         with self.assertRaisesRegex(ValueError, "GPU readiness"):
             self.check()
-        self.gpu["compute_processes"] = 0
+        self.gpu["utilization_percent_samples"] = [2, 4, 3]
         self.gpu["free_mib"] = 2000
+        with self.assertRaisesRegex(ValueError, "GPU readiness"):
+            self.check()
+        self.gpu["free_mib"] = 10240
+        self.gpu["temperature_c"] = 79
         with self.assertRaisesRegex(ValueError, "GPU readiness"):
             self.check()
 
     def test_busy_gpu_does_not_hash_checkpoint_or_data(self):
-        self.gpu["compute_processes"] = 2
+        self.gpu["utilization_percent_samples"] = [34, 39, 40]
         with mock.patch.object(preflight, "hash_file", side_effect=AssertionError("should not hash")):
             with self.assertRaisesRegex(ValueError, "GPU readiness"):
                 self.check()
 
-    def test_real_gpu_command_requires_idle_single_4070(self):
+    def test_windows_gui_processes_are_not_a_blanket_training_blocker(self):
+        self.gpu["reported_compute_processes"] = 22
+        report = self.check()
+        self.assertEqual(report["gpu"]["reported_compute_processes"], 22)
+        self.assertFalse(report["training_started"])
+        self.gpu["utilization_percent_samples"] = [40, 34, 39]
+        with self.assertRaisesRegex(ValueError, "GPU readiness"):
+            self.check()
+
+    def test_missing_or_invalid_utilization_is_fail_closed(self):
+        for invalid in (None, [], [2], [2, 4, 3, 1], [2, -1, 3], [2, 101, 3], [2, float("nan"), 3]):
+            self.gpu["utilization_percent_samples"] = invalid
+            with self.assertRaisesRegex(ValueError, "GPU readiness"):
+                self.check()
+
+    def test_real_gpu_command_samples_occupancy_and_retains_pid_evidence(self):
         output = lambda text: mock.Mock(stdout=text)
-        with mock.patch.object(preflight.subprocess, "run", side_effect=[
-            output("NVIDIA GeForce RTX 4070, 10240, 55\n"), output("\n")]):
-            self.assertEqual(preflight.query_gpu()["compute_processes"], 0)
-        with mock.patch.object(preflight.subprocess, "run", side_effect=[
-            output("RTX 4070, 10240, 55\n"), output("1234\n")]):
-            with self.assertRaisesRegex(ValueError, "compute_processes"):
+        with mock.patch.object(preflight.time, "sleep") as sleep, mock.patch.object(
+            preflight.subprocess, "run", side_effect=[
+                output("NVIDIA GeForce RTX 4070, 10240, 55, 2\n"),
+                output("101\n102\n"), output("5\n"), output("3\n")]):
+            result = preflight.query_gpu()
+        self.assertEqual(result["utilization_percent_samples"], [2, 5, 3])
+        self.assertEqual(result["reported_compute_processes"], 2)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_real_gpu_rejects_a_single_high_utilization_sample(self):
+        output = lambda text: mock.Mock(stdout=text)
+        with mock.patch.object(preflight.time, "sleep"), mock.patch.object(
+            preflight.subprocess, "run", side_effect=[
+                output("RTX 4070, 10240, 55, 2\n"), output("101\n"),
+                output("40\n"), output("3\n")]):
+            with self.assertRaisesRegex(ValueError, "utilization_percent_samples=\\[2, 40, 3\\]"):
                 preflight.query_gpu()
 
-    def test_gpu_error_explains_memory_temperature_and_process_count(self):
+    def test_gpu_error_explains_memory_temperature_and_activity(self):
         output = lambda text: mock.Mock(stdout=text)
-        with mock.patch.object(preflight.subprocess, "run", side_effect=[
-            output("RTX 4070, 8843, 60\n"), output("12\n13\n")]):
-            with self.assertRaisesRegex(ValueError, "free_mib=8843.*temperature_c=60.*compute_processes=2"):
+        with mock.patch.object(preflight.time, "sleep"), mock.patch.object(
+            preflight.subprocess, "run", side_effect=[
+                output("RTX 4070, 8843, 60, 40\n"), output("12\n13\n"),
+                output("34\n"), output("39\n")]):
+            with self.assertRaisesRegex(ValueError, "free_mib=8843.*temperature_c=60.*utilization_percent_samples.*reported_compute_processes=2"):
                 preflight.query_gpu()
 
 
