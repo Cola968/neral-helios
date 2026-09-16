@@ -64,10 +64,23 @@ def guarded_arguments(forwarded: list[str], *, max_rollback: int) -> tuple[list[
     every = safe_save_every(seq=dimensions[0], microbatch=dimensions[1],
                             accumulation=dimensions[2], max_rollback_tokens=max_rollback,
                             requested=int(requested) if requested is not None else None)
-    # Compiled trainer checks the same count at a step boundary, then writes a
-    # complete optimizer/model/RNG checkpoint synchronously before next update.
+    # Native trainer saves synchronously at an optimizer boundary. Never allow
+    # a requested interval to override the <=1M token recovery ceiling.
     args = _without_flag(args, '--save-every') + ['--save-every', str(every)]
     return args, resume_path, str(dimensions[0] * dimensions[1] * dimensions[2] * every)
+
+
+def duplicate_terminal_save(state: dict, *, last_tokens: int, last_step: int) -> bool:
+    """The native trainer writes at last step AND again in its finalizer.
+
+    Suppress ONLY the redundant second write; a counter/step mismatch is fatal.
+    Validation and weight updates do not occur between the two native writes.
+    """
+    if state.get('processed_tokens') != last_tokens:
+        return False
+    if state.get('step') != last_step:
+        raise ValueError('same tokens but changed optimizer step: refusing duplicate checkpoint')
+    return True
 
 
 def main() -> None:
@@ -86,7 +99,8 @@ def main() -> None:
     forwarded, resume, window = guarded_arguments(args.native_args, max_rollback=args.max_rollback_tokens)
     if not resume.is_file() or sha256_file(resume) != args.resume_sha256:
         raise ValueError('source checkpoint bytes differ from pinned SHA-256')
-    # Import after the path/hash contract, never read untrusted checkpoint bytes.
+    # Import only after the source bytes are pinned. torch.load/pickle files
+    # must originate from the trusted, already verified local Neral project.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import torch
     import train350_compiled as trainer
@@ -101,17 +115,24 @@ def main() -> None:
         raise ValueError('trained checkpoint lacks AdamW momentum; requires explicit warm-start')
     if any(k not in source for k in ('torch_rng', 'cuda_rng', 'train_sampler_rng', 'tokenizer_sha256', 'step')):
         raise ValueError('checkpoint missing complete model-resume provenance')
-    # Never allow a speculative 2-3B run from incompatible or weakly identified state.
+    last_step = int(source['step'])
     journal = CheckpointJournal(resume, initial_sha256=args.resume_sha256,
                                 initial_tokens=int(source['processed_tokens']),
                                 writer=trainer.atomic_save,
                                 max_rollback_tokens=args.max_rollback_tokens,
                                 retain=args.retain)
-    source.clear()  # Release loaded metadata/tensor mapping before GPU allocation.
+    source.clear()
     original_save = trainer.atomic_save
 
     def journaled_save(state: dict, target: Path):
-        return journal.commit(state, target)
+        nonlocal last_step
+        if Path(target).resolve() == journal.resume and duplicate_terminal_save(
+                state, last_tokens=journal.last_tokens, last_step=last_step):
+            return {'journaled': True, 'redundant_final_save_skipped': True}
+        result = journal.commit(state, target)
+        if result.get('kind') == 'complete_resumable_state':
+            last_step = int(state['step'])
+        return result
 
     trainer.atomic_save = journaled_save
     old_argv = sys.argv
