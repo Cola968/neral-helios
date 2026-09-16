@@ -5,11 +5,15 @@ on:
     branches: [experiment/nextgen-v1-isolated]
     paths:
       - 'frontier350/nextgen_v1/**'
+      - 'frontier350/train_v7_1_stage_launcher.py'
+      - 'frontier350/train_v7_2_stage_launcher.py'
       - '.github/workflows/neral-nextgen-v1-ci.yml'
   pull_request:
     branches: [experiment/scale-v8-3b]
     paths:
       - 'frontier350/nextgen_v1/**'
+      - 'frontier350/train_v7_1_stage_launcher.py'
+      - 'frontier350/train_v7_2_stage_launcher.py'
       - '.github/workflows/neral-nextgen-v1-ci.yml'
   workflow_dispatch:
 
@@ -27,10 +31,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile all NextGen modules and run offline CPU contract tests (no CUDA)
+      - name: Compile NextGen and historical launchers; test CPU contracts only
         run: |
           python -m compileall -q frontier350/nextgen_v1
+          python -m py_compile frontier350/train_v7_1_stage_launcher.py frontier350/train_v7_2_stage_launcher.py
           python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_*.py'
       - name: Explicitly record evidence boundary
         run: |
-          echo 'Synthetic CPU contract tests only: NO CUDA, NO training, NO model inference, NO GPU probe, NO user dataset, NO paid jobs.'
+          echo 'Offline CPU-only fixtures: NO CUDA, NO training, NO model inference, NO real checkpoint deserialization, NO paid jobs.'
