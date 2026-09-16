@@ -59,12 +59,12 @@ jobs:
           "target=$target"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           exit 0
 
-      - name: Assemble V8.1 runtime
+      - name: Assemble V8.1 runtime and passive V8.2 evidence
         run: |
           $ErrorActionPreference='Stop'; $repo='${{ steps.guard.outputs.repo }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_2_fast2_profile.py; ~/.venvs/neral-triton-py312/bin/python frontier350/v7_2_checkpoint_cadence_hotfix.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_target_closure.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_1_thermal_governor.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/train_v7_2_stage_launcher.py frontier350/apply_v8_1_thermal_governor.py"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v6_fast_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_guardrails.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_storage_cleanup.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_1_speed_patch.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v7_2_fast2_profile.py; ~/.venvs/neral-triton-py312/bin/python frontier350/v7_2_checkpoint_cadence_hotfix.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_target_closure.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_1_thermal_governor.py; ~/.venvs/neral-triton-py312/bin/python frontier350/apply_v8_2_speed_evidence.py; ~/.venvs/neral-triton-py312/bin/python -m unittest discover -s frontier350 -p test_v8_2_speed_evidence.py; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/run_scale_v5.py frontier350/train_guarded_v9.py frontier350/train_v7_2_stage_launcher.py frontier350/apply_v8_1_thermal_governor.py frontier350/eval_health_v8_2_combined.py frontier350/verify_40k_quality.py"
           wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0){throw 'V8.1 runtime assembly failed'}
+          if($LASTEXITCODE -ne 0){throw 'V8.1/V8.2 runtime assembly or CPU tests failed'}
           exit 0
 
       - name: Resume to exact 2.5B
@@ -87,6 +87,16 @@ jobs:
             Remove-Job $telemetry -Force -ErrorAction SilentlyContinue
           }
           exit 0
+
+      - name: Check stable 40k accepted throughput (report only)
+        if: always()
+        continue-on-error: true
+        run: |
+          if(-not (Test-Path frontier350_scale_v8_1_report/progress.json)) {Write-Host 'No progress report available'; exit 0}
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/verify_40k_quality.py --progress frontier350_scale_v8_1_report/progress.json --out frontier350_scale_v8_1_report/speed_gate_40k.json --target-tps 40000 --stages 3"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) {Write-Host '40k not verified; training quality checks remain unchanged'; exit 1}
 
       - name: Upload V8.1 evidence
         if: always()
