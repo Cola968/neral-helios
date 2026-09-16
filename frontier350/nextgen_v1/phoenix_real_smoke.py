@@ -1,8 +1,8 @@
-"""Bounded *real-own-weight* Phoenix launcher diagnostic. NOT a quality benchmark.
+"""Bounded real-own-weight Phoenix engineering diagnostic, NOT a benchmark.
 
-Reads the independently pinned SAFE checkpoint; writes nothing to disk and never
-trains. Eight public development prompts, one generated token per prompt.
-Only status counters, never prompts or model output, are sent to stdout/CI.
+Reads only the pinned SAFE checkpoint. Eight PUBLIC engineering prompts, either
+one-token smoke or up to 64 tokens per prompt. No persistent results, training,
+checkpoint writes, or model outputs/prompts in CI logs. This is not NIS2.
 """
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ import time
 
 from helios350_preview import SAFE_RELATIVE, SAFE_SHA, load_verified_model
 from phoenix_capture import capture_generation
+from phoenix_gate import metrics
 
-# Public, disposable engineering fixtures. NEVER use for training or release NIS2.
 SMOKE_PROMPTS = (
     "Hallo.",
     "Hello.",
@@ -51,23 +51,35 @@ def require_idle_gpu() -> None:
         raise RuntimeError("GPU is busy/hot; refuse parallel diagnostic")
 
 
-def smoke(model, tokenizer, bos: int, eos: int, torch) -> dict:
-    """Runs actual decoder. No model answers, private paths or prompts in output."""
-    results = {"cases": 0, "actual_eos": 0, "nonempty": 0, "token_budget_each": 1}
+def smoke(model, tokenizer, bos: int, eos: int, torch, budget: int = 1) -> dict:
+    """Actual decoder health with no model answer or prompt leaving the process."""
+    if budget not in (1, 32, 64):
+        raise ValueError("only bounded, fixed diagnostic budgets supported")
+    results = {"cases": 0, "actual_eos": 0, "nonempty": 0,
+               "token_budget_each": budget, "generated_tokens_total": 0}
+    cases = []
     started = time.perf_counter()
     for index, prompt in enumerate(SMOKE_PROMPTS, 1):
-        answer, reason, used = capture_generation(model, tokenizer, bos, eos, torch, prompt, 1)
-        if reason not in ("eos", "max_tokens") or used != 1:
-            raise RuntimeError("unexpected native one-token decoder result")
+        answer, reason, used = capture_generation(model, tokenizer, bos, eos, torch, prompt, budget)
+        if (reason not in ("eos", "max_tokens") or not 1 <= used <= budget
+                or (reason == "max_tokens" and used != budget)):
+            raise RuntimeError("unexpected native decoder termination/counter")
+        cases.append({"answer": answer, "finish_reason": reason})
         results["cases"] += 1
         results["actual_eos"] += reason == "eos"
         results["nonempty"] += bool(answer.strip())
+        results["generated_tokens_total"] += used
         print(json.dumps({"case": index, "of": len(SMOKE_PROMPTS),
                           "finish_reason": reason, "generated_tokens": used,
                           "training_started": False}), flush=True)
-    results.update({"classification": "public_fixture_one_token_inference_smoke_only",
-                    "quality_evaluated": False, "training_started": False,
-                    "checkpoint_modified": False,
+    health = metrics({"cases": cases})
+    results.update({"classification": ("public_fixture_one_token_inference_smoke_only" if budget == 1
+                    else "public_fixture_dev_generation_health_only_not_release"),
+                    "eos_rate": health["eos_rate"],
+                    "role_bleed_rate": health["role_bleed_rate"],
+                    "repetition_rate": health["repetition_rate"],
+                    "quality_evaluated": False, "nis2_evaluated": False,
+                    "training_started": False, "checkpoint_modified": False,
                     "duration_seconds": round(time.perf_counter() - started, 2)})
     return results
 
@@ -76,21 +88,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--assets-root", type=Path, required=True)
+    parser.add_argument("--token-budget", type=int, choices=(1, 32, 64), default=1)
     args = parser.parse_args()
     if not args.execute:
         parser.error("explicit --execute required; never auto-run on import")
-    # Check occupancy first, BEFORE allocating CPU RAM or loading any pickle.
-    require_idle_gpu()
+    require_idle_gpu()  # Before allocating RAM or decoding any checkpoint pickle.
     root = args.assets_root.resolve(strict=True)
     model, tok, bos, eos, processed, torch = load_verified_model(
         root, root / SAFE_RELATIVE, "safe", "cpu"
     )
     if processed != 1_010_003_584:
         raise ValueError("unexpected SAFE training counter")
-    print(json.dumps({"status": "real_own_weight_smoke_started",
+    print(json.dumps({"status": "real_own_weight_diagnostic_started",
                       "checkpoint_sha256": SAFE_SHA,
+                      "token_budget_each": args.token_budget,
                       "training_started": False}), flush=True)
-    result = smoke(model, tok, bos, eos, torch)
+    result = smoke(model, tok, bos, eos, torch, args.token_budget)
     result["checkpoint_sha256"] = SAFE_SHA
     print(json.dumps(result, sort_keys=True), flush=True)
 
