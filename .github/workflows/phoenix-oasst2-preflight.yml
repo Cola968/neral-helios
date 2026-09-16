@@ -27,9 +27,10 @@ jobs:
           path: phoenix_data_preflight_${{ github.run_id }}
           clean: false
           persist-credentials: false
-      - name: Verify only known private paths and exact pinned archive digest
+      - name: Verify known private paths and SHA; fail closed if prerequisites are absent
         run: |
           $ErrorActionPreference = 'Stop'
+          $pass = $false
           try {
             $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
             $hasRoot = Test-Path -LiteralPath $root -PathType Container
@@ -62,8 +63,9 @@ jobs:
               }
               if ($hasArchive -and $hasHoldout -and $verifiedDigest) { $reason = 'ready_for_private_source_review_only' }
             }
+            $pass = ($reason -eq 'ready_for_private_source_review_only')
             $result = [ordered]@{
-              status = $(if ($reason -eq 'ready_for_private_source_review_only') { 'source_preflight_passed_not_approved' } else { 'blocked' })
+              status = $(if ($pass) { 'source_preflight_passed_not_approved' } else { 'blocked' })
               reason = $reason
               private_root_available = [bool]$hasRoot
               expected_archive_present_and_bounded = [bool]$hasArchive
@@ -76,7 +78,9 @@ jobs:
             }
             Write-Host ('PHOENIX_DATA_PREFLIGHT ' + ($result | ConvertTo-Json -Compress))
           } catch {
+            $pass = $false
             Write-Host 'PHOENIX_DATA_PREFLIGHT {"status":"blocked","reason":"private_preflight_error","dataset_approved":false,"training_started":false}'
           }
+          if (-not $pass) { throw 'Phoenix input preflight blocked: NO dataset approval or training' }
       - name: Scope declaration
         run: Write-Host 'No dataset conversion, source text disclosure, file mutation, network download, model loading, training or benchmark approval in this job.'
