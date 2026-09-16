@@ -32,17 +32,27 @@ jobs:
           $out=Join-Path $base ('sft_review_stage_'+$run)
           if (Test-Path -LiteralPath $out) { throw 'never overwrite/reuse staging directory' }
           New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
-          $source=Join-Path $out '2023-04-12_oasst_ready.messages.jsonl.gz'
-          $url='https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/fdf72ae0827c1cda404aff25b6603abec9e3399b/2023-04-12_oasst_ready.messages.jsonl.gz'
-          Invoke-WebRequest -Uri $url -OutFile $source -MaximumRedirection 5 -TimeoutSec 180 -ErrorAction Stop
+          $name='2023-04-12_oasst_ready.messages.jsonl.gz'
+          $previous=Join-Path $base ('sft_review_stage_35126393909\'+$name)
+          if (Test-Path -LiteralPath $previous -PathType Leaf) {
+            $source=$previous
+            Write-Host 'Reusing prior local source read-only; no duplicate download.'
+          } else {
+            $source=Join-Path $out $name
+            $url='https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/fdf72ae0827c1cda404aff25b6603abec9e3399b/2023-04-12_oasst_ready.messages.jsonl.gz'
+            Invoke-WebRequest -Uri $url -OutFile $source -MaximumRedirection 5 -TimeoutSec 180 -ErrorAction Stop
+          }
           $length=(Get-Item -LiteralPath $source -ErrorAction Stop).Length
           if ($length -lt 1000000 -or $length -gt 150000000) { throw 'unexpected official source size' }
+          function To-WSL([string]$p) {
+            if ($p -notmatch '^[CcDd]:\\' -or $p.Contains("'")) { throw 'unexpected local Windows path' }
+            return ('/mnt/'+$p.Substring(0,1).ToLowerInvariant()+'/'+$p.Substring(3).Replace('\','/'))
+          }
           $repo=Join-Path $env:GITHUB_WORKSPACE 'nextgen_sft_stage_repo'
-          $wslRepo=(& wsl.exe -- wslpath -a $repo).Trim()
-          $wslSource=(& wsl.exe -- wslpath -a $source).Trim()
+          $wslRepo=To-WSL $repo
+          $wslSource=To-WSL $source
           $candidates=Join-Path $out 'review_only_candidates'
-          $wslCandidates=(& wsl.exe -- wslpath -a $candidates).Trim()
-          if (-not $wslRepo.StartsWith('/mnt/') -or -not $wslSource.StartsWith('/mnt/d/') -or -not $wslCandidates.StartsWith('/mnt/d/')) { throw 'unexpected WSL path' }
+          $wslCandidates=To-WSL $candidates
           & wsl.exe -- bash -lc "cd '$wslRepo' && ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/stage_oasst1_sft.py --source '$wslSource' --frozen-benchmark benchmark_nis2_chat50.py --out '$wslCandidates'"
           if ($LASTEXITCODE -ne 0) { throw 'data staging failed; no dataset approved or model trained' }
           $report=Get-Content -LiteralPath (Join-Path $candidates 'STAGING_REPORT.json') -Raw | ConvertFrom-Json
