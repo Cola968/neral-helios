@@ -28,9 +28,10 @@ jobs:
           path: helios350_smoke_source_${{ github.run_id }}
           clean: false
           persist-credentials: false
-      - name: Verify immutable SAFE identity and execute the local launcher in smoke mode
+      - name: Verify immutable SAFE and run the exact user launcher plus real local HTTP generation
         run: |
           $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid absolute Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
           $repo=Join-Path $env:GITHUB_WORKSPACE ('helios350_smoke_source_'+$env:GITHUB_RUN_ID)
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           $safe=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
@@ -44,4 +45,7 @@ jobs:
           if(-not(Test-Path -LiteralPath $launcher -PathType Leaf)){throw 'launcher not checked out'}
           & $launcher -Smoke
           if($LASTEXITCODE -ne 0){throw 'verified 350M launcher failed; preview NOT validated'}
-          Write-Host 'The exact user launcher passed a real, local, one-token SAFE inference smoke. The checkout remains on disk; NO service was left running, no CUDA, no training, no model changes.'
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios350_http_smoke.py --assets-root '$(W $assets)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'actual Helios 350M HTTP health/origin/generation test failed'}
+          Write-Host 'Real own-weight localhost HTTP GET, unauthorized-origin refusal and POST generation passed; all services shut down. The verified user launcher remains in its own checkout. No GPU training or checkpoint modification.'
