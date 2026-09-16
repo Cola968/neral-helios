@@ -1,6 +1,7 @@
 """Local raw-model A/B generation-health audit. Never trains or promotes weights.
 
 Inputs can contain private answers. Stdout/output expose only aggregates and hashes.
+Input provenance and raw checkpoint identity must be verified independently.
 """
 from __future__ import annotations
 
@@ -49,12 +50,15 @@ def load(path: Path):
             raise ValueError("invalid answer")
         if case["raw_model"] is not True or type(case["tool_calls"]) is not int or case["tool_calls"] != 0:
             raise ValueError("assisted/tool-generated output is not raw model evidence")
-        if case["finish_reason"] not in ("eos", "max_tokens", "stop", "error"):
-            raise ValueError("invalid finish reason")
-        if type(case["tokens_generated"]) is not int or type(case["max_tokens"]) is not int or not 0 <= case["tokens_generated"] <= case["max_tokens"] <= 8192 or case["max_tokens"] == 0:
+        if case["finish_reason"] not in ("eos", "max_tokens"):
+            raise ValueError("an interrupted or artificial-stop response is not a complete raw run")
+        generated, budget = case["tokens_generated"], case["max_tokens"]
+        if type(generated) is not int or type(budget) is not int or not 1 <= generated <= budget <= 8192:
             raise ValueError("invalid generation budget or counter")
-        if case["finish_reason"] == "eos" and (not case["answer"].strip() or case["tokens_generated"] == 0):
-            raise ValueError("empty answer cannot establish EOS completion")
+        if case["finish_reason"] == "max_tokens" and generated != budget:
+            raise ValueError("claimed budget exhaustion without generating the full budget")
+        # EOS as the first generated token is REAL, but produces an empty, unusable answer.
+        # It is represented accurately and penalized by nonempty_rate, not discarded.
     return data
 
 
@@ -82,10 +86,10 @@ def compare(before, after):
         raise ValueError("decoding/evaluation protocol changed")
     if before["checkpoint_sha256"] == after["checkpoint_sha256"]:
         raise ValueError("same checkpoint cannot show weight improvement")
-    b = {c["id"]: c["prompt_sha256"] for c in before["cases"]}
-    a = {c["id"]: c["prompt_sha256"] for c in after["cases"]}
+    b = {c["id"]: (c["prompt_sha256"], c["max_tokens"]) for c in before["cases"]}
+    a = {c["id"]: (c["prompt_sha256"], c["max_tokens"]) for c in after["cases"]}
     if b != a:
-        raise ValueError("different evaluation prompts")
+        raise ValueError("different evaluation prompts or token budgets")
     old, new = metrics(before), metrics(after)
     passed = (new["eos_rate"] >= old["eos_rate"] and
               new["nonempty_rate"] >= old["nonempty_rate"] and
