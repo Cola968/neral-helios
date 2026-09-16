@@ -91,6 +91,27 @@ class OASST2BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tree ID"):
             bridge.select_tree_disjoint(self.pairs, self.messages, set())
 
+    def test_mismatched_converted_answer_rejected(self):
+        pair = self.pairs["en"][0]
+        pair["answer"] = "Unverified substituted answer."
+        with self.assertRaisesRegex(ValueError, "reviewed human source"):
+            bridge.select_tree_disjoint(self.pairs, self.messages, set())
+
+    def test_mismatched_converted_prompt_rejected(self):
+        pair = self.pairs["de"][0]
+        pair["prompt"] = "Mismatched user question?"
+        with self.assertRaisesRegex(ValueError, "reviewed human source"):
+            bridge.select_tree_disjoint(self.pairs, self.messages, set())
+
+    def test_unreviewed_or_wrong_language_message_rejected(self):
+        self.messages[1]["review_result"] = False
+        with self.assertRaisesRegex(ValueError, "reviewed human source"):
+            bridge.select_tree_disjoint(self.pairs, self.messages, set())
+        self.messages[1]["review_result"] = True
+        self.messages[1]["lang"] = "unverified"
+        with self.assertRaisesRegex(ValueError, "reviewed human source"):
+            bridge.select_tree_disjoint(self.pairs, self.messages, set())
+
     def test_frozen_prompt_overlap_fails_before_export(self):
         frozen = {prompt_hash(self.pairs["en"][0]["prompt"])} if self.pairs["en"] else {
             prompt_hash(self.pairs["de"][0]["prompt"])}
@@ -99,9 +120,13 @@ class OASST2BridgeTests(unittest.TestCase):
 
     def test_prompt_duplicate_is_dropped_and_disclosed(self):
         duplicated = self.pairs["en"][0] if self.pairs["en"] else self.pairs["de"][0]
-        # Change only prompt, not lineage, to duplicate a different approved pair.
         other = self.pairs["de"][0] if duplicated is not self.pairs["de"][0] else self.pairs["en"][0]
+        # Change BOTH the selected pair and its local source message. Otherwise
+        # the stronger raw-provenance check rightly rejects the mismatch.
         other["prompt"] = duplicated["prompt"]
+        for message in self.messages:
+            if message["message_id"] == other["upstream_parent_id"]:
+                message["text"] = other["prompt"]
         _, report = bridge.select_tree_disjoint(self.pairs, self.messages, set())
         self.assertEqual(report["duplicate_prompts_skipped"], 1)
 
