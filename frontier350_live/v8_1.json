@@ -2,16 +2,16 @@
     "schema":  1,
     "run_id":  "35069331704",
     "state":  "running",
-    "updated_at_utc":  "2026-09-16T08:24:57.2220989Z",
+    "updated_at_utc":  "2026-09-16T08:26:59.4899606Z",
     "target_tokens":  2500000000,
-    "processed_tokens_live":  null,
+    "processed_tokens_live":  2030801920,
     "accepted_continuity_tokens":  2027115520,
-    "progress_pct_live":  81.0846,
-    "remaining_tokens_live":  472884480,
-    "tokens_per_second_last":  null,
-    "loss_last":  null,
-    "stage_step_last":  null,
-    "pure_compute_eta_seconds":  null,
+    "progress_pct_live":  81.2321,
+    "remaining_tokens_live":  469198080,
+    "tokens_per_second_last":  22678.093636252623,
+    "loss_last":  2.9625546932220459,
+    "stage_step_last":  150,
+    "pure_compute_eta_seconds":  20689.5,
     "health_last":  {
                         "healthy":  true,
                         "tokens":  2027115520,
@@ -49,11 +49,11 @@
                        "status":  "AUDIT_NOT_SAFE_CONTINUE"
                    },
     "gpu":  {
-                "temp_c":  54,
-                "vram_used_mib":  6484,
-                "vram_free_mib":  5528,
+                "temp_c":  65,
+                "vram_used_mib":  6981,
+                "vram_free_mib":  5031,
                 "util_pct":  0
             },
-    "source_metrics":  null,
+    "source_metrics":  "D:\\NeralScaleV81\\v8-1-2p5b-thermal-20260916-r3\\v5_r0006_retention_5000000\\metrics.jsonl",
     "note":  "Live telemetry is observational only; it never changes training, gates, checkpoints, or recovery."
 }
