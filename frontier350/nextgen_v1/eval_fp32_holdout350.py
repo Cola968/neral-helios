@@ -12,11 +12,18 @@ import hashlib
 import json
 import math
 import random
+import sys
 import time
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+
+# This entrypoint lives one level deeper than the model/training modules. Resolve
+# the source tree, not a mutable global PYTHONPATH or third-party package.
+FRONTIER_ROOT = Path(__file__).resolve().parents[1]
+if str(FRONTIER_ROOT) not in sys.path:
+    sys.path.insert(0, str(FRONTIER_ROOT))
 
 from model350 import FRONTIER_350, Neral350M
 from train350_compiled import PersistentMMapPool
@@ -26,8 +33,8 @@ from recovery_identity import file_sha
 def protocol_sha(*, seq: int, batch: int, batches: int, seed: int, shards: list[tuple[str, str]]) -> str:
     specification = {
         'implementation_sha256': file_sha(Path(__file__)),
-        'model_sha256': file_sha(Path(__file__).resolve().parents[1] / 'model350.py'),
-        'sampler_sha256': file_sha(Path(__file__).resolve().parents[1] / 'train350_compiled.py'),
+        'model_sha256': file_sha(FRONTIER_ROOT / 'model350.py'),
+        'sampler_sha256': file_sha(FRONTIER_ROOT / 'train350_compiled.py'),
         'seq': seq, 'batch': batch, 'batches': batches, 'seed': seed,
         'holdout_shards_sha256': shards, 'loss': 'FP32 CE sum across <=512-token chunks / all token count',
         'model_weight_precision': 'BF16', 'model_mode': 'eval',
