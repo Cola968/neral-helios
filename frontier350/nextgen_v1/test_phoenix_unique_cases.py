@@ -20,7 +20,7 @@ def fixture(checkpoint: str) -> dict:
 class UniquePopulationContracts(unittest.TestCase):
     def test_load_rejects_same_prompt_under_different_ids(self):
         payload = fixture("b")
-        payload[1 if isinstance(payload, list) else "cases"][1]["prompt_sha256"] = payload["cases"][0]["prompt_sha256"]
+        payload["cases"][1]["prompt_sha256"] = payload["cases"][0]["prompt_sha256"]
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "local_test_only.json"
             path.write_text(json.dumps(payload), encoding="utf-8")
@@ -30,8 +30,6 @@ class UniquePopulationContracts(unittest.TestCase):
     def test_direct_compare_rejects_repeated_candidate_prompt(self):
         baseline, candidate = fixture("b"), fixture("c")
         candidate["cases"][1]["prompt_sha256"] = candidate["cases"][0]["prompt_sha256"]
-        # Comparison may reject changed populations even before the additional
-        # uniqueness check. Both outcomes must be fail-closed.
         with self.assertRaises(ValueError):
             compare(baseline, candidate)
 
