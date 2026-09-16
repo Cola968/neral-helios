@@ -1,7 +1,7 @@
 """Capture real private raw Neral-350M generations for Phoenix A/B evaluation.
 
 Explicit local opt-in; no training, network, uploads, model writes or promotion.
-Print only progress counters and hashes, never questions or answers.
+Print only progress counters and hashes, never questions, answers or local paths.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from phoenix_gate import unique_object
+from sft_contract import prompt_hash
 from helios350_preview import (SAFE_SHA, CONTINUITY_SHA, TOKENIZER_SHA,
                                 sha256_file, trusted_asset, load_verified_model)
 
@@ -31,6 +32,7 @@ def prompt_rows(path: Path) -> list[dict]:
     if not isinstance(rows, list) or not 8 <= len(rows) <= 128:
         raise ValueError("requires 8..128 independently prepared local prompts")
     ids = set()
+    prompts = set()
     for row in rows:
         if not isinstance(row, dict) or set(row) != PROMPT_KEYS:
             raise ValueError("prompt rows must contain exactly id and prompt")
@@ -38,9 +40,13 @@ def prompt_rows(path: Path) -> list[dict]:
         if (not isinstance(ident, str) or not 1 <= len(ident) <= 128
                 or ident in ids or not isinstance(prompt, str)
                 or not prompt.strip() or len(prompt) > 1024):
-            raise ValueError("invalid or duplicate prompt")
+            raise ValueError("invalid or duplicate prompt ID")
         if any(marker in prompt for marker in ("<|bos|>", "<|eos|>", "\nAssistant:", "\nUser:")):
             raise ValueError("role-injected prompt rejected")
+        fingerprint = prompt_hash(prompt)  # NFKC + casefold + normalized whitespace.
+        if fingerprint in prompts:
+            raise ValueError("duplicate evaluation prompt; do not inflate the test population")
+        prompts.add(fingerprint)
         ids.add(ident)
     return rows
 
@@ -154,11 +160,12 @@ def main() -> None:
     root = args.assets_root.resolve(strict=True)
     if not args.prompts.resolve(strict=True).is_relative_to(root):
         ap.error("prompts must remain within private assets root")
-    if not args.out.parent.resolve(strict=True).is_relative_to(root) or args.out.exists():
-        ap.error("new output path must remain inside private assets root; no overwrite")
+    if (not args.out.parent.resolve(strict=True).is_relative_to(root)
+            or args.out.exists() or args.out.is_symlink()):
+        ap.error("new output path must remain inside private assets root; no overwrite or symlink")
     if len(args.checkpoint_sha256) != 64 or sha256_file(args.checkpoint) != args.checkpoint_sha256:
         raise ValueError("checkpoint hash mismatch")
-    rows = prompt_rows(args.prompts)
+    rows = prompt_rows(args.prompts)  # Reject duplicates before GPU/checkpoint allocation.
     if args.device == "cuda":
         import torch
         idle_gpu(torch)
@@ -184,7 +191,7 @@ def main() -> None:
     print(json.dumps({"completed": len(cases), "elapsed_seconds": round(time.perf_counter()-started, 2),
                       "checkpoint_sha256": args.checkpoint_sha256,
                       "report_sha256": sha256_file(args.out),
-                      "private_report_path": str(args.out), "training_started": False}), flush=True)
+                      "training_started": False}), flush=True)
 
 
 if __name__ == "__main__":
