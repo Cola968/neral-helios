@@ -91,11 +91,14 @@ function Publish-Live([string]$State='running') {
     }
     if ($selection -and $null -ne $selection.final_train_tokens) { $accepted = [long]$selection.final_train_tokens }
 
-    $basis = if ($processed) { $processed } elseif ($accepted) { $accepted } else { 0 }
+    # Only quality-accepted continuity counts toward completion. In-progress tokens
+    # can be rejected and are reported separately above; never inflate progress.
+    $basis = $accepted
     $pct = if ($basis -gt 0) { [math]::Round(100.0 * $basis / $TargetTokens, 4) } else { $null }
     $remaining = if ($basis -gt 0) { [math]::Max(0, $TargetTokens - $basis) } else { $null }
+    # A single instantaneous training sample cannot predict quality-approved wall time.
+    # Leave legacy ETA field null instead of publishing misleading 90-hour idle estimates.
     $etaSec = $null
-    if ($remaining -ne $null -and $tps -and $tps -gt 1000) { $etaSec = [math]::Round($remaining / $tps, 1) }
 
     $payload = [ordered]@{
       schema = 1
@@ -115,7 +118,7 @@ function Publish-Live([string]$State='running') {
       audit_last = $audit
       gpu = Get-Gpu
       source_metrics = if ($train) { $train.file } else { $null }
-      note = 'Live telemetry is observational only; it never changes training, gates, checkpoints, or recovery.'
+      note = 'Progress/remaining count accepted tokens only; instantaneous trainer tps is not end-to-end throughput. ETA unavailable until validated. Telemetry never changes training, gates or recovery.'
     }
 
     $json = $payload | ConvertTo-Json -Depth 12
