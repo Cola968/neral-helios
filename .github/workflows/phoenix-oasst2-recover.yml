@@ -1,0 +1,40 @@
+name: Phoenix recover pinned OASST2 archive (private local only)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-oasst2-recover.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  recover-exact-public-archive-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout exact recovery code into isolated directory (do not clean private assets)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_archive_recovery_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Recover public pinned archive into private root and log status only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $script = Join-Path $env:GITHUB_WORKSPACE 'phoenix_archive_recovery_${{ github.run_id }}\frontier350\nextgen_v1\phoenix_recover_oasst2.py'
+          if (!(Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Pinned recovery script missing; nothing downloaded.' }
+          # Suppress any raw filesystem/HTTP exception traceback: only structured safe success is allowed.
+          & python $script --assets-root "$root" --execute 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned source recovery blocked; inspect locally; no dataset approval or training.' }
+      - name: Confirm no model training or holdout creation
+        run: Write-Host 'Only one original public OASST2 archive may have been downloaded and SHA-verified locally. No holdout synthesized, training, benchmark approval, GPU load, raw file upload or model modification.'
