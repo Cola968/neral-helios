@@ -1,8 +1,7 @@
-"""Capture REAL private raw Neral 350M generations for Phoenix A/B evaluation.
+"""Capture real private raw Neral-350M generations for Phoenix A/B evaluation.
 
-Opt-in, local-only and read-only: no training, network, uploads or promotions.
-Stdout shows progress counters, never prompts or answers. Only trusted local
-Neral checkpoint pickles are permitted, after an independently pinned hash.
+Explicit local opt-in; no training, network, uploads, model writes or promotion.
+Print only progress counters and hashes, never questions or answers.
 """
 from __future__ import annotations
 
@@ -11,7 +10,12 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import time
+
+# The native model350.py lives in frontier350/, one directory above this script.
+# This must also work when run as `python frontier350/nextgen_v1/phoenix_capture.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from phoenix_gate import unique_object
 from helios350_preview import (SAFE_SHA, CONTINUITY_SHA, TOKENIZER_SHA,
@@ -43,8 +47,8 @@ def prompt_rows(path: Path) -> list[dict]:
 
 def protocol_sha(count: int) -> str:
     protocol = {"version": 1, "tokenizer_sha256": TOKENIZER_SHA,
-                "prompt_template": "User: {prompt}\\nAssistant:",
-                "prompt_normalization": "exact_utf8_bytes",
+                "prompt_template": "User: {prompt}\nAssistant:",
+                "prompt_normalization": "strip_for_inference_hash_exact_original_utf8",
                 "decoding": "greedy_argmax_native_kv_cache",
                 "eos": "native_eos_token_counts_as_generated",
                 "stop_sequences": [], "max_new_tokens": count,
@@ -54,7 +58,7 @@ def protocol_sha(count: int) -> str:
 
 
 def capture_generation(model, tok, bos, eos, torch, prompt: str, budget: int):
-    """Return actual stop reason; unlike the preview, do not infer EOS from text length."""
+    """Return actual stop reason, never infer EOS merely from visible text length."""
     from kv_decode import cached_last_logits
     ids = [bos] + tok.encode("User: " + prompt.strip() + "\nAssistant:").ids
     if len(ids) > 384:
@@ -66,7 +70,6 @@ def capture_generation(model, tok, bos, eos, torch, prompt: str, budget: int):
         for step in range(budget):
             token = int(logits[0].float().argmax().item())
             if token == eos:
-                # Tokens_generated includes the actual EOS token, not only visible text.
                 return tok.decode(output, skip_special_tokens=True), "eos", step + 1
             output.append(token)
             if step + 1 < budget:
@@ -82,7 +85,7 @@ def idle_gpu(torch) -> None:
         raise ValueError("expected local RTX 4070")
     free, _ = torch.cuda.mem_get_info()
     if free < 9_000 * 1024 * 1024:
-        raise ValueError("GPU is occupied; refuse to collide with training")
+        raise ValueError("GPU occupied; refuse to collide with training")
     raw = subprocess.check_output(
         ["nvidia-smi", "--query-gpu=utilization.gpu,temperature.gpu",
          "--format=csv,noheader,nounits"], text=True, timeout=10).strip().splitlines()
@@ -90,7 +93,7 @@ def idle_gpu(torch) -> None:
         raise ValueError("unexpected GPU occupancy report")
     busy, temp = (int(value.strip()) for value in raw[0].split(","))
     if busy > 15 or temp > 78:
-        raise ValueError("GPU busy/hot; read-only capture blocked")
+        raise ValueError("GPU busy/hot; capture blocked")
 
 
 def load_own_model(root: Path, checkpoint: Path, digest: str, kind: str, device: str):
@@ -99,16 +102,18 @@ def load_own_model(root: Path, checkpoint: Path, digest: str, kind: str, device:
         if digest != pinned:
             raise ValueError("baseline/continuity SHA differs from pinned own checkpoint")
         return load_verified_model(root, checkpoint, kind, device)
-
     if kind != "sft-pilot" or digest in (SAFE_SHA, CONTINUITY_SHA):
         raise ValueError("invalid experimental candidate identity")
-    trusted_asset(root, checkpoint, digest)  # Verify before any pickle deserialization.
+    trusted_asset(root, checkpoint, digest)  # Hash first, deserialize only trusted own data.
     trusted_asset(root, root / "frontier350_assets" / "tokenizer.json", TOKENIZER_SHA)
     import torch
     from tokenizers import Tokenizer
     from model350 import FRONTIER_350, Neral350M
+    # This format contains optimizer/RNG Python objects. Only use user-trusted,
+    # SHA-pinned local model files; never torch.load arbitrary downloaded pickles.
     state = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    if (state.get("checkpoint_schema") != "nextgen_sft_pilot_v1"
+    if (not isinstance(state, dict)
+            or state.get("checkpoint_schema") != "nextgen_sft_pilot_v1"
             or state.get("production_eligible") is not False
             or state.get("base_sha256") not in (SAFE_SHA, CONTINUITY_SHA)
             or state.get("config") != FRONTIER_350.to_dict()
