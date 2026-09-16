@@ -1,0 +1,36 @@
+name: Neral NextGen V1 CPU evidence contracts
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths:
+      - 'frontier350/nextgen_v1/**'
+      - '.github/workflows/neral-nextgen-v1-ci.yml'
+  pull_request:
+    branches: [experiment/scale-v8-3b]
+    paths:
+      - 'frontier350/nextgen_v1/**'
+      - '.github/workflows/neral-nextgen-v1-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check only standard-library CPU policy and GPU-probe syntax
+        run: |
+          python -m py_compile frontier350/nextgen_v1/admission.py frontier350/nextgen_v1/probe.py frontier350/nextgen_v1/test_admission.py
+          python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_admission.py'
+      - name: Explicitly record evidence boundary
+        run: |
+          echo 'This job executes NO CUDA, NO training, NO model inference, NO GPU probe and NO remote jobs.'
