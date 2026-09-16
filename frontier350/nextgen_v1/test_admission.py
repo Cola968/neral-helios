@@ -46,9 +46,16 @@ class AdmissionTests(unittest.TestCase):
     def test_valid_synthetic_contract_not_real_promotion(self):
         result = validate_evidence(fixture())
         self.assertTrue(result["admitted"])
+        self.assertEqual(result["target_accepted_tps"], 50000)
         self.assertAlmostEqual(result["combined_accepted_tps"], 62500)
         self.assertFalse(result["stretch_70k_verified"])
         self.assertIn("not a production promotion", result["warning"])
+
+    def test_exact_50k_boundary_is_inclusive(self):
+        result = validate_evidence(fixture(seconds=100))
+        self.assertTrue(result["admitted"])
+        self.assertEqual(result["combined_accepted_tps"], 50000)
+        self.assertFalse(result["stretch_70k_verified"])
 
     def test_stretch_is_separate(self):
         self.assertTrue(validate_evidence(fixture(seconds=70))["stretch_70k_verified"])
@@ -68,8 +75,10 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse(validate_evidence(e)["admitted"])
 
     def test_slow_tail_fails_despite_fast_other_stages(self):
-        e = fixture(); e["stages"][0]["wall_seconds"] = 100
-        self.assertFalse(validate_evidence(e)["admitted"])
+        e = fixture(); e["stages"][0]["wall_seconds"] = 101
+        result = validate_evidence(e)
+        self.assertFalse(result["admitted"])
+        self.assertIn("stage_0_below_50k", result["failures"])
 
     def test_health_failure_cannot_be_masked(self):
         e = fixture(); e["stages"][0]["health_pass"] = False
