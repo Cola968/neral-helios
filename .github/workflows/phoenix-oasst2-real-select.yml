@@ -23,8 +23,13 @@ jobs:
           path: phoenix_selector_dry_run_${{ github.run_id }}
           clean: false
           persist-credentials: false
-      - name: Make Python 3.12 available to this workflow only
+      - name: Make Python 3.12 available via official GitHub setup action
         uses: actions/setup-python@v5
+        # The prior attempt failed solely on a new child PowerShell process using
+        # Restricted execution policy. Apply Process scope to this step only;
+        # MachinePolicy/UserPolicy imposed by an administrator still take precedence.
+        env:
+          PSExecutionPolicyPreference: Bypass
         with:
           python-version: '3.12'
           check-latest: false
