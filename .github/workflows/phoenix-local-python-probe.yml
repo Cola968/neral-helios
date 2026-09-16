@@ -1,0 +1,64 @@
+name: Phoenix inspect local Python prerequisites (read only)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-local-python-probe.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  local-interpreter-and-package-discovery:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 4
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Find executable interpreter and discover imports without installation or GPU use
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $candidates = New-Object 'System.Collections.Generic.List[object]'
+          # Prefer actual Windows Python launcher; Microsoft Store aliases may be inert.
+          if (Get-Command py -CommandType Application -ErrorAction SilentlyContinue) { $candidates.Add(@{executable='py';prefix=@('-3')}) }
+          foreach ($name in @('python','python3')) {
+            if (Get-Command $name -CommandType Application -ErrorAction SilentlyContinue) { $candidates.Add(@{executable=$name;prefix=@()}) }
+          }
+          foreach ($path in @(
+            (Join-Path $root '.venv\Scripts\python.exe'),
+            (Join-Path $root 'venv\Scripts\python.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'),
+            'C:\Python312\python.exe',
+            'C:\Python313\python.exe',
+            'C:\Python311\python.exe'
+          )) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) { $candidates.Add(@{executable=$path;prefix=@()}) }
+          }
+          $probe = 'import importlib.util,json,sys; print("PHOENIX_PYTHON_PREREQS "+json.dumps({"status":"interpreter_executable","python_major":sys.version_info.major,"python_minor":sys.version_info.minor,"torch_module_discoverable":importlib.util.find_spec("torch") is not None,"tokenizers_module_discoverable":importlib.util.find_spec("tokenizers") is not None,"numpy_module_discoverable":importlib.util.find_spec("numpy") is not None,"imports_executed":False,"gpu_accessed":False,"training_started":False}))'
+          $valid = $false
+          $checked = 0
+          foreach ($choice in $candidates) {
+            $checked++
+            try {
+              $output = & $choice.executable @($choice.prefix) -c $probe 2>$null
+              if ($LASTEXITCODE -ne 0) { continue }
+              $line = @($output | Where-Object { $_ -is [string] -and $_.StartsWith('PHOENIX_PYTHON_PREREQS ') })
+              if ($line.Count -ne 1) { continue }
+              $payload = ($line[0].Substring('PHOENIX_PYTHON_PREREQS '.Length) | ConvertFrom-Json)
+              if ($payload.status -cne 'interpreter_executable' -or $payload.python_major -ne 3 -or $payload.python_minor -lt 10) { continue }
+              # Reprint only fields from our own fixed probe, never interpreter paths, exceptions or environment variables.
+              Write-Host ('PHOENIX_PYTHON_PREREQS ' + ([ordered]@{ status='interpreter_found'; python_major=[int]$payload.python_major; python_minor=[int]$payload.python_minor; torch_discoverable=[bool]$payload.torch_module_discoverable; tokenizers_discoverable=[bool]$payload.tokenizers_module_discoverable; numpy_discoverable=[bool]$payload.numpy_module_discoverable; packages_imported=$false; gpu_accessed=$false; training_started=$false; interpreter_path_disclosed=$false } | ConvertTo-Json -Compress))
+              $valid = $true
+              break
+            } catch { continue }
+          }
+          if (!$valid) {
+            Write-Host ('PHOENIX_PYTHON_PREREQS ' + ([ordered]@{status='blocked_no_verified_python'; candidates_checked=$checked; packages_imported=$false; gpu_accessed=$false; training_started=$false; interpreter_path_disclosed=$false} | ConvertTo-Json -Compress))
+            throw 'Python 3.10+ not executable in narrowly scoped locations; no installation or training attempted.'
+          }
+      - name: Boundary
+        run: Write-Host 'Read-only Python/package discovery. torch import not executed, CUDA untouched, environment unmodified and no training or data export. Module discoverability is not proof of a working SFT environment.'
