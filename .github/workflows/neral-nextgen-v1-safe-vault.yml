@@ -1,0 +1,84 @@
+name: Neral NextGen SAFE append-only vault
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths:
+      - '.github/workflows/neral-nextgen-v1-safe-vault.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-safe-vault-only
+  cancel-in-progress: false
+
+jobs:
+  protect-and-verify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout in dedicated source-only directory without deleting user files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: neral_vault_source
+          clean: false
+          persist-credentials: false
+
+      - name: Duplicate exact pinned SAFE checkpoint C to D with no overwrites
+        id: vault
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$path){
+            $p=[IO.Path]::GetFullPath($path)
+            if($p -notmatch '^([A-Za-z]):\\(.*)$'){throw "unsupported local path: $p"}
+            return ('/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/'))
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'neral_vault_source'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $root='D:\NeralScaleV81\_neral_safe_vault'
+          $label='SAFE-1010003584'
+          $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $report=Join-Path $env:GITHUB_WORKSPACE ('neral_safe_vault_report_'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $report){throw 'report exists; never overwrite previous evidence'}
+          if(-not(Test-Path -LiteralPath $anchor -PathType Leaf)){throw 'SAFE checkpoint missing; no destructive recovery attempted'}
+          if(-not(Test-Path -LiteralPath 'D:\NeralScaleV81' -PathType Container)){throw 'D backup volume missing'}
+          New-Item -ItemType Directory -Path $report | Out-Null
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/checkpoint_vault.py protect --source '$(W $anchor)' --backup-root '$(W $root)' --expected-sha '$sha' --label '$label' --different-volume"
+          $lines=@(& wsl.exe -- bash -lc $cmd 2>&1);$exit=$LASTEXITCODE
+          $lines|ForEach-Object {Write-Host $_}
+          if($exit -ne 0){throw 'Protection blocked; original checkpoint not modified'}
+          $result=$lines[-1] | ConvertFrom-Json
+          if($result.sha256 -ne $sha -or $result.status -notin @('protected_new_copy','verified_existing_no_overwrite')){throw 'Invalid vault result'}
+          $result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $report 'protection.json') -Encoding utf8
+          "repo=$(W $repo)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "backup=$(W (Join-Path $root ($label+'-'+$sha)))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "report=$report" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Independently re-read replica bytes, manifest and digest
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.vault.outputs.repo }}'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/checkpoint_vault.py verify --backup '${{ steps.vault.outputs.backup }}' --expected-sha '${{ steps.vault.outputs.sha }}'"
+          $lines=@(& wsl.exe -- bash -lc $cmd 2>&1);$exit=$LASTEXITCODE
+          $lines|ForEach-Object {Write-Host $_}
+          if($exit -ne 0){throw 'Vault readback FAILED; do not assume backup safe'}
+          $result=$lines[-1]|ConvertFrom-Json
+          if($result.status -ne 'verified' -or $result.sha256 -ne '${{ steps.vault.outputs.sha }}'){throw 'Replica readback identity failed'}
+          $result|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path '${{ steps.vault.outputs.report }}' 'verified_readback.json') -Encoding utf8
+          Write-Host 'Source was never overwritten. Replica is on a separate mounted volume, not an off-site backup. No model promotion or training was performed.'
+
+      - name: Upload compact verification receipts only; NO checkpoint or dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-safe-vault-receipts-${{ github.run_id }}
+          path: neral_safe_vault_report_${{ github.run_id }}/
+          retention-days: 30
+          if-no-files-found: warn
