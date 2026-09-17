@@ -25,11 +25,12 @@ def private_destination(path: Path, root: Path) -> Path:
     return path
 
 
-def build_review_rows(messages: list[dict], per_bucket: int = 6) -> tuple[list[dict], dict]:
+def build_review_rows(messages: list[dict], per_bucket: int = 6,
+                      max_en: int = 800, max_de: int = 400) -> tuple[list[dict], dict]:
     """Deterministically sample both languages and BOTH tree-disjoint splits."""
     if not 2 <= per_bucket <= 8:
         raise ValueError("bounded per-bucket review size required")
-    selected, identity = choose_screened_diverse(messages)
+    selected, identity = choose_screened_diverse(messages, max_en=max_en, max_de=max_de)
     splits, summary = select_tree_disjoint(selected, messages, frozen=set())
     language_by_id = {row["id"]: lang for lang in ("de", "en") for row in selected[lang]}
     if len(language_by_id) != sum(len(selected[lang]) for lang in selected):
@@ -62,7 +63,7 @@ def build_review_rows(messages: list[dict], per_bucket: int = 6) -> tuple[list[d
 
 
 def prepare(root: Path, archive: Path, output: Path, receipt: Path,
-            per_bucket: int = 6) -> dict:
+            per_bucket: int = 6, max_en: int = 800, max_de: int = 400) -> dict:
     root = root.resolve(strict=True)
     if any((parent / ".git").exists() for parent in (root, *root.parents)):
         raise ValueError("private root may not live in a git working tree")
@@ -71,7 +72,8 @@ def prepare(root: Path, archive: Path, output: Path, receipt: Path,
     receipt = private_destination(receipt, root)
     if output == receipt or output.suffix != ".jsonl" or receipt.suffix != ".json":
         raise ValueError("distinct JSONL review and JSON receipt required")
-    rows, report = build_review_rows(load_archive(archive), per_bucket=per_bucket)
+    rows, report = build_review_rows(load_archive(archive), per_bucket=per_bucket,
+                                     max_en=max_en, max_de=max_de)
     created = []
     try:
         with output.open("x", encoding="utf-8") as handle:
@@ -101,11 +103,14 @@ def main() -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--receipt", required=True, type=Path)
     ap.add_argument("--per-bucket", type=int, default=6)
+    ap.add_argument("--max-en", type=int, default=800)
+    ap.add_argument("--max-de", type=int, default=400)
     args = ap.parse_args()
     if not args.execute:
         ap.error("explicit --execute required for private text creation")
     try:
-        report = prepare(args.assets_root, args.archive, args.out, args.receipt, args.per_bucket)
+        report = prepare(args.assets_root, args.archive, args.out, args.receipt,
+                         args.per_bucket, args.max_en, args.max_de)
     except Exception:
         print(json.dumps({"status": "private_review_queue_blocked", "training_approved": False,
                           "training_started": False, "raw_text_uploaded": False}))
