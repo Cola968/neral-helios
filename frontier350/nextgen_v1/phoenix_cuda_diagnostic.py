@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import time
 
 from helios350_preview import SAFE_RELATIVE, SAFE_SHA, load_verified_model
@@ -18,6 +19,7 @@ from phoenix_real_smoke import require_idle_gpu, smoke
 MIN_FREE_MIB = 9000
 IDLE_SAMPLES = 3
 IDLE_INTERVAL_SECONDS = 2
+MAX_TEMPERATURE_C = 78
 
 
 def require_stably_idle_gpu() -> None:
@@ -36,6 +38,24 @@ def require_stably_idle_gpu() -> None:
             ) from exc
         if sample < IDLE_SAMPLES:
             time.sleep(IDLE_INTERVAL_SECONDS)
+
+
+def require_safe_runtime_temperature() -> None:
+    """Monitor heat BETWEEN public prompts; inference itself raises utilization.
+
+    Do not use idle-utilization limits mid-inference: they would measure this
+    diagnostic's own work. Missing/malformed telemetry fails closed instead.
+    """
+    raw = subprocess.check_output(
+        ["nvidia-smi", "--query-gpu=temperature.gpu",
+         "--format=csv,noheader,nounits"], text=True, timeout=10,
+    )
+    rows = raw.strip().splitlines()
+    if len(rows) != 1 or not rows[0].strip().isdecimal():
+        raise RuntimeError("GPU runtime temperature unavailable; stop inference")
+    temperature = int(rows[0].strip())
+    if temperature < 0 or temperature > MAX_TEMPERATURE_C:
+        raise RuntimeError("GPU runtime temperature outside safety limit; stop inference")
 
 
 def require_cuda_ready(torch) -> None:
@@ -67,7 +87,9 @@ def main() -> None:
     print(json.dumps({"status": "own_safe_cuda_diagnostic_started",
                       "checkpoint_sha256": SAFE_SHA, "device": "cuda_bf16",
                       "training_started": False, "quality_evaluated": False}), flush=True)
-    result = smoke(model, tok, bos, eos, torch, budget=64)
+    result = smoke(model, tok, bos, eos, torch, budget=64,
+                   before_case=require_safe_runtime_temperature,
+                   after_case=require_safe_runtime_temperature)
     result.update({"checkpoint_sha256": SAFE_SHA, "device": "cuda_bf16",
                    "classification": "public_fixture_cuda_inference_health_only_not_training_speed",
                    "quality_evaluated": False, "training_started": False,
