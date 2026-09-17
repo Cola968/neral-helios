@@ -2,7 +2,10 @@ name: Phoenix Helios knowledge mode once (CPU ONLY / NO TRAINING)
 on:
   push:
     branches: [experiment/phoenix-sft-fp32-audit]
-    paths: ['.github/workflows/phoenix-knowledge-mode-once.yml']
+    paths:
+      - '.github/workflows/phoenix-knowledge-mode-once.yml'
+      - 'frontier350/nextgen_v1/helios_knowledge_preview.py'
+      - 'frontier350/nextgen_v1/test_helios_knowledge_preview.py'
 permissions:
   contents: read
 concurrency:
