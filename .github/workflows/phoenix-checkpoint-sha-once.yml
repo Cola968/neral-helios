@@ -1,0 +1,38 @@
+name: Phoenix three checkpoint identities ONCE (READ ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-checkpoint-sha-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  sha-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 7
+    steps:
+      - name: Read-only SHA-256 and immutable-file checks (no model loading)
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $targets = @(
+            'D:\NeralScaleV72\_continuity_v5\continuity_001997102016_242cbc682778.pt',
+            'D:\NeralScaleV8\_continuity_v5\continuity_002011107904_ada8acb46b24.pt',
+            'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          )
+          foreach ($path in $targets) {
+            if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw ('Expected checkpoint missing: ' + $path) }
+            $before = Get-Item -LiteralPath $path -Force
+            if (($before.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Checkpoint is a link; refusing hash' }
+            if ($before.Length -lt 100MB -or $before.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddMinutes(-30)) { throw 'Checkpoint too small or recently modified; refusing hash' }
+            if ($before.Name -notmatch '^continuity_([0-9]{12})_([a-f0-9]{12})\.pt$') { throw 'Unexpected checkpoint filename format' }
+            $tokenLabel = [long]$Matches[1]
+            $prefix = $Matches[2]
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $after = Get-Item -LiteralPath $path -Force
+            if ($before.Length -ne $after.Length -or $before.LastWriteTimeUtc -ne $after.LastWriteTimeUtc -or !$hash.StartsWith($prefix)) { throw 'Checkpoint changed during hash or filename SHA prefix mismatch' }
+            Write-Host ('VERIFIED_FILE label_tokens={0} gib={1:N3} sha256={2} path={3}' -f $tokenLabel, ($after.Length / 1GB), $hash, $path)
+          }
+          Write-Host 'THREE_FILE_HASHES_VERIFIED; filename token labels are NOT independently validated checkpoint metadata. No model or GPU loaded, no weights changed, no writes/deletions.'
