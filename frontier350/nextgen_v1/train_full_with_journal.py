@@ -1,9 +1,9 @@
-"""Opt-in 350M *whole-parameter* trainer with bounded rollback.
+"""Opt-in 350M *whole-parameter* trainer with bounded rollback and disk growth.
 
 Only supports exact continuation from a trusted native train350 checkpoint whose
 optimizer/sampler/RNG state exists. Converting a V9 four-block checkpoint to
 whole-model optimizer state is a separate, explicit warm-start research task.
-No auto-launch, auto-retry, promotion, or cloud GPU use.
+No auto-launch, auto-retry, pruning, promotion, or cloud GPU use.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from checkpoint_journal import CheckpointJournal, safe_save_every, sha256_file
+from storage_budget import GIB, check_storage_budget
 
 
 def _single_flag(tokens: list[str], flag: str) -> str | None:
@@ -99,8 +100,13 @@ def main() -> None:
     forwarded, resume, window = guarded_arguments(args.native_args, max_rollback=args.max_rollback_tokens)
     if not resume.is_file() or sha256_file(resume) != args.resume_sha256:
         raise ValueError('source checkpoint bytes differ from pinned SHA-256')
-    # Import only after the source bytes are pinned. torch.load/pickle files
-    # must originate from the trusted, already verified local Neral project.
+
+    # Reserve a full additional atomic checkpoint before importing Torch/GPU.
+    # The fixed limits deliberately reject C: when it has little free capacity.
+    capacity = check_storage_budget(resume.parent, resume)
+
+    # Import only after the source bytes are pinned and disk capacity is safe.
+    # torch.load/pickle files must originate from trusted local Neral training.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import torch
     import train350_compiled as trainer
@@ -129,6 +135,9 @@ def main() -> None:
         if Path(target).resolve() == journal.resume and duplicate_terminal_save(
                 state, last_tokens=journal.last_tokens, last_step=last_step):
             return {'journaled': True, 'redundant_final_save_skipped': True}
+        # Recheck before EVERY checkpoint, including best_validation.pt.
+        # On pressure fail CLOSED; do not delete checkpoints or change bounds.
+        check_storage_budget(resume.parent, resume)
         result = journal.commit(state, target)
         if result.get('kind') == 'complete_resumable_state':
             last_step = int(state['step'])
@@ -144,6 +153,9 @@ def main() -> None:
                           'journal': str(journal.root),
                           'initial_verified_tokens': journal.last_tokens,
                           'source_sha256': args.resume_sha256,
+                          'storage_directory_gib': round(capacity['directory_bytes'] / GIB, 2),
+                          'storage_directory_limit_gib': 40,
+                          'storage_minimum_free_gib': 200,
                           'status': 'guarded_execution_only_no_promotion'}), flush=True)
         trainer.main()
         receipt = journal.verify()
