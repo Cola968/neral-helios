@@ -5,6 +5,8 @@ from contextlib import redirect_stdout
 import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -25,6 +27,26 @@ class PrivateReviewQueueContracts(unittest.TestCase):
         fixture = ScreenedSamplerContracts()
         fixture.setUp()
         self.messages = fixture.messages
+
+    def test_standalone_entrypoint_imports_outside_repo_without_touching_files(self):
+        script = Path(__file__).with_name("phoenix_private_review_queue.py")
+        result = subprocess.run([sys.executable, str(script), "--help"], cwd=self.root,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--execute", result.stdout)
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.receipt.exists())
+
+    def test_standalone_refuses_missing_explicit_opt_in_without_files(self):
+        script = Path(__file__).with_name("phoenix_private_review_queue.py")
+        result = subprocess.run([sys.executable, str(script), "--assets-root", str(self.root),
+                                 "--archive", str(self.source), "--out", str(self.out),
+                                 "--receipt", str(self.receipt)], cwd=self.root,
+                                capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--execute", result.stderr)
+        self.assertFalse(self.out.exists())
+        self.assertFalse(self.receipt.exists())
 
     def test_balanced_review_rows_are_pending_and_original_text_stays_private(self):
         rows, receipt = build_review_rows(self.messages, per_bucket=2, max_en=50, max_de=50)
