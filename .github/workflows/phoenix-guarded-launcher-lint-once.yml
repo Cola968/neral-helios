@@ -1,0 +1,38 @@
+name: Phoenix guarded preview launcher syntax once (NO MODEL)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-guarded-launcher-lint-once.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  launcher-syntax:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse script and check starter path without executing either
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:GITHUB_WORKSPACE 'frontier350\nextgen_v1'
+          $script = Join-Path $folder 'start_helios_guarded.ps1'
+          $starter = Join-Path $folder 'START_HELIOS_GUARDED.cmd'
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0 -or -not $ast) { throw 'Launcher PowerShell syntax invalid' }
+          $cmd = Get-Content -LiteralPath $starter -Raw
+          if (-not $cmd.Contains('start_helios_guarded.ps1') -or -not $cmd.Contains('-ExecutionPolicy Bypass')) { throw 'Starter does not reference scoped PowerShell launcher' }
+          $ps = Get-Content -LiteralPath $script -Raw
+          foreach ($required in @('CUDA_VISIBLE_DEVICES=-1','--trusted-local-checkpoint','--model continuity-2b','Get-FileHash','Get-PSDrive')) {
+            if (-not $ps.Contains($required)) { throw 'Launcher missing expected guard' }
+          }
+          Write-Host 'Launcher syntax and scoped starter contract PASS; no preview process started, no user computer accessed.'
