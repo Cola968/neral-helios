@@ -9,12 +9,33 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import time
 
 from helios350_preview import SAFE_RELATIVE, SAFE_SHA, load_verified_model
 from phoenix_real_smoke import require_idle_gpu, smoke
 
 
 MIN_FREE_MIB = 9000
+IDLE_SAMPLES = 3
+IDLE_INTERVAL_SECONDS = 2
+
+
+def require_stably_idle_gpu() -> None:
+    """Require ALL three spaced snapshots to pass the original strict guard.
+
+    A transient busy sample fails closed; no average or majority vote can hide
+    a spike. Only nvidia-smi runs here; no weights, Torch or CUDA allocation.
+    """
+    for sample in range(1, IDLE_SAMPLES + 1):
+        try:
+            require_idle_gpu()  # Util <=15%, VRAM used <=2500 MiB, temp <=78 C.
+        except Exception as exc:
+            raise RuntimeError(
+                f"GPU not stably idle at sample {sample}/{IDLE_SAMPLES}; "
+                "no CUDA inference started"
+            ) from exc
+        if sample < IDLE_SAMPLES:
+            time.sleep(IDLE_INTERVAL_SECONDS)
 
 
 def require_cuda_ready(torch) -> None:
@@ -35,7 +56,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.execute:
         parser.error("explicit --execute required")
-    require_idle_gpu()  # External telemetry first; never override the busy-PC guard.
+    require_stably_idle_gpu()  # Three strict snapshots before importing Torch or loading weights.
     import torch
     require_cuda_ready(torch)
     root = args.assets_root.resolve(strict=True)
