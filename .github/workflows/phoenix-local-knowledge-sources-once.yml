@@ -1,0 +1,47 @@
+name: Phoenix local knowledge sources inventory once (READ ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-local-knowledge-sources-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read-only filename/size inventory of likely Neral corpora
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $roots = @(
+            'D:\NeralPrivateAssets',
+            'D:\NeralScaleV81',
+            'D:\NeralScaleV8',
+            (Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral')
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+          $patterns = '(?i)(wiki|wikipedia|b2_sources|pretrain50_b2|fineweb|education|science|corpus|jsonl|parquet)'
+          $found = @()
+          foreach ($root in $roots) {
+            Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match $patterns } |
+              ForEach-Object {
+                $found += [pscustomobject]@{Path=$_.FullName; MiB=[math]::Round($_.Length/1MB,2)}
+                if ($found.Count -ge 120) { break }
+              }
+            if ($found.Count -ge 120) { break }
+          }
+          if ($found.Count -eq 0) {
+            Write-Host 'KNOWLEDGE_SOURCE_MATCHES=0'
+          } else {
+            Write-Host ('KNOWLEDGE_SOURCE_MATCHES=' + $found.Count)
+            $found | Sort-Object MiB -Descending | Select-Object -First 120 | Format-Table -AutoSize | Out-String -Width 240 | Write-Host
+          }
+          Write-Host ('C_FREE_GIB=' + [math]::Round((Get-PSDrive C).Free/1GB,2))
+          Write-Host ('D_FREE_GIB=' + [math]::Round((Get-PSDrive D).Free/1GB,2))
+          Write-Host 'READ_ONLY=true; no file contents read, copied, moved, deleted or uploaded.'
