@@ -27,6 +27,20 @@ jobs:
           path: phoenix_review_source_${{ github.run_id }}
           clean: false
           persist-credentials: false
+      - name: Diagnose aggregate preparation phases
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_review_source_' + $env:GITHUB_RUN_ID)
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_diagnose.py --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --max-en 800 --max-de 400"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Aggregate private review diagnosis blocked' }
       - name: Save 24 rows ONLY in private local assets; log aggregates only
         run: |
           $ErrorActionPreference = 'Stop'
