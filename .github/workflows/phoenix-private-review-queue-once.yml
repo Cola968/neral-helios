@@ -42,9 +42,12 @@ jobs:
           $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
           $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
           $private = Join-Path $root 'phoenix'
+          if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw 'Private asset root unavailable' }
           if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned local archive unavailable' }
-          if (-not (Test-Path -LiteralPath $private -PathType Container)) { throw 'Existing private phoenix directory required' }
-          if ($repo.Contains("'") -or $root.Contains("'") -or $archive.Contains("'")) { throw 'Unsafe path; private review creation refused' }
+          if (-not (Test-Path -LiteralPath $private -PathType Container)) {
+            New-Item -ItemType Directory -Path $private -ErrorAction Stop | Out-Null
+          }
+          if ($repo.Contains("'") -or $root.Contains("'") -or $archive.Contains("'") -or $private.Contains("'")) { throw 'Unsafe path; private review creation refused' }
           $out = Join-Path $private ('human_review_' + $env:GITHUB_RUN_ID + '.jsonl')
           $receipt = Join-Path $private ('human_review_' + $env:GITHUB_RUN_ID + '_receipt.json')
           $cmd = "set -euo pipefail; test -x ~/.venvs/neral-triton-py312/bin/python; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_queue.py --execute --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)' --receipt '$(ToWsl $receipt)' --per-bucket 8"
