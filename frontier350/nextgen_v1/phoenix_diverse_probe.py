@@ -1,7 +1,8 @@
-"""Read-only original OASST2 comparison of three candidate samplers.
+"""Read-only original OASST2 comparison of three sampling policies.
 
-Produces aggregate metadata and warning counts only. No holdout, approvals, text
-or IDs in logs, file exports, GPU calls, model loading or training.
+Compares the legacy prefix chooser, tree-diverse chooser, and the existing
+screened tree-diverse chooser. Produces aggregate metadata only: no holdout,
+approval, raw text/IDs in logs, file export, GPU, model loading or training.
 """
 from __future__ import annotations
 
@@ -13,8 +14,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from fetch_oasst2_sft50 import choose_pairs
+from phoenix_clean_sampler import choose_screened_diverse
 from phoenix_diverse_selector import choose_tree_diverse
-from phoenix_risk_aware_selector import choose_risk_aware
 from phoenix_oasst2_bridge import UPSTREAM_SHA256, load_archive, local_input, select_tree_disjoint
 from phoenix_oasst2_content_profile import screen_selected
 
@@ -38,20 +39,21 @@ def compare(messages: list[dict], max_en: int = 800, max_de: int = 400) -> dict:
         raise ValueError("bounded campaign sizes required")
     baseline = choose_pairs(messages, max_en=max_en, max_de=max_de)
     diverse, diverse_id = choose_tree_diverse(messages, max_en=max_en, max_de=max_de)
-    risk_aware, risk_id = choose_risk_aware(messages, max_en=max_en, max_de=max_de)
+    screened, screened_id = choose_screened_diverse(messages, max_en=max_en, max_de=max_de)
     return {
         "status": "exploratory_sample_comparison_not_training_approval",
         "archive_sha256": UPSTREAM_SHA256,
         "source_messages": len(messages),
         "legacy_prefix": summarize(baseline, messages),
         "candidate_tree_diverse": summarize(diverse, messages),
-        "candidate_risk_aware": summarize(risk_aware, messages),
+        "candidate_screened_tree_diverse": summarize(screened, messages),
         "tree_diverse_policy": diverse_id["policy"],
         "tree_diverse_inventory_sha256": diverse_id["selected_id_inventory_sha256"],
-        "risk_aware_policy": risk_id["policy"],
-        "risk_aware_inventory_sha256": risk_id["selected_id_inventory_sha256"],
-        "risk_aware_hard_warning_rejections_before_tree_sampling": risk_id["hard_warning_rejections_before_tree_sampling"],
-        "risk_aware_eligible_tree_counts_after_hard_filter": risk_id["eligible_tree_counts_after_hard_filter"],
+        "screened_policy": screened_id["policy"],
+        "screened_inventory_sha256": screened_id["selected_inventory_sha256"],
+        "screened_rejected_upstream_pairs_by_first_reason": screened_id["rejected_upstream_pairs_by_first_reason"],
+        "screened_upstream_eligible_rows": screened_id["upstream_eligible_rows"],
+        "screened_duplicate_prompts_avoided": screened_id["duplicate_prompts_avoided_during_selection"],
         "holdout_checked": False,
         "semantic_leakage_checked": False,
         "privacy_fully_reviewed": False,
@@ -62,7 +64,7 @@ def compare(messages: list[dict], max_en: int = 800, max_de: int = 400) -> dict:
         "training_started": False,
         "model_weights_modified": False,
         "raw_text_uploaded": False,
-        "interpretation": "Heuristic risk reduction and conversation diversity do not establish answer quality, privacy completeness, semantic independence or training readiness. Existing export path remains unchanged.",
+        "interpretation": "Heuristic screening and tree diversity do not establish answer quality, privacy completeness, legal provenance, semantic independence or training readiness. Existing export path remains unchanged.",
     }
 
 
