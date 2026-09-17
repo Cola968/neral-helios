@@ -1,7 +1,7 @@
 name: Phoenix three-sampler OASST2 comparison (NO GPU / NO TRAINING)
 
-# One-shot read-only comparison after adding a risk-aware sampler candidate.
-# Trigger only when this workflow itself changes; never on ordinary code pushes.
+# One-shot retry after the risk-aware selector was corrected to the real
+# choose_pairs prompt/answer schema and hosted CPU contracts passed.
 on:
   push:
     branches: [experiment/phoenix-sft-fp32-audit]
