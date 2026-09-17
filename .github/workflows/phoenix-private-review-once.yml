@@ -1,0 +1,56 @@
+name: Phoenix private human-review queue one-shot (CPU ONLY / NEVER UPLOAD TEXT)
+
+# One-shot, triggered ONLY by changes to this workflow. The output files are
+# new local private files, not Actions artifacts, attachments or repository data.
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-private-review-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  create-local-private-review-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Isolated exact-commit checkout, no cleaning or writing private assets
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_review_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Save 24 rows ONLY in existing private local assets; log counts only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_review_source_' + $env:GITHUB_RUN_ID)
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $out = Join-Path $root ('phoenix_review_' + $env:GITHUB_RUN_ID + '.jsonl')
+          $receipt = Join-Path $root ('phoenix_review_' + $env:GITHUB_RUN_ID + '_receipt.json')
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned archive missing; no review outputs' }
+          if ((Test-Path -LiteralPath $out) -or (Test-Path -LiteralPath $receipt)) { throw 'Review output already exists; never overwrite' }
+          foreach ($p in @($repo, $root, $archive, $out, $receipt)) {
+            if ($p.Contains("'")) { throw 'Shell-unsafe path; no review output' }
+          }
+          $cmd = "set -euo pipefail; test -x ~/.venvs/neral-triton-py312/bin/python; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_queue.py --execute --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)' --receipt '$(ToWsl $receipt)'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Local private review queue blocked; no approval or training' }
+          if (-not (Test-Path -LiteralPath $out -PathType Leaf) -or -not (Test-Path -LiteralPath $receipt -PathType Leaf)) { throw 'Expected private review files not present' }
+          Write-Host 'Local review-only files exist under private asset root; contents and IDs NOT uploaded or logged.'
+      - name: Explicit non-approval and hardware boundary
+        run: Write-Host '24 pending human reviews; NO GPU, model access, training, approval, benchmark, private-text logging or artifact upload.'
