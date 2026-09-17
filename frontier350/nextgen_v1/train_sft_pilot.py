@@ -19,6 +19,7 @@ import time
 
 from sft_contract import sha
 from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
+from sft_runtime_evidence import verify_runtime_evidence
 
 PARAMETERS = 349_825_152
 MAX_RESERVED = 9 * 1024 ** 3
@@ -79,10 +80,6 @@ def load_pack(directory: Path, tokenizer: Path) -> tuple[dict, dict[str, list[di
                     raise ValueError("explicit terminal EOS missing or repeated")
                 if row["answer_tokens_including_eos"] != len(labels) - first:
                     raise ValueError("answer token count does not match mask")
-                # model350.forward compares logits[t] with labels[t] (no internal shift).
-                # sft_contract.encode_row supplies full[:-1] and next-token labels.
-                # Without this check a SHA-consistent but incorrectly prepared pack
-                # could optimize unrelated token targets and silently damage quality.
                 if labels[first:-1] != x[first + 1:]:
                     raise ValueError("causal next-token label alignment mismatch")
                 rows.append(row)
@@ -114,6 +111,9 @@ def main() -> int:
     p.add_argument("--checkpoint-sha256", required=True)
     p.add_argument("--pack", type=Path, required=True)
     p.add_argument("--tokenizer", type=Path, required=True)
+    p.add_argument("--source-manifest", type=Path, required=True)
+    p.add_argument("--screening-report", type=Path, required=True)
+    p.add_argument("--holdout-hashes", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--train-blocks", type=int, choices=(4, 8), default=4)
     p.add_argument("--batch", type=int, choices=(1, 2, 4), default=2)
@@ -127,7 +127,11 @@ def main() -> int:
         p.error("refusing to overwrite output directory")
     if len(args.checkpoint_sha256) != 64 or sha(args.checkpoint) != args.checkpoint_sha256:
         raise ValueError("checkpoint SHA mismatch; do not load")
+
+    # All data/evidence integrity gates run before Torch import or CUDA allocation.
     report, splits = load_pack(args.pack, args.tokenizer)
+    runtime_evidence = verify_runtime_evidence(
+        report, args.source_manifest, args.screening_report, args.holdout_hashes)
 
     import torch
     from tokenizers import Tokenizer
@@ -149,7 +153,6 @@ def main() -> int:
     free, _ = torch.cuda.mem_get_info()
     if free < 9000 * 1024 ** 2:
         raise RuntimeError("GPU occupied; do not contend with V8/V8.2")
-    # torch.load(weights_only=False) is permissible ONLY with explicit trusted-local provenance.
     base = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     if base.get("config") != FRONTIER_350.to_dict() or base.get("tokenizer_sha256") != report["tokenizer_sha256"]:
         raise ValueError("checkpoint architecture/tokenizer mismatch")
@@ -168,12 +171,10 @@ def main() -> int:
     optimizer = torch.optim.AdamW(params, lr=2e-5, betas=(0.9, 0.95), weight_decay=0.01, fused=True)
     rng = random.Random(20260916)
     seq = report["context"]
-    # Same reproducible spread before/after. This subset is NOT a blind quality test.
     validation_selection = validation_indices(len(splits["validation"]))
 
     def batch(rows: list[dict], picks: list[int]):
         selected = [rows[index] for index in picks]
-        # Padding to the full pack context wasted attention/FFN work on short rows.
         width = dynamic_batch_width(selected, seq)
         x = torch.full((len(selected), width), report["eos_id"], dtype=torch.long)
         y = torch.full((len(selected), width), -100, dtype=torch.long)
@@ -193,8 +194,6 @@ def main() -> int:
                     _, loss = model(x, y)
                 if not bool(torch.isfinite(loss)):
                     raise FloatingPointError("nonfinite SFT validation")
-                # model.forward returns mean CE over labels != -100; weight by
-                # supervised tokens so short and long answers have equal token weight.
                 pairs.append((float(loss), int((y != -100).sum().item())))
         model.train()
         return token_weighted_loss(pairs)
@@ -233,13 +232,15 @@ def main() -> int:
     if not math.isfinite(after) or temperature() > 82:
         raise RuntimeError("nonfinite evaluation or thermal guard after pilot")
 
-    # A lower local validation loss creates an experimental artifact only.
-    # This does NOT imply instruction generation, NIS2, safety or speed readiness.
     args.out.mkdir(parents=True, exist_ok=False)
     result = {
         "schema": 1, "classification": "unpromoted_local_sft_pilot",
         "base_checkpoint_sha256": args.checkpoint_sha256,
         "pack_report_sha256": sha(args.pack / "pack_report.json"),
+        "source_manifest_sha256": runtime_evidence["source_manifest_sha256"],
+        "screen_report_sha256": runtime_evidence["screen_report_sha256"],
+        "holdout_sha256": runtime_evidence["holdout_sha256"],
+        "runtime_evidence_bound": True,
         "train_sha256": report["train_packed_sha256"],
         "validation_sha256": report["validation_packed_sha256"],
         "validation_sampling": "deterministic_spread_16_or_all_if_fewer",
@@ -257,7 +258,7 @@ def main() -> int:
         "temperature_c_end": temperature(),
         "eligible_for_production": False,
         "throughput_60k_70k_verified": False,
-        "note": "Bounded SFT experiment with deterministic sampled validation, NOT an end-to-end 5M stage, complete validation or independent NIS2/EOS/quality result. No resumable long run."}
+        "note": "Bounded SFT experiment with runtime-bound approval evidence and deterministic sampled validation; NOT an end-to-end 5M stage, complete validation or independent NIS2/EOS/quality result. No resumable long run."}
     if after < baseline:
         state = {"checkpoint_schema": "nextgen_sft_pilot_v1", "model": {
             name: tensor.detach().to(device="cpu", dtype=torch.bfloat16)
@@ -269,6 +270,9 @@ def main() -> int:
             "steps": args.steps, "sft_supervised_tokens": token_counter,
             "pretraining_processed_tokens": int(base["processed_tokens"]),
             "pack_report_sha256": result["pack_report_sha256"],
+            "source_manifest_sha256": result["source_manifest_sha256"],
+            "screen_report_sha256": result["screen_report_sha256"],
+            "holdout_sha256": result["holdout_sha256"],
             "trainable_names": [name for name, _ in named],
             "production_eligible": False}
         output = args.out / "candidate_sft_experimental.pt"
