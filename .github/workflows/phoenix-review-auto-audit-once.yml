@@ -1,5 +1,6 @@
 name: Phoenix private automatic review hints once (CPU ONLY)
 
+# A fresh one-shot run for the explicit pinned-digest test fix. No recurrence.
 on:
   push:
     branches: [experiment/phoenix-sft-fp32-audit]
