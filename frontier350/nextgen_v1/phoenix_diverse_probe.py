@@ -10,6 +10,10 @@ import json
 from pathlib import Path
 import sys
 
+# The source adapter lives in the repository root. This script must work when
+# invoked by absolute/relative script path from an isolated Windows/WSL checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from fetch_oasst2_sft50 import choose_pairs
 from phoenix_diverse_selector import choose_tree_diverse
 from phoenix_oasst2_bridge import UPSTREAM_SHA256, load_archive, local_input, select_tree_disjoint
