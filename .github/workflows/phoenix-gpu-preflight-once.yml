@@ -1,0 +1,30 @@
+name: Phoenix GPU telemetry once (NO MODEL / NO TRAINING)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-gpu-preflight-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  telemetry-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 3
+    steps:
+      - name: Read one GPU telemetry snapshot (no Python, weights, or training)
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = & wsl.exe -- nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits
+          if ($LASTEXITCODE -ne 0 -or -not $raw) { throw 'GPU telemetry unavailable; no model was loaded' }
+          $rows = @($raw | Where-Object { $_.Trim() })
+          if ($rows.Count -ne 1) { throw 'Expected exactly one GPU; no model was loaded' }
+          Write-Host 'Single GPU snapshot: name, utilization percent, used MiB, total MiB, temperature Celsius:'
+          Write-Host $rows[0]
+          Write-Host 'Previous Phoenix guard permits utilization <=15%, used VRAM <=2500 MiB, temperature <=78 C. Telemetry ONLY; do not infer model quality or relax guards.'
