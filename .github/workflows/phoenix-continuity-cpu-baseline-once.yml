@@ -1,0 +1,52 @@
+name: Phoenix 2.073B CPU baseline ONCE (NO GPU / NO TRAINING)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-continuity-cpu-baseline-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  continuity-cpu:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout only this exact source commit to isolated temporary location
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_cpu_probe_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Exact checkpoint/asset pins, CPU-only eight public health prompts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_cpu_probe_' + $env:GITHUB_RUN_ID)
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $checkpoint = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          if (!(Test-Path -LiteralPath $assets -PathType Container) -or !(Test-Path -LiteralPath $checkpoint -PathType Leaf)) { throw 'Pinned local assets or source checkpoint unavailable; no inference' }
+          foreach ($value in @($repo, $assets, $checkpoint)) { if ($value.Contains("'")) { throw 'Shell-unsafe path; no inference' } }
+          $cmd = "set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_continuity_cpu_probe.py --execute --trusted-local-checkpoint --assets-root '$(ToWsl $assets)' --checkpoint '$(ToWsl $checkpoint)' --token-budget 32"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw '2.073B CPU diagnostic refused or failed; no quality claim' }
+          Write-Host 'OWN-WEIGHT CPU engineering health only. No GPU, training, model modification, answers or prompts uploaded; NOT an independent benchmark.'
+      - name: Remove ONLY the uniquely owned ephemeral source checkout
+        if: always()
+        run: |
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_cpu_probe_' + $env:GITHUB_RUN_ID)
+          $base = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          $target = [IO.Path]::GetFullPath($repo)
+          if (!$target.StartsWith($base, [StringComparison]::OrdinalIgnoreCase) -or
+              [IO.Path]::GetFileName($target) -ne ('phoenix_cpu_probe_' + $env:GITHUB_RUN_ID)) { throw 'Refuse unsafe checkout cleanup path' }
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
+          Write-Host 'Deleted only the temporary run-ID source checkout; no assets, checkpoints or datasets touched.'
