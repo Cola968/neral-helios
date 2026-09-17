@@ -51,8 +51,13 @@ def require_idle_gpu() -> None:
         raise RuntimeError("GPU is busy/hot; refuse parallel diagnostic")
 
 
-def smoke(model, tokenizer, bos: int, eos: int, torch, budget: int = 1) -> dict:
-    """Actual decoder health with no model answer or prompt leaving the process."""
+def smoke(model, tokenizer, bos: int, eos: int, torch, budget: int = 1,
+          before_case=None, after_case=None) -> dict:
+    """Decoder health with optional fail-closed safety hooks per bounded case.
+
+    Hook exceptions propagate before the next case; no answer/prompt is logged.
+    The CPU smoke has no hooks. Only the opt-in CUDA diagnostic supplies them.
+    """
     if budget not in (1, 32, 64):
         raise ValueError("only bounded, fixed diagnostic budgets supported")
     results = {"cases": 0, "actual_eos": 0, "nonempty": 0,
@@ -60,7 +65,11 @@ def smoke(model, tokenizer, bos: int, eos: int, torch, budget: int = 1) -> dict:
     cases = []
     started = time.perf_counter()
     for index, prompt in enumerate(SMOKE_PROMPTS, 1):
+        if before_case is not None:
+            before_case()
         answer, reason, used = capture_generation(model, tokenizer, bos, eos, torch, prompt, budget)
+        if after_case is not None:
+            after_case()
         if (reason not in ("eos", "max_tokens") or not 1 <= used <= budget
                 or (reason == "max_tokens" and used != budget)):
             raise RuntimeError("unexpected native decoder termination/counter")
