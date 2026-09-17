@@ -25,7 +25,6 @@ def fixture(root: Path):
             answer = rows[0]["assistant"]
         if 20 <= index < 27:
             answer = "repeat synthetic sequence " * 20
-            # Different tail avoids an additional exact-duplicate flag.
             answer += f" unique suffix {index}"
         rows.append({"id": f"case_{index}", "source_id": f"tree_{index}",
                      "user": f"Synthetic question number {index} with unique identifier",
@@ -51,7 +50,7 @@ class CandidateTriageContracts(unittest.TestCase):
             dest = root / "triaged_v1"
             original = (source / "train.jsonl").read_bytes()
             with patch.object(target, "SOURCE_REPORT_SHA", report_sha):
-                result = target.triage(root, source, dest)
+                result = target.triage(root, source, dest, expected_report_sha=report_sha)
             self.assertEqual(result["quarantine_rows"], 8)
             self.assertEqual(result["train_rows"], 1087)
             self.assertEqual(result["validation_rows"], 105)
@@ -65,7 +64,7 @@ class CandidateTriageContracts(unittest.TestCase):
             self.assertFalse(report["training_approved"])
             with patch.object(target, "SOURCE_REPORT_SHA", report_sha):
                 with self.assertRaises(ValueError):
-                    target.triage(root, source, dest)
+                    target.triage(root, source, dest, expected_report_sha=report_sha)
 
     def test_modified_source_is_rejected_without_output(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -75,7 +74,7 @@ class CandidateTriageContracts(unittest.TestCase):
             dest = root / "never_created"
             with patch.object(target, "SOURCE_REPORT_SHA", report_sha):
                 with self.assertRaisesRegex(ValueError, "hash mismatch"):
-                    target.triage(root, source, dest)
+                    target.triage(root, source, dest, expected_report_sha=report_sha)
             self.assertFalse(dest.exists())
 
     def test_unrecognized_original_or_nested_output_fails(self):
@@ -84,7 +83,7 @@ class CandidateTriageContracts(unittest.TestCase):
             source, report_sha = fixture(root)
             with patch.object(target, "SOURCE_REPORT_SHA", report_sha):
                 with self.assertRaises(ValueError):
-                    target.triage(root, source, source / "nested")
+                    target.triage(root, source, source / "nested", expected_report_sha=report_sha)
                 with self.assertRaises(ValueError):
                     target.triage(root, source, root / "out", expected_report_sha="wrong")
             self.assertFalse((root / "out").exists())
