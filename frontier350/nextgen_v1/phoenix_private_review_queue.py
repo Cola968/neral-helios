@@ -13,6 +13,10 @@ import json
 from pathlib import Path
 import sys
 
+# The upstream fetch_oasst2_sft50.py lives in the repository root. Standalone
+# invocation must work from an unrelated working directory, not just unittest.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from phoenix_clean_sampler import choose_screened_diverse
 from phoenix_oasst2_bridge import UPSTREAM_SHA256, load_archive, local_input, select_tree_disjoint
 
