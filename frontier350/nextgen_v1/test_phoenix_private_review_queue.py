@@ -27,7 +27,7 @@ class PrivateReviewQueueContracts(unittest.TestCase):
         self.messages = fixture.messages
 
     def test_balanced_review_rows_are_pending_and_original_text_stays_private(self):
-        rows, receipt = build_review_rows(self.messages, per_bucket=2)
+        rows, receipt = build_review_rows(self.messages, per_bucket=2, max_en=50, max_de=50)
         self.assertEqual(len(rows), 8)
         self.assertTrue(receipt["all_human_reviews_pending"])
         self.assertFalse(receipt["training_approved"])
@@ -40,7 +40,8 @@ class PrivateReviewQueueContracts(unittest.TestCase):
     def test_output_new_only_and_no_text_in_return_value(self):
         with patch("phoenix_private_review_queue.load_archive", return_value=self.messages), \
              redirect_stdout(io.StringIO()) as output:
-            report = prepare(self.root, self.source, self.out, self.receipt, per_bucket=2)
+            report = prepare(self.root, self.source, self.out, self.receipt,
+                             per_bucket=2, max_en=50, max_de=50)
         self.assertEqual(report["rows"], 8)
         self.assertFalse(report["training_approved"])
         self.assertEqual(len(self.out.read_text(encoding="utf-8").splitlines()), 8)
@@ -50,7 +51,8 @@ class PrivateReviewQueueContracts(unittest.TestCase):
         self.assertTrue(receipt["all_human_reviews_pending"])
         with patch("phoenix_private_review_queue.load_archive", return_value=self.messages):
             with self.assertRaisesRegex(ValueError, "overwrite"):
-                prepare(self.root, self.source, self.out, self.receipt, per_bucket=2)
+                prepare(self.root, self.source, self.out, self.receipt,
+                        per_bucket=2, max_en=50, max_de=50)
 
     def test_refuses_git_worktree_even_for_new_files(self):
         (self.root / ".git").mkdir()
@@ -66,7 +68,7 @@ class PrivateReviewQueueContracts(unittest.TestCase):
 
     def test_bad_review_sampling_limit_fails_before_writes(self):
         with self.assertRaisesRegex(ValueError, "bounded per-bucket"):
-            build_review_rows(self.messages, per_bucket=9)
+            build_review_rows(self.messages, per_bucket=9, max_en=50, max_de=50)
         self.assertFalse(self.out.exists())
 
 
