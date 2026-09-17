@@ -55,7 +55,8 @@ class PrivateReviewUiTests(unittest.TestCase):
         self.assertIn('maxlength="1000"', html)
         self.assertIn('finish.disabled = completed !== 96', html)
         self.assertEqual(html.count('class="card"'), 24)
-        self.assertEqual(html.count('type="radio"'), 192)
+        # A JS querySelector string also contains type="radio"; count actual tags only.
+        self.assertEqual(html.count('<input type="radio"'), 192)
 
     def test_digest_and_source_schema_fail_closed(self):
         self.assertEqual(load_queue(self.queue, self.digest), self.rows)
