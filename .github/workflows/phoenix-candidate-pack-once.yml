@@ -23,6 +23,7 @@ jobs:
       - name: Synthetic candidate-pack tests
         working-directory: frontier350/nextgen_v1
         run: |
+          # Import path is supplied by phoenix_candidate_pack.py itself.
           python3 -m unittest -v test_phoenix_candidate_pack
           python3 -m py_compile phoenix_candidate_pack.py
 
