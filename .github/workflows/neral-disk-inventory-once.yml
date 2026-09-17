@@ -1,0 +1,64 @@
+name: Neral disk inventory before C-drive relocation
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/neral-disk-inventory-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-disk-maintenance
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Inventory drives and likely Neral directories
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function GiB([long]$bytes) { [math]::Round($bytes / 1GB, 2) }
+          function DirSize([string]$path) {
+            try {
+              $sum = (Get-ChildItem -LiteralPath $path -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+              if ($null -eq $sum) { return 0L }
+              return [long]$sum
+            } catch { return -1L }
+          }
+          Write-Host '=== DRIVE FREE SPACE ==='
+          Get-PSDrive -PSProvider FileSystem | ForEach-Object {
+            Write-Host ($_.Name + ': free=' + (GiB $_.Free) + ' GiB used=' + (GiB $_.Used) + ' GiB')
+          }
+          Write-Host '=== D ROOT CANDIDATES ==='
+          if (Test-Path 'D:\') {
+            Get-ChildItem 'D:\' -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+              $n = $_.Name.ToLowerInvariant()
+              if ($n -match 'neral|helios|codex|model|train|output|run|checkpoint|cache|python|ai|ki') {
+                $size = DirSize $_.FullName
+                Write-Host ($_.FullName + ' | ' + (GiB $size) + ' GiB')
+              }
+            }
+          }
+          Write-Host '=== LARGE D DIRECTORIES DEPTH 2 ==='
+          $rows = @()
+          if (Test-Path 'D:\') {
+            Get-ChildItem 'D:\' -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+              $top = $_
+              $size = DirSize $top.FullName
+              $rows += [pscustomobject]@{Path=$top.FullName;Bytes=$size}
+              Get-ChildItem -LiteralPath $top.FullName -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+                $size2 = DirSize $_.FullName
+                $rows += [pscustomobject]@{Path=$_.FullName;Bytes=$size2}
+              }
+            }
+          }
+          $rows | Sort-Object Bytes -Descending | Select-Object -First 30 | ForEach-Object {
+            Write-Host ($_.Path + ' | ' + (GiB $_.Bytes) + ' GiB')
+          }
+          Write-Host 'INVENTORY_ONLY_NO_FILES_CHANGED'
