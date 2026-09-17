@@ -1,7 +1,7 @@
-name: Phoenix tree-diversity candidate one-shot comparison (NO GPU / NO TRAINING)
+name: Phoenix three-sampler OASST2 comparison (NO GPU / NO TRAINING)
 
-# One retry after isolated direct-script import path regression was fixed and
-# hosted synthetic contracts succeeded. No automatic rerun on further code pushes.
+# One-shot read-only comparison after adding a risk-aware sampler candidate.
+# Trigger only when this workflow itself changes; never on ordinary code pushes.
 on:
   push:
     branches: [experiment/phoenix-sft-fp32-audit]
@@ -29,7 +29,7 @@ jobs:
           path: phoenix_diverse_source_${{ github.run_id }}
           clean: false
           persist-credentials: false
-      - name: Compare two local source-selection policies, aggregate output only
+      - name: Compare three local source-selection policies, aggregate output only
         run: |
           $ErrorActionPreference = 'Stop'
           function ToWsl([string]$p) {
@@ -46,4 +46,4 @@ jobs:
           & wsl.exe -- bash -lc $cmd
           if ($LASTEXITCODE -ne 0) { throw 'Experimental sampler comparison blocked; no training authorization' }
       - name: Explicit evidence boundary
-        run: Write-Host 'Both policies remain unapproved; NO GPU, checkpoint, training, raw dialog, holdout, model evaluation, license/data approval or source export.'
+        run: Write-Host 'All three policies remain unapproved; NO GPU, checkpoint, training, raw dialog, holdout, model evaluation, license/data approval or source export.'
