@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Read-only inventory
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host 'READ-ONLY checkpoint inventory. No model load, no GPU use, no deletes.'
