@@ -33,8 +33,8 @@ def digest(text: str) -> str:
 
 
 def _hard_warning(pair: dict) -> str | None:
-    prompt = pair.get("user")
-    answer = pair.get("assistant")
+    prompt = pair.get("prompt")
+    answer = pair.get("answer")
     if not isinstance(prompt, str) or not isinstance(answer, str):
         raise ValueError("pair text missing")
     if EMAIL.search(prompt) or EMAIL.search(answer):
