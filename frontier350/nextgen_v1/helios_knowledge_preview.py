@@ -7,7 +7,6 @@ used. Raw/guarded local modes remain separate. No training or checkpoint writes.
 from __future__ import annotations
 
 import argparse
-from html import escape
 from http.server import ThreadingHTTPServer
 import json
 import os
@@ -69,31 +68,37 @@ def wikipedia_lookup(query: str, language: str | None = None) -> dict:
     return {"language": language, "title": title, "extract": extract, "url": page_url}
 
 
-def grounded_prompt(question: str, source: dict, tokenizer, bos: int) -> str:
+def _compose_grounded(question: str, source: dict, compact: bool = False) -> str:
     lang = source["language"]
     if lang == "de":
-        prefix = ("Nutze den folgenden Wikipedia-Auszug als Faktenquelle. Wenn die Antwort darin nicht "
-                  "steht, sage kurz, dass der Kontext nicht reicht. Erfinde keine zusätzlichen Fakten.\n"
-                  f"Quelle: {source['title']}\nKontext: {source['extract']}\nFrage: {question}\nAntwort:")
-    else:
-        prefix = ("Use the following Wikipedia extract as the factual source. If it does not contain the "
-                  "answer, briefly say the context is insufficient. Do not invent extra facts.\n"
-                  f"Source: {source['title']}\nContext: {source['extract']}\nQuestion: {question}\nAnswer:")
-    # guarded_generate adds User:/Assistant:, so trim source until the final encoded input fits.
-    text = prefix
-    while len([bos] + tokenizer.encode("User: " + text + "\nAssistant:").ids) > base.MAX_INPUT_TOKENS:
-        current = source["extract"]
-        if len(current) < 180:
-            raise ValueError("retrieved context cannot fit model input window")
-        source = dict(source)
-        source["extract"] = current[: max(160, int(len(current) * 0.82))].rstrip()
-        if lang == "de":
-            text = ("Nutze den folgenden Wikipedia-Auszug als Faktenquelle. Antworte nur aus dem Kontext.\n"
-                    f"Quelle: {source['title']}\nKontext: {source['extract']}\nFrage: {question}\nAntwort:")
-        else:
-            text = ("Use the following Wikipedia extract as the factual source. Answer only from the context.\n"
-                    f"Source: {source['title']}\nContext: {source['extract']}\nQuestion: {question}\nAnswer:")
-    return text
+        instruction = ("Nutze den Wikipedia-Auszug als Faktenquelle. Antworte nur aus dem Kontext; "
+                       "wenn er nicht reicht, sage das kurz.\n" if compact else
+                       "Nutze den folgenden Wikipedia-Auszug als Faktenquelle. Wenn die Antwort darin nicht steht, "
+                       "sage kurz, dass der Kontext nicht reicht. Erfinde keine zusätzlichen Fakten.\n")
+        return instruction + f"Quelle: {source['title']}\nKontext: {source['extract']}\nFrage: {question}\nAntwort:"
+    instruction = ("Use the Wikipedia extract as the factual source. Answer only from context; say briefly if it is insufficient.\n"
+                   if compact else
+                   "Use the following Wikipedia extract as the factual source. If it does not contain the answer, "
+                   "briefly say the context is insufficient. Do not invent extra facts.\n")
+    return instruction + f"Source: {source['title']}\nContext: {source['extract']}\nQuestion: {question}\nAnswer:"
+
+
+def grounded_prompt(question: str, source: dict, tokenizer, bos: int) -> str:
+    """Fit retrieved grounding under BOTH guarded char and model-token ceilings."""
+    if not isinstance(question, str) or not question.strip() or len(question) > base.MAX_PROMPT_CHARS:
+        raise ValueError("invalid grounded question")
+    source = dict(source)
+    compact = False
+    while True:
+        text = _compose_grounded(question.strip(), source, compact)
+        encoded = [bos] + tokenizer.encode("User: " + text + "\nAssistant:").ids
+        if len(text) <= base.MAX_PROMPT_CHARS and len(encoded) <= base.MAX_INPUT_TOKENS:
+            return text
+        current = source.get("extract", "")
+        if not isinstance(current, str) or len(current) < 180:
+            raise ValueError("retrieved context cannot fit model input limits")
+        compact = True
+        source["extract"] = current[: max(160, int(len(current) * 0.78))].rstrip()
 
 
 def parse_knowledge_request(raw: bytes) -> tuple[str, int, bool]:
@@ -151,8 +156,7 @@ def make_handler(model, tokenizer, bos, eos, torch, processed, port):
                 with mutex:
                     answer, used, reason = guarded_generate(model, tokenizer, bos, eos, torch, model_prompt, count)
                 payload = {"answer": answer, "generated_tokens": used, "finish_reason": reason,
-                           "model": "continuity-2b", "decoder": "guarded",
-                           "knowledge_mode": knowledge}
+                           "model": "continuity-2b", "decoder": "guarded", "knowledge_mode": knowledge}
                 if source:
                     payload["source"] = {"title": source["title"], "url": source["url"], "language": source["language"]}
                 return self._json(200, payload)
