@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Synthetic triage and continuity CPU-probe contracts; no own weights
+      - name: Corrected synthetic triage and continuity CPU-probe contracts; no own weights
         working-directory: frontier350/nextgen_v1
         run: |
           python3 -m unittest -v test_phoenix_candidate_triage test_phoenix_continuity_cpu_probe
