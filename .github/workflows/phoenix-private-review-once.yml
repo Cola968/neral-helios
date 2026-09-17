@@ -1,7 +1,9 @@
 name: Phoenix private human-review queue one-shot (CPU ONLY / NEVER UPLOAD TEXT)
 
-# One-shot, triggered ONLY by changes to this workflow. The output files are
-# new local private files, not Actions artifacts, attachments or repository data.
+# One-shot, triggered ONLY by changes to this workflow. Retry 2026-09-17:
+# previous attempt failed on standalone import BEFORE archive read/output creation;
+# corrected entrypoint and standalone no-opt-in contracts now pass hosted CI.
+# The output files are new local private files, never Actions artifacts.
 on:
   push:
     branches: [experiment/phoenix-sft-fp32-audit]
