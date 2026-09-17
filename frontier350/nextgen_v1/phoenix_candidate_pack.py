@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import hashlib
 import json
 from pathlib import Path
 import re
+import sys
+
+# fetch_oasst2_sft50.py lives at the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from phoenix_clean_sampler import choose_screened_diverse, POLICY
-from phoenix_gate import unique_object
 from phoenix_oasst2_bridge import load_archive, select_tree_disjoint
 from sft_contract import norm, sha
 
@@ -45,7 +47,6 @@ def audit(splits: dict[str, list[dict]]) -> dict:
     seen_answer: set[str] = set()
     ids: set[str] = set()
     flags = Counter()
-    language = Counter()
     total = 0
     for split in ("train", "validation"):
         for row in splits[split]:
@@ -69,8 +70,6 @@ def audit(splits: dict[str, list[dict]]) -> dict:
             if len(row["assistant"].strip()) < 40: flags["short_answer"] += 1
             if len(row["assistant"]) > 2500: flags["long_answer"] += 1
             if _repeat_ratio(row["assistant"]) > 0.30: flags["high_trigram_repetition"] += 1
-            # infer language only from source selector's ID inventory is impossible here;
-            # language quotas are asserted before conversion and reported separately.
     return {"rows": total, "flags": dict(sorted(flags.items())),
             "distinct_ids": len(ids), "distinct_prompts": len(seen_prompt),
             "distinct_answers": len(seen_answer)}
@@ -92,7 +91,6 @@ def build(root: Path, archive: Path, out: Path, max_de: int = 400, max_en: int =
         raise ValueError("candidate population changed during split conversion")
     if measured["distinct_ids"] != measured["rows"] or measured["distinct_prompts"] != measured["rows"]:
         raise ValueError("candidate identity/prompt uniqueness failed")
-    # The conservative selector already removed contact/length/role flags; fail closed if they reappear.
     hard = {"duplicate_id", "duplicate_prompt", "email_pattern", "phone_pattern", "role_marker", "long_prompt", "short_answer", "long_answer"}
     if any(measured["flags"].get(k, 0) for k in hard):
         raise ValueError("hard candidate hygiene flag reappeared")
