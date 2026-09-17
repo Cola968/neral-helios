@@ -1,0 +1,87 @@
+name: Phoenix checkpoint and disk inventory ONCE (READ ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-checkpoint-disk-inventory-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    steps:
+      - name: Inspect storage and checkpoint filenames without Python, GPU or writes
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $maxDirs = 6000
+          $maxFiles = 200000
+          $maxDepth = 6
+          $watch = [Diagnostics.Stopwatch]::StartNew()
+          foreach ($letter in @('C', 'D')) {
+            $drive = New-Object System.IO.DriveInfo("${letter}:\")
+            if ($drive.IsReady) {
+              Write-Host ('VOLUME {0}: free_gib={1:N2} total_gib={2:N2}' -f $letter, ($drive.AvailableFreeSpace / 1GB), ($drive.TotalSize / 1GB))
+            }
+          }
+          $roots = New-Object 'System.Collections.Generic.List[System.IO.DirectoryInfo]'
+          foreach ($base in @('D:\', 'C:\')) {
+            if (!(Test-Path -LiteralPath $base -PathType Container)) { continue }
+            foreach ($directory in (Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction Stop)) {
+              $matching = $directory.Name -match '(?i)neral|helios|350|throughput|phoenix|checkpoints|^runs$|^v8([0-9.]|$)'
+              if (!$matching) { continue }
+              if ($base -eq 'C:\' -and $directory.Name -ne 'NeralArchive') { continue }
+              if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Write-Host ('SKIP_JUNCTION ' + $directory.FullName); continue }
+              $roots.Add($directory)
+            }
+          }
+          Write-Host ('MATCHING_ROOT_COUNT ' + $roots.Count)
+          $totalDirs = 0
+          $totalFiles = 0
+          foreach ($root in $roots) {
+            $queue = New-Object System.Collections.Queue
+            $queue.Enqueue(@($root, 0))
+            $rootBytes = [long]0
+            $rootFiles = 0
+            $checkpointCount = 0
+            $candidates = New-Object 'System.Collections.Generic.List[object]'
+            $truncated = $false
+            while ($queue.Count -gt 0) {
+              if ($totalDirs -ge $maxDirs -or $totalFiles -ge $maxFiles -or $watch.Elapsed.TotalMinutes -gt 5.5) { $truncated = $true; break }
+              $node = $queue.Dequeue()
+              $folder = $node[0]
+              $depth = [int]$node[1]
+              $totalDirs++
+              try { $entries = @(Get-ChildItem -LiteralPath $folder.FullName -Force -ErrorAction Stop) }
+              catch { Write-Host ('SKIP_UNREADABLE_DIRECTORY ' + $folder.FullName); continue }
+              foreach ($entry in $entries) {
+                if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+                if ($entry.PSIsContainer) {
+                  if ($depth -lt $maxDepth) { $queue.Enqueue(@($entry, ($depth + 1))) }
+                  else { $truncated = $true }
+                  continue
+                }
+                $totalFiles++
+                $rootFiles++
+                $rootBytes += [long]$entry.Length
+                if ($entry.Extension -in @('.pt', '.pth', '.ckpt', '.safetensors')) {
+                  $checkpointCount++
+                  if ($entry.Length -ge 100MB -or $entry.Name -match '(?i)resume|latest|best|2b|final') {
+                    $candidates.Add([pscustomobject]@{ path=$entry.FullName; gib=[math]::Round($entry.Length / 1GB, 3); modified_utc=$entry.LastWriteTimeUtc.ToString('o') })
+                  }
+                }
+                if ($totalFiles -ge $maxFiles) { $truncated = $true; break }
+              }
+              if ($truncated -and $totalFiles -ge $maxFiles) { break }
+            }
+            Write-Host ('ROOT_SUMMARY name={0} files_scanned={1} logical_gib_scanned={2:N3} checkpoint_files={3} truncated={4}' -f $root.FullName, $rootFiles, ($rootBytes / 1GB), $checkpointCount, $truncated)
+            foreach ($item in ($candidates | Sort-Object modified_utc -Descending | Select-Object -First 25)) {
+              Write-Host ('CHECKPOINT_CANDIDATE ' + ($item | ConvertTo-Json -Compress))
+            }
+            if ($truncated) { Write-Host 'INVENTORY_INCOMPLETE: bounded scan only; do not infer missing checkpoint or complete project size.' }
+          }
+          Write-Host ('INVENTORY_FINISHED directories_scanned={0} files_scanned={1} elapsed_seconds={2:N1}' -f $totalDirs, $totalFiles, $watch.Elapsed.TotalSeconds)
+          Write-Host 'READ_ONLY: no Torch, Python, nvidia-smi, hashes of actively written files, training, deletion, archive moving or weight loading. Filenames and sizes alone DO NOT establish checkpoint token counters or integrity. Logical bytes can double-count hardlinks.'
