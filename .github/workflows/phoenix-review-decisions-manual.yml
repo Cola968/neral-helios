@@ -1,0 +1,50 @@
+name: Phoenix validate completed PRIVATE review (MANUAL CPU ONLY)
+# Manual only: never fires from a commit, schedule or uploaded artifact.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  check-local-decisions:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout code in reusable isolated working tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_review_import_source
+          clean: true
+          persist-credentials: false
+      - name: Validate locally saved human review export; NEVER auto-approve
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_review_import_source'
+          $root = 'D:\NeralPrivateAssets'
+          $folder = Join-Path $root 'phoenix'
+          $queue = Join-Path $folder 'screened_review_queue_v1.jsonl'
+          $sourceReceipt = Join-Path $folder 'screened_review_queue_v1_receipt.json'
+          $decisions = Join-Path $folder 'phoenix_review_decisions_v1.json'
+          $out = Join-Path $folder 'phoenix_review_decisions_v1_validated_receipt.json'
+          $sha = '94053e24e34b309ced74cf0ecdf75db484b4168718a260039ae3b7931c579f81'
+          if (-not (Test-Path -LiteralPath $decisions -PathType Leaf)) { throw 'Human decision export missing: nothing reviewed or approved' }
+          if (Test-Path -LiteralPath $out) { throw 'Private review validation receipt already exists; refusing overwrite' }
+          foreach ($p in @($repo,$root,$queue,$sourceReceipt,$decisions,$out)) { if ($p.Contains("'")) { throw 'Unsafe quote in path' } }
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_review_decisions.py --assets-root '$(ToWsl $root)' --queue '$(ToWsl $queue)' --receipt '$(ToWsl $sourceReceipt)' --decisions '$(ToWsl $decisions)' --out '$(ToWsl $out)' --queue-sha256 '$sha'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Private decision validation rejected; no approval or training' }
+          if (-not (Test-Path -LiteralPath $out -PathType Leaf)) { throw 'Expected private receipt missing' }
+          $result = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($result.training_approved -ne $false -or $result.independent_holdout_checked -ne $false -or $result.review_sample_rows -ne 24) { throw 'Unsafe review receipt' }
+          Write-Host 'Verified 24 PRIVATE sample decisions. Training remains NOT APPROVED; no GPU, training, uploads, or checkpoint changes.'
