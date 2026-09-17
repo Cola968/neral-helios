@@ -1,0 +1,47 @@
+name: Phoenix install guarded starter to dedicated PC checkout once (NO MODEL)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-guarded-starter-to-pc-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  place-starter-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Refresh ONLY dedicated Phoenix preview source checkout at exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_guarded_preview_source
+          clean: true
+          persist-credentials: false
+      - name: Verify optional entrypoints without running them
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $owned = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_guarded_preview_source'))
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $owned.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($owned) -ne 'phoenix_guarded_preview_source') { throw 'Refusing unknown checkout location' }
+          $folder = Join-Path $owned 'frontier350\nextgen_v1'
+          $script = Join-Path $folder 'start_helios_guarded.ps1'
+          $starter = Join-Path $folder 'START_HELIOS_GUARDED.cmd'
+          $preview = Join-Path $folder 'helios_guarded_preview.py'
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf) -or -not (Test-Path -LiteralPath $starter -PathType Leaf) -or -not (Test-Path -LiteralPath $preview -PathType Leaf)) { throw 'Missing verified entrypoint files' }
+          $tokens = $null
+          $issues = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$issues)
+          if ($issues.Count -gt 0) { throw 'Launcher failed PowerShell syntax parsing' }
+          if ((Get-PSDrive -Name C).Free -lt 30GB) { throw 'C reserve too small; stop before any model activity' }
+          Write-Host ('GUARDED_STARTER_READY|' + $starter)
+          Write-Host 'This workflow refreshed only its dedicated code checkout. It did not load models, start a server, use GPU, train, move checkpoints, or alter private assets.'
