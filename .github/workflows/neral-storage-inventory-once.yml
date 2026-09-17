@@ -51,12 +51,14 @@ jobs:
 
           Write-Host '=== SIZE OF MATCHED NERAL/HELIOS DIRECTORIES (bounded) ==='
           $candidates = Get-ChildItem -LiteralPath 'D:\' -Directory -Recurse -Depth 4 -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '(?i)(neral|helios)' } | Select-Object -First 80
+          $rows = @()
           foreach ($dir in $candidates) {
             try {
               $sum = (Get-ChildItem -LiteralPath $dir.FullName -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
               if ($null -eq $sum) { $sum = 0 }
-              [pscustomobject]@{Path=$dir.FullName; SizeGiB=[math]::Round($sum/1GB,2)}
+              $rows += [pscustomobject]@{Path=$dir.FullName; SizeGiB=[math]::Round($sum/1GB,2)}
             } catch {}
-          } | Sort-Object SizeGiB -Descending | Format-Table -AutoSize
+          }
+          $rows | Sort-Object SizeGiB -Descending | Format-Table -AutoSize
 
           Write-Host 'READ_ONLY_COMPLETE=true'
