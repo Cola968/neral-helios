@@ -111,7 +111,7 @@ def run(root: Path, queue: Path, receipt: Path, output: Path) -> dict:
         raise ValueError("new in-root output required")
     if output.resolve() in {queue.resolve(), receipt.resolve()}:
         raise ValueError("report must not replace original queue or receipt")
-    report = audit(read_private(queue, root, 256_000), read_private(receipt, root, 32_000))
+    report = audit(read_private(queue, root, 256_000), read_private(receipt, root, 32_000), PIN)
     with output.open("x", encoding="utf-8") as stream:
         json.dump(report, stream, sort_keys=True, indent=2)
         stream.write("\n")
