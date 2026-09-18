@@ -1,0 +1,56 @@
+name: Phoenix bounded own-weight quality diagnostic on PC once (CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-quality-diagnostic-on-pc-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  own-weight-cpu-diagnostic:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read exact committed diagnostic source in isolated checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_quality_diagnostic_source
+          clean: true
+          persist-credentials: false
+      - name: Verify pinned local inputs and perform bounded CPU-only diagnostic
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function To-Wsl([string]$InputPath) {
+            $full = [IO.Path]::GetFullPath($InputPath)
+            if ($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Only absolute local drive paths accepted' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_quality_diagnostic_source'))
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $repo.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_quality_diagnostic_source') { throw 'Refusing unexpected checkout' }
+          $code = Join-Path $repo 'frontier350\nextgen_v1\helios_quality_diagnostic.py'
+          $checkpoint = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private = 'D:\NeralPrivateAssets\phoenix'
+          if (-not (Test-Path -LiteralPath $code -PathType Leaf)) { throw 'Diagnostic source missing' }
+          if (-not (Test-Path -LiteralPath $assets -PathType Container)) { throw 'Tokenizer assets missing' }
+          if (-not (Test-Path -LiteralPath $checkpoint -PathType Leaf)) { throw 'Pinned own checkpoint missing' }
+          if (-not (Test-Path -LiteralPath $private -PathType Container)) { throw 'Existing private result folder missing; never create it in GitHub workspace' }
+          if ((Get-PSDrive -Name C).Free -lt 30GB -or (Get-PSDrive -Name D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          $sha = (Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Checkpoint SHA256 mismatch; no model load' }
+          foreach ($p in @($repo, $assets, $checkpoint, $private)) { if ($p.Contains("'")) { throw 'Unsupported apostrophe in shell path' } }
+          $name = 'helios_quality_' + '${{ github.sha }}'.Substring(0,12) + '.json'
+          if (Test-Path -LiteralPath (Join-Path $private $name)) { throw 'Result already exists; refuse overwrite/replay' }
+          $cmd = "set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(To-Wsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios_quality_diagnostic.py --execute --trusted-local-checkpoint --assets-root '$(To-Wsl $assets)' --checkpoint '$(To-Wsl $checkpoint)' --private-dir '$(To-Wsl $private)' --output-name '$name'"
+          Write-Host 'Launching CPU-only, 3 public development prompts x 2 decoders x 16 tokens; actual answers stay in private local JSON.'
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Own-weight CPU diagnostic failed (see aggregate result above); no training was started' }
+          Write-Host ('LOCAL_PRIVATE_QUALITY_REPORT|' + (Join-Path $private $name))
+          Write-Host 'No GPU, no training, no checkpoint mutation, no artifact upload. Strict answers are a diagnostic, not an independent benchmark.'
