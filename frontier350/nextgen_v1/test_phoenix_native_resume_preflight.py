@@ -1,7 +1,7 @@
 """No Torch/GPU: structural, SHA and corpus guards for native direct trainer resumes."""
 from __future__ import annotations
 
-import hashlib
+from copy import deepcopy
 from pathlib import Path
 import sys
 import tempfile
@@ -35,13 +35,16 @@ class NativeResumePreflightTests(unittest.TestCase):
         self.weights = {'tok_emb.weight': FakeTensor((4, 8)),
                         'blocks.0.weight': FakeTensor((8, 8)),
                         'lm_head.weight': FakeTensor((4, 8))}
+        group = {'params': [0, 1], 'betas': (0.9, 0.95), 'eps': 1e-8,
+                 'weight_decay': 0.1, 'lr': 0.0001, 'fused': True,
+                 'amsgrad': False, 'maximize': False}
         self.ck = {
             'config': {'locked': True}, 'checkpoint_schema': 2,
             'processed_tokens': 100, 'step': 5, 'target_tokens': 200,
             'tokenizer_sha256': self.tokenizer, 'train_identity': self.train,
             'validation_identity': self.valid, 'sampler_version': SAMPLER_VERSION,
             'run_contract': self.run, 'model': self.weights,
-            'optimizer': {'param_groups': [{'params': [0, 1]}],
+            'optimizer': {'param_groups': [group],
                           'state': {i: {'exp_avg': FakeTensor(shape),
                                         'exp_avg_sq': FakeTensor(shape), 'step': 5}
                                     for i, shape in enumerate(((4, 8), (8, 8)))}}
@@ -68,7 +71,25 @@ class NativeResumePreflightTests(unittest.TestCase):
             inspect_checkpoint(self.ck, **self.kwargs)
         self.ck['optimizer']['state'][1]['exp_avg'] = FakeTensor((8, 8), 'torch.float32')
         with self.assertRaises(ValueError):
-            verify_weight_moment_mapping(self.ck)
+            verify_weight_moment_mapping(self.ck, expected_run=self.run)
+
+    def test_optimizer_group_cannot_override_run_contract(self):
+        cases = (('weight_decay', 0.2), ('betas', (0.8, 0.95)),
+                 ('eps', 1e-7), ('fused', False), ('amsgrad', True),
+                 ('maximize', True), ('lr', -0.001), ('lr', float('nan')))
+        for option, corrupted in cases:
+            with self.subTest(option=option, corrupted=corrupted):
+                state = deepcopy(self.ck)
+                state['optimizer']['param_groups'][0][option] = corrupted
+                with self.assertRaisesRegex(ValueError, 'AdamW'):
+                    inspect_checkpoint(state, **self.kwargs)
+        state = deepcopy(self.ck)
+        state['optimizer']['param_groups'][0]['lr'] = 0.00005
+        self.assertEqual(inspect_checkpoint(state, **self.kwargs)['optimizer_parameter_slots'], 2)
+        constant = dict(self.run, schedule='constant')
+        state['run_contract'] = constant
+        with self.assertRaisesRegex(ValueError, 'learning rate'):
+            inspect_checkpoint(state, **dict(self.kwargs, expected_run=constant))
 
     def test_missing_provenance_and_changed_schedule_block(self):
         for field in ('train_identity', 'validation_identity', 'sampler_version', 'run_contract'):
