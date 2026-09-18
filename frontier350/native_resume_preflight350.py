@@ -6,6 +6,7 @@ trusted local pickle bytes. A model-only checkpoint is NEVER an exact resume.
 """
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -40,28 +41,40 @@ def corpus_identity(paths, *, seq: int, role: str, seed: int, batch: int = 0,
 def run_contract(*, seq: int, microbatch: int, grad_accum: int, seed: int,
                  lr: float, schedule: str, weight_decay: float,
                  warmup_frac: float, gradient_checkpointing: bool) -> dict:
-    # Explicit schedule identity prevents a resumed update from silently changing
-    # LR, parameter update size, stochastic order, or checkpointing protocol.
     return {'seq': seq, 'microbatch': microbatch, 'grad_accum': grad_accum,
             'seed': seed, 'lr': lr, 'schedule': schedule,
             'weight_decay': weight_decay, 'warmup_frac': warmup_frac,
             'gradient_checkpointing': bool(gradient_checkpointing)}
 
 
-def verify_weight_moment_mapping(ck: dict) -> None:
-    """Verify Adam slots correspond in order to untied native model parameters.
+def verify_weight_moment_mapping(ck: dict, *, expected_run: dict) -> None:
+    """Map tied native parameters to Adam slots; reject state_dict option overrides.
 
-    Native Neral350M ties lm_head.weight to tok_emb.weight and AdamW uses
-    model.parameters() in the state_dict traversal order, skipping that alias.
-    Do not use this mapping for fused/V9 optimizers or foreign architectures.
+    Optimizer.load_state_dict restores parameter-group options such as betas and
+    weight decay, silently overriding the newly constructed optimizer. The
+    metadata run_contract alone cannot protect against a divergent group.
     """
     model, optimizer = ck['model'], ck['optimizer']
     if len(optimizer['param_groups']) != 1 or 'tok_emb.weight' not in model or 'lm_head.weight' not in model:
         raise ValueError('only the native tied-head, single-group AdamW layout is supported')
     if model['tok_emb.weight'].shape != model['lm_head.weight'].shape:
         raise ValueError('tied embedding / head shape mismatch')
+    group = optimizer['param_groups'][0]
+    if (tuple(group.get('betas', ())) != (0.9, 0.95) or
+            group.get('eps') != 1e-8 or
+            group.get('weight_decay') != expected_run['weight_decay'] or
+            group.get('fused') is not True or
+            group.get('amsgrad', False) is not False or
+            group.get('maximize', False) is not False):
+        raise ValueError('serialized AdamW group hyperparameters differ from native run contract')
+    saved_lr = group.get('lr')
+    peak_lr = expected_run['lr']
+    if (type(saved_lr) not in (int, float) or not math.isfinite(saved_lr) or
+            not 0 < saved_lr <= peak_lr * (1 + 1e-9) or
+            (expected_run['schedule'] == 'constant' and saved_lr != peak_lr)):
+        raise ValueError('serialized AdamW learning rate differs from native schedule bounds')
     ordered = [(name, tensor) for name, tensor in model.items() if name != 'lm_head.weight']
-    ids = optimizer['param_groups'][0]['params']
+    ids = group['params']
     if len(ordered) != len(ids):
         raise ValueError('AdamW slot count differs from native named parameters')
     for ident, (name, tensor) in zip(ids, ordered):
@@ -91,7 +104,7 @@ def inspect_checkpoint(ck: dict, *, config: dict, target_tokens: int,
             ck.get('run_contract') != expected_run):
         raise ValueError('dataset, window sampler, validation or optimizer schedule changed; exact resume forbidden')
     result = require_full_adam_resume(ck)
-    verify_weight_moment_mapping(ck)
+    verify_weight_moment_mapping(ck, expected_run=expected_run)
     if ck['processed_tokens'] >= run_until or run_until > target_tokens:
         raise ValueError('resume target does not advance valid cumulative tokens')
     return result
