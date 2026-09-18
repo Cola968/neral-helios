@@ -126,12 +126,19 @@ class CheckpointJournal:
         else:
             if any(self.root.iterdir()):
                 raise RuntimeError('unknown journal contents; refuse bootstrap')
-            receipt = self._archive(initial_tokens, initial_sha256)
+            # SHA identity alone does NOT establish optimizer completeness. The
+            # guarded caller checks that separately; generic journal users must
+            # not get an unsupported 'complete_resumable_state' label at bootstrap.
+            receipt = self._archive(initial_tokens, initial_sha256,
+                                    kind='pinned_initial_structure_unverified')
             _atomic_receipt(latest, receipt)
         self.last_tokens = initial_tokens
         self.last_sha = initial_sha256
 
-    def _archive(self, tokens: int, digest: str) -> dict:
+    def _archive(self, tokens: int, digest: str, *,
+                 kind: str = 'complete_resumable_state') -> dict:
+        if kind not in ('complete_resumable_state', 'pinned_initial_structure_unverified'):
+            raise ValueError('invalid checkpoint receipt classification')
         name = f'ckpt-{tokens}-{digest}.pt'
         dest = self.root / name
         if dest.exists():
@@ -144,7 +151,7 @@ class CheckpointJournal:
         _sync_directory(self.root)
         return {'schema': 1, 'name': name, 'sha256': digest,
                 'processed_tokens': tokens, 'bytes': dest.stat().st_size,
-                'kind': 'complete_resumable_state'}
+                'kind': kind}
 
     def commit(self, state: dict, target: Path) -> dict:
         if Path(target).resolve() != self.resume:
