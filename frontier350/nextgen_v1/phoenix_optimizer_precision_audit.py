@@ -12,6 +12,7 @@ from collections import Counter
 import json
 import os
 from pathlib import Path
+import sys
 
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
 
@@ -73,7 +74,7 @@ def summarize(state: dict, torch) -> dict:
                'all_sampled_finite': all(finite for _, _, finite in rows)}
         for name, rows in sampled.items()
     }
-    # These are numerical-risk metadata, NOT evidence that BF16 caused wrong answers.
+    # Numerical-risk metadata, NOT evidence that BF16 caused wrong answers.
     result['fp32_moments_confirmed'] = all(
         counts.get((name, 'torch.float32'), 0) > 0 and
         not any(kind == name and dtype != 'torch.float32' for kind, dtype in counts)
@@ -101,6 +102,7 @@ def main() -> None:
     except (ValueError, RuntimeError, TypeError, __import__('pickle').UnpicklingError):
         ck = torch.load(checkpoint, map_location='cpu', mmap=True, weights_only=False)
         mode = 'sha_pinned_trusted_legacy'
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from model350 import FRONTIER_350
     if ck.get('config') != FRONTIER_350.to_dict():
         raise ValueError('wrong architecture')
