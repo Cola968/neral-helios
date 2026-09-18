@@ -9,7 +9,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from native_resume_preflight350 import (corpus_identity, inspect_checkpoint,
-                                         run_contract, verify_weight_moment_mapping)
+                                         require_exact_update_boundary, run_contract,
+                                         verify_weight_moment_mapping)
 from window_sampler350 import SAMPLER_VERSION
 
 
@@ -40,7 +41,7 @@ class NativeResumePreflightTests(unittest.TestCase):
                  'amsgrad': False, 'maximize': False}
         self.ck = {
             'config': {'locked': True}, 'checkpoint_schema': 2,
-            'processed_tokens': 100, 'step': 5, 'target_tokens': 200,
+            'processed_tokens': 80, 'step': 5, 'target_tokens': 200,
             'tokenizer_sha256': self.tokenizer, 'train_identity': self.train,
             'validation_identity': self.valid, 'sampler_version': SAMPLER_VERSION,
             'run_contract': self.run, 'model': self.weights,
@@ -54,7 +55,7 @@ class NativeResumePreflightTests(unittest.TestCase):
         self.kwargs = dict(config={'locked': True}, target_tokens=200,
                            tokenizer_sha=self.tokenizer, train_identity=self.train,
                            validation_identity=self.valid, expected_run=self.run,
-                           run_until=120)
+                           run_until=128)
 
     def test_matching_complete_native_state(self):
         self.assertEqual(inspect_checkpoint(self.ck, **self.kwargs)['optimizer_parameter_slots'], 2)
@@ -103,11 +104,37 @@ class NativeResumePreflightTests(unittest.TestCase):
             inspect_checkpoint(self.ck, **self.kwargs)
 
     def test_wrong_target_and_nonadvancing_run_block(self):
-        with self.assertRaisesRegex(ValueError, 'does not advance'):
-            inspect_checkpoint(self.ck, **dict(self.kwargs, run_until=100))
+        with self.assertRaisesRegex(ValueError, 'nonadvancing'):
+            inspect_checkpoint(self.ck, **dict(self.kwargs, run_until=80))
         self.ck['target_tokens'] = 1000
         with self.assertRaises(ValueError):
             inspect_checkpoint(self.ck, **self.kwargs)
+
+    def test_nonterminal_partial_checkpoint_cannot_claim_exact_resume(self):
+        self.ck['processed_tokens'] = 83
+        with self.assertRaisesRegex(ValueError, 'partial optimizer update'):
+            inspect_checkpoint(self.ck, **self.kwargs)
+        self.ck['processed_tokens'] = 80
+        self.ck['step'] = 6
+        for slot in self.ck['optimizer']['state'].values():
+            slot['step'] = 6
+        with self.assertRaisesRegex(ValueError, 'partial optimizer update'):
+            inspect_checkpoint(self.ck, **self.kwargs)
+
+    def test_intermediate_stops_must_align_but_final_remainder_is_allowed(self):
+        with self.assertRaisesRegex(ValueError, 'intermediate stop'):
+            inspect_checkpoint(self.ck, **dict(self.kwargs, run_until=129))
+        self.assertEqual(inspect_checkpoint(self.ck, **dict(self.kwargs, run_until=200))
+                         ['optimizer_parameter_slots'], 2)
+        self.assertEqual(require_exact_update_boundary(
+            processed=80, step=5, target_tokens=199, run_until=199, run=self.run), 16)
+
+    def test_invalid_boundary_dimensions_fail_closed(self):
+        for bad in (dict(self.run, microbatch=0), dict(self.run, seq=2.5),
+                    dict(self.run, grad_accum=True)):
+            with self.assertRaisesRegex(ValueError, 'dimensions'):
+                require_exact_update_boundary(processed=80, step=5,
+                                              target_tokens=200, run_until=128, run=bad)
 
     def test_corpus_sha_changes_when_bytes_or_sampler_contract_change(self):
         with tempfile.TemporaryDirectory() as temp:
