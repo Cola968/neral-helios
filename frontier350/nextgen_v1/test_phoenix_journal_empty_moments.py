@@ -24,6 +24,7 @@ class NoFalseResumeReceipt(unittest.TestCase):
                 resume, initial_sha256=before, initial_tokens=100,
                 writer=writer, max_rollback_tokens=1_000_000)
             original = journal.verify()
+            self.assertEqual(original['kind'], 'pinned_initial_structure_unverified')
             synthetic = {
                 'processed_tokens': 101, 'step': 10, 'model': {'synthetic': 1},
                 'optimizer': {'state': {}}, 'torch_rng': 'synthetic',
