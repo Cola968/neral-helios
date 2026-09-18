@@ -110,7 +110,7 @@ class WarmstartPilotTests(unittest.TestCase):
                                          expected=dict(expected, output='/wrong'),
                                          review=review, holdout=holdout)
             holdout.write_bytes(b'tampered')
-            with self.assertRaisesRegex(ValueError, 'holdout SHA'):
+            with self.assertRaisesRegex(ValueError, 'assessment SHA mismatch'):
                 verify_operator_approval(manifest=manifest,
                                          manifest_sha=args.approval_sha256,
                                          expected=expected, review=review, holdout=holdout)
