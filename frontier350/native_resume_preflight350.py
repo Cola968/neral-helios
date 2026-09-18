@@ -47,6 +47,31 @@ def run_contract(*, seq: int, microbatch: int, grad_accum: int, seed: int,
             'gradient_checkpointing': bool(gradient_checkpointing)}
 
 
+def require_exact_update_boundary(*, processed: int, step: int, target_tokens: int,
+                                  run_until: int, run: dict) -> int:
+    """Reject a purported exact resume across a shortened optimizer update.
+
+    The native loop clips the last optimizer update to run_until. An intermediate
+    stop inside an update would introduce an *extra* AdamW step versus an
+    uninterrupted run. Such a checkpoint may be a deliberate completed run,
+    but must never be called an exact continuation of the original trajectory.
+    The terminal target itself may have a remainder; no resume follows it.
+    """
+    if any(type(run.get(k)) is not int or run[k] <= 0 for k in
+           ('seq', 'microbatch', 'grad_accum')):
+        raise ValueError('exact resume requires positive integer update dimensions')
+    tokens_per_update = run['seq'] * run['microbatch'] * run['grad_accum']
+    if (type(processed) is not int or type(step) is not int or step <= 0 or
+            type(target_tokens) is not int or target_tokens <= 0 or
+            type(run_until) is not int or not processed < run_until <= target_tokens):
+        raise ValueError('invalid or nonadvancing exact-resume token boundary')
+    if processed != step * tokens_per_update:
+        raise ValueError('checkpoint ended in a partial optimizer update; cannot exactly resume')
+    if run_until < target_tokens and run_until % tokens_per_update:
+        raise ValueError('intermediate stop would create a partial optimizer update; exact resume forbidden')
+    return tokens_per_update
+
+
 def verify_weight_moment_mapping(ck: dict, *, expected_run: dict) -> None:
     """Map tied native parameters to Adam slots; reject state_dict option overrides.
 
@@ -105,8 +130,9 @@ def inspect_checkpoint(ck: dict, *, config: dict, target_tokens: int,
         raise ValueError('dataset, window sampler, validation or optimizer schedule changed; exact resume forbidden')
     result = require_full_adam_resume(ck)
     verify_weight_moment_mapping(ck, expected_run=expected_run)
-    if ck['processed_tokens'] >= run_until or run_until > target_tokens:
-        raise ValueError('resume target does not advance valid cumulative tokens')
+    require_exact_update_boundary(processed=ck['processed_tokens'], step=ck['step'],
+                                  target_tokens=target_tokens, run_until=run_until,
+                                  run=expected_run)
     return result
 
 
