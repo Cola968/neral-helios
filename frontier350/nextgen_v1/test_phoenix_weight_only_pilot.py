@@ -1,4 +1,4 @@
-"""CPU/Torch-free tests: no real assets, operator approval or GPU pilot."""
+"""CPU/Torch-free guards: NO real training, weights, reviews or approvals."""
 from __future__ import annotations
 
 from hashlib import sha256
@@ -35,10 +35,9 @@ class WarmstartPilotTests(unittest.TestCase):
                                             update=values[2])
 
     def test_original_historical_progress_never_becomes_new_training(self):
-        run = {'seed': 3}
         lineage = plan_lineage(approval_sha='b' * 64,
                                output=Path('/tmp/new'), source=Path('/tmp/old.pt'),
-                               run=run, target=1024, holdout_sha='c' * 64)
+                               run={'seed': 3}, target=1024, holdout_sha='c' * 64)
         self.assertEqual(lineage['historical_processed_tokens'], EXPECTED_TOKENS)
         self.assertEqual(lineage['new_run_initial_tokens'], 0)
         self.assertEqual(lineage['new_run_initial_step'], 0)
@@ -78,7 +77,7 @@ class WarmstartPilotTests(unittest.TestCase):
                                 lr=2e-5, schedule='cosine', weight_decay=0.1,
                                 warmup_frac=0.02, gradient_checkpointing=True)
         contract.update({'initialization': 'weight_only_new_optimizer_v1',
-                         'source_sha256': CONTINUITY_SHA})
+                         'source_sha256': CONTINUITY_SHA, 'compile_mode': 'none'})
         expected = {'source_sha256': CONTINUITY_SHA, 'tokenizer_sha256': TOKENIZER_SHA,
                     'train_identity': corpus_identity([data / 'a.bin'], seq=4,
                                                       role='train', seed=8,
@@ -130,7 +129,7 @@ class WarmstartPilotTests(unittest.TestCase):
 
     def test_no_run_without_explicit_execute_and_trust(self):
         with tempfile.TemporaryDirectory() as temp:
-            args, _, _, source, token, *_ = self._fixtures(Path(temp))
+            args, *_ = self._fixtures(Path(temp))
             for field in ('execute', 'trusted_local_checkpoint'):
                 old = getattr(args, field)
                 setattr(args, field, False)
@@ -138,7 +137,7 @@ class WarmstartPilotTests(unittest.TestCase):
                     prepare(args)
                 setattr(args, field, old)
 
-    def test_source_and_tokenizer_preflight_before_any_gpu_call_or_output(self):
+    def test_source_and_tokenizer_preflight_before_gpu_or_output(self):
         with tempfile.TemporaryDirectory() as temp:
             args, _, _, source, token, *_ = self._fixtures(Path(temp))
             with patch('phoenix_weight_only_pilot.require_pinned_checkpoint',
@@ -147,11 +146,10 @@ class WarmstartPilotTests(unittest.TestCase):
                                                        'phoenix_weight_only_pilot.shutil.disk_usage') as disk:
                 disk.return_value.free = 300 * (1024 ** 3)
                 plan = prepare(args)
-            self.assertEqual(plan['stop'], 8)
-            self.assertEqual(plan['target'], 16)
-            self.assertEqual(plan['update'], 8)
+            self.assertEqual((plan['stop'], plan['target'], plan['update']), (8, 16, 8))
             self.assertFalse(args.out.exists())
             self.assertEqual(plan['lineage']['new_run_initial_tokens'], 0)
+            self.assertEqual(plan['contract']['compile_mode'], 'none')
 
     def test_manifest_tampering_and_preexisting_output_refused_without_writes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -165,6 +163,32 @@ class WarmstartPilotTests(unittest.TestCase):
                 args.out.mkdir()
                 with self.assertRaises(FileExistsError):
                     prepare(args)
+
+    def test_oversized_GPU_settings_block_before_data_and_gpu(self):
+        with tempfile.TemporaryDirectory() as temp:
+            args, _, _, source, token, *_ = self._fixtures(Path(temp))
+            with patch('phoenix_weight_only_pilot.require_pinned_checkpoint',
+                       return_value=source), patch('phoenix_weight_only_pilot.trusted_asset',
+                                                   return_value=token):
+                for field, size in (('seq', 513), ('microbatch', 3), ('grad_accum', 17)):
+                    with self.subTest(field=field):
+                        original = getattr(args, field)
+                        setattr(args, field, size)
+                        with self.assertRaisesRegex(ValueError, 'oversized'):
+                            prepare(args)
+                        setattr(args, field, original)
+                self.assertFalse(args.out.exists())
+
+    def test_approved_execution_mode_cannot_change_during_resume(self):
+        with tempfile.TemporaryDirectory() as temp:
+            args, _, _, source, token, *_ = self._fixtures(Path(temp))
+            with patch('phoenix_weight_only_pilot.require_pinned_checkpoint',
+                       return_value=source), patch('phoenix_weight_only_pilot.trusted_asset',
+                                                   return_value=token):
+                args.compile_mode = 'default'
+                with self.assertRaisesRegex(ValueError, 'run parameters changed'):
+                    prepare(args)
+                self.assertFalse(args.out.exists())
 
 
 if __name__ == '__main__':
