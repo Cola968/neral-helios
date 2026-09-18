@@ -17,7 +17,7 @@ jobs:
       - name: Checkout exact auditable source, no persistent credentials
         uses: actions/checkout@v4
         with:
-          ref: 76b83f682581f414a963e82fc0625e09541563ba
+          ref: 22358d80c5fdfd60c51115e96ce4cb5af831d6d3
           path: phoenix_weightonly_lineage_source
           persist-credentials: false
       - name: CPU-only actual Torch tiny model lineage/journal and full contract suites
@@ -38,4 +38,4 @@ jobs:
           Write-Host 'Synthetic tiny CPU model; no original checkpoint, real assets, approval or GPU training. Temporary files deleted after probe.'
           & wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0) { throw 'CPU lineage integration failed. No real training was authorized or started.' }
-          Write-Host 'Tiny actual Torch new-optimizer/lineage and full synthetic tests completed. No Neral answer-quality evidence.'
+          Write-Host 'Hardened pilot contracts and tiny actual Torch replay passed; no Neral answer-quality evidence.'
