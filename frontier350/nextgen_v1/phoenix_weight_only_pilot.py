@@ -1,17 +1,17 @@
 """Opt-in, BOUNDED, distinct weight-only 350M pilot. NEVER an exact historical resume.
 
-This module is not invoked by any Action. It cannot run without a SHA-pinned
-operator-approved manifest, independently frozen local holdout and data review.
-A new AdamW optimizer, zero NEW-token counter, and separate create-only output
-are mandatory. Subsequent pilot resumes require a genuinely complete checkpoint.
-It does not promise model improvement, RTX 4070 feasibility, or FP32 masters.
+Not invoked by Actions. Needs a SHA-pinned local operator approval, manually
+reviewed data, and frozen independent holdout. Creates a NEW AdamW optimizer,
+NEW zero-token lineage, and NEW output directory. The only allowed subsequent
+resume is from a genuinely complete checkpoint in that new run. This source
+is experimental; it establishes neither GPU feasibility nor answer quality.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import random
 import re
@@ -26,8 +26,7 @@ from checkpoint_journal import CheckpointJournal, safe_save_every
 from storage_budget import GIB, MIN_FREE_BYTES, check_storage_budget
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from native_resume_preflight350 import (corpus_identity, inspect_checkpoint,
-                                         read_verified_resume, run_contract)
+from native_resume_preflight350 import corpus_identity, read_verified_resume, run_contract
 from recovery_identity import file_sha
 from window_sampler350 import SAMPLER_VERSION
 
@@ -37,7 +36,7 @@ _SHA = re.compile(r'[0-9a-f]{64}\Z')
 
 
 def require_fresh_stop_boundary(*, stop: int, target: int, update: int) -> None:
-    """A pause inside a full AdamW update cannot be exactly continued."""
+    """An intermediate pause inside an AdamW update cannot be exactly resumed."""
     if (any(type(v) is not int for v in (stop, target, update)) or
             not 0 < stop <= target <= MAX_PILOT_NEW_TOKENS or update <= 0):
         raise ValueError('invalid or unbounded fresh token pilot')
@@ -47,10 +46,10 @@ def require_fresh_stop_boundary(*, stop: int, target: int, update: int) -> None:
 
 def verify_operator_approval(*, manifest: Path, manifest_sha: str, expected: dict,
                              review: Path, holdout: Path) -> dict:
-    """Check explicit local human authorization, source review and sealed holdout.
+    """Check explicit human approval and hash-bound local evidence.
 
-    Hash binding prevents accidental substitution; it is NOT a digital signature
-    or an independent assurance of licensing, correctness or review quality.
+    A hash is NOT a signature and these boolean review declarations are NOT an
+    independent verification of licensing, privacy, labels or contamination.
     """
     if not isinstance(manifest_sha, str) or not _SHA.fullmatch(manifest_sha):
         raise ValueError('approval manifest needs independently recorded full SHA-256')
@@ -58,9 +57,11 @@ def verify_operator_approval(*, manifest: Path, manifest_sha: str, expected: dic
         if (not Path(file).is_absolute() or Path(file).is_symlink() or
                 not Path(file).is_file() or Path(file).stat().st_size == 0):
             raise ValueError('approval, reviewed data and frozen holdout must be existing local regular files')
-    if file_sha(manifest) != manifest_sha:
+    # Hash EXACTLY the bytes deserialized; do not reread an unpinned manifest.
+    raw = Path(manifest).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != manifest_sha:
         raise ValueError('approval manifest SHA mismatch')
-    approval = json.loads(Path(manifest).read_text(encoding='utf-8'))
+    approval = json.loads(raw.decode('utf-8'))
     required = set(expected) | {'schema', 'approved_for_bounded_pilot',
                                 'human_source_review_complete', 'human_holdout_review_complete',
                                 'review_sha256', 'holdout_sha256'}
@@ -123,7 +124,7 @@ def parser_args(argv=None):
 
 
 def prepare(args) -> dict:
-    """All data/approval/source/provenance validation, before Torch/CUDA/output."""
+    """Check exact source, data, approval, dimensions, and disk without Torch/CUDA."""
     if not (args.execute and args.trusted_local_checkpoint):
         raise ValueError('explicit --execute and trust required; no training started')
     source = require_pinned_checkpoint(args.source_checkpoint)
@@ -143,15 +144,19 @@ def prepare(args) -> dict:
             raise ValueError('resume must be owned resume.pt, no symlink')
         if not _SHA.fullmatch(args.resume_sha256):
             raise ValueError('explicit exact new-pilot resume SHA required')
-    tok_path = trusted_asset(args.assets_root, args.assets_root / 'frontier350_assets' /
-                             'tokenizer.json', TOKENIZER_SHA)
-    if not tok_path.is_file():
+    token = trusted_asset(args.assets_root, args.assets_root / 'frontier350_assets' /
+                          'tokenizer.json', TOKENIZER_SHA)
+    if not token.is_file():
         raise ValueError('missing own pinned tokenizer')
+    # Avoid unbounded configurations on a 12-GiB-class GPU. The exact feasible
+    # combination still needs a separate bounded *real* measurement.
     if (any(type(x) is not int or x <= 0 for x in
             (args.seq, args.microbatch, args.grad_accum, args.eval_every,
              args.eval_batches, args.save_every)) or
-            args.seq > 8192 or type(args.seed) is not int):
-        raise ValueError('invalid training dimensions')
+            args.seq > 512 or args.microbatch > 2 or args.grad_accum > 16 or
+            args.seq * args.microbatch * args.grad_accum > 4096 or
+            type(args.seed) is not int):
+        raise ValueError('invalid or oversized bounded-pilot training dimensions')
     if (not all(math.isfinite(x) for x in (args.lr, args.weight_decay, args.warmup_frac)) or
             not 0 < args.lr <= 0.0001 or not 0 <= args.weight_decay <= 0.5 or
             not 0 <= args.warmup_frac <= 1):
@@ -160,6 +165,9 @@ def prepare(args) -> dict:
     target = args.target_new_tokens
     stop = args.stop_after_new_tokens or target
     require_fresh_stop_boundary(stop=stop, target=target, update=update)
+    if args.train_data.is_symlink() or args.valid_data.is_symlink() or not (
+            args.train_data.is_dir() and args.valid_data.is_dir()):
+        raise ValueError('train and validation must be existing non-symlink directories')
     train_files = sorted(args.train_data.glob('*.bin'))
     valid_files = sorted(args.valid_data.glob('*.bin'))
     train_id = corpus_identity(train_files, seq=args.seq, role='train',
@@ -173,10 +181,11 @@ def prepare(args) -> dict:
                             grad_accum=args.grad_accum, seed=args.seed, lr=args.lr,
                             schedule='cosine', weight_decay=args.weight_decay,
                             warmup_frac=args.warmup_frac, gradient_checkpointing=True)
-    # Distinct native checkpoint contract makes accidental resume through the
-    # ordinary from-scratch entrypoint reject this lineage.
+    # The ordinary native from-scratch trainer cannot accept this distinct
+    # contract on resume; preserve source and execution lineage on THIS path.
     contract.update({'initialization': 'weight_only_new_optimizer_v1',
-                     'source_sha256': CONTINUITY_SHA})
+                     'source_sha256': CONTINUITY_SHA,
+                     'compile_mode': args.compile_mode})
     expected = {'source_sha256': CONTINUITY_SHA, 'tokenizer_sha256': TOKENIZER_SHA,
                 'train_identity': train_id, 'validation_identity': val_id,
                 'output': str(out), 'target_new_tokens': target,
@@ -189,8 +198,7 @@ def prepare(args) -> dict:
                            output=out, run=contract, target=target,
                            holdout_sha=approval['holdout_sha256'])
     directory = out if args.resume else out.parent
-    free = shutil.disk_usage(directory).free
-    if free < MIN_FREE_BYTES + MIN_INITIAL_RESERVE:
+    if shutil.disk_usage(directory).free < MIN_FREE_BYTES + MIN_INITIAL_RESERVE:
         raise RuntimeError('less than 200 GiB plus 12 GiB checkpoint reserve')
     if args.resume:
         check_storage_budget(out, args.resume)
@@ -200,18 +208,39 @@ def prepare(args) -> dict:
             'update': update}
 
 
+def _checked_historical_weights(source_path, torch, model_class, config):
+    """Validate original architecture and actual tied tensor contents ON CPU."""
+    try:
+        state = torch.load(source_path, map_location='cpu', mmap=True,
+                           weights_only=True)
+    except (ValueError, RuntimeError, TypeError, __import__('pickle').UnpicklingError):
+        state = torch.load(source_path, map_location='cpu', mmap=True,
+                           weights_only=False)  # SHA-pinned, explicitly trusted OWN file.
+    with torch.device('meta'):
+        reference = model_class()
+    layout = {k: (tuple(v.shape), str(v.dtype))
+              for k, v in reference.state_dict().items()}
+    assess_weight_only_source(state, expected_config=config,
+                              expected_layout=layout, tokenizer_sha=TOKENIZER_SHA)
+    if not all(torch.is_tensor(value) for value in state['model'].values()):
+        raise ValueError('non-Torch tensors in original source')
+    if not torch.equal(state['model']['tok_emb.weight'],
+                       state['model']['lm_head.weight']):
+        raise ValueError('historical tied output and embedding weights disagree')
+    return state
+
+
 def main(argv=None) -> None:
     args = parser_args(argv)
-    plan = prepare(args)  # SHA, real assets, approval, disk checks before GPU.
+    plan = prepare(args)  # SHA, local assets, approval and disks BEFORE Torch/CUDA.
     import phoenix_cuda_diagnostic as gpu_guard
-    gpu_guard.require_stably_idle_gpu()
+    gpu_guard.require_stably_idle_gpu()  # 3 snapshots before any CUDA access.
     import numpy as np
     import torch
     from model350 import FRONTIER_350, Neral350M
     from train350 import (append_jsonl, atomic_save, checkpoint_state,
                           cosine_lr, mask_budget_targets, update_token_counts)
     from train350_compiled import PersistentMMapPool, evaluate
-    gpu_guard.require_cuda_ready(torch)
     if args.seq > FRONTIER_350.max_seq_len:
         raise ValueError('model context exceeded')
     ck = None
@@ -228,22 +257,10 @@ def main(argv=None) -> None:
         if ck.get('warmstart_lineage') != plan['lineage']:
             raise ValueError('new-run checkpoint origin/holdout/authorization changed')
     else:
-        try:
-            source = torch.load(plan['source'], map_location='cpu', mmap=True,
-                                weights_only=True)
-        except (ValueError, RuntimeError, TypeError, __import__('pickle').UnpicklingError):
-            source = torch.load(plan['source'], map_location='cpu', mmap=True,
-                                weights_only=False)  # ONLY trusted, SHA-pinned own file.
-        with torch.device('meta'):
-            reference = Neral350M()
-        layout = {k: (tuple(v.shape), str(v.dtype))
-                  for k, v in reference.state_dict().items()}
-        assess_weight_only_source(source, expected_config=FRONTIER_350.to_dict(),
-                                  expected_layout=layout, tokenizer_sha=TOKENIZER_SHA)
-        if not torch.equal(source['model']['tok_emb.weight'],
-                           source['model']['lm_head.weight']):
-            raise ValueError('historical tied output and embedding weights disagree')
-    # The output is created exclusively after all operator, model and GPU gates.
+        source = _checked_historical_weights(plan['source'], torch, Neral350M,
+                                             FRONTIER_350.to_dict())
+    # Model-only SHA AND full CPU architectural validation precede CUDA querying.
+    gpu_guard.require_cuda_ready(torch)
     if not args.resume:
         plan['out'].mkdir(exist_ok=False)
     device = torch.device('cuda')
@@ -261,6 +278,8 @@ def main(argv=None) -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
                                   betas=(0.9, 0.95), eps=1e-8,
                                   weight_decay=args.weight_decay, fused=True)
+    if not args.resume and optimizer.state_dict()['state']:
+        raise RuntimeError('new optimizer incorrectly inherited historical moments')
     rng = random.Random(args.seed + 1)
     step = processed = 0
     best = float('inf')
