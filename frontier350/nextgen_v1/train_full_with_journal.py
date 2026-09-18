@@ -111,19 +111,18 @@ def main() -> None:
     import torch
     import train350_compiled as trainer
     from train350 import CHECKPOINT_SCHEMA
+    from resume_integrity350 import require_full_adam_resume
 
     source = torch.load(resume, map_location='cpu', weights_only=False, mmap=True)
     if source.get('checkpoint_schema') != CHECKPOINT_SCHEMA or 'v9_training_state' in source:
         raise ValueError('V9 four-block checkpoint cannot silently resume as FULL-model AdamW')
-    if not isinstance(source.get('optimizer'), dict) or not isinstance(source.get('model'), dict):
-        raise ValueError('full model or optimizer missing')
-    if int(source.get('processed_tokens', -1)) > 0 and not source['optimizer'].get('state'):
-        raise ValueError('trained checkpoint lacks AdamW momentum; requires explicit warm-start')
-    if any(k not in source for k in ('torch_rng', 'cuda_rng', 'train_sampler_rng', 'tokenizer_sha256', 'step')):
-        raise ValueError('checkpoint missing complete model-resume provenance')
-    last_step = int(source['step'])
+    # Validate EVERY AdamW parameter slot and ALL RNG identities before the native
+    # trainer can instantiate a model/optimizer on GPU. A nonempty but incomplete
+    # state is not a resume; old checks only caught a wholly empty state.
+    exact_resume = require_full_adam_resume(source)
+    last_step = exact_resume['step']
     journal = CheckpointJournal(resume, initial_sha256=args.resume_sha256,
-                                initial_tokens=int(source['processed_tokens']),
+                                initial_tokens=exact_resume['processed_tokens'],
                                 writer=trainer.atomic_save,
                                 max_rollback_tokens=args.max_rollback_tokens,
                                 retain=args.retain)
@@ -148,6 +147,8 @@ def main() -> None:
     try:
         sys.argv = [str(Path(trainer.__file__).name)] + forwarded
         print(json.dumps({'event': 'recovery_guard', 'mode': 'whole_model',
+                          'adam_state_status': exact_resume['status'],
+                          'verified_optimizer_slots': exact_resume['optimizer_parameter_slots'],
                           'max_rollback_tokens': args.max_rollback_tokens,
                           'checkpoint_window_tokens': int(window),
                           'journal': str(journal.root),
