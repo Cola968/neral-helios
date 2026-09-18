@@ -47,7 +47,9 @@ def collect_duplicates(splits: dict, language_by_id: dict) -> tuple[list[dict], 
             ids.add(ident)
             total[split] += 1
             groups.setdefault(norm(row["assistant"]), []).append((split, row))
-    if min(total.values()) < 8:
+    # Counter omits absent keys from .values(): min(total.values()) alone would
+    # mistakenly accept a completely EMPTY validation or training split.
+    if any(total[split] < 8 for split in ("train", "validation")):
         raise ValueError("source selection missing a proper split")
     repeated = [(fingerprint, members) for fingerprint, members in groups.items() if len(members) > 1]
     repeated.sort(key=lambda group: hashlib.sha256(group[0].encode("utf-8")).hexdigest())
