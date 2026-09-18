@@ -84,6 +84,27 @@ def duplicate_terminal_save(state: dict, *, last_tokens: int, last_step: int) ->
     return True
 
 
+def validate_journal_source(source: dict, *, checkpoint_schema: int, sampler_version: str,
+                            resume_validator, mapping_validator) -> dict:
+    """Check a trusted CPU-loaded source before creating a journal or touching CUDA.
+
+    The native entrypoint separately validates source run_contract against CLI
+    arguments and actual corpus identity. This function never grants permission
+    for training; it only prevents the wrapper's own preflight from bypassing
+    the mandatory optimizer-mapping signature.
+    """
+    if source.get('checkpoint_schema') != checkpoint_schema or 'v9_training_state' in source:
+        raise ValueError('V9 four-block checkpoint cannot silently resume as full-model AdamW')
+    if (source.get('sampler_version') != sampler_version or
+            not isinstance(source.get('train_identity'), str) or
+            not isinstance(source.get('validation_identity'), str) or
+            not isinstance(source.get('run_contract'), dict)):
+        raise ValueError('legacy/unknown data or sampler provenance; exact resume forbidden')
+    exact_resume = resume_validator(source)
+    mapping_validator(source, expected_run=source['run_contract'])
+    return exact_resume
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Fail-closed Neral whole-model local run')
     parser.add_argument('--trusted-local-checkpoint', action='store_true')
@@ -112,15 +133,10 @@ def main() -> None:
     from window_sampler350 import SAMPLER_VERSION
 
     source = torch.load(resume, map_location='cpu', weights_only=False, mmap=True)
-    if source.get('checkpoint_schema') != CHECKPOINT_SCHEMA or 'v9_training_state' in source:
-        raise ValueError('V9 four-block checkpoint cannot silently resume as full-model AdamW')
-    exact_resume = require_full_adam_resume(source)
-    verify_weight_moment_mapping(source)
-    if (source.get('sampler_version') != SAMPLER_VERSION or
-            not isinstance(source.get('train_identity'), str) or
-            not isinstance(source.get('validation_identity'), str) or
-            not isinstance(source.get('run_contract'), dict)):
-        raise ValueError('legacy/unknown data or sampler provenance; exact resume forbidden')
+    exact_resume = validate_journal_source(
+        source, checkpoint_schema=CHECKPOINT_SCHEMA, sampler_version=SAMPLER_VERSION,
+        resume_validator=require_full_adam_resume,
+        mapping_validator=verify_weight_moment_mapping)
     last_step = exact_resume['step']
     journal = CheckpointJournal(resume, initial_sha256=args.resume_sha256,
                                 initial_tokens=exact_resume['processed_tokens'],
