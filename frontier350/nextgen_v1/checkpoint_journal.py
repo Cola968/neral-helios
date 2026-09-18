@@ -157,6 +157,11 @@ class CheckpointJournal:
             raise ValueError('checkpoint must advance by <=1M tokens, with no skip')
         if not isinstance(state.get('model'), dict) or not isinstance(state.get('optimizer'), dict):
             raise ValueError('checkpoint lacks model or optimizer state')
+        # Previously {'optimizer': {'state': {}}} passed and received a misleading
+        # 'complete_resumable_state' receipt. Reject BEFORE any checkpoint write.
+        moments = state['optimizer'].get('state')
+        if not isinstance(moments, dict) or not moments:
+            raise ValueError('checkpoint lacks nonempty AdamW optimizer moments; refuse journal receipt')
         if not all(key in state for key in ('step', 'torch_rng', 'cuda_rng', 'tokenizer_sha256')):
             raise ValueError('checkpoint lacks step, RNG or tokenizer identity')
         if 'train_sampler_rng' not in state and 'v9_training_state' not in state:
