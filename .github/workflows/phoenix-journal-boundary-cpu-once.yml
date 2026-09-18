@@ -1,0 +1,41 @@
+name: Phoenix journal and update-boundary CPU verification once
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-journal-boundary-cpu-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  cpu-verify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned source with no retained Git credentials
+        uses: actions/checkout@v4
+        with:
+          ref: fe3d324ff7885bf34364e480d3e73b53287864a1
+          path: phoenix_journal_boundary_cpu_source
+          persist-credentials: false
+      - name: Run no-GPU contract suites and tiny genuine Torch checkpoint replay
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_journal_boundary_cpu_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_journal_boundary_cpu_source') { throw 'Unexpected checkout' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if($repo.Contains("'")) { throw 'Unsupported shell path apostrophe' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_sft_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_storage_budget.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_checkpoint_journal.py'; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/phoenix_native_positive_resume_cpu.py --execute --cpu-only"
+          Write-Host 'Read-only, CPU-only synthetic regressions; temporary random model only. No original checkpoints or private corpora are read.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Journal/boundary or tiny positive CPU verification failed; no real training was started' }
+          Write-Host 'CPU regression and tiny positive checkpoint replay complete. Not a real-model quality or GPU-training result.'
