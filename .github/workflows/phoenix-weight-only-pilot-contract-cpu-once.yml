@@ -17,7 +17,7 @@ jobs:
       - name: Checkout pinned experimental source without persisted credentials
         uses: actions/checkout@v4
         with:
-          ref: f2e71a208f0114ffa8f30500bf77e44bb2e80e91
+          ref: 787b96e7d9e7e204e45e6fdf45b2b5116b6b566c
           path: phoenix_weightonly_contract_source
           persist-credentials: false
       - name: CPU-only source compile and synthetic contract tests
