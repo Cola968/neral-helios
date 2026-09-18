@@ -1,0 +1,53 @@
+name: Phoenix requested pilot start gate — local inventory once (NO training without evidence)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-pilot-start-gate-20260918-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  start-gate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Check real source, approval and holdout presence without printing any private data
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $root = 'D:\NeralPrivateAssets\phoenix'
+          $assets = 'D:\NeralPrivateAssets\frontier350_assets\tokenizer.json'
+          $queue = Join-Path $root 'screened_review_queue_v2.html'
+          $report = [ordered]@{
+            event = 'requested_training_start_preflight_no_training'
+            source_checkpoint_present = (Test-Path -LiteralPath $source -PathType Leaf)
+            private_review_root_present = (Test-Path -LiteralPath $root -PathType Container)
+            tokenizer_at_expected_private_location_present = (Test-Path -LiteralPath $assets -PathType Leaf)
+            historical_review_queue_present = (Test-Path -LiteralPath $queue -PathType Leaf)
+            independently_certified_review_complete = $false
+            independently_certified_frozen_bilingual_holdout_complete = $false
+            exact_hash_bound_pilot_approval_present = $false
+            train_shard_paths_verified = $false
+            validation_shard_paths_verified = $false
+            actual_training_started = $false
+            new_trained_tokens = 0
+          }
+          if ($report.private_review_root_present) {
+            $files = @(Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction Stop | Where-Object { $_.Name -match '(?i)(approval|holdout|review)' } | Select-Object -First 100)
+            $report.candidate_review_or_holdout_files = $files.Count
+            $approval = @($files | Where-Object { $_.Name -match '(?i)approval' -and $_.Extension -eq '.json' })
+            $report.candidate_approval_json_files = $approval.Count
+            # Candidate filenames and user data are intentionally never printed. A
+            # matching name or JSON flag is NOT independent human approval.
+          }
+          $report | ConvertTo-Json -Compress | Write-Host
+          if (-not $report.source_checkpoint_present) { throw 'BLOCKED: original source missing. No training was initiated.' }
+          if (-not $report.exact_hash_bound_pilot_approval_present -or -not $report.independently_certified_review_complete -or -not $report.independently_certified_frozen_bilingual_holdout_complete) {
+            Write-Host 'BLOCKED: actual human review, independent frozen bilingual holdout and a hash-bound approval have not been established. No training was initiated.'
+            exit 0
+          }
+          throw 'Unexpected gate state: no automatic training allowed from this inventory workflow.'
