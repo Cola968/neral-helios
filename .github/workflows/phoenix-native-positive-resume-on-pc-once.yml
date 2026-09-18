@@ -1,0 +1,43 @@
+name: Phoenix tiny native positive resume CPU once
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-native-positive-resume-on-pc-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  positive-cpu-resume:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact synthetic test source, without persisted Git credentials
+        uses: actions/checkout@v4
+        with:
+          ref: fca579b2242dac31ac6ae7edd74b8a1f2aba43eb
+          path: phoenix_native_positive_cpu_source
+          persist-credentials: false
+      - name: Exercise actual Torch optimizer on tiny random model, CPU only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_native_positive_cpu_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_native_positive_cpu_source') { throw 'Unexpected checkout' }
+          $script=Join-Path $repo 'frontier350\nextgen_v1\phoenix_native_positive_resume_cpu.py'
+          if(-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Missing committed synthetic probe' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if($repo.Contains("'")) { throw 'Unsupported path apostrophe' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_native_positive_resume_cpu.py --execute --cpu-only"
+          Write-Host 'Small synthetic CPU AdamW positive resume and negative hyperparameter tests; no private assets read or real training.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Synthetic positive resume test failed; real Neral unchanged' }
+          Write-Host 'Tiny model CPU only, temporary checkpoint auto-cleaned, no weight upload or real GPU training.'
