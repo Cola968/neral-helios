@@ -1,0 +1,45 @@
+name: Phoenix native shard sampler CPU parity once
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-native-sampler-parity-on-pc-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  sampler-cpu-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout committed implementation without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_sampler_parity_source
+          clean: true
+          persist-credentials: false
+      - name: Compare legacy and compiled sampler on tiny synthetic uint16 data with CUDA unavailable
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_sampler_parity_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_sampler_parity_source') { throw 'Unexpected checkout' }
+          $script=Join-Path $repo 'frontier350\nextgen_v1\phoenix_native_sampling_cpu.py'
+          if(-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Missing committed sampler test' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if($repo.Contains("'")) { throw 'Unsupported shell path quote' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_native_sampling_cpu.py"
+          Write-Host 'Synthetic Torch CPU sampler parity; temporary data only, no real checkpoint, model construction, optimizer or training.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Native sampler parity failed; no training started' }
+          Write-Host 'CPU parity complete; no GPU access, weight mutation or upload.'
