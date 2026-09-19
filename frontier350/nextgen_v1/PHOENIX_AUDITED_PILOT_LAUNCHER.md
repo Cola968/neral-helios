@@ -1,31 +1,37 @@
-# Phoenix audited pilot launcher — experimental; no training approval
+# Phoenix v0.4 native trainer integrity gate — experimental, no training approval
 
-`phoenix_audited_pilot_launcher.py` is an **optional, separate entrypoint** around the existing `phoenix_weight_only_pilot.py`. It does not run automatically, is not referenced by a training workflow, creates no human approval and does not alter old Neral 350M weights or training shards. **The direct pilot entrypoint remains available and does not run these additional mandatory-for-the-launcher checks.** Use the audited launcher, not the direct entrypoint, for the full protection described here.
+**Changed 19 September 2026:** The original `phoenix_weight_only_pilot.py` now invokes the full-shard approved-identity scanner AND frozen-holdout exact-token overlap gate **inside its own `main()`**, after the original `prepare()` operator-approval preflight and before importing `phoenix_cuda_diagnostic`, Torch, or starting CUDA. This also applies to explicit `--resume` invocations. The former claim that the direct pilot bypasses the checks is obsolete on this experimental PR branch. No automatically running workflow or approval is introduced.
 
-## Prerequisites and intended invocation
+## Two invocation paths
 
-Follow the original `WEIGHT_ONLY_PILOT_OPERATOR_CONTRACT.md`: genuinely review dataset provenance/licensing/privacy and semantic contamination, create and freeze an independently authored bilingual DE/EN evaluation holdout with the exact `phoenix_blind_ab_audit.validate_holdout` JSON schema, independently SHA-pin the unchanged original checkpoint and all proposed data, explicitly approve the exact bounded training manifest and verify local disk/GPU/temperature capacity. The operator approvals and actual independent holdout were **not available as of 19 September 2026**. There has been no authorized real invocation.
-
-Only after all of those prerequisites actually exist, supply the original pilot's **entire approved CLI argument set** and change only the script name:
+The actual, previously approved operator argument set can be passed unchanged to the native trainer:
 
 ```text
-python frontier350/nextgen_v1/phoenix_audited_pilot_launcher.py [THE EXISTING COMPLETE APPROVED PILOT ARGUMENTS]
+python frontier350/nextgen_v1/phoenix_weight_only_pilot.py [THE EXISTING COMPLETE APPROVED PILOT ARGUMENTS]
 ```
 
-No bypass flag exists in this wrapper. The original pilot parses the arguments and `prepare()` checks explicit `--execute`, `--trusted-local-checkpoint`, own original SHA, tokenizer, reviewed source and holdout files, manifest SHA and declared human decisions, fresh destination, bounded training contract, train/validation identities and disk **before** either added scan or GPU use.
+The old optional wrapper also remains compatible:
 
-## What now blocks training, in order
+```text
+python frontier350/nextgen_v1/phoenix_audited_pilot_launcher.py [THE SAME COMPLETE APPROVED PILOT ARGUMENTS]
+```
 
-1. The launcher reads **all bytes** of the train and validation uint16 `.bin` files, rejecting illegal token IDs (outside `0..16383`), odd lengths, missing causal windows, byte-identical shards within/across splits and observed same-read file mutation. It rebuilds the approved native corpus identities from the scanned filenames, content SHA, token counts and run/sampler parameters. An identity mismatch aborts before model creation.
-2. **Mandatory frozen-holdout contamination gate:** `phoenix_holdout_gate.require_zero_exact_overlap` opens the actual approved `--frozen-holdout`, verifies the exact holdout SHA against the original pilot's plan lineage, validates the bilingual JSON schema, loads the SHA-pinned own tokenizer and verifies its 16,384-token vocabulary. It then scans every training and validation shard for both raw-question and full chat-template token sequences using `phoenix_holdout_overlap_audit.audit`. Any hit, wrong SHA, invalid token ID, malformed data or unexpected diagnostic status **stops the launcher without calling the training routine**. No matching question, case ID, shard path or answer is included in the exception message or standard success output.
-3. Only when both stages succeed does the wrapper call the original pilot `main(argv)` with unmodified args; that function repeats its full original approval and data-identity preflight before Torch/CUDA. No special permission is inferred from a zero-overlap result.
+**Prefer the direct entrypoint on this branch:** the wrapper currently runs its own preflight and *then* calls the native trainer, which now repeats both full-corpus and overlap checks. This is safe but creates redundant full-corpus reads; no speed improvement is claimed. The implementation preserves the wrapper for existing users rather than silently changing its invocation contract. No new bypass flags exist.
 
-The overlap scan is an additional complete corpus pass, so the wrapper can be slow on a large proposed dataset. It is deliberately fail-closed rather than skipping a scan to meet a speed target. All holdout text, shard content, case IDs and checkpoint bytes remain private on the operator's machine; the Python unit tests use synthetic cases and files only.
+## Required operator evidence and check order
 
-**Limits:** No exact match does **not** establish independent evaluation. BPE boundary changes, paraphrases, partial copied solutions, related source documents and unscanned data may still contaminate the holdout. Separate human semantic, source-rights and privacy reviews remain essential. Hash checks and repeated scans cannot provide an immutable snapshot against later data mutation, nor authenticate a self-declared human approval. The direct pilot still bypasses the optional extra scans. Nothing here establishes that an RTX 4070 can run the 350M pilot, that checkpoint replay works at full size, that any answers improved or that 60–70k accepted training tokens/s is attainable.
+Follow `WEIGHT_ONLY_PILOT_OPERATOR_CONTRACT.md`: independently review provenance, source rights, privacy, semantic contamination and labels; author and SHA-freeze an unseen DE/EN evaluation holdout (8–500 cases with the exact validated schema); SHA-pin the unchanged original checkpoint, tokenizer, approved train and validation data, and a human-approved exact bounded manifest. Verify available disk, GPU VRAM and thermal headroom. None of those real owner approvals or real data scans has been performed by this PR.
 
-## Verification
+In both direct launch and resume: (1) original `prepare()` checks explicit `--execute`, `--trusted-local-checkpoint`, pinned original weights and tokenizer, bounded dimensions, separate destination, training/validation corpus identities, human manifest, source review, frozen holdout and reserve disk; (2) `verify_snapshot` scans all selected uint16 shards for in-vocabulary IDs 0..16383, full SHA, duplicate bytes, window size and observed metadata mutation, and compares exact native data identities against the approved plan; (3) `require_zero_exact_overlap` re-reads and validates the approved frozen holdout SHA and schema, verifies tokenizer SHA/vocabulary, and searches raw and full chat-template question-token subsequences in **both** training and validation; (4) any hit, changed file, invalid data, mismatch, or incomplete diagnostic aborts before GPU probing; (5) only after success can GPU diagnostic, source-checkpoint loading, new optimizer and bounded training proceed. Terminal status and errors omit private question text, case IDs and shard paths. No successful audit grants approval.
 
-The prior launcher passed six separate synthetic tests. This revision adds six synthetic holdout-gate tests, an additional mock launcher order/block test module (three tests), five cross-module toy-shard integration cases using the real gate/holdout-validator/token matcher/shard-audit algorithms but a fake external tokenizer, and extends the original launcher tests to require the gate. The **14 new tests** (six + three + five) passed locally with reconstructed canonical helper functions and fake external dependencies; Python syntax compilation succeeded. Their GitHub equivalents are committed, but GitHub-hosted CI has repeatedly failed before assigning a runner; do not call hosted CI green or the real 350M experiment validated. No owner's genuine shards, private holdout, weights or training were used.
+**Scope and limits:** Exact token matching cannot certify semantic independence, paraphrase detection or unseen evaluation. Preflight file hashes are not an immutable snapshot: files might mutate after the scans. Manifest approval fields are self-reported, not cryptographically signed evidence of a review. The direct trainer is guarded on **this branch only**; other historic trainers/scripts are outside this change. A full-size model, actual own corpus, independent holdout, GPU training, checkpoint replay and blinded quality comparison remain untested. No 60–70k training tokens/s or quality gain is proven.
 
-Keep parent draft PR #118 and draft PR #120 open, original weights unchanged, and issue #119 open until real source approval, bounded hardware/run and independent free-answer evaluation are complete.
+## Read-only verification
+
+```powershell
+cd frontier350/nextgen_v1
+python -m py_compile phoenix_weight_only_pilot.py phoenix_audited_pilot_launcher.py phoenix_holdout_gate.py test_phoenix_native_pilot_gate.py
+python -m unittest -v test_phoenix_native_pilot_gate.py test_phoenix_audited_pilot_launcher.py test_phoenix_holdout_gate.py test_phoenix_holdout_gate_integration.py
+```
+
+`test_phoenix_native_pilot_gate.py` parses the **actual trainer source** using Python AST and executes only the pre-CUDA prologue with mocked approval, corpus and holdout checks. Seven tests cover direct, resume and refusal sequencing; they do not run training or verify real owner data. Separate prior launcher/gate tests used tiny synthetic shards and an external tokenizer stub. Hosted GitHub Actions has repeatedly failed with no assigned runner or steps: the test command above is not a claim of CI success. Preserve draft PRs #118/#120 and issue #119 until authentic operator approval, actual measurements and independent free-answer evidence exist.
