@@ -7,6 +7,7 @@ case-complete grading file. Never publish any private source or answer text.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -31,9 +32,10 @@ def summarize(packet: dict, packet_sha: str, grades: dict, grades_sha: str,
             grades['packet_sha256'] != packet_sha):
         raise ValueError('grading file is not pinned to exact original review packet')
     if (not isinstance(key, dict) or set(key) !=
-            {'schema', 'holdout_sha256', 'baseline_checkpoint_sha256',
+            {'schema', 'holdout_sha256', 'packet_sha256', 'baseline_checkpoint_sha256',
              'candidate_checkpoint_sha256', 'case_mapping'} or
             type(key['schema']) is not int or key['schema'] != 1 or
+            key['packet_sha256'] != packet_sha or
             key['holdout_sha256'] != packet['holdout_sha256'] or
             key['baseline_checkpoint_sha256'] != ORIGINAL_SHA or
             not isinstance(key['candidate_checkpoint_sha256'], str) or
@@ -65,9 +67,15 @@ def summarize(packet: dict, packet_sha: str, grades: dict, grades_sha: str,
                 type(grade['A_correct']) is not bool or type(grade['B_correct']) is not bool or
                 not isinstance(grade['notes'], str) or not 1 <= len(grade['notes'].strip()) <= 2000):
             raise ValueError('human grade incomplete, out of order or invalid')
-        if (not isinstance(mapping, dict) or set(mapping) != {'id', 'A', 'B'} or
+        if (not isinstance(mapping, dict) or set(mapping) !=
+                {'id', 'A', 'B', 'A_answer_sha256', 'B_answer_sha256'} or
                 mapping['id'] != original['id'] or
-                {mapping['A'], mapping['B']} != {'baseline', 'candidate'}):
+                {mapping['A'], mapping['B']} != {'baseline', 'candidate'} or
+                any(not isinstance(mapping[label + '_answer_sha256'], str) or
+                    not SHA.fullmatch(mapping[label + '_answer_sha256']) or
+                    mapping[label + '_answer_sha256'] != hashlib.sha256(
+                        original[label].encode('utf-8')).hexdigest()
+                    for label in ('A', 'B'))):
             raise ValueError('secret mapping inconsistent with review packet')
         is_base_a = mapping['A'] == 'baseline'
         base = grade['A_correct'] if is_base_a else grade['B_correct']
