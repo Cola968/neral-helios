@@ -49,6 +49,7 @@ class ExactMatcher:
         self.next: list[dict[int, int]] = [{}]
         self.fail: list[int] = [0]
         self.output: list[set[str]] = [set()]
+        self.emit: list[int] = [0]  # Nearest terminal failure suffix; avoid copied output sets.
         for ids, label in patterns:
             if (not ids or not isinstance(label, str) or not label or
                     any(type(x) is not int or not 0 <= x < VOCAB_SIZE for x in ids)):
@@ -64,6 +65,7 @@ class ExactMatcher:
                     self.next.append({})
                     self.fail.append(0)
                     self.output.append(set())
+                    self.emit.append(0)
                 state = child
             self.output[state].add(label)
         queue = deque(self.next[0].values())
@@ -74,7 +76,8 @@ class ExactMatcher:
                 while parent and token not in self.next[parent]:
                     parent = self.fail[parent]
                 self.fail[child] = self.next[parent].get(token, 0)
-                self.output[child].update(self.output[self.fail[child]])
+                suffix = self.fail[child]
+                self.emit[child] = suffix if self.output[suffix] else self.emit[suffix]
                 queue.append(child)
 
     def feed(self, values, state: int, found: set[str]) -> int:
@@ -84,6 +87,10 @@ class ExactMatcher:
             state = self.next[state].get(token, 0)
             if self.output[state]:
                 found.update(self.output[state])
+            suffix = self.emit[state]
+            while suffix:
+                found.update(self.output[suffix])
+                suffix = self.emit[suffix]
         return state
 
 
