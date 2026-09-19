@@ -60,18 +60,34 @@ class AuditedLaunchTests(unittest.TestCase):
         fake = SimpleNamespace(parser_args=lambda argv: self.args,
                                prepare=lambda args: (_ for _ in ()).throw(ValueError('unapproved')),
                                main=lambda argv: self.fail('started without approval'))
-        with patch.object(launch.importlib, 'import_module', return_value=fake):
+        with (patch.object(launch.importlib, 'import_module', return_value=fake),
+              patch.object(launch, 'require_zero_exact_overlap', side_effect=AssertionError('gate should not run'))):
             with self.assertRaisesRegex(ValueError, 'unapproved'):
                 launch.main([])
 
-    def test_launcher_delegates_only_after_matching_preflight(self):
+    def test_launcher_delegates_only_after_matching_preflight_and_no_overlap(self):
         calls = []
         fake = SimpleNamespace(parser_args=lambda argv: self.args,
                                prepare=lambda args: self.plan,
-                               main=lambda argv: calls.append(argv))
-        with patch.object(launch.importlib, 'import_module', return_value=fake):
+                               main=lambda argv: calls.append('training'))
+        def gate(args, plan):
+            calls.append('overlap')
+            return {'exact_overlap_gate_passed': True}
+        with (patch.object(launch.importlib, 'import_module', return_value=fake),
+              patch.object(launch, 'require_zero_exact_overlap', side_effect=gate)):
             launch.main(['synthetic'])
-        self.assertEqual(calls, [['synthetic']])
+        self.assertEqual(calls, ['overlap', 'training'])
+
+    def test_launcher_refuses_overlap_without_calling_trainer(self):
+        calls = []
+        fake = SimpleNamespace(parser_args=lambda argv: self.args,
+                               prepare=lambda args: self.plan,
+                               main=lambda argv: calls.append('training'))
+        with (patch.object(launch.importlib, 'import_module', return_value=fake),
+              patch.object(launch, 'require_zero_exact_overlap', side_effect=ValueError('pilot refused'))):
+            with self.assertRaisesRegex(ValueError, 'pilot refused'):
+                launch.main(['synthetic'])
+        self.assertEqual(calls, [])
 
 
 if __name__ == '__main__':
