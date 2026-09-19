@@ -6,6 +6,9 @@ on:
       - 'frontier350/nextgen_v1/test_phoenix_shard_distribution_audit.py'
       - 'frontier350/nextgen_v1/phoenix_audited_pilot_launcher.py'
       - 'frontier350/nextgen_v1/test_phoenix_audited_pilot_launcher.py'
+      - 'frontier350/nextgen_v1/phoenix_holdout_gate.py'
+      - 'frontier350/nextgen_v1/test_phoenix_holdout_gate.py'
+      - 'frontier350/nextgen_v1/test_phoenix_holdout_gate_integration.py'
       - 'frontier350/nextgen_v1/phoenix_candidate_lineage.py'
       - 'frontier350/nextgen_v1/phoenix_holdout_overlap_audit.py'
       - 'frontier350/nextgen_v1/test_phoenix_holdout_overlap_audit.py'
@@ -27,5 +30,5 @@ jobs:
       - name: Compile and test synthetic shard, overlap/CLI and approved-pilot contracts
         working-directory: frontier350/nextgen_v1
         run: |
-          python -m py_compile phoenix_shard_distribution_audit.py test_phoenix_shard_distribution_audit.py phoenix_audited_pilot_launcher.py test_phoenix_audited_pilot_launcher.py phoenix_candidate_lineage.py phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_cli.py
-          python -m unittest -v test_phoenix_shard_distribution_audit.py test_phoenix_audited_pilot_launcher.py test_phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_cli.py
+          python -m py_compile phoenix_shard_distribution_audit.py test_phoenix_shard_distribution_audit.py phoenix_audited_pilot_launcher.py test_phoenix_audited_pilot_launcher.py phoenix_holdout_gate.py test_phoenix_holdout_gate.py test_phoenix_holdout_gate_integration.py phoenix_candidate_lineage.py phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_cli.py
+          python -m unittest -v test_phoenix_shard_distribution_audit.py test_phoenix_audited_pilot_launcher.py test_phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_cli.py test_phoenix_holdout_gate.py test_phoenix_holdout_gate_integration.py
