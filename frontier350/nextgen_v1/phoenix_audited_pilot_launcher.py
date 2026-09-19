@@ -1,8 +1,8 @@
 """Optional guarded entrypoint for an ALREADY human-approved bounded own pilot.
 
-Runs an exhaustive read-only corpus integrity scan before delegating to the
-original opt-in pilot's full preflight and actual main. Never called from CI.
-Does not produce approval, freeze data, or start anything without approval.
+Runs exhaustive local corpus integrity AND exact holdout-overlap scans before
+calling the original opt-in training pilot. No GitHub Action invokes this.
+Negative exact-token results cannot certify benchmark independence.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from phoenix_candidate_lineage import SAMPLER, TOKENIZER_SHA
+from phoenix_holdout_gate import require_zero_exact_overlap
 from phoenix_shard_distribution_audit import inspect_shards, summarize
 
 
@@ -46,19 +47,24 @@ def verify_snapshot(args, plan: dict) -> dict:
 
 
 def main(argv=None) -> None:
-    # Lazy import: the source pilot controls opt-in, manifest and original SHA.
+    # Lazy import: source pilot controls explicit approval, manifest and original SHA.
     pilot = importlib.import_module('phoenix_weight_only_pilot')
     args = pilot.parser_args(argv)
-    plan = pilot.prepare(args)  # Existing human SHA/approval/disk gates, before Torch/CUDA.
+    plan = pilot.prepare(args)  # Original human SHA/approval/disk gates BEFORE Torch/CUDA.
     report = verify_snapshot(args, plan)
-    print(json.dumps({'event': 'approved_corpus_integrity_preflight_complete',
+    # Mandatory for THIS launcher: refuse if the same approved frozen test
+    # prompts appear verbatim in training OR validation token shards.
+    overlap = require_zero_exact_overlap(args, plan)
+    print(json.dumps({'event': 'approved_corpus_and_exact_overlap_preflight_complete',
                       'train_shards': report['train']['shards'],
                       'validation_shards': report['validation']['shards'],
                       'token_ids_in_vocab': report['all_token_ids_in_vocab'],
+                      'exact_overlap_gate_passed': overlap['exact_overlap_gate_passed'],
+                      'holdout_independence_verified': False,
                       'trainer_started': False, 'quality_gain_verified': False},
                      sort_keys=True), flush=True)
-    # Deliberately re-run all original approval/source/data preflights to narrow
-    # the time-of-check/use window. Does NOT promise a true immutable snapshot.
+    # Re-run original preflight immediately before execution. Source files can
+    # still mutate afterward: neither double scan nor hashing is a snapshot.
     pilot.main(argv)
 
 
