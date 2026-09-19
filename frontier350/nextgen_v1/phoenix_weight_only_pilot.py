@@ -57,7 +57,6 @@ def verify_operator_approval(*, manifest: Path, manifest_sha: str, expected: dic
         if (not Path(file).is_absolute() or Path(file).is_symlink() or
                 not Path(file).is_file() or Path(file).stat().st_size == 0):
             raise ValueError('approval, reviewed data and frozen holdout must be existing local regular files')
-    # Hash EXACTLY the bytes deserialized; do not reread an unpinned manifest.
     raw = Path(manifest).read_bytes()
     if hashlib.sha256(raw).hexdigest() != manifest_sha:
         raise ValueError('approval manifest SHA mismatch')
@@ -148,8 +147,6 @@ def prepare(args) -> dict:
                           'tokenizer.json', TOKENIZER_SHA)
     if not token.is_file():
         raise ValueError('missing own pinned tokenizer')
-    # Avoid unbounded configurations on a 12-GiB-class GPU. The exact feasible
-    # combination still needs a separate bounded *real* measurement.
     if (any(type(x) is not int or x <= 0 for x in
             (args.seq, args.microbatch, args.grad_accum, args.eval_every,
              args.eval_batches, args.save_every)) or
@@ -181,8 +178,6 @@ def prepare(args) -> dict:
                             grad_accum=args.grad_accum, seed=args.seed, lr=args.lr,
                             schedule='cosine', weight_decay=args.weight_decay,
                             warmup_frac=args.warmup_frac, gradient_checkpointing=True)
-    # The ordinary native from-scratch trainer cannot accept this distinct
-    # contract on resume; preserve source and execution lineage on THIS path.
     contract.update({'initialization': 'weight_only_new_optimizer_v1',
                      'source_sha256': CONTINUITY_SHA,
                      'compile_mode': args.compile_mode})
@@ -215,7 +210,7 @@ def _checked_historical_weights(source_path, torch, model_class, config):
                            weights_only=True)
     except (ValueError, RuntimeError, TypeError, __import__('pickle').UnpicklingError):
         state = torch.load(source_path, map_location='cpu', mmap=True,
-                           weights_only=False)  # SHA-pinned, explicitly trusted OWN file.
+                           weights_only=False)
     with torch.device('meta'):
         reference = model_class()
     layout = {k: (tuple(v.shape), str(v.dtype))
@@ -233,6 +228,21 @@ def _checked_historical_weights(source_path, torch, model_class, config):
 def main(argv=None) -> None:
     args = parser_args(argv)
     plan = prepare(args)  # SHA, local assets, approval and disks BEFORE Torch/CUDA.
+    # This check is in the native trainer, not just the optional wrapper: neither
+    # direct invocation nor an explicit resume can skip the full corpus audit.
+    from phoenix_audited_pilot_launcher import verify_snapshot
+    from phoenix_holdout_gate import require_zero_exact_overlap
+    report = verify_snapshot(args, plan)
+    overlap = require_zero_exact_overlap(args, plan)
+    if (report.get('all_token_ids_in_vocab') is not True or
+            overlap.get('exact_overlap_gate_passed') is not True):
+        raise ValueError('mandatory pilot corpus/holdout integrity preflight failed')
+    print(json.dumps({'event': 'native_pilot_integrity_gate_complete',
+                      'train_shards': report['train']['shards'],
+                      'validation_shards': report['validation']['shards'],
+                      'exact_overlap_gate_passed': True,
+                      'holdout_independence_verified': False,
+                      'trainer_started': False}, sort_keys=True), flush=True)
     import phoenix_cuda_diagnostic as gpu_guard
     gpu_guard.require_stably_idle_gpu()  # 3 snapshots before any CUDA access.
     import numpy as np
@@ -259,7 +269,6 @@ def main(argv=None) -> None:
     else:
         source = _checked_historical_weights(plan['source'], torch, Neral350M,
                                              FRONTIER_350.to_dict())
-    # Model-only SHA AND full CPU architectural validation precede CUDA querying.
     gpu_guard.require_cuda_ready(torch)
     if not args.resume:
         plan['out'].mkdir(exist_ok=False)
