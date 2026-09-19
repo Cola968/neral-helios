@@ -24,8 +24,8 @@ The implementation is CPU-only, streaming the selected corpus; its work is propo
 
 ```powershell
 cd frontier350/nextgen_v1
-python -m py_compile phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_audit.py
-python -m unittest -v test_phoenix_holdout_overlap_audit.py
+python -m py_compile phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_cli.py
+python -m unittest -v test_phoenix_holdout_overlap_audit.py test_phoenix_holdout_overlap_cli.py
 ```
 
-Eleven tiny synthetic tests exercise raw/chat matching, chunk continuity versus shard reset, failure-link suffix matches and bounded suffix-output storage, duplicate bytes, invalid IDs, symlink and short-file refusal, malformed patterns and a simulated mutation. The development sandbox used simplified synthetic dependency shims for these tests; running the GitHub test with the actual existing modules is a separate validation step. GitHub-hosted jobs currently fail before runner assignment, so do not claim a green CI check. Preserve draft PRs #118/#120, the historical source checkpoint, and open issue #119 until independent approval, real-data audits, a bounded RTX 4070 run and authentic blinded answer quality are demonstrated.
+Fifteen tiny synthetic tests exercise raw/chat matching, chunk continuity versus shard reset, failure-link suffix matches and bounded suffix-output storage, duplicate bytes, invalid IDs, symlink and short-file refusal, malformed patterns, simulated mutation and complete create-only CLI behavior. The CLI test confirms absence of private prompts/paths in stdout, refusal to overwrite and early refusal without `--execute` or with the wrong declared vocabulary. **The development sandbox used simplified synthetic dependency shims for these tests; GitHub runs with the actual existing modules are a separate validation step.** Hosted jobs currently fail before runner assignment, so do not claim green CI. Preserve draft PRs #118/#120, the historical source checkpoint, and open issue #119 until independent approval, real-data audits, a bounded RTX 4070 run and authentic blinded answer quality are demonstrated.
