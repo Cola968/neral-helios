@@ -30,7 +30,7 @@ class UnblindTests(unittest.TestCase):
         self.packet, self.key = prepare(holdout, self.holdout_sha,
                                         report(ORIGINAL_SHA, 'old'),
                                         report('b' * 64, 'new'))
-        self.packet_sha = hashlib.sha256(json.dumps(self.packet).encode()).hexdigest()
+        self.packet_sha = self.key['packet_sha256']
         self.grades = {'schema': 1, 'packet_sha256': self.packet_sha, 'items': [
             {'id': item['id'], 'A_correct': i % 2 == 0,
              'B_correct': i % 2 == 1, 'notes': 'Synthetic grading only'}
@@ -76,6 +76,16 @@ class UnblindTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'human grade'):
             self.calc()
 
+    def test_reject_other_packet_key_even_same_holdout(self):
+        self.key['packet_sha256'] = 'f' * 64
+        with self.assertRaisesRegex(ValueError, 'provenance'):
+            self.calc()
+
+    def test_reject_answer_substitution(self):
+        self.packet['items'][0]['A'] = 'altered answer'
+        with self.assertRaisesRegex(ValueError, 'mapping inconsistent'):
+            self.calc()
+
     def test_reject_corrupt_key(self):
         self.key['case_mapping'][0]['A'] = 'candidate'
         self.key['case_mapping'][0]['B'] = 'candidate'
@@ -95,7 +105,7 @@ class UnblindTests(unittest.TestCase):
             for name, data in (('packet.json', self.packet),
                                ('grades.json', self.grades), ('key.json', self.key)):
                 p = root / name
-                p.write_text(json.dumps(data), encoding='utf-8')
+                p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
                 paths.append(p)
             # Hash exact bytes used by the CLI, not the guessed formatting.
             self.grades['packet_sha256'] = hashlib.sha256(paths[0].read_bytes()).hexdigest()
