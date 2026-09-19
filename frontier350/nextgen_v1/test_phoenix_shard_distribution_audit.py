@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import phoenix_shard_distribution_audit as audit
 
@@ -64,6 +65,53 @@ class ShardDistributionTests(unittest.TestCase):
         self.shard(self.train, 'too_short.bin', 1, 4)
         with self.assertRaisesRegex(ValueError, 'no complete'):
             audit.inspect_shards(self.train, 1)
+
+    def test_reject_out_of_vocabulary_token_even_when_last(self):
+        self.populated()
+        path = self.train / 'b.bin'
+        with path.open('ab') as stream:
+            stream.write((16384).to_bytes(2, 'little'))
+        with self.assertRaisesRegex(ValueError, 'out-of-vocabulary'):
+            audit.inspect_shards(self.train, 1)
+
+    def test_allow_upper_valid_vocabulary_boundary(self):
+        self.populated()
+        self.shard(self.train, 'edge.bin', 4, 255).write_bytes(
+            (16383).to_bytes(2, 'little') * 4)
+        self.assertEqual(len(audit.inspect_shards(self.train, 1)), 3)
+
+    def test_invalid_seq_and_invalid_declared_shas_fail_closed(self):
+        self.populated()
+        with self.assertRaisesRegex(ValueError, 'sequence length'):
+            audit.inspect_shards(self.train, True)
+        left = audit.inspect_shards(self.train, 1)
+        right = audit.inspect_shards(self.valid, 1)
+        left[0]['sha256'] = 'z' * 64
+        with self.assertRaisesRegex(ValueError, 'full shard hashes'):
+            audit.summarize(left, right, 1)
+
+    def test_detect_metadata_mutation_during_scan(self):
+        self.populated()
+        original = audit._identity
+        counter = {'calls': 0}
+        def perturb(stat):
+            counter['calls'] += 1
+            ident = original(stat)
+            if counter['calls'] == 2:
+                return (*ident[:-1], ident[-1] + 1)
+            return ident
+        with patch.object(audit, '_identity', side_effect=perturb):
+            with self.assertRaisesRegex(RuntimeError, 'replaced before read'):
+                audit.inspect_shards(self.train, 1)
+
+    def test_cli_declares_full_vocab_scan_and_metadata_check(self):
+        self.populated()
+        result = subprocess.run([sys.executable, str(Path(audit.__file__)),
+                                 '--train-data', str(self.train), '--valid-data', str(self.valid),
+                                 '--seq', '1'], capture_output=True, text=True, check=True)
+        report = json.loads(result.stdout)
+        self.assertIs(report['all_token_ids_in_vocab'], True)
+        self.assertIs(report['file_metadata_stable_during_read'], True)
 
     def test_cli_outputs_only_aggregate_metrics(self):
         self.populated()
