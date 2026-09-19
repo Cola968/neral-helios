@@ -18,6 +18,7 @@ from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, sha256_file, truste
 from helios_quality_diagnostic import as_prompt, output_target
 from phoenix_blind_ab_audit import SHA, digest, load, validate_holdout
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
+from phoenix_candidate_lineage import validate_candidate
 
 
 def report_from_inference(holdout: dict, holdout_sha: str, *, checkpoint_sha: str,
@@ -76,7 +77,7 @@ def greedy_infer(model, tokenizer, eos: int, torch, ids: list[int], budget: int)
 
 
 def load_candidate(checkpoint: Path, expected_sha: str, assets_root: Path,
-                   *, allow_legacy_pickle: bool):
+                   *, allow_legacy_pickle: bool, expected_holdout_sha: str | None = None):
     """Hash and identity checks before any potentially unsafe Torch deserialization."""
     if not checkpoint.is_absolute() or checkpoint.is_symlink() or not checkpoint.is_file():
         raise ValueError('candidate checkpoint must be explicit regular absolute file')
@@ -100,13 +101,7 @@ def load_candidate(checkpoint: Path, expected_sha: str, assets_root: Path,
         state = torch.load(checkpoint, map_location='cpu', mmap=True, weights_only=False)
     if not isinstance(state, dict) or state.get('config') != FRONTIER_350.to_dict() or state.get('tokenizer_sha256') != TOKENIZER_SHA:
         raise ValueError('candidate architecture/tokenizer mismatch')
-    lineage = state.get('warmstart_lineage')
-    if (not isinstance(lineage, dict) or lineage.get('kind') != 'explicit_weight_only_new_optimizer_v1'
-            or lineage.get('source_sha256') != CONTINUITY_SHA or
-            type(state.get('processed_tokens')) is not int or
-            not 0 < state['processed_tokens'] <= 262_144 or
-            not isinstance(state.get('model'), dict)):
-        raise ValueError('candidate is not an approved-family bounded own-pilot checkpoint')
+    validate_candidate(state, checkpoint=checkpoint, holdout_sha=expected_holdout_sha)
     tokenizer = Tokenizer.from_file(str(tok_file))
     if tokenizer.get_vocab_size() != FRONTIER_350.vocab_size:
         raise ValueError('candidate tokenizer vocabulary mismatch')
@@ -155,7 +150,8 @@ def main() -> None:
     else:
         model, tokenizer, bos, eos, torch = load_candidate(
             args.checkpoint, args.candidate_sha256, args.assets_root,
-            allow_legacy_pickle=args.allow_trusted_legacy_pickle)
+            allow_legacy_pickle=args.allow_trusted_legacy_pickle,
+            expected_holdout_sha=holdout_sha)
         sha = args.candidate_sha256
     if next(model.parameters()).device.type != 'cpu':
         raise RuntimeError('inference device must remain CPU')
