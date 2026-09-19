@@ -1,6 +1,10 @@
 """Synthetic contract tests. Do not mistake fixtures for an independent holdout."""
 import hashlib
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import phoenix_blind_ab_audit as audit
 
@@ -58,6 +62,37 @@ class BlindABTests(unittest.TestCase):
         self.holdout['cases'][1]['prompt'] = self.holdout['cases'][0]['prompt'].swapcase()
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             audit.prepare(self.holdout, self.sha, self.base, self.candidate)
+
+    def test_actual_packet_cli_integrity_and_create_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'NeralPrivateAssets' / 'phoenix'
+            root.mkdir(parents=True)
+            holdout_path = root / 'holdout.json'
+            holdout_path.write_text(json.dumps(self.holdout), encoding='utf-8')
+            holdout_sha = hashlib.sha256(holdout_path.read_bytes()).hexdigest()
+            self.base['holdout_sha256'] = holdout_sha
+            self.candidate['holdout_sha256'] = holdout_sha
+            base_path = root / 'original.json'
+            candidate_path = root / 'candidate.json'
+            base_path.write_text(json.dumps(self.base), encoding='utf-8')
+            candidate_path.write_text(json.dumps(self.candidate), encoding='utf-8')
+            argv = ['blind', '--execute', '--holdout', str(holdout_path),
+                    '--baseline', str(base_path), '--candidate', str(candidate_path),
+                    '--private-dir', str(root), '--tag', 'synthetic']
+            with patch('sys.argv', argv):
+                audit.main()
+            packet_path = root / 'phoenix_blind_synthetic.json'
+            key_path = root / 'phoenix_blind_synthetic.key.json'
+            packet = json.loads(packet_path.read_text(encoding='utf-8'))
+            key = json.loads(key_path.read_text(encoding='utf-8'))
+            self.assertEqual(key['packet_sha256'], hashlib.sha256(packet_path.read_bytes()).hexdigest())
+            self.assertEqual(packet['holdout_sha256'], holdout_sha)
+            for case, mapping in zip(packet['items'], key['case_mapping']):
+                for name in ('A', 'B'):
+                    self.assertEqual(mapping[name + '_answer_sha256'],
+                                     hashlib.sha256(case[name].encode('utf-8')).hexdigest())
+            with patch('sys.argv', argv), self.assertRaises(FileExistsError):
+                audit.main()
 
     def test_reject_boolean_token_count(self):
         self.candidate['cases'][0]['generated_tokens'] = True
