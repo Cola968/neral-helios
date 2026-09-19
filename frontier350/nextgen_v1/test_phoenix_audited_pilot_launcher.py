@@ -1,4 +1,4 @@
-"""Fabricated tiny shards and fake pilot only; never imports GPU or trains."""
+"""Fabricated tiny shards and mocked native pilot; no GPU or model weights."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -56,38 +56,37 @@ class AuditedLaunchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'approved native identities'):
             launch.verify_snapshot(self.args, self.plan)
 
-    def test_launcher_cannot_bypass_original_approval(self):
-        fake = SimpleNamespace(parser_args=lambda argv: self.args,
-                               prepare=lambda args: (_ for _ in ()).throw(ValueError('unapproved')),
-                               main=lambda argv: self.fail('started without approval'))
+    def test_wrapper_delegates_once_without_repeating_scans(self):
+        calls = []
+        fake = SimpleNamespace(main=lambda argv: calls.append(argv))
         with (patch.object(launch.importlib, 'import_module', return_value=fake),
-              patch.object(launch, 'require_zero_exact_overlap', side_effect=AssertionError('gate should not run'))):
+              patch.object(launch, 'verify_snapshot', side_effect=AssertionError('double scan'))):
+            launch.main(['synthetic'])
+        self.assertEqual(calls, [['synthetic']])
+
+    def test_wrapper_forwards_resume_arguments_unchanged(self):
+        calls = []
+        fake = SimpleNamespace(main=lambda argv: calls.append(argv))
+        args = ['--resume', '/synthetic/resume.pt', '--resume-sha256', 'a' * 64]
+        with patch.object(launch.importlib, 'import_module', return_value=fake):
+            launch.main(args)
+        self.assertEqual(calls, [args])
+
+    def test_wrapper_preserves_original_approval_refusal(self):
+        def native(argv):
+            raise ValueError('unapproved')
+        fake = SimpleNamespace(main=native)
+        with patch.object(launch.importlib, 'import_module', return_value=fake):
             with self.assertRaisesRegex(ValueError, 'unapproved'):
                 launch.main([])
 
-    def test_launcher_delegates_only_after_matching_preflight_and_no_overlap(self):
-        calls = []
-        fake = SimpleNamespace(parser_args=lambda argv: self.args,
-                               prepare=lambda args: self.plan,
-                               main=lambda argv: calls.append('training'))
-        def gate(args, plan):
-            calls.append('overlap')
-            return {'exact_overlap_gate_passed': True}
-        with (patch.object(launch.importlib, 'import_module', return_value=fake),
-              patch.object(launch, 'require_zero_exact_overlap', side_effect=gate)):
-            launch.main(['synthetic'])
-        self.assertEqual(calls, ['overlap', 'training'])
-
-    def test_launcher_refuses_overlap_without_calling_trainer(self):
-        calls = []
-        fake = SimpleNamespace(parser_args=lambda argv: self.args,
-                               prepare=lambda args: self.plan,
-                               main=lambda argv: calls.append('training'))
-        with (patch.object(launch.importlib, 'import_module', return_value=fake),
-              patch.object(launch, 'require_zero_exact_overlap', side_effect=ValueError('pilot refused'))):
-            with self.assertRaisesRegex(ValueError, 'pilot refused'):
+    def test_wrapper_preserves_native_holdout_refusal(self):
+        def native(argv):
+            raise ValueError('frozen holdout exact-token overlap')
+        fake = SimpleNamespace(main=native)
+        with patch.object(launch.importlib, 'import_module', return_value=fake):
+            with self.assertRaisesRegex(ValueError, 'exact-token overlap'):
                 launch.main(['synthetic'])
-        self.assertEqual(calls, [])
 
 
 if __name__ == '__main__':
