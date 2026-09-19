@@ -1,37 +1,33 @@
-# Phoenix v0.4 native trainer integrity gate — experimental, no training approval
+# Phoenix native training integrity gate — experimental, no training approval
 
-**Changed 19 September 2026:** The original `phoenix_weight_only_pilot.py` now invokes the full-shard approved-identity scanner AND frozen-holdout exact-token overlap gate **inside its own `main()`**, after the original `prepare()` operator-approval preflight and before importing `phoenix_cuda_diagnostic`, Torch, or starting CUDA. This also applies to explicit `--resume` invocations. The former claim that the direct pilot bypasses the checks is obsolete on this experimental PR branch. No automatically running workflow or approval is introduced.
+## Entrypoints and duplicated-work fix
 
-## Two invocation paths
+`phoenix_weight_only_pilot.py` now **always** enforces the full approved-corpus identity/vocabulary audit and the frozen-holdout exact-token overlap gate in its own `main()`. They execute after `prepare()` validates the original checkpoint, SHA-pinned manifest, declared human approval, data identities, run limits and disk, and **before** importing the GPU guard or Torch. A direct start **and** an explicit `--resume` take this path. Errors abort before model/optimizer construction. This does not modify or automatically protect other historical training programs.
 
-The actual, previously approved operator argument set can be passed unchanged to the native trainer:
+`phoenix_audited_pilot_launcher.py` remains a backwards-compatible entrypoint, but now **delegates exactly once** to the native pilot's `main(argv)`; it does not repeat approval or full scans. The wrapper retains the `verify_snapshot()` helper imported by the native trainer. Previously, launching through the wrapper ran the corpus/overlap passes in the wrapper and again inside the native trainer; this duplicate work has been removed. The native pipeline still does its own separate approval file hashing, full shard identity/vocabulary scan and full exact-token overlap scan. **No GPU throughput/speed gain has been measured.**
 
-```text
-python frontier350/nextgen_v1/phoenix_weight_only_pilot.py [THE EXISTING COMPLETE APPROVED PILOT ARGUMENTS]
+After independent owner review and genuine explicit approval, pass the exact approved arguments to either entrypoint:
+
+```powershell
+python frontier350/nextgen_v1/phoenix_weight_only_pilot.py [THE COMPLETE SHA-APPROVED ARGUMENTS]
+# Compatibility alias; the same native checks, no extra scan:
+python frontier350/nextgen_v1/phoenix_audited_pilot_launcher.py [THE COMPLETE SHA-APPROVED ARGUMENTS]
 ```
 
-The old optional wrapper also remains compatible:
+The commands are documentation placeholders, not approval. The real source review, licensed/private-data assessment, genuinely unseen bilingual holdout and operator manifest are not available from this PR. Never substitute fabricated approval files. The 262,144-new-token pilot ceiling and separate output directory remain unchanged. The original historical checkpoint has no AdamW moments; exact historical optimizer continuation is impossible.
 
-```text
-python frontier350/nextgen_v1/phoenix_audited_pilot_launcher.py [THE SAME COMPLETE APPROVED PILOT ARGUMENTS]
-```
+## Mandatory checks and limitations
 
-**Prefer the direct entrypoint on this branch:** the wrapper currently runs its own preflight and *then* calls the native trainer, which now repeats both full-corpus and overlap checks. This is safe but creates redundant full-corpus reads; no speed improvement is claimed. The implementation preserves the wrapper for existing users rather than silently changing its invocation contract. No new bypass flags exist.
+The native pilot's original `prepare()` enforces explicit `--execute` and `--trusted-local-checkpoint`, pinned original model/tokenizer SHA, data identities, real local approval/review/holdout files, storage and run bounds. The subsequent `verify_snapshot()` reads and SHA-hashes every uint16 train/validation shard, rejects IDs outside `0..16383`, misalignment, insufficient windows, byte-identical shards, observed file changes and any divergence from the approved native data identity. `require_zero_exact_overlap()` verifies the original approved frozen-holdout SHA, bilingual JSON schema and exact own tokenizer SHA, then scans both datasets for the tokenized question in raw and chat-template forms. **Any exact match aborts.** Errors do not expose private test questions/case IDs; only safe aggregate diagnostics go to standard output. The same checks apply to resume.
 
-## Required operator evidence and check order
+A zero exact-token match is **not evidence that the holdout is independent**: paraphrases, altered tokenizer boundaries, partial excerpts, answers without prompts and unscanned sources escape this diagnostic. Independent semantic contamination checks, provenance/rights/privacy review and genuine human approval are still required. Hash/metadata checks cannot freeze filesystem content against later changes. The manifest SHA is not a cryptographic signature of its author's identity. Only local synthetic tests have been executed here: **no authentic training corpus or holdout has been audited, no original/candidate 350M pilot run or quality gain demonstrated, no training speed measured.** GitHub-hosted Actions previously failed before assigning a runner; an actual green run is still required.
 
-Follow `WEIGHT_ONLY_PILOT_OPERATOR_CONTRACT.md`: independently review provenance, source rights, privacy, semantic contamination and labels; author and SHA-freeze an unseen DE/EN evaluation holdout (8–500 cases with the exact validated schema); SHA-pin the unchanged original checkpoint, tokenizer, approved train and validation data, and a human-approved exact bounded manifest. Verify available disk, GPU VRAM and thermal headroom. None of those real owner approvals or real data scans has been performed by this PR.
-
-In both direct launch and resume: (1) original `prepare()` checks explicit `--execute`, `--trusted-local-checkpoint`, pinned original weights and tokenizer, bounded dimensions, separate destination, training/validation corpus identities, human manifest, source review, frozen holdout and reserve disk; (2) `verify_snapshot` scans all selected uint16 shards for in-vocabulary IDs 0..16383, full SHA, duplicate bytes, window size and observed metadata mutation, and compares exact native data identities against the approved plan; (3) `require_zero_exact_overlap` re-reads and validates the approved frozen holdout SHA and schema, verifies tokenizer SHA/vocabulary, and searches raw and full chat-template question-token subsequences in **both** training and validation; (4) any hit, changed file, invalid data, mismatch, or incomplete diagnostic aborts before GPU probing; (5) only after success can GPU diagnostic, source-checkpoint loading, new optimizer and bounded training proceed. Terminal status and errors omit private question text, case IDs and shard paths. No successful audit grants approval.
-
-**Scope and limits:** Exact token matching cannot certify semantic independence, paraphrase detection or unseen evaluation. Preflight file hashes are not an immutable snapshot: files might mutate after the scans. Manifest approval fields are self-reported, not cryptographically signed evidence of a review. The direct trainer is guarded on **this branch only**; other historic trainers/scripts are outside this change. A full-size model, actual own corpus, independent holdout, GPU training, checkpoint replay and blinded quality comparison remain untested. No 60–70k training tokens/s or quality gain is proven.
-
-## Read-only verification
+## Synthetic code tests (no training)
 
 ```powershell
 cd frontier350/nextgen_v1
-python -m py_compile phoenix_weight_only_pilot.py phoenix_audited_pilot_launcher.py phoenix_holdout_gate.py test_phoenix_native_pilot_gate.py
-python -m unittest -v test_phoenix_native_pilot_gate.py test_phoenix_audited_pilot_launcher.py test_phoenix_holdout_gate.py test_phoenix_holdout_gate_integration.py
+python -m py_compile phoenix_weight_only_pilot.py phoenix_audited_pilot_launcher.py phoenix_holdout_gate.py test_phoenix_native_pilot_gate.py test_phoenix_audited_pilot_launcher.py test_phoenix_launcher_overlap_contract.py
+python -m unittest -v test_phoenix_native_pilot_gate.py test_phoenix_audited_pilot_launcher.py test_phoenix_launcher_overlap_contract.py
 ```
 
-`test_phoenix_native_pilot_gate.py` parses the **actual trainer source** using Python AST and executes only the pre-CUDA prologue with mocked approval, corpus and holdout checks. Seven tests cover direct, resume and refusal sequencing; they do not run training or verify real owner data. Separate prior launcher/gate tests used tiny synthetic shards and an external tokenizer stub. Hosted GitHub Actions has repeatedly failed with no assigned runner or steps: the test command above is not a claim of CI success. Preserve draft PRs #118/#120 and issue #119 until authentic operator approval, actual measurements and independent free-answer evidence exist.
+The tests exercise the original native pre-CUDA prologue and compatibility delegation with synthetic/mock dependencies. They cannot certify the real GPU run or human data. PRs #118 and #120 remain drafts; issue #119 stays open until independent end-to-end evidence exists.
