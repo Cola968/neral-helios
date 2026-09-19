@@ -1,8 +1,9 @@
-"""Optional guarded entrypoint for an ALREADY human-approved bounded own pilot.
+"""Compatibility launcher for the SHA-approved Neral 350M weight-only pilot.
 
-Runs exhaustive local corpus integrity AND exact holdout-overlap scans before
-calling the original opt-in training pilot. No GitHub Action invokes this.
-Negative exact-token results cannot certify benchmark independence.
+The native phoenix_weight_only_pilot.main now enforces BOTH full-corpus identity
+and frozen-holdout exact-overlap checks before GPU import, for direct starts and
+resumes. Delegate to it exactly once: the former wrapper repeated both full
+corpus scans unnecessarily. No approval, CUDA use or training occurs on import.
 """
 from __future__ import annotations
 
@@ -12,13 +13,12 @@ import json
 from pathlib import Path
 
 from phoenix_candidate_lineage import SAMPLER, TOKENIZER_SHA
-from phoenix_holdout_gate import require_zero_exact_overlap
 from phoenix_shard_distribution_audit import inspect_shards, summarize
 
 
 def corpus_digest(paths: list[Path], rows: list[dict], *, seq: int, role: str,
                   seed: int, batch: int = 0, batches: int = 0) -> str:
-    """Reproduce native corpus_identity from bytes ALREADY inspected, no re-read."""
+    """Reproduce native corpus_identity from already inspected bytes."""
     paths = sorted(map(Path, paths))
     if len(rows) != len(paths) or role not in ('train', 'valid'):
         raise ValueError('shard audit and native file listing disagree')
@@ -31,7 +31,7 @@ def corpus_digest(paths: list[Path], rows: list[dict], *, seq: int, role: str,
 
 
 def verify_snapshot(args, plan: dict) -> dict:
-    """Ensure scanned full content is exactly what human-approved native preflight hashed."""
+    """Verify fully scanned shard bytes match the approved native identities."""
     train = inspect_shards(args.train_data, args.seq)
     valid = inspect_shards(args.valid_data, args.seq)
     aggregate = summarize(train, valid, args.seq)
@@ -47,24 +47,8 @@ def verify_snapshot(args, plan: dict) -> dict:
 
 
 def main(argv=None) -> None:
-    # Lazy import: source pilot controls explicit approval, manifest and original SHA.
+    """Call the guarded native trainer once; never bypass its own preflight."""
     pilot = importlib.import_module('phoenix_weight_only_pilot')
-    args = pilot.parser_args(argv)
-    plan = pilot.prepare(args)  # Original human SHA/approval/disk gates BEFORE Torch/CUDA.
-    report = verify_snapshot(args, plan)
-    # Mandatory for THIS launcher: refuse if the same approved frozen test
-    # prompts appear verbatim in training OR validation token shards.
-    overlap = require_zero_exact_overlap(args, plan)
-    print(json.dumps({'event': 'approved_corpus_and_exact_overlap_preflight_complete',
-                      'train_shards': report['train']['shards'],
-                      'validation_shards': report['validation']['shards'],
-                      'token_ids_in_vocab': report['all_token_ids_in_vocab'],
-                      'exact_overlap_gate_passed': overlap['exact_overlap_gate_passed'],
-                      'holdout_independence_verified': False,
-                      'trainer_started': False, 'quality_gain_verified': False},
-                     sort_keys=True), flush=True)
-    # Re-run original preflight immediately before execution. Source files can
-    # still mutate afterward: neither double scan nor hashing is a snapshot.
     pilot.main(argv)
 
 
