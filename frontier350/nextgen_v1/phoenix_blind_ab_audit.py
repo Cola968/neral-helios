@@ -121,9 +121,15 @@ def prepare(holdout: dict, holdout_sha: str, base: dict, candidate: dict) -> tup
                        'rubric': case['rubric'], 'A': a['answer'], 'B': b['answer']})
         mapping.append({'id': case['id'], 'A': 'candidate' if swapped else 'baseline',
                         'B': 'baseline' if swapped else 'candidate'})
-    return ({'schema': 1, 'classification': 'UNSCORED_BLIND_REVIEW_NOT_VERIFIED_INDEPENDENT',
-             'holdout_sha256': holdout_sha, 'items': review},
+    packet = {'schema': 1, 'classification': 'UNSCORED_BLIND_REVIEW_NOT_VERIFIED_INDEPENDENT',
+              'holdout_sha256': holdout_sha, 'items': review}
+    packet_bytes = (json.dumps(packet, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+    for row, item in zip(mapping, review):
+        row['A_answer_sha256'] = digest(item['A'].encode('utf-8'))
+        row['B_answer_sha256'] = digest(item['B'].encode('utf-8'))
+    return (packet,
             {'schema': 1, 'holdout_sha256': holdout_sha,
+             'packet_sha256': digest(packet_bytes),
              'baseline_checkpoint_sha256': base['checkpoint_sha256'],
              'candidate_checkpoint_sha256': candidate['checkpoint_sha256'],
              'case_mapping': mapping})
