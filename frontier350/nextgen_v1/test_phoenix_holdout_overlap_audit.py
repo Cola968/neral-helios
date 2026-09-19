@@ -83,6 +83,14 @@ class OverlapTests(unittest.TestCase):
         matcher.feed([3], state, found)
         self.assertEqual(found, {'two', 'one', 'three'})
 
+    def test_suffix_matches_without_quadratic_output_copying(self):
+        matcher = overlap.ExactMatcher([((2,), 'a'), ((1, 2), 'b'),
+                                        ((3, 1, 2), 'c')])
+        found = set()
+        state = matcher.feed([3, 1, 2], 0, found)
+        self.assertEqual(found, {'a', 'b', 'c'})
+        self.assertEqual(matcher.output[state], {'c'})
+
     def test_duplicate_shards_refused(self):
         self.populate()
         self.shard(self.valid, 'copy.bin', [700, *map(ord, 'Alpha text?'), 701])
