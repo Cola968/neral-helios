@@ -1,4 +1,4 @@
-name: Phoenix shard, boundaries and local chat synthetic CPU
+name: Phoenix shard, boundaries, training preflight and local chat synthetic CPU
 on:
   pull_request:
     paths:
@@ -13,6 +13,8 @@ on:
       - 'frontier350/nextgen_v1/test_phoenix_audited_pilot_launcher.py'
       - 'frontier350/nextgen_v1/phoenix_weight_only_pilot.py'
       - 'frontier350/nextgen_v1/test_phoenix_native_pilot_gate.py'
+      - 'frontier350/nextgen_v1/phoenix_preflight_only.py'
+      - 'frontier350/nextgen_v1/test_phoenix_preflight_only.py'
       - 'frontier350/nextgen_v1/phoenix_holdout_gate.py'
       - 'frontier350/nextgen_v1/test_phoenix_holdout_gate.py'
       - 'frontier350/nextgen_v1/test_phoenix_holdout_gate_integration.py'
@@ -55,6 +57,9 @@ jobs:
         run: |
           python -B phoenix_offline_cpu_check.py
           python -B -m unittest -v test_phoenix_offline_cpu_check.py
+      - name: Test native preflight-only command with synthetic inputs
+        working-directory: frontier350/nextgen_v1
+        run: python -B -m unittest -v test_phoenix_preflight_only.py
       - name: Test local multi-turn chat with fake model (no weights)
         working-directory: frontier350/nextgen_v1
         run: |
