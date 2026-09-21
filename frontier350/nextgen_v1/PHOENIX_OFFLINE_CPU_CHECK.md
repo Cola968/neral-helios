@@ -1,22 +1,26 @@
 # Phoenix: offline synthetic CPU regression check
 
-The GitHub-hosted synthetic jobs for draft PR #120 have repeatedly failed before any visible job steps or runner assignment. This does **not** establish whether the Python code passes. `phoenix_offline_cpu_check.py` provides a local, reproducible alternative that uses the same core regression set as `.github/workflows/phoenix-shard-distribution-cpu.yml`.
+The GitHub-hosted jobs for draft PR #120 previously failed before visible job steps. This does **not** establish whether the Python code passes. `phoenix_offline_cpu_check.py` provides a local alternative using the same entrypoint as `.github/workflows/phoenix-shard-distribution-cpu.yml`.
 
-## Run on an existing, reviewed checkout of the PR branch
+## Execute on a reviewed checkout of the PR branch
 
-Open PowerShell in your Neral repository working copy **after confirming it contains the current `experiment/phoenix-blind-ab-audit-20260919` files and after saving any uncommitted changes**. Do not overwrite a working tree to run this. Use an installed Python 3.11+ interpreter:
+In PowerShell, open an existing Neral repository checkout containing the current `experiment/phoenix-blind-ab-audit-20260919` files. Preserve uncommitted changes; do not reset the working tree merely to run tests. Python 3.11+:
 
 ```powershell
 python -B frontier350/nextgen_v1/phoenix_offline_cpu_check.py
 ```
 
-The command prints a single JSON status: `PASS`, `FAIL`, or `TIMEOUT`, the number of Python files compiled and the number of synthetic unit tests actually run. Its process exit code is zero **only** if all allowlisted files compile and unittest reports a nonempty `OK` with no skips; other conditions are nonzero. The eight runner self-tests can be run separately:
+The command prints a JSON status (`PASS`, `FAIL`, `TIMEOUT`), number of compiled files, number of **selected test modules**, number of tests actually run, and the exit code. Its process exit status is zero only if all 26 allowlisted Python files compile, the child exits successfully, at least 15 tests run, unittest reports `OK`, and no skips or expected failures appear. The test-count threshold catches gross collection failure; it does not prove that every test module contributed an individual test.
+
+The existing eight runner self-tests can also be executed:
 
 ```powershell
 cd frontier350/nextgen_v1
 python -B -m unittest -v test_phoenix_offline_cpu_check.py
 ```
 
-The runner compiles the native pilot, corpus/holdout validator and related modules **in memory** without importing the trainer, then invokes exactly eight allowlisted synthetic unittest modules in a child process with `CUDA_VISIBLE_DEVICES=-1`, `PYTHONDONTWRITEBYTECODE=1` and a 180-second timeout. It neither opens real checkpoint/dataset/holdout files nor executes the training CLI. The tests are executable code, however: review new branch changes before running them, and ensure the modules have not been replaced with untrusted code. The runner captures child test output and emits only an aggregate JSON status by default. To diagnose failures, inspect the locally run test commands or their source; do not upload private paths, credentials, data, weights or holdouts as CI logs.
+The runner compiles **11 source modules and 15 synthetic test modules** without importing trainers. It runs the 15 fixed test modules in a Python child process, sets `CUDA_VISIBLE_DEVICES=-1` and `PYTHONDONTWRITEBYTECODE=1`, and enforces a 180-second timeout. Coverage now includes answer export, candidate lineage/loading, blind A/B preparation and unblinding, paired-evidence calculations, native pilot guards, data shards and holdout gates. The runner does not intentionally open real checkpoints, private data, or holdouts or launch training. Test modules are executable Python code, however: inspect changes before running a new checkout.
 
-**Scope and limitations:** The runner's eight self-tests passed locally with fabricated files and a mocked child execution. The full eight-module Phoenix regression suite has **not** been executed against a complete checkout in the development environment, and the actual owner's PC execution has not occurred. Even a genuine local `PASS` would verify only synthetic CPU code contracts, not source provenance, real holdout independence, 350M checkpoint load, GPU fit, training throughput, checkpoint recovery or model quality. GitHub CI stays unverified until a real runner executes the corresponding test steps. Do not launch a pilot without genuine independent dataset/holdout review and SHA-bound owner approval.
+A local synthetic test of this *expanded runner* passed four isolated cases (module selection and CPU isolation, partial collection refusal, added-source syntax refusal, and skipped-test refusal). **The complete 15-module regression suite has not been run on the actual checkout or owner's PC in this change.** The older eight-runner-self-test claim applied to the previous runner revision, not independently to the new revision. GitHub Actions remains unverified until real test steps run.
+
+Even a real `PASS` establishes only synthetic CPU contracts, not human data provenance/privacy/license approval, independent holdout quality, actual 350M loading, GPU feasibility, training speed, bitwise replay, or a measured answer-quality gain. No training, merge, or checkpoint modification is authorized by the report.
