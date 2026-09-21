@@ -1,4 +1,4 @@
-"""CPU/Torch-free guards: NO real training, weights, reviews or approvals."""
+"""CPU/Torch-free preflight checks: no real training, weights or human approval."""
 from __future__ import annotations
 
 from hashlib import sha256
@@ -77,7 +77,10 @@ class WarmstartPilotTests(unittest.TestCase):
                                 lr=2e-5, schedule='cosine', weight_decay=0.1,
                                 warmup_frac=0.02, gradient_checkpointing=True)
         contract.update({'initialization': 'weight_only_new_optimizer_v1',
-                         'source_sha256': CONTINUITY_SHA, 'compile_mode': 'none'})
+                         'source_sha256': CONTINUITY_SHA, 'compile_mode': 'none',
+                         'master_parameter_dtype': 'float32',
+                         'adamw_moment_dtype': 'float32',
+                         'compute_autocast_dtype': 'bfloat16'})
         expected = {'source_sha256': CONTINUITY_SHA, 'tokenizer_sha256': TOKENIZER_SHA,
                     'train_identity': corpus_identity([data / 'a.bin'], seq=4,
                                                       role='train', seed=8,
@@ -150,6 +153,8 @@ class WarmstartPilotTests(unittest.TestCase):
             self.assertFalse(args.out.exists())
             self.assertEqual(plan['lineage']['new_run_initial_tokens'], 0)
             self.assertEqual(plan['contract']['compile_mode'], 'none')
+            self.assertEqual(plan['contract']['master_parameter_dtype'], 'float32')
+            self.assertEqual(plan['contract']['compute_autocast_dtype'], 'bfloat16')
 
     def test_manifest_tampering_and_preexisting_output_refused_without_writes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -189,6 +194,18 @@ class WarmstartPilotTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'run parameters changed'):
                     prepare(args)
                 self.assertFalse(args.out.exists())
+
+    def test_approval_rejects_legacy_bf16_master_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            args, approved, _, source, token, manifest, *_ = self._fixtures(Path(temp))
+            approved['run_contract']['master_parameter_dtype'] = 'bfloat16'
+            manifest.write_text(json.dumps(approved), encoding='utf8')
+            args.approval_sha256 = digest(manifest.read_bytes())
+            with patch('phoenix_weight_only_pilot.require_pinned_checkpoint',
+                       return_value=source), patch('phoenix_weight_only_pilot.trusted_asset',
+                                                   return_value=token):
+                with self.assertRaisesRegex(ValueError, 'run parameters changed'):
+                    prepare(args)
 
 
 if __name__ == '__main__':
