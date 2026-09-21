@@ -1,4 +1,4 @@
-name: Phoenix weight-only pilot full CPU contracts once (NO TRAINING)
+name: Phoenix FP32-master pilot CPU contracts once (NO GPU/TRAINING)
 on:
   push:
     branches: [experiment/phoenix-sft-fp32-audit]
@@ -14,13 +14,13 @@ jobs:
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 12
     steps:
-      - name: Checkout pinned experimental source without persisted credentials
+      - name: Checkout pinned precision-corrected source, no credentials persisted
         uses: actions/checkout@v4
         with:
-          ref: 787b96e7d9e7e204e45e6fdf45b2b5116b6b566c
-          path: phoenix_weightonly_contract_source
+          ref: 020f70181ff8c651d5248e1080b3306d93e56152
+          path: phoenix_fp32_contract_source
           persist-credentials: false
-      - name: CPU-only source compile and synthetic contract tests
+      - name: CPU-only source compile and synthetic contracts; no private assets
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference='Stop'
@@ -29,13 +29,13 @@ jobs:
             if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
             return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
           }
-          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_weightonly_contract_source'))
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_fp32_contract_source'))
           $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
-          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_weightonly_contract_source') { throw 'Unexpected checkout path' }
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_fp32_contract_source') { throw 'Unexpected checkout path' }
           if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
           if($repo.Contains("'")) { throw 'Unsupported quote in checkout path' }
-          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m compileall -q frontier350/nextgen_v1/phoenix_weight_only_pilot.py frontier350/nextgen_v1/test_phoenix_weight_only_pilot.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_sft_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_storage_budget.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_checkpoint_journal.py'"
-          Write-Host 'No real assets, approved manifest, GPU interaction, real checkpoint, weights, training or output writes. Only synthetic temp fixtures.'
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m compileall -q frontier350/nextgen_v1/phoenix_master_precision.py frontier350/nextgen_v1/phoenix_weight_only_pilot.py frontier350/nextgen_v1/test_phoenix_master_precision.py frontier350/nextgen_v1/test_phoenix_weight_only_pilot.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_sft_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_storage_budget.py'"
+          Write-Host 'CPU only; synthetic small Torch precision experiment. No real weights, GPU, training, private data or output artifacts.'
           & wsl.exe -- bash -lc $cmd
-          if($LASTEXITCODE -ne 0) { throw 'CPU pilot contract regression failed, no training started' }
-          Write-Host 'Synthetic CPU pilot contracts complete; no actual 350M training or measured quality claim.'
+          if($LASTEXITCODE -ne 0) { throw 'FP32 pilot CPU regression failed; no training started' }
+          Write-Host 'CPU contracts passed. Full 350M GPU feasibility and free-answer quality remain UNTESTED.'
