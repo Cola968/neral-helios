@@ -40,12 +40,29 @@ def preflight(argv=None) -> dict:
     }
 
 
+def failure_hint(exc: Exception) -> str:
+    """Return a coarse diagnostic category without printing private file paths."""
+    detail = str(exc).lower()
+    for category, markers in (
+        ('APPROVAL_OR_HOLDOUT', ('approval', 'manifest', 'review', 'holdout')),
+        ('TOKENIZER', ('tokenizer',)),
+        ('SOURCE_CHECKPOINT', ('checkpoint', 'source sha', 'source path')),
+        ('DISK_CAPACITY', ('disk', 'gib', 'storage', 'reserve')),
+        ('DATASET', ('shard', 'corpus', 'train', 'validation', 'vocab', 'overlap', 'identity')),
+        ('OUTPUT_OR_RESUME', ('output', 'destination', 'resume')),
+    ):
+        if any(marker in detail for marker in markers):
+            return category
+    return 'OTHER_OR_MISSING_FILE'
+
+
 def main(argv=None) -> int:
     try:
         result = preflight(argv)
     except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:
         # Do not leak private paths or corpus text into shared logs.
         result = {'status': 'CPU_PREFLIGHT_FAIL', 'error_type': type(exc).__name__,
+                  'failure_hint': failure_hint(exc),
                   'training_started': False, 'new_tokens_processed': 0,
                   'checkpoint_written': False}
     print(json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
