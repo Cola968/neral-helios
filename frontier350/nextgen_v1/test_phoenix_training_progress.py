@@ -82,6 +82,15 @@ class ProgressTests(unittest.TestCase):
                     'resume_sha256':'a'*64})
         with self.assertRaisesRegex(ValueError, 'completion receipt'): summarize(self.root)
 
+    def test_stale_summary_on_resume_never_claims_completion(self):
+        self.write([self.start(target=2048), self.step(), self.start(512, 1)],
+                   {'event':'weight_only_pilot_finished','source_unchanged': True,
+                    'new_processed_tokens':512,'new_optimizer_steps':1,
+                    'resume_sha256':'a'*64})
+        result = summarize(self.root)
+        self.assertEqual(result['status'], 'in_progress_or_interrupted')
+        self.assertTrue(result['stale_summary_ignored'])
+
     def test_target_change_rejected(self):
         self.write([self.start(), self.step(), self.start(512,1,target=4096)])
         with self.assertRaisesRegex(ValueError, 'target changed'): summarize(self.root)
