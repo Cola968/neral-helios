@@ -118,8 +118,18 @@ def summarize(run_dir: Path) -> dict:
     if not seen_start:
         raise ValueError("no native pilot initialization receipt")
     completed = False
+    stale_summary_ignored = False
     summary_path = run_dir / "summary.json"
+    # An exact resume can leave the previous invocation's summary on disk.
+    # It must not be misread as proof that the new invocation has finished.
     if summary_path.exists() or summary_path.is_symlink():
+        if summary_path.is_symlink() or not summary_path.is_file():
+            raise ValueError("invalid local completion receipt")
+        stale_summary_ignored = (
+            rows[-1].get("event") == "separate_weight_only_pilot" or
+            summary_path.stat().st_mtime_ns < (run_dir / "metrics.jsonl").stat().st_mtime_ns
+        )
+    if (summary_path.exists() or summary_path.is_symlink()) and not stale_summary_ignored:
         summary = json.loads(regular_file(summary_path).read_text(encoding="utf-8"))
         if (not isinstance(summary, dict) or summary.get("event") != "weight_only_pilot_finished"
                 or summary.get("source_unchanged") is not True
@@ -138,6 +148,7 @@ def summarize(run_dir: Path) -> dict:
             "observed_wall_tokens_per_second_including_overheads": speed,
             "invocation_elapsed_seconds": elapsed,
             "incomplete_last_log_line_ignored": partial,
+            "stale_summary_ignored": stale_summary_ignored,
             "checkpoint_bytes_or_gpu_verified": False,
             "quality_improvement_verified": False,
             "training_started_by_this_tool": False}
