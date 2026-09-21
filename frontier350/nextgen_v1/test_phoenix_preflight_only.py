@@ -68,6 +68,10 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'must explicitly pass'):
                 check.preflight([])
 
+    def test_failure_hint_never_exposes_private_path(self):
+        detail = ValueError('approval manifest missing at D:/private/secret.json')
+        self.assertEqual(check.failure_hint(detail), 'APPROVAL_OR_HOLDOUT')
+
     def test_json_success_and_exit_zero(self):
         with redirect_stdout(io.StringIO()) as output:
             status = check.main([])
