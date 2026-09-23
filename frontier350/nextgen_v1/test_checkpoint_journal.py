@@ -64,6 +64,23 @@ class CheckpointJournalTests(unittest.TestCase):
         journal.commit(state(1_010_003_584 + 983_040 + 983_040), self.resume)
         self.assertEqual(len(list(journal.root.glob('ckpt-*.pt'))), 3)
 
+    def test_retention_keeps_latest_three_and_records_retired_metadata(self):
+        journal = self.journal()
+        base = 1_010_003_584
+        for offset in (100_000, 200_000, 300_000, 400_000):
+            journal.commit(state(base + offset), self.resume)
+        generations = list(journal.root.glob('ckpt-*.pt'))
+        self.assertEqual(len(generations), 3)
+        latest = journal.verify()
+        self.assertEqual(latest['processed_tokens'], base + 400_000)
+        self.assertTrue((journal.root / latest['name']).is_file())
+        retired = (journal.root / 'retired.jsonl').read_text(encoding='utf8').splitlines()
+        self.assertEqual(len(retired), 2)
+        records = [json.loads(line) for line in retired]
+        self.assertEqual([row['processed_tokens'] for row in records],
+                         [base, base + 100_000])
+        self.assertFalse(any((journal.root / row['name']).exists() for row in records))
+
     def test_reject_unbounded_skip_without_writing(self):
         journal = self.journal()
         with self.assertRaisesRegex(ValueError, '1M'):
