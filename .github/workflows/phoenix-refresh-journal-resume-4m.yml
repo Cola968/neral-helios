@@ -59,6 +59,19 @@ jobs:
           if(-not(Test-Path -LiteralPath $generation -PathType Leaf)){throw 'Journal generation missing'}
           if((Get-FileHash -LiteralPath $generation -Algorithm SHA256).Hash.ToLowerInvariant() -ne $resumeSha){throw 'Journal generation digest mismatch'}
 
+          # A killed atomic save can leave resume.pt.tmp. Never delete or trust it.
+          # Only after resume.pt + latest journal generation are independently SHA
+          # verified, move the orphan aside under a content-addressed quarantine name.
+          $staleTmp=$resume+'.tmp'
+          if(Test-Path -LiteralPath $staleTmp -PathType Leaf){
+            $tmpSha=(Get-FileHash -LiteralPath $staleTmp -Algorithm SHA256).Hash.ToLowerInvariant()
+            $quarantine=Join-Path $out ('abandoned-resume-tmp-'+$tmpSha+'.pt')
+            if(Test-Path -LiteralPath $quarantine){throw 'Existing quarantine target requires operator review'}
+            Move-Item -LiteralPath $staleTmp -Destination $quarantine
+            if((Get-FileHash -LiteralPath $quarantine -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tmpSha){throw 'Quarantined temp SHA changed'}
+            Write-Host ('Quarantined interrupted atomic-save temp SHA '+$tmpSha)
+          }
+
           Write-Host '=== VERIFIED RESUME INPUT ==='
           [ordered]@{processed_tokens=$startTokens;sha256=$resumeSha;kind=$receipt.kind;target_tokens=4194304}|ConvertTo-Json -Compress|Write-Host
           nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
