@@ -63,6 +63,9 @@ jobs:
             $report.manifest_licenses=@($m.licenses)
             $report.manifest_resolved_revisions=$m.resolved_revisions
             $report.manifest_source_names=@($m.sources | ForEach-Object {$_.source.name} | Select-Object -Unique)
+            $report.manifest_keys=@($m.PSObject.Properties.Name)
+            $report.train_file_metadata=@($m.train_files | ForEach-Object {[ordered]@{path=$_.path;tokens=$_.tokens;sha256=$_.sha256}})
+            $report.valid_file_metadata=@($m.valid_files | ForEach-Object {[ordered]@{path=$_.path;tokens=$_.tokens;sha256=$_.sha256}})
           }
           $report | ConvertTo-Json -Compress -Depth 8 | Write-Host
           Write-Host 'Read-only metadata inventory complete; no raw corpus text or GPU access.'
