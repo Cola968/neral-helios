@@ -1,0 +1,86 @@
+name: Phoenix current-anchor BPE refresh corpus
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-build-current-refresh.yml'
+      - 'frontier350/nextgen_v1/build_phoenix_refresh_bpe_data.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-corpus-build
+  cancel-in-progress: false
+
+jobs:
+  build-refresh:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact refresh-builder revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_refresh_build_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Build create-only 20M current-anchor BPE refresh corpus
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_refresh_build_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $out='D:\NeralPrivateAssets\phoenix\foundation_refresh_' + $env:GITHUB_RUN_ID
+          foreach($p in @($repo,$assets,$tokenizer,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not(Test-Path -LiteralPath $tokenizer -PathType Leaf)){throw 'Locked Neral tokenizer missing'}
+          if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Tokenizer SHA mismatch'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only refresh output exists'}
+          if((Get-PSDrive D).Free -lt 5GB){throw 'Less than 5 GiB free on D:'}
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/build_phoenix_refresh_bpe_data.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/build_phoenix_refresh_bpe_data.py --root '$(ToWsl $out)' --tokenizer '$(ToWsl $tokenizer)' --train-tokens 20000000 --valid-tokens 500000 --shard-tokens 5000000"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Phoenix current-anchor refresh build failed'}
+
+          $manifest=Join-Path $out 'manifest.json'
+          if(-not(Test-Path -LiteralPath $manifest -PathType Leaf)){throw 'Refresh manifest missing'}
+          $m=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
+          if([int64]$m.continuation_from_tokens -ne 2073161216){throw 'Wrong anchor token lineage'}
+          if($m.continuation_from_checkpoint_sha256 -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw 'Wrong anchor checkpoint SHA'}
+          if($m.tokenizer.tokenizer_sha256 -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Manifest tokenizer mismatch'}
+          if([int64]$m.new_train_tokens -ne 20000000 -or [int64]$m.validation_tokens -ne 500000){throw 'Refresh token accounting mismatch'}
+          if($m.production_eligible -ne $false -or $m.historical_2b_document_overlap_checked -ne $false){throw 'Unsafe refresh classification'}
+
+          Write-Host '=== SAFE REFRESH CORPUS SUMMARY ==='
+          [ordered]@{
+            manifest_sha256=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+            continuation_from_tokens=$m.continuation_from_tokens
+            new_train_tokens=$m.new_train_tokens
+            validation_tokens=$m.validation_tokens
+            target_cumulative_tokens_if_fully_consumed=$m.target_cumulative_tokens_if_fully_consumed
+            source_mix=$m.source_mix
+            resolved_revisions=$m.resolved_revisions
+            train_shards=@($m.train_files).Count
+            validation_shards=@($m.valid_files).Count
+            train_shard_sha256=@($m.train_files|ForEach-Object{$_.sha256})
+            validation_shard_sha256=@($m.valid_files|ForEach-Object{$_.sha256})
+            deduplicated_documents=$m.deduplicated_documents
+            historical_overlap_checked=$m.historical_2b_document_overlap_checked
+            production_eligible=$m.production_eligible
+          }|ConvertTo-Json -Compress -Depth 8|Write-Host
+          Write-Host 'Token shards remain local on D:. No raw corpus text is uploaded.'
+
+      - name: Confirm no GPU allocation was needed
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
