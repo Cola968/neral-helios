@@ -16,7 +16,10 @@ from dataclasses import asdict
 import hashlib
 import json
 from pathlib import Path
+import sys
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build_frontier_data import SourceSpec
 from build_frontier_bpe_data import (
