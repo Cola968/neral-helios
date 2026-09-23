@@ -1,0 +1,50 @@
+name: Phoenix interrupted refresh recovery inventory
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-refresh-recovery-inventory.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-refresh-recovery-inspection
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    steps:
+      - name: Verify last durable journal receipt after interrupted 4Mi run
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='D:\NeralPrivateAssets\phoenix\foundation_train_35901126261'
+          $resume=Join-Path $out 'resume.pt'
+          $journal=Join-Path $out 'checkpoint_journal'
+          $latest=Join-Path $journal 'latest.json'
+          if(-not(Test-Path -LiteralPath $resume -PathType Leaf)){throw 'resume.pt missing'}
+          if(-not(Test-Path -LiteralPath $latest -PathType Leaf)){throw 'journal latest receipt missing'}
+          $r=Get-Content -LiteralPath $latest -Raw|ConvertFrom-Json
+          if($r.schema -ne 1 -or $r.kind -ne 'complete_resumable_state'){throw 'latest receipt is not complete resumable state'}
+          if([int64]$r.processed_tokens -lt 1048576 -or [int64]$r.processed_tokens -gt 4194304){throw 'unexpected recovery token boundary'}
+          $actual=(Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -ne $r.sha256){throw 'resume.pt differs from journal latest SHA'}
+          $generation=Join-Path $journal $r.name
+          if(-not(Test-Path -LiteralPath $generation -PathType Leaf)){throw 'journal generation missing'}
+          $generationSha=(Get-FileHash -LiteralPath $generation -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($generationSha -ne $r.sha256){throw 'journal generation SHA mismatch'}
+          $generations=@(Get-ChildItem -LiteralPath $journal -Filter 'ckpt-*.pt' -File)
+          Write-Host '=== VERIFIED INTERRUPTED-RUN RECOVERY POINT ==='
+          [ordered]@{
+            processed_tokens=[int64]$r.processed_tokens
+            sha256=$r.sha256
+            generation_name=$r.name
+            retained_generations=$generations.Count
+            resume_matches_latest=$true
+            complete_resumable_state=$true
+            training_started=$false
+          }|ConvertTo-Json -Compress|Write-Host
