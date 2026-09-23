@@ -30,11 +30,11 @@ PARAMETERS = 349_825_152
 CLASSIFICATION = "oasst1_auto_sft_public_dev_selected_not_promotable"
 SCHEMA = "phoenix_oasst1_auto_sft_v1"
 CONFIGS = (
-    {"blocks": 2, "lr": 1e-5, "steps": 25},
-    {"blocks": 2, "lr": 1e-5, "steps": 50},
-    {"blocks": 2, "lr": 1e-5, "steps": 100},
-    {"blocks": 2, "lr": 5e-6, "steps": 100},
-    {"blocks": 3, "lr": 1e-5, "steps": 50},
+    {"blocks": 8, "lr": 5e-6, "steps": 50},
+    {"blocks": 8, "lr": 5e-6, "steps": 100},
+    {"blocks": 8, "lr": 5e-6, "steps": 200},
+    {"blocks": 8, "lr": 1e-5, "steps": 50},
+    {"blocks": 4, "lr": 5e-6, "steps": 200},
 )
 PAIR_CATEGORIES = (
     "instruction_following", "dialogue_state", "truthfulness",
