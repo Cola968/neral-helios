@@ -73,7 +73,7 @@ def main(argv=None) -> int:
     for index,cfg in enumerate(CONFIGS):
         if cfg["microbatch"]*SEQ*cfg["grad_accum"] != TOKENS_PER_UPDATE:
             raise RuntimeError("shape changed token/update contract")
-        guard.require_stably_idle_gpu()
+        guard.require_safe_runtime_temperature()
         torch.manual_seed(20260923)
         torch.cuda.manual_seed_all(20260923)
         random.seed(20260923)
