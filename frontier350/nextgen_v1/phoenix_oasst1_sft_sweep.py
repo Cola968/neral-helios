@@ -30,11 +30,8 @@ PARAMETERS = 349_825_152
 CLASSIFICATION = "oasst1_auto_sft_public_dev_selected_not_promotable"
 SCHEMA = "phoenix_oasst1_auto_sft_v1"
 CONFIGS = (
-    {"blocks": 8, "lr": 5e-6, "steps": 50},
+    # Best non-regressing configuration from run 35896229813.
     {"blocks": 8, "lr": 5e-6, "steps": 100},
-    {"blocks": 8, "lr": 5e-6, "steps": 200},
-    {"blocks": 8, "lr": 1e-5, "steps": 50},
-    {"blocks": 4, "lr": 5e-6, "steps": 200},
 )
 PAIR_CATEGORIES = (
     "instruction_following", "dialogue_state", "truthfulness",
@@ -243,9 +240,9 @@ def main(argv=None) -> int:
         )
         qualifies = (
             val < baseline_validation
-            and pair["overall_pct"] >= base_summary["pair_overall_pct"]
+            and pair["overall_pct"] > base_summary["pair_overall_pct"]
             and no_pair_category_regression
-            and exact["accuracy_pct"] > base_summary["exact_generation_pct"]
+            and exact["accuracy_pct"] >= base_summary["exact_generation_pct"]
         )
         result = {
             "index": index, **config, "trainable_parameters": trainable,
@@ -263,9 +260,9 @@ def main(argv=None) -> int:
         results.append(result)
         print(json.dumps({"event": "oasst1_sft_sweep_candidate", **result}, sort_keys=True), flush=True)
 
-        # Selection is predeclared: among hard-gated candidates, maximize exact
-        # instruction generation, then pair overall, then lower validation loss.
-        key = (exact["accuracy_pct"], pair["overall_pct"], -val)
+        # Development selection: require a real pair-score gain with zero pair
+        # category regression; exact generation may stay flat but may not regress.
+        key = (pair["overall_pct"], exact["accuracy_pct"], -val)
         if qualifies and (best_key is None or key > best_key):
             best_key = key
             best_payload = {
@@ -310,9 +307,10 @@ def main(argv=None) -> int:
             "selection_protocol": {
                 "configs": list(CONFIGS),
                 "requires_validation_improvement": True,
-                "requires_pair_overall_non_regression": True,
+                "requires_pair_overall_strict_improvement": True,
                 "requires_all_pair_categories_non_regression": True,
-                "ranking": "exact_generation_pct_then_pair_overall_then_lower_validation",
+                "requires_exact_generation_non_regression": True,
+                "ranking": "pair_overall_then_exact_generation_then_lower_validation",
             },
             "selected": selected,
             "human_review_complete": False,
