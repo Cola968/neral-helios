@@ -121,7 +121,7 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
 
 
 def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
-            lr: float, seed: int) -> dict:
+            lr: float, seed: int, gradient_checkpointing: bool) -> dict:
     return {
         "kind": "phoenix_foundation_refresh_fresh_adamw_v1",
         "historical_source_sha256": CONTINUITY_SHA,
@@ -136,7 +136,7 @@ def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
         "warmup_frac": 0.01,
         "weight_decay": 0.1,
         "seed": seed,
-        "gradient_checkpointing": True,
+        "gradient_checkpointing": bool(gradient_checkpointing),
     }
 
 
@@ -191,6 +191,7 @@ def main(argv=None) -> int:
     p.add_argument("--grad-accum", type=int, default=4)
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--seed", type=int, default=35023)
+    p.add_argument("--gradient-checkpointing", action="store_true")
     args = p.parse_args(argv)
 
     if not args.execute or not args.trusted_own_checkpoint:
@@ -198,9 +199,10 @@ def main(argv=None) -> int:
     if args.target_new_tokens != MAX_TARGET:
         p.error(f"this development lineage is locked to {MAX_TARGET} new target tokens")
     update = args.seq * args.microbatch * args.grad_accum
-    if (args.seq != 256 or args.microbatch != 1 or args.grad_accum != 4
+    allowed_shapes = {(1, 4), (2, 2), (4, 1)}
+    if (args.seq != 256 or (args.microbatch, args.grad_accum) not in allowed_shapes
             or args.lr != 1e-5 or update != 1024):
-        p.error("development run dimensions/LR are intentionally locked")
+        p.error("development run must use a benchmarked 1024-token update shape at seq=256")
     if not 0 < args.stop_after_new_tokens <= args.target_new_tokens:
         p.error("invalid stop")
     if args.stop_after_new_tokens < args.target_new_tokens and args.stop_after_new_tokens % update:
@@ -215,7 +217,7 @@ def main(argv=None) -> int:
     out = args.out.absolute()
     expected_lineage = lineage(
         args.manifest_sha256, args.target_new_tokens, args.seq,
-        args.microbatch, args.grad_accum, args.lr, args.seed
+        args.microbatch, args.grad_accum, args.lr, args.seed, args.gradient_checkpointing
     )
 
     fresh = args.resume is None
@@ -258,7 +260,7 @@ def main(argv=None) -> int:
     torch.cuda.reset_peak_memory_stats()
 
     model = Neral350M().to(device=device, dtype=torch.bfloat16)
-    model.set_gradient_checkpointing(True)
+    model.set_gradient_checkpointing(args.gradient_checkpointing)
     if model.parameter_report()["total"] != PARAMETERS:
         raise RuntimeError("locked 350M parameter count changed")
 
