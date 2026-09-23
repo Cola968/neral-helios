@@ -81,6 +81,33 @@ class CheckpointJournalTests(unittest.TestCase):
                          [base, base + 100_000])
         self.assertFalse(any((journal.root / row['name']).exists() for row in records))
 
+    def test_quarantine_stale_temp_only_after_verified_latest(self):
+        journal = self.journal()
+        next_state = state(1_010_003_584 + 100_000)
+        journal.commit(next_state, self.resume)
+        temporary = self.resume.with_name(self.resume.name + '.tmp')
+        temporary.write_bytes(b'interrupted-write-bytes')
+        temp_sha = sha256_file(temporary)
+        result = quarantine_stale_resume_temp(self.resume)
+        self.assertTrue(result['quarantined'])
+        self.assertEqual(result['temp_sha256'], temp_sha)
+        self.assertFalse(temporary.exists())
+        quarantine = self.resume.parent / result['quarantine_name']
+        self.assertTrue(quarantine.is_file())
+        self.assertEqual(sha256_file(quarantine), temp_sha)
+        self.assertEqual(journal.verify()['sha256'], sha256_file(self.resume))
+
+    def test_quarantine_refuses_when_resume_differs_from_latest(self):
+        journal = self.journal()
+        next_state = state(1_010_003_584 + 100_000)
+        journal.commit(next_state, self.resume)
+        temporary = self.resume.with_name(self.resume.name + '.tmp')
+        temporary.write_bytes(b'interrupted-write-bytes')
+        self.resume.write_bytes(b'corrupted-resume')
+        with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+            quarantine_stale_resume_temp(self.resume)
+        self.assertTrue(temporary.exists())
+
     def test_reject_unbounded_skip_without_writing(self):
         journal = self.journal()
         with self.assertRaisesRegex(ValueError, '1M'):
