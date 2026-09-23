@@ -121,8 +121,11 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
 
 
 def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
-            lr: float, seed: int, gradient_checkpointing: bool) -> dict:
-    return {
+            lr: float, seed: int, gradient_checkpointing: bool,
+            compile_mode: str = "none") -> dict:
+    if compile_mode not in {"none", "default"}:
+        raise ValueError("unsupported compile mode")
+    result = {
         "kind": "phoenix_foundation_refresh_fresh_adamw_v1",
         "historical_source_sha256": CONTINUITY_SHA,
         "historical_processed_tokens": EXPECTED_TOKENS,
@@ -138,6 +141,10 @@ def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
         "seed": seed,
         "gradient_checkpointing": bool(gradient_checkpointing),
     }
+    # Preserve exact legacy lineage identity for eager resumes.
+    if compile_mode != "none":
+        result["compile_mode"] = compile_mode
+    return result
 
 
 def validate_resume(torch, state: dict, expected_lineage: dict, manifest_sha: str) -> None:
@@ -192,6 +199,7 @@ def main(argv=None) -> int:
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--seed", type=int, default=35023)
     p.add_argument("--gradient-checkpointing", action="store_true")
+    p.add_argument("--compile-mode", choices=("none", "default"), default="none")
     args = p.parse_args(argv)
 
     if not args.execute or not args.trusted_own_checkpoint:
@@ -220,7 +228,8 @@ def main(argv=None) -> int:
     out = args.out.absolute()
     expected_lineage = lineage(
         args.manifest_sha256, args.target_new_tokens, args.seq,
-        args.microbatch, args.grad_accum, args.lr, args.seed, args.gradient_checkpointing
+        args.microbatch, args.grad_accum, args.lr, args.seed, args.gradient_checkpointing,
+        args.compile_mode
     )
 
     fresh = args.resume is None
@@ -370,6 +379,14 @@ def main(argv=None) -> int:
     last_log_time = invocation_wall
     last_log_tokens = processed
     model.train()
+    train_model = model
+    if args.compile_mode == "default":
+        # Compile only the forward path. Optimizer/checkpoints continue to own the
+        # original model parameters, preserving ordinary state_dict semantics.
+        train_model = torch.compile(
+            model, backend="inductor", mode="default",
+            fullgraph=False, dynamic=False
+        )
 
     while processed < args.stop_after_new_tokens:
         lr = cosine_lr(step, warmup, total_updates, args.lr, min_ratio=0.10)
@@ -385,7 +402,7 @@ def main(argv=None) -> int:
         for count in counts:
             x, y = train.batch(args.microbatch, args.seq, device, rng)
             y = mask_budget_targets(y, count)
-            _, loss = model(x, y)
+            _, loss = train_model(x, y)
             if loss is None or not bool(torch.isfinite(loss)):
                 raise FloatingPointError("nonfinite refresh training loss")
             (loss * (count / this_update)).backward()
