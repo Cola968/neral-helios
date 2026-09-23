@@ -30,7 +30,7 @@ from source_lock350 import LOCK_PATH, locked_revisions
 CURRENT_ANCHOR_TOKENS = 2_073_161_216
 CURRENT_ANCHOR_SHA256 = "f7a73e283421975acc34e13afc38378be4eab11da34e7cb0cda883e7"
 # Correct full SHA kept separately below to make accidental abbreviation impossible.
-CURRENT_ANCHOR_SHA256_FULL = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
+CURRENT_ANCHOR_SHA256 = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 EXPECTED_TOKENIZER_SHA256 = "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd"
 
 # Quality-first refresh: less generic web, more educational, German and mathematics.
