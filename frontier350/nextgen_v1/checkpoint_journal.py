@@ -153,6 +153,46 @@ class CheckpointJournal:
                 'processed_tokens': tokens, 'bytes': dest.stat().st_size,
                 'kind': kind}
 
+    def _retire_old_generations(self) -> list[dict]:
+        """Keep only the newest verified generations and retain a metadata audit trail.
+
+        Pruning happens only AFTER latest.json points at a SHA-verified current
+        generation. Deleting an old hard link never removes resume.pt or another
+        retained generation. This bounds disk growth without weakening rollback.
+        """
+        latest = json.loads((self.root / 'latest.json').read_text(encoding='utf8'))
+        latest_path = _checked_generation(self.root, latest)
+        entries = []
+        for path in self.root.glob('ckpt-*.pt'):
+            match = _NAME.fullmatch(path.name)
+            if match is None or path.is_symlink() or not path.is_file():
+                raise RuntimeError('unknown or redirected checkpoint generation')
+            entries.append((int(match.group(1)), match.group(2), path))
+        entries.sort(key=lambda item: (item[0], item[1]))
+        if len(entries) <= self.retain:
+            return []
+        keep = {path.name for _, _, path in entries[-self.retain:]}
+        keep.add(latest_path.name)
+        retired = []
+        for tokens, digest, path in entries:
+            if path.name in keep:
+                continue
+            # Filename identity is part of the journal contract. Verify bytes one
+            # final time before retiring the hard link; preserve only metadata.
+            if sha256_file(path) != digest:
+                raise ValueError('old checkpoint generation is corrupt; refuse pruning')
+            record = {'schema': 1, 'name': path.name, 'sha256': digest,
+                      'processed_tokens': tokens, 'bytes': path.stat().st_size}
+            history = self.root / 'retired.jsonl'
+            with history.open('a', encoding='utf8') as output:
+                output.write(json.dumps(record, sort_keys=True, separators=(',', ':')) + '\n')
+                output.flush()
+                os.fsync(output.fileno())
+            path.unlink()
+            retired.append(record)
+        _sync_directory(self.root)
+        return retired
+
     def commit(self, state: dict, target: Path) -> dict:
         if Path(target).resolve() != self.resume:
             self.writer(state, Path(target))  # For example, best_validation.pt.
@@ -180,8 +220,9 @@ class CheckpointJournal:
         receipt = self._archive(tokens, digest)
         _atomic_receipt(self.root / 'latest.json', receipt)
         self.last_tokens, self.last_sha = tokens, digest
-        # Non-destructive retention: leave old generations until separately
-        # audited disk-pressure management. Never delete a known-good state here.
+        # Keep a small rolling set of fully resumable, SHA-verified generations.
+        # Older hard links are retired only after the new latest receipt is durable.
+        self._retire_old_generations()
         return receipt
 
     def verify(self) -> dict:
