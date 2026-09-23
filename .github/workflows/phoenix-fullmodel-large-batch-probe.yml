@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neral-nextgen-local-gpu-training
+  group: neral-large-batch-probe
   cancel-in-progress: false
 
 jobs:
