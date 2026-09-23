@@ -32,8 +32,8 @@ jobs:
               $m=Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
               if($m.corpus_role -ne 'foundation-pretraining'){continue}
               $rootFull=[IO.Path]::GetFullPath($assets).TrimEnd('\\')
-    $dirFull=[IO.Path]::GetFullPath($file.DirectoryName)
-    $relative=if($dirFull.StartsWith($rootFull,[StringComparison]::OrdinalIgnoreCase)){$dirFull.Substring($rootFull.Length).TrimStart('\\')}else{$file.Directory.Name}
+              $dirFull=[IO.Path]::GetFullPath($file.DirectoryName)
+              $relative=if($dirFull.StartsWith($rootFull,[StringComparison]::OrdinalIgnoreCase)){$dirFull.Substring($rootFull.Length).TrimStart('\\')}else{$file.Directory.Name}
               $rows += [ordered]@{
                 relative_root=$relative
                 manifest_sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
