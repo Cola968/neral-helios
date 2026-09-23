@@ -119,6 +119,12 @@ def main(argv=None) -> int:
             raise RuntimeError("parameter contract changed")
         return m
 
+    def evaluation_clone(trained_model):
+        """Mirror the eventual saved candidate: all inference weights in BF16."""
+        clone = Neral350M().to(device=device, dtype=torch.bfloat16)
+        clone.load_state_dict(trained_model.state_dict(), strict=True)
+        return clone.eval()
+
     # Immutable baseline metrics.
     base_model = fresh_model().eval()
     baseline_validation = validation(base_model)
@@ -177,8 +183,11 @@ def main(argv=None) -> int:
 
         elapsed = time.monotonic() - started
         val = validation(model)
-        pair = pair_eval(torch, model, tokenizer, bos)
-        exact = exact_generation_eval(model, tokenizer, bos, eos, torch)
+        eval_model = evaluation_clone(model)
+        pair = pair_eval(torch, eval_model, tokenizer, bos)
+        exact = exact_generation_eval(eval_model, tokenizer, bos, eos, torch)
+        del eval_model
+        torch.cuda.empty_cache()
         categories = {k: pair["categories"][k]["accuracy_pct"] for k in PAIR_CATEGORIES}
         no_pair_category_regression = all(
             categories[k] >= base_summary["categories"][k] for k in PAIR_CATEGORIES
