@@ -229,7 +229,8 @@ def main(argv=None) -> int:
         with torch.no_grad():
             for index in val_indices:
                 x, y = batch(splits["validation"], [index])
-                _, loss = model(x, y)
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    _, loss = model(x, y)
                 if loss is None or not bool(torch.isfinite(loss)):
                     raise FloatingPointError("nonfinite SFT validation")
                 count = int((y != -100).sum().item())
@@ -251,7 +252,8 @@ def main(argv=None) -> int:
         picks = [rng.randrange(len(splits["train"])) for _ in range(args.batch)]
         x, y = batch(splits["train"], picks)
         optimizer.zero_grad(set_to_none=True)
-        _, loss = model(x, y)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            _, loss = model(x, y)
         if loss is None or not bool(torch.isfinite(loss)):
             raise FloatingPointError("nonfinite SFT train loss")
         loss.backward()
