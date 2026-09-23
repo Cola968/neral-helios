@@ -1,0 +1,98 @@
+name: Phoenix journal-recover foundation refresh to 4Mi
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-refresh-journal-resume-4m.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-refresh-journal-resume
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_journal_resume_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Verify journal, resume exact lineage to 4Mi, evaluate 24 free answers
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p){
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_journal_resume_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $corpus='D:\NeralPrivateAssets\phoenix\foundation_refresh_35900598370'
+          $manifest=Join-Path $corpus 'manifest.json'
+          $out='D:\NeralPrivateAssets\phoenix\foundation_train_35901126261'
+          $resume=Join-Path $out 'resume.pt'
+          $latest=Join-Path $out 'checkpoint_journal\latest.json'
+          $manifestSha=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($manifestSha -ne 'f04313531e84b2d35ce684ff15a355079c087a2c0b2d9bd45cee2eda4a82c2f1'){throw 'Refresh manifest changed'}
+          if(-not(Test-Path -LiteralPath $latest -PathType Leaf)){throw 'Journal latest receipt missing'}
+          if(-not(Test-Path -LiteralPath $resume -PathType Leaf)){throw 'Resume checkpoint missing'}
+
+          $receipt=Get-Content -LiteralPath $latest -Raw|ConvertFrom-Json
+          if($receipt.schema -ne 1 -or $receipt.kind -ne 'complete_resumable_state'){throw 'Latest journal receipt is not a complete resumable state'}
+          $startTokens=[int64]$receipt.processed_tokens
+          if($startTokens -lt 1048576 -or $startTokens -ge 4194304 -or ($startTokens % 1024) -ne 0){throw 'Recovery token boundary outside expected 1Mi..4Mi range'}
+          $resumeSha=(Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($resumeSha -ne $receipt.sha256){throw 'resume.pt does not match journal receipt'}
+          $generation=Join-Path (Split-Path $latest -Parent) $receipt.name
+          if(-not(Test-Path -LiteralPath $generation -PathType Leaf)){throw 'Journal generation missing'}
+          if((Get-FileHash -LiteralPath $generation -Algorithm SHA256).Hash.ToLowerInvariant() -ne $resumeSha){throw 'Journal generation digest mismatch'}
+
+          Write-Host '=== VERIFIED RESUME INPUT ==='
+          [ordered]@{processed_tokens=$startTokens;sha256=$resumeSha;kind=$receipt.kind;target_tokens=4194304}|ConvertTo-Json -Compress|Write-Host
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)' --target-new-tokens 20000000 --stop-after-new-tokens 4194304 --resume '$(ToWsl $resume)' --resume-sha256 '$resumeSha' --seq 256 --microbatch 4 --grad-accum 1 --lr 0.00001"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Journal-resumed 4Mi training failed'}
+
+          $summary=Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw|ConvertFrom-Json
+          if([int64]$summary.new_processed_tokens -ne 4194304){throw '4Mi completion counter mismatch'}
+          if($summary.source_unchanged -ne $true -or $summary.production_eligible -ne $false){throw 'Unsafe 4Mi completion state'}
+          $finalSha=$summary.resume_sha256
+          if((Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $finalSha){throw 'Final resume SHA mismatch'}
+
+          Write-Host '=== SAFE RECOVERED 4Mi SUMMARY ==='
+          [ordered]@{
+            recovered_from_tokens=$startTokens
+            new_processed_tokens=$summary.new_processed_tokens
+            optimizer_steps=$summary.optimizer_steps
+            baseline_validation_loss=$summary.baseline_validation_loss_for_invocation
+            best_validation_loss=$summary.best_validation_loss
+            invocation_wall_seconds=$summary.training_wall_seconds
+            resume_sha256=$finalSha
+            production_eligible=$summary.production_eligible
+          }|ConvertTo-Json -Compress|Write-Host
+
+          $evalOut=Join-Path $out ('public_dev_24case_4m_'+$env:GITHUB_RUN_ID+'.json')
+          if(Test-Path -LiteralPath $evalOut){throw 'Create-only eval output exists'}
+          $evalCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $source)' --candidate-checkpoint '$(ToWsl $resume)' --candidate-sha256 '$finalSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $evalOut)'"
+          & wsl.exe -- bash -lc $evalCmd
+          if($LASTEXITCODE -ne 0){throw 'Recovered 4Mi public development evaluation failed'}
+          Write-Host 'Detailed generations remain private.'
+
+      - name: Post-run telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
