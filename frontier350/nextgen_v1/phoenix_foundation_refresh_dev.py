@@ -199,10 +199,13 @@ def main(argv=None) -> int:
     if args.target_new_tokens != MAX_TARGET:
         p.error(f"this development lineage is locked to {MAX_TARGET} new target tokens")
     update = args.seq * args.microbatch * args.grad_accum
-    allowed_shapes = {(1, 4), (2, 2), (4, 1)}
+    # RTX 4070 real-data probes benchmarked all shapes below. Larger direct
+    # microbatches reduce Python/optimizer overhead while safe_save_every()
+    # independently preserves the <=262,144-token recovery budget.
+    allowed_shapes = {(1, 4), (2, 2), (4, 1), (8, 1), (12, 1), (16, 1)}
     if (args.seq != 256 or (args.microbatch, args.grad_accum) not in allowed_shapes
-            or args.lr != 1e-5 or update != 1024):
-        p.error("development run must use a benchmarked 1024-token update shape at seq=256")
+            or args.lr != 1e-5):
+        p.error("development run must use a benchmarked seq=256 RTX-4070 shape")
     if not 0 < args.stop_after_new_tokens <= args.target_new_tokens:
         p.error("invalid stop")
     if args.stop_after_new_tokens < args.target_new_tokens and args.stop_after_new_tokens % update:
