@@ -100,6 +100,33 @@ Remaining 7.927B tokens would take, before extra evaluation/checkpoint overhead:
 
 44k is not currently proven for full-model training. Measure first.
 
+## Measured RTX 4070 foundation performance — 23 Sep 2026
+
+The earlier 15k–30k full-model planning range is superseded by real 24/24-layer
+measurements on the owner's RTX 4070 and the current refresh corpus.
+
+- seq256 / micro4 / eager / no activation checkpointing: ~5.45k–6.15k tok/s
+- seq256 / micro8 / eager: ~9.90k tok/s
+- seq256 / micro12 / eager: ~12.91k tok/s
+- seq256 / micro16 / eager: **~13.62k–13.67k tok/s**
+- seq256 / micro16 / torch.compile(default): **~18.65k tok/s**
+- compile warmup at micro16: ~42.3 s vs ~1.2 s eager
+- compile steady-state speedup at micro16: **1.37x**
+- calculated compile break-even: ~506 optimizer updates
+- micro16 compile peak reserved VRAM in the probe: ~6.45 GiB
+- post-probe GPU temperature: 54 C
+
+These are engineering-loop measurements, not whole-stage wall-clock throughput.
+Checkpointing, validation and compilation overhead reduce end-to-end rate. For
+long fresh lineages, micro16 + compile is currently the preferred candidate.
+Existing resumable lineages must keep their original update geometry and compile
+identity; never mutate them mid-run.
+
+At 18.65k tok/s pure training-loop speed, the 7.927B-token distance from the
+historical anchor to the 10B ceiling is still about 118 hours / 4.9 days before
+evaluation/checkpoint overhead. Therefore 10B remains a ceiling, not a near-term
+quality milestone.
+
 ## Phase 2 — continue foundation training in quality-gated stages
 
 Use the existing audited foundation mix as the initial baseline, not dialogue data:
