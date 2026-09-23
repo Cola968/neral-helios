@@ -1,0 +1,68 @@
+name: Phoenix foundation asset inventory read-only
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-foundation-asset-inventory.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect existing foundation manifest and shard metadata only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $root=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05'
+          $train=Join-Path $root 'train'
+          $valid=Join-Path $root 'valid'
+          $manifest=Join-Path $root 'manifest.json'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+
+          $trainFiles=@()
+          $validFiles=@()
+          if(Test-Path -LiteralPath $train -PathType Container){$trainFiles=@(Get-ChildItem -LiteralPath $train -Filter '*.bin' -File)}
+          if(Test-Path -LiteralPath $valid -PathType Container){$validFiles=@(Get-ChildItem -LiteralPath $valid -Filter '*.bin' -File)}
+
+          $report=[ordered]@{
+            event='foundation_asset_inventory_read_only'
+            root_present=(Test-Path -LiteralPath $root -PathType Container)
+            manifest_present=(Test-Path -LiteralPath $manifest -PathType Leaf)
+            tokenizer_present=(Test-Path -LiteralPath $tokenizer -PathType Leaf)
+            tokenizer_sha256=if(Test-Path -LiteralPath $tokenizer -PathType Leaf){(Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant()}else{$null}
+            train_shards=$trainFiles.Count
+            validation_shards=$validFiles.Count
+            train_bytes=[int64](($trainFiles|Measure-Object Length -Sum).Sum)
+            validation_bytes=[int64](($validFiles|Measure-Object Length -Sum).Sum)
+            train_uint16_tokens=[int64](($trainFiles|Measure-Object Length -Sum).Sum/2)
+            validation_uint16_tokens=[int64](($validFiles|Measure-Object Length -Sum).Sum/2)
+            gpu_used=$false
+            raw_text_read=$false
+            training_started=$false
+          }
+
+          if($report.manifest_present){
+            $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            $report.manifest_sha256=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+            $report.manifest_schema=$m.schema
+            $report.manifest_corpus_role=$m.corpus_role
+            $report.manifest_target_tokens=$m.target_tokens
+            $report.manifest_train_tokens=$m.train_tokens
+            $report.manifest_validation_tokens=$m.validation_tokens
+            $report.manifest_benchmark_content_included=$m.benchmark_content_included
+            $report.manifest_licenses=@($m.licenses)
+            $report.manifest_resolved_revisions=$m.resolved_revisions
+            $report.manifest_source_names=@($m.sources | ForEach-Object {$_.source.name} | Select-Object -Unique)
+          }
+          $report | ConvertTo-Json -Compress -Depth 8 | Write-Host
+          Write-Host 'Read-only metadata inventory complete; no raw corpus text or GPU access.'
