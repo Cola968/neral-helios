@@ -1,0 +1,88 @@
+name: Phoenix fast-lane recover and profile pinned OASST2
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fastlane-oasst2-recover-profile.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-private-sft-readiness
+  cancel-in-progress: false
+
+jobs:
+  recover-and-profile:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_fastlane_oasst2_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Recover exact public OASST2 archive into private local assets
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          $root='D:\NeralPrivateAssets'
+          if(-not (Test-Path -LiteralPath $root -PathType Container)) {
+            New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          }
+          $rootItem=Get-Item -LiteralPath $root -Force
+          if(($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsafe private root link' }
+          $source=Join-Path $root 'sft50_sources'
+          if(Test-Path -LiteralPath $source) {
+            $item=Get-Item -LiteralPath $source -Force
+            if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsafe source folder' }
+          } else {
+            New-Item -ItemType Directory -Path $source -ErrorAction Stop | Out-Null
+          }
+
+          $archive=Join-Path $source '2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $expectedBytes=54301900
+          $expectedSha='a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'
+          if(Test-Path -LiteralPath $archive -PathType Leaf) {
+            $item=Get-Item -LiteralPath $archive -Force
+            if($item.Length -ne $expectedBytes) { throw 'Existing OASST2 archive has wrong byte length' }
+            if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedSha) { throw 'Existing OASST2 archive has wrong SHA' }
+            Write-Host 'OASST2_RECOVERY|status=already_verified|sha_match=true|bytes=54301900'
+          } else {
+            $tmp=$archive + '.partial-' + $env:GITHUB_RUN_ID
+            if(Test-Path -LiteralPath $tmp) { throw 'Temporary target already exists' }
+            try {
+              $url='https://huggingface.co/datasets/OpenAssistant/oasst2/resolve/179dd21fc55192153d94adb0e0ce8f69e222bf75/2023-11-05_oasst2_ready.messages.jsonl.gz'
+              Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 300 -MaximumRedirection 5 -ErrorAction Stop | Out-Null
+              $item=Get-Item -LiteralPath $tmp -Force
+              if($item.Length -ne $expectedBytes) { throw 'Downloaded OASST2 archive byte length mismatch' }
+              if((Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedSha) { throw 'Downloaded OASST2 archive SHA mismatch' }
+              [IO.File]::Move($tmp,$archive)
+              Write-Host 'OASST2_RECOVERY|status=recovered_verified|sha_match=true|bytes=54301900'
+            } finally {
+              if(Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+            }
+          }
+
+      - name: Profile actual selector using recovered pinned source
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_fastlane_oasst2_' + $env:GITHUB_RUN_ID)
+          $root='D:\NeralPrivateAssets'
+          $archive=Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          foreach($p in @($repo,$root,$archive)) { if($p.Contains("'")) { throw 'Unsafe quote in path' } }
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_oasst2_profile.py --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Pinned OASST2 selector profile failed' }
+          Write-Host 'Only aggregate selector statistics were emitted. No source text, private review content, model weights or holdout content uploaded.'
