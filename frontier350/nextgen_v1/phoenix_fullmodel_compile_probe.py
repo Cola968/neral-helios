@@ -23,9 +23,9 @@ from phoenix_continuity_cpu_probe import require_pinned_checkpoint
 from phoenix_foundation_refresh_dev import verify_refresh_manifest
 
 SEQ = 256
-MICROBATCH = 4
+MICROBATCH = 16
 GRAD_ACCUM = 1
-TOKENS_PER_UPDATE = 1024
+TOKENS_PER_UPDATE = 4096
 TIMED_UPDATES = 24
 LR = 1e-5
 MODES = ("eager", "compile-default")
