@@ -20,7 +20,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from benchmark_nis2_chat50 import PAIR_CASES, EXACT_GENERATION_CASES, suite_sha256
 from helios350_preview import TOKENIZER_SHA, generate, trusted_asset
-from helios_free_answer_dev_probe import selected_cases, instruction, score
+from helios_free_answer_dev_probe import instruction, score
+from helios_domain_dev_probe import PUBLIC_DEV_CASES, validate_public_cases
 from phoenix_continuity_cpu_probe import require_pinned_checkpoint
 from phoenix_weight_only_pilot import _checked_historical_weights
 from phoenix_knowledge_probe import CASES as KNOWLEDGE_CASES, FORMATS as KNOWLEDGE_FORMATS, prompt_for
@@ -104,7 +105,8 @@ def exact_generation_eval(model, tokenizer, bos: int, eos: int, torch) -> dict:
 
 def free_answer_eval(model, tokenizer, bos: int, eos: int, torch) -> dict:
     rows = []
-    for case_id, domain, language, question, expected, _ in selected_cases():
+    validate_public_cases()
+    for case_id, domain, language, question, expected, _ in PUBLIC_DEV_CASES:
         prompt = instruction(question, language)
         answer, used = generate(model, tokenizer, bos, eos, torch, prompt, 16)
         rows.append({
