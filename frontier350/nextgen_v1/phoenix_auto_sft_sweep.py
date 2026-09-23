@@ -1,4 +1,6 @@
-"""Small, predeclared SFT hyperparameter sweep for Neral 350M.
+"""Small, predeclared SFT hyperparameter sweep for Neral 350M.\n\nThe current sweep is a temporal/block-depth sweet-spot search: a candidate must now
+also improve exact instruction generation over the immutable baseline, not merely
+lower validation loss without public development regression.
 
 Uses the same auto-screened, tree-disjoint OASST2 diagnostic data as the first
 fast-lane experiment. Public NIS2 chat-core is used only as a DEVELOPMENT
@@ -29,12 +31,15 @@ PARAMETERS = 349_825_152
 CLASSIFICATION = "auto_sft_tuned_public_dev_selected_not_promotable"
 SCHEMA = "phoenix_auto_sft_tuned_v1"
 CONFIGS = (
-    {"blocks": 2, "lr": 5e-6, "steps": 50},
-    {"blocks": 2, "lr": 1e-5, "steps": 50},
-    {"blocks": 4, "lr": 5e-6, "steps": 50},
-    {"blocks": 4, "lr": 1e-5, "steps": 50},
-    {"blocks": 2, "lr": 5e-6, "steps": 100},
-    {"blocks": 4, "lr": 5e-6, "steps": 100},
+    {"blocks": 4, "lr": 2e-5, "steps": 10},
+    {"blocks": 4, "lr": 2e-5, "steps": 20},
+    {"blocks": 4, "lr": 2e-5, "steps": 30},
+    {"blocks": 4, "lr": 2e-5, "steps": 40},
+    {"blocks": 3, "lr": 2e-5, "steps": 30},
+    {"blocks": 3, "lr": 2e-5, "steps": 40},
+    {"blocks": 3, "lr": 2e-5, "steps": 50},
+    {"blocks": 3, "lr": 1.5e-5, "steps": 40},
+    {"blocks": 3, "lr": 1.5e-5, "steps": 50},
 )
 PAIR_CATEGORIES = (
     "instruction_following", "dialogue_state", "truthfulness",
@@ -196,6 +201,7 @@ def main(argv=None) -> int:
             val < baseline_validation
             and pair["overall_pct"] >= base_summary["pair_overall_pct"]
             and no_pair_category_regression
+            and exact["accuracy_pct"] > base_summary["exact_generation_pct"]
         )
         result = {
             "index": index, **config, "trainable_parameters": trainable,
