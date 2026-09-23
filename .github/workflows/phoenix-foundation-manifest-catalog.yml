@@ -26,7 +26,7 @@ jobs:
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           if(-not(Test-Path -LiteralPath $assets -PathType Container)){throw 'Assets root missing'}
           $rows=@()
-          $manifests=@(Get-ChildItem -LiteralPath $assets -Filter 'manifest.json' -File -Recurse -Depth 3 -ErrorAction Stop | Select-Object -First 100)
+          $manifests=@(Get-ChildItem -LiteralPath $assets -Filter 'manifest.json' -File -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 100)
           foreach($file in $manifests){
             try{
               $m=Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
