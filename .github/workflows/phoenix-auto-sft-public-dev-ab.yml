@@ -1,0 +1,59 @@
+name: Phoenix auto-SFT public development A-B
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-auto-sft-public-dev-ab.yml'
+      - 'frontier350/nextgen_v1/phoenix_auto_sft_public_dev_eval.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  public-dev-ab:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact evaluation revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_sft_ab_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Compare immutable 2.073B anchor with real auto-SFT candidate
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_sft_ab_' + $env:GITHUB_RUN_ID)
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $candidate='D:\NeralPrivateAssets\phoenix\auto_sft_diag_35891840441\candidate_auto_sft.pt'
+          $candidateSha='fc77a83c523326dcb4f0f87b9d51487b4626e2e21918f12a62116915141a149d'
+          $out='D:\NeralPrivateAssets\phoenix\auto_sft_diag_35891840441\public_dev_ab_' + $env:GITHUB_RUN_ID + '.json'
+          foreach($p in @($repo,$base,$assets,$candidate,$out)) { if($p.Contains("'")) { throw 'Unsafe quote in path' } }
+          if(-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { throw 'Local auto-SFT candidate missing' }
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $candidateSha) { throw 'Candidate SHA changed' }
+          if(Test-Path -LiteralPath $out) { throw 'Create-only private A/B output exists' }
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_auto_sft_public_dev_eval.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_auto_sft_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $base)' --candidate-checkpoint '$(ToWsl $candidate)' --candidate-sha256 '$candidateSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Public development A/B failed' }
+          Write-Host 'Detailed per-case outputs stayed in the private local JSON file; Actions logged aggregate metrics only.'
+
+      - name: Post-evaluation GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
