@@ -15,6 +15,10 @@ import math
 from pathlib import Path
 import sys
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from benchmark_nis2_chat50 import PAIR_CASES, EXACT_GENERATION_CASES, suite_sha256
 from helios350_preview import TOKENIZER_SHA, generate, trusted_asset
 from helios_free_answer_dev_probe import selected_cases, instruction, score
