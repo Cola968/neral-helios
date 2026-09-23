@@ -5,6 +5,7 @@ on:
     branches: [experiment/phoenix-blind-ab-audit-20260919]
     paths:
       - '.github/workflows/phoenix-fullsize-gpu-smoke.yml'
+      - 'frontier350/nextgen_v1/phoenix_fullsize_gpu_smoke.py'
 
 permissions:
   contents: read
