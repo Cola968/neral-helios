@@ -121,6 +121,10 @@ def main() -> None:
     if actual_train != args.train_tokens or actual_valid != args.valid_tokens:
         raise RuntimeError("refresh token accounting mismatch")
 
+    import datasets
+    import tokenizers
+    import numpy
+
     manifest = {
         "schema": 1,
         "architecture": "frontier350-v1",
@@ -152,6 +156,11 @@ def main() -> None:
         "independent_holdout_checked": False,
         "human_source_review_complete": False,
         "production_eligible": False,
+        "builder_environment": {
+            "datasets": datasets.__version__,
+            "tokenizers": tokenizers.__version__,
+            "numpy": numpy.__version__,
+        },
         "created_unix": time.time(),
     }
     manifest_path = root / "manifest.json"
