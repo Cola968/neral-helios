@@ -1,0 +1,45 @@
+name: Phoenix refresh plus OASST1 contract self-hosted CPU
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-refresh-oasst1-contract-selfhosted.yml'
+      - 'frontier350/nextgen_v1/phoenix_oasst1_on_refresh.py'
+      - 'frontier350/nextgen_v1/test_phoenix_oasst1_on_refresh.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-refresh-oasst1-contract
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_refresh_oasst1_contract_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Run CPU-only checkpoint contract tests in owner WSL env
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p){
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_refresh_oasst1_contract_'+$env:GITHUB_RUN_ID)
+          $wsl=ToWsl $repo
+          $cmd="set -euo pipefail; cd '$wsl'; export CUDA_VISIBLE_DEVICES=-1; export PYTHONPATH=.:frontier350:frontier350/nextgen_v1; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_oasst1_on_refresh.py frontier350/nextgen_v1/test_phoenix_oasst1_on_refresh.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest -v frontier350.nextgen_v1.test_phoenix_oasst1_on_refresh"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Refresh plus OASST1 contract tests failed'}
+          Write-Host 'Contract tests passed CPU-only; no checkpoint/data/GPU was used.'
