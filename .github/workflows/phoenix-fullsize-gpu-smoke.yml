@@ -1,0 +1,75 @@
+name: Phoenix full-size 350M GPU engineering smoke
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fullsize-gpu-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  real-fullsize-smoke:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact experimental revision without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_fullsize_smoke_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Real 350M BF16 forward backward AdamW and local checkpoint smoke
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_fullsize_smoke_' + $env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $out='D:\NeralScaleV81\_phoenix_fullsize_gpu_smoke_' + $env:GITHUB_RUN_ID
+
+          if(-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Historical 350M source missing' }
+          if(-not (Test-Path -LiteralPath $assets -PathType Container)) { throw 'Neral assets root missing' }
+          if(Test-Path -LiteralPath $out) { throw 'Create-only smoke output already exists' }
+          if((Get-PSDrive D).Free -lt 20GB) { throw 'Less than 20 GiB free on D:' }
+          if($repo.Contains("'") -or $source.Contains("'") -or $assets.Contains("'") -or $out.Contains("'")) { throw 'Unsafe quote in local path' }
+
+          Write-Host 'Pre-smoke GPU telemetry:'
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/phoenix_fullsize_gpu_smoke.py; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_fullsize_gpu_smoke.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Full-size 350M GPU smoke failed' }
+
+          $summary=Join-Path $out 'summary.json'
+          if(-not (Test-Path -LiteralPath $summary -PathType Leaf)) { throw 'Smoke summary missing' }
+          $s=Get-Content -LiteralPath $summary -Raw | ConvertFrom-Json
+          if([int]$s.parameters -ne 349825152) { throw 'Wrong parameter count' }
+          if([int]$s.new_tokens -ne 1024 -or [int]$s.optimizer_steps -ne 4) { throw 'Unexpected smoke training counters' }
+          if($s.source_unchanged -ne $true -or $s.private_training_data_used -ne $false -or $s.quality_improvement_verified -ne $false) { throw 'Unsafe smoke summary state' }
+          Write-Host '=== SAFE AGGREGATE SMOKE SUMMARY ==='
+          Get-Content -LiteralPath $summary
+          Write-Host 'Checkpoint remains local on D: and is NOT a quality candidate.'
+
+      - name: Post-smoke GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No private checkpoint or corpus is uploaded by this workflow.'
