@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from checkpoint_journal import CheckpointJournal, safe_save_every
 from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
+from source_lock350 import LOCK_PATH
 
 SCHEMA = "phoenix_foundation_refresh_dev_v1"
 CLASSIFICATION = "DEVELOPMENT_ONLY_FRESH_ADAMW_FOUNDATION_REFRESH"
@@ -78,6 +79,8 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
         or manifest.get("train_validation_exact_document_disjoint") is not True
     ):
         raise ValueError("refresh manifest lineage/classification contract mismatch")
+    if manifest.get("source_lock_sha256") != sha256_file(LOCK_PATH):
+        raise ValueError("refresh corpus source lock differs from current repository lock")
     token = manifest.get("tokenizer", {})
     if token.get("vocab_size") != 16_384 or token.get("tokenizer_sha256") != tokenizer_sha:
         raise ValueError("refresh manifest tokenizer contract mismatch")
@@ -159,6 +162,15 @@ def validate_resume(torch, state: dict, expected_lineage: dict, manifest_sha: st
         raise ValueError("refresh resume checkpoint is incomplete or wrong lineage")
     if not all(torch.is_tensor(v) for v in state["model"].values()):
         raise ValueError("refresh resume contains non-Torch model values")
+    processed = state["processed_tokens"]
+    step = state["step"]
+    update = expected_lineage["seq"] * expected_lineage["microbatch"] * expected_lineage["grad_accum"]
+    if processed <= 0 or processed > expected_lineage["target_new_tokens"] or processed % update:
+        raise ValueError("resume processed-token boundary is invalid")
+    if step != processed // update:
+        raise ValueError("resume optimizer-step/token counters disagree")
+    if not math.isfinite(float(state.get("best_validation", float("nan")))):
+        raise ValueError("resume best validation is nonfinite")
 
 
 def main(argv=None) -> int:
