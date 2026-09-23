@@ -80,7 +80,7 @@ def batch_from_stream(torch, stream: list[int], offset: int, device):
 def eval_loss(torch, model, stream: list[int], device) -> float:
     model.eval()
     vals = []
-    with torch.inference_mode():
+    with torch.no_grad():
         for i in range(2):
             x, y = batch_from_stream(torch, stream, 11_000 + i * 211, device)
             _, loss = model(x, y)
