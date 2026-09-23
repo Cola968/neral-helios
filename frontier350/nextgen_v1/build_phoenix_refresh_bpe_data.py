@@ -132,7 +132,7 @@ def main() -> None:
         "classification": "DEVELOPMENT_ONLY_NOT_PRODUCTION_APPROVED",
         "continuation_profile": "phoenix-quality-refresh-v1",
         "continuation_from_tokens": CURRENT_ANCHOR_TOKENS,
-        "continuation_from_checkpoint_sha256": CURRENT_ANCHOR_SHA256_FULL,
+        "continuation_from_checkpoint_sha256": CURRENT_ANCHOR_SHA256,
         "new_train_tokens": actual_train,
         "validation_tokens": actual_valid,
         "target_cumulative_tokens_if_fully_consumed": CURRENT_ANCHOR_TOKENS + actual_train,
