@@ -60,6 +60,17 @@ jobs:
             $report.manifest_train_tokens=$m.train_tokens
             $report.manifest_validation_tokens=$m.validation_tokens
             $report.manifest_benchmark_content_included=$m.benchmark_content_included
+            $report.continuation_profile=$m.continuation_profile
+            $report.continuation_from_tokens=$m.continuation_from_tokens
+            $report.target_cumulative_tokens=$m.target_cumulative_tokens
+            $report.pilot_only=$m.pilot_only
+            $report.development_only=$m.development_only
+            $report.focus_shares=$m.focus_shares
+            $report.parent_manifest_sha256=$m.parent_manifest_sha256
+            $report.seed_manifest_sha256=$m.seed_manifest_sha256
+            $report.bilingual_holdout_sha256=$m.bilingual_holdout_sha256
+            $report.bilingual_holdout_pairs=$m.bilingual_holdout_pairs
+            $report.synthetic_eos_added=$m.synthetic_eos_added
             $report.manifest_licenses=@($m.licenses)
             $report.manifest_resolved_revisions=$m.resolved_revisions
             $report.manifest_source_names=@($m.sources | ForEach-Object {$_.source.name} | Select-Object -Unique)
