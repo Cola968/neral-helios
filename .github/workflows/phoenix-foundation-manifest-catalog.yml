@@ -1,0 +1,63 @@
+name: Phoenix foundation manifest catalog read-only
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-foundation-manifest-catalog.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Catalog safe manifest metadata under known assets root
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          if(-not(Test-Path -LiteralPath $assets -PathType Container)){throw 'Assets root missing'}
+          $rows=@()
+          $manifests=@(Get-ChildItem -LiteralPath $assets -Filter 'manifest.json' -File -Recurse -Depth 3 -ErrorAction Stop | Select-Object -First 100)
+          foreach($file in $manifests){
+            try{
+              $m=Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
+              if($m.corpus_role -ne 'foundation-pretraining'){continue}
+              $relative=[IO.Path]::GetRelativePath($assets,$file.DirectoryName)
+              $rows += [ordered]@{
+                relative_root=$relative
+                manifest_sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                schema=$m.schema
+                architecture=$m.architecture
+                continuation_profile=$m.continuation_profile
+                continuation_from_tokens=$m.continuation_from_tokens
+                target_cumulative_tokens=$m.target_cumulative_tokens
+                target_tokens=$m.target_tokens
+                train_tokens=$m.train_tokens
+                validation_tokens=$m.validation_tokens
+                pilot_only=$m.pilot_only
+                development_only=$m.development_only
+                benchmark_content_included=$m.benchmark_content_included
+                bilingual_holdout_pairs=$m.bilingual_holdout_pairs
+                tokenizer_sha256=$m.tokenizer.sha256
+              }
+            }catch{
+              $rows += [ordered]@{relative_root=[IO.Path]::GetRelativePath($assets,$file.DirectoryName);parse_error=$true}
+            }
+          }
+          [ordered]@{
+            event='foundation_manifest_catalog_read_only'
+            manifests_found=$rows.Count
+            exact_current_anchor_matches=@($rows | Where-Object {[int64]$_.continuation_from_tokens -eq 2073161216}).Count
+            rows=$rows
+            raw_text_read=$false
+            gpu_used=$false
+            training_started=$false
+          } | ConvertTo-Json -Compress -Depth 8 | Write-Host
