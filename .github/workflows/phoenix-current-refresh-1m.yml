@@ -1,20 +1,14 @@
 name: Phoenix 1M full-model refresh and public A-B
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-current-refresh-1m.yml'
-      - 'frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py'
-      - 'frontier350/nextgen_v1/phoenix_fullmodel_refresh_shape_benchmark.py'
-      - 'frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: neral-nextgen-local-gpu-training
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   refresh-1m:
