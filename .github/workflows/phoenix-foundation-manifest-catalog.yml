@@ -1,4 +1,5 @@
 name: Phoenix foundation manifest catalog read-only
+# trigger: 2026-09-23
 
 on:
   push:
