@@ -156,10 +156,10 @@ def build_split(split:str)->list[dict]:
     for idx,i in enumerate(_range(split,bullet_count,1800)):
         td,points=topics_de[idx%len(topics_de)]
         rows.append(conversation(f"{split}-bullets-de-{i}","format_control","de",
-            [(f"Nenne genau zwei kurze Punkte für {td}.",f"- {points[0]}\n- {points[1]}")]))
+            [(f"Beispiel {i}: Nenne genau zwei kurze Punkte für {td}.",f"- {points[0]}\n- {points[1]}")]))
         te,points_en=topics_en[idx%len(topics_en)]
         rows.append(conversation(f"{split}-bullets-en-{i}","format_control","en",
-            [(f"Give exactly two short points for {te}.",f"- {points_en[0]}\n- {points_en[1]}")]))
+            [(f"Example {i}: Give exactly two short points for {te}.",f"- {points_en[0]}\n- {points_en[1]}")]))
 
     clarify_count=35 if split=="train" else 7
     for i in _range(split,clarify_count,2100):
@@ -168,7 +168,7 @@ def build_split(split:str)->list[dict]:
         rows.append(conversation(f"{split}-clarify-en-{i}","clarification","en",
             [(f"Plan project {i} for me.","What goal, timeframe, and main constraints should I use for the plan?")]))
 
-    explanation_repeats=10 if split=="train" else 2
+    explanation_repeats=10 if split=="train" else 1
     de_pool=DE_EXPLANATIONS[:8] if split=="train" else DE_EXPLANATIONS[8:]
     en_pool=EN_EXPLANATIONS[:8] if split=="train" else EN_EXPLANATIONS[8:]
     for rep in range(explanation_repeats):
@@ -179,16 +179,16 @@ def build_split(split:str)->list[dict]:
             suffix=f" Keep the answer short. Variant {rep+1}." if split=="train" else " Keep the answer short."
             rows.append(conversation(f"{split}-explain-en-{rep}-{j}","short_explanation","en",[(q+suffix,a)]))
 
-    translation_repeats=8 if split=="train" else 2
+    translation_repeats=8 if split=="train" else 1
     for rep in range(translation_repeats):
         for j,(src,dst) in enumerate(DE_TRANSLATIONS):
             if (j+rep)%3==0 and split=="validation":continue
             rows.append(conversation(f"{split}-translate-de-{rep}-{j}","bilingual","de",
-                [(f"Übersetze ins Englische und gib nur die Übersetzung aus: {src}",dst)]))
+                [(f"Variante {rep+1}: Übersetze ins Englische und gib nur die Übersetzung aus: {src}",dst)]))
         for j,(src,dst) in enumerate(EN_TRANSLATIONS):
             if (j+rep)%3==1 and split=="validation":continue
             rows.append(conversation(f"{split}-translate-en-{rep}-{j}","bilingual","en",
-                [(f"Translate into German and output only the translation: {src}",dst)]))
+                [(f"Version {rep+1}: Translate into German and output only the translation: {src}",dst)]))
 
     identity_count=24 if split=="train" else 6
     for idx,i in enumerate(_range(split,identity_count,2500)):
