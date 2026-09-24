@@ -64,6 +64,14 @@ const root=path.resolve(__dirname,'..');
    const box=await page.locator('#modelPicker summary').boundingBox();assert(box&&box.x>=0&&box.x+box.width<=width,'model picker outside viewport');
    if(width<730){await page.locator('#menu').click();await page.locator('#sidebarBackdrop').click({position:{x:width-10,y:300}});assert.equal(await page.locator('#sidebarBackdrop').isVisible(),false);}
   }
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await page.locator('#mobileNav').isVisible(),true);
+  await page.locator('#mobileSolve').click();assert.match(await page.locator('#prompt').getAttribute('placeholder'),/Rechnung/);
+  assert.equal(await page.locator('#mobileSolve').getAttribute('aria-pressed'),'true');
+  await page.locator('#mobileProjects').click();await page.locator('#projectWorkspace').waitFor({state:'visible'});
+  await page.locator('#mobileChat').click();assert.equal(await page.locator('#projectWorkspace').isVisible(),false);
+  await page.locator('#mobileSettings').click();assert.equal(await page.locator('#settingsDialog').isVisible(),true);await page.locator('#closeSettings').click();
+  await page.setViewportSize({width:1440,height:900});assert.equal(await page.locator('#mobileNav').isVisible(),false);
   await page.locator('#welcomeProjects').click();await page.locator('#projectWorkspace').waitFor({state:'visible'});
   await page.keyboard.press('Escape');assert.equal(await page.locator('#projectWorkspace').isVisible(),false);
   await page.locator('#chatActions summary').click();await page.locator('#theme').click();
@@ -81,6 +89,6 @@ const root=path.resolve(__dirname,'..');
   assert.equal(await page.locator('#modelOptions button:disabled').count(),2);
   assert.equal(await page.locator('#runtimeChip').getAttribute('data-state'),'tools');
   assert.deepEqual(errors,[]);assert.equal(modelCalls,0);
-  console.log('PASS: runtime status, context meter, light/dark, draft/reload, import/Markdown/XSS, variants/delete, model picker, mobile navigation, projects; zero model requests');
+  console.log('PASS: runtime status, context meter, mobile primary navigation, light/dark, draft/reload, import/Markdown/XSS, variants/delete, model picker, projects; zero model requests');
  }finally{if(browser)await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
