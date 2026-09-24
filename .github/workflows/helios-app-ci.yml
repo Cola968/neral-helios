@@ -20,7 +20,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install pytest numpy flask waitress tokenizers
       - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py tests/test_frontier350_contract.py tests/test_frontier_sidecar.py tests/test_frontier_runtime.py tests/test_import_frontier350.py
+      - run: python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py tests/test_frontier350_contract.py tests/test_frontier_sidecar.py tests/test_frontier_runtime.py tests/test_frontier_manager.py tests/test_import_frontier350.py
       - run: node --check static/workspace.js
       - run: node --check static/neral.js
       - run: node --check static/projects.js
