@@ -18,11 +18,11 @@ import sys
 import time
 
 HERE = Path(__file__).resolve().parent
+NEXTGEN = HERE / "nextgen_v1"
 REPO = HERE.parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
+for root in (NEXTGEN, HERE, REPO):
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
 
 EXPECTED_BASE_SHA = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 EXPECTED_TOKENIZER_SHA = "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd"
