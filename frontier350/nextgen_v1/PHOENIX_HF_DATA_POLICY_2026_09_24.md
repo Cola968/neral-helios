@@ -36,9 +36,9 @@ The live Hub inspection reconfirmed IFEval as Apache-2.0, TruthfulQA as Apache-2
 
 ## Important correction to the 350M plan
 
-The production 350M builder currently declares a proposed 52% FineWeb-Edu / 20% FineWeb / 13% FineWeb-2 DE / 15% FineMath recipe. FineMath is still blocked by the executable source policy. Therefore the recipe is **proposed, not currently authorized**.
+The blocked 52/20/13/15 recipe has been replaced as the default. The production builder now uses an explicit **61% FineWeb-Edu / 24% FineWeb / 15% FineWeb-2 DE** baseline, all from currently admitted source families. The development refresh uses 55/15/30 to increase German coverage.
 
-As of this audit, the 350M builders now fail closed against `hf_source_policy50.py` before any Hugging Face streaming or shard creation. A source lock proves identity, not permission. Do not silently renormalize the other 85% and do not bypass the gate. Either FineMath passes its admission process and receives an explicit policy change, or a separately reviewed replacement recipe must be committed.
+FineMath remains separately pinned but excluded from both active recipes. The builders still fail closed against `hf_source_policy50.py` before any Hugging Face streaming or shard creation. A source lock proves identity, not permission. FineMath requires its own admission/contamination review and an explicit future policy/recipe change.
 
 ## SFT recommendation under the current policy
 
