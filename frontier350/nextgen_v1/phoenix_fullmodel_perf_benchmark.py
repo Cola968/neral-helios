@@ -1,7 +1,7 @@
 """Disposable 24/24-block Neral 350M training-throughput benchmark.
 
-This benchmark measures real full-model BF16 forward/backward/gradient clipping/fused
-AdamW compute-loop throughput on the owner's RTX 4070. It does not include production
+This benchmark measures real full-model FP32-master / FP32-AdamW training with BF16
+autocast forward/backward compute, gradient clipping and fused AdamW on the owner's RTX 4070. It does not include production
 mmap data loading, validation, checkpoint I/O or compile warm-up in the measured rate. It is NOT productive training and
 NOT a quality candidate. It reads the immutable SHA-pinned historical checkpoint,
 uses deterministic synthetic token IDs only, writes aggregate benchmark JSON only,
@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 SOURCE_SHA = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 EXPECTED_PARAMETERS = 349_825_152
 LR = 1e-5
+MAX_RESERVED_VRAM = 10 * 1024**3
 
 
 def sha256_file(path: Path) -> str:
@@ -129,6 +130,8 @@ def main(argv=None) -> int:
         if not math.isfinite(float(grad.detach())):
             raise FloatingPointError("non-finite benchmark gradient norm")
         optimizer.step()
+        if torch.cuda.memory_reserved() > MAX_RESERVED_VRAM:
+            raise RuntimeError("FP32-master benchmark exceeds 10 GiB reserved VRAM ceiling")
         return float(weighted.detach()), float(grad.detach())
 
     tokens_per_update = args.seq * args.microbatch * args.grad_accum
