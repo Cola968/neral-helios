@@ -16,7 +16,7 @@ from architectures import expected_parameters
 from project_store import ProjectStore,ripple
 from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
-from model_catalog import catalog
+from model_catalog import catalog,LEGACY_RUNTIME,FRONTIER350_RUNTIME
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -59,8 +59,32 @@ def checkpoint_paths():
     if (ASSETS/'export/neral50m/neral50m.pt').exists():paths['neral50m']=(ASSETS/'export/neral50m/neral50m.pt',ASSETS/'export/neral50m/neral50m.sha256')
     i1=ASSETS/'export/neral50m_i1/neral50m.pt';digest=i1.with_suffix('.sha256')
     if i1.is_file() and digest.is_file():paths['neral50m_i1']=(i1,digest)
-    paths.update({key:row["paths"] for key,row in imported_models().items()})
+    paths.update({key:row["paths"] for key,row in imported_models().items() if row.get("app_loadable")})
     return paths
+
+def model_inventory():
+    imported=imported_models()
+    labels={
+        'original':'Neral 20M · Original','pilot_01':'Neral 20M · Pilot 01',
+        'pilot_02':'Neral 20M · Preview 02','neral40m':'Neral 40M · Experiment',
+        'neral50m':'Neral 50M · Sprachpilot','neral50m_i1':'Neral 50M · I1',
+    }
+    items=[]
+    for key in checkpoint_paths():
+        row=imported.get(key,{})
+        items.append({'id':key,'label':row.get('label',labels.get(key,key)),
+                      'runtime_family':row.get('runtime_family',LEGACY_RUNTIME),
+                      'status':row.get('status','development'),
+                      'parameters':row.get('parameters'),
+                      'context_tokens':row.get('context_tokens'),
+                      'selectable':True,'active':checkpoint_loaded and active_checkpoint==key})
+    for key,row in imported.items():
+        if row.get('app_loadable'):continue
+        items.append({'id':key,'label':row['label'],'runtime_family':row['runtime_family'],
+                      'status':row['status'],'parameters':row.get('parameters'),
+                      'context_tokens':row.get('context_tokens'),'selectable':False,'active':False,
+                      'blocked_reason':'Frontier-350-Runtime noch nicht mit Workspace verbunden.'})
+    return items
 def load_runtime(name):
     global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error
     if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
@@ -133,7 +157,7 @@ def text_key(value):
     if not isinstance(value,str) or not re.fullmatch(r'[a-zA-Z0-9_\-]{1,64}',value):raise ValueError('Ungültiger Schlüssel.')
     return value
 def info_payload():
-    return {'app_version':'2.0','name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'model_labels':{k:v['label'] for k,v in imported_models().items()},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    return {'app_version':'2.1-dev','name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'active_runtime_family':LEGACY_RUNTIME if checkpoint_loaded else None,'checkpoints':list(checkpoint_paths()),'models':model_inventory(),'model_labels':{k:v['label'] for k,v in imported_models().items()},'runtime_families':{'legacy':LEGACY_RUNTIME,'frontier350':FRONTIER350_RUNTIME},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 @app.before_request
 def local_and_rate_guard():
     if request.remote_addr not in {'127.0.0.1','::1'}:return jsonify(error='Nur lokale Verbindungen erlaubt.'),403
