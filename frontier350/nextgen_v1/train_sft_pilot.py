@@ -92,6 +92,32 @@ def load_pack(directory: Path, tokenizer: Path) -> tuple[dict, dict[str, list[di
     return report, splits
 
 
+def base_token_accounting(base: dict) -> dict:
+    """Preserve historical + new-lineage token identity when SFT starts."""
+    processed = base.get("processed_tokens")
+    if type(processed) is not int or processed < 0:
+        raise ValueError("invalid base checkpoint token counter")
+    lineage = base.get("lineage")
+    if isinstance(lineage, dict) and lineage.get("kind") == "phoenix_foundation_refresh_fp32_master_adamw_v2":
+        historical = lineage.get("historical_processed_tokens")
+        if type(historical) is not int or historical <= 0:
+            raise ValueError("foundation refresh lineage lacks historical token anchor")
+        if processed > int(lineage.get("target_new_tokens", -1)):
+            raise ValueError("foundation refresh processed tokens exceed lineage target")
+        return {
+            "historical_pretraining_tokens": historical,
+            "new_foundation_lineage_tokens": processed,
+            "cumulative_reference_tokens": historical + processed,
+            "base_lineage_kind": lineage["kind"],
+        }
+    return {
+        "historical_pretraining_tokens": processed,
+        "new_foundation_lineage_tokens": 0,
+        "cumulative_reference_tokens": processed,
+        "base_lineage_kind": "historical_or_nonrefresh_base",
+    }
+
+
 def atomic_save_torch(torch_module, state: dict, path: Path) -> None:
     temp = path.with_suffix(".tmp")
     if path.exists() or temp.exists():
@@ -157,8 +183,7 @@ def main() -> int:
     base = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     if base.get("config") != FRONTIER_350.to_dict() or base.get("tokenizer_sha256") != report["tokenizer_sha256"]:
         raise ValueError("checkpoint architecture/tokenizer mismatch")
-    if int(base.get("processed_tokens", -1)) < 0:
-        raise ValueError("invalid base checkpoint token counter")
+    token_accounting = base_token_accounting(base)
 
     torch.manual_seed(20260916)
     torch.cuda.manual_seed_all(20260916)
@@ -262,6 +287,7 @@ def main() -> int:
         "validation_loss_before": baseline, "validation_loss_after": after,
         "validation_loss_improved": after < baseline,
         "supervised_answer_tokens": token_counter,
+        **token_accounting,
         "training_wall_seconds": elapsed,
         "peak_reserved_gib": torch.cuda.max_memory_reserved() / 1024 ** 3,
         "temperature_c_end": temperature(),
@@ -280,7 +306,7 @@ def main() -> int:
             "sft_optimizer": optimizer.state_dict(), "sampler_rng": rng.getstate(),
             "torch_rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state_all(),
             "steps": args.steps, "sft_supervised_tokens": token_counter,
-            "pretraining_processed_tokens": int(base["processed_tokens"]),
+            **token_accounting,
             "pack_report_sha256": result["pack_report_sha256"],
             "source_manifest_sha256": result["source_manifest_sha256"],
             "screen_report_sha256": result["screen_report_sha256"],
