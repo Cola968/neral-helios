@@ -139,6 +139,7 @@ $env:HELIOS_CHECKPOINT='neral50m_i1'
 $env:HELIOS_PORT='9686'
 $env:HELIOS_ASSETS_ROOT=Join-Path $appRoot 'deployment'
 
+$supportedAppVersions=@('2.0','2.1-dev')
 $url='http://127.0.0.1:9686/'
 function Get-NeralInfo {
     $null=Invoke-WebRequest $url -UseBasicParsing -SessionVariable appSession -TimeoutSec 2
@@ -147,7 +148,7 @@ function Get-NeralInfo {
 $ready=$false
 try{
     $info=Get-NeralInfo
-    $ready=($info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
+    $ready=($supportedAppVersions -contains $info.app_version -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
 }catch{}
 
 if(-not $ready){
@@ -156,7 +157,7 @@ if(-not $ready){
         Start-Sleep -Seconds 1
         try{
             $info=Get-NeralInfo
-            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and $info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
+            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and ($supportedAppVersions -contains $info.app_version) -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
         }catch{}
     }
 }
