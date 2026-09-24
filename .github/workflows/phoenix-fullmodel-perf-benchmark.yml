@@ -49,16 +49,13 @@ jobs:
           if($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
 
           $configs=@(
-            # Re-measure the strongest previously observed 24/24 engineering shape.
-            @{name='s256_m16_a1_nogc_compile'; seq=256; mb=16; accum=1; gc='off'; compile='default'},
-            @{name='s256_m16_a1_nogc_eager';   seq=256; mb=16; accum=1; gc='off'; compile='none'},
-            # Probe 512-token contexts without assuming they fit; failures continue safely.
-            @{name='s512_m8_a1_nogc_compile';  seq=512; mb=8;  accum=1; gc='off'; compile='default'},
-            @{name='s512_m4_a2_nogc_compile';  seq=512; mb=4;  accum=2; gc='off'; compile='default'},
-            @{name='s512_m2_a4_gc_compile';    seq=512; mb=2;  accum=4; gc='on';  compile='default'},
-            @{name='s512_m1_a8_gc_eager';      seq=512; mb=1;  accum=8; gc='on';  compile='none'}
+            @{name='fp32_s256_m1_a4_gc_compile'; seq=256; mb=1; accum=4; gc='on';  compile='default'},
+            @{name='fp32_s256_m2_a2_gc_compile'; seq=256; mb=2; accum=2; gc='on';  compile='default'},
+            @{name='fp32_s256_m4_a1_gc_compile'; seq=256; mb=4; accum=1; gc='on';  compile='default'},
+            @{name='fp32_s256_m2_a2_nogc_compile'; seq=256; mb=2; accum=2; gc='off'; compile='default'},
+            @{name='fp32_s256_m4_a1_nogc_compile'; seq=256; mb=4; accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m4_a1_nogc_eager';   seq=256; mb=4; accum=1; gc='off'; compile='none'}
           )
-
           $successful=@()
           foreach($c in $configs) {
             $json=Join-Path $out ($c.name + '.json')
@@ -76,7 +73,7 @@ jobs:
           $best=$successful | Sort-Object {[double]$_.tokens_per_second} -Descending | Select-Object -First 1
           $summary=[ordered]@{
             schema='phoenix_fullmodel_perf_matrix_v1'
-            classification='fullmodel_compute_loop_benchmark_not_end_to_end'
+            classification='fp32_master_compute_loop_benchmark_not_end_to_end'
             successful_configurations=$successful.Count
             best_seq=[int]$best.seq
             best_microbatch=[int]$best.microbatch
