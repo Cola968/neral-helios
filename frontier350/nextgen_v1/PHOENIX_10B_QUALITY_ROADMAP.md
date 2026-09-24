@@ -10,8 +10,9 @@ Status: execution plan for the experimental Phoenix lineage. This is not a claim
 - Remaining to that ceiling: 7,926,838,784 tokens.
 - Current free-answer development evidence is poor (0/8 strict on the documented short suite), so token count alone is not a success metric.
 - Full-size BF16 engineering forward/backward/AdamW/checkpoint mechanics are proven on the owner's RTX 4070 by Actions run 35884287374; this is not the precision contract for the new productive lineage.
-- New productive warm-start training uses **FP32 master parameters + FP32 AdamW moments + BF16 CUDA autocast compute**. Its sustainable 24/24-layer throughput is not measured yet.
-- Existing ~43.9k tok/s upper-four-block and ~18.65k tok/s BF16-master full-model engineering rates are references only, not productive FP32-master throughput.
+- New productive warm-start training uses **FP32 master parameters + FP32 AdamW moments + BF16 CUDA autocast compute**.
+- Actions run **35971556138** measured the exact 24/24 FP32-master compute loop on the owner's RTX 4070. Best tested shape: seq256 / microbatch4 / grad-accum1 / no gradient checkpointing / torch.compile(default), **7,453.45 tok/s**, 6,184 MiB peak reserved VRAM.
+- Existing ~43.9k tok/s upper-four-block and ~18.65k tok/s BF16-master full-model engineering rates are references only, not FP32-master planning rates.
 
 ## Principle
 
@@ -81,17 +82,30 @@ Acceptance: same data order/seed and numerically sane loss/gradients; no OOM/the
 
 ### Runtime reality
 
-Remaining 7.927B tokens would take, before extra evaluation/checkpoint overhead:
+Actions run **35971556138** measured **7,453.45 tok/s** for the best tested FP32-master
+compute-loop shape. This measurement excludes production mmap loading, validation,
+checkpoint I/O and compile warm-up, so it is an **upper bound for current end-to-end
+throughput**, not an ETA.
 
-| Sustainable full-model rate | Compute time to 10B |
-| ---: | ---: |
-| 15k tok/s | ~146.8 h / 6.1 d |
-| 20k tok/s | ~110.1 h / 4.6 d |
-| 25k tok/s | ~88.1 h / 3.7 d |
-| 30k tok/s | ~73.4 h / 3.1 d |
-| 44k tok/s | ~50.0 h / 2.1 d |
+At that measured compute-loop rate, the remaining 7,926,838,784 tokens from the immutable
+2.073B anchor to the 10B ceiling require about **295.4 compute-hours / 12.3 days** before
+any evaluation, checkpointing, data-loading or interruption overhead.
 
-44k is not currently proven for full-model training. Measure first.
+Approximate pure-compute cost between named quality gates at the same rate:
+
+| Gate | New tokens from previous gate | Pure compute |
+| ---: | ---: | ---: |
+| 2.50B | 426.84M | ~15.9 h |
+| 3.00B | 500M | ~18.6 h |
+| 4.00B | 1.0B | ~37.3 h |
+| 5.50B | 1.5B | ~55.9 h |
+| 7.00B | 1.5B | ~55.9 h |
+| 8.50B | 1.5B | ~55.9 h |
+| 10.00B ceiling | 1.5B | ~55.9 h |
+
+Therefore Phoenix should **not** commit to a blind 10B continuation. First determine whether
+the 2.50B and 3.00B gates produce meaningful development-suite and generation-health gains.
+If not, spend compute on data/SFT/architecture corrections instead of more tokens.
 
 ## RTX 4070 performance evidence and precision correction
 
@@ -106,10 +120,20 @@ As of 24 September, the new-lineage precision contract is:
 - BF16 CUDA autocast for forward/backward compute;
 - exact resume must preserve this precision identity.
 
-The prepared benchmark now tests this exact contract at seq256 with 1×4, 2×2 and 4×1
-microbatch/accumulation shapes, eager vs compile, and checkpointing on/off. Until that benchmark
-runs on the RTX 4070, sustainable productive tok/s is **unknown**. Therefore the runtime table
-above is scenario planning only, not a current ETA.
+Actions run **35971556138** completed that matrix successfully. Results:
+
+- 1×4, gradient checkpointing, compile: **916 tok/s**, 6,660 MiB reserved;
+- 2×2, gradient checkpointing, compile: **1,584 tok/s**, 6,678 MiB reserved;
+- 4×1, gradient checkpointing, compile: **3,153 tok/s**, 5,906 MiB reserved;
+- 2×2, no checkpointing, compile: **5,265 tok/s**, 7,352 MiB reserved;
+- 4×1, no checkpointing, compile: **7,453 tok/s**, 6,184 MiB reserved;
+- 4×1, no checkpointing, eager: **4,251 tok/s**, 6,844 MiB reserved.
+
+The current compute-loop winner is therefore **seq256 / micro4 / accum1 / no-GC /
+compile(default)**. Compile warm-up was expensive (~89 s for the no-GC compiled shapes), so
+short diagnostic runs can still be faster in eager mode even though sustained compiled updates
+are faster. The next performance claim must come from the real mmap corpus + validation +
+checkpoint loop; do not call 7.45k tok/s end-to-end yet.
 
 ## Phase 2 — continue foundation training in quality-gated stages
 
