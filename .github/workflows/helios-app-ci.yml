@@ -1,7 +1,7 @@
 name: Helios app CPU tests
 on:
   pull_request:
-    paths: ['Start-Neral.ps1', 'tests/Test-NeralLauncher.ps1', 'app.py', 'phone_gateway.py', 'setup_phone.py', 'chat_store.py', 'project_store.py', 'storage_codec.py', 'stream_runtime.py', 'model_catalog.py', 'import_neral.py', 'import_frontier350.py', 'frontier350_contract.py', 'frontier_sidecar.py', 'frontier_manager.py', 'frontier_runtime.py', 'package_cpu_app.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_frontier*', 'tests/test_projects.py', '.github/workflows/helios-app-ci.yml']
+    paths: ['Start-Neral.ps1', 'tests/Test-NeralLauncher.ps1', 'app.py', 'phone_gateway.py', 'setup_phone.py', 'chat_store.py', 'project_store.py', 'storage_codec.py', 'stream_runtime.py', 'model_catalog.py', 'import_neral.py', 'import_frontier350.py', 'frontier350_contract.py', 'frontier_sidecar.py', 'frontier_manager.py', 'frontier_runtime.py', 'package_cpu_app.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_frontier*', 'tests/test_import_frontier350.py', 'tests/test_projects.py', '.github/workflows/helios-app-ci.yml']
   push:
     branches: [helios-history-markdown-i1-ready]
 permissions:
