@@ -12,10 +12,14 @@ permissions:
 
 concurrency:
   group: neral-nextgen-local-gpu-training
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   resume-4m:
+    # Pushes to this workflow now act only as a safe preemption marker for the
+    # 72h chat sprint. A deliberate manual dispatch is required to resume this
+    # foundation experiment later from its durable journal.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 90
     steps:
