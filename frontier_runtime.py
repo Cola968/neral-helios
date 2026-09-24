@@ -6,12 +6,11 @@ No training, downloads, checkpoint writes or quality promotion.
 """
 from __future__ import annotations
 
-import argparse,hashlib,json,math,re,threading,time
+import argparse,hashlib,json,re,threading,time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from typing import Optional
-
 from frontier350_contract import (
     FRONTIER350_CONFIG,FRONTIER350_PARAMETERS,FRONTIER350_RUNTIME,
     FRONTIER350_TOKENIZER_SHA256,expected_state_shapes,
@@ -27,7 +26,8 @@ def sha256_file(path:Path)->str:
     with path.open("rb") as f:return hashlib.file_digest(f,"sha256").hexdigest()
 
 def read_sha(path:Path)->str:
-    value=path.read_text(encoding="ascii").split()[0].lower()
+    parts=path.read_text(encoding="ascii").split()
+    value=parts[0].lower() if parts else ""
     if not re.fullmatch(r"[a-f0-9]{64}",value):raise ValueError("invalid SHA-256 file")
     return value
 
@@ -86,20 +86,31 @@ def build_model(torch):
                 return torch.stack((-b,a),dim=-1).flatten(-2)
             return q*c+rotate(q)*s,k*c+rotate(k)*s
         def forward(self,x,past=None):
-            b,t,_=x.shape;past_len=0 if past is None else past[0].size(-2)
+            b,t,_=x.shape
+            if past is None:past_len=0
+            elif len(past)==3:past_len=int(past[2])
+            else:past_len=past[0].size(-2)
             q=self.q(x).view(b,t,cfg.n_heads,cfg.head_dim).transpose(1,2)
-            k=self.k(x).view(b,t,cfg.n_kv_heads,cfg.head_dim).transpose(1,2)
-            v=self.v(x).view(b,t,cfg.n_kv_heads,cfg.head_dim).transpose(1,2)
-            q,k=self.qn(q),self.kn(k);q,k=self._rope(q,k,past_len)
-            if past is not None:
+            k_new=self.k(x).view(b,t,cfg.n_kv_heads,cfg.head_dim).transpose(1,2)
+            v_new=self.v(x).view(b,t,cfg.n_kv_heads,cfg.head_dim).transpose(1,2)
+            q,k_new=self.qn(q),self.kn(k_new);q,k_new=self._rope(q,k_new,past_len)
+            if past is None:
+                k,v=k_new,v_new;next_cache=(k,v)
+            elif len(past)==3:
                 if t!=1:raise ValueError("cached decode accepts exactly one new token")
-                k=torch.cat((past[0],k),dim=-2);v=torch.cat((past[1],v),dim=-2)
+                k_buf,v_buf,used=past;end=int(used)+1
+                if end>k_buf.size(-2):raise ValueError("KV cache capacity exceeded")
+                k_buf[...,int(used):end,:].copy_(k_new);v_buf[...,int(used):end,:].copy_(v_new)
+                k,v=k_buf[...,:end,:],v_buf[...,:end,:];next_cache=(k_buf,v_buf,end)
+            else:
+                if t!=1:raise ValueError("cached decode accepts exactly one new token")
+                k=torch.cat((past[0],k_new),dim=-2);v=torch.cat((past[1],v_new),dim=-2);next_cache=(k,v)
             try:y=F.scaled_dot_product_attention(q,k,v,is_causal=past is None,dropout_p=0.0,enable_gqa=True)
             except (TypeError,RuntimeError):
                 kk=k.repeat_interleave(cfg.groups,1);vv=v.repeat_interleave(cfg.groups,1)
                 y=F.scaled_dot_product_attention(q,kk,vv,is_causal=past is None,dropout_p=0.0)
             out=self.o(y.transpose(1,2).contiguous().view(b,t,cfg.d_model))
-            return out,(k,v)
+            return out,next_cache
     class FFN(nn.Module):
         def __init__(self):
             super().__init__();self.gate=nn.Linear(cfg.d_model,cfg.ffn_hidden,bias=False)
@@ -119,7 +130,9 @@ def build_model(torch):
         def forward(self,idx,cache=None):
             if idx.ndim!=2 or idx.size(1)<1:raise ValueError("invalid input")
             if cache is not None and len(cache)!=cfg.n_layers:raise ValueError("invalid KV cache")
-            past_len=0 if cache is None else cache[0][0].size(-2)
+            if cache is None:past_len=0
+            elif len(cache[0])==3:past_len=int(cache[0][2])
+            else:past_len=cache[0][0].size(-2)
             if past_len+idx.size(1)>cfg.max_seq_len:raise ValueError("context exceeds model maximum")
             x=self.tok_emb(idx);new=[]
             for i,block in enumerate(self.blocks):
@@ -178,6 +191,26 @@ def encode_context(rt,messages,budget,context_limit):
         if len(clean)==1:raise ValueError("latest message exceeds available context")
         clean=clean[2:];dropped+=1
 
+def reserve_cache(cache,capacity,torch):
+    reserved=[]
+    for k,v in cache:
+        used=k.size(-2)
+        if used>capacity:raise ValueError("KV cache prefill exceeds capacity")
+        shape=(*k.shape[:-2],capacity,k.shape[-1])
+        kb=torch.empty(shape,device=k.device,dtype=k.dtype);vb=torch.empty(shape,device=v.device,dtype=v.dtype)
+        kb[...,:used,:].copy_(k);vb[...,:used,:].copy_(v)
+        reserved.append((kb,vb,used))
+    return reserved
+
+def _looping(text):
+    words=re.findall(r"\w+",text.casefold())
+    if len(words)<15:return False
+    grams=[tuple(words[i:i+3]) for i in range(len(words)-2)]
+    return grams.count(grams[-1])>=3 and (len(grams)-len(set(grams)))/max(1,len(grams))>=0.28
+
+def _autocast(torch,device):
+    return torch.autocast("cuda",dtype=torch.bfloat16) if device.type=="cuda" else nullcontext()
+
 def generate(rt,messages,budget,context_limit,cancel,on_progress=None):
     torch=rt["torch"];model=rt["model"];tok=rt["tokenizer"];eos=rt["eos"];device=rt["device"]
     ids,dropped=encode_context(rt,messages,budget,context_limit)
@@ -185,8 +218,9 @@ def generate(rt,messages,budget,context_limit,cancel,on_progress=None):
     if device.type=="cuda":torch.cuda.reset_peak_memory_stats(device)
     with torch.inference_mode():
         x=torch.tensor([ids],device=device,dtype=torch.long)
-        with torch.autocast("cuda",dtype=torch.bfloat16,enabled=device.type=="cuda"):
+        with _autocast(torch,device):
             logits,cache=model(x,None)
+        cache=reserve_cache(cache,context_limit,torch)
         for step in range(1,budget+1):
             if cancel.is_set():finish="cancelled";break
             token=int(logits[0,-1].float().argmax().item())
@@ -195,13 +229,14 @@ def generate(rt,messages,budget,context_limit,cancel,on_progress=None):
             text=tok.decode(emitted,skip_special_tokens=True)
             boundary=ROLE_BOUNDARY.search(text)
             if boundary:text=text[:boundary.start()].rstrip();finish="role_boundary"
+            elif _looping(text):finish="repetition_guard"
             elapsed=time.perf_counter()-start
             if on_progress:on_progress({"text":text,"generated_tokens":len(emitted),"seconds":round(elapsed,4),
                                         "tokens_per_second":round(len(emitted)/max(elapsed,1e-9),2)})
-            if finish=="role_boundary":break
+            if finish in {"role_boundary","repetition_guard"}:break
             if step<budget:
                 x=torch.tensor([[token]],device=device,dtype=torch.long)
-                with torch.autocast("cuda",dtype=torch.bfloat16,enabled=device.type=="cuda"):
+                with _autocast(torch,device):
                     logits,cache=model(x,cache)
     elapsed=time.perf_counter()-start
     text=tok.decode(emitted,skip_special_tokens=True)
@@ -224,7 +259,7 @@ def runtime_health(rt,context_limit,busy=False):
             "checkpoint_sha256":rt["checkpoint_sha"],"tokenizer_sha256":rt["tokenizer_sha"],
             "processed_tokens":rt["processed_tokens"],"device":device.type,"gpu":gpu,
             "parameters":FRONTIER350_PARAMETERS,"context_tokens":context_limit,
-            "max_new_tokens":MAX_NEW_TOKENS,"decoder":"greedy-kv-cache-v1",
+            "max_new_tokens":MAX_NEW_TOKENS,"decoder":"greedy-preallocated-kv-v1",
             "streaming":True,"cancel_supported":True,"kv_cache":True,"busy":busy,
             "vram_allocated_mib":round(allocated/1048576,1),"vram_reserved_mib":round(reserved/1048576,1)}
 
