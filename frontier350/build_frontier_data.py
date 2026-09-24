@@ -54,6 +54,34 @@ DEFAULT_SOURCES = [
 ]
 
 
+def assert_sources_allowed_by_policy(specs=DEFAULT_SOURCES) -> dict[str, dict]:
+    """Fail closed before any network/data side effect if a source is not policy-approved.
+
+    The 350M source recipe must not bypass the repository-wide Hugging Face policy merely
+    because a dataset has an allowed top-level license or an immutable source lock.
+    """
+    import sys
+    repo_root = str(Path(__file__).resolve().parents[1])
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from hf_source_policy50 import assert_training_allowed
+
+    checked: dict[str, dict] = {}
+    for spec in specs:
+        policy = assert_training_allowed(spec.repo)
+        if policy.role != "pretrain":
+            raise RuntimeError(
+                f"350M foundation source must be policy role pretrain: {spec.repo} ({policy.role})"
+            )
+        checked[spec.name] = {
+            "dataset_id": policy.dataset_id,
+            "role": policy.role,
+            "license": policy.license,
+            "content_origin": policy.content_origin,
+        }
+    return checked
+
+
 def normalize(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = CONTROL_RE.sub("", text)
@@ -241,6 +269,7 @@ def main() -> None:
         raise SystemExit("validation tokens must be smaller than total")
     if abs(sum(s.share for s in DEFAULT_SOURCES) - 1.0) > 1e-9:
         raise RuntimeError("source shares must sum to 1")
+    source_policy = assert_sources_allowed_by_policy(DEFAULT_SOURCES)
     for spec in DEFAULT_SOURCES:
         if spec.license not in ALLOWED_LICENSES:
             raise RuntimeError(f"license not admitted: {spec}")
@@ -283,6 +312,7 @@ def main() -> None:
         "seed_note": args.seed_note,
         "benchmark_content_included": False,
         "licenses": sorted({s.license for s in DEFAULT_SOURCES}),
+        "source_policy": source_policy,
         "resolved_revisions": resolved,
         "sources": source_reports,
         "train_files": train_files,
