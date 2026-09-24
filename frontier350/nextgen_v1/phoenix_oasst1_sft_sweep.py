@@ -210,7 +210,6 @@ def main(argv=None) -> int:
             weight_decay=0.01, fused=True
         )
         require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
-        require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
         rng = random.Random(20260923)
         supervised_total = 0
         started = time.monotonic()
