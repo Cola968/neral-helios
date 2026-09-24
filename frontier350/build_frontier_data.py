@@ -43,15 +43,19 @@ class SourceSpec:
     kind: str
 
 
-# 10B foundation target: language/knowledge + education + math, with a meaningful German slice.
-# OASST2 and future preference/code instruction sets are post-training sources, not repeated
-# hundreds of millions of times in foundation pretraining.
+# Policy-approved production baseline. FineMath remains a separately locked candidate,
+# not a default source, until its candidate-admission/contamination review is completed.
+# The 61/24/15 recipe is explicit rather than silently renormalizing the old 85% subset.
 DEFAULT_SOURCES = [
-    SourceSpec("fineweb_edu_en", "HuggingFaceFW/fineweb-edu", "sample-10BT", "train", "odc-by", "text", 0.52, "en", "education"),
-    SourceSpec("fineweb_en", "HuggingFaceFW/fineweb", "sample-10BT", "train", "odc-by", "text", 0.20, "en", "general"),
-    SourceSpec("fineweb2_de", "HuggingFaceFW/fineweb-2", "deu_Latn", "train", "odc-by", "text", 0.13, "de", "general"),
-    SourceSpec("finemath", "HuggingFaceTB/finemath", "finemath-3plus", "train", "odc-by", "text", 0.15, "multi", "math"),
+    SourceSpec("fineweb_edu_en", "HuggingFaceFW/fineweb-edu", "sample-10BT", "train", "odc-by", "text", 0.61, "en", "education"),
+    SourceSpec("fineweb_en", "HuggingFaceFW/fineweb", "sample-10BT", "train", "odc-by", "text", 0.24, "en", "general"),
+    SourceSpec("fineweb2_de", "HuggingFaceFW/fineweb-2", "deu_Latn", "train", "odc-by", "text", 0.15, "de", "general"),
 ]
+
+FINEMATH_CANDIDATE = SourceSpec(
+    "finemath", "HuggingFaceTB/finemath", "finemath-3plus", "train",
+    "odc-by", "text", 0.15, "multi", "math"
+)
 
 
 def assert_sources_allowed_by_policy(specs=DEFAULT_SOURCES) -> dict[str, dict]:
@@ -310,7 +314,10 @@ def main() -> None:
         "train_tokens": sum(x["tokens"] for x in train_files),
         "validation_tokens": sum(x["tokens"] for x in valid_files),
         "seed_note": args.seed_note,
-        "benchmark_content_included": None,\n        "benchmark_screening_status": "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT",
+        "recipe_id": "frontier350-approved-policy-baseline-v2-no-finemath",
+        "finemath_candidate_included": False,
+        "benchmark_content_included": None,
+        "benchmark_screening_status": "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT",
         "licenses": sorted({s.license for s in DEFAULT_SOURCES}),
         "source_policy": source_policy,
         "resolved_revisions": resolved,
