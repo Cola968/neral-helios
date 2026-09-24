@@ -138,6 +138,30 @@ if($LASTEXITCODE -ne 0){
     if($LASTEXITCODE -ne 0){throw 'Die Frontier-Tokenizer-Runtime konnte nicht installiert werden.'}
 }
 
+function Test-FrontierCudaPython {
+    param([string]$Exe)
+    if(-not $Exe -or -not(Test-Path -LiteralPath $Exe -PathType Leaf)){return $false}
+    try{
+        & $Exe -c "import torch, tokenizers; raise SystemExit(0 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 1)" *> $null
+        return ($LASTEXITCODE -eq 0)
+    }catch{return $false}
+}
+
+if(-not $env:HELIOS_FRONTIER_PYTHON){
+    $frontierCandidates=@(
+        $env:NERAL_FRONTIER_PYTHON,
+        (Join-Path $appRoot '.venv\Scripts\python.exe'),
+        $appPython
+    ) | Where-Object { $_ } | Select-Object -Unique
+    foreach($candidate in $frontierCandidates){
+        if(Test-FrontierCudaPython $candidate){
+            $env:HELIOS_FRONTIER_PYTHON=(Resolve-Path -LiteralPath $candidate).Path
+            Write-Host 'Frontier 350 nutzt automatisch die vorhandene CUDA-Python-Umgebung.' -ForegroundColor Green
+            break
+        }
+    }
+}
+
 $env:PYTHONDONTWRITEBYTECODE='1'
 $env:HELIOS_DEVICE='cpu'
 $env:CUDA_VISIBLE_DEVICES=''
