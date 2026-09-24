@@ -30,12 +30,15 @@ CONFIGS = (
     {"microbatch": 2, "grad_accum": 2, "gradient_checkpointing": True,  "compile_mode": "default"},
     {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": True,  "compile_mode": "default"},
     {"microbatch": 2, "grad_accum": 2, "gradient_checkpointing": False, "compile_mode": "default"},
-    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "default"},
-    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "none"},
+    {"microbatch": 4,  "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "default"},
+    {"microbatch": 8,  "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "default"},
+    {"microbatch": 12, "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "default"},
+    {"microbatch": 16, "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "default"},
+    {"microbatch": 4,  "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "none"},
 )
 SEQ = 256
-TOKENS_PER_UPDATE = 1024
-TIMED_UPDATES = 8
+MIN_TIMED_TOKENS = 32_768
+MAX_RESERVED_MIB = 10 * 1024
 LR = 1e-5
 
 
@@ -73,8 +76,10 @@ def main(argv=None) -> int:
     results=[]
 
     for index,cfg in enumerate(CONFIGS):
-        if cfg["microbatch"]*SEQ*cfg["grad_accum"] != TOKENS_PER_UPDATE:
-            raise RuntimeError("shape changed token/update contract")
+        tokens_per_update = cfg["microbatch"] * SEQ * cfg["grad_accum"]
+        if not 1024 <= tokens_per_update <= 4096:
+            raise RuntimeError("shape token/update outside audited 1K..4K range")
+        timed_updates = max(4, math.ceil(MIN_TIMED_TOKENS / tokens_per_update))
         guard.require_safe_runtime_temperature()
         torch.manual_seed(20260923)
         torch.cuda.manual_seed_all(20260923)
@@ -122,7 +127,7 @@ def main(argv=None) -> int:
             guard.require_safe_runtime_temperature()
             started=time.perf_counter()
             losses=[]
-            for _ in range(TIMED_UPDATES):
+            for _ in range(timed_updates):
                 loss,grad=update()
                 if not math.isfinite(grad):
                     raise FloatingPointError("nonfinite benchmark grad")
@@ -130,23 +135,27 @@ def main(argv=None) -> int:
             torch.cuda.synchronize()
             elapsed=time.perf_counter()-started
             guard.require_safe_runtime_temperature()
+            peak_reserved_mib=round(torch.cuda.max_memory_reserved()/1024**2,1)
+            status="pass" if peak_reserved_mib <= MAX_RESERVED_MIB else "over_vram_budget"
             row={
                 "index":index,**cfg,"seq":SEQ,
-                "tokens_per_update":TOKENS_PER_UPDATE,
-                "timed_updates":TIMED_UPDATES,
-                "timed_tokens":TOKENS_PER_UPDATE*TIMED_UPDATES,
+                "tokens_per_update":tokens_per_update,
+                "timed_updates":timed_updates,
+                "timed_tokens":tokens_per_update*timed_updates,
                 "elapsed_s":elapsed,
-                "tokens_per_second":TOKENS_PER_UPDATE*TIMED_UPDATES/elapsed,
+                "tokens_per_second":tokens_per_update*timed_updates/elapsed,
                 "last_loss":losses[-1],
                 "master_parameter_dtype":"float32",
                 "adamw_moment_dtype":"float32",
                 "compute_autocast_dtype":"bfloat16",
                 "peak_allocated_mib":round(torch.cuda.max_memory_allocated()/1024**2,1),
-                "peak_reserved_mib":round(torch.cuda.max_memory_reserved()/1024**2,1),
-                "status":"pass",
+                "peak_reserved_mib":peak_reserved_mib,
+                "max_reserved_mib":MAX_RESERVED_MIB,
+                "status":status,
             }
         except torch.cuda.OutOfMemoryError:
-            row={"index":index,**cfg,"seq":SEQ,"status":"oom"}
+            row={"index":index,**cfg,"seq":SEQ,
+                 "tokens_per_update":tokens_per_update,"status":"oom"}
         results.append(row)
         print(json.dumps({"event":"fullmodel_shape_candidate",**row},sort_keys=True),flush=True)
         del optimizer,train_model,model
@@ -170,6 +179,7 @@ def main(argv=None) -> int:
             "grad_accum":selected["grad_accum"],
             "gradient_checkpointing":selected["gradient_checkpointing"],
             "compile_mode":selected["compile_mode"],
+            "tokens_per_update":selected["tokens_per_update"],
             "tokens_per_second":selected["tokens_per_second"],
             "peak_reserved_mib":selected["peak_reserved_mib"],
         },
