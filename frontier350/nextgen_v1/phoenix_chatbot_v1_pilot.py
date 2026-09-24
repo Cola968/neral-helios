@@ -26,7 +26,7 @@ from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validati
 
 HISTORICAL_SHA="f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 PARAMETERS=349_825_152
-SCHEMA="phoenix_chatbot_v1_behavior_pilot_v1"
+SCHEMA="phoenix_chatbot_v1_behavior_pilot_v1"\nPILOT_REVISION="2026-09-24-r2"
 CLASSIFICATION="project_owned_chatbot_v1_behavior_development_only"
 CONFIGS=(
     {"name":"lr5e6_s60","lr":5e-6,"steps":60},
