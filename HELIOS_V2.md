@@ -19,7 +19,7 @@ Diese Version erweitert die bestehende Flask-/JavaScript-App. Sie verändert kei
 
 Workspace 2.1 trennt erstmals die alte Byte-Tokenizer-Runtime von der Frontier-350-Runtime. Ein importiertes Modell deklariert im lokalen Katalog eine Runtime-Familie. Legacy-Modelle bleiben `legacy-byte-v1`; Arctus/Phoenix verwendet `frontier350-bpe-v1`. Der alte 20M/50M-Loader darf einen Frontier-Checkpoint nicht laden.
 
-Ein Frontier-Deployment-Bundle besteht aus `model.pt`, `model.sha256`, `tokenizer.json` und `tokenizer.sha256`. `import_frontier350.py` prüft vor der Registrierung unter anderem die vom Operator vorgegebene Quell-SHA, den festen 16K-BPE-Tokenizer-SHA, die exakte 24-Layer-Architektur, 267 State-Dict-Einträge, 349.825.152 eindeutige Parameter, BF16/FP32-Tensoren, endliche Werte und die gebundenen Embedding-/LM-Head-Gewichte. Eine Registrierung ist ausdrücklich keine Qualitätsfreigabe.
+Ein Frontier-Deployment-Bundle besteht aus `model.pt`, `model.sha256`, `tokenizer.json` und `tokenizer.sha256`. `import_frontier350.py` prüft vor der Registrierung unter anderem die vom Operator vorgegebene Quell-SHA, den festen 16K-BPE-Tokenizer-SHA, die exakte 24-Layer-Architektur, 267 State-Dict-Einträge, 349.825.152 eindeutige Parameter, BF16/FP32-Tensoren, endliche Werte und die gebundenen Embedding-/LM-Head-Gewichte. Der historische 2.073B-Checkpoint darf nur bei seinem fest eingebauten bekannten SHA auf den Legacy-Pickle-Loader zurückfallen. Danach wird **nicht** der Trainingscheckpoint deployt: der Importer schreibt einen bereinigten `frontier350-inference-v1`-Export nur aus Modellgewichten, Config, Tokenizer-SHA, Tokenzahl und Source-SHA. Die Runtime akzeptiert ausschließlich dieses bereinigte Format mit `weights_only=True`. Eine Registrierung ist ausdrücklich keine Qualitätsfreigabe.
 
 Die Haupt-App lädt die großen Frontier-Gewichte nicht in ihren bisherigen CPU-Prozess. Stattdessen verbindet sie sich über `frontier_sidecar.py` ausschließlich mit einem lokalen Prozess auf `127.0.0.1`. Vor einer Auswahl müssen Runtime-Familie, Checkpoint-SHA und Tokenizer-SHA mit dem registrierten Bundle exakt übereinstimmen. Ein falscher oder nicht erreichbarer Sidecar wird abgelehnt, während das bisher aktive Modell erhalten bleibt.
 
@@ -27,7 +27,7 @@ Die Haupt-App lädt die großen Frontier-Gewichte nicht in ihren bisherigen CPU-
 
 Der Frontier-Chatpfad bleibt derzeit deterministisch (Temperatur 0), unterstützt bis zu 256 neue BPE-Tokens, NDJSON-Streaming und einen echten Request-Abbruch über `/cancel`. Die Haupt-App übersetzt den Sidecar-Stream in denselben `start/progress/done`-Vertrag wie die Legacy-Runtime. Disconnects und der Stop-Button werden an den Sidecar weitergereicht. Die UI zeigt Tokens/s und bei CUDA den Peak-VRAM der Antwort; BPE-Kontextkürzung geschieht ausschließlich in der Frontier-Runtime und nie mit der Byte-Schätzung des Legacy-Modells.
 
-`frontier_manager.py` startet den Sidecar bei der ersten Auswahl eines registrierten Frontier-Modells automatisch. Wenn eine bestehende Python-Umgebung mit CUDA-PyTorch, BF16 und `tokenizers` erkannt wird, setzt der Windows-Starter `HELIOS_FRONTIER_PYTHON` automatisch darauf. Eine explizit gesetzte Variable gleichen Namens hat Vorrang. Ohne CUDA-fähige Umgebung bleibt die Haupt-App stabil und Frontier läuft mit der verfügbaren CPU-PyTorch-Umgebung; der Starter lädt nicht ungefragt ein großes CUDA-PyTorch-Paket nach. Der Sidecar-Adapter bleibt ein lokaler, SHA-gebundener Integrationsvertrag und keine automatische Modell-Promotion.
+`frontier_manager.py` startet den Sidecar bei der ersten Auswahl eines registrierten Frontier-Modells automatisch. Wenn eine bestehende Python-Umgebung mit CUDA-PyTorch, BF16 und `tokenizers` erkannt wird, setzt der Windows-Starter `HELIOS_FRONTIER_PYTHON` automatisch darauf. Eine explizit gesetzte Variable gleichen Namens hat Vorrang. Ohne CUDA-fähige Umgebung bleibt die Haupt-App stabil und Frontier läuft mit der verfügbaren CPU-PyTorch-Umgebung; der Starter lädt nicht ungefragt ein großes CUDA-PyTorch-Paket nach. Der Sidecar-Adapter bleibt ein lokaler, SHA-gebundener Integrationsvertrag und keine automatische Modell-Promotion. Eine ausdrücklich gewählte Modell-ID wird in `local_state/active-model.json` ohne Dateipfade gespeichert und beim nächsten Start wiederhergestellt; Helios bewertet oder befördert dadurch kein Modell automatisch.
 
 ## Start und Paket
 
@@ -52,7 +52,7 @@ Danach App neu verbinden und die neue Version ausdrücklich auswählen. Erst nac
 ## Reproduzierbare App-Prüfungen
 
 ```text
-python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py tests/test_frontier350_contract.py tests/test_frontier_sidecar.py tests/test_frontier_runtime.py
+python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py tests/test_frontier350_contract.py tests/test_frontier_sidecar.py tests/test_frontier_runtime.py tests/test_frontier_manager.py tests/test_import_frontier350.py
 node --test tests/test_helios_history.js
 node tests/test_helios_browser.cjs
 node tests/test_helios_workspace.cjs
