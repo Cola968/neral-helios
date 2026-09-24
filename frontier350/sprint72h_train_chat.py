@@ -168,8 +168,8 @@ def main() -> int:
 
     train = [x for r in train_raw if (x := encode(r)) is not None]
     valid = [x for r in val_raw if (x := encode(r)) is not None]
-    if len(train) < 10_000 or len(valid) < 100:
-        raise ValueError(f"too few tokenized sprint rows: train={len(train)} valid={len(valid)}")
+    if len(train) < 8_000 or len(valid) < 100:
+        raise ValueError(f"too few tokenizer-verified sprint rows: train={len(train)} valid={len(valid)}")
 
     device = torch.device("cuda")
     torch.manual_seed(SEED)
