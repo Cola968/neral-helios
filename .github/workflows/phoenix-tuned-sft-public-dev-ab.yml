@@ -1,17 +1,14 @@
 name: Phoenix tuned SFT full public development A-B
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-tuned-sft-public-dev-ab.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: neral-nextgen-local-gpu-training
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   tuned-ab:
