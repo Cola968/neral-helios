@@ -84,10 +84,11 @@ jobs:
           if($shape.precision_contract -ne 'fp32_master_fp32_adamw_bf16_autocast'){throw 'Shape benchmark used wrong precision contract'}
           if([int]$sel.microbatch * [int]$sel.grad_accum -ne 4){throw 'Selected shape violates 1024-token update contract'}
           $gcFlag=if($sel.gradient_checkpointing -eq $true){' --gradient-checkpointing'}else{''}
+          $compileFlag=if($sel.compile_mode -eq 'default'){' --compile-mode default'}elseif($sel.compile_mode -eq 'none'){''}else{throw 'Unsupported selected compile mode'}
           Write-Host '=== SELECTED FULL-MODEL SHAPE ==='
           $sel|ConvertTo-Json -Compress|Write-Host
 
-          $trainCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $trainOut)' --target-new-tokens 20000000 --stop-after-new-tokens 1048576 --seq 256 --microbatch $($sel.microbatch) --grad-accum $($sel.grad_accum) --lr 0.00001$gcFlag"
+          $trainCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $trainOut)' --target-new-tokens 20000000 --stop-after-new-tokens 1048576 --seq 256 --microbatch $($sel.microbatch) --grad-accum $($sel.grad_accum) --lr 0.00001$gcFlag$compileFlag"
           & wsl.exe -- bash -lc $trainCmd
           if($LASTEXITCODE -ne 0){throw '1Mi-token foundation refresh failed'}
 
