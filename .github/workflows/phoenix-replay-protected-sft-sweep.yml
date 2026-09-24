@@ -1,10 +1,16 @@
 name: Phoenix replay-protected auto-SFT development sweep
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-replay-protected-sft-sweep.yml'
+  workflow_dispatch:
+    inputs:
+      main_data_path:
+        description: 'Absolute Windows path to admitted foundation train shards'
+        required: true
+        type: string
+      foundation_admission_path:
+        description: 'Absolute Windows path to foundation_corpus_admission_pass JSON'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -40,16 +46,17 @@ jobs:
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           $private='D:\NeralPrivateAssets'
           $archive=Join-Path $private 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
-          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $main='${{ inputs.main_data_path }}'
+          $admission='${{ inputs.foundation_admission_path }}'
           $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
           $out=Join-Path $private ('phoenix\replay_sft_sweep_'+$env:GITHUB_RUN_ID)
-          foreach($p in @($repo,$base,$assets,$private,$archive,$main,$replay,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
-          foreach($p in @($base,$archive)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Required file missing'}}
+          foreach($p in @($repo,$base,$assets,$private,$archive,$main,$admission,$replay,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          foreach($p in @($base,$archive,$admission)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Required file missing'}}
           foreach($p in @($assets,$private,$main,$replay)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'Required directory missing'}}
           if(Test-Path -LiteralPath $out){throw 'Create-only output exists'}
           nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
 
-          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_replay_protected_sft_sweep.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_replay_protected_sft_sweep.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $base)' --assets-root '$(ToWsl $assets)' --private-root '$(ToWsl $private)' --archive '$(ToWsl $archive)' --main-data '$(ToWsl $main)' --replay '$(ToWsl $replay)' --out '$(ToWsl $out)'"
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_replay_protected_sft_sweep.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_replay_protected_sft_sweep.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $base)' --assets-root '$(ToWsl $assets)' --private-root '$(ToWsl $private)' --archive '$(ToWsl $archive)' --main-data '$(ToWsl $main)' --foundation-admission '$(ToWsl $admission)' --replay '$(ToWsl $replay)' --out '$(ToWsl $out)'"
           & wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'Replay-protected SFT sweep failed'}
 
