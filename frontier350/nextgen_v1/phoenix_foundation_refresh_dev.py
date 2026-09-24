@@ -433,6 +433,8 @@ def main(argv=None) -> int:
     total_updates = math.ceil(args.target_new_tokens / update)
     warmup = max(1, int(total_updates * 0.01))
     validation_seed = args.seed + 999
+    eval_every = max(1, EVAL_INTERVAL_TOKENS // update)
+    log_every = max(1, LOG_INTERVAL_TOKENS // update)
 
     # no_grad (not inference_mode) inside evaluate keeps RoPE cache reusable by backward.
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -500,8 +502,6 @@ def main(argv=None) -> int:
         seq=args.seq, microbatch=args.microbatch, accumulation=args.grad_accum,
         max_rollback_tokens=MAX_ROLLBACK_TOKENS
     )
-    eval_every = max(1, EVAL_INTERVAL_TOKENS // update)
-    log_every = max(1, LOG_INTERVAL_TOKENS // update)
     invocation_start = processed
     invocation_wall = time.monotonic()
     last_log_time = invocation_wall
