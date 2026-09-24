@@ -17,6 +17,8 @@ from project_store import ProjectStore,ripple
 from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog,LEGACY_RUNTIME,FRONTIER350_RUNTIME
+from frontier350_contract import FRONTIER350_CONFIG,FRONTIER350_PARAMETERS
+from frontier_sidecar import FrontierUnavailable,probe as probe_frontier,chat as frontier_chat
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -47,7 +49,7 @@ device_name='cpu' if PREPARATION_MODE else os.environ.get('HELIOS_DEVICE','cpu')
 if device_name!='cpu':raise ValueError('This Helios app release is CPU-only.')
 device=torch.device(device_name)
 runtime_error=None
-checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original'
+checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original';active_runtime_family=LEGACY_RUNTIME;active_frontier_health=None
 def imported_models():
     try:return catalog(ASSETS)
     except (ValueError,OSError,KeyError):return {}
@@ -80,13 +82,15 @@ def model_inventory():
                       'selectable':True,'active':checkpoint_loaded and active_checkpoint==key})
     for key,row in imported.items():
         if row.get('app_loadable'):continue
+        has_sidecar=type(row.get('runtime_port')) is int
         items.append({'id':key,'label':row['label'],'runtime_family':row['runtime_family'],
                       'status':row['status'],'parameters':row.get('parameters'),
-                      'context_tokens':row.get('context_tokens'),'selectable':False,'active':False,
-                      'blocked_reason':'Frontier-350-Runtime noch nicht mit Workspace verbunden.'})
+                      'context_tokens':row.get('context_tokens'),'runtime_port':row.get('runtime_port'),
+                      'selectable':has_sidecar,'active':checkpoint_loaded and active_checkpoint==key,
+                      'blocked_reason':None if has_sidecar else 'Kein lokaler Frontier-Runtime-Port registriert.'})
     return items
 def load_runtime(name):
-    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error
+    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error,active_runtime_family,active_frontier_health
     if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
     if name not in checkpoint_paths():raise ValueError('Unbekannter Checkpoint.')
     path,hash_path=checkpoint_paths()[name]
@@ -107,7 +111,35 @@ def load_runtime(name):
     if candidate.parameter_report()['total']!=expected:raise ValueError('Parameterzahl stimmt nicht.')
     candidate.to(device);candidate.eval();model=candidate;cfg=candidate_cfg;report=model.parameter_report()
     checkpoint_meta={k:v for k,v in payload.items() if isinstance(v,(str,int,float,bool))}
-    checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name;runtime_error=None
+    checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name;active_runtime_family=LEGACY_RUNTIME;active_frontier_health=None;runtime_error=None
+def select_frontier_runtime(name):
+    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,runtime_error,active_runtime_family,active_frontier_health
+    if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
+    row=imported_models().get(name)
+    if not row or row.get('runtime_family')!=FRONTIER350_RUNTIME:raise ValueError('Unbekannter Frontier-Checkpoint.')
+    health=probe_frontier(row)
+    active_checkpoint=name;active_runtime_family=FRONTIER350_RUNTIME;active_frontier_health=health
+    checkpoint_loaded=True;checkpoint_sha256=row.get('model_sha256')
+    checkpoint_meta={'processed_tokens':health.get('processed_tokens'),'finish_policy':health.get('decoder')}
+    runtime_error=None
+
+def runtime_details():
+    if checkpoint_loaded and active_runtime_family==FRONTIER350_RUNTIME:
+        row=imported_models().get(active_checkpoint,{})
+        health=active_frontier_health or {}
+        return {'parameters':row.get('parameters') or FRONTIER350_PARAMETERS,
+                'layers':FRONTIER350_CONFIG['n_layers'],'d_model':FRONTIER350_CONFIG['d_model'],
+                'heads':FRONTIER350_CONFIG['n_heads'],'ffn_hidden':FRONTIER350_CONFIG['ffn_hidden'],
+                'vocab_size':FRONTIER350_CONFIG['vocab_size'],
+                'max_seq_len':row.get('context_tokens') or 512,'tokenizer':'Neral BPE-16K',
+                'device':health.get('device','cpu'),'gpu':health.get('gpu'),
+                'streaming':False,'cancel_supported':False,'context_estimator':'frontier-bpe'}
+    return {'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,
+            'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,
+            'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),
+            'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,
+            'streaming':True,'cancel_supported':True,'context_estimator':'legacy-byte'}
+
 def initialize_runtime():
     global runtime_error
     if PREPARATION_MODE:
@@ -157,7 +189,8 @@ def text_key(value):
     if not isinstance(value,str) or not re.fullmatch(r'[a-zA-Z0-9_\-]{1,64}',value):raise ValueError('Ungültiger Schlüssel.')
     return value
 def info_payload():
-    return {'app_version':'2.1-dev','name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'active_runtime_family':LEGACY_RUNTIME if checkpoint_loaded else None,'checkpoints':list(checkpoint_paths()),'models':model_inventory(),'model_labels':{k:v['label'] for k,v in imported_models().items()},'runtime_families':{'legacy':LEGACY_RUNTIME,'frontier350':FRONTIER350_RUNTIME},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    d=runtime_details()
+    return {'app_version':'2.1-dev','name':'Neral / Helios',**d,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'active_runtime_family':active_runtime_family if checkpoint_loaded else None,'checkpoints':list(checkpoint_paths()),'models':model_inventory(),'model_labels':{k:v['label'] for k,v in imported_models().items()},'runtime_families':{'legacy':LEGACY_RUNTIME,'frontier350':FRONTIER350_RUNTIME},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 @app.before_request
 def local_and_rate_guard():
     if request.remote_addr not in {'127.0.0.1','::1'}:return jsonify(error='Nur lokale Verbindungen erlaubt.'),403
@@ -207,7 +240,13 @@ def select_model():
     if error:return error
     if not isinstance(data.get('checkpoint'),str):return jsonify(error='Checkpoint fehlt.'),400
     if not _generation_lock.acquire(blocking=False):return jsonify(error='Modell ist gerade beschäftigt.'),409
-    try:load_runtime(data['checkpoint']);return jsonify(info_payload())
+    try:
+        name=data['checkpoint']
+        if name in checkpoint_paths():load_runtime(name)
+        else:select_frontier_runtime(name)
+        return jsonify(info_payload())
+    except FrontierUnavailable as e:
+        return jsonify(error=str(e)),503
     except Exception:
         app.logger.exception('Checkpoint-Wechsel abgelehnt')
         return jsonify(error='Checkpoint konnte nicht sicher geladen werden. Der bisherige Zustand bleibt erhalten.'),400
@@ -288,6 +327,24 @@ def generate():
         except ValueError:pass
     if PREPARATION_MODE:return jsonify(error='Vorbereitungsmodus: Modellinferenz ist deaktiviert.'),503
     if not checkpoint_loaded:return jsonify(error='Kein eigener Checkpoint installiert. SOLVE, Codeprüfung und Projekte funktionieren lokal; Modellgewichte laut README bereitstellen.'),503
+    if active_runtime_family==FRONTIER350_RUNTIME:
+        if params['temperature']!=0:return jsonify(error='Frontier 350 läuft derzeit deterministisch. Stelle Temperatur auf 0.'),400
+        row=imported_models().get(active_checkpoint)
+        if not row:return jsonify(error='Aktiver Frontier-Checkpoint ist nicht mehr registriert.'),503
+        messages=[*history,{'role':'user','content':prompt.strip()}]
+        if not _generation_lock.acquire(blocking=False):return jsonify(error='Eine Antwort wird bereits berechnet.'),429
+        start=time.perf_counter()
+        try:
+            result,health=frontier_chat(row,messages,params['max_new_tokens'])
+            text,redacted=sanitize_output(result.get('answer',''))
+            elapsed=time.perf_counter()-start;generated=int(result.get('generated_tokens',0))
+            return jsonify(mode='trained-generation',model_generated=True,text=text,generated_tokens=generated,
+                           seconds=round(elapsed,4),tokens_per_second=round(generated/max(elapsed,1e-9),2),
+                           output_secret_redacted=redacted,cancelled=False,active_checkpoint=active_checkpoint,
+                           finish_reason=result.get('finish_reason'),'runtime_family':FRONTIER350_RUNTIME,
+                           device=health.get('device'),request_id=data.get('request_id'))
+        except FrontierUnavailable as e:return jsonify(error=str(e)),503
+        finally:_generation_lock.release()
     formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'
     ids=tokenizer.encode(formatted,bos=True)
     if len(ids)+params['max_new_tokens']>cfg.max_seq_len:return jsonify(error='Kontext und Antwort überschreiten gemeinsam das Modelllimit.'),413
@@ -325,7 +382,12 @@ def save_chat(key):
     except Conflict:return jsonify(error='Versionskonflikt. Lokale Kopie behalten und neu synchronisieren.',code='revision_conflict'),409
     except ValueError as e:return jsonify(error=str(e)),400
 @app.get('/api/health')
-def health():return jsonify(status='ready' if checkpoint_loaded else 'tools-only',device='cpu',busy=_generation_lock.locked(),streaming=True,sync=True)
+def health():
+    d=runtime_details()
+    return jsonify(status='ready' if checkpoint_loaded else 'tools-only',device=d['device'],
+                   runtime_family=active_runtime_family if checkpoint_loaded else None,
+                   busy=_generation_lock.locked(),streaming=d['streaming'],
+                   cancel_supported=d['cancel_supported'],sync=True)
 @app.errorhandler(Exception)
 def unexpected_error(error):
     incident=secrets.token_hex(6)
