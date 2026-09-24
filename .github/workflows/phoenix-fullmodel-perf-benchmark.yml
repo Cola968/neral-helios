@@ -49,10 +49,14 @@ jobs:
           if($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
 
           $configs=@(
-            @{name='s256_m1_a4_gc_compile'; seq=256; mb=1; accum=4; gc='on'; compile='default'},
-            @{name='s512_m1_a4_gc_compile'; seq=512; mb=1; accum=4; gc='on'; compile='default'},
-            @{name='s512_m2_a2_gc_compile'; seq=512; mb=2; accum=2; gc='on'; compile='default'},
-            @{name='s512_m1_a4_gc_eager';   seq=512; mb=1; accum=4; gc='on'; compile='none'}
+            # Re-measure the strongest previously observed 24/24 engineering shape.
+            @{name='s256_m16_a1_nogc_compile'; seq=256; mb=16; accum=1; gc='off'; compile='default'},
+            @{name='s256_m16_a1_nogc_eager';   seq=256; mb=16; accum=1; gc='off'; compile='none'},
+            # Probe 512-token contexts without assuming they fit; failures continue safely.
+            @{name='s512_m8_a1_nogc_compile';  seq=512; mb=8;  accum=1; gc='off'; compile='default'},
+            @{name='s512_m4_a2_nogc_compile';  seq=512; mb=4;  accum=2; gc='off'; compile='default'},
+            @{name='s512_m2_a4_gc_compile';    seq=512; mb=2;  accum=4; gc='on';  compile='default'},
+            @{name='s512_m1_a8_gc_eager';      seq=512; mb=1;  accum=8; gc='on';  compile='none'}
           )
 
           $successful=@()
@@ -72,7 +76,7 @@ jobs:
           $best=$successful | Sort-Object {[double]$_.tokens_per_second} -Descending | Select-Object -First 1
           $summary=[ordered]@{
             schema='phoenix_fullmodel_perf_matrix_v1'
-            classification='engineering_benchmark_only'
+            classification='fullmodel_compute_loop_benchmark_not_end_to_end'
             successful_configurations=$successful.Count
             best_seq=[int]$best.seq
             best_microbatch=[int]$best.microbatch
@@ -81,6 +85,10 @@ jobs:
             best_compile_mode=[string]$best.compile_mode
             best_tokens_per_second=[double]$best.tokens_per_second
             best_peak_cuda_reserved_mib=[double]$best.peak_cuda_reserved_mib
+            data_loader_included=$false
+            validation_included=$false
+            checkpoint_io_included=$false
+            compile_warmup_included=$false
             productive_training_tokens=0
             quality_improvement_verified=$false
           }
