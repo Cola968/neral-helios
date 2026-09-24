@@ -39,7 +39,7 @@ jobs:
           function ToWsl([string]$p) {
             $f=[IO.Path]::GetFullPath($p)
             if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
-            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\\','/')
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
           }
           $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_v1_' + $env:GITHUB_RUN_ID)
           if($repo.Contains("'")) { throw 'Unsafe quote in checkout path' }
@@ -53,7 +53,7 @@ jobs:
           function ToWsl([string]$p) {
             $f=[IO.Path]::GetFullPath($p)
             if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
-            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\\','/')
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
           }
 
           $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_v1_' + $env:GITHUB_RUN_ID)
