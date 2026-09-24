@@ -35,6 +35,9 @@ CLASSIFICATION = "DEVELOPMENT_ONLY_FP32_MASTER_FOUNDATION_REFRESH"
 PARAMETERS = 349_825_152
 MAX_TARGET = 20_000_000
 MAX_RESERVED_VRAM = 10 * 1024**3
+MAX_ROLLBACK_TOKENS = 1_000_000
+EVAL_INTERVAL_TOKENS = 1_048_576
+LOG_INTERVAL_TOKENS = 131_072
 SHA64 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -451,6 +454,9 @@ def main(argv=None) -> int:
                 "stop_after_new_tokens": args.stop_after_new_tokens,
                 "baseline_validation_loss": baseline_val,
                 "lineage": expected_lineage,
+                "checkpoint_max_rollback_tokens": MAX_ROLLBACK_TOKENS,
+                "eval_interval_tokens_approx": eval_every * update,
+                "log_interval_tokens_approx": log_every * update,
                 "master_parameter_dtype": "float32",
                 "adamw_moment_dtype": "float32",
                 "compute_autocast_dtype": "bfloat16",
@@ -487,15 +493,15 @@ def main(argv=None) -> int:
         journal = CheckpointJournal(
             out / "resume.pt", initial_sha256=args.resume_sha256,
             initial_tokens=processed, writer=lambda state, path: atomic_save(torch, state, path),
-            max_rollback_tokens=262_144, retain=3
+            max_rollback_tokens=MAX_ROLLBACK_TOKENS, retain=3
         )
 
     save_every = safe_save_every(
         seq=args.seq, microbatch=args.microbatch, accumulation=args.grad_accum,
-        max_rollback_tokens=262_144, requested=256
+        max_rollback_tokens=MAX_ROLLBACK_TOKENS
     )
-    eval_every = 256
-    log_every = 32
+    eval_every = max(1, EVAL_INTERVAL_TOKENS // update)
+    log_every = max(1, LOG_INTERVAL_TOKENS // update)
     invocation_start = processed
     invocation_wall = time.monotonic()
     last_log_time = invocation_wall
@@ -588,7 +594,7 @@ def main(argv=None) -> int:
                 journal = CheckpointJournal(
                     resume_path, initial_sha256=digest, initial_tokens=processed,
                     writer=lambda state, path: atomic_save(torch, state, path),
-                    max_rollback_tokens=262_144, retain=3
+                    max_rollback_tokens=MAX_ROLLBACK_TOKENS, retain=3
                 )
             else:
                 journal.commit(state, resume_path)
@@ -617,6 +623,10 @@ def main(argv=None) -> int:
         "master_parameter_dtype": "float32",
         "adamw_moment_dtype": "float32",
         "compute_autocast_dtype": "bfloat16",
+        "checkpoint_max_rollback_tokens": MAX_ROLLBACK_TOKENS,
+        "eval_interval_tokens_approx": eval_every * update,
+        "log_interval_tokens_approx": log_every * update,
+        "checkpoint_interval_updates": save_every,
         "peak_cuda_allocated_mib": round(torch.cuda.max_memory_allocated() / 1024**2, 1),
         "peak_cuda_reserved_mib": round(torch.cuda.max_memory_reserved() / 1024**2, 1),
         "training_wall_seconds": time.monotonic() - invocation_wall,
