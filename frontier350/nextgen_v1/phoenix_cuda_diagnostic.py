@@ -20,6 +20,9 @@ MIN_FREE_MIB = 9000
 IDLE_SAMPLES = 3
 IDLE_INTERVAL_SECONDS = 2
 MAX_TEMPERATURE_C = 78
+COOLDOWN_RESUME_C = 74
+COOLDOWN_POLL_SECONDS = 5
+COOLDOWN_MAX_SECONDS = 120
 
 
 def require_stably_idle_gpu() -> None:
@@ -40,22 +43,53 @@ def require_stably_idle_gpu() -> None:
             time.sleep(IDLE_INTERVAL_SECONDS)
 
 
-def require_safe_runtime_temperature() -> None:
-    """Monitor heat BETWEEN public prompts; inference itself raises utilization.
-
-    Do not use idle-utilization limits mid-inference: they would measure this
-    diagnostic's own work. Missing/malformed telemetry fails closed instead.
-    """
+def runtime_temperature_c() -> int:
+    """Return one fail-closed nvidia-smi temperature sample."""
     raw = subprocess.check_output(
         ["nvidia-smi", "--query-gpu=temperature.gpu",
          "--format=csv,noheader,nounits"], text=True, timeout=10,
     )
     rows = raw.strip().splitlines()
     if len(rows) != 1 or not rows[0].strip().isdecimal():
-        raise RuntimeError("GPU runtime temperature unavailable; stop inference")
+        raise RuntimeError("GPU runtime temperature unavailable")
     temperature = int(rows[0].strip())
-    if temperature < 0 or temperature > MAX_TEMPERATURE_C:
+    if temperature < 0:
+        raise RuntimeError("GPU runtime temperature malformed")
+    return temperature
+
+
+def require_safe_runtime_temperature() -> None:
+    """Strict check for diagnostics/benchmarks: do not continue above 78 C."""
+    temperature = runtime_temperature_c()
+    if temperature > MAX_TEMPERATURE_C:
         raise RuntimeError("GPU runtime temperature outside safety limit; stop inference")
+
+
+def cooldown_until_safe() -> dict:
+    """Pause compute after a thermal spike instead of discarding training lineage.
+
+    No CUDA work is performed while cooling. Resume only below a lower hysteresis
+    threshold. Telemetry failures or a GPU that does not cool within two minutes
+    still fail closed.
+    """
+    first = runtime_temperature_c()
+    if first <= MAX_TEMPERATURE_C:
+        return {"cooled": False, "initial_c": first, "final_c": first, "waited_seconds": 0}
+
+    waited = 0
+    temperature = first
+    while waited < COOLDOWN_MAX_SECONDS:
+        time.sleep(COOLDOWN_POLL_SECONDS)
+        waited += COOLDOWN_POLL_SECONDS
+        temperature = runtime_temperature_c()
+        if temperature <= COOLDOWN_RESUME_C:
+            return {
+                "cooled": True, "initial_c": first, "final_c": temperature,
+                "waited_seconds": waited,
+            }
+    raise RuntimeError(
+        f"GPU remained above cooldown resume threshold after {waited}s; stop compute"
+    )
 
 
 def require_cuda_ready(torch) -> None:
