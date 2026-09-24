@@ -5,17 +5,18 @@ on:
     branches: [experiment/phoenix-blind-ab-audit-20260919]
     paths:
       - '.github/workflows/phoenix-auto-sft-diagnostic.yml'
-      - 'frontier350/nextgen_v1/phoenix_auto_sft_diagnostic.py'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: neral-nextgen-local-gpu-training
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   real-auto-sft:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 30
     steps:
