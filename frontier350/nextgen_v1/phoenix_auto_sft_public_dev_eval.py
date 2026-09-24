@@ -27,7 +27,7 @@ from phoenix_weight_only_pilot import _checked_historical_weights
 
 BASE_SHA = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 PARAMETERS = 349_825_152
-CANDIDATE_SCHEMA = "phoenix_auto_sft_diagnostic_v1"
+CANDIDATE_SCHEMA = "phoenix_auto_sft_diagnostic_v2_fp32_master"
 CANDIDATE_CLASS = "auto_screened_public_oasst2_diagnostic_not_human_approved"
 
 
@@ -155,6 +155,9 @@ def load_candidate(torch, path: Path, expected_sha: str, config: dict):
             state.get("config") != config or
             state.get("tokenizer_sha256") != TOKENIZER_SHA or
             state.get("production_eligible") is not False or
+            state.get("master_parameter_dtype") != "float32" or
+            state.get("adamw_moment_dtype") != "float32" or
+            state.get("compute_autocast_dtype") != "bfloat16" or
             state.get("human_review_complete") is not False or
             state.get("independent_holdout_checked") is not False or
             not isinstance(state.get("model"), dict)):
@@ -233,7 +236,11 @@ def main(argv=None) -> int:
         "suite_sha256": suite_sha256(),
         "base_sha256": BASE_SHA,
         "candidate_sha256": args.candidate_sha256,
-        "candidate_meta": candidate_meta,
+        "candidate_meta": candidate_meta | {
+            "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
+        },
         "baseline": baseline,
         "candidate": candidate,
         "delta_candidate_minus_base": deltas,
