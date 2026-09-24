@@ -367,6 +367,11 @@ def generate():
         if params['temperature']!=0:return jsonify(error='Frontier 350 läuft derzeit deterministisch. Stelle Temperatur auf 0.'),400
         row=imported_models().get(active_checkpoint)
         if not row:return jsonify(error='Aktiver Frontier-Checkpoint ist nicht mehr registriert.'),503
+        try:
+            global active_frontier_health
+            active_frontier_health=ensure_frontier_running(row,STATE,BASE/'frontier_runtime.py')
+        except FrontierUnavailable as e:
+            return jsonify(error=str(e)),503
         messages=[*history,{'role':'user','content':prompt.strip()}]
         job=data.get('request_id',secrets.token_hex(16))
         if not isinstance(job,str) or not re.fullmatch(r'[a-zA-Z0-9-]{16,64}',job):return jsonify(error='Ungültige Anfrage-ID.'),400
