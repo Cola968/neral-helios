@@ -60,30 +60,26 @@ def atomic_save(torch, state: dict, path: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -> dict:
-    if not SHA64.fullmatch(expected_sha):
-        raise ValueError("full refresh manifest SHA required")
-    root = root.resolve(strict=True)
-    manifest_path = root / "manifest.json"
-    if not manifest_path.is_file() or manifest_path.is_symlink():
-        raise ValueError("regular refresh manifest required")
-    if sha256_file(manifest_path) != expected_sha:
-        raise ValueError("refresh manifest SHA mismatch")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+def validate_refresh_manifest_contract(manifest: dict, tokenizer_sha: str,
+                                      source_lock_sha: str) -> dict:
+    """Validate policy/lineage metadata without touching shards or CUDA."""
     if (
-        manifest.get("schema") != 1
+        not isinstance(manifest, dict)
+        or manifest.get("schema") != 1
         or manifest.get("architecture") != "frontier350-v1"
         or manifest.get("corpus_role") != "foundation-pretraining-refresh-development"
         or manifest.get("classification") != "DEVELOPMENT_ONLY_NOT_PRODUCTION_APPROVED"
         or manifest.get("continuation_from_tokens") != EXPECTED_TOKENS
         or manifest.get("continuation_from_checkpoint_sha256") != CONTINUITY_SHA
         or manifest.get("new_train_tokens") != MAX_TARGET
+        or type(manifest.get("validation_tokens")) is not int
+        or manifest["validation_tokens"] <= 0
         or manifest.get("production_eligible") is not False
         or manifest.get("historical_2b_document_overlap_checked") is not False
         or manifest.get("train_validation_exact_document_disjoint") is not True
     ):
         raise ValueError("refresh manifest lineage/classification contract mismatch")
-    if manifest.get("source_lock_sha256") != sha256_file(LOCK_PATH):
+    if manifest.get("source_lock_sha256") != source_lock_sha:
         raise ValueError("refresh corpus source lock differs from current repository lock")
     if manifest.get("continuation_profile") != "phoenix-quality-refresh-v2-approved-sources":
         raise ValueError("legacy/unapproved refresh profile blocked; rebuild corpus with current policy")
@@ -96,6 +92,7 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
 
     receipts = manifest.get("source_policy")
     mix = manifest.get("source_mix")
+    expected_names = {"fineweb_edu_en", "fineweb_en", "fineweb2_de"}
     expected_ids = {
         "HuggingFaceFW/fineweb-edu",
         "HuggingFaceFW/fineweb",
@@ -103,14 +100,19 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
     }
     if not isinstance(receipts, dict) or not isinstance(mix, dict):
         raise ValueError("refresh source policy/mix receipt missing")
-    if set(receipts) != set(mix) or set(receipts) != {"fineweb_edu_en", "fineweb_en", "fineweb2_de"}:
+    if set(receipts) != set(mix) or set(receipts) != expected_names:
         raise ValueError("refresh source-family set changed")
+    if any(type(v) not in (int, float) or not math.isfinite(float(v)) or float(v) <= 0
+           for v in mix.values()):
+        raise ValueError("refresh source mix contains invalid share")
     if abs(sum(float(v) for v in mix.values()) - 1.0) > 1e-9:
         raise ValueError("refresh source mix does not sum to one")
+    observed_ids = set()
     for receipt in receipts.values():
         if not isinstance(receipt, dict):
             raise ValueError("invalid refresh source-policy receipt")
         dataset_id = receipt.get("dataset_id")
+        observed_ids.add(dataset_id)
         policy = SOURCES.get(dataset_id)
         if (
             dataset_id not in expected_ids
@@ -119,12 +121,31 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
             or policy.role != "pretrain"
             or receipt.get("role") != policy.role
             or receipt.get("license") != policy.license
+            or receipt.get("content_origin") != policy.content_origin
         ):
             raise ValueError(f"refresh source is not currently admitted: {dataset_id}")
+    if observed_ids != expected_ids:
+        raise ValueError("refresh source-policy receipts do not cover exact admitted families")
 
     token = manifest.get("tokenizer", {})
     if token.get("vocab_size") != 16_384 or token.get("tokenizer_sha256") != tokenizer_sha:
         raise ValueError("refresh manifest tokenizer contract mismatch")
+    return {"source_names": expected_names, "source_ids": expected_ids}
+
+
+def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -> dict:
+    if not SHA64.fullmatch(expected_sha):
+        raise ValueError("full refresh manifest SHA required")
+    root = root.resolve(strict=True)
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise ValueError("regular refresh manifest required")
+    if sha256_file(manifest_path) != expected_sha:
+        raise ValueError("refresh manifest SHA mismatch")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validate_refresh_manifest_contract(
+        manifest, tokenizer_sha=tokenizer_sha, source_lock_sha=sha256_file(LOCK_PATH)
+    )
 
     def checked_files(role: str, subdir: str):
         rows = manifest.get(role)
@@ -132,6 +153,7 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
             raise ValueError(f"missing {role}")
         paths = []
         seen = set()
+        total_tokens = 0
         for row in rows:
             if not isinstance(row, dict) or set(row) != {"path", "tokens", "sha256"}:
                 raise ValueError(f"invalid {role} row")
@@ -152,13 +174,19 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
                 raise ValueError(f"{role} shard SHA mismatch")
             seen.add(name)
             paths.append(path)
-        return paths
+            total_tokens += tokens
+        return paths, total_tokens
 
-    train = checked_files("train_files", "train")
-    valid = checked_files("valid_files", "valid")
+    train, train_tokens = checked_files("train_files", "train")
+    valid, valid_tokens = checked_files("valid_files", "valid")
+    if train_tokens != manifest["new_train_tokens"] or valid_tokens != manifest["validation_tokens"]:
+        raise ValueError("refresh shard token totals disagree with manifest")
     if {sha256_file(p) for p in train} & {sha256_file(p) for p in valid}:
         raise ValueError("identical train/validation shard bytes")
-    return {"manifest": manifest, "train": train, "valid": valid, "root": root}
+    return {
+        "manifest": manifest, "train": train, "valid": valid, "root": root,
+        "train_tokens": train_tokens, "valid_tokens": valid_tokens,
+    }
 
 
 def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
