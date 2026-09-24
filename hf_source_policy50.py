@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 
-REGISTRY_VERSION = 3
+REGISTRY_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,12 @@ SOURCES = {
     "HuggingFaceTB/finemath": SourcePolicy(
         "HuggingFaceTB/finemath", "future-pretrain-candidate", "ODC-By-1.0", "web-human-filtered",
         False, False, "Promising math corpus, but adding it mid-I1 would change the frozen curriculum; audit before I2."),
+    "databricks/databricks-dolly-15k": SourcePolicy(
+        "databricks/databricks-dolly-15k", "future-sft-human-candidate", "CC-BY-SA-3.0", "human-employee-authored",
+        False, False, "Human-authored instruction data; candidate only until attribution/share-alike implications, overlap and privacy/content review are completed."),
+    "HuggingFaceH4/no_robots": SourcePolicy(
+        "HuggingFaceH4/no_robots", "blocked-noncommercial-sft", "CC-BY-NC-4.0", "human-annotated",
+        False, False, "High-quality human SFT data, but the non-commercial license is incompatible with automatic admission to Neral's intended unrestricted path."),
     "HuggingFaceTB/stack-edu": SourcePolicy(
         "HuggingFaceTB/stack-edu", "future-pretrain-candidate", "UNVERIFIED-MIXED", "code-found-filtered",
         False, False, "Useful code corpus, but file-level/source licensing must be resolved before Neral training."),
@@ -103,6 +109,7 @@ SOURCES = {
 ALLOWED_ROLES = {
     "pretrain", "sft-human", "public-eval-holdout", "future-pretrain-candidate",
     "blocked-external-synthetic", "blocked-mixed-sft",
+    "future-sft-human-candidate", "blocked-noncommercial-sft",
 }
 
 
