@@ -23,9 +23,13 @@ Nach erfolgreicher Auswahl merkt Helios nur die Modell-ID und stellt dieselbe ex
 
 ## Arctus technisch qualifizieren
 
-Sobald das bereinigte Bundle unter `deployment/installed_models/neral-arctus-350` liegt und eine CUDA/BF16-Python-Umgebung verfügbar ist, genügt unter Windows ein Doppelklick auf:
+Der einfachste Weg ist jetzt ein Doppelklick auf:
 
-`Qualify Arctus.cmd`
+`Setup Arctus 350.cmd`
+
+Falls das bereinigte Bundle noch fehlt, öffnet der Launcher zwei Dateidialoge: zuerst für den bekannten 2.073B-Arctus-Checkpoint, danach für die zugehörige `tokenizer.json`. Die fest eingebauten SHA-256-Werte, Architektur und Gewichte werden geprüft; anschließend wird der minimale `frontier350-inference-v1`-Export erzeugt und direkt die RTX-Qualifikation gestartet. Existiert `deployment/installed_models/neral-arctus-350` bereits, wird der Import übersprungen und direkt qualifiziert.
+
+Für einen bereits eingerichteten Bundle kann alternativ nur `Qualify Arctus.cmd` gestartet werden.
 
 Der Launcher sucht automatisch nach `HELIOS_FRONTIER_PYTHON`, `NERAL_FRONTIER_PYTHON`, einer Projekt-`.venv`, der lokalen Helios-Python-Umgebung und danach nach `python.exe`. Verwendet wird nur eine Umgebung, in der CUDA, BF16 und `tokenizers` tatsächlich funktionieren.
 
