@@ -13,23 +13,29 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from build_targeted_sft50_sources import (
-    TARGET_TRAIN_EXAMPLES, _normalize, _source, _split_for_prompt,
+    _normalize, _source, _split_for_prompt,
     _targeted_v1_prompts, _write_jsonl, generate_code, generate_de_core,
     generate_math, generate_reasoning,
 )
 
+SPRINT_TRAIN_EXAMPLES = 12_000
 WEIGHTS = {
-    "oasst2-human-en": 0.565,
+    # Same strict human filters as I1, but sized to measured clean capacity.
+    "oasst2-human-en": 0.415,
     "oasst2-human-de": 0.035,
-    "neral-generated-de-core": 0.14,
-    "neral-generated-math-de": 0.06,
-    "neral-generated-math-en": 0.06,
-    "neral-generated-code-de": 0.035,
-    "neral-generated-code-en": 0.045,
-    "neral-generated-reasoning-de": 0.03,
-    "neral-generated-reasoning-en": 0.03,
+    "neral-generated-de-core": 0.18,
+    "neral-generated-math-de": 0.08,
+    "neral-generated-math-en": 0.08,
+    "neral-generated-code-de": 0.05,
+    "neral-generated-code-en": 0.07,
+    "neral-generated-reasoning-de": 0.045,
+    "neral-generated-reasoning-en": 0.045,
 }
 HUMAN = ("oasst2-human-en", "oasst2-human-de")
+# Prior I1 preparation with the same cleaner supported at least the old 5,250 EN
+# and 750 DE quotas at the 1024-byte prefilter. Keep sprint quotas below those.
+MEASURED_SAFE_EN_TRAIN = 5_250
+MEASURED_SAFE_DE_TRAIN = 750
 
 
 def build(root: Path, per_generated_source: int = 6000) -> dict:
@@ -80,7 +86,7 @@ def build(root: Path, per_generated_source: int = 6000) -> dict:
         for row in rows:
             unique.setdefault((_normalize(row["prompt"]), _normalize(row["answer"])), row)
         train_n = sum(_split_for_prompt(r["prompt"]) == "train" for r in unique.values())
-        required = round(TARGET_TRAIN_EXAMPLES * WEIGHTS[sid])
+        required = round(SPRINT_TRAIN_EXAMPLES * WEIGHTS[sid])
         if train_n < required:
             raise ValueError(f"{sid}: {train_n} train rows < required {required}")
         path = root / f"{sid}.jsonl"
@@ -88,16 +94,19 @@ def build(root: Path, per_generated_source: int = 6000) -> dict:
         sources.append(_source(sid, path, lang, domain, WEIGHTS[sid], allow_row_domains))
         capacity[sid] = {"train": train_n, "required_at_20k": required}
 
-    # Preserve enough headroom for the measured ~805 clean German OASST2 train rows.
-    if round(TARGET_TRAIN_EXAMPLES * WEIGHTS["oasst2-human-de"]) > 750:
-        raise ValueError("German OASST2 quota exceeds conservative clean-capacity budget")
+    en_quota = round(SPRINT_TRAIN_EXAMPLES * WEIGHTS["oasst2-human-en"])
+    de_quota = round(SPRINT_TRAIN_EXAMPLES * WEIGHTS["oasst2-human-de"])
+    if en_quota > MEASURED_SAFE_EN_TRAIN or de_quota > MEASURED_SAFE_DE_TRAIN:
+        raise ValueError("human OASST2 quota exceeds measured strict-clean capacity")
 
     manifest["sources"] = sources
-    manifest["recommended_train_examples"] = TARGET_TRAIN_EXAMPLES
+    manifest["recommended_train_examples"] = SPRINT_TRAIN_EXAMPLES
     manifest["human_source_family"] = "OpenAssistant/oasst2"
     manifest["sprint72h"] = {
         "schema": 1,
         "human_share": sum(WEIGHTS[s] for s in HUMAN),
+        "target_train_examples": SPRINT_TRAIN_EXAMPLES,
+        "length_policy": "1024-byte conservative prefilter, then exact <=512 Neral-token filter in trainer",
         "external_model_calls": False,
         "weights": WEIGHTS,
         "generated_capacity": capacity,
