@@ -18,8 +18,6 @@ from phoenix_continuity_cpu_probe import require_pinned_checkpoint
 from phoenix_master_precision import require_fp32_trainable_subset
 from sft_eval_contract import dynamic_batch_width,token_weighted_loss,validation_indices
 
-HISTORICAL_SHA="f7a73e283421975acc34e13afc38378be4eab11da34e13afc38378be4eab11d"
-# Correct constant assigned explicitly below to make accidental edits obvious.
 HISTORICAL_SHA="f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 SCHEMA="phoenix_chatbot_v2_conservative_behavior_v1"
 CLASSIFICATION="project_owned_chatbot_v2_conservative_behavior_development_only"
