@@ -2,6 +2,12 @@ name: Phoenix 350M full-model RTX 4070 performance benchmark
 
 on:
   workflow_dispatch:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fullmodel-perf-benchmark.yml'
+      - 'frontier350/nextgen_v1/phoenix_fullmodel_perf_benchmark.py'
+      - 'frontier350/nextgen_v1/phoenix_master_precision.py'
 
 permissions:
   contents: read
