@@ -30,6 +30,9 @@ CONFIGS=(
     {"name":"lr5e6_s100","lr":5e-6,"steps":100},
     {"name":"lr8e6_s80","lr":8e-6,"steps":80},
 )
+TRUTHFULNESS_ONLY_CONFIGS=(
+    {"name":"lr2e6_s120_truthfulness","lr":2e-6,"steps":120},
+)
 MAX_RESERVED=9*1024**3
 PROTECT_PUBLIC=("nis2_exact_generation_pct","nis2_instruction_following_pct",
                 "nis2_dialogue_state_pct","nis2_robustness_pct",
@@ -71,7 +74,8 @@ def exact_eval_screen()->dict:
 
 
 def repair_gate(historical_public,candidate_public,repaired_public,
-                candidate_fresh,repaired_fresh,val_before,val_after)->dict:
+                candidate_fresh,repaired_fresh,val_before,val_after,
+                require_knowledge_gain:bool=True)->dict:
     public_delta={k:repaired_public[k]-candidate_public[k] for k in repaired_public
                   if isinstance(repaired_public[k],(int,float)) and isinstance(candidate_public.get(k),(int,float))}
     truthfulness_repaired=(repaired_public["nis2_truthfulness_pct"]>=historical_public["nis2_truthfulness_pct"])
@@ -86,11 +90,12 @@ def repair_gate(historical_public,candidate_public,repaired_public,
     fresh_nonregression=repaired_fresh["correct"]>=candidate_fresh["correct"] and not lost
     validation_improved=val_after<val_before
     passed=all((truthfulness_repaired,public_protected,free_protected,core_preserved,
-                knowledge_gain,fresh_nonregression,validation_improved))
+                (knowledge_gain or not require_knowledge_gain),fresh_nonregression,validation_improved))
     return {"passed":passed,"truthfulness_repaired_to_historical":truthfulness_repaired,
             "public_behavior_protected":public_protected,"free_answer_protected":free_protected,
             "fresh_core_behavior_preserved":core_preserved,"fresh_knowledge_gain":knowledge_gain,
             "fresh_nonregression":fresh_nonregression,"validation_improved":validation_improved,
+            "knowledge_gain_required":require_knowledge_gain,
             "public_delta_vs_behavior_candidate":public_delta,"fresh_gained":gained,"fresh_lost":lost}
 
 
@@ -111,6 +116,7 @@ def main(argv=None)->int:
     p.add_argument("--behavior-sha256",default=BEHAVIOR_SHA)
     p.add_argument("--assets-root",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
+    p.add_argument("--truthfulness-only",action="store_true")
     a=p.parse_args(argv)
     if not a.execute or not a.trusted_own_checkpoints:p.error("explicit execution/trust required")
     if a.out.exists() or a.out.is_symlink() or not a.out.is_absolute():p.error("new absolute output required")
@@ -185,7 +191,8 @@ def main(argv=None)->int:
 
     a.out.mkdir(parents=True,exist_ok=False)
     results=[];best=None
-    for cfg in CONFIGS:
+    configs=TRUTHFULNESS_ONLY_CONFIGS if a.truthfulness_only else CONFIGS
+    for cfg in configs:
         guard.require_safe_runtime_temperature()
         seed=20260924+11
         random.seed(seed);np.random.seed(seed);torch.manual_seed(seed);torch.cuda.manual_seed_all(seed)
@@ -217,7 +224,8 @@ def main(argv=None)->int:
         del model,optimizer;torch.cuda.empty_cache()
         repaired_public=public_metrics(snapshot);repaired_fresh=fresh_metrics(snapshot)
         gate=repair_gate(historical_public,candidate_public,repaired_public,
-                         candidate_fresh,repaired_fresh,baseline_val,after_val)
+                         candidate_fresh,repaired_fresh,baseline_val,after_val,
+                         require_knowledge_gain=not a.truthfulness_only)
         result={"config":cfg,"supervised_tokens":supervised,"trainable_blocks":2,
                 "training_wall_seconds":elapsed,"mean_train_loss":sum(losses)/len(losses),
                 "validation_loss_before":baseline_val,"validation_loss_after":after_val,
@@ -234,6 +242,7 @@ def main(argv=None)->int:
                    "train_blocks":2,"dataset_report":data_report,"development_gate":gate,
                    "development_public_metrics":repaired_public,
                    "development_fresh_summary":{"correct":repaired_fresh["correct"],"total":repaired_fresh["total"]},
+                   "repair_mode":"truthfulness_only" if a.truthfulness_only else "knowledge_truthfulness",
                    "production_eligible":False,"independent_holdout_checked":False,
                    "quality_gain_verified":False}
             atomic_save(torch,state,path);result["candidate_file"]=path.name;result["candidate_sha256"]=sha_file(path)
@@ -248,6 +257,7 @@ def main(argv=None)->int:
             "historical_public_metrics":historical_public,"behavior_public_metrics":candidate_public,
             "behavior_fresh_summary":{"correct":candidate_fresh["correct"],"total":candidate_fresh["total"]},
             "validation_loss_before":baseline_val,"results":results,
+            "repair_mode":"truthfulness_only" if a.truthfulness_only else "knowledge_truthfulness",
             "development_gate_passed":best is not None,
             "selected_candidate":None if best is None else {
                 "config":best["config"],"candidate_file":best["candidate_file"],
@@ -256,7 +266,7 @@ def main(argv=None)->int:
                 "gate":best["gate"]},
             "external_sft_text_used":False,"private_holdout_opened":False,
             "production_eligible":False,"quality_gain_verified":False,
-            "next_action":"iterate_repair_recipe" if best is None else "expand_dialogue_with_reviewed_human_data_or_add_second_fresh_audit"}
+            "next_action":"iterate_repair_recipe" if best is None else ("run_separate_knowledge_lane" if a.truthfulness_only else "expand_dialogue_with_reviewed_human_data_or_add_second_fresh_audit")}
     (a.out/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     print(json.dumps({"event":"chatbot_v1_knowledge_repair_complete","development_gate_passed":best is not None,
       "selected_candidate":None if best is None else {"config":best["config"],"sha256":best["candidate_sha256"],
