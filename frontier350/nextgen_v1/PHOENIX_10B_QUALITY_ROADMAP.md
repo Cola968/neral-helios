@@ -9,8 +9,9 @@ Status: execution plan for the experimental Phoenix lineage. This is not a claim
 - Foundation target used by the repository: 10,000,000,000 tokens.
 - Remaining to that ceiling: 7,926,838,784 tokens.
 - Current free-answer development evidence is poor (0/8 strict on the documented short suite), so token count alone is not a success metric.
-- Full-size BF16 forward/backward/AdamW/checkpoint mechanics are proven on the owner's RTX 4070 by Actions run 35884287374.
-- Existing ~43.9k tok/s real-data profiling is an upper-four-block workload, not a verified 24/24-block foundation rate.
+- Full-size BF16 engineering forward/backward/AdamW/checkpoint mechanics are proven on the owner's RTX 4070 by Actions run 35884287374; this is not the precision contract for the new productive lineage.
+- New productive warm-start training uses **FP32 master parameters + FP32 AdamW moments + BF16 CUDA autocast compute**. Its sustainable 24/24-layer throughput is not measured yet.
+- Existing ~43.9k tok/s upper-four-block and ~18.65k tok/s BF16-master full-model engineering rates are references only, not productive FP32-master throughput.
 
 ## Principle
 
@@ -65,16 +66,16 @@ Do not extrapolate the four-block 43.9k tok/s result.
 
 Benchmark the exact 24/24-block model on the RTX 4070 with the immutable anchor and a disposable local output:
 
-- BF16 + TF32;
+- FP32 master parameters and FP32 AdamW moments;
+- BF16 CUDA autocast compute + TF32 matmul where applicable;
 - fused AdamW;
 - persistent mmap loader;
-- torch.compile(default) as baseline;
-- contexts 512 first, then 1024 only if quality/data warrants it;
-- microbatch sweep to the largest stable value below a conservative VRAM ceiling;
-- target 16k–32k tokens per optimizer update using gradient accumulation;
-- prewarm the RoPE cache before compiled training;
+- torch.compile(default) vs eager;
+- start with seq=256 and the exact safe 1×4 / 2×2 / 4×1 update geometries used by the bounded refresh path;
 - compare gradient checkpointing on/off;
-- include compilation, data loading, validation and checkpoint overhead in end-to-end rate.
+- keep reserved VRAM below the conservative 10 GiB ceiling;
+- only enlarge context/update geometry after this precision-correct baseline is stable;
+- include compilation, data loading, validation and checkpoint overhead before calling any rate end-to-end.
 
 Acceptance: same data order/seed and numerically sane loss/gradients; no OOM/thermal guard; exact resume tested; choose the highest **sustainable end-to-end** full-model rate, not the highest synthetic kernel number.
 
@@ -92,54 +93,41 @@ Remaining 7.927B tokens would take, before extra evaluation/checkpoint overhead:
 
 44k is not currently proven for full-model training. Measure first.
 
-## Measured RTX 4070 foundation performance — 23 Sep 2026
+## RTX 4070 performance evidence and precision correction
 
-The earlier 15k–30k full-model planning range is superseded by real 24/24-layer
-measurements on the owner's RTX 4070 and the current refresh corpus.
+On 23 September, BF16-master engineering probes reached up to ~18.65k tok/s at
+seq256/micro16/compile. Those measurements were useful for proving compute shape and compile
+benefit, but **they are no longer the planning rate for productive Phoenix training**.
 
-- seq256 / micro4 / eager / no activation checkpointing: ~5.45k–6.15k tok/s
-- seq256 / micro8 / eager: ~9.90k tok/s
-- seq256 / micro12 / eager: ~12.91k tok/s
-- seq256 / micro16 / eager: **~13.62k–13.67k tok/s**
-- seq256 / micro16 / torch.compile(default): **~18.65k tok/s**
-- compile warmup at micro16: ~42.3 s vs ~1.2 s eager
-- compile steady-state speedup at micro16: **1.37x**
-- calculated compile break-even: ~506 optimizer updates
-- micro16 compile peak reserved VRAM in the probe: ~6.45 GiB
-- post-probe GPU temperature: 54 C
+As of 24 September, the new-lineage precision contract is:
 
-These are engineering-loop measurements, not whole-stage wall-clock throughput.
-Checkpointing, validation and compilation overhead reduce end-to-end rate. For
-long fresh lineages, micro16 + compile is currently the preferred candidate.
-Existing resumable lineages must keep their original update geometry and compile
-identity; never mutate them mid-run.
+- FP32 serialized master parameters;
+- FP32 AdamW first/second moments;
+- BF16 CUDA autocast for forward/backward compute;
+- exact resume must preserve this precision identity.
 
-At 18.65k tok/s pure training-loop speed, the 7.927B-token distance from the
-historical anchor to the 10B ceiling is still about 118 hours / 4.9 days before
-evaluation/checkpoint overhead. Therefore 10B remains a ceiling, not a near-term
-quality milestone.
+The prepared benchmark now tests this exact contract at seq256 with 1×4, 2×2 and 4×1
+microbatch/accumulation shapes, eager vs compile, and checkpointing on/off. Until that benchmark
+runs on the RTX 4070, sustainable productive tok/s is **unknown**. Therefore the runtime table
+above is scenario planning only, not a current ETA.
 
 ## Phase 2 — continue foundation training in quality-gated stages
 
-The current 350M builder contains a **proposed** quality-oriented recipe:
+The production builder now has an explicit **policy-approved baseline v2**:
 
-- 52% FineWeb-Edu EN
-- 20% FineWeb EN
-- 13% FineWeb-2 DE
-- 15% FineMath
+- 61% FineWeb-Edu EN
+- 24% FineWeb EN
+- 15% FineWeb-2 DE
+- 0% FineMath
 
-This recipe is **not currently authorized as a whole**. FineWeb, FineWeb-Edu and
-FineWeb-2 are admitted source families, while `HuggingFaceTB/finemath` is still a
-future pretraining candidate in `hf_source_policy50.py`. The production corpus builder
-must therefore fail closed until one of two explicit decisions is committed:
+The smaller development refresh intentionally uses 55% FineWeb-Edu / 15% FineWeb / 30%
+FineWeb-2 DE to stress bilingual preservation. Both recipes call the executable source policy
+before any network/data side effect.
 
-1. FineMath passes candidate admission (immutable revision/file hashes, deterministic
-   cleaning provenance, zero reserved-benchmark contamination in the required screens)
-   and the central source policy is explicitly changed; or
-2. a different fully admitted foundation recipe is reviewed and committed.
-
-Do **not** silently renormalize the remaining 85%, bypass the policy gate, or treat
-`source_lock.json` as authorization. A lock proves source identity, not permission.
+`HuggingFaceTB/finemath` remains a separately pinned candidate. It can be introduced only
+after candidate admission (immutable revision/file hashes, deterministic cleaning provenance,
+reserved-benchmark contamination screening) and an explicit policy/recipe change. Do not treat
+`source_lock.json` as authorization; a lock proves identity, not permission.
 
 For every admitted recipe keep immutable source revisions, license/provenance receipts,
 exact document dedupe, train/validation disjointness and the locked 16,384-token BPE.
