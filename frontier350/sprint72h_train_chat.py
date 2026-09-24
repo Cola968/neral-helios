@@ -73,7 +73,10 @@ def main() -> int:
                    help="resume exactly from out/resume.pt; data and hyperparameters must match")
     p.add_argument("--replay-root", type=Path)
     p.add_argument("--train-blocks", type=int, choices=(4, 6, 8), default=8)
-    p.add_argument("--steps", type=int, default=2000)
+    p.add_argument("--steps", type=int, default=2000,
+                   help="fixed trajectory target; keep unchanged across resume invocations")
+    p.add_argument("--stop-after-step", type=int, default=0,
+                   help="optional staged pause <= steps; does not change optimizer trajectory")
     p.add_argument("--batch", type=int, choices=(2, 4), default=4)
     p.add_argument("--context", type=int, choices=(256, 384, 512), default=512)
     p.add_argument("--peak-lr", type=float, default=1.5e-5)
@@ -89,6 +92,9 @@ def main() -> int:
         p.error("explicit own-checkpoint opt-in required")
     if not 200 <= args.steps <= 5000:
         p.error("steps must be 200..5000")
+    invocation_stop = args.stop_after_step or args.steps
+    if not 1 <= invocation_stop <= args.steps:
+        p.error("stop-after-step must be 1..steps or zero for the full trajectory")
     if not 0.70 <= args.sft_weight <= 1.0:
         p.error("sft-weight must be 0.70..1.0")
     if not 1.0 <= args.eos_weight <= 3.0:
@@ -97,6 +103,8 @@ def main() -> int:
         p.error("invalid learning rate")
     if min(args.eval_every, args.patience) <= 0:
         p.error("positive eval interval/patience required")
+    if invocation_stop < args.steps and invocation_stop % args.eval_every:
+        p.error("intermediate stop-after-step must align to eval-every")
     resume_path = args.out / "resume.pt"
     if args.resume:
         if not args.out.is_dir() or not resume_path.is_file():
@@ -313,6 +321,8 @@ def main() -> int:
         start_step = int(state.get("sft_step", -1))
         if not 0 < start_step < args.steps:
             raise ValueError("resume step is outside the active sprint")
+        if start_step >= invocation_stop:
+            raise ValueError("resume is already at or beyond this staged stop")
         saved = state.get("trainable_model")
         if not isinstance(saved, dict) or set(saved) != set(trainable_names):
             raise ValueError("resume trainable-weight set changed")
@@ -383,7 +393,7 @@ def main() -> int:
     model.train()
     stop_reason = "max_steps"
     step = start_step
-    for step in range(start_step + 1, args.steps + 1):
+    for step in range(start_step + 1, invocation_stop + 1):
         lr = lr_at(step)
         for group in optimizer.param_groups:
             group["lr"] = lr
@@ -486,6 +496,9 @@ def main() -> int:
     elapsed = time.monotonic() - started
     if best_step == 0:
         raise RuntimeError("SFT validation never improved; do not promote a chat candidate")
+    if stop_reason == "max_steps" and step < args.steps:
+        stop_reason = "stage_boundary"
+    training_complete = stop_reason == "early_stopping" or step >= args.steps
     best_path = args.out / "best_chat.pt"
     summary = {
         "event": "helios_chat_sprint72h_finished",
@@ -497,6 +510,9 @@ def main() -> int:
         "resumed_from_step": start_step,
         "completed_step": step,
         "stop_reason": stop_reason,
+        "training_complete": training_complete,
+        "trajectory_target_steps": args.steps,
+        "invocation_stop_step": invocation_stop,
         "train_blocks": args.train_blocks,
         "trainable_parameters": trainable_parameters,
         "supervised_answer_tokens": supervised_tokens,
@@ -507,8 +523,11 @@ def main() -> int:
         "quality_verified": False,
         "next_gate": "free-answer + multi-turn chat evaluation before release",
     }
-    (args.out / "summary.json").write_text(
+    (args.out / "stage_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf8")
+    if training_complete:
+        (args.out / "summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf8")
     print(json.dumps(summary, indent=2, ensure_ascii=False), flush=True)
     return 0
 
