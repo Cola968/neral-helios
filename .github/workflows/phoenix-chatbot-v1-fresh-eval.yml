@@ -1,0 +1,96 @@
+name: Phoenix Chatbot v1 fresh generation audit
+
+on:
+  push:
+    branches: [experiment/chatbot-v1-pilot-20260924]
+    paths:
+      - '.github/workflows/phoenix-chatbot-v1-fresh-eval.yml'
+      - 'frontier350/nextgen_v1/phoenix_chatbot_v1_fresh_eval.py'
+      - 'frontier350/nextgen_v1/test_chatbot_v1_fresh_eval.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  fresh-generation-audit:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact fresh-audit revision without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_chatbot_fresh_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Compile and run fresh-audit CPU contracts
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_fresh_' + $env:GITHUB_RUN_ID)
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_chatbot_v1_fresh_eval.py frontier350/nextgen_v1/test_chatbot_v1_fresh_eval.py; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/test_chatbot_v1_fresh_eval.py"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Fresh Chatbot-v1 audit contracts failed' }
+
+      - name: Compare unchanged anchor and Chatbot-v1 winner on fresh generations
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_fresh_' + $env:GITHUB_RUN_ID)
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $candidate='D:\NeralPrivateAssets\phoenix\chatbot_v1_36026707161\candidate_lr2e5_s40.pt'
+          $candidateSha='2221a57dadb4fba137c6b1da9b07dd4e00a3f34361219fc2a9b1fbee5c3b2674'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $out='D:\NeralPrivateAssets\phoenix\chatbot_v1_36026707161\fresh_eval_' + $env:GITHUB_RUN_ID + '.json'
+
+          foreach($p in @($repo,$base,$candidate,$assets,$out)) { if($p.Contains("'")) { throw 'Unsafe quote in path' } }
+          foreach($p in @($base,$candidate)) { if(-not(Test-Path -LiteralPath $p -PathType Leaf)) { throw "Required checkpoint missing: $p" } }
+          if(-not(Test-Path -LiteralPath $assets -PathType Container)) { throw 'Assets root missing' }
+          if(Test-Path -LiteralPath $out) { throw 'Create-only fresh audit output already exists' }
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $candidateSha) { throw 'Chatbot-v1 candidate SHA mismatch' }
+
+          Write-Host 'Pre-audit GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_chatbot_v1_fresh_eval.py --execute --baseline '$(ToWsl $base)' --candidate '$(ToWsl $candidate)' --candidate-sha256 '$candidateSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          $auditExit=$LASTEXITCODE
+
+          if(-not(Test-Path -LiteralPath $out -PathType Leaf)) { throw "Fresh audit report missing; exit $auditExit" }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          Write-Host '=== FRESH CHATBOT V1 AGGREGATE ==='
+          [ordered]@{
+            suite_sha256=$r.suite_sha256
+            baseline_correct=$r.baseline.correct
+            candidate_correct=$r.candidate.correct
+            total=$r.baseline.total
+            delta_correct=$r.delta_correct
+            improvements=$r.improvement_ids
+            regressions=$r.regression_ids
+            proceed_to_knowledge_lane=$r.proceed_to_knowledge_lane
+          } | ConvertTo-Json -Compress | Write-Host
+          if($auditExit -ne 0 -or $r.proceed_to_knowledge_lane -ne $true) { throw 'Fresh generation gate rejected current Chatbot-v1 candidate' }
+          Write-Host ('Raw generations remain private at ' + $out)
+
+      - name: Post-audit GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No generated answer or checkpoint is uploaded by this workflow.'
