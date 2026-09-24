@@ -1,18 +1,14 @@
 name: Phoenix low-LR auto-SFT development sweep
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-auto-sft-sweep.yml'
-      - 'frontier350/nextgen_v1/phoenix_auto_sft_sweep.py'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: neral-nextgen-local-gpu-training
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sweep:
