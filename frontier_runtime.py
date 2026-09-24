@@ -273,7 +273,12 @@ def make_handler(rt,context_limit):
     class Handler(BaseHTTPRequestHandler):
         server_version="HeliosFrontier/1"
         def log_message(self,*_):pass
-        def _allowed(self):return self.client_address[0] in {"127.0.0.1","::1"} and self.headers.get("Host") in {f"127.0.0.1:{self.server.server_port}",f"localhost:{self.server.server_port}"}
+        def _allowed(self):
+            if self.client_address[0] not in {"127.0.0.1","::1"}:return False
+            if self.headers.get("Host") not in {f"127.0.0.1:{self.server.server_port}",f"localhost:{self.server.server_port}"}:return False
+            if self.headers.get("Sec-Fetch-Site")=="cross-site":return False
+            origin=self.headers.get("Origin")
+            return not origin or origin in {f"http://127.0.0.1:{self.server.server_port}",f"http://localhost:{self.server.server_port}"}
         def _json(self,status,obj):
             raw=json.dumps(obj,ensure_ascii=False,separators=(",",":")).encode("utf-8")
             self.send_response(status);self.send_header("Content-Type","application/json; charset=utf-8")
