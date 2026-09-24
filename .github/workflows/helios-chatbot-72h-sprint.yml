@@ -94,13 +94,13 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Sprint Python compile failed'}
 
           if(-not(Test-Path -LiteralPath $dataReady -PathType Leaf)){
-            $prep="set -euo pipefail; cd '$repoW'; $py -B fetch_oasst2_sft50.py --out '$srcW' --max-en 16000 --max-de 6000; $py -B frontier350/sprint72h_build_sft_sources.py --root '$srcW' --per-generated-source 6000; $py -B prepare_sft50_i1.py --source-root '$srcW' --out '$dataW' --max-seq 512 --target-train-examples 20000"
+            $prep="set -euo pipefail; cd '$repoW'; $py -B fetch_oasst2_sft50.py --out '$srcW' --max-en 16000 --max-de 6000; $py -B frontier350/sprint72h_build_sft_sources.py --root '$srcW' --per-generated-source 6000; $py -B prepare_sft50_i1.py --source-root '$srcW' --out '$dataW' --max-seq 1024 --target-train-examples 12000"
             & wsl.exe -- bash -lc $prep
             if($LASTEXITCODE -ne 0){throw 'Sprint SFT data preparation failed'}
           }
 
           $manifest=Get-Content -LiteralPath $dataReady -Raw|ConvertFrom-Json
-          if([int]$manifest.target_train_examples -ne 20000){throw 'Sprint pack is not 20k examples'}
+          if([int]$manifest.target_train_examples -ne 12000){throw 'Sprint pack is not 12k examples'}
           if([int]$manifest.prompt_group_overlap_audit.cross_split_prompt_group_overlap -ne 0){throw 'Prompt leakage detected'}
           if($manifest.external_model_calls -ne $false){throw 'External-model data detected'}
 
