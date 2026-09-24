@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: neral-helios-chatbot-72h-sprint
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   chat-sft:
@@ -48,10 +48,10 @@ jobs:
           $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
-          $private='D:\NeralPrivateAssets\sprint72h'
-          $src=Join-Path $private ('sources_' + $env:GITHUB_RUN_ID)
-          $data=Join-Path $private ('data_' + $env:GITHUB_RUN_ID)
-          $out=Join-Path $private ('chat_' + $env:GITHUB_RUN_ID)
+          $private='D:\NeralPrivateAssets\sprint72h\active'
+          $src=Join-Path $private 'sources'
+          $data=Join-Path $private 'data'
+          $out=Join-Path $private 'chat'
           $archiveName='2023-11-05_oasst2_ready.messages.jsonl.gz'
           $archiveCandidates=@(
             (Join-Path 'D:\NeralPrivateAssets\sft50_sources' $archiveName),
@@ -62,15 +62,23 @@ jobs:
           if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Historical checkpoint missing'}
           if(-not(Test-Path -LiteralPath $tokenizer -PathType Leaf)){throw 'Tokenizer missing'}
           New-Item -ItemType Directory -Path $private -Force|Out-Null
-          foreach($p in @($src,$data,$out)){if(Test-Path -LiteralPath $p){throw "Create-only path already exists: $p"}}
-          New-Item -ItemType Directory -Path $src|Out-Null
-
-          foreach($candidate in $archiveCandidates){
-            if(Test-Path -LiteralPath $candidate -PathType Leaf){
-              Copy-Item -LiteralPath $candidate -Destination (Join-Path $src $archiveName)
-              Write-Host "Using local pinned OASST2 archive: $candidate"
-              break
+          $dataReady=Join-Path $data 'manifest.json'
+          if(-not(Test-Path -LiteralPath $dataReady -PathType Leaf)){
+            # Any partial data/source tree from a failed preparation is disposable;
+            # no model training could have been bound to it yet.
+            foreach($p in @($src,$data)){
+              if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Recurse -Force}
             }
+            New-Item -ItemType Directory -Path $src|Out-Null
+            foreach($candidate in $archiveCandidates){
+              if(Test-Path -LiteralPath $candidate -PathType Leaf){
+                Copy-Item -LiteralPath $candidate -Destination (Join-Path $src $archiveName)
+                Write-Host "Using local pinned OASST2 archive: $candidate"
+                break
+              }
+            }
+          } else {
+            Write-Host "Reusing prepared sprint data: $data"
           }
 
           $repoW=ToWsl $repo
@@ -85,11 +93,13 @@ jobs:
           & wsl.exe -- bash -lc $compile
           if($LASTEXITCODE -ne 0){throw 'Sprint Python compile failed'}
 
-          $prep="set -euo pipefail; cd '$repoW'; $py -B fetch_oasst2_sft50.py --out '$srcW' --max-en 16000 --max-de 6000; $py -B frontier350/sprint72h_build_sft_sources.py --root '$srcW' --per-generated-source 6000; $py -B prepare_sft50_i1.py --source-root '$srcW' --out '$dataW' --max-seq 512 --target-train-examples 20000"
-          & wsl.exe -- bash -lc $prep
-          if($LASTEXITCODE -ne 0){throw 'Sprint SFT data preparation failed'}
+          if(-not(Test-Path -LiteralPath $dataReady -PathType Leaf)){
+            $prep="set -euo pipefail; cd '$repoW'; $py -B fetch_oasst2_sft50.py --out '$srcW' --max-en 16000 --max-de 6000; $py -B frontier350/sprint72h_build_sft_sources.py --root '$srcW' --per-generated-source 6000; $py -B prepare_sft50_i1.py --source-root '$srcW' --out '$dataW' --max-seq 512 --target-train-examples 20000"
+            & wsl.exe -- bash -lc $prep
+            if($LASTEXITCODE -ne 0){throw 'Sprint SFT data preparation failed'}
+          }
 
-          $manifest=Get-Content -LiteralPath (Join-Path $data 'manifest.json') -Raw|ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath $dataReady -Raw|ConvertFrom-Json
           if([int]$manifest.target_train_examples -ne 20000){throw 'Sprint pack is not 20k examples'}
           if([int]$manifest.prompt_group_overlap_audit.cross_split_prompt_group_overlap -ne 0){throw 'Prompt leakage detected'}
           if($manifest.external_model_calls -ne $false){throw 'External-model data detected'}
@@ -98,17 +108,32 @@ jobs:
           nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
 
           $replay=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
-          if(Test-Path -LiteralPath $replay -PathType Container){
-            $replayW=ToWsl $replay
-            $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW' --replay-root '$replayW' --train-blocks 8 --steps 2000 --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 0.85 --eos-weight 1.75 --eval-every 200 --patience 5 --min-delta 0.005"
+          $summaryPath=Join-Path $out 'summary.json'
+          $resumePath=Join-Path $out 'resume.pt'
+          $resumeFlag=''
+          if(Test-Path -LiteralPath $summaryPath -PathType Leaf){
+            Write-Host 'Sprint training already completed; preserving accepted local result.'
           } else {
-            Write-Warning 'Historical replay root absent; using chat-only SFT.'
-            $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW' --train-blocks 8 --steps 2000 --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 1.0 --eos-weight 1.75 --eval-every 200 --patience 5 --min-delta 0.005"
+            if((Test-Path -LiteralPath $out -PathType Container) -and -not(Test-Path -LiteralPath $resumePath -PathType Leaf)){
+              Write-Warning 'Incomplete sprint output has no resumable snapshot; restarting only this SFT stage.'
+              Remove-Item -LiteralPath $out -Recurse -Force
+            }
+            if(Test-Path -LiteralPath $resumePath -PathType Leaf){
+              $resumeFlag=' --resume'
+              Write-Host 'Resuming exact compact SFT state from active/chat/resume.pt.'
+            }
+            if(Test-Path -LiteralPath $replay -PathType Container){
+              $replayW=ToWsl $replay
+              $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW'$resumeFlag --replay-root '$replayW' --train-blocks 8 --steps 2000 --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 0.85 --eos-weight 1.75 --eval-every 200 --patience 5 --min-delta 0.005"
+            } else {
+              Write-Warning 'Historical replay root absent; using chat-only SFT.'
+              $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW'$resumeFlag --train-blocks 8 --steps 2000 --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 1.0 --eos-weight 1.75 --eval-every 200 --patience 5 --min-delta 0.005"
+            }
+            & wsl.exe -- bash -lc $train
+            if($LASTEXITCODE -ne 0){throw 'Sprint chat SFT failed'}
           }
-          & wsl.exe -- bash -lc $train
-          if($LASTEXITCODE -ne 0){throw 'Sprint chat SFT failed'}
 
-          $summary=Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw|ConvertFrom-Json
+          $summary=Get-Content -LiteralPath $summaryPath -Raw|ConvertFrom-Json
           $best=Join-Path $out 'best_chat.pt'
           $bestSha=([string]$summary.best_checkpoint_sha256).ToLowerInvariant()
           if((Get-FileHash -LiteralPath $best -Algorithm SHA256).Hash.ToLowerInvariant() -ne $bestSha){throw 'Best checkpoint SHA mismatch'}
@@ -116,16 +141,20 @@ jobs:
           $evalOut=Join-Path $out 'chat_ab.json'
           $bestW=ToWsl $best
           $evalW=ToWsl $evalOut
-          $eval="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_eval_chat.py --execute --base '$baseW' --candidate '$bestW' --tokenizer '$tokW' --out '$evalW'"
-          & wsl.exe -- bash -lc $eval
-          if($LASTEXITCODE -ne 0){throw 'Sprint chat A-B execution failed'}
+          if(-not(Test-Path -LiteralPath $evalOut -PathType Leaf)){
+            $eval="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_eval_chat.py --execute --base '$baseW' --candidate '$bestW' --tokenizer '$tokW' --out '$evalW'"
+            & wsl.exe -- bash -lc $eval
+            if($LASTEXITCODE -ne 0){throw 'Sprint chat A-B execution failed'}
+          } else {
+            Write-Host 'Reusing completed local chat A-B report.'
+          }
           $ab=Get-Content -LiteralPath $evalOut -Raw|ConvertFrom-Json
 
-          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\sprint72h_chat_app.py') -Destination (Join-Path $out 'sprint72h_chat_app.py')
-          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\model350.py') -Destination (Join-Path $out 'model350.py')
-          New-Item -ItemType Directory -Path (Join-Path $out 'nextgen_v1')|Out-Null
-          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\nextgen_v1\helios_chat_core.py') -Destination (Join-Path $out 'nextgen_v1\helios_chat_core.py')
-          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\nextgen_v1\helios_chat_ui.html') -Destination (Join-Path $out 'nextgen_v1\helios_chat_ui.html')
+          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\sprint72h_chat_app.py') -Destination (Join-Path $out 'sprint72h_chat_app.py') -Force
+          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\model350.py') -Destination (Join-Path $out 'model350.py') -Force
+          New-Item -ItemType Directory -Path (Join-Path $out 'nextgen_v1') -Force|Out-Null
+          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\nextgen_v1\helios_chat_core.py') -Destination (Join-Path $out 'nextgen_v1\helios_chat_core.py') -Force
+          Copy-Item -LiteralPath (Join-Path $repo 'frontier350\nextgen_v1\helios_chat_ui.html') -Destination (Join-Path $out 'nextgen_v1\helios_chat_ui.html') -Force
           Set-Content -LiteralPath (Join-Path $out 'nextgen_v1\__init__.py') -Value '' -Encoding utf8
           $launchCommand="cd '$outW'; ~/.venvs/neral-triton-py312/bin/python -u sprint72h_chat_app.py --execute --checkpoint '$bestW' --checkpoint-sha256 '$bestSha' --tokenizer '$tokW' --device cuda --port 9683"
           Set-Content -LiteralPath (Join-Path $out 'LAUNCH_COMMAND.txt') -Value $launchCommand -Encoding utf8
