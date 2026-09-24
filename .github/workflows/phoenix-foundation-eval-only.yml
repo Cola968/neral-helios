@@ -7,6 +7,11 @@ on:
         description: 'Absolute Windows path containing resume.pt and summary.json'
         required: true
         type: string
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-foundation-eval-only.yml'
+      - 'frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py'
 
 permissions:
   contents: read
@@ -40,7 +45,8 @@ jobs:
           $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_foundation_eval_'+$env:GITHUB_RUN_ID)
           $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $out='${{ inputs.training_output }}'
+          $requestedOut='${{ inputs.training_output }}'
+          $out=if([string]::IsNullOrWhiteSpace($requestedOut)){'D:\NeralPrivateAssets\phoenix\foundation_train_35972614466'}else{$requestedOut}
           $summaryPath=Join-Path $out 'summary.json'
           $resume=Join-Path $out 'resume.pt'
           $evalOut=Join-Path $out ('public_dev_ab_evalonly_'+$env:GITHUB_RUN_ID+'.json')
