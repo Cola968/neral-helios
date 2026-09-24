@@ -355,7 +355,8 @@ def generate():
             _generation_lock.release()
         def normalize_frontier(result,health):
             global active_frontier_health
-            active_frontier_health=health
+            active_frontier_health={**health,'vram_allocated_mib':result.get('vram_allocated_mib',health.get('vram_allocated_mib',0)),
+                                    'peak_vram_mib':result.get('peak_vram_mib',0)}
             text,redacted=sanitize_output(result.get('answer',''))
             generated=int(result.get('generated_tokens',0))
             return dict(mode='trained-generation',model_generated=True,text=text,generated_tokens=generated,
@@ -379,7 +380,11 @@ def generate():
         if data.get('stream'):
             response=Response(response_stream(run_frontier,event,finish_frontier),mimetype='application/x-ndjson')
             response.headers['X-Accel-Buffering']='no'
-            response.call_on_close(lambda:(event.set(),frontier_cancel(row,job) if not event.is_set() else None))
+            def close_frontier():
+                event.set()
+                try:frontier_cancel(row,job)
+                except FrontierUnavailable:pass
+            response.call_on_close(close_frontier)
             return response
         try:return jsonify(run_frontier())
         except FrontierUnavailable as e:return jsonify(error=str(e)),503
