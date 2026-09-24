@@ -108,6 +108,24 @@ def test_catalog_only_complete_explicit_imports(tmp_path,monkeypatch):
     (root/'catalog.json').write_text(json.dumps([{'id':'../runs','label':'bad'}]))
     with pytest.raises(ValueError):catalog(tmp_path)
 
+def test_frontier350_catalog_is_visible_but_never_sent_to_legacy_loader(tmp_path,monkeypatch):
+    root=tmp_path/'installed_models';root.mkdir()
+    target=root/'neral-arctus-350';target.mkdir()
+    (target/'model.pt').write_bytes(b'frontier-fixture')
+    (target/'model.sha256').write_text('0'*64)
+    (root/'catalog.json').write_text(json.dumps([{
+        'id':'neral-arctus-350','label':'Arctus 350M · Phoenix',
+        'runtime_family':'frontier350-bpe-v1','status':'candidate',
+        'parameters':349825152,'context_tokens':512
+    }]))
+    monkeypatch.setattr(app,'ASSETS',tmp_path)
+    assert 'neral-arctus-350' not in app.checkpoint_paths()
+    models=app.info_payload()['models']
+    row=next(x for x in models if x['id']=='neral-arctus-350')
+    assert row['runtime_family']=='frontier350-bpe-v1'
+    assert row['parameters']==349825152 and row['context_tokens']==512
+    assert row['selectable'] is False and 'Frontier' in row['blocked_reason']
+
 def test_import_hash_failure_preserves_source(tmp_path):
     source=tmp_path/'source.pt';source.write_bytes(b'not weights')
     with pytest.raises(ValueError,match='integrity'):
