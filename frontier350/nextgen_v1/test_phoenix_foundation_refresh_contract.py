@@ -18,6 +18,7 @@ from phoenix_foundation_refresh_dev import (
 )
 from source_lock350 import LOCK_PATH
 from recovery_identity import file_sha
+from train_sft_pilot import base_token_accounting
 
 
 def good_manifest() -> dict:
@@ -110,6 +111,28 @@ class RefreshContractTests(unittest.TestCase):
         manifest["benchmark_content_included"] = False
         with self.assertRaisesRegex(ValueError, "benchmark cleanliness"):
             validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, file_sha(LOCK_PATH))
+
+    def test_sft_token_accounting_preserves_historical_anchor(self):
+        refresh = {
+            "processed_tokens": 1_048_576,
+            "lineage": {
+                "kind": "phoenix_foundation_refresh_fp32_master_adamw_v2",
+                "historical_processed_tokens": EXPECTED_TOKENS,
+                "target_new_tokens": MAX_TARGET,
+            },
+        }
+        row = base_token_accounting(refresh)
+        self.assertEqual(row["historical_pretraining_tokens"], EXPECTED_TOKENS)
+        self.assertEqual(row["new_foundation_lineage_tokens"], 1_048_576)
+        self.assertEqual(
+            row["cumulative_reference_tokens"], EXPECTED_TOKENS + 1_048_576
+        )
+
+    def test_sft_token_accounting_historical_checkpoint_is_not_double_counted(self):
+        row = base_token_accounting({"processed_tokens": EXPECTED_TOKENS})
+        self.assertEqual(row["historical_pretraining_tokens"], EXPECTED_TOKENS)
+        self.assertEqual(row["new_foundation_lineage_tokens"], 0)
+        self.assertEqual(row["cumulative_reference_tokens"], EXPECTED_TOKENS)
 
     def test_lineage_binds_fp32_master_precision(self):
         row = lineage(
