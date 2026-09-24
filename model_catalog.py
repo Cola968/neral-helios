@@ -34,8 +34,15 @@ def catalog(assets):
         if folder.parent!=root:raise ValueError('Model path escapes import directory')
         model=folder/'model.pt';digest=folder/'model.sha256'
         if model.resolve().parent!=folder or digest.resolve().parent!=folder:raise ValueError('Invalid model symlink')
-        if model.is_file() and digest.is_file():
+        tokenizer=folder/'tokenizer.json';tokenizer_digest=folder/'tokenizer.sha256'
+        if runtime==FRONTIER350_RUNTIME:
+            if tokenizer.resolve().parent!=folder or tokenizer_digest.resolve().parent!=folder:raise ValueError('Invalid tokenizer symlink')
+            complete=model.is_file() and digest.is_file() and tokenizer.is_file() and tokenizer_digest.is_file()
+        else:
+            complete=model.is_file() and digest.is_file()
+        if complete:
             result[key]={'paths':(model,digest),'label':label,'runtime_family':runtime,
                          'status':status,'parameters':parameters,'context_tokens':context_tokens,
                          'app_loadable':runtime==LEGACY_RUNTIME}
+            if runtime==FRONTIER350_RUNTIME:result[key]['tokenizer_paths']=(tokenizer,tokenizer_digest)
     return result
