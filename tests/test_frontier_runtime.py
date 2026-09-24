@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+from http.server import ThreadingHTTPServer
+import http.client,threading
 import pytest
 import frontier_runtime as runtime
 
@@ -36,3 +38,20 @@ def test_repetition_guard_detects_real_loop_but_not_short_text():
     assert runtime._looping("kurz text") is False
     text=("alpha beta gamma " * 8).strip()
     assert runtime._looping(text) is True
+
+def test_runtime_rejects_cross_site_browser_requests():
+    rt={"device":SimpleNamespace(type="cpu"),"torch":None,"checkpoint_sha":"a"*64,
+        "tokenizer_sha":"b"*64,"processed_tokens":123}
+    server=ThreadingHTTPServer(("127.0.0.1",0),runtime.make_handler(rt,512))
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        conn=http.client.HTTPConnection("127.0.0.1",server.server_port,timeout=2)
+        conn.request("GET","/health",headers={"Origin":"https://attacker.invalid","Sec-Fetch-Site":"cross-site"})
+        response=conn.getresponse();response.read();conn.close()
+        assert response.status==403
+        conn=http.client.HTTPConnection("127.0.0.1",server.server_port,timeout=2)
+        conn.request("GET","/health",headers={"Host":f"127.0.0.1:{server.server_port}"})
+        response=conn.getresponse();body=response.read();conn.close()
+        assert response.status==200 and b"frontier350-bpe-v1" in body
+    finally:
+        server.shutdown();server.server_close();thread.join()
