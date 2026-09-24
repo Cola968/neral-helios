@@ -85,6 +85,7 @@ def main(argv=None) -> int:
         torch.cuda.reset_peak_memory_stats()
         model=None
         optimizer=None
+        train_model=None
         try:
             model=Neral350M().to(device=device,dtype=torch.float32)
             model.set_gradient_checkpointing(cfg["gradient_checkpointing"])
