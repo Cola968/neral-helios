@@ -1,6 +1,10 @@
-"""Apply the proven small OASST1 post-training recipe to a foundation-refresh checkpoint.
+"""LEGACY v1 OASST1-on-refresh experiment; not compatible with Phoenix FP32 foundation v2.
 
-Development only. This creates a third lineage stage:
+Development-only historical reproduction path. The current reviewed post-training route is
+the OASST2 + sft_contract.py + train_sft_pilot.py v2 workflow. This file deliberately keeps
+the old v1 checkpoint contract and must fail closed on a new v2 foundation checkpoint.
+
+Previously: This creates a third lineage stage:
 historical anchor -> fresh-AdamW foundation refresh -> OASST1 response-only SFT.
 It never merges independent checkpoints. Candidate is written only when OASST1
 validation improves and public NIS2 pair behavior does not regress vs the supplied
