@@ -43,7 +43,7 @@ PAIR_KEYS=(
     "nis2_robustness_pct",
     "nis2_compositional_reasoning_pct",
 )
-PRIMARY_KEYS=("nis2_instruction_following_pct","nis2_dialogue_state_pct","nis2_exact_generation_pct")
+PRIMARY_KEYS=("nis2_instruction_pair_pct","nis2_dialogue_state_pct","nis2_exact_generation_pct")
 PROTECTED_PAIR_KEYS=("nis2_truthfulness_pct","nis2_robustness_pct","nis2_compositional_reasoning_pct")
 
 
