@@ -126,16 +126,19 @@ if(-not $appPython){
     Write-Host 'Neral richtet beim ersten Start die CPU-Abhaengigkeiten ein. Das kann einige Minuten dauern.' -ForegroundColor Yellow
     & $appPython -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
     if($LASTEXITCODE -ne 0){throw 'CPU-PyTorch konnte nicht installiert werden. Pruefe die Internetverbindung.'}
-    & $appPython -m pip install --disable-pip-version-check flask waitress numpy cryptography tokenizers
+    & $appPython -m pip install --disable-pip-version-check flask waitress numpy cryptography
     if($LASTEXITCODE -ne 0){throw 'App-Abhaengigkeiten konnten nicht installiert werden.'}
 }
 
-# Workspace 2.1 needs the own 16K BPE tokenizer runtime even in an upgraded existing environment.
+# Frontier needs Hugging Face tokenizers, but legacy Helios must remain usable when
+# that optional dependency cannot be installed (for example while offline).
 & $appPython -c "import tokenizers" *> $null
 if($LASTEXITCODE -ne 0){
-    Write-Host 'Helios ergänzt die Frontier-Tokenizer-Runtime.' -ForegroundColor Yellow
+    Write-Host 'Helios versucht die optionale Frontier-Tokenizer-Runtime zu ergänzen.' -ForegroundColor Yellow
     & $appPython -m pip install --disable-pip-version-check tokenizers
-    if($LASTEXITCODE -ne 0){throw 'Die Frontier-Tokenizer-Runtime konnte nicht installiert werden.'}
+    if($LASTEXITCODE -ne 0){
+        Write-Warning 'tokenizers fehlt. Legacy Neral bleibt nutzbar; Frontier 350 kann bis zur Installation nicht gestartet werden.'
+    }
 }
 
 function Test-FrontierCudaPython {
