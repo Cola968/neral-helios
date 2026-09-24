@@ -106,6 +106,9 @@ def test_frontier_runtime_selection_and_chat_proxy(client,monkeypatch):
     monkeypatch.setattr(runtime,'checkpoint_loaded',False)
     monkeypatch.setattr(runtime,'active_runtime_family',runtime.LEGACY_RUNTIME)
     monkeypatch.setattr(runtime,'active_frontier_health',None)
+    monkeypatch.setattr(runtime,'active_checkpoint',runtime.active_checkpoint)
+    monkeypatch.setattr(runtime,'checkpoint_sha256',runtime.checkpoint_sha256)
+    monkeypatch.setattr(runtime,'checkpoint_meta',runtime.checkpoint_meta.copy())
     runtime.select_frontier_runtime('neral-arctus-350')
     info=runtime.info_payload()
     assert info['active_runtime_family']==runtime.FRONTIER350_RUNTIME
