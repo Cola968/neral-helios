@@ -2,7 +2,7 @@
 
 ## Jetzt schreiben
 
-Am PC: http://127.0.0.1:9686/ öffnen. Neral 50M D3/I1 bleibt als eigener Legacy-Checkpoint auf der CPU aktiv. Ein ausdrücklich importiertes Arctus/Phoenix-350M-Bundle läuft dagegen in einem getrennten lokalen Frontier-Prozess und kann eine vorhandene CUDA/BF16-PyTorch-Umgebung verwenden. Im Menü oben rechts „App installieren“ wählen. Alternativ das ZIP entpacken und `Start Neral.cmd` ausführen: öffnet ein eigenes App-Fenster. Python 3.11+ ist erforderlich; bei einer frischen Installation installiert der Starter CPU-PyTorch, die App-Abhängigkeiten und `tokenizers`. Er installiert nicht automatisch ein großes CUDA-PyTorch-Paket. Der vorhandene Legacy-Modell-Export ist im ZIP enthalten, keine fremden Gewichte.
+Am PC: http://127.0.0.1:9686/ öffnen. Neral 50M D3/I1 bleibt als eigener Legacy-Checkpoint auf der CPU aktiv. Ein ausdrücklich importiertes Arctus/Phoenix-350M-Bundle läuft dagegen in einem getrennten lokalen Frontier-Prozess und kann eine vorhandene CUDA/BF16-PyTorch-Umgebung verwenden. Im Menü oben rechts „App installieren“ wählen. Alternativ das ZIP entpacken und `Start Neral.cmd` ausführen: öffnet ein eigenes App-Fenster. Python 3.11+ ist erforderlich; bei einer frischen Installation installiert der Starter CPU-PyTorch und die Kern-App-Abhängigkeiten und versucht zusätzlich die optionale `tokenizers`-Runtime zu installieren. Scheitert nur diese optionale Installation, bleibt Legacy-Neral nutzbar; Frontier 350 benötigt `tokenizers`. Der Starter installiert nicht automatisch ein großes CUDA-PyTorch-Paket. Der vorhandene Legacy-Modell-Export ist im ZIP enthalten, keine fremden Gewichte.
 
 
 ## Frontier 350 auf der RTX-GPU
@@ -11,7 +11,15 @@ Ein Frontier-Modell wird erst nach einem ausdrücklichen, SHA-geprüften Import 
 
 Der Starter sucht zuerst nach einer bereits vorhandenen Python-Umgebung, in der `torch.cuda.is_available()`, BF16 und `tokenizers` funktionieren. Wird eine gefunden, setzt er sie als `HELIOS_FRONTIER_PYTHON`. Für eine andere vorhandene CUDA-Umgebung kann die Variable vor dem Start ausdrücklich gesetzt werden. `HELIOS_FRONTIER_DEVICE=cpu|cuda|auto` steuert die Gerätewahl; Standard ist `auto`. Die 20M/50M-Haupt-App bleibt davon unabhängig CPU-only.
 
-Der aktuelle Frontier-Decoder verwendet KV-Cache, streamt Antworten, unterstützt Stop/Cancel und meldet Tokens/s sowie VRAM. Der Standard-Import begrenzt den nutzbaren Kontext weiterhin konservativ auf 512 BPE-Tokens, obwohl die Architektur einen größeren Maximalwert besitzt; ein höherer Deployment-Kontext muss ausdrücklich beim Import gesetzt und separat qualifiziert werden.
+Der aktuelle Frontier-Decoder verwendet einen vorallokierten KV-Cache, streamt Antworten, unterstützt Stop/Cancel, stoppt erkennbare Wiederholungsschleifen und meldet Tokens/s sowie VRAM. Der Standard-Import begrenzt den nutzbaren Kontext weiterhin konservativ auf 512 BPE-Tokens, obwohl die Architektur einen größeren Maximalwert besitzt; ein höherer Deployment-Kontext muss ausdrücklich beim Import gesetzt und separat qualifiziert werden.
+
+Für den bekannten historischen 2.073B-Checkpoint bleibt der Quellcheckpoint unverändert. Der Importer akzeptiert einen Legacy-Pickle-Fallback nur beim fest eingebauten Continuity-SHA und schreibt anschließend einen neuen bereinigten `frontier350-inference-v1`-Checkpoint ohne Optimizer/RNG/Trainingsobjekte. Beispiel:
+
+```powershell
+python import_frontier350.py --source "D:\Pfad\zum\2.073B\resume.pt" --sha256 "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7" --tokenizer "D:\Pfad\zu\frontier350_assets\tokenizer.json" --tokenizer-sha256 "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd" --id neral-arctus-350 --label "Arctus 350M · 2.073B" --assets deployment
+```
+
+Nach erfolgreicher Auswahl merkt Helios nur die Modell-ID und stellt dieselbe explizite Auswahl beim nächsten Start wieder her. Es findet dabei keine automatische Qualitäts-Promotion statt.
 
 ## Android
 
