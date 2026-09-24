@@ -25,9 +25,12 @@ class ChatbotV1DataTests(unittest.TestCase):
         self.assertGreater(len(valid),100)
         self.assertEqual({row["language"] for row in train},{"de","en"})
         self.assertEqual({row["language"] for row in valid},{"de","en"})
-        train_prompts={data.norm(turn["user"]) for row in train for turn in row["turns"]}
-        valid_prompts={data.norm(turn["user"]) for row in valid for turn in row["turns"]}
+        train_prompts=data.contextual_prompt_fingerprints(train)
+        valid_prompts=data.contextual_prompt_fingerprints(valid)
         self.assertFalse(train_prompts&valid_prompts)
+        # Generic follow-up wording is intentionally reusable when preceding context differs.
+        raw_followups=[data.norm(turn["user"]) for row in train for turn in row["turns"]]
+        self.assertLess(len(set(raw_followups)),len(raw_followups))
         expected={"exact_instruction","arithmetic","multi_turn_state","multi_turn_correction",
                   "uncertainty","format_control","clarification","short_explanation",
                   "bilingual","identity"}

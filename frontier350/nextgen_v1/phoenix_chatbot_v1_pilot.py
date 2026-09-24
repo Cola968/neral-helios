@@ -17,7 +17,8 @@ import random
 import sys
 import time
 
-from chatbot_v1_data import build_encoded, build_split, norm, prompt_fingerprints, text_sha
+from chatbot_v1_data import (build_encoded, build_split, contextual_prompt_fingerprints,
+    norm, prompt_fingerprints, text_sha)
 from helios350_preview import TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import require_pinned_checkpoint
 from phoenix_auto_sft_public_dev_eval import run_model, sha256_file
@@ -26,7 +27,8 @@ from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validati
 
 HISTORICAL_SHA="f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 PARAMETERS=349_825_152
-SCHEMA="phoenix_chatbot_v1_behavior_pilot_v1"\nPILOT_REVISION="2026-09-24-r2"
+SCHEMA="phoenix_chatbot_v1_behavior_pilot_v1"
+PILOT_REVISION="2026-09-24-r3"
 CLASSIFICATION="project_owned_chatbot_v1_behavior_development_only"
 CONFIGS=(
     {"name":"lr5e6_s60","lr":5e-6,"steps":60},
@@ -80,14 +82,20 @@ def development_eval_hashes()->set[str]:
 def verify_training_eval_disjoint()->dict:
     eval_hashes=development_eval_hashes()
     train_raw=build_split("train");valid_raw=build_split("validation")
-    train_hashes=prompt_fingerprints(train_raw);valid_hashes=prompt_fingerprints(valid_raw)
-    if train_hashes&valid_hashes:raise RuntimeError("behavior train/validation fingerprint overlap")
-    if train_hashes&eval_hashes or valid_hashes&eval_hashes:
+    train_context=contextual_prompt_fingerprints(train_raw)
+    valid_context=contextual_prompt_fingerprints(valid_raw)
+    if train_context&valid_context:
+        raise RuntimeError("behavior train/validation contextual fingerprint overlap")
+    # Eval screening remains deliberately stricter than split deduplication: raw user
+    # text and standalone User/Assistant prefixes are both checked for exact reuse.
+    train_eval=prompt_fingerprints(train_raw);valid_eval=prompt_fingerprints(valid_raw)
+    if train_eval&eval_hashes or valid_eval&eval_hashes:
         raise RuntimeError("Chatbot-v1 behavior curriculum overlaps public development prompt bytes")
     return {
         "public_development_hashes_checked":len(eval_hashes),
-        "train_prompt_fingerprints":len(train_hashes),
-        "validation_prompt_fingerprints":len(valid_hashes),
+        "train_contextual_prompt_fingerprints":len(train_context),
+        "validation_contextual_prompt_fingerprints":len(valid_context),
+        "raw_eval_screen_fingerprints":len(train_eval|valid_eval),
         "exact_hash_overlap":0,
     }
 

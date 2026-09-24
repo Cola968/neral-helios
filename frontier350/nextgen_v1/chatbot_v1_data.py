@@ -85,6 +85,23 @@ def _range(split:str,count:int,offset:int=0):
     return range(base+offset,base+offset+count)
 
 
+def contextual_prompt_texts(rows:list[dict])->list[str]:
+    """Canonical prompt-at-turn strings including all preceding dialogue context."""
+    prompts=[]
+    for row in rows:
+        context=""
+        for index,turn in enumerate(row["turns"]):
+            prefix=("User: " if index==0 else "\nUser: ")+turn["user"]+"\nAssistant:"
+            prompt=context+prefix
+            prompts.append(norm(prompt))
+            context=prompt+" "+turn["assistant"]
+    return prompts
+
+
+def contextual_prompt_fingerprints(rows:list[dict])->set[str]:
+    return {text_sha(value) for value in contextual_prompt_texts(rows)}
+
+
 def build_split(split:str)->list[dict]:
     if split not in {"train","validation"}:
         raise ValueError("split must be train or validation")
@@ -199,10 +216,9 @@ def build_split(split:str)->list[dict]:
 
     ids=[row["id"] for row in rows]
     if len(ids)!=len(set(ids)):raise AssertionError("duplicate conversation id")
-    prompts=[]
-    for row in rows:
-        prompts.extend(norm(turn["user"]) for turn in row["turns"])
-    if len(prompts)!=len(set(prompts)):raise AssertionError("duplicate user prompt inside split")
+    contextual=contextual_prompt_texts(rows)
+    if len(contextual)!=len(set(contextual)):
+        raise AssertionError("duplicate context-conditioned prompt inside split")
     return rows
 
 
@@ -235,9 +251,10 @@ def encode_conversation(row:dict,tokenizer:object,bos:int,eos:int,seq:int=MAX_CO
 def build_encoded(tokenizer:object,bos:int,eos:int,seq:int=MAX_CONTEXT)->tuple[dict[str,list[dict]],dict]:
     raw={split:build_split(split) for split in ("train","validation")}
     encoded={split:[encode_conversation(row,tokenizer,bos,eos,seq) for row in rows] for split,rows in raw.items()}
-    train_prompts={norm(turn["user"]) for row in raw["train"] for turn in row["turns"]}
-    valid_prompts={norm(turn["user"]) for row in raw["validation"] for turn in row["turns"]}
-    if train_prompts & valid_prompts:raise AssertionError("train/validation prompt overlap")
+    train_prompts=contextual_prompt_fingerprints(raw["train"])
+    valid_prompts=contextual_prompt_fingerprints(raw["validation"])
+    if train_prompts & valid_prompts:
+        raise AssertionError("train/validation context-conditioned prompt overlap")
     payload=json.dumps(raw,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
     report={
         "schema":DATASET_SCHEMA,
