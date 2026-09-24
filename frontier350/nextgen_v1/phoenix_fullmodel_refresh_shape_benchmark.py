@@ -26,11 +26,12 @@ from phoenix_foundation_refresh_dev import verify_refresh_manifest
 from phoenix_master_precision import require_fp32_master
 
 CONFIGS = (
-    {"microbatch": 1, "grad_accum": 4, "gradient_checkpointing": True},
-    {"microbatch": 2, "grad_accum": 2, "gradient_checkpointing": True},
-    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": True},
-    {"microbatch": 2, "grad_accum": 2, "gradient_checkpointing": False},
-    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": False},
+    {"microbatch": 1, "grad_accum": 4, "gradient_checkpointing": True,  "compile_mode": "default"},
+    {"microbatch": 2, "grad_accum": 2, "gradient_checkpointing": True,  "compile_mode": "default"},
+    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": True,  "compile_mode": "default"},
+    {"microbatch": 2, "grad_accum": 2, "gradient_checkpointing": False, "compile_mode": "default"},
+    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "default"},
+    {"microbatch": 4, "grad_accum": 1, "gradient_checkpointing": False, "compile_mode": "none"},
 )
 SEQ = 256
 TOKENS_PER_UPDATE = 1024
@@ -94,6 +95,9 @@ def main(argv=None) -> int:
             )
             require_fp32_master(model,optimizer,torch,require_moments=False)
             model.train()
+            train_model=model if cfg["compile_mode"]=="none" else torch.compile(
+                model,backend="inductor",mode="default",fullgraph=False,dynamic=False
+            )
 
             def update():
                 optimizer.zero_grad(set_to_none=True)
@@ -101,7 +105,7 @@ def main(argv=None) -> int:
                 for _ in range(cfg["grad_accum"]):
                     x,y=pool.batch(cfg["microbatch"],SEQ,device,rng)
                     with torch.autocast(device_type="cuda",dtype=torch.bfloat16):
-                        _,loss=model(x,y)
+                        _,loss=train_model(x,y)
                     if loss is None or not bool(torch.isfinite(loss)):
                         raise FloatingPointError("nonfinite benchmark loss")
                     (loss/cfg["grad_accum"]).backward()
@@ -144,7 +148,7 @@ def main(argv=None) -> int:
             row={"index":index,**cfg,"seq":SEQ,"status":"oom"}
         results.append(row)
         print(json.dumps({"event":"fullmodel_shape_candidate",**row},sort_keys=True),flush=True)
-        del optimizer,model
+        del optimizer,train_model,model
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -164,6 +168,7 @@ def main(argv=None) -> int:
             "microbatch":selected["microbatch"],
             "grad_accum":selected["grad_accum"],
             "gradient_checkpointing":selected["gradient_checkpointing"],
+            "compile_mode":selected["compile_mode"],
             "tokens_per_second":selected["tokens_per_second"],
             "peak_reserved_mib":selected["peak_reserved_mib"],
         },
