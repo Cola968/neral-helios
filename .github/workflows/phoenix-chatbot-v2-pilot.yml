@@ -1,0 +1,116 @@
+name: Phoenix Chatbot v2 conservative behavior pilot
+
+on:
+  push:
+    branches: [experiment/chatbot-v1-pilot-20260924]
+    paths:
+      - '.github/workflows/phoenix-chatbot-v2-pilot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: true
+
+jobs:
+  chatbot-v2:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact Chatbot-v2 revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_chatbot_v2_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: CPU contracts before GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_v2_' + $env:GITHUB_RUN_ID)
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_chatbot_v2_pilot.py frontier350/nextgen_v1/test_chatbot_v2_pilot.py frontier350/nextgen_v1/chatbot_v1_fresh_challenge.py; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/test_chatbot_v2_pilot.py; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/test_chatbot_v1_fresh_challenge.py"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Chatbot-v2 CPU contracts failed; GPU training was not started' }
+
+      - name: Run conservative fresh-gated Chatbot-v2 sweep
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_v2_' + $env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $private='D:\NeralPrivateAssets\phoenix'
+          $out=Join-Path $private ('chatbot_v2_' + $env:GITHUB_RUN_ID)
+
+          foreach($p in @($repo,$source,$assets,$private,$out)){if($p.Contains("'")){throw 'Unsafe quote in local path'}}
+          if(-not(Test-Path -LiteralPath $source -PathType Leaf)){throw 'Historical anchor missing'}
+          if(-not(Test-Path -LiteralPath $assets -PathType Container)){throw 'Assets root missing'}
+          if(-not(Test-Path -LiteralPath $private -PathType Container)){throw 'Private Phoenix root missing'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only v2 output already exists'}
+          if((Get-PSDrive D).Free -lt 15GB){throw 'Less than 15 GiB free on D:'}
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw 'Historical SHA mismatch'}
+
+          Write-Host '=== PRE-V2 GPU ==='
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu,temperature.gpu,power.draw --format=csv,noheader
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_chatbot_v2_pilot.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          $pilotExit=$LASTEXITCODE
+
+          $report=Join-Path $out 'report.json'
+          if(-not(Test-Path -LiteralPath $report -PathType Leaf)){throw "Chatbot-v2 report missing (exit $pilotExit)"}
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($r.classification -ne 'project_owned_chatbot_v2_conservative_behavior_development_only'){throw 'Wrong Chatbot-v2 classification'}
+          if($r.historical_source_unchanged -ne $true){throw 'Historical anchor integrity failed'}
+          if($r.production_eligible -ne $false -or $r.quality_gain_verified -ne $false){throw 'Unsafe promotion state'}
+
+          Write-Host '=== CHATBOT V2 SAFE DEVELOPMENT SUMMARY ==='
+          [ordered]@{
+            baseline_fresh_correct=$r.baseline.fresh.correct
+            development_gate_passed=$r.development_gate_passed
+            selected_config=if($r.selected_candidate){$r.selected_candidate.config.name}else{$null}
+            selected_candidate_sha256=if($r.selected_candidate){$r.selected_candidate.candidate_sha256}else{$null}
+            selected_fresh_correct=if($r.selected_candidate){$r.selected_candidate.fresh.correct}else{$null}
+            public_delta=if($r.selected_candidate){$r.selected_candidate.gate.public_delta}else{$null}
+            fresh_delta=if($r.selected_candidate){$r.selected_candidate.gate.fresh_delta}else{$null}
+            next_action=$r.next_action
+          } | ConvertTo-Json -Depth 8 -Compress | Write-Host
+
+          foreach($x in $r.results){
+            [ordered]@{
+              config=$x.config.name
+              lr=$x.config.lr
+              steps=$x.config.steps
+              validation_before=$x.validation_loss_before
+              validation_after=$x.validation_loss_after
+              fresh_correct=$x.fresh.correct
+              gate_passed=$x.gate.passed
+              fresh_delta=$x.gate.fresh_delta
+              public_delta=$x.gate.public_delta
+              peak_reserved_mib=$x.peak_reserved_mib
+            } | ConvertTo-Json -Depth 8 -Compress | Write-Host
+          }
+
+          if($pilotExit -ne 0 -or $r.development_gate_passed -ne $true){
+            throw 'No Chatbot-v2 candidate passed the fresh-generalization gates'
+          }
+
+      - name: Post-v2 GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw --format=csv,noheader
+          Write-Host 'Candidates and raw generations remain local on D:. No artifact upload.'
