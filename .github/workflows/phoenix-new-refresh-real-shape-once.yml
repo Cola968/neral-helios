@@ -1,0 +1,79 @@
+name: Phoenix new policy refresh real-data shape benchmark
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-new-refresh-real-shape-once.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-benchmark
+  cancel-in-progress: false
+
+jobs:
+  shape:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact benchmark revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_new_real_shape_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Benchmark real mmap corpus with FP32-master shapes
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p){
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_new_real_shape_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $corpus='D:\NeralPrivateAssets\phoenix\foundation_refresh_35974611749'
+          $manifest=Join-Path $corpus 'manifest.json'
+          $manifestSha='caf9de51c4826b0df43b36ba506a8bdcd453797f6a8b8ac96d2a99de21518135'
+          $out='D:\NeralPrivateAssets\phoenix\new_refresh_real_shape_' + $env:GITHUB_RUN_ID + '.json'
+
+          foreach($p in @($repo,$source,$corpus,$manifest,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          foreach($p in @($source,$manifest)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}}
+          if(-not(Test-Path -LiteralPath $corpus -PathType Container)){throw 'New policy-approved corpus missing'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only shape output exists'}
+          if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifestSha){throw 'New refresh manifest SHA mismatch'}
+
+          $m=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'phoenix-quality-refresh-v2-approved-sources' -or $m.finemath_candidate_included -ne $false){throw 'Wrong refresh policy profile'}
+
+          Write-Host 'Pre-benchmark GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; export PYTHONPATH=.:frontier350:frontier350/nextgen_v1; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_fullmodel_refresh_shape_benchmark.py frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_fullmodel_refresh_shape_benchmark.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'New refresh real-data shape benchmark failed'}
+
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.training_candidate_written -ne $false -or $r.production_eligible -ne $false){throw 'Unsafe shape benchmark state'}
+          if($r.precision_contract -ne 'fp32_master_fp32_adamw_bf16_autocast'){throw 'Wrong shape precision contract'}
+          if([double]$r.selected.peak_reserved_mib -gt 10240){throw 'Selected real-data shape exceeds 10 GiB ceiling'}
+          Write-Host '=== NEW REFRESH REAL-DATA SHAPE ==='
+          [ordered]@{
+            manifest_sha256=$r.manifest_sha256
+            selected=$r.selected
+            results=$r.results
+            production_eligible=$r.production_eligible
+          } | ConvertTo-Json -Compress -Depth 10 | Write-Host
+
+      - name: Post-benchmark GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No checkpoint was written.'
