@@ -46,6 +46,8 @@ def ensure_running(row,state_root,runtime_script,timeout=45.0):
             err=(root/f"{safe_id}-runtime-error.log").open("ab",buffering=0)
             _logs.extend((out,err))
             env=os.environ.copy();env["PYTHONDONTWRITEBYTECODE"]="1"
+            if device!="cpu":
+                env.pop("CUDA_VISIBLE_DEVICES",None)
             cmd=[_python(),"-X","utf8",str(runtime_script),"--bundle",str(bundle),
                  "--port",str(port),"--device",device,"--context-tokens",str(context)]
             try:
