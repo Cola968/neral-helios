@@ -2,6 +2,15 @@ name: Phoenix auto-SFT public development A-B
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate_path:
+        description: 'Absolute Windows path to FP32-master auto-SFT v2 candidate'
+        required: true
+        type: string
+      candidate_sha256:
+        description: 'Exact lowercase SHA-256 of candidate checkpoint'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -35,9 +44,10 @@ jobs:
           $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_sft_ab_' + $env:GITHUB_RUN_ID)
           $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
           $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
-          $candidate='D:\NeralPrivateAssets\phoenix\auto_sft_diag_35891840441\candidate_auto_sft.pt'
-          $candidateSha='fc77a83c523326dcb4f0f87b9d51487b4626e2e21918f12a62116915141a149d'
-          $out='D:\NeralPrivateAssets\phoenix\auto_sft_diag_35891840441\public_dev_ab_' + $env:GITHUB_RUN_ID + '.json'
+          $candidate='${{ inputs.candidate_path }}'
+          $candidateSha=('${{ inputs.candidate_sha256 }}').ToLowerInvariant()
+          if($candidateSha -notmatch '^[0-9a-f]{64}$'){throw 'Exact candidate SHA-256 required'}
+          $out=Join-Path (Split-Path -LiteralPath $candidate -Parent) ('public_dev_ab_' + $env:GITHUB_RUN_ID + '.json')
           foreach($p in @($repo,$base,$assets,$candidate,$out)) { if($p.Contains("'")) { throw 'Unsafe quote in path' } }
           if(-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { throw 'Local auto-SFT candidate missing' }
           if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $candidateSha) { throw 'Candidate SHA changed' }
