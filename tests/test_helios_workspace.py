@@ -113,6 +113,8 @@ def test_frontier350_catalog_is_visible_but_never_sent_to_legacy_loader(tmp_path
     target=root/'neral-arctus-350';target.mkdir()
     (target/'model.pt').write_bytes(b'frontier-fixture')
     (target/'model.sha256').write_text('0'*64)
+    (target/'tokenizer.json').write_text('{}')
+    (target/'tokenizer.sha256').write_text('1'*64)
     (root/'catalog.json').write_text(json.dumps([{
         'id':'neral-arctus-350','label':'Arctus 350M · Phoenix',
         'runtime_family':'frontier350-bpe-v1','status':'candidate',
