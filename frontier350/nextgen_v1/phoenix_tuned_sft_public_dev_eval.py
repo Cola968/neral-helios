@@ -15,7 +15,7 @@ from phoenix_auto_sft_public_dev_eval import (
     BASE_SHA, run_model, sha256_file,
 )
 
-SCHEMA = "phoenix_auto_sft_tuned_v1"
+SCHEMA = "phoenix_auto_sft_tuned_v2_fp32_master"
 CLASSIFICATION = "auto_sft_tuned_public_dev_selected_not_promotable"
 
 
@@ -68,6 +68,9 @@ def main(argv=None):
         or state.get("config")!=FRONTIER_350.to_dict()
         or state.get("tokenizer_sha256")!=TOKENIZER_SHA
         or state.get("production_eligible") is not False
+        or state.get("master_parameter_dtype")!="float32"
+        or state.get("adamw_moment_dtype")!="float32"
+        or state.get("compute_autocast_dtype")!="bfloat16"
         or state.get("human_review_complete") is not False
         or state.get("independent_holdout_checked") is not False
         or not isinstance(state.get("model"),dict)):
