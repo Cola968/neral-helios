@@ -12,7 +12,7 @@ from pathlib import Path
 from chatbot_v1_knowledge_data import build_encoded,exact_screen_fingerprints
 from phoenix_chatbot_v1_fresh_eval import (CASES as FRESH_CASES,evaluate as fresh_evaluate,
     load_candidate,normalized,sha_file)
-from phoenix_chatbot_v1_pilot import development_eval_hashes,gate as behavior_gate
+from phoenix_chatbot_v1_pilot import development_eval_hashes
 from phoenix_auto_sft_public_dev_eval import run_model
 from phoenix_continuity_cpu_probe import require_pinned_checkpoint
 from phoenix_master_precision import require_fp32_trainable_subset
@@ -24,6 +24,7 @@ BEHAVIOR_SHA="2221a57dadb4fba137c6b1da9b07dd4e00a3f34361219fc2a9b1fbee5c3b2674"
 SCHEMA="phoenix_chatbot_v1_knowledge_repair_v1"
 CLASSIFICATION="project_owned_chatbot_v1_knowledge_truthfulness_repair_development_only"
 PARAMETERS=349_825_152
+MAX_RESERVED=9*1024**3
 CONFIGS=(
     {"name":"lr2e6_s120","lr":2e-6,"steps":120},
     {"name":"lr5e6_s100","lr":5e-6,"steps":100},
