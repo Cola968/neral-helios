@@ -50,9 +50,11 @@ jobs:
           $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_refresh_train_'+$env:GITHUB_RUN_ID)
           $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $corpus='${{ inputs.corpus_path }}'
+          $requestedCorpus='${{ inputs.corpus_path }}'
+          $requestedManifestSha='${{ inputs.manifest_sha256 }}'
+          $corpus=if([string]::IsNullOrWhiteSpace($requestedCorpus)){'D:\NeralPrivateAssets\phoenix\foundation_refresh_35969626270'}else{$requestedCorpus}
           $manifest=Join-Path $corpus 'manifest.json'
-          $expectedManifestSha=('${{ inputs.manifest_sha256 }}').ToLowerInvariant()
+          $expectedManifestSha=if([string]::IsNullOrWhiteSpace($requestedManifestSha)){'7f1ef3c90ce680d81f7e4647e7c4d7bc00c8aeb445697ad2c771643724705112'}else{$requestedManifestSha.ToLowerInvariant()}
           $shapeOut='D:\NeralPrivateAssets\phoenix\foundation_shape_' + $env:GITHUB_RUN_ID + '.json'
           $trainOut='D:\NeralPrivateAssets\phoenix\foundation_train_' + $env:GITHUB_RUN_ID
           $evalOut=Join-Path $trainOut 'public_dev_ab.json'
