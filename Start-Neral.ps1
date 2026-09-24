@@ -187,7 +187,7 @@ try{
 
 if(-not $ready){
     Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','app.py') -WorkingDirectory $appRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'app.log') -RedirectStandardError (Join-Path $state 'app-error.log') | Out-Null
-    for($attempt=0;$attempt -lt 45;$attempt++){
+    for($attempt=0;$attempt -lt 90;$attempt++){
         Start-Sleep -Seconds 1
         try{
             $info=Get-NeralInfo
