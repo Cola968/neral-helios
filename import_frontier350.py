@@ -5,7 +5,7 @@ runs, or starts the Frontier runtime.
 """
 from __future__ import annotations
 
-import argparse,hashlib,json,os,re,shutil,tempfile
+import argparse,hashlib,json,os,pickle,re,shutil,tempfile
 from pathlib import Path
 
 from frontier350_contract import (
@@ -14,6 +14,9 @@ from frontier350_contract import (
 )
 
 MAX_CHECKPOINT_BYTES=4*1024**3
+# Historical own 2.073B continuity checkpoint. Unsafe-pickle fallback is permitted
+# ONLY for this exact, independently recorded SHA after hashing the complete file.
+TRUSTED_HISTORICAL_CONTINUITY_SHA="f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 
 def sha256_file(path:Path)->str:
     with path.open("rb") as f:return hashlib.file_digest(f,"sha256").hexdigest()
@@ -36,7 +39,16 @@ def validate_frontier_checkpoint(source:Path,expected_sha:str,tokenizer:Path,tok
         raise ValueError("Frontier tokenizer integrity mismatch")
 
     import torch
-    payload=torch.load(source,map_location="cpu",weights_only=True)
+    try:
+        payload=torch.load(source,map_location="cpu",mmap=True,weights_only=True)
+        historical_pickle_fallback=False
+    except (ValueError,RuntimeError,TypeError,pickle.UnpicklingError) as exc:
+        if actual!=TRUSTED_HISTORICAL_CONTINUITY_SHA:
+            raise ValueError("Checkpoint requires unsupported unsafe deserialization") from exc
+        # Exact SHA-verified OWN historical checkpoint only. It is immediately
+        # converted into a clean weights-only deployment file below.
+        payload=torch.load(source,map_location="cpu",mmap=True,weights_only=False)
+        historical_pickle_fallback=True
     if not isinstance(payload,dict):raise ValueError("Invalid Frontier checkpoint payload")
     if payload.get("config")!=FRONTIER350_CONFIG:raise ValueError("Frontier architecture contract mismatch")
     if payload.get("tokenizer_sha256")!=FRONTIER350_TOKENIZER_SHA256:raise ValueError("Checkpoint tokenizer contract mismatch")
@@ -53,9 +65,11 @@ def validate_frontier_checkpoint(source:Path,expected_sha:str,tokenizer:Path,tok
         if not bool(torch.isfinite(value).all()):raise ValueError(f"Non-finite Frontier tensor: {name}")
     if not torch.equal(state["tok_emb.weight"],state["lm_head.weight"]):
         raise ValueError("Frontier tied embedding/head mismatch")
-    return {"checkpoint_sha256":actual,"tokenizer_sha256":actual_tokenizer,
-            "processed_tokens":processed,"dtype":str(state["tok_emb.weight"].dtype).replace("torch.",""),
-            "state_entries":len(state),"parameters":FRONTIER350_PARAMETERS}
+    verified={"source_checkpoint_sha256":actual,"tokenizer_sha256":actual_tokenizer,
+              "processed_tokens":processed,"dtype":str(state["tok_emb.weight"].dtype).replace("torch.",""),
+              "state_entries":len(state),"parameters":FRONTIER350_PARAMETERS,
+              "historical_pickle_fallback":historical_pickle_fallback}
+    return verified,state
 
 def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,assets,status="candidate",context_tokens=512,runtime_port=9683):
     _validate_identity(key,label,status)
@@ -64,7 +78,7 @@ def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,ass
     if type(runtime_port) is not int or not 1024<=runtime_port<=65535:
         raise ValueError("Invalid runtime_port")
     source=Path(source);tokenizer=Path(tokenizer);assets=Path(assets)
-    verified=validate_frontier_checkpoint(source,expected_sha,tokenizer,tokenizer_sha)
+    verified,state=validate_frontier_checkpoint(source,expected_sha,tokenizer,tokenizer_sha)
 
     root=assets.resolve()/"installed_models";root.mkdir(parents=True,exist_ok=True)
     lock=root/"import.lock"
@@ -74,16 +88,30 @@ def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,ass
     try:
         if target.exists():raise ValueError("Model id is already installed")
         target.mkdir()
-        shutil.copyfile(source,target/"model.pt")
+        # Never deploy the historical training checkpoint itself. Strip optimizer,
+        # RNG, journal and arbitrary pickle metadata into a minimal weights-only file.
+        import torch
+        deployment_payload={
+            "model":state,
+            "config":FRONTIER350_CONFIG,
+            "tokenizer_sha256":FRONTIER350_TOKENIZER_SHA256,
+            "processed_tokens":verified["processed_tokens"],
+            "source_sha256":verified["source_checkpoint_sha256"],
+            "deployment_format":"frontier350-inference-v1",
+        }
+        torch.save(deployment_payload,target/"model.pt")
+        del deployment_payload,state
         shutil.copyfile(tokenizer,target/"tokenizer.json")
         model_digest=sha256_file(target/"model.pt");tok_digest=sha256_file(target/"tokenizer.json")
-        if model_digest!=expected_sha or tok_digest!=tokenizer_sha:raise ValueError("Deployment copy integrity mismatch")
+        if tok_digest!=tokenizer_sha:raise ValueError("Deployment tokenizer copy integrity mismatch")
         (target/"model.sha256").write_text(model_digest+"\n",encoding="ascii")
         (target/"tokenizer.sha256").write_text(tok_digest+"\n",encoding="ascii")
         report={
             "id":key,"label":label,"runtime_family":FRONTIER350_RUNTIME,"status":status,
             "parameters":FRONTIER350_PARAMETERS,"context_tokens":context_tokens,
-            "runtime_port":runtime_port,**verified,"source_checkpoint":str(source.name),"source_tokenizer":str(tokenizer.name),
+            "runtime_port":runtime_port,**verified,"deployment_sha256":model_digest,
+            "deployment_format":"frontier350-inference-v1","sanitized_inference_export":True,
+            "source_checkpoint":str(source.name),"source_tokenizer":str(tokenizer.name),
             "quality_promotion":False,"runtime_qualified":False,"training_started":False,
         }
         (target/"import-report.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
