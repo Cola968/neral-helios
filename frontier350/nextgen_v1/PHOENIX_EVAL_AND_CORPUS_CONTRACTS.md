@@ -57,10 +57,11 @@ public-eval dataset IDs, and zero contamination counts.
 
 ## Current consequence
 
-The proposed 350M source recipe still contains FineMath, while FineMath remains blocked by
-the central policy. Therefore a fresh production corpus build must currently stop before
-streaming. This is expected behavior, not a bug. FineMath requires a real candidate-admission
-audit and explicit policy change, or the recipe itself must be separately reviewed and changed.
+The default production recipe is now fully admitted at the source-family level:
+61% FineWeb-Edu, 24% FineWeb and 15% FineWeb-2 DE. FineMath remains excluded and separately
+pinned as a future candidate. A production corpus can therefore be built, but it still cannot
+be admitted to productive training until the exact built shards pass the independent
+benchmark-contamination screen required above.
 
 No contract in this directory is evidence of better model quality. Quality still requires the
 same frozen development/holdout comparison against the immutable 2.073B anchor.
