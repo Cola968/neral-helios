@@ -126,8 +126,16 @@ if(-not $appPython){
     Write-Host 'Neral richtet beim ersten Start die CPU-Abhaengigkeiten ein. Das kann einige Minuten dauern.' -ForegroundColor Yellow
     & $appPython -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
     if($LASTEXITCODE -ne 0){throw 'CPU-PyTorch konnte nicht installiert werden. Pruefe die Internetverbindung.'}
-    & $appPython -m pip install --disable-pip-version-check flask waitress numpy cryptography
+    & $appPython -m pip install --disable-pip-version-check flask waitress numpy cryptography tokenizers
     if($LASTEXITCODE -ne 0){throw 'App-Abhaengigkeiten konnten nicht installiert werden.'}
+}
+
+# Workspace 2.1 needs the own 16K BPE tokenizer runtime even in an upgraded existing environment.
+& $appPython -c "import tokenizers" *> $null
+if($LASTEXITCODE -ne 0){
+    Write-Host 'Helios ergänzt die Frontier-Tokenizer-Runtime.' -ForegroundColor Yellow
+    & $appPython -m pip install --disable-pip-version-check tokenizers
+    if($LASTEXITCODE -ne 0){throw 'Die Frontier-Tokenizer-Runtime konnte nicht installiert werden.'}
 }
 
 $env:PYTHONDONTWRITEBYTECODE='1'
