@@ -310,7 +310,7 @@ def main() -> None:
         "train_tokens": sum(x["tokens"] for x in train_files),
         "validation_tokens": sum(x["tokens"] for x in valid_files),
         "seed_note": args.seed_note,
-        "benchmark_content_included": False,
+        "benchmark_content_included": None,\n        "benchmark_screening_status": "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT",
         "licenses": sorted({s.license for s in DEFAULT_SOURCES}),
         "source_policy": source_policy,
         "resolved_revisions": resolved,
