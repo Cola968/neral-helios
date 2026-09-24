@@ -57,10 +57,12 @@ def validate_frontier_checkpoint(source:Path,expected_sha:str,tokenizer:Path,tok
             "processed_tokens":processed,"dtype":str(state["tok_emb.weight"].dtype).replace("torch.",""),
             "state_entries":len(state),"parameters":FRONTIER350_PARAMETERS}
 
-def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,assets,status="candidate",context_tokens=512):
+def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,assets,status="candidate",context_tokens=512,runtime_port=9683):
     _validate_identity(key,label,status)
     if type(context_tokens) is not int or not 1<=context_tokens<=FRONTIER350_CONFIG["max_seq_len"]:
         raise ValueError("Invalid context_tokens")
+    if type(runtime_port) is not int or not 1024<=runtime_port<=65535:
+        raise ValueError("Invalid runtime_port")
     source=Path(source);tokenizer=Path(tokenizer);assets=Path(assets)
     verified=validate_frontier_checkpoint(source,expected_sha,tokenizer,tokenizer_sha)
 
@@ -81,7 +83,7 @@ def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,ass
         report={
             "id":key,"label":label,"runtime_family":FRONTIER350_RUNTIME,"status":status,
             "parameters":FRONTIER350_PARAMETERS,"context_tokens":context_tokens,
-            **verified,"source_checkpoint":str(source.name),"source_tokenizer":str(tokenizer.name),
+            "runtime_port":runtime_port,**verified,"source_checkpoint":str(source.name),"source_tokenizer":str(tokenizer.name),
             "quality_promotion":False,"runtime_qualified":False,"training_started":False,
         }
         (target/"import-report.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
@@ -91,7 +93,7 @@ def import_frontier350(source,expected_sha,tokenizer,tokenizer_sha,key,label,ass
             raise ValueError("Catalog full or duplicate")
         rows.append({"id":key,"label":label,"runtime_family":FRONTIER350_RUNTIME,
                      "status":status,"parameters":FRONTIER350_PARAMETERS,
-                     "context_tokens":context_tokens})
+                     "context_tokens":context_tokens,"runtime_port":runtime_port})
         with tempfile.NamedTemporaryFile("w",dir=root,delete=False,encoding="utf-8") as tmp:
             json.dump(rows,tmp,indent=2);tmp.write("\n");tmp.flush();os.fsync(tmp.fileno());tmp_name=tmp.name
         os.replace(tmp_name,catalog_path)
@@ -113,6 +115,7 @@ if __name__=="__main__":
     p.add_argument("--assets",default="deployment")
     p.add_argument("--status",choices=("development","candidate","release"),default="candidate")
     p.add_argument("--context-tokens",type=int,default=512)
+    p.add_argument("--runtime-port",type=int,default=9683)
     a=p.parse_args()
     print(json.dumps(import_frontier350(a.source,a.sha256,a.tokenizer,a.tokenizer_sha256,
-        a.id,a.label,a.assets,a.status,a.context_tokens),indent=2,sort_keys=True))
+        a.id,a.label,a.assets,a.status,a.context_tokens,a.runtime_port),indent=2,sort_keys=True))
