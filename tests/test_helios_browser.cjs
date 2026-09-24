@@ -20,7 +20,7 @@ const root=path.resolve(__dirname,'..');
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/api/**',async route=>{
    const url=new URL(route.request().url());let data={available:false};if(url.pathname==='/api/chats')data={chats:[]};
-   if(url.pathname==='/api/info')data={parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},checkpoint_sha256:'test-fixture',device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:true,checkpoints:['pilot_02','neral50m'],i1_export_available:false};
+   if(url.pathname==='/api/info')data={parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},checkpoint_sha256:'test-fixture',device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:true,checkpoints:['pilot_02','neral50m'],models:[{id:'pilot_02',label:'Neral 20M · Preview 02',runtime_family:'legacy-byte-v1',status:'development',selectable:true,active:true},{id:'neral50m',label:'Neral 50M · Sprachpilot',runtime_family:'legacy-byte-v1',status:'development',selectable:true,active:false},{id:'neral-arctus-350',label:'Arctus 350M · Phoenix',runtime_family:'frontier350-bpe-v1',status:'candidate',parameters:349825152,context_tokens:512,selectable:false,active:false,blocked_reason:'Frontier-350-Runtime noch nicht mit Workspace verbunden.'}],i1_export_available:false};
    if(url.pathname==='/api/projects')data={projects:[]};
    if(url.pathname==='/api/generate'||url.pathname==='/api/model'){modelCalls++;throw Error('Model requests forbidden in UI tests');}
    await route.fulfill({json:data});
@@ -36,8 +36,11 @@ const root=path.resolve(__dirname,'..');
   assert.equal(await page.locator('#contextTrack').getAttribute('aria-valuenow')!==null,true);
   await page.locator('#runtimeChip').click();assert.equal(await page.locator('#inspector').isVisible(),true);await page.locator('#closeInspect').click();
   await page.locator('#modelPicker summary').click();
-  assert.equal(await page.locator('#modelOptions button').count(),2);
+  assert.equal(await page.locator('#modelOptions button').count(),3);
   assert.equal(await page.locator('#modelOptions button[aria-pressed=true]').count(),1);
+  assert.equal(await page.locator('#modelOptions button[data-runtime="frontier350-bpe-v1"]').count(),1);
+  assert.equal(await page.locator('#modelOptions button[data-runtime="frontier350-bpe-v1"]').isDisabled(),true);
+  assert.match(await page.locator('#modelOptions button[data-runtime="frontier350-bpe-v1"]').textContent(),/Arctus 350M/);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#modelPicker').getAttribute('open'),null);
   assert.equal(await page.locator('.composer-model #checkpoint').count(),1);
