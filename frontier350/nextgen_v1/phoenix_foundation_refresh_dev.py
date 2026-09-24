@@ -26,13 +26,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from checkpoint_journal import CheckpointJournal, safe_save_every
 from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
+from phoenix_master_precision import require_fp32_master
 from source_lock350 import LOCK_PATH
 from hf_source_policy50 import SOURCES
 
-SCHEMA = "phoenix_foundation_refresh_dev_v1"
-CLASSIFICATION = "DEVELOPMENT_ONLY_FRESH_ADAMW_FOUNDATION_REFRESH"
+SCHEMA = "phoenix_foundation_refresh_dev_v2"
+CLASSIFICATION = "DEVELOPMENT_ONLY_FP32_MASTER_FOUNDATION_REFRESH"
 PARAMETERS = 349_825_152
 MAX_TARGET = 20_000_000
+MAX_RESERVED_VRAM = 10 * 1024**3
 SHA64 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -165,7 +167,7 @@ def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
     if compile_mode not in {"none", "default"}:
         raise ValueError("unsupported compile mode")
     result = {
-        "kind": "phoenix_foundation_refresh_fresh_adamw_v1",
+        "kind": "phoenix_foundation_refresh_fp32_master_adamw_v2",
         "historical_source_sha256": CONTINUITY_SHA,
         "historical_processed_tokens": EXPECTED_TOKENS,
         "refresh_manifest_sha256": manifest_sha,
@@ -179,6 +181,9 @@ def lineage(manifest_sha: str, target: int, seq: int, micro: int, accum: int,
         "weight_decay": 0.1,
         "seed": seed,
         "gradient_checkpointing": bool(gradient_checkpointing),
+        "master_parameter_dtype": "float32",
+        "adamw_moment_dtype": "float32",
+        "compute_autocast_dtype": "bfloat16",
     }
     # Preserve exact legacy lineage identity for eager resumes.
     if compile_mode != "none":
@@ -204,10 +209,15 @@ def validate_resume(torch, state: dict, expected_lineage: dict, manifest_sha: st
             "torch_rng", "cuda_rng", "python_rng", "numpy_rng", "train_sampler_rng"
         ))
         or state.get("production_eligible") is not False
+        or state.get("master_parameter_dtype") != "float32"
+        or state.get("adamw_moment_dtype") != "float32"
+        or state.get("compute_autocast_dtype") != "bfloat16"
     ):
         raise ValueError("refresh resume checkpoint is incomplete or wrong lineage")
     if not all(torch.is_tensor(v) for v in state["model"].values()):
         raise ValueError("refresh resume contains non-Torch model values")
+    if any(v.dtype != torch.float32 for v in state["model"].values()):
+        raise ValueError("legacy BF16-master refresh checkpoint cannot resume FP32-master lineage")
     processed = state["processed_tokens"]
     step = state["step"]
     update = expected_lineage["seq"] * expected_lineage["microbatch"] * expected_lineage["grad_accum"]
@@ -249,7 +259,7 @@ def main(argv=None) -> int:
     # RTX 4070 real-data probes benchmarked all shapes below. Larger direct
     # microbatches reduce Python/optimizer overhead while safe_save_every()
     # independently preserves the <=262,144-token recovery budget.
-    allowed_shapes = {(1, 4), (2, 2), (4, 1), (8, 1), (12, 1), (16, 1)}
+    allowed_shapes = {(1, 4), (2, 2), (4, 1)}
     if (args.seq != 256 or (args.microbatch, args.grad_accum) not in allowed_shapes
             or args.lr != 1e-5):
         p.error("development run must use a benchmarked seq=256 RTX-4070 shape")
@@ -310,7 +320,9 @@ def main(argv=None) -> int:
     torch.set_float32_matmul_precision("high")
     torch.cuda.reset_peak_memory_stats()
 
-    model = Neral350M().to(device=device, dtype=torch.bfloat16)
+    # Historical BF16 source weights are upcast once; all NEW serialized master
+    # parameters and AdamW moments remain FP32. BF16 is compute-only autocast.
+    model = Neral350M().to(device=device, dtype=torch.float32)
     model.set_gradient_checkpointing(args.gradient_checkpointing)
     if model.parameter_report()["total"] != PARAMETERS:
         raise RuntimeError("locked 350M parameter count changed")
@@ -327,8 +339,7 @@ def main(argv=None) -> int:
         base = _checked_historical_weights(source, torch, Neral350M, FRONTIER_350.to_dict())
         model.load_state_dict(base["model"], strict=True)
         del base
-        if optimizer.state_dict()["state"]:
-            raise RuntimeError("fresh refresh optimizer unexpectedly has inherited moments")
+        require_fp32_master(model, optimizer, torch, require_moments=False)
         out.mkdir(parents=True, exist_ok=False)
     else:
         state = torch.load(args.resume, map_location="cpu", weights_only=False)
@@ -337,6 +348,7 @@ def main(argv=None) -> int:
             raise ValueError("resume architecture mismatch")
         model.load_state_dict(state["model"], strict=True)
         optimizer.load_state_dict(state["optimizer"])
+        require_fp32_master(model, optimizer, torch, require_moments=True)
         step = state["step"]
         processed = state["processed_tokens"]
         best = float(state["best_validation"])
@@ -355,11 +367,12 @@ def main(argv=None) -> int:
     warmup = max(1, int(total_updates * 0.01))
     validation_seed = args.seed + 999
 
-    # no_grad (not inference_mode) keeps RoPE cache reusable by later backward.
-    baseline_val = evaluate(
-        model, valid, seq=args.seq, batch=args.microbatch, batches=8,
-        device=device, seed=validation_seed
-    )
+    # no_grad (not inference_mode) inside evaluate keeps RoPE cache reusable by backward.
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        baseline_val = evaluate(
+            model, valid, seq=args.seq, batch=args.microbatch, batches=8,
+            device=device, seed=validation_seed
+        )
     best = min(best, baseline_val)
 
     metrics = out / "metrics.jsonl"
@@ -374,6 +387,9 @@ def main(argv=None) -> int:
                 "stop_after_new_tokens": args.stop_after_new_tokens,
                 "baseline_validation_loss": baseline_val,
                 "lineage": expected_lineage,
+                "master_parameter_dtype": "float32",
+                "adamw_moment_dtype": "float32",
+                "compute_autocast_dtype": "bfloat16",
                 "production_eligible": False,
             }, sort_keys=True) + "\n")
 
@@ -394,6 +410,9 @@ def main(argv=None) -> int:
             "historical_processed_tokens": EXPECTED_TOKENS,
             "refresh_manifest_sha256": args.manifest_sha256,
             "lineage": expected_lineage,
+            "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
             "production_eligible": False,
             "historical_overlap_checked": False,
         })
@@ -441,7 +460,8 @@ def main(argv=None) -> int:
         for count in counts:
             x, y = train.batch(args.microbatch, args.seq, device, rng)
             y = mask_budget_targets(y, count)
-            _, loss = train_model(x, y)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                _, loss = train_model(x, y)
             if loss is None or not bool(torch.isfinite(loss)):
                 raise FloatingPointError("nonfinite refresh training loss")
             (loss * (count / this_update)).backward()
@@ -454,6 +474,10 @@ def main(argv=None) -> int:
         optimizer.step()
         processed += this_update
         step += 1
+        if step == 1:
+            require_fp32_master(model, optimizer, torch, require_moments=True)
+        if torch.cuda.memory_reserved() > MAX_RESERVED_VRAM:
+            raise RuntimeError("FP32-master refresh exceeds 10 GiB reserved VRAM ceiling")
 
         if step % 32 == 0 or processed >= args.stop_after_new_tokens:
             torch.cuda.synchronize()
@@ -477,10 +501,11 @@ def main(argv=None) -> int:
             last_log_time, last_log_tokens = now, processed
 
         if step % eval_every == 0 or processed >= args.stop_after_new_tokens:
-            val = evaluate(
-                model, valid, seq=args.seq, batch=args.microbatch, batches=8,
-                device=device, seed=validation_seed
-            )
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                val = evaluate(
+                    model, valid, seq=args.seq, batch=args.microbatch, batches=8,
+                    device=device, seed=validation_seed
+                )
             best = min(best, val)
             append({
                 "event": "refresh_validation",
@@ -525,6 +550,9 @@ def main(argv=None) -> int:
         "checkpoint_kind": receipt["kind"],
         "refresh_manifest_sha256": args.manifest_sha256,
         "source_unchanged": source_unchanged,
+        "master_parameter_dtype": "float32",
+        "adamw_moment_dtype": "float32",
+        "compute_autocast_dtype": "bfloat16",
         "peak_cuda_allocated_mib": round(torch.cuda.max_memory_allocated() / 1024**2, 1),
         "peak_cuda_reserved_mib": round(torch.cuda.max_memory_reserved() / 1024**2, 1),
         "training_wall_seconds": time.monotonic() - invocation_wall,
