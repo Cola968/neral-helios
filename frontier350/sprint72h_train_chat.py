@@ -69,6 +69,8 @@ def main() -> int:
     p.add_argument("--tokenizer", type=Path, required=True)
     p.add_argument("--data", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--resume", action="store_true",
+                   help="resume exactly from out/resume.pt; data and hyperparameters must match")
     p.add_argument("--replay-root", type=Path)
     p.add_argument("--train-blocks", type=int, choices=(4, 6, 8), default=8)
     p.add_argument("--steps", type=int, default=2000)
@@ -95,8 +97,12 @@ def main() -> int:
         p.error("invalid learning rate")
     if min(args.eval_every, args.patience) <= 0:
         p.error("positive eval interval/patience required")
-    if args.out.exists():
-        p.error("create-only sprint output required")
+    resume_path = args.out / "resume.pt"
+    if args.resume:
+        if not args.out.is_dir() or not resume_path.is_file():
+            p.error("--resume requires an existing out/resume.pt")
+    elif args.out.exists():
+        p.error("fresh sprint output must be create-only")
     if sha256_file(args.checkpoint) != EXPECTED_BASE_SHA:
         raise ValueError("historical 2.073B source SHA mismatch")
     if sha256_file(args.tokenizer) != EXPECTED_TOKENIZER_SHA:
@@ -104,6 +110,11 @@ def main() -> int:
 
     manifest_path = args.data / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf8"))
+    data_identity = {
+        "manifest_sha256": sha256_file(manifest_path),
+        "train_sha256": sha256_file(args.data / "train.jsonl"),
+        "validation_sha256": sha256_file(args.data / "val.jsonl"),
+    }
     if manifest.get("external_model_calls") is not False:
         raise ValueError("SFT dataset must contain no external-model calls")
     if manifest.get("prompt_group_overlap_audit", {}).get("cross_split_prompt_group_overlap") != 0:
@@ -186,6 +197,20 @@ def main() -> int:
     named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
     params = [p for _, p in named]
     trainable_parameters = sum(p.numel() for p in params)
+    trainable_names = [n for n, _ in named]
+    args_signature = {
+        "train_blocks": args.train_blocks,
+        "steps": args.steps,
+        "batch": args.batch,
+        "context": args.context,
+        "peak_lr": args.peak_lr,
+        "min_lr": args.min_lr,
+        "sft_weight": args.sft_weight,
+        "eos_weight": args.eos_weight,
+        "eval_every": args.eval_every,
+        "patience": args.patience,
+        "min_delta": args.min_delta,
+    }
 
     optimizer = torch.optim.AdamW(
         params, lr=args.peak_lr, betas=(0.9, 0.95), eps=1e-8,
@@ -196,10 +221,17 @@ def main() -> int:
     replay = None
     replay_weight = max(0.0, 1.0 - args.sft_weight)
     replay_rng = random.Random(SEED + 1)
+    replay_identity = None
     if replay_weight > 0:
         if args.replay_root is None:
             raise ValueError("replay-root required when sft-weight < 1")
-        replay = PersistentMMapPool(args.replay_root.resolve(strict=True), FRONTIER_350.vocab_size)
+        replay_root = args.replay_root.resolve(strict=True)
+        replay_manifest = replay_root.parent / "manifest.json"
+        replay_identity = {
+            "root": str(replay_root),
+            "manifest_sha256": sha256_file(replay_manifest) if replay_manifest.is_file() else None,
+        }
+        replay = PersistentMMapPool(replay_root, FRONTIER_350.vocab_size)
 
     order = list(range(len(train)))
     sampler = random.Random(SEED + 2)
@@ -258,12 +290,66 @@ def main() -> int:
         model.train()
         return total / max(1, tokens)
 
-    baseline_val = evaluate()
-    best_val = baseline_val
+    metrics = args.out / "metrics.jsonl"
+    start_step = 0
+    supervised_tokens = 0
+    replay_tokens = 0
     bad = 0
     best_step = 0
-    args.out.mkdir(parents=True, exist_ok=False)
-    metrics = args.out / "metrics.jsonl"
+
+    if args.resume:
+        state = torch.load(resume_path, map_location="cpu", weights_only=False)
+        if (
+            state.get("checkpoint_schema") != "helios_chat_sprint72h_resume_v2"
+            or state.get("base_checkpoint_sha256") != EXPECTED_BASE_SHA
+            or state.get("tokenizer_sha256") != EXPECTED_TOKENIZER_SHA
+            or state.get("data_identity") != data_identity
+            or state.get("args_signature") != args_signature
+            or state.get("replay_identity") != replay_identity
+            or state.get("trainable_names") != trainable_names
+            or state.get("production_eligible") is not False
+        ):
+            raise ValueError("resume checkpoint contract/data/hyperparameters changed")
+        start_step = int(state.get("sft_step", -1))
+        if not 0 < start_step < args.steps:
+            raise ValueError("resume step is outside the active sprint")
+        saved = state.get("trainable_model")
+        if not isinstance(saved, dict) or set(saved) != set(trainable_names):
+            raise ValueError("resume trainable-weight set changed")
+        by_name = dict(model.named_parameters())
+        with torch.no_grad():
+            for name in trainable_names:
+                value = saved[name]
+                if not torch.is_tensor(value) or value.shape != by_name[name].shape:
+                    raise ValueError(f"resume tensor mismatch: {name}")
+                by_name[name].copy_(value.to(device=device, dtype=torch.float32))
+        optimizer.load_state_dict(state["optimizer"])
+        require_fp32_trainable_subset(model, optimizer, torch, require_moments=True)
+        order = list(state["sampler_order"])
+        cursor = int(state["sampler_cursor"])
+        if sorted(order) != list(range(len(train))) or not 0 <= cursor <= len(order):
+            raise ValueError("resume sampler does not match current training set")
+        sampler.setstate(state["sampler_rng"])
+        replay_rng.setstate(state["replay_rng"])
+        torch.set_rng_state(state["torch_rng"])
+        torch.cuda.set_rng_state_all(state["cuda_rng"])
+        baseline_val = float(state["baseline_validation_loss"])
+        best_val = float(state["best_validation_loss"])
+        bad = int(state["bad_evals"])
+        best_step = int(state["best_step"])
+        supervised_tokens = int(state["supervised_answer_tokens"])
+        replay_tokens = int(state["replay_tokens"])
+        if not all(math.isfinite(v) for v in (baseline_val, best_val)):
+            raise ValueError("nonfinite resume validation state")
+        with metrics.open("a", encoding="utf8") as log:
+            log.write(json.dumps({"event": "resume", "from_step": start_step,
+                                  "best_step": best_step,
+                                  "best_validation_loss": best_val}) + "\n")
+        del state
+    else:
+        args.out.mkdir(parents=True, exist_ok=False)
+        baseline_val = evaluate()
+        best_val = baseline_val
 
     def lr_at(step: int) -> float:
         warm = max(1, int(args.steps * 0.05))
@@ -285,16 +371,19 @@ def main() -> int:
             "sft_validation_loss": val,
             "train_blocks": args.train_blocks,
             "trainable_parameters": trainable_parameters,
+            "data_identity": data_identity,
+            "args_signature": args_signature,
+            "replay_identity": replay_identity,
             "master_parameter_dtype": "float32",
             "compute_autocast_dtype": "bfloat16",
             "production_eligible": False,
         }
 
     started = time.monotonic()
-    supervised_tokens = replay_tokens = 0
     model.train()
     stop_reason = "max_steps"
-    for step in range(1, args.steps + 1):
+    step = start_step
+    for step in range(start_step + 1, args.steps + 1):
         lr = lr_at(step)
         for group in optimizer.param_groups:
             group["lr"] = lr
@@ -353,19 +442,38 @@ def main() -> int:
                             args.out / "best_chat.pt")
             else:
                 bad += 1
-            # Resume state is intentionally local and overwritable.
-            resume = checkpoint(step, val, "chat_sprint_resume")
-            resume.update({
+            # Compact exact resume: lower frozen weights are reconstructed from the
+            # immutable SHA-pinned base instead of being duplicated on every snapshot.
+            resume = {
+                "checkpoint_schema": "helios_chat_sprint72h_resume_v2",
+                "classification": "chat_sprint_resume",
+                "base_checkpoint_sha256": EXPECTED_BASE_SHA,
+                "tokenizer_sha256": EXPECTED_TOKENIZER_SHA,
+                "data_identity": data_identity,
+                "args_signature": args_signature,
+                "replay_identity": replay_identity,
+                "trainable_names": trainable_names,
+                "trainable_model": {
+                    name: param.detach().cpu().float() for name, param in named
+                },
                 "optimizer": optimizer.state_dict(),
-                "sampler_order": order, "sampler_cursor": cursor,
-                "sampler_rng": sampler.getstate(), "replay_rng": replay_rng.getstate(),
+                "sft_step": step,
+                "baseline_validation_loss": baseline_val,
+                "best_validation_loss": best_val,
+                "best_step": best_step,
+                "bad_evals": bad,
+                "supervised_answer_tokens": supervised_tokens,
+                "replay_tokens": replay_tokens,
+                "sampler_order": order,
+                "sampler_cursor": cursor,
+                "sampler_rng": sampler.getstate(),
+                "replay_rng": replay_rng.getstate(),
                 "torch_rng": torch.get_rng_state(),
                 "cuda_rng": [x.cpu() for x in torch.cuda.get_rng_state_all()],
-                "bad_evals": bad, "best_validation_loss": best_val,
-                "best_step": best_step,
-            })
+                "production_eligible": False,
+            }
             atomic_save(torch, resume, args.out / "resume.next.pt")
-            os.replace(args.out / "resume.next.pt", args.out / "resume.pt")
+            os.replace(args.out / "resume.next.pt", resume_path)
             if bad >= args.patience and best_step > 0:
                 stop_reason = "early_stopping"
                 with metrics.open("a", encoding="utf8") as f:
@@ -386,6 +494,7 @@ def main() -> int:
         "baseline_validation_loss": baseline_val,
         "best_validation_loss": best_val,
         "best_step": best_step,
+        "resumed_from_step": start_step,
         "completed_step": step,
         "stop_reason": stop_reason,
         "train_blocks": args.train_blocks,
