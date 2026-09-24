@@ -5,7 +5,7 @@ bundle paths or ports; all values originate from the validated model catalog.
 """
 from __future__ import annotations
 
-import atexit,os,subprocess,sys,threading,time
+import atexit,os,socket,subprocess,sys,threading,time
 from pathlib import Path
 
 from frontier_sidecar import FrontierUnavailable,probe
@@ -25,6 +25,18 @@ def _python():
 def _key(row):
     return (row.get("model_sha256"),row.get("runtime_port"))
 
+def _stop_process(proc):
+    if proc is None or proc.poll() is not None:return
+    try:proc.terminate();proc.wait(timeout=3)
+    except Exception:
+        try:proc.kill();proc.wait(timeout=1)
+        except Exception:pass
+
+def _port_open(port):
+    try:
+        with socket.create_connection(("127.0.0.1",int(port)),timeout=0.2):return True
+    except OSError:return False
+
 def ensure_running(row,state_root,runtime_script,timeout=45.0):
     try:return probe(row,timeout=0.35)
     except FrontierUnavailable:pass
@@ -40,6 +52,13 @@ def ensure_running(row,state_root,runtime_script,timeout=45.0):
     with _lock:
         proc=_processes.get(key)
         if proc is None or proc.poll() is not None:
+            # Only replace a sidecar that this Helios process itself owns.
+            # Never terminate an arbitrary process just because it uses the port.
+            for other_key,other_proc in list(_processes.items()):
+                if other_key!=key and other_key[1]==port:
+                    _stop_process(other_proc);_processes.pop(other_key,None)
+            if _port_open(port):
+                raise FrontierUnavailable("Frontier-Runtime-Port ist durch einen anderen Prozess belegt.")
             root=Path(state_root).resolve();root.mkdir(parents=True,exist_ok=True)
             safe_id="".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in row.get("label","frontier"))[:48]
             out=(root/f"{safe_id}-runtime.log").open("ab",buffering=0)
@@ -68,12 +87,7 @@ def ensure_running(row,state_root,runtime_script,timeout=45.0):
 def stop_all():
     with _lock:
         processes=list(_processes.values());_processes.clear()
-    for proc in processes:
-        if proc.poll() is None:
-            try:proc.terminate();proc.wait(timeout=3)
-            except Exception:
-                try:proc.kill()
-                except Exception:pass
+    for proc in processes:_stop_process(proc)
     for handle in _logs:
         try:handle.close()
         except Exception:pass
