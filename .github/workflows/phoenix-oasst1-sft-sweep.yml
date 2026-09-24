@@ -1,11 +1,7 @@
 name: Phoenix OASST1 quality-gated SFT fast lane
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-oasst1-sft-sweep.yml'
-      - 'frontier350/nextgen_v1/phoenix_oasst1_sft_sweep.py'
+  workflow_dispatch:
 
 permissions:
   contents: read
