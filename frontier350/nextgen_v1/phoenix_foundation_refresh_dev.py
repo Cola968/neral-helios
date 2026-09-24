@@ -256,9 +256,8 @@ def main(argv=None) -> int:
     if args.target_new_tokens != MAX_TARGET:
         p.error(f"this development lineage is locked to {MAX_TARGET} new target tokens")
     update = args.seq * args.microbatch * args.grad_accum
-    # RTX 4070 real-data probes benchmarked all shapes below. Larger direct
-    # microbatches reduce Python/optimizer overhead while safe_save_every()
-    # independently preserves the <=262,144-token recovery budget.
+    # Candidate FP32-master shapes. The current precision-correct shape benchmark
+    # must select among these before a new training lineage is started.
     allowed_shapes = {(1, 4), (2, 2), (4, 1)}
     if (args.seq != 256 or (args.microbatch, args.grad_accum) not in allowed_shapes
             or args.lr != 1e-5):
