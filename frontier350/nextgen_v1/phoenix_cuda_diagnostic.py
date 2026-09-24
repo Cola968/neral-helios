@@ -20,6 +20,7 @@ MIN_FREE_MIB = 9000
 IDLE_SAMPLES = 3
 IDLE_INTERVAL_SECONDS = 2
 MAX_TEMPERATURE_C = 78
+EMERGENCY_TEMPERATURE_C = 84
 COOLDOWN_RESUME_C = 74
 COOLDOWN_POLL_SECONDS = 5
 COOLDOWN_MAX_SECONDS = 120
@@ -75,6 +76,11 @@ def cooldown_until_safe() -> dict:
     first = runtime_temperature_c()
     if first <= MAX_TEMPERATURE_C:
         return {"cooled": False, "initial_c": first, "final_c": first, "waited_seconds": 0}
+    if first > EMERGENCY_TEMPERATURE_C:
+        raise RuntimeError(
+            f"GPU training temperature {first} C exceeds emergency limit "
+            f"{EMERGENCY_TEMPERATURE_C} C"
+        )
 
     waited = 0
     temperature = first
@@ -82,6 +88,10 @@ def cooldown_until_safe() -> dict:
         time.sleep(COOLDOWN_POLL_SECONDS)
         waited += COOLDOWN_POLL_SECONDS
         temperature = runtime_temperature_c()
+        if temperature > EMERGENCY_TEMPERATURE_C:
+            raise RuntimeError(
+                f"GPU temperature rose to {temperature} C during cooldown; hard stop"
+            )
         if temperature <= COOLDOWN_RESUME_C:
             return {
                 "cooled": True, "initial_c": first, "final_c": temperature,
