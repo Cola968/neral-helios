@@ -27,7 +27,7 @@ from checkpoint_journal import CheckpointJournal, safe_save_every
 from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
 from phoenix_master_precision import require_fp32_master
-from source_lock350 import LOCK_PATH
+from source_lock350 import LOCK_PATH, load_lock
 from hf_source_policy50 import SOURCES
 
 SCHEMA = "phoenix_foundation_refresh_dev_v2"
@@ -61,7 +61,7 @@ def atomic_save(torch, state: dict, path: Path) -> None:
 
 
 def validate_refresh_manifest_contract(manifest: dict, tokenizer_sha: str,
-                                      source_lock_sha: str) -> dict:
+                                      current_lock: dict) -> dict:
     """Validate policy/lineage metadata without touching shards or CUDA."""
     if (
         not isinstance(manifest, dict)
@@ -79,8 +79,9 @@ def validate_refresh_manifest_contract(manifest: dict, tokenizer_sha: str,
         or manifest.get("train_validation_exact_document_disjoint") is not True
     ):
         raise ValueError("refresh manifest lineage/classification contract mismatch")
-    if manifest.get("source_lock_sha256") != source_lock_sha:
-        raise ValueError("refresh corpus source lock differs from current repository lock")
+    build_lock_sha = manifest.get("source_lock_sha256")
+    if not isinstance(build_lock_sha, str) or not SHA64.fullmatch(build_lock_sha):
+        raise ValueError("refresh corpus build-time source-lock SHA missing")
     if manifest.get("continuation_profile") != "phoenix-quality-refresh-v2-approved-sources":
         raise ValueError("legacy/unapproved refresh profile blocked; rebuild corpus with current policy")
     if manifest.get("finemath_candidate_included") is not False:
@@ -127,6 +128,42 @@ def validate_refresh_manifest_contract(manifest: dict, tokenizer_sha: str,
     if observed_ids != expected_ids:
         raise ValueError("refresh source-policy receipts do not cover exact admitted families")
 
+    # Bind the built corpus to the exact identities it actually used rather than to
+    # unrelated metadata bytes elsewhere in source_lock.json. This preserves safety
+    # when comments/origin text or an unused candidate entry changes.
+    revisions = manifest.get("resolved_revisions")
+    lock_sources = current_lock.get("sources") if isinstance(current_lock, dict) else None
+    if not isinstance(revisions, dict) or set(revisions) != expected_names:
+        raise ValueError("refresh resolved-revision receipt is incomplete")
+    if not isinstance(lock_sources, dict):
+        raise ValueError("current immutable source lock is invalid")
+    source_specs = {
+        "fineweb_edu_en": {
+            "repo": "HuggingFaceFW/fineweb-edu", "config": "sample-10BT",
+            "split": "train", "license": "odc-by",
+        },
+        "fineweb_en": {
+            "repo": "HuggingFaceFW/fineweb", "config": "sample-10BT",
+            "split": "train", "license": "odc-by",
+        },
+        "fineweb2_de": {
+            "repo": "HuggingFaceFW/fineweb-2", "config": "deu_Latn",
+            "split": "train", "license": "odc-by",
+        },
+    }
+    for name, expected in source_specs.items():
+        locked = lock_sources.get(name)
+        if not isinstance(locked, dict):
+            raise ValueError(f"current source lock is missing used source: {name}")
+        actual = {key: locked.get(key) for key in expected}
+        if actual != expected:
+            raise ValueError(f"current source identity contract changed: {name}")
+        revision = str(locked.get("revision", "")).lower()
+        if not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise ValueError(f"current source revision is not immutable: {name}")
+        if revisions.get(name) != revision:
+            raise ValueError(f"built refresh revision differs from current lock: {name}")
+
     token = manifest.get("tokenizer", {})
     if token.get("vocab_size") != 16_384 or token.get("tokenizer_sha256") != tokenizer_sha:
         raise ValueError("refresh manifest tokenizer contract mismatch")
@@ -144,7 +181,7 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
         raise ValueError("refresh manifest SHA mismatch")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     validate_refresh_manifest_contract(
-        manifest, tokenizer_sha=tokenizer_sha, source_lock_sha=sha256_file(LOCK_PATH)
+        manifest, tokenizer_sha=tokenizer_sha, current_lock=load_lock()
     )
 
     def checked_files(role: str, subdir: str):
