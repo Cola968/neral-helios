@@ -180,13 +180,13 @@ def build_split(split:str)->list[dict]:
             rows.append(conversation(f"{split}-explain-en-{rep}-{j}","short_explanation","en",[(q+suffix,a)]))
 
     translation_repeats=8 if split=="train" else 1
+    de_translations=DE_TRANSLATIONS[:4] if split=="train" else DE_TRANSLATIONS[4:]
+    en_translations=EN_TRANSLATIONS[:4] if split=="train" else EN_TRANSLATIONS[4:]
     for rep in range(translation_repeats):
-        for j,(src,dst) in enumerate(DE_TRANSLATIONS):
-            if (j+rep)%3==0 and split=="validation":continue
+        for j,(src,dst) in enumerate(de_translations):
             rows.append(conversation(f"{split}-translate-de-{rep}-{j}","bilingual","de",
                 [(f"Variante {rep+1}: Übersetze ins Englische und gib nur die Übersetzung aus: {src}",dst)]))
-        for j,(src,dst) in enumerate(EN_TRANSLATIONS):
-            if (j+rep)%3==1 and split=="validation":continue
+        for j,(src,dst) in enumerate(en_translations):
             rows.append(conversation(f"{split}-translate-en-{rep}-{j}","bilingual","en",
                 [(f"Version {rep+1}: Translate into German and output only the translation: {src}",dst)]))
 
