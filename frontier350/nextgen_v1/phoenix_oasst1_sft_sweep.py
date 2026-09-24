@@ -84,7 +84,10 @@ def auto_prepare_oasst1(repo_root: Path, archive: Path, tokenizer_path: Path):
         "packed_rows": {k: len(v) for k, v in packed.items()},
         "auto_rejected_rows": sum(rejects.values()),
         "auto_reject_reasons": rejects,
-        "human_review_complete": False,
+        "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
+            "human_review_complete": False,
         "independent_holdout_checked": False,
         "semantic_overlap_checked": False,
         "production_eligible": False,
@@ -206,6 +209,7 @@ def main(argv=None) -> int:
             params, lr=config["lr"], betas=(0.9, 0.95), eps=1e-8,
             weight_decay=0.01, fused=True
         )
+        require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
         require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
         rng = random.Random(20260923)
         supervised_total = 0
