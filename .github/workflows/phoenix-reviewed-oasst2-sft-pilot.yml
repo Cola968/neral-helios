@@ -97,7 +97,8 @@ jobs:
           $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
           if($m.version -ne 1 -or -not $m.sources -or $m.sources.Count -lt 1){throw 'SFT manifest v1/source list required'}
           foreach($s in $m.sources){
-            if(-not ([string]$s.id).StartsWith('oasst2-')){throw 'Reviewed SFT workflow accepts OASST2 source IDs only'}
+            if(([string]$s.id) -ne 'oasst2-ready-2023-11-05'){throw 'Reviewed workflow accepts only the pinned OASST2 ready source ID'}
+            if(([string]$s.revision_sha256).ToLowerInvariant() -ne 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'){throw 'OASST2 source archive identity mismatch'}
             if($s.approved_for_training -ne $true -or $s.privacy_reviewed -ne $true -or $s.benchmark_screened -ne $true){throw 'Human source review not complete'}
             if(([string]$s.license) -ne 'Apache-2.0'){throw 'Unexpected OASST2 license receipt'}
           }
