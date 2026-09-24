@@ -1,6 +1,6 @@
 # Helios Workspace 2
 
-Diese Version erweitert die bestehende Flask-/JavaScript-App. Sie verändert keine Trainingsskripte, Trainingsdaten oder Originalgewichte. Die Runtime erzwingt CPU. Es gibt keine Fremdmodelle und keinen Modell-Fallback.
+Diese Version erweitert die bestehende Flask-/JavaScript-App. Sie verändert keine Trainingsskripte, Trainingsdaten oder Originalgewichte. Die Legacy-Runtime für 20M/50M bleibt bewusst CPU-only; die getrennte Frontier-350-Runtime kann lokal CUDA/BF16 verwenden. Es gibt keine Fremdmodelle und keinen Modell-Fallback.
 
 ## Funktionen
 
@@ -23,9 +23,11 @@ Ein Frontier-Deployment-Bundle besteht aus `model.pt`, `model.sha256`, `tokenize
 
 Die Haupt-App lädt die großen Frontier-Gewichte nicht in ihren bisherigen CPU-Prozess. Stattdessen verbindet sie sich über `frontier_sidecar.py` ausschließlich mit einem lokalen Prozess auf `127.0.0.1`. Vor einer Auswahl müssen Runtime-Familie, Checkpoint-SHA und Tokenizer-SHA mit dem registrierten Bundle exakt übereinstimmen. Ein falscher oder nicht erreichbarer Sidecar wird abgelehnt, während das bisher aktive Modell erhalten bleibt.
 
-Die bereits vorhandene experimentelle 350M-Phoenix-Runtime veröffentlicht auf ihrem `/health`-Endpunkt den dazu erforderlichen SHA-Handshake. Der aktuelle Frontier-Chatpfad ist deterministisch, unterstützt maximal 64 neue Tokens pro Antwort und besitzt noch keinen echten Abbruch/Streaming-Vertrag. Die UI zeigt diese Einschränkungen deshalb offen: Temperatur wird auf 0 gesetzt, der Stop-Button wird für diesen Runtime-Typ nicht angeboten und der Kontext wird als BPE-Kontext gekennzeichnet statt mit der Byte-Schätzung des Legacy-Modells vorgetäuscht zu werden.
+`frontier_runtime.py` ist der gepackte Inferenzprozess für Arctus/Phoenix 350M. Er lädt ausschließlich ein registriertes SHA-geprüftes Bundle, wählt mit `--device auto` CUDA wenn PyTorch CUDA und BF16 bereitstellt und fällt sonst auf CPU zurück. Der Decoder arbeitet inkrementell mit einem KV-Cache statt bei jedem Ausgabetoken den kompletten bisherigen Kontext erneut durch alle 24 Layer zu rechnen. `/health` meldet unter anderem GPU/Device, Decoder, KV-Cache, VRAM, Kontext- und Antwortlimits.
 
-Der nächste Runtime-Schritt ist ein eigener gepackter Frontier-Prozess mit CUDA/KV-Cache/Streaming. Bis dahin ist der Sidecar-Adapter bewusst ein lokaler, SHA-gebundener Integrationsvertrag und keine automatische Modell-Promotion.
+Der Frontier-Chatpfad bleibt derzeit deterministisch (Temperatur 0), unterstützt bis zu 256 neue BPE-Tokens, NDJSON-Streaming und einen echten Request-Abbruch über `/cancel`. Die Haupt-App übersetzt den Sidecar-Stream in denselben `start/progress/done`-Vertrag wie die Legacy-Runtime. Disconnects und der Stop-Button werden an den Sidecar weitergereicht. Die UI zeigt Tokens/s und bei CUDA den Peak-VRAM der Antwort; BPE-Kontextkürzung geschieht ausschließlich in der Frontier-Runtime und nie mit der Byte-Schätzung des Legacy-Modells.
+
+`frontier_manager.py` startet den Sidecar bei der ersten Auswahl eines registrierten Frontier-Modells automatisch. Wenn eine bestehende Python-Umgebung mit CUDA-PyTorch, BF16 und `tokenizers` erkannt wird, setzt der Windows-Starter `HELIOS_FRONTIER_PYTHON` automatisch darauf. Eine explizit gesetzte Variable gleichen Namens hat Vorrang. Ohne CUDA-fähige Umgebung bleibt die Haupt-App stabil und Frontier läuft mit der verfügbaren CPU-PyTorch-Umgebung; der Starter lädt nicht ungefragt ein großes CUDA-PyTorch-Paket nach. Der Sidecar-Adapter bleibt ein lokaler, SHA-gebundener Integrationsvertrag und keine automatische Modell-Promotion.
 
 ## Start und Paket
 
@@ -50,7 +52,7 @@ Danach App neu verbinden und die neue Version ausdrücklich auswählen. Erst nac
 ## Reproduzierbare App-Prüfungen
 
 ```text
-python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py
+python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py tests/test_frontier350_contract.py tests/test_frontier_sidecar.py tests/test_frontier_runtime.py
 node --test tests/test_helios_history.js
 node tests/test_helios_browser.cjs
 node tests/test_helios_workspace.cjs
