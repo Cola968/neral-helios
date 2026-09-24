@@ -323,10 +323,10 @@ def main(argv=None) -> int:
     update = args.seq * args.microbatch * args.grad_accum
     # Candidate FP32-master shapes. The current precision-correct shape benchmark
     # must select among these before a new training lineage is started.
-    allowed_shapes = {(1, 4), (2, 2), (4, 1)}
+    allowed_shapes = {(1, 4), (2, 2), (4, 1), (8, 1), (12, 1), (16, 1)}
     if (args.seq != 256 or (args.microbatch, args.grad_accum) not in allowed_shapes
             or args.lr != 1e-5):
-        p.error("development run must use a benchmarked seq=256 RTX-4070 shape")
+        p.error("development run must use a real-data-benchmarked seq=256 RTX-4070 shape")
     if not 0 < args.stop_after_new_tokens <= args.target_new_tokens:
         p.error("invalid stop")
     if args.stop_after_new_tokens < args.target_new_tokens and args.stop_after_new_tokens % update:
