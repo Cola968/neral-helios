@@ -20,6 +20,7 @@ import time
 from sft_contract import sha
 from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
 from sft_runtime_evidence import verify_runtime_evidence
+from phoenix_master_precision import require_fp32_trainable_subset
 
 PARAMETERS = 349_825_152
 MAX_RESERVED = 9 * 1024 ** 3
@@ -162,13 +163,18 @@ def main() -> int:
     torch.manual_seed(20260916)
     torch.cuda.manual_seed_all(20260916)
     torch.backends.cuda.matmul.allow_tf32 = True
-    model = Neral350M().to(device="cuda", dtype=torch.bfloat16)
+    # Keep new master parameters in FP32; BF16 is compute-only under autocast.
+    model = Neral350M().to(device="cuda", dtype=torch.float32)
     model.load_state_dict(base["model"], strict=True)
     if sum(t.numel() for t in model.parameters()) != PARAMETERS:
         raise ValueError("changed model architecture")
     named = configure_trainable(model, args.train_blocks)
     params = [param for _, param in named]
-    optimizer = torch.optim.AdamW(params, lr=2e-5, betas=(0.9, 0.95), weight_decay=0.01, fused=True)
+    optimizer = torch.optim.AdamW(
+        params, lr=2e-5, betas=(0.9, 0.95), eps=1e-8,
+        weight_decay=0.01, fused=True
+    )
+    require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
     rng = random.Random(20260916)
     seq = report["context"]
     validation_selection = validation_indices(len(splits["validation"]))
@@ -187,7 +193,8 @@ def main() -> int:
     def validation_loss() -> float:
         model.eval()
         pairs = []
-        with torch.inference_mode():
+        # no_grad, NOT inference_mode: the RoPE cache is reused by later backward.
+        with torch.no_grad():
             for index in validation_selection:
                 x, y = batch(splits["validation"], [index])
                 with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -220,6 +227,8 @@ def main() -> int:
         if not bool(torch.isfinite(norm)):
             raise FloatingPointError("nonfinite SFT gradient")
         optimizer.step()
+        if step == 1:
+            require_fp32_trainable_subset(model, optimizer, torch, require_moments=True)
         torch.cuda.synchronize()
         if torch.cuda.memory_reserved() > MAX_RESERVED or temperature() > 82:
             raise RuntimeError("VRAM/thermal guard hit; discard pilot")
@@ -256,12 +265,15 @@ def main() -> int:
         "training_wall_seconds": elapsed,
         "peak_reserved_gib": torch.cuda.max_memory_reserved() / 1024 ** 3,
         "temperature_c_end": temperature(),
+        "master_parameter_dtype": "float32",
+        "adamw_moment_dtype": "float32",
+        "compute_autocast_dtype": "bfloat16",
         "eligible_for_production": False,
         "throughput_60k_70k_verified": False,
         "note": "Bounded SFT experiment with runtime-bound approval evidence and deterministic sampled validation; NOT an end-to-end 5M stage, complete validation or independent NIS2/EOS/quality result. No resumable long run."}
     if after < baseline:
-        state = {"checkpoint_schema": "nextgen_sft_pilot_v1", "model": {
-            name: tensor.detach().to(device="cpu", dtype=torch.bfloat16)
+        state = {"checkpoint_schema": "nextgen_sft_pilot_v2_fp32_master", "model": {
+            name: tensor.detach().to(device="cpu", dtype=torch.float32)
             for name, tensor in model.state_dict().items()},
             "base_sha256": args.checkpoint_sha256, "config": FRONTIER_350.to_dict(),
             "tokenizer_sha256": report["tokenizer_sha256"],
@@ -274,6 +286,9 @@ def main() -> int:
             "screen_report_sha256": result["screen_report_sha256"],
             "holdout_sha256": result["holdout_sha256"],
             "trainable_names": [name for name, _ in named],
+            "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
             "production_eligible": False}
         output = args.out / "candidate_sft_experimental.pt"
         atomic_save_torch(torch, state, output)
