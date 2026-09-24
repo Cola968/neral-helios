@@ -28,8 +28,8 @@ from phoenix_knowledge_probe import CASES as KNOWLEDGE_CASES, FORMATS as KNOWLED
 
 BASE_SHA = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 PARAMETERS = 349_825_152
-CANDIDATE_SCHEMA = "phoenix_foundation_refresh_dev_v1"
-CANDIDATE_CLASS = "DEVELOPMENT_ONLY_FRESH_ADAMW_FOUNDATION_REFRESH"
+CANDIDATE_SCHEMA = "phoenix_foundation_refresh_dev_v2"
+CANDIDATE_CLASS = "DEVELOPMENT_ONLY_FP32_MASTER_FOUNDATION_REFRESH"
 TARGET_NEW_TOKENS = 20_000_000
 
 
@@ -185,6 +185,9 @@ def load_candidate(torch, path: Path, expected_sha: str, config: dict):
             state.get("tokenizer_sha256") != TOKENIZER_SHA or
             state.get("historical_processed_tokens") != 2_073_161_216 or
             state.get("production_eligible") is not False or
+            state.get("master_parameter_dtype") != "float32" or
+            state.get("adamw_moment_dtype") != "float32" or
+            state.get("compute_autocast_dtype") != "bfloat16" or
             not isinstance(lineage, dict) or
             lineage.get("historical_source_sha256") != BASE_SHA or
             lineage.get("target_new_tokens") != TARGET_NEW_TOKENS or
@@ -192,6 +195,9 @@ def load_candidate(torch, path: Path, expected_sha: str, config: dict):
             not isinstance(state.get("optimizer"), dict) or
             not state["optimizer"].get("state")):
         raise ValueError("foundation-refresh candidate metadata contract mismatch")
+    if not all(torch.is_tensor(v) and v.dtype == torch.float32
+               for v in state["model"].values()):
+        raise ValueError("foundation-refresh candidate must store FP32 master weights")
     return state
 
 
