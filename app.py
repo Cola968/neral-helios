@@ -18,7 +18,8 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog,LEGACY_RUNTIME,FRONTIER350_RUNTIME
 from frontier350_contract import FRONTIER350_CONFIG,FRONTIER350_PARAMETERS
-from frontier_sidecar import FrontierUnavailable,probe as probe_frontier,chat as frontier_chat
+from frontier_sidecar import FrontierUnavailable,probe as probe_frontier,chat as frontier_chat,stream_chat as frontier_stream_chat,cancel as frontier_cancel
+from frontier_manager import ensure_running as ensure_frontier_running
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -117,7 +118,7 @@ def select_frontier_runtime(name):
     if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
     row=imported_models().get(name)
     if not row or row.get('runtime_family')!=FRONTIER350_RUNTIME:raise ValueError('Unbekannter Frontier-Checkpoint.')
-    health=probe_frontier(row)
+    health=ensure_frontier_running(row,STATE,BASE/'frontier_runtime.py')
     active_checkpoint=name;active_runtime_family=FRONTIER350_RUNTIME;active_frontier_health=health
     checkpoint_loaded=True;checkpoint_sha256=row.get('model_sha256')
     checkpoint_meta={'processed_tokens':health.get('processed_tokens'),'finish_policy':health.get('decoder')}
@@ -131,14 +132,20 @@ def runtime_details():
                 'layers':FRONTIER350_CONFIG['n_layers'],'d_model':FRONTIER350_CONFIG['d_model'],
                 'heads':FRONTIER350_CONFIG['n_heads'],'ffn_hidden':FRONTIER350_CONFIG['ffn_hidden'],
                 'vocab_size':FRONTIER350_CONFIG['vocab_size'],
-                'max_seq_len':row.get('context_tokens') or 512,'tokenizer':'Neral BPE-16K',
+                'max_seq_len':row.get('context_tokens') or health.get('context_tokens') or 512,'tokenizer':'Neral BPE-16K',
                 'device':health.get('device','cpu'),'gpu':health.get('gpu'),
-                'streaming':False,'cancel_supported':False,'context_estimator':'frontier-bpe'}
+                'streaming':health.get('streaming') is True,'cancel_supported':health.get('cancel_supported') is True,
+                'context_estimator':'frontier-bpe','runtime_max_new_tokens':health.get('max_new_tokens',256),
+                'kv_cache':health.get('kv_cache') is True,'decoder':health.get('decoder'),
+                'vram_allocated_mib':health.get('vram_allocated_mib',0),
+                'vram_reserved_mib':health.get('vram_reserved_mib',0)}
     return {'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,
             'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,
             'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),
             'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,
-            'streaming':True,'cancel_supported':True,'context_estimator':'legacy-byte'}
+            'streaming':True,'cancel_supported':True,'context_estimator':'legacy-byte',
+            'runtime_max_new_tokens':MAX_NEW_TOKENS,'kv_cache':False,'decoder':'legacy-full-context-v1',
+            'vram_allocated_mib':0,'vram_reserved_mib':0}
 
 def initialize_runtime():
     global runtime_error
@@ -260,7 +267,13 @@ def cancel():
     with _job_lock:
         event=_jobs.get(job)
         if event:event.set()
-    return jsonify(cancelled=event is not None)
+    remote=False
+    if checkpoint_loaded and active_runtime_family==FRONTIER350_RUNTIME:
+        row=imported_models().get(active_checkpoint)
+        if row:
+            try:remote=frontier_cancel(row,job)
+            except FrontierUnavailable:remote=False
+    return jsonify(cancelled=(event is not None) or remote)
 @torch.inference_mode()
 def generate_tokens(ids,max_new,temperature,top_k,event,on_tokens=None):
     x=torch.tensor([ids],device=device,dtype=torch.long);output=[];deadline=time.monotonic()+120
@@ -332,19 +345,45 @@ def generate():
         row=imported_models().get(active_checkpoint)
         if not row:return jsonify(error='Aktiver Frontier-Checkpoint ist nicht mehr registriert.'),503
         messages=[*history,{'role':'user','content':prompt.strip()}]
+        job=data.get('request_id',secrets.token_hex(16))
+        if not isinstance(job,str) or not re.fullmatch(r'[a-zA-Z0-9-]{16,64}',job):return jsonify(error='Ungültige Anfrage-ID.'),400
         if not _generation_lock.acquire(blocking=False):return jsonify(error='Eine Antwort wird bereits berechnet.'),429
-        start=time.perf_counter()
-        try:
-            result,health=frontier_chat(row,messages,params['max_new_tokens'])
+        event=threading.Event()
+        with _job_lock:_jobs[job]=event
+        def finish_frontier():
+            with _job_lock:_jobs.pop(job,None)
+            _generation_lock.release()
+        def normalize_frontier(result,health):
+            global active_frontier_health
+            active_frontier_health=health
             text,redacted=sanitize_output(result.get('answer',''))
-            elapsed=time.perf_counter()-start;generated=int(result.get('generated_tokens',0))
-            return jsonify(mode='trained-generation',model_generated=True,text=text,generated_tokens=generated,
-                           seconds=round(elapsed,4),tokens_per_second=round(generated/max(elapsed,1e-9),2),
-                           output_secret_redacted=redacted,cancelled=False,active_checkpoint=active_checkpoint,
-                           finish_reason=result.get('finish_reason'),'runtime_family':FRONTIER350_RUNTIME,
-                           device=health.get('device'),request_id=data.get('request_id'))
+            generated=int(result.get('generated_tokens',0))
+            return dict(mode='trained-generation',model_generated=True,text=text,generated_tokens=generated,
+                        seconds=float(result.get('seconds',0)),tokens_per_second=float(result.get('tokens_per_second',0)),
+                        output_secret_redacted=redacted,cancelled=result.get('finish_reason')=='cancelled',
+                        active_checkpoint=active_checkpoint,finish_reason=result.get('finish_reason'),
+                        runtime_family=FRONTIER350_RUNTIME,device=health.get('device'),gpu=health.get('gpu'),
+                        peak_vram_mib=result.get('peak_vram_mib',0),vram_allocated_mib=result.get('vram_allocated_mib',0),
+                        input_tokens=result.get('input_tokens'),dropped_history_pairs=result.get('dropped_history_pairs',0),
+                        kv_cache=health.get('kv_cache') is True,request_id=job)
+        def run_frontier(callback=None):
+            if callback:
+                def progress(update):
+                    if event.is_set():
+                        try:frontier_cancel(row,job)
+                        except FrontierUnavailable:pass
+                    callback(update.get('text',''),int(update.get('generated_tokens',0)))
+                result,health=frontier_stream_chat(row,messages,params['max_new_tokens'],job,progress)
+            else:result,health=frontier_chat(row,messages,params['max_new_tokens'],job)
+            return normalize_frontier(result,health)
+        if data.get('stream'):
+            response=Response(response_stream(run_frontier,event,finish_frontier),mimetype='application/x-ndjson')
+            response.headers['X-Accel-Buffering']='no'
+            response.call_on_close(lambda:(event.set(),frontier_cancel(row,job) if not event.is_set() else None))
+            return response
+        try:return jsonify(run_frontier())
         except FrontierUnavailable as e:return jsonify(error=str(e)),503
-        finally:_generation_lock.release()
+        finally:finish_frontier()
     formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'
     ids=tokenizer.encode(formatted,bos=True)
     if len(ids)+params['max_new_tokens']>cfg.max_seq_len:return jsonify(error='Kontext und Antwort überschreiten gemeinsam das Modelllimit.'),413
