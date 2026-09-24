@@ -1,10 +1,7 @@
-name: Phoenix resume foundation refresh to 4Mi and public A-B
+name: LEGACY BLOCKED - Phoenix old refresh resume to 4Mi
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-current-refresh-resume-4m.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
