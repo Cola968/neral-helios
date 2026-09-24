@@ -170,7 +170,6 @@ $env:HELIOS_DEVICE='cpu'
 $env:CUDA_VISIBLE_DEVICES=''
 $env:HELIOS_STATE_ROOT=$state
 $env:HELIOS_PREPARATION_MODE='0'
-$env:HELIOS_CHECKPOINT='neral50m_i1'
 $env:HELIOS_PORT='9686'
 $env:HELIOS_ASSETS_ROOT=Join-Path $appRoot 'deployment'
 
@@ -183,7 +182,7 @@ function Get-NeralInfo {
 $ready=$false
 try{
     $info=Get-NeralInfo
-    $ready=($supportedAppVersions -contains $info.app_version -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
+    $ready=($supportedAppVersions -contains $info.app_version -and -not $info.preparation_mode)
 }catch{}
 
 if(-not $ready){
@@ -192,7 +191,7 @@ if(-not $ready){
         Start-Sleep -Seconds 1
         try{
             $info=Get-NeralInfo
-            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and ($supportedAppVersions -contains $info.app_version) -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
+            if(($supportedAppVersions -contains $info.app_version) -and -not $info.preparation_mode){$ready=$true;break}
         }catch{}
     }
 }
