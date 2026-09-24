@@ -24,11 +24,12 @@ from stage_oasst1_sft import select as select_oasst1, frozen_chat_hashes, REVISI
 from sft_contract import encode_row
 from phoenix_auto_sft_public_dev_eval import pair_eval, exact_generation_eval
 from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
+from phoenix_master_precision import require_fp32_trainable_subset
 
 BASE_SHA = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 PARAMETERS = 349_825_152
-CLASSIFICATION = "oasst1_auto_sft_public_dev_selected_not_promotable"
-SCHEMA = "phoenix_oasst1_auto_sft_v1"
+CLASSIFICATION = "oasst1_fp32_master_auto_sft_public_dev_selected_not_promotable"
+SCHEMA = "phoenix_oasst1_auto_sft_v2"
 CONFIGS = (
     # Best non-regressing configuration from run 35896229813.
     {"blocks": 8, "lr": 5e-6, "steps": 100},
@@ -159,7 +160,7 @@ def main(argv=None) -> int:
         return token_weighted_loss(pairs)
 
     def fresh_model():
-        m = Neral350M().to(device=device, dtype=torch.bfloat16)
+        m = Neral350M().to(device=device, dtype=torch.float32)
         m.load_state_dict(base_weights, strict=True)
         if m.parameter_report()["total"] != PARAMETERS:
             raise RuntimeError("parameter contract changed")
@@ -205,6 +206,7 @@ def main(argv=None) -> int:
             params, lr=config["lr"], betas=(0.9, 0.95), eps=1e-8,
             weight_decay=0.01, fused=True
         )
+        require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
         rng = random.Random(20260923)
         supervised_total = 0
         started = time.monotonic()
@@ -222,6 +224,8 @@ def main(argv=None) -> int:
             if not math.isfinite(float(grad)):
                 raise FloatingPointError("nonfinite sweep gradient")
             optimizer.step()
+            if step == 1:
+                require_fp32_trainable_subset(model, optimizer, torch, require_moments=True)
             supervised_total += int((y != -100).sum().item())
             if step % 25 == 0 or step == config["steps"]:
                 torch.cuda.synchronize()
@@ -273,7 +277,7 @@ def main(argv=None) -> int:
                 "pair_overall_pct": pair["overall_pct"],
                 "exact_generation_pct": exact["accuracy_pct"],
                 "categories": categories,
-                "model": {n: t.detach().to("cpu", dtype=torch.bfloat16)
+                "model": {n: t.detach().to("cpu", dtype=torch.float32)
                           for n, t in model.state_dict().items()},
                 "optimizer": _cpu_tree(torch, optimizer.state_dict()),
                 "sampler_rng": rng.getstate(),
@@ -313,6 +317,9 @@ def main(argv=None) -> int:
                 "ranking": "pair_overall_then_exact_generation_then_lower_validation",
             },
             "selected": selected,
+            "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
             "human_review_complete": False,
             "independent_holdout_checked": False,
             "production_eligible": False,
