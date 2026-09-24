@@ -1,10 +1,9 @@
-"""Opt-in, BOUNDED, distinct weight-only 350M pilot. NEVER an exact historical resume.
+"""Opt-in BOUNDED Neral 350M weight-only pilot; NEVER an exact historical resume.
 
-Not invoked by Actions. Needs a SHA-pinned local operator approval, manually
-reviewed data, and frozen independent holdout. Creates a NEW AdamW optimizer,
-NEW zero-token lineage, and NEW output directory. The only allowed subsequent
-resume is from a genuinely complete checkpoint in that new run. This source
-is experimental; it establishes neither GPU feasibility nor answer quality.
+Requires genuine operator approval, human-reviewed source and frozen independent
+holdout. FP32 master parameters/moments; BF16 CUDA autocast COMPUTE only. A
+BF16 historical source can be upcast but lost precision cannot be recovered.
+No Action launches training. GPU feasibility and answer quality remain unproven.
 """
 from __future__ import annotations
 
@@ -22,6 +21,7 @@ import time
 from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
 from phoenix_warmstart_readiness import assess_weight_only_source, require_new_destination
+from phoenix_master_precision import require_fp32_master
 from checkpoint_journal import CheckpointJournal, safe_save_every
 from storage_budget import GIB, MIN_FREE_BYTES, check_storage_budget
 
@@ -32,11 +32,12 @@ from window_sampler350 import SAMPLER_VERSION
 
 MAX_PILOT_NEW_TOKENS = 262_144
 MIN_INITIAL_RESERVE = 12 * GIB
+MAX_RESERVED_VRAM = 10 * GIB
 _SHA = re.compile(r'[0-9a-f]{64}\Z')
 
 
 def require_fresh_stop_boundary(*, stop: int, target: int, update: int) -> None:
-    """An intermediate pause inside an AdamW update cannot be exactly resumed."""
+    """An intermediate partial AdamW update cannot be exactly resumed."""
     if (any(type(v) is not int for v in (stop, target, update)) or
             not 0 < stop <= target <= MAX_PILOT_NEW_TOKENS or update <= 0):
         raise ValueError('invalid or unbounded fresh token pilot')
@@ -46,11 +47,7 @@ def require_fresh_stop_boundary(*, stop: int, target: int, update: int) -> None:
 
 def verify_operator_approval(*, manifest: Path, manifest_sha: str, expected: dict,
                              review: Path, holdout: Path) -> dict:
-    """Check explicit human approval and hash-bound local evidence.
-
-    A hash is NOT a signature and these boolean review declarations are NOT an
-    independent verification of licensing, privacy, labels or contamination.
-    """
+    """Hash-bind explicit declarations; NOT an independent human review/signature."""
     if not isinstance(manifest_sha, str) or not _SHA.fullmatch(manifest_sha):
         raise ValueError('approval manifest needs independently recorded full SHA-256')
     for file in (manifest, review, holdout):
@@ -72,7 +69,7 @@ def verify_operator_approval(*, manifest: Path, manifest_sha: str, expected: dic
             approval['human_holdout_review_complete'] is not True):
         raise ValueError('human data/run and holdout approvals are not complete')
     if any(approval[k] != v for k, v in expected.items()):
-        raise ValueError('approved output, sources, budget or run parameters changed')
+        raise ValueError('approved output, sources, precision, budget or run parameters changed')
     if (approval['review_sha256'] != file_sha(review) or
             approval['holdout_sha256'] != file_sha(holdout) or
             approval['review_sha256'] == approval['holdout_sha256']):
@@ -123,7 +120,7 @@ def parser_args(argv=None):
 
 
 def prepare(args) -> dict:
-    """Check exact source, data, approval, dimensions, and disk without Torch/CUDA."""
+    """Check exact source, data, precision, approval and disk BEFORE Torch/CUDA."""
     if not (args.execute and args.trusted_local_checkpoint):
         raise ValueError('explicit --execute and trust required; no training started')
     source = require_pinned_checkpoint(args.source_checkpoint)
@@ -143,10 +140,8 @@ def prepare(args) -> dict:
             raise ValueError('resume must be owned resume.pt, no symlink')
         if not _SHA.fullmatch(args.resume_sha256):
             raise ValueError('explicit exact new-pilot resume SHA required')
-    token = trusted_asset(args.assets_root, args.assets_root / 'frontier350_assets' /
-                          'tokenizer.json', TOKENIZER_SHA)
-    if not token.is_file():
-        raise ValueError('missing own pinned tokenizer')
+    trusted_asset(args.assets_root, args.assets_root / 'frontier350_assets' /
+                  'tokenizer.json', TOKENIZER_SHA)
     if (any(type(x) is not int or x <= 0 for x in
             (args.seq, args.microbatch, args.grad_accum, args.eval_every,
              args.eval_batches, args.save_every)) or
@@ -180,7 +175,10 @@ def prepare(args) -> dict:
                             warmup_frac=args.warmup_frac, gradient_checkpointing=True)
     contract.update({'initialization': 'weight_only_new_optimizer_v1',
                      'source_sha256': CONTINUITY_SHA,
-                     'compile_mode': args.compile_mode})
+                     'compile_mode': args.compile_mode,
+                     'master_parameter_dtype': 'float32',
+                     'adamw_moment_dtype': 'float32',
+                     'compute_autocast_dtype': 'bfloat16'})
     expected = {'source_sha256': CONTINUITY_SHA, 'tokenizer_sha256': TOKENIZER_SHA,
                 'train_identity': train_id, 'validation_identity': val_id,
                 'output': str(out), 'target_new_tokens': target,
@@ -204,13 +202,13 @@ def prepare(args) -> dict:
 
 
 def _checked_historical_weights(source_path, torch, model_class, config):
-    """Validate original architecture and actual tied tensor contents ON CPU."""
+    """Validate source architecture and tied tensor content ON CPU."""
     try:
         state = torch.load(source_path, map_location='cpu', mmap=True,
                            weights_only=True)
     except (ValueError, RuntimeError, TypeError, __import__('pickle').UnpicklingError):
         state = torch.load(source_path, map_location='cpu', mmap=True,
-                           weights_only=False)
+                           weights_only=False)  # SHA-pinned, explicitly trusted OWN file.
     with torch.device('meta'):
         reference = model_class()
     layout = {k: (tuple(v.shape), str(v.dtype))
@@ -225,11 +223,16 @@ def _checked_historical_weights(source_path, torch, model_class, config):
     return state
 
 
+def require_vram_budget(torch) -> None:
+    if torch.cuda.memory_reserved() > MAX_RESERVED_VRAM:
+        raise RuntimeError('FP32 pilot exceeds 10 GiB reserved VRAM ceiling; stop safely')
+
+
 def main(argv=None) -> None:
     args = parser_args(argv)
-    plan = prepare(args)  # SHA, local assets, approval and disks BEFORE Torch/CUDA.
-    # This check is in the native trainer, not just the optional wrapper: neither
-    # direct invocation nor an explicit resume can skip the full corpus audit.
+    plan = prepare(args)
+    # Mandatory corpus and exact-holdout integrity gates also apply to the FP32-master path.
+    # Direct invocation and explicit resume must not bypass the audited pilot launcher checks.
     from phoenix_audited_pilot_launcher import verify_snapshot
     from phoenix_holdout_gate import require_zero_exact_overlap
     report = verify_snapshot(args, plan)
@@ -244,7 +247,7 @@ def main(argv=None) -> None:
                       'holdout_independence_verified': False,
                       'trainer_started': False}, sort_keys=True), flush=True)
     import phoenix_cuda_diagnostic as gpu_guard
-    gpu_guard.require_stably_idle_gpu()  # 3 snapshots before any CUDA access.
+    gpu_guard.require_stably_idle_gpu()  # Three snapshots before CUDA access.
     import numpy as np
     import torch
     from model350 import FRONTIER_350, Neral350M
@@ -266,6 +269,8 @@ def main(argv=None) -> None:
                                   expected_run=plan['contract'], run_until=plan['stop'])
         if ck.get('warmstart_lineage') != plan['lineage']:
             raise ValueError('new-run checkpoint origin/holdout/authorization changed')
+        if any(t.dtype != torch.float32 for t in ck['model'].values()):
+            raise ValueError('BF16 or non-FP32 checkpoint cannot resume FP32 master pilot')
     else:
         source = _checked_historical_weights(plan['source'], torch, Neral350M,
                                              FRONTIER_350.to_dict())
@@ -277,7 +282,9 @@ def main(argv=None) -> None:
     torch.cuda.manual_seed_all(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
-    model = Neral350M().to(device=device, dtype=torch.bfloat16)
+    # The original BF16 weights are upcast to FP32, but lost historical bits
+    # cannot be recovered. The NEW optimizer and all NEW weight updates are FP32.
+    model = Neral350M().to(device=device, dtype=torch.float32)
     model.set_gradient_checkpointing(True)
     if model.parameter_report()['total'] != 349_825_152:
         raise RuntimeError('locked model parameter count changed')
@@ -287,14 +294,15 @@ def main(argv=None) -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
                                   betas=(0.9, 0.95), eps=1e-8,
                                   weight_decay=args.weight_decay, fused=True)
-    if not args.resume and optimizer.state_dict()['state']:
-        raise RuntimeError('new optimizer incorrectly inherited historical moments')
+    if not args.resume:
+        require_fp32_master(model, optimizer, torch, require_moments=False)
     rng = random.Random(args.seed + 1)
     step = processed = 0
     best = float('inf')
     if ck is not None:
         model.load_state_dict(ck['model'], strict=True)
         optimizer.load_state_dict(ck['optimizer'])
+        require_fp32_master(model, optimizer, torch, require_moments=True)
         step, processed = ck['step'], ck['processed_tokens']
         best = float(ck.get('best_validation', best))
         torch.set_rng_state(ck['torch_rng'])
@@ -303,6 +311,7 @@ def main(argv=None) -> None:
         random.setstate(ck['python_rng'])
         rng.setstate(ck['train_sampler_rng'])
         del ck
+    require_vram_budget(torch)
     train = PersistentMMapPool(args.train_data, FRONTIER_350.vocab_size)
     valid = PersistentMMapPool(args.valid_data, FRONTIER_350.vocab_size)
     compiled = model if args.compile_mode == 'none' else torch.compile(
@@ -319,6 +328,8 @@ def main(argv=None) -> None:
                            'historical_tokens': EXPECTED_TOKENS,
                            'new_processed_tokens': processed, 'new_step': step,
                            'lineage': plan['lineage'], 'approved_manifest_sha256': args.approval_sha256,
+                           'master_parameter_dtype': 'float32',
+                           'compute_autocast_dtype': 'bfloat16',
                            'model_quality_gain_verified': False})
     journal = None
     if args.resume:
@@ -339,7 +350,8 @@ def main(argv=None) -> None:
         for count in counts:
             x, y = train.batch(args.microbatch, args.seq, device, rng)
             y = mask_budget_targets(y, count)
-            _, loss = compiled(x, y)
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                _, loss = compiled(x, y)
             if loss is None:
                 raise RuntimeError('missing pretraining loss')
             (loss * (count / total)).backward()
@@ -352,11 +364,15 @@ def main(argv=None) -> None:
         optimizer.step()
         processed += total
         step += 1
+        if step == 1:
+            require_fp32_master(model, optimizer, torch, require_moments=True)
+        require_vram_budget(torch)
         gpu_guard.require_safe_runtime_temperature()
         if step % args.eval_every == 0 or processed >= plan['stop']:
-            val = evaluate(model, valid, seq=args.seq, batch=args.microbatch,
-                           batches=args.eval_batches, device=device,
-                           seed=args.seed + 999)
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                val = evaluate(model, valid, seq=args.seq, batch=args.microbatch,
+                               batches=args.eval_batches, device=device,
+                               seed=args.seed + 999)
             best = min(best, val)
             append_jsonl(metrics, {'event': 'validation', 'new_step': step,
                                    'new_tokens': processed, 'loss': val,
@@ -387,6 +403,8 @@ def main(argv=None) -> None:
                'initial_historical_tokens': EXPECTED_TOKENS,
                'new_processed_tokens': processed, 'new_optimizer_steps': step,
                'resume_sha256': final_receipt['sha256'],
+               'master_parameter_dtype': 'float32',
+               'adamw_moment_dtype': 'float32',
                'output': str(plan['out']), 'quality_gain_verified': False,
                'source_unchanged': file_sha(plan['source']) == CONTINUITY_SHA}
     (plan['out'] / 'summary.json').write_text(json.dumps(summary, indent=2), encoding='utf8')
