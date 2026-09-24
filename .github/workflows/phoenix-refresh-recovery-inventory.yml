@@ -1,4 +1,4 @@
-name: Phoenix interrupted refresh recovery inventory
+name: Phoenix current FP32 refresh recovery inventory
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
           if(-not(Test-Path -LiteralPath $latest -PathType Leaf)){throw 'journal latest receipt missing'}
           $r=Get-Content -LiteralPath $latest -Raw|ConvertFrom-Json
           if($r.schema -ne 1 -or $r.kind -ne 'complete_resumable_state'){throw 'latest receipt is not complete resumable state'}
-          if([int64]$r.processed_tokens -lt 1048576 -or [int64]$r.processed_tokens -gt 4194304){throw 'unexpected recovery token boundary'}
+          if([int64]$r.processed_tokens -lt 1048576 -or [int64]$r.processed_tokens -gt 4194304){throw 'unexpected FP32 recovery token boundary'}
           $actual=(Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant()
           if($actual -ne $r.sha256){throw 'resume.pt differs from journal latest SHA'}
           $generation=Join-Path $journal $r.name
