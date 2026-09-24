@@ -34,38 +34,30 @@ Permanently reserve public external benchmarks already named by NIS2 (GSM8K, MBP
 
 ## Fast lane — get a usable Helios before the 10B ceiling
 
-Hugging Face provides a useful same-scale reference: **SmolLM2-360M-Instruct**
-has 361.8M parameters, almost the same size as Neral 350M. Its published Hub
-metadata says the small instruct models were built with **SFT on
-`HuggingFaceTB/smol-smoltalk` and then DPO on UltraFeedback**. The
-`smol-smoltalk` dataset is in the 100K–1M example size class. This is evidence
-that conversational behavior for a sub-1B model can be built in a comparatively
-small post-training phase rather than by spending billions of dialogue tokens.
+Same-scale public projects show that conversational behavior can be added with a much
+smaller post-training phase than foundation pretraining. That is useful **research
+evidence about training scale**, not permission to copy their training data.
 
-This does **not** prove that Neral's 2.073B-token foundation already has enough
-knowledge; SmolLM2 has a different foundation recipe. Therefore run this as a
-parallel preview lineage:
+Under Neral's current executable data policy, external-model-generated rows remain
+blocked. Therefore the Phoenix fast lane is:
 
 1. keep the immutable 2.073B anchor;
-2. human-review a compact DE/EN SFT pack;
-3. run response-only SFT with explicit EOS and multi-turn examples;
-4. compare raw free answers against the immutable anchor;
-5. only if SFT clearly helps, add a small DPO experiment for ranking/style;
-6. keep foundation pretraining as a separate lineage and repeat the inexpensive
-   SFT recipe later on whichever foundation checkpoint wins.
+2. stage the pinned **OASST2 human-only DE/EN** source already registered by Neral;
+3. require independent privacy/content/license review plus exact/near benchmark screening
+   for the concrete Phoenix pack;
+4. run response-only SFT with explicit EOS and a deliberately small bounded budget;
+5. compare raw free answers and generation health against the immutable anchor;
+6. keep foundation pretraining as a separate lineage and rerun the inexpensive SFT recipe
+   on whichever foundation checkpoint eventually wins.
 
-The preview checkpoint can become a **usable development chatbot early**, while
-the expensive foundation line continues to improve knowledge. Never merge two
-weight lineages mathematically; rerun the cheap SFT/DPO recipe on the winning
-foundation checkpoint.
-
-Reference research inputs (metadata checked via the Hugging Face connector):
-- `HuggingFaceTB/SmolLM2-360M-Instruct`: 361.8M parameters.
-- `HuggingFaceTB/smol-smoltalk`: Apache-2.0 Hub metadata, 100K–1M size class,
-  described by the publisher as the SFT data for SmolLM2-360M-Instruct.
-- `HuggingFaceH4/ultrafeedback_binarized`: MIT Hub metadata, 100K–1M size
-  class; preference data. Source/provenance still require local review before
-  Neral use.
+`HuggingFaceTB/smol-smoltalk`, `HuggingFaceTB/smoltalk`,
+`HuggingFaceH4/ultrachat_200k` and
+`HuggingFaceH4/ultrafeedback_binarized` remain **research references only** under the
+current policy because they contain synthetic/model-generated training or preference
+content. Their permissive top-level Hub licenses do not override Neral's data-origin rule.
+Do not add DPO merely because another small model used it; preference tuning stays deferred
+until Phoenix has an observed ranking/style failure and a separately admitted preference
+source.
 
 ## Phase 1 — find the fastest real FULL-MODEL configuration
 
@@ -129,14 +121,28 @@ quality milestone.
 
 ## Phase 2 — continue foundation training in quality-gated stages
 
-Use the existing audited foundation mix as the initial baseline, not dialogue data:
+The current 350M builder contains a **proposed** quality-oriented recipe:
 
 - 52% FineWeb-Edu EN
 - 20% FineWeb EN
 - 13% FineWeb-2 DE
 - 15% FineMath
 
-Keep immutable source revisions, license/provenance receipts, exact document dedupe, train/validation disjointness and the locked 16,384-token BPE.
+This recipe is **not currently authorized as a whole**. FineWeb, FineWeb-Edu and
+FineWeb-2 are admitted source families, while `HuggingFaceTB/finemath` is still a
+future pretraining candidate in `hf_source_policy50.py`. The production corpus builder
+must therefore fail closed until one of two explicit decisions is committed:
+
+1. FineMath passes candidate admission (immutable revision/file hashes, deterministic
+   cleaning provenance, zero reserved-benchmark contamination in the required screens)
+   and the central source policy is explicitly changed; or
+2. a different fully admitted foundation recipe is reviewed and committed.
+
+Do **not** silently renormalize the remaining 85%, bypass the policy gate, or treat
+`source_lock.json` as authorization. A lock proves source identity, not permission.
+
+For every admitted recipe keep immutable source revisions, license/provenance receipts,
+exact document dedupe, train/validation disjointness and the locked 16,384-token BPE.
 
 Do **not** launch one monolithic 7.927B-token job. Suggested gates:
 
