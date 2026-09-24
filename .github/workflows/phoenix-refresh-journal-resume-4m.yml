@@ -1,10 +1,7 @@
-name: Phoenix journal-recover foundation refresh to 4Mi
+name: LEGACY BLOCKED - Phoenix old journal refresh resume
 
 on:
-  push:
-    branches: [experiment/phoenix-blind-ab-audit-20260919]
-    paths:
-      - '.github/workflows/phoenix-refresh-journal-resume-4m.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
