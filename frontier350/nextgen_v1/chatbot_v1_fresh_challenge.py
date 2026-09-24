@@ -47,6 +47,12 @@ CASES=(
 )
 
 
+def sha256_file(path:Path)->str:
+    h=hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda:handle.read(4*1024*1024),b""):h.update(block)
+    return h.hexdigest()
+
 def challenge_hashes():
     return {text_sha(norm(prompt)) for _id,_cat,_lang,prompt,_score in CASES}
 
@@ -61,13 +67,13 @@ def verify_disjoint():
 
 
 def load_candidate(torch,path:Path):
-    if hashlib.sha256(path.read_bytes()).hexdigest()!=CANDIDATE_SHA:raise ValueError("candidate SHA mismatch")
+    if sha256_file(path)!=CANDIDATE_SHA:raise ValueError("candidate SHA mismatch")
     state=torch.load(path,map_location="cpu",weights_only=True)
     if state.get("checkpoint_schema")!=CANDIDATE_SCHEMA or state.get("classification")!=CANDIDATE_CLASS:
         raise ValueError("candidate contract mismatch")
     if state.get("base_checkpoint_sha256")!=BASE_SHA or state.get("tokenizer_sha256")!=TOKENIZER_SHA:
         raise ValueError("candidate lineage mismatch")
-    if state.get("production_eligible") is not False:return (_ for _ in ()).throw(ValueError("unsafe candidate state"))
+    if state.get("production_eligible") is not False:raise ValueError("unsafe candidate state")
     return state
 
 
