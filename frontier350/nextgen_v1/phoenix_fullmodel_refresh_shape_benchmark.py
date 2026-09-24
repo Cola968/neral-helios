@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from helios350_preview import TOKENIZER_SHA
 from phoenix_continuity_cpu_probe import require_pinned_checkpoint
 from phoenix_foundation_refresh_dev import verify_refresh_manifest
+from phoenix_master_precision import require_fp32_master
 
 CONFIGS = (
     {"microbatch": 1, "grad_accum": 4, "gradient_checkpointing": True},
@@ -84,13 +85,14 @@ def main(argv=None) -> int:
         model=None
         optimizer=None
         try:
-            model=Neral350M().to(device=device,dtype=torch.bfloat16)
+            model=Neral350M().to(device=device,dtype=torch.float32)
             model.set_gradient_checkpointing(cfg["gradient_checkpointing"])
             model.load_state_dict(base_weights,strict=True)
             optimizer=torch.optim.AdamW(
                 model.parameters(),lr=LR,betas=(0.9,0.95),eps=1e-8,
                 weight_decay=0.1,fused=True
             )
+            require_fp32_master(model,optimizer,torch,require_moments=False)
             model.train()
 
             def update():
@@ -98,7 +100,8 @@ def main(argv=None) -> int:
                 loss_total=torch.zeros((),device=device,dtype=torch.float32)
                 for _ in range(cfg["grad_accum"]):
                     x,y=pool.batch(cfg["microbatch"],SEQ,device,rng)
-                    _,loss=model(x,y)
+                    with torch.autocast(device_type="cuda",dtype=torch.bfloat16):
+                        _,loss=model(x,y)
                     if loss is None or not bool(torch.isfinite(loss)):
                         raise FloatingPointError("nonfinite benchmark loss")
                     (loss/cfg["grad_accum"]).backward()
@@ -109,6 +112,7 @@ def main(argv=None) -> int:
 
             # Untimed warmup allocates fused optimizer moments and RoPE cache.
             update()
+            require_fp32_master(model,optimizer,torch,require_moments=True)
             torch.cuda.synchronize()
             guard.require_safe_runtime_temperature()
             started=time.perf_counter()
@@ -129,6 +133,9 @@ def main(argv=None) -> int:
                 "elapsed_s":elapsed,
                 "tokens_per_second":TOKENS_PER_UPDATE*TIMED_UPDATES/elapsed,
                 "last_loss":losses[-1],
+                "master_parameter_dtype":"float32",
+                "adamw_moment_dtype":"float32",
+                "compute_autocast_dtype":"bfloat16",
                 "peak_allocated_mib":round(torch.cuda.max_memory_allocated()/1024**2,1),
                 "peak_reserved_mib":round(torch.cuda.max_memory_reserved()/1024**2,1),
                 "status":"pass",
@@ -150,6 +157,7 @@ def main(argv=None) -> int:
         "classification":"ENGINEERING_ONLY_NO_CHECKPOINT",
         "parameters":349_825_152,
         "layers":24,
+        "precision_contract":"fp32_master_fp32_adamw_bf16_autocast",
         "manifest_sha256":a.manifest_sha256,
         "results":results,
         "selected":{
