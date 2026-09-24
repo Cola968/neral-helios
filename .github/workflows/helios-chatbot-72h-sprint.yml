@@ -108,47 +108,119 @@ jobs:
           nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
 
           $replay=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
-          $summaryPath=Join-Path $out 'summary.json'
           $resumePath=Join-Path $out 'resume.pt'
-          $resumeFlag=''
-          if(Test-Path -LiteralPath $summaryPath -PathType Leaf){
-            Write-Host 'Sprint training already completed; preserving accepted local result.'
+          $stageSummaryPath=Join-Path $out 'stage_summary.json'
+          $finalReceipt=Join-Path $out 'SPRINT_COMPLETE.json'
+          $best=Join-Path $out 'best_chat.pt'
+          $selectedStage=0
+          $selectedEval=$null
+          $ab=$null
+
+          if(Test-Path -LiteralPath $finalReceipt -PathType Leaf){
+            $receipt=Get-Content -LiteralPath $finalReceipt -Raw|ConvertFrom-Json
+            $selectedStage=[int]$receipt.selected_stage
+            $selectedEval=[string]$receipt.eval_path
+            if(-not(Test-Path -LiteralPath $selectedEval -PathType Leaf)){throw 'Final sprint receipt points to missing eval'}
+            $ab=Get-Content -LiteralPath $selectedEval -Raw|ConvertFrom-Json
+            Write-Host "Reusing completed sprint at stage $selectedStage."
           } else {
-            if((Test-Path -LiteralPath $out -PathType Container) -and -not(Test-Path -LiteralPath $resumePath -PathType Leaf)){
-              Write-Warning 'Incomplete sprint output has no resumable snapshot; restarting only this SFT stage.'
+            if((Test-Path -LiteralPath $out -PathType Container) -and
+               -not(Test-Path -LiteralPath $resumePath -PathType Leaf) -and
+               -not(Test-Path -LiteralPath $stageSummaryPath -PathType Leaf)){
+              Write-Warning 'Discarding only an uncheckpointed partial chat stage.'
               Remove-Item -LiteralPath $out -Recurse -Force
             }
-            if(Test-Path -LiteralPath $resumePath -PathType Leaf){
-              $resumeFlag=' --resume'
-              Write-Host 'Resuming exact compact SFT state from active/chat/resume.pt.'
+
+            $stages=@(600,1400,2000)
+            foreach($stopStep in $stages){
+              $evalOut=Join-Path $out ("chat_ab_stage_" + $stopStep + ".json")
+              $currentStep=0
+              if(Test-Path -LiteralPath $stageSummaryPath -PathType Leaf){
+                $priorStage=Get-Content -LiteralPath $stageSummaryPath -Raw|ConvertFrom-Json
+                $currentStep=[int]$priorStage.completed_step
+              }
+
+              if(-not(Test-Path -LiteralPath $evalOut -PathType Leaf)){
+                if($currentStep -lt $stopStep){
+                  $resumeFlag=''
+                  if(Test-Path -LiteralPath $resumePath -PathType Leaf){
+                    $resumeFlag=' --resume'
+                    Write-Host "Resuming sprint from step $currentStep toward staged stop $stopStep."
+                  } elseif($currentStep -gt 0){
+                    throw 'Stage metadata exists without resumable checkpoint'
+                  }
+
+                  if(Test-Path -LiteralPath $replay -PathType Container){
+                    $replayW=ToWsl $replay
+                    $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW'$resumeFlag --replay-root '$replayW' --train-blocks 8 --steps 2000 --stop-after-step $stopStep --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 0.85 --eos-weight 1.75 --eval-every 100 --patience 5 --min-delta 0.005"
+                  } else {
+                    Write-Warning 'Historical replay root absent; using chat-only SFT.'
+                    $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW'$resumeFlag --train-blocks 8 --steps 2000 --stop-after-step $stopStep --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 1.0 --eos-weight 1.75 --eval-every 100 --patience 5 --min-delta 0.005"
+                  }
+                  & wsl.exe -- bash -lc $train
+                  if($LASTEXITCODE -ne 0){throw "Sprint chat SFT failed before staged stop $stopStep"}
+                } elseif($currentStep -gt $stopStep){
+                  throw "Current resume step $currentStep unexpectedly passed unevaluated stage $stopStep"
+                } else {
+                  Write-Host "Stage $stopStep already trained; running its missing chat A-B."
+                }
+
+                if(-not(Test-Path -LiteralPath $best -PathType Leaf)){throw 'Best chat checkpoint missing after stage'}
+                $stageSummary=Get-Content -LiteralPath $stageSummaryPath -Raw|ConvertFrom-Json
+                $bestSha=([string]$stageSummary.best_checkpoint_sha256).ToLowerInvariant()
+                if((Get-FileHash -LiteralPath $best -Algorithm SHA256).Hash.ToLowerInvariant() -ne $bestSha){throw 'Best checkpoint SHA mismatch'}
+                $bestW=ToWsl $best
+                $evalW=ToWsl $evalOut
+                $eval="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_eval_chat.py --execute --base '$baseW' --candidate '$bestW' --tokenizer '$tokW' --out '$evalW'"
+                & wsl.exe -- bash -lc $eval
+                if($LASTEXITCODE -ne 0){throw "Sprint chat A-B failed at stage $stopStep"}
+              }
+
+              $ab=Get-Content -LiteralPath $evalOut -Raw|ConvertFrom-Json
+              Write-Host ("Stage " + $stopStep + ": base=" + $ab.base.correct +
+                          " candidate=" + $ab.candidate.correct +
+                          " gate=" + $ab.chat_mvp_gate_passed)
+              if($ab.chat_mvp_gate_passed -eq $true){
+                $selectedStage=$stopStep
+                $selectedEval=$evalOut
+                break
+              }
+
+              $stageSummary=Get-Content -LiteralPath $stageSummaryPath -Raw|ConvertFrom-Json
+              if($stageSummary.training_complete -eq $true){
+                Write-Warning 'Training completed/early-stopped before passing the chat MVP gate.'
+                $selectedStage=$stopStep
+                $selectedEval=$evalOut
+                break
+              }
             }
-            if(Test-Path -LiteralPath $replay -PathType Container){
-              $replayW=ToWsl $replay
-              $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW'$resumeFlag --replay-root '$replayW' --train-blocks 8 --steps 2000 --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 0.85 --eos-weight 1.75 --eval-every 200 --patience 5 --min-delta 0.005"
-            } else {
-              Write-Warning 'Historical replay root absent; using chat-only SFT.'
-              $train="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_train_chat.py --execute --trusted-own-checkpoint --checkpoint '$baseW' --tokenizer '$tokW' --data '$dataW' --out '$outW'$resumeFlag --train-blocks 8 --steps 2000 --batch 4 --context 512 --peak-lr 0.000015 --min-lr 0.0000015 --sft-weight 1.0 --eos-weight 1.75 --eval-every 200 --patience 5 --min-delta 0.005"
+
+            if($selectedStage -eq 0){
+              $selectedStage=2000
+              $selectedEval=Join-Path $out 'chat_ab_stage_2000.json'
+              $ab=Get-Content -LiteralPath $selectedEval -Raw|ConvertFrom-Json
             }
-            & wsl.exe -- bash -lc $train
-            if($LASTEXITCODE -ne 0){throw 'Sprint chat SFT failed'}
+
+            $stageSummary=Get-Content -LiteralPath $stageSummaryPath -Raw|ConvertFrom-Json
+            $bestSha=([string]$stageSummary.best_checkpoint_sha256).ToLowerInvariant()
+            $receipt=[ordered]@{
+              schema=1
+              classification='helios_72h_sprint_local_receipt'
+              selected_stage=$selectedStage
+              eval_path=$selectedEval
+              best_checkpoint_sha256=$bestSha
+              chat_mvp_gate_passed=[bool]$ab.chat_mvp_gate_passed
+              base_dev_correct=[int]$ab.base.correct
+              candidate_dev_correct=[int]$ab.candidate.correct
+              quality_verified=$false
+            }
+            $receipt|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $finalReceipt -Encoding utf8
           }
 
-          $summary=Get-Content -LiteralPath $summaryPath -Raw|ConvertFrom-Json
-          $best=Join-Path $out 'best_chat.pt'
-          $bestSha=([string]$summary.best_checkpoint_sha256).ToLowerInvariant()
-          if((Get-FileHash -LiteralPath $best -Algorithm SHA256).Hash.ToLowerInvariant() -ne $bestSha){throw 'Best checkpoint SHA mismatch'}
-
-          $evalOut=Join-Path $out 'chat_ab.json'
+          $stageSummary=Get-Content -LiteralPath $stageSummaryPath -Raw|ConvertFrom-Json
+          $bestSha=([string]$stageSummary.best_checkpoint_sha256).ToLowerInvariant()
+          if((Get-FileHash -LiteralPath $best -Algorithm SHA256).Hash.ToLowerInvariant() -ne $bestSha){throw 'Final selected checkpoint SHA mismatch'}
           $bestW=ToWsl $best
-          $evalW=ToWsl $evalOut
-          if(-not(Test-Path -LiteralPath $evalOut -PathType Leaf)){
-            $eval="set -euo pipefail; cd '$repoW'; $py -B -u frontier350/sprint72h_eval_chat.py --execute --base '$baseW' --candidate '$bestW' --tokenizer '$tokW' --out '$evalW'"
-            & wsl.exe -- bash -lc $eval
-            if($LASTEXITCODE -ne 0){throw 'Sprint chat A-B execution failed'}
-          } else {
-            Write-Host 'Reusing completed local chat A-B report.'
-          }
-          $ab=Get-Content -LiteralPath $evalOut -Raw|ConvertFrom-Json
 
           Copy-Item -LiteralPath (Join-Path $repo 'frontier350\sprint72h_chat_app.py') -Destination (Join-Path $out 'sprint72h_chat_app.py') -Force
           Copy-Item -LiteralPath (Join-Path $repo 'frontier350\model350.py') -Destination (Join-Path $out 'model350.py') -Force
@@ -163,9 +235,10 @@ jobs:
           [ordered]@{
             output=$out
             best_checkpoint_sha256=$bestSha
-            baseline_validation_loss=$summary.baseline_validation_loss
-            best_validation_loss=$summary.best_validation_loss
-            best_step=$summary.best_step
+            selected_stage=$selectedStage
+            baseline_validation_loss=$stageSummary.baseline_validation_loss
+            best_validation_loss=$stageSummary.best_validation_loss
+            best_step=$stageSummary.best_step
             base_dev_correct=$ab.base.correct
             candidate_dev_correct=$ab.candidate.correct
             delta_correct=$ab.delta_correct
