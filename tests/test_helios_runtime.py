@@ -135,3 +135,26 @@ def test_frontier_cancel_proxies_to_sidecar(client,monkeypatch):
     response=client.post('/api/cancel',json={'request_id':'x'*16},base_url='http://localhost')
     assert response.status_code==200 and response.json['cancelled'] is True
     assert seen==['x'*16]
+
+
+def test_explicit_model_selection_is_remembered_without_paths(tmp_path,monkeypatch):
+    selection=tmp_path/"active-model.json"
+    monkeypatch.setattr(runtime,'MODEL_SELECTION',selection)
+    monkeypatch.setattr(runtime,'checkpoint_paths',lambda:{'neral50m_i1':(tmp_path/'m.pt',tmp_path/'m.sha256')})
+    monkeypatch.setattr(runtime,'imported_models',lambda:{'neral-arctus-350':{'runtime_family':runtime.FRONTIER350_RUNTIME}})
+    runtime.remember_model('neral-arctus-350')
+    assert runtime.remembered_model()=='neral-arctus-350'
+    raw=selection.read_text()
+    assert 'neral-arctus-350' in raw and str(tmp_path) not in raw
+    selection.write_text('{"checkpoint":"unknown"}')
+    assert runtime.remembered_model() is None
+
+def test_initialize_runtime_can_restore_remembered_frontier(tmp_path,monkeypatch):
+    monkeypatch.delenv('HELIOS_CHECKPOINT',raising=False)
+    monkeypatch.setattr(runtime,'remembered_model',lambda:'neral-arctus-350')
+    monkeypatch.setattr(runtime,'checkpoint_paths',lambda:{})
+    monkeypatch.setattr(runtime,'imported_models',lambda:{'neral-arctus-350':{'runtime_family':runtime.FRONTIER350_RUNTIME}})
+    seen=[]
+    monkeypatch.setattr(runtime,'select_frontier_runtime',lambda name:seen.append(name))
+    runtime.initialize_runtime()
+    assert seen==['neral-arctus-350']
