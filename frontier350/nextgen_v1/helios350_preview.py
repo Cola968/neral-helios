@@ -129,6 +129,21 @@ def generate(model, tok, bos: int, eos: int, torch, prompt: str, count: int) -> 
     return tok.decode(result, skip_special_tokens=True), len(result)
 
 
+def health_payload(processed: int, model_kind: str, device: str) -> dict:
+    checkpoint_sha = SAFE_SHA if model_kind == "safe" else CONTINUITY_SHA
+    return {
+        "status": "experimental-ready",
+        "runtime_family": "frontier350-bpe-v1",
+        "checkpoint_sha256": checkpoint_sha,
+        "tokenizer_sha256": TOKENIZER_SHA,
+        "model": "Neral 350M SAFE" if model_kind == "safe" else "Neral 350M 2B research; NOT SAFE",
+        "processed_tokens": processed,
+        "device": device,
+        "max_new_tokens": MAX_NEW_TOKENS,
+        "decoder": "greedy-preview-v1",
+    }
+
+
 def make_handler(model, tok, bos: int, eos: int, torch, processed: int, model_kind: str, device: str, port: int):
     mutex = threading.Lock()
     class PreviewHandler(BaseHTTPRequestHandler):
@@ -150,7 +165,7 @@ def make_handler(model, tok, bos: int, eos: int, torch, processed: int, model_ki
             if self.path == "/":
                 return self._send(200, HTML.encode("utf-8"), "text/html; charset=utf-8")
             if self.path == "/health":
-                return self._json(200, {"status": "experimental; not approved", "model": "Neral 350M SAFE" if model_kind == "safe" else "Neral 350M 2B research; NOT SAFE", "processed_tokens": processed, "device": device})
+                return self._json(200, health_payload(processed, model_kind, device))
             self._json(404, {"error": "not found"})
         def do_POST(self):
             if not self._allowed():
