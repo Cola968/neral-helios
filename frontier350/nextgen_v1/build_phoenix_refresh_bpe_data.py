@@ -21,7 +21,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from build_frontier_data import SourceSpec
+from build_frontier_data import SourceSpec, assert_sources_allowed_by_policy
 from build_frontier_bpe_data import (
     LocalBPE,
     PersistentSeen,
@@ -31,22 +31,18 @@ from build_frontier_bpe_data import (
 from source_lock350 import LOCK_PATH, locked_revisions
 
 CURRENT_ANCHOR_TOKENS = 2_073_161_216
-CURRENT_ANCHOR_SHA256 = "f7a73e283421975acc34e13afc38378be4eab11da34e7cb0cda883e7"
-# Correct full SHA kept separately below to make accidental abbreviation impossible.
 CURRENT_ANCHOR_SHA256 = "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 EXPECTED_TOKENIZER_SHA256 = "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd"
 
-# Quality-first refresh: less generic web, more educational, German and mathematics.
-# All sources already exist in frontier350/source_lock.json at immutable revisions.
+# Quality-first DEVELOPMENT refresh using only currently admitted source families.
+# FineMath stays excluded until its separate candidate-admission process is complete.
 REFRESH_SOURCES = (
     SourceSpec("fineweb_edu_en", "HuggingFaceFW/fineweb-edu", "sample-10BT",
-               "train", "odc-by", "text", 0.40, "en", "education"),
+               "train", "odc-by", "text", 0.55, "en", "education"),
     SourceSpec("fineweb_en", "HuggingFaceFW/fineweb", "sample-10BT",
-               "train", "odc-by", "text", 0.10, "en", "general"),
+               "train", "odc-by", "text", 0.15, "en", "general"),
     SourceSpec("fineweb2_de", "HuggingFaceFW/fineweb-2", "deu_Latn",
-               "train", "odc-by", "text", 0.25, "de", "general"),
-    SourceSpec("finemath", "HuggingFaceTB/finemath", "finemath-3plus",
-               "train", "odc-by", "text", 0.25, "multi", "math"),
+               "train", "odc-by", "text", 0.30, "de", "general"),
 )
 
 
@@ -79,6 +75,7 @@ def main() -> None:
         raise SystemExit("invalid development validation budget")
     if abs(sum(s.share for s in REFRESH_SOURCES) - 1.0) > 1e-12:
         raise RuntimeError("refresh shares must sum to one")
+    source_policy = assert_sources_allowed_by_policy(REFRESH_SOURCES)
 
     root = args.root.absolute()
     if root.exists():
@@ -130,7 +127,7 @@ def main() -> None:
         "architecture": "frontier350-v1",
         "corpus_role": "foundation-pretraining-refresh-development",
         "classification": "DEVELOPMENT_ONLY_NOT_PRODUCTION_APPROVED",
-        "continuation_profile": "phoenix-quality-refresh-v1",
+        "continuation_profile": "phoenix-quality-refresh-v2-approved-sources",
         "continuation_from_tokens": CURRENT_ANCHOR_TOKENS,
         "continuation_from_checkpoint_sha256": CURRENT_ANCHOR_SHA256,
         "new_train_tokens": actual_train,
@@ -139,6 +136,8 @@ def main() -> None:
         "tokenizer": token_contract,
         "source_lock_sha256": source_lock_sha,
         "source_mix": {s.name: s.share for s in REFRESH_SOURCES},
+        "source_policy": source_policy,
+        "finemath_candidate_included": False,
         "resolved_revisions": revisions,
         "licenses": sorted({s.license for s in REFRESH_SOURCES}),
         "sources": reports,
@@ -147,7 +146,8 @@ def main() -> None:
         "deduplicated_documents": documents,
         "validation_built_first_shared_dedupe": True,
         "train_validation_exact_document_disjoint": True,
-        "benchmark_content_intentionally_included": False,
+        "benchmark_content_included": None,
+        "benchmark_screening_status": "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT",
         "historical_2b_document_overlap_checked": False,
         "historical_overlap_warning": (
             "A complete historical document-hash registry is unavailable; do not claim "
