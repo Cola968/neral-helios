@@ -4,8 +4,13 @@
 German/math/code/reasoning examples. No external-model generated answers.
 """
 from __future__ import annotations
-import argparse, json
+import argparse, json, sys
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 
 from build_targeted_sft50_sources import (
     TARGET_TRAIN_EXAMPLES, _normalize, _source, _split_for_prompt,
