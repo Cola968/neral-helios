@@ -1,7 +1,8 @@
 """Disposable 24/24-block Neral 350M training-throughput benchmark.
 
 This benchmark measures real full-model BF16 forward/backward/gradient clipping/fused
-AdamW update throughput on the owner's RTX 4070. It is NOT productive training and
+AdamW compute-loop throughput on the owner's RTX 4070. It does not include production
+mmap data loading, validation, checkpoint I/O or compile warm-up in the measured rate. It is NOT productive training and
 NOT a quality candidate. It reads the immutable SHA-pinned historical checkpoint,
 uses deterministic synthetic token IDs only, writes aggregate benchmark JSON only,
 and never writes model or optimizer weights.
@@ -165,7 +166,7 @@ def main(argv=None) -> int:
 
     summary = {
         "schema": "phoenix_fullmodel_perf_benchmark_v1",
-        "classification": "disposable_engineering_benchmark_not_quality_training",
+        "classification": "disposable_fullmodel_compute_loop_benchmark_not_end_to_end_training",
         "parameters": EXPECTED_PARAMETERS,
         "full_model_trainable": True,
         "n_layers": FRONTIER_350.n_layers,
@@ -182,6 +183,10 @@ def main(argv=None) -> int:
         "measured_seconds": measured_seconds,
         "tokens_per_second": measured_tokens / measured_seconds,
         "seconds_per_update": measured_seconds / args.measure_updates,
+        "data_loader_included": False,
+        "validation_included": False,
+        "checkpoint_io_included": False,
+        "compile_warmup_included": False,
         "min_update_seconds": min(per_update_seconds),
         "max_update_seconds": max(per_update_seconds),
         "mean_loss": sum(measured_losses) / len(measured_losses),
