@@ -54,6 +54,50 @@ class Oasst2StageTests(unittest.TestCase):
         self.assertFalse(stage.permitted_oasst2(
             dict(base, synthetic=True), "assistant"))
 
+    def test_nonroot_prompter_uses_best_ranked_reply(self):
+        train_tree = split_tree("nested-train", False)
+        valid_tree = split_tree("nested-valid", True)
+        rows = [
+            msg(ident="root", tree=train_tree, role="prompter", lang="en",
+                text="Initial train prompt text."),
+            msg(ident="bridge", tree=train_tree, role="assistant", lang="en",
+                text="Initial train answer text.", parent="root", rank=0),
+            msg(ident="follow", tree=train_tree, role="prompter", lang="en",
+                text="Follow-up human prompt that should be eligible.",
+                parent="bridge"),
+            msg(ident="worse", tree=train_tree, role="assistant", lang="en",
+                text="Lower ranked human answer.", parent="follow", rank=1),
+            msg(ident="best", tree=train_tree, role="assistant", lang="en",
+                text="Best ranked human answer.", parent="follow", rank=0),
+            msg(ident="vp", tree=valid_tree, role="prompter", lang="en",
+                text="Independent validation prompt text."),
+            msg(ident="va", tree=valid_tree, role="assistant", lang="en",
+                text="Independent validation answer text.", parent="vp", rank=0),
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / stage.SOURCE_NAME
+            with gzip.open(source, "wt", encoding="utf-8") as stream:
+                for row in rows:
+                    stream.write(json.dumps(row) + "\n")
+            with patch.object(stage, "sha_file", return_value=stage.SOURCE_SHA256):
+                selected, report = stage.select(
+                    source, {"nonempty-frozen-set"},
+                    train_limit=8, valid_limit=8,
+                    min_de_train=0, min_de_valid=0,
+                )
+
+        train_ids = {row["id"] for row in selected["train"]}
+        self.assertIn("best", train_ids)
+        self.assertNotIn("worse", train_ids)
+        chosen = next(row for row in selected["train"] if row["id"] == "best")
+        self.assertEqual(chosen["upstream_parent_id"], "follow")
+        self.assertEqual(chosen["upstream_rank"], 0)
+        self.assertGreaterEqual(report["best_parent_reply_pairs"], 2)
+        self.assertFalse(
+            {row["message_tree_id"] for row in selected["train"]}
+            & {row["message_tree_id"] for row in selected["validation"]}
+        )
+
     def test_selection_is_human_only_bilingual_and_split_disjoint(self):
         rows = []
         frozen = {stage.prompt_hash("This exact prompt is frozen.")}
