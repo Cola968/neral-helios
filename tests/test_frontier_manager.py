@@ -16,13 +16,14 @@ def test_stop_process_is_bounded_and_idempotent():
     manager._stop_process(p);assert p.terminated
 
 def test_foreign_occupied_port_is_refused(monkeypatch,tmp_path):
+    runtime=tmp_path/"frontier_runtime.py";runtime.write_text("# fixture")
     row={"model_sha256":"a"*64,"runtime_port":9683,"runtime_family":"frontier350-bpe-v1",
          "paths":(tmp_path/"bundle/model.pt",tmp_path/"bundle/model.sha256"),"context_tokens":512,"label":"Arctus"}
     monkeypatch.setattr(manager,"probe",lambda *a,**k:(_ for _ in ()).throw(FrontierUnavailable("mismatch")))
     monkeypatch.setattr(manager,"_port_open",lambda port:True)
     manager._processes.clear()
     with pytest.raises(FrontierUnavailable,match="anderen Prozess"):
-        manager.ensure_running(row,tmp_path,tmp_path/"frontier_runtime.py",timeout=0.01)
+        manager.ensure_running(row,tmp_path,runtime,timeout=0.01)
 
 def test_own_old_sidecar_on_same_port_is_rotated(monkeypatch,tmp_path):
     bundle=tmp_path/"bundle";bundle.mkdir();(bundle/"model.pt").write_bytes(b"x")
