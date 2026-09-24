@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "action": "run_neral600_architecture_search",
+  "request_id": "neral600-search-20260910-v1",
+  "candidates": ["w26", "b32", "d36", "q36"],
+  "seq": 512,
+  "tokens_per_update": 16384,
+  "pilot_tokens": 5000000
+}

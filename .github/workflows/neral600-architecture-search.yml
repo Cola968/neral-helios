@@ -1,0 +1,131 @@
+name: Neral 600M Architecture Search
+
+on:
+  push:
+    branches: [research/neral600-architecture-search]
+    paths:
+      - 'frontier600_requests/run_arch_search.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-600m-architecture-search
+  cancel-in-progress: false
+
+jobs:
+  architecture-search:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/neral600-architecture-search
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit research request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier600_requests\run_arch_search.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'Neral600 architecture-search request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,candidates,pilot_tokens,request_id,seq,tokens_per_update,version'){
+            throw 'unsupported architecture-search request fields'
+          }
+          if([int]$r.version -ne 1){throw 'unsupported request version'}
+          if($r.action -ne 'run_neral600_architecture_search'){throw 'wrong action'}
+          if([int]$r.seq -ne 512){throw 'research gate is locked to seq=512'}
+          if([int]$r.tokens_per_update -ne 16384){throw 'research gate is locked to 16384 tokens/update'}
+          if([int]$r.pilot_tokens -ne 5000000){throw 'initial pilot is locked to 5M tokens/candidate'}
+          if(($r.candidates -join ',') -ne 'w26,b32,d36,q36'){throw 'candidate set differs from locked Phase-C set'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request_id'}
+
+      - name: Resolve WSL2 CUDA and pilot data paths
+        id: wsl
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not(Get-Command wsl.exe -ErrorAction SilentlyContinue)){throw 'WSL executable not installed'}
+          wsl.exe -- bash -lc "set -e; uname -a; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
+          if($LASTEXITCODE -ne 0){throw 'WSL/CUDA probe failed'}
+
+          function Convert-ToWslPath([string]$Path) {
+            $full=[System.IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$'){throw "Unsupported Windows path: $Path"}
+            $drive=$matches[1].ToLower()
+            $rest=$matches[2] -replace '\\','/'
+            return "/mnt/$drive/$rest"
+          }
+
+          $repoWsl=Convert-ToWslPath (Get-Location).Path
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $assetsWsl=Convert-ToWslPath $assets
+          $trainWsl="$assetsWsl/frontier350_bpe_pilot_v1/train"
+          $validWsl="$assetsWsl/frontier350_bpe_pilot_v1/valid"
+          $outWsl="$repoWsl/frontier600_report"
+
+          wsl.exe -- bash -lc "set -e; test -d '$trainWsl'; test -d '$validWsl'; test -f '$repoWsl/frontier600/run_arch_search_wsl.sh'; printf 'repo=%s\ntrain=%s\nvalid=%s\nout=%s\n' '$repoWsl' '$trainWsl' '$validWsl' '$outWsl'"
+          if($LASTEXITCODE -ne 0){throw 'pilot data/repository path probe failed'}
+
+          "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
+          "train_wsl=$trainWsl" >> $env:GITHUB_OUTPUT
+          "valid_wsl=$validWsl" >> $env:GITHUB_OUTPUT
+          "out_wsl=$outWsl" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure C compiler for TorchInductor
+        run: |
+          $ErrorActionPreference='Stop'
+          wsl.exe -- bash -lc "if command -v gcc >/dev/null 2>&1 && command -v g++ >/dev/null 2>&1; then exit 0; fi; exit 42"
+          if($LASTEXITCODE -eq 42) {
+            wsl.exe -u root -- bash -lc "set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends build-essential"
+            if($LASTEXITCODE -ne 0){throw 'Failed to install build-essential'}
+          } elseif($LASTEXITCODE -ne 0) {
+            throw 'WSL compiler probe failed'
+          }
+
+      - name: Run analytical, hardware and matched-learning search
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.wsl.outputs.repo_wsl }}'
+          $train='${{ steps.wsl.outputs.train_wsl }}'
+          $valid='${{ steps.wsl.outputs.valid_wsl }}'
+          $out='${{ steps.wsl.outputs.out_wsl }}'
+          New-Item -ItemType Directory -Force frontier600_report | Out-Null
+          wsl.exe -- bash -lc "set -e; tr -d '\r' < '$repo/frontier600/run_arch_search_wsl.sh' > /tmp/neral600-search.sh; chmod +x /tmp/neral600-search.sh; /tmp/neral600-search.sh '$repo' '$train' '$valid' '$out'"
+          if($LASTEXITCODE -ne 0){throw 'Neral600 architecture search failed'}
+
+      - name: Print provisional decision
+        if: always()
+        run: |
+          $ErrorActionPreference='Continue'
+          $p='frontier600_report\phase_e_score.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw | ConvertFrom-Json
+            Write-Host ("status=" + $r.status)
+            Write-Host ("ranking=" + ($r.ranking -join ','))
+            if($r.ranking.Count -gt 0){
+              $first=$r.ranking[0]
+              Write-Host ("provisional_top_candidate=" + $first)
+              Write-Host ("weighted_score=" + $r.scores.$first.weighted_score)
+            }
+            Write-Host 'NOTE: 5M pilot ranking is provisional; no production winner is promoted by this workflow.'
+          } else {
+            Write-Host 'No Phase-E score produced; inspect earlier reports/logs.'
+          }
+
+      - name: Upload Neral600 architecture-search reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral600-architecture-search-${{ github.run_id }}
+          path: frontier600_report/
+          retention-days: 30
+          if-no-files-found: warn
