@@ -12,6 +12,11 @@ on:
         required: true
         type: string
 
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-current-refresh-1m.yml'
+
 permissions:
   contents: read
 
