@@ -29,13 +29,14 @@ from fetch_oasst2_sft50 import UPSTREAM_REVISION, UPSTREAM_SHA256, choose_pairs
 from sft_contract import encode_row
 from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
 from stage_oasst1_sft import frozen_chat_hashes
+from phoenix_master_precision import require_fp32_trainable_subset
 
 PARAMETERS = 349_825_152
 DEFAULT_STEPS = 50
 MAX_STEPS = 100
 MAX_RESERVED = 9 * 1024**3
 SOURCE_CLASS = "auto_screened_public_oasst2_diagnostic_not_human_approved"
-CHECKPOINT_SCHEMA = "phoenix_auto_sft_diagnostic_v1"
+CHECKPOINT_SCHEMA = "phoenix_auto_sft_diagnostic_v2_fp32_master"
 
 
 def sha256_file(path: Path) -> str:
@@ -190,7 +191,7 @@ def main(argv=None) -> int:
     torch.set_float32_matmul_precision("high")
     torch.cuda.reset_peak_memory_stats()
 
-    model = Neral350M().to(device=device, dtype=torch.bfloat16)
+    model = Neral350M().to(device=device, dtype=torch.float32)
     model.load_state_dict(base["model"], strict=True)
     if model.parameter_report()["total"] != PARAMETERS:
         raise RuntimeError("Neral architecture changed")
@@ -206,6 +207,7 @@ def main(argv=None) -> int:
         params, lr=2e-5, betas=(0.9, 0.95), eps=1e-8,
         weight_decay=0.01, fused=True
     )
+    require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
     rng = random.Random(20260923)
     seq = 512
     val_indices = validation_indices(len(splits["validation"]))
@@ -261,6 +263,8 @@ def main(argv=None) -> int:
         if not math.isfinite(float(grad)):
             raise FloatingPointError("nonfinite SFT gradient")
         optimizer.step()
+        if step == 1:
+            require_fp32_trainable_subset(model, optimizer, torch, require_moments=True)
         torch.cuda.synchronize()
         gpu_guard.require_safe_runtime_temperature()
         if torch.cuda.memory_reserved() > MAX_RESERVED:
@@ -291,7 +295,7 @@ def main(argv=None) -> int:
         state = {
             "checkpoint_schema": CHECKPOINT_SCHEMA,
             "classification": SOURCE_CLASS,
-            "model": {name: tensor.detach().to("cpu", dtype=torch.bfloat16)
+            "model": {name: tensor.detach().to("cpu", dtype=torch.float32)
                       for name, tensor in model.state_dict().items()},
             "config": FRONTIER_350.to_dict(),
             "tokenizer_sha256": TOKENIZER_SHA,
@@ -308,6 +312,9 @@ def main(argv=None) -> int:
             "torch_rng": torch.get_rng_state(),
             "cuda_rng": [v.cpu() for v in torch.cuda.get_rng_state_all()],
             "data_report": data_report,
+            "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
             "production_eligible": False,
             "human_review_complete": False,
             "independent_holdout_checked": False,
@@ -337,6 +344,9 @@ def main(argv=None) -> int:
         "peak_cuda_reserved_mib": round(torch.cuda.max_memory_reserved() / 1024**2, 1),
         "candidate_checkpoint_written": bool(candidate_sha),
         "candidate_sha256": candidate_sha,
+        "master_parameter_dtype": "float32",
+        "adamw_moment_dtype": "float32",
+        "compute_autocast_dtype": "bfloat16",
         "historical_source_unchanged": source_unchanged,
         "human_review_complete": False,
         "independent_holdout_checked": False,
