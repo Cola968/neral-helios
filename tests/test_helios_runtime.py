@@ -91,14 +91,18 @@ def test_ui_reconnect_and_csp(client):
 def test_frontier_runtime_selection_and_chat_proxy(client,monkeypatch):
     row={'label':'Arctus 350M · Phoenix','runtime_family':runtime.FRONTIER350_RUNTIME,
          'status':'candidate','parameters':349_825_152,'context_tokens':512,'runtime_port':9683,
-         'model_sha256':'a'*64,'tokenizer_sha256':'b'*64,'app_loadable':False}
+         'model_sha256':'a'*64,'tokenizer_sha256':'b'*64,'app_loadable':False,
+         'paths':(runtime.BASE/'fake/model.pt',runtime.BASE/'fake/model.sha256')}
     monkeypatch.setattr(runtime,'imported_models',lambda:{'neral-arctus-350':row})
     health={'status':'experimental-ready','runtime_family':runtime.FRONTIER350_RUNTIME,
             'checkpoint_sha256':'a'*64,'tokenizer_sha256':'b'*64,'device':'cuda',
-            'gpu':'RTX 4070','max_new_tokens':64,'processed_tokens':2_073_161_216}
-    monkeypatch.setattr(runtime,'probe_frontier',lambda r:health)
-    monkeypatch.setattr(runtime,'frontier_chat',lambda r,messages,budget:(
-        {'answer':'Arctus antwortet.','generated_tokens':5,'finish_reason':'eos'},health))
+            'gpu':'RTX 4070','max_new_tokens':256,'processed_tokens':2_073_161_216,
+            'streaming':True,'cancel_supported':True,'kv_cache':True,
+            'decoder':'greedy-kv-cache-v1','vram_allocated_mib':712.0,'vram_reserved_mib':768.0}
+    monkeypatch.setattr(runtime,'ensure_frontier_running',lambda *a,**k:health)
+    monkeypatch.setattr(runtime,'frontier_chat',lambda r,messages,budget,request_id=None:(
+        {'answer':'Arctus antwortet.','generated_tokens':5,'finish_reason':'eos',
+         'seconds':0.1,'tokens_per_second':50,'peak_vram_mib':800,'vram_allocated_mib':720},health))
     monkeypatch.setattr(runtime,'checkpoint_loaded',False)
     monkeypatch.setattr(runtime,'active_runtime_family',runtime.LEGACY_RUNTIME)
     monkeypatch.setattr(runtime,'active_frontier_health',None)
@@ -106,9 +110,25 @@ def test_frontier_runtime_selection_and_chat_proxy(client,monkeypatch):
     info=runtime.info_payload()
     assert info['active_runtime_family']==runtime.FRONTIER350_RUNTIME
     assert info['parameters']==349_825_152 and info['tokenizer']=='Neral BPE-16K'
-    assert info['device']=='cuda' and info['cancel_supported'] is False
-    response=client.post('/api/generate',json={'prompt':'Hallo','temperature':0},base_url='http://localhost')
+    assert info['device']=='cuda' and info['cancel_supported'] is True
+    assert info['streaming'] is True and info['kv_cache'] is True
+    assert info['runtime_max_new_tokens']==256
+    response=client.post('/api/generate',json={'prompt':'Hallo','temperature':0,'request_id':'r'*16},
+                         base_url='http://localhost')
     assert response.status_code==200
     assert response.json['text']=='Arctus antwortet.'
     assert response.json['runtime_family']==runtime.FRONTIER350_RUNTIME
     assert response.json['active_checkpoint']=='neral-arctus-350'
+    assert response.json['kv_cache'] is True and response.json['peak_vram_mib']==800
+
+def test_frontier_cancel_proxies_to_sidecar(client,monkeypatch):
+    row={'runtime_family':runtime.FRONTIER350_RUNTIME,'runtime_port':9683}
+    monkeypatch.setattr(runtime,'checkpoint_loaded',True)
+    monkeypatch.setattr(runtime,'active_runtime_family',runtime.FRONTIER350_RUNTIME)
+    monkeypatch.setattr(runtime,'active_checkpoint','neral-arctus-350')
+    monkeypatch.setattr(runtime,'imported_models',lambda:{'neral-arctus-350':row})
+    seen=[]
+    monkeypatch.setattr(runtime,'frontier_cancel',lambda r,j:seen.append(j) or True)
+    response=client.post('/api/cancel',json={'request_id':'x'*16},base_url='http://localhost')
+    assert response.status_code==200 and response.json['cancelled'] is True
+    assert seen==['x'*16]
