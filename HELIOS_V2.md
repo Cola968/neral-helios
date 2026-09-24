@@ -15,6 +15,18 @@ Diese Version erweitert die bestehende Flask-/JavaScript-App. Sie verändert kei
 - Unter Windows schützt DPAPI neu geschriebene Chat- und Projektinhalte auf dem Server. Bestehende JSON-Datensätze bleiben lesbar und werden bei erneutem Schreiben geschützt. DPAPI-Daten sind an den Windows-Benutzer gebunden. Auf anderen Betriebssystemen bleibt der Schutz Aufgabe der Dateiberechtigungen. Browserkopien bleiben unverschlüsselt; Exportdateien ebenfalls.
 - Abgebrochene Teilantworten bleiben mit Kennzeichnung erhalten. Einstellungen bieten Neuverbindung und Diagnoseexport ohne Chattexte, Dateipfade oder Zugangscodes.
 
+## Frontier 350 / Arctus-Phoenix Runtime
+
+Workspace 2.1 trennt erstmals die alte Byte-Tokenizer-Runtime von der Frontier-350-Runtime. Ein importiertes Modell deklariert im lokalen Katalog eine Runtime-Familie. Legacy-Modelle bleiben `legacy-byte-v1`; Arctus/Phoenix verwendet `frontier350-bpe-v1`. Der alte 20M/50M-Loader darf einen Frontier-Checkpoint nicht laden.
+
+Ein Frontier-Deployment-Bundle besteht aus `model.pt`, `model.sha256`, `tokenizer.json` und `tokenizer.sha256`. `import_frontier350.py` prüft vor der Registrierung unter anderem die vom Operator vorgegebene Quell-SHA, den festen 16K-BPE-Tokenizer-SHA, die exakte 24-Layer-Architektur, 267 State-Dict-Einträge, 349.825.152 eindeutige Parameter, BF16/FP32-Tensoren, endliche Werte und die gebundenen Embedding-/LM-Head-Gewichte. Eine Registrierung ist ausdrücklich keine Qualitätsfreigabe.
+
+Die Haupt-App lädt die großen Frontier-Gewichte nicht in ihren bisherigen CPU-Prozess. Stattdessen verbindet sie sich über `frontier_sidecar.py` ausschließlich mit einem lokalen Prozess auf `127.0.0.1`. Vor einer Auswahl müssen Runtime-Familie, Checkpoint-SHA und Tokenizer-SHA mit dem registrierten Bundle exakt übereinstimmen. Ein falscher oder nicht erreichbarer Sidecar wird abgelehnt, während das bisher aktive Modell erhalten bleibt.
+
+Die bereits vorhandene experimentelle 350M-Phoenix-Runtime veröffentlicht auf ihrem `/health`-Endpunkt den dazu erforderlichen SHA-Handshake. Der aktuelle Frontier-Chatpfad ist deterministisch, unterstützt maximal 64 neue Tokens pro Antwort und besitzt noch keinen echten Abbruch/Streaming-Vertrag. Die UI zeigt diese Einschränkungen deshalb offen: Temperatur wird auf 0 gesetzt, der Stop-Button wird für diesen Runtime-Typ nicht angeboten und der Kontext wird als BPE-Kontext gekennzeichnet statt mit der Byte-Schätzung des Legacy-Modells vorgetäuscht zu werden.
+
+Der nächste Runtime-Schritt ist ein eigener gepackter Frontier-Prozess mit CUDA/KV-Cache/Streaming. Bis dahin ist der Sidecar-Adapter bewusst ein lokaler, SHA-gebundener Integrationsvertrag und keine automatische Modell-Promotion.
+
 ## Start und Paket
 
 ZIP vollständig entpacken, dann `Start Neral.cmd` öffnen. Workspace 2 nutzt `http://127.0.0.1:9686/`, damit eine ältere App auf 9684 weiterlaufen kann. Der Starter übernimmt die inzwischen auf GitHub ergänzte Python-Einrichtung, prüft die Installersignatur und löscht keine defekte bestehende Python-Umgebung. Eine frische Einrichtung benötigt Internet; danach erfolgt die Inferenz lokal.
