@@ -2,7 +2,16 @@
 
 ## Jetzt schreiben
 
-Am PC: http://127.0.0.1:9686/ öffnen. Neral 50M D3/I1 ist als eigener Checkpoint auf der CPU aktiv. Die GPU wird nicht verwendet. Im Menü oben rechts „App installieren“ wählen. Alternativ das ZIP entpacken und `Start Neral.cmd` ausführen: öffnet ein eigenes App-Fenster. Python 3.11+ ist erforderlich; bei einer frischen Installation installiert der Starter ausschließlich CPU-PyTorch und die App-Abhängigkeiten. Der lokale Modell-Export ist im ZIP enthalten, keine fremden Gewichte.
+Am PC: http://127.0.0.1:9686/ öffnen. Neral 50M D3/I1 bleibt als eigener Legacy-Checkpoint auf der CPU aktiv. Ein ausdrücklich importiertes Arctus/Phoenix-350M-Bundle läuft dagegen in einem getrennten lokalen Frontier-Prozess und kann eine vorhandene CUDA/BF16-PyTorch-Umgebung verwenden. Im Menü oben rechts „App installieren“ wählen. Alternativ das ZIP entpacken und `Start Neral.cmd` ausführen: öffnet ein eigenes App-Fenster. Python 3.11+ ist erforderlich; bei einer frischen Installation installiert der Starter CPU-PyTorch, die App-Abhängigkeiten und `tokenizers`. Er installiert nicht automatisch ein großes CUDA-PyTorch-Paket. Der vorhandene Legacy-Modell-Export ist im ZIP enthalten, keine fremden Gewichte.
+
+
+## Frontier 350 auf der RTX-GPU
+
+Ein Frontier-Modell wird erst nach einem ausdrücklichen, SHA-geprüften Import in der Modellwahl angezeigt. Beim ersten Auswählen startet Helios den zugehörigen lokalen Sidecar automatisch. Der Sidecar bindet nur an `127.0.0.1`; Checkpoint-SHA und Tokenizer-SHA müssen vor der Aktivierung exakt zum registrierten Bundle passen.
+
+Der Starter sucht zuerst nach einer bereits vorhandenen Python-Umgebung, in der `torch.cuda.is_available()`, BF16 und `tokenizers` funktionieren. Wird eine gefunden, setzt er sie als `HELIOS_FRONTIER_PYTHON`. Für eine andere vorhandene CUDA-Umgebung kann die Variable vor dem Start ausdrücklich gesetzt werden. `HELIOS_FRONTIER_DEVICE=cpu|cuda|auto` steuert die Gerätewahl; Standard ist `auto`. Die 20M/50M-Haupt-App bleibt davon unabhängig CPU-only.
+
+Der aktuelle Frontier-Decoder verwendet KV-Cache, streamt Antworten, unterstützt Stop/Cancel und meldet Tokens/s sowie VRAM. Der Standard-Import begrenzt den nutzbaren Kontext weiterhin konservativ auf 512 BPE-Tokens, obwohl die Architektur einen größeren Maximalwert besitzt; ein höherer Deployment-Kontext muss ausdrücklich beim Import gesetzt und separat qualifiziert werden.
 
 ## Android
 
