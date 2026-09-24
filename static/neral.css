@@ -39,3 +39,14 @@ dialog{color:var(--text);background:var(--side);border:1px solid var(--line);bor
 .context-meter.full #contextFill{background:#c88383;opacity:1}
 .context-meter.full #contextText{color:#c88383}
 @media(max-width:730px){.runtime-chip{max-width:42px;width:34px;height:30px;justify-content:center;padding:0;border-radius:10px}#runtimeChipText{display:none}.context-meter-row{gap:8px}#contextDetail{max-width:58vw}}
+
+.mobile-nav{display:none}
+@media(max-width:730px){
+  main{padding-bottom:58px}
+  .view-switch{display:none}
+  .mobile-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:absolute;left:0;right:0;bottom:0;height:58px;z-index:26;background:var(--side);border-top:1px solid var(--line);padding:4px 6px max(4px,env(safe-area-inset-bottom))}
+  .mobile-nav button{display:flex;min-width:0;flex-direction:column;align-items:center;justify-content:center;gap:1px;border-radius:8px;color:var(--muted);font-size:10px}
+  .mobile-nav button>span:first-child{font-size:16px;line-height:1}
+  .mobile-nav button.selected{color:var(--text);background:var(--soft)}
+  .inspector,.project-workspace{bottom:58px}
+}
