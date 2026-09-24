@@ -21,11 +21,13 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from checkpoint_journal import CheckpointJournal, safe_save_every
 from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
 from source_lock350 import LOCK_PATH
+from hf_source_policy50 import SOURCES
 
 SCHEMA = "phoenix_foundation_refresh_dev_v1"
 CLASSIFICATION = "DEVELOPMENT_ONLY_FRESH_ADAMW_FOUNDATION_REFRESH"
@@ -81,6 +83,43 @@ def verify_refresh_manifest(root: Path, expected_sha: str, tokenizer_sha: str) -
         raise ValueError("refresh manifest lineage/classification contract mismatch")
     if manifest.get("source_lock_sha256") != sha256_file(LOCK_PATH):
         raise ValueError("refresh corpus source lock differs from current repository lock")
+    if manifest.get("continuation_profile") != "phoenix-quality-refresh-v2-approved-sources":
+        raise ValueError("legacy/unapproved refresh profile blocked; rebuild corpus with current policy")
+    if manifest.get("finemath_candidate_included") is not False:
+        raise ValueError("FineMath candidate is not admitted in the current refresh lineage")
+    if manifest.get("benchmark_content_included") is not None:
+        raise ValueError("refresh builder must not claim benchmark cleanliness without a separate screen")
+    if manifest.get("benchmark_screening_status") != "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT":
+        raise ValueError("refresh benchmark-screening status missing or changed")
+
+    receipts = manifest.get("source_policy")
+    mix = manifest.get("source_mix")
+    expected_ids = {
+        "HuggingFaceFW/fineweb-edu",
+        "HuggingFaceFW/fineweb",
+        "HuggingFaceFW/fineweb-2",
+    }
+    if not isinstance(receipts, dict) or not isinstance(mix, dict):
+        raise ValueError("refresh source policy/mix receipt missing")
+    if set(receipts) != set(mix) or set(receipts) != {"fineweb_edu_en", "fineweb_en", "fineweb2_de"}:
+        raise ValueError("refresh source-family set changed")
+    if abs(sum(float(v) for v in mix.values()) - 1.0) > 1e-9:
+        raise ValueError("refresh source mix does not sum to one")
+    for receipt in receipts.values():
+        if not isinstance(receipt, dict):
+            raise ValueError("invalid refresh source-policy receipt")
+        dataset_id = receipt.get("dataset_id")
+        policy = SOURCES.get(dataset_id)
+        if (
+            dataset_id not in expected_ids
+            or policy is None
+            or policy.allow_training is not True
+            or policy.role != "pretrain"
+            or receipt.get("role") != policy.role
+            or receipt.get("license") != policy.license
+        ):
+            raise ValueError(f"refresh source is not currently admitted: {dataset_id}")
+
     token = manifest.get("tokenizer", {})
     if token.get("vocab_size") != 16_384 or token.get("tokenizer_sha256") != tokenizer_sha:
         raise ValueError("refresh manifest tokenizer contract mismatch")
