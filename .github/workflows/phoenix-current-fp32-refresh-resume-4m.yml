@@ -1,4 +1,4 @@
-name: Phoenix current FP32 refresh exact-resume 1Mi to 4Mi
+name: Phoenix current FP32 refresh exact-resume durable state to 4Mi
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
           clean: false
           persist-credentials: false
 
-      - name: Verify exact 1Mi state, resume same lineage to 4Mi, evaluate
+      - name: Verify latest durable state, resume same lineage to 4Mi, evaluate
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference='Stop'
@@ -44,15 +44,80 @@ jobs:
           $manifestSha='7f1ef3c90ce680d81f7e4647e7c4d7bc00c8aeb445697ad2c771643724705112'
           $out='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466'
           $resume=Join-Path $out 'resume.pt'
-          $resumeSha='e38197435cf3862c3376e775c09d6b5017b978b3a6ee384ec472b842c99fbf7e'
+          $journal=Join-Path $out 'checkpoint_journal'
+          $latest=Join-Path $journal 'latest.json'
           $evalOut=Join-Path $out ('public_dev_ab_4m_'+$env:GITHUB_RUN_ID+'.json')
 
-          foreach($p in @($repo,$source,$assets,$corpus,$manifest,$out,$resume,$evalOut)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
-          foreach($p in @($source,$manifest,$resume)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}}
+          foreach($p in @($repo,$source,$assets,$corpus,$manifest,$out,$resume,$journal,$latest,$evalOut)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          foreach($p in @($source,$manifest,$resume,$latest)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}}
           foreach($p in @($assets,$corpus,$out)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw "Required directory missing: $p"}}
           if(Test-Path -LiteralPath $evalOut){throw 'Create-only eval output exists'}
           if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifestSha){throw 'Pinned refresh manifest SHA mismatch'}
-          if((Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $resumeSha){throw 'Pinned 1Mi resume SHA mismatch'}
+
+          $receipt=Get-Content -LiteralPath $latest -Raw|ConvertFrom-Json
+          if($receipt.schema -ne 1 -or $receipt.kind -ne 'complete_resumable_state'){throw 'Latest journal receipt is not complete resumable state'}
+          $resumeSha=([string]$receipt.sha256).ToLowerInvariant()
+          $resumeTokens=[int64]$receipt.processed_tokens
+          if($resumeSha -notmatch '^[0-9a-f]{64}
+          if($m.continuation_profile -ne 'phoenix-quality-refresh-v2-approved-sources'){throw 'Wrong refresh profile'}
+          if($m.finemath_candidate_included -ne $false){throw 'FineMath candidate must stay excluded'}
+          if($m.benchmark_screening_status -ne 'NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT'){throw 'Unexpected benchmark screening state'}
+
+          $compile="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py"
+          & wsl.exe -- bash -lc $compile
+          if($LASTEXITCODE -ne 0){throw 'Resume/eval Python compile check failed'}
+
+          Write-Host 'Pre-resume GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $train="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)' --target-new-tokens 20000000 --stop-after-new-tokens 4194304 --resume '$(ToWsl $resume)' --resume-sha256 '$resumeSha' --seq 256 --microbatch 4 --grad-accum 1 --lr 0.00001 --compile-mode default"
+          & wsl.exe -- bash -lc $train
+          if($LASTEXITCODE -ne 0){throw 'Exact FP32 refresh resume to 4Mi failed'}
+
+          $summary=Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw|ConvertFrom-Json
+          if([int64]$summary.new_processed_tokens -ne 4194304){throw '4Mi token target not reached'}
+          if($summary.source_unchanged -ne $true -or $summary.production_eligible -ne $false){throw 'Unsafe 4Mi summary state'}
+          if($summary.master_parameter_dtype -ne 'float32' -or $summary.adamw_moment_dtype -ne 'float32' -or $summary.compute_autocast_dtype -ne 'bfloat16'){throw 'Wrong 4Mi precision contract'}
+          $finalSha=([string]$summary.resume_sha256).ToLowerInvariant()
+          if($finalSha -notmatch '^[0-9a-f]{64}$' -or (Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $finalSha){throw 'Final 4Mi resume SHA mismatch'}
+
+          $eval="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $source)' --candidate-checkpoint '$(ToWsl $resume)' --candidate-sha256 '$finalSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $evalOut)'"
+          & wsl.exe -- bash -lc $eval
+          if($LASTEXITCODE -ne 0){throw '4Mi public-development A/B failed'}
+
+          $ab=Get-Content -LiteralPath $evalOut -Raw|ConvertFrom-Json
+          if($ab.production_eligible -ne $false -or $ab.independent_holdout -ne $false -or $ab.quality_gain_verified -ne $false){throw 'Unsafe 4Mi A/B promotion state'}
+
+          Write-Host '=== FP32 REFRESH 4Mi RECEIPT ==='
+          [ordered]@{
+            resumed_from_tokens=$resumeTokens
+            new_processed_tokens=$summary.new_processed_tokens
+            cumulative_reference_tokens=$summary.cumulative_reference_tokens
+            optimizer_steps=$summary.optimizer_steps
+            best_validation_loss=$summary.best_validation_loss
+            training_wall_seconds=$summary.training_wall_seconds
+            checkpoint_max_rollback_tokens=$summary.checkpoint_max_rollback_tokens
+            resume_sha256=$finalSha
+            baseline=$ab.baseline.summary
+            candidate=$ab.candidate.summary
+            delta=$ab.delta_candidate_minus_base
+            knowledge_choice_delta_pct=$ab.knowledge_choice_delta_pct
+            production_eligible=$ab.production_eligible
+          } | ConvertTo-Json -Compress -Depth 10 | Write-Host
+
+      - name: Post-run GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'Checkpoint remains local. No model or corpus artifact uploaded.'
+){throw 'Latest journal SHA is invalid'}
+          if($resumeTokens -lt 1048576 -or $resumeTokens -ge 4194304){throw 'Latest durable token counter outside resumable 1Mi..<4Mi range'}
+          if((Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $resumeSha){throw 'resume.pt differs from latest journal receipt'}
+          $generation=Join-Path $journal ([string]$receipt.name)
+          if(-not(Test-Path -LiteralPath $generation -PathType Leaf)){throw 'Latest journal generation missing'}
+          if((Get-FileHash -LiteralPath $generation -Algorithm SHA256).Hash.ToLowerInvariant() -ne $resumeSha){throw 'Latest journal generation SHA mismatch'}
+          Write-Host ("Verified durable resume: tokens=" + $resumeTokens + " sha=" + $resumeSha)
 
           $m=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
           if($m.continuation_profile -ne 'phoenix-quality-refresh-v2-approved-sources'){throw 'Wrong refresh profile'}
