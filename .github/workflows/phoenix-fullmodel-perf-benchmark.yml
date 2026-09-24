@@ -59,8 +59,11 @@ jobs:
             @{name='fp32_s256_m2_a2_gc_compile'; seq=256; mb=2; accum=2; gc='on';  compile='default'},
             @{name='fp32_s256_m4_a1_gc_compile'; seq=256; mb=4; accum=1; gc='on';  compile='default'},
             @{name='fp32_s256_m2_a2_nogc_compile'; seq=256; mb=2; accum=2; gc='off'; compile='default'},
-            @{name='fp32_s256_m4_a1_nogc_compile'; seq=256; mb=4; accum=1; gc='off'; compile='default'},
-            @{name='fp32_s256_m4_a1_nogc_eager';   seq=256; mb=4; accum=1; gc='off'; compile='none'}
+            @{name='fp32_s256_m4_a1_nogc_compile';  seq=256; mb=4;  accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m8_a1_nogc_compile';  seq=256; mb=8;  accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m12_a1_nogc_compile'; seq=256; mb=12; accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m16_a1_nogc_compile'; seq=256; mb=16; accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m4_a1_nogc_eager';    seq=256; mb=4;  accum=1; gc='off'; compile='none'}
           )
           $successful=@()
           foreach($c in $configs) {
