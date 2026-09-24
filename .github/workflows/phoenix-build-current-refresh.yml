@@ -58,6 +58,18 @@ jobs:
           if($m.continuation_from_checkpoint_sha256 -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw 'Wrong anchor checkpoint SHA'}
           if($m.tokenizer.tokenizer_sha256 -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Manifest tokenizer mismatch'}
           if([int64]$m.new_train_tokens -ne 20000000 -or [int64]$m.validation_tokens -ne 500000){throw 'Refresh token accounting mismatch'}
+          if($m.continuation_profile -ne 'phoenix-quality-refresh-v2-approved-sources'){throw 'Unexpected/legacy refresh profile'}
+          if($m.finemath_candidate_included -ne $false){throw 'FineMath candidate must stay excluded from the admitted refresh'}
+          if($null -ne $m.benchmark_content_included){throw 'Builder must not claim benchmark cleanliness without the separate audit'}
+          if($m.benchmark_screening_status -ne 'NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT'){throw 'Unexpected benchmark screening status'}
+          $expectedNames=@('fineweb_edu_en','fineweb_en','fineweb2_de')
+          $actualNames=@($m.source_mix.PSObject.Properties.Name | Sort-Object)
+          if((Compare-Object ($expectedNames|Sort-Object) $actualNames)){throw 'Unexpected refresh source-family set'}
+          if([math]::Abs(([double]$m.source_mix.fineweb_edu_en + [double]$m.source_mix.fineweb_en + [double]$m.source_mix.fineweb2_de)-1.0) -gt 1e-9){throw 'Refresh source mix does not sum to one'}
+          foreach($name in $expectedNames){
+            $receipt=$m.source_policy.$name
+            if($null -eq $receipt -or $receipt.role -ne 'pretrain'){throw "Missing/non-pretrain source policy receipt: $name"}
+          }
           if($m.production_eligible -ne $false -or $m.historical_2b_document_overlap_checked -ne $false){throw 'Unsafe refresh classification'}
 
           Write-Host '=== SAFE REFRESH CORPUS SUMMARY ==='
@@ -67,7 +79,11 @@ jobs:
             new_train_tokens=$m.new_train_tokens
             validation_tokens=$m.validation_tokens
             target_cumulative_tokens_if_fully_consumed=$m.target_cumulative_tokens_if_fully_consumed
+            continuation_profile=$m.continuation_profile
             source_mix=$m.source_mix
+            source_policy=$m.source_policy
+            finemath_candidate_included=$m.finemath_candidate_included
+            benchmark_screening_status=$m.benchmark_screening_status
             resolved_revisions=$m.resolved_revisions
             builder_environment=$m.builder_environment
             train_shards=@($m.train_files).Count
