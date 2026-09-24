@@ -22,6 +22,11 @@ SOURCE_URL = f"https://huggingface.co/datasets/OpenAssistant/oasst2/resolve/{REV
 MAX_MESSAGES = 200_000
 
 
+def permitted_oasst2(message: dict, role: str) -> bool:
+    """OASST2-specific human-only gate; OASST1's generic gate lacks model_name."""
+    return permitted(message, role) and not message.get("model_name")
+
+
 def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
            valid_limit: int = 320, min_de_train: int = 40,
            min_de_valid: int = 10) -> tuple[dict, dict]:
@@ -41,10 +46,10 @@ def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError("invalid OASST2 record")
-            if row.get("parent_id") is None and permitted(row, "prompter"):
+            if row.get("parent_id") is None and permitted_oasst2(row, "prompter"):
                 roots[row["message_id"]] = row
             elif (row.get("parent_id") is not None and row.get("rank") == 0
-                  and permitted(row, "assistant")):
+                  and permitted_oasst2(row, "assistant")):
                 replies.append(row)
 
     by_split = {
@@ -90,6 +95,10 @@ def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
     valid_ids = {row["id"] for row in result["validation"]}
     if train_ids & valid_ids:
         raise ValueError("OASST2 train/validation identity leakage")
+    train_prompts = {prompt_hash(row["user"]) for row in result["train"]}
+    valid_prompts = {prompt_hash(row["user"]) for row in result["validation"]}
+    if train_prompts & valid_prompts:
+        raise ValueError("OASST2 normalized prompt leakage across train/validation")
 
     counts = {
         split: {
@@ -134,8 +143,9 @@ def main() -> None:
         "source_filename": args.source.name,
         "source_sha256": SOURCE_SHA256,
         "license_declared_by_publisher": "Apache-2.0",
-        "filter": "reviewed ready human-only rank-0 root prompt/assistant, de/en",
+        "filter": "reviewed ready human-only rank-0 root prompt/assistant, synthetic=false, no model_name, de/en",
         "benchmark_screening": "exact frozen chat prompts only; semantic/public-suite screening still required",
+        "screened_benchmark_file_sha256": sha_file(args.frozen_benchmark),
         "independent_privacy_and_license_review": False,
         "approved_for_training": False,
         **stats,
