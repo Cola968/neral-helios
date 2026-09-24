@@ -21,6 +21,18 @@ python import_frontier350.py --source "D:\Pfad\zum\2.073B\resume.pt" --sha256 "f
 
 Nach erfolgreicher Auswahl merkt Helios nur die Modell-ID und stellt dieselbe explizite Auswahl beim nächsten Start wieder her. Es findet dabei keine automatische Qualitäts-Promotion statt.
 
+## Arctus technisch qualifizieren
+
+Sobald das bereinigte Bundle unter `deployment/installed_models/neral-arctus-350` liegt und eine CUDA/BF16-Python-Umgebung verfügbar ist, genügt unter Windows ein Doppelklick auf:
+
+`Qualify Arctus.cmd`
+
+Der Launcher sucht automatisch nach `HELIOS_FRONTIER_PYTHON`, `NERAL_FRONTIER_PYTHON`, einer Projekt-`.venv`, der lokalen Helios-Python-Umgebung und danach nach `python.exe`. Verwendet wird nur eine Umgebung, in der CUDA, BF16 und `tokenizers` tatsächlich funktionieren.
+
+Der Qualifikationslauf startet einen isolierten Frontier-Sidecar ausdrücklich mit `--device cuda`, führt einen Warm-up, drei Streaming-Smokes und einen echten Cancel-Test aus und beendet den Sidecar danach wieder. Gemessen werden First-Token-Latenz, Decode-Tokens/s, Peak-/Allocated-VRAM, CUDA/GPU-Informationen, Streaming, KV-Cache und Cancel. Antworten werden im JSON-Bericht nicht im Klartext gespeichert, sondern nur über Länge und SHA-256 referenziert.
+
+Der Bericht liegt unter `local_state/qualifications/frontier350-qualification-*.json`; Runtime-Logs liegen daneben. Ein erfolgreicher Lauf ist **nur eine technische Runtime-Qualifikation**, keine Qualitäts-Promotion und kein Trainings-Gate. Der Quellcheckpoint und das importierte Bundle werden nicht verändert.
+
 ## Android
 
 Die installierbare Web-App erhält ein eigenes Symbol/Fenster. Es ist keine APK und keine Offline-KI auf dem Handy: Die Berechnung läuft auf deinem eingeschalteten PC im gleichen WLAN.
