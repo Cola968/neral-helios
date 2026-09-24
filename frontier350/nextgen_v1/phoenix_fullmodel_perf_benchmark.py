@@ -54,6 +54,7 @@ def main(argv=None) -> int:
 
     from phoenix_continuity_cpu_probe import require_pinned_checkpoint
     from phoenix_weight_only_pilot import _checked_historical_weights
+    from phoenix_master_precision import require_fp32_master
     import phoenix_cuda_diagnostic as gpu_guard
 
     source = require_pinned_checkpoint(args.source_checkpoint)
@@ -78,7 +79,7 @@ def main(argv=None) -> int:
     historical = _checked_historical_weights(
         source, torch, Neral350M, FRONTIER_350.to_dict()
     )
-    model = Neral350M().to(device=device, dtype=torch.bfloat16)
+    model = Neral350M().to(device=device, dtype=torch.float32)
     model.set_gradient_checkpointing(args.gradient_checkpointing == "on")
     if model.parameter_report()["total"] != EXPECTED_PARAMETERS:
         raise RuntimeError("locked parameter count changed")
@@ -89,8 +90,7 @@ def main(argv=None) -> int:
         model.parameters(), lr=LR, betas=(0.9, 0.95), eps=1e-8,
         weight_decay=0.1, fused=True
     )
-    if optimizer.state_dict()["state"]:
-        raise RuntimeError("benchmark optimizer must start fresh")
+    require_fp32_master(model, optimizer, torch, require_moments=False)
 
     train_model = model
     if args.compile_mode != "none":
@@ -116,7 +116,8 @@ def main(argv=None) -> int:
                 size=(args.microbatch, args.seq),
                 generator=generator, device=device, dtype=torch.long
             )
-            _, loss = train_model(x, y)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                _, loss = train_model(x, y)
             value = float(loss.detach())
             if not math.isfinite(value):
                 raise FloatingPointError("non-finite benchmark loss")
@@ -139,6 +140,7 @@ def main(argv=None) -> int:
     for _ in range(args.warmup_updates):
         t0 = time.perf_counter()
         one_update()
+        require_fp32_master(model, optimizer, torch, require_moments=True)
         torch.cuda.synchronize()
         warmup_seconds += time.perf_counter() - t0
         gpu_guard.require_safe_runtime_temperature()
@@ -166,10 +168,13 @@ def main(argv=None) -> int:
 
     summary = {
         "schema": "phoenix_fullmodel_perf_benchmark_v1",
-        "classification": "disposable_fullmodel_compute_loop_benchmark_not_end_to_end_training",
+        "classification": "disposable_fp32_master_compute_loop_benchmark_not_end_to_end_training",
         "parameters": EXPECTED_PARAMETERS,
         "full_model_trainable": True,
         "n_layers": FRONTIER_350.n_layers,
+        "master_parameter_dtype": "float32",
+        "adamw_moment_dtype": "float32",
+        "compute_autocast_dtype": "bfloat16",
         "seq": args.seq,
         "microbatch": args.microbatch,
         "grad_accum": args.grad_accum,
