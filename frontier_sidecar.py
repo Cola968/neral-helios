@@ -52,15 +52,50 @@ def probe(row,timeout=0.6):
         raise FrontierUnavailable("Frontier-Runtime meldet ein ungültiges Gerät.")
     return health
 
-def chat(row,messages,max_new_tokens,timeout=125.0):
-    health=probe(row)
+def _budget(health,max_new_tokens):
     limit=health.get("max_new_tokens",64)
     if type(limit) is not int or not 1<=limit<=512:limit=64
-    budget=min(max_new_tokens,limit)
-    result=_json_request(_base(row)+"/chat",
-                         {"messages":messages,"max_new_tokens":budget},timeout=timeout)
-    answer=result.get("answer")
-    generated=result.get("generated_tokens")
+    if type(max_new_tokens) is not int or max_new_tokens<1:raise FrontierUnavailable("Ungültiges Antwortbudget.")
+    return min(max_new_tokens,limit)
+
+def chat(row,messages,max_new_tokens,request_id=None,timeout=125.0):
+    health=probe(row);budget=_budget(health,max_new_tokens)
+    payload={"messages":messages,"max_new_tokens":budget}
+    if request_id is not None:payload["request_id"]=request_id
+    result=_json_request(_base(row)+"/chat",payload,timeout=timeout)
+    answer=result.get("answer");generated=result.get("generated_tokens")
     if not isinstance(answer,str) or type(generated) is not int or generated<0:
         raise FrontierUnavailable("Frontier-Runtime lieferte eine ungültige Chatantwort.")
     return result,health
+
+def stream_chat(row,messages,max_new_tokens,request_id,on_event,timeout=125.0):
+    health=probe(row);budget=_budget(health,max_new_tokens)
+    payload={"messages":messages,"max_new_tokens":budget,"request_id":request_id}
+    raw=json.dumps(payload,separators=(",",":")).encode("utf-8")
+    req=Request(_base(row)+"/stream",data=raw,method="POST",headers={"Content-Type":"application/json"})
+    try:
+        with urlopen(req,timeout=timeout) as response:
+            if response.status!=200:raise FrontierUnavailable("Frontier-Streaming konnte nicht gestartet werden.")
+            final=None
+            for line in response:
+                if not line.strip():continue
+                try:event=json.loads(line.decode("utf-8"))
+                except (UnicodeError,json.JSONDecodeError) as exc:raise FrontierUnavailable("Ungültiger Frontier-Stream.") from exc
+                if not isinstance(event,dict):raise FrontierUnavailable("Ungültiges Frontier-Stream-Ereignis.")
+                kind=event.get("type")
+                if kind=="progress":on_event(event)
+                elif kind=="done":
+                    final=event.get("result");break
+                elif kind=="error":raise FrontierUnavailable(str(event.get("error") or "Frontier-Streaming fehlgeschlagen."))
+            if not isinstance(final,dict):raise FrontierUnavailable("Frontier-Stream endete ohne Ergebnis.")
+    except (HTTPError,URLError,TimeoutError,OSError) as exc:
+        raise FrontierUnavailable("Frontier-Streaming ist lokal fehlgeschlagen.") from exc
+    answer=final.get("answer");generated=final.get("generated_tokens")
+    if not isinstance(answer,str) or type(generated) is not int or generated<0:
+        raise FrontierUnavailable("Frontier-Runtime lieferte ein ungültiges Stream-Ergebnis.")
+    return final,health
+
+def cancel(row,request_id,timeout=1.0):
+    if not isinstance(request_id,str):return False
+    result=_json_request(_base(row)+"/cancel",{"request_id":request_id},timeout=timeout)
+    return result.get("cancelled") is True
