@@ -148,6 +148,8 @@ def qualify(bundle:Path,runtime_script:Path,out_dir:Path,port:int,context_tokens
             runs=[run_stream(row,prompt,64) for prompt in PROMPTS]
             cancel_result=run_cancel(row)
             after=nvidia_snapshot()
+            _m2,_t2,model_sha_after,tok_sha_after=verify_bundle(bundle)
+            bundle_unchanged=(model_sha_after==model_sha and tok_sha_after==tok_sha)
         finally:
             if proc.poll() is None:
                 proc.terminate()
@@ -162,6 +164,8 @@ def qualify(bundle:Path,runtime_script:Path,out_dir:Path,port:int,context_tokens
         "cancel_supported":health.get("cancel_supported") is True,
         "cancel_accepted":cancel_result["cancel_accepted"],
         "cancel_finished":cancel_result["stream_finished"],
+        "cancel_effective":cancel_result["finish_reason"]=="cancelled",
+        "bundle_unchanged":bundle_unchanged,
         "at_least_one_token_response":metrics["responses_with_tokens"]>=1,
     }
     report={
@@ -170,7 +174,7 @@ def qualify(bundle:Path,runtime_script:Path,out_dir:Path,port:int,context_tokens
         "qualified":all(gates.values()),
         "quality_promotion":False,
         "training_started":False,
-        "source_modified":False,
+        "bundle_unchanged":bundle_unchanged,
         "python":sys.version.split()[0],
         "bundle":{"path":str(bundle),"deployment_sha256":model_sha,"tokenizer_sha256":tok_sha},
         "health":health,
