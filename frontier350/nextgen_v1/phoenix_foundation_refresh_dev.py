@@ -551,7 +551,14 @@ def main(argv=None) -> int:
 
         if step % 32 == 0 or processed >= args.stop_after_new_tokens:
             torch.cuda.synchronize()
-            gpu_guard.require_safe_runtime_temperature()
+            thermal = gpu_guard.cooldown_until_safe()
+            if thermal["cooled"]:
+                append({
+                    "event": "thermal_cooldown",
+                    "step": step,
+                    "new_processed_tokens": processed,
+                    **thermal,
+                })
 
         if step % log_every == 0 or processed >= args.stop_after_new_tokens:
             now = time.monotonic()
