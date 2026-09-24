@@ -35,8 +35,8 @@ def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
     if sha_file(source) != SOURCE_SHA256:
         raise ValueError("pinned OASST2 archive SHA-256 mismatch")
 
-    roots: dict[str, dict] = {}
-    replies = []
+    prompters: dict[str, dict] = {}
+    assistants = []
     messages = 0
     with gzip.open(source, "rt", encoding="utf-8") as stream:
         for line in stream:
@@ -46,24 +46,48 @@ def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError("invalid OASST2 record")
-            if row.get("parent_id") is None and permitted_oasst2(row, "prompter"):
-                roots[row["message_id"]] = row
-            elif (row.get("parent_id") is not None and row.get("rank") == 0
-                  and permitted_oasst2(row, "assistant")):
-                replies.append(row)
+            message_id = row.get("message_id")
+            if not isinstance(message_id, str):
+                continue
+            if permitted_oasst2(row, "prompter"):
+                prompters[message_id] = row
+            elif row.get("parent_id") is not None and permitted_oasst2(row, "assistant"):
+                assistants.append(row)
+
+    # Pick one deterministic best reviewed human assistant reply per eligible prompter.
+    # OASST2 may have rank=None; treat it as lower priority than any explicit rank.
+    best_by_parent: dict[str, tuple[int, str, dict]] = {}
+    for reply in assistants:
+        parent = prompters.get(reply.get("parent_id"))
+        if not parent:
+            continue
+        if reply.get("lang") != parent.get("lang"):
+            continue
+        if reply.get("message_tree_id") != parent.get("message_tree_id"):
+            continue
+        rank = reply.get("rank")
+        try:
+            rank_key = 10**9 if rank is None else int(rank)
+        except (TypeError, ValueError):
+            continue
+        key = str(parent["message_id"])
+        candidate = (rank_key, str(reply["message_id"]), reply)
+        previous = best_by_parent.get(key)
+        if previous is None or candidate[:2] < previous[:2]:
+            best_by_parent[key] = candidate
 
     by_split = {
         "train": {"de": [], "en": []},
         "validation": {"de": [], "en": []},
     }
     seen_prompts: set[str] = set()
-    for reply in sorted(replies, key=lambda row: row["message_id"]):
-        parent = roots.get(reply["parent_id"])
-        if not parent or reply.get("lang") != parent.get("lang"):
-            continue
-        if reply.get("message_tree_id") != parent.get("message_tree_id"):
-            continue
+    for parent_id in sorted(best_by_parent):
+        _, _, reply = best_by_parent[parent_id]
+        parent = prompters[parent_id]
         prompt = parent["text"].strip()
+        answer = reply["text"].strip()
+        if not prompt or not answer:
+            continue
         digest = prompt_hash(prompt)
         if digest in frozen or digest in seen_prompts:
             continue
@@ -73,8 +97,11 @@ def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
         by_split[split][reply["lang"]].append({
             "id": reply["message_id"],
             "source_id": "oasst2-ready-2023-11-05",
+            "upstream_parent_id": parent_id,
+            "upstream_rank": None if reply.get("rank") is None else int(reply["rank"]),
+            "message_tree_id": tree,
             "user": prompt,
-            "assistant": reply["text"].strip(),
+            "assistant": answer,
         })
 
     result = {}
@@ -99,19 +126,23 @@ def select(source: Path, frozen: set[str], *, train_limit: int = 2400,
     valid_prompts = {prompt_hash(row["user"]) for row in result["validation"]}
     if train_prompts & valid_prompts:
         raise ValueError("OASST2 normalized prompt leakage across train/validation")
+    train_trees = {row["message_tree_id"] for row in result["train"]}
+    valid_trees = {row["message_tree_id"] for row in result["validation"]}
+    if train_trees & valid_trees:
+        raise ValueError("OASST2 conversation-tree leakage across train/validation")
 
     counts = {
         split: {
-            lang: sum(
-                row["id"] in {r["id"] for r in by_split[split][lang]}
-                for row in result[split]
-            )
+            lang: sum(row in by_split[split][lang] for row in result[split])
             for lang in ("de", "en")
         }
         for split in result
     }
     return result, {
         "source_messages": messages,
+        "eligible_prompters": len(prompters),
+        "eligible_assistant_messages": len(assistants),
+        "best_parent_reply_pairs": len(best_by_parent),
         "candidate_counts": counts,
         "frozen_chat_hashes_checked": len(frozen),
     }
@@ -143,7 +174,7 @@ def main() -> None:
         "source_filename": args.source.name,
         "source_sha256": SOURCE_SHA256,
         "license_declared_by_publisher": "Apache-2.0",
-        "filter": "reviewed ready human-only rank-0 root prompt/assistant, synthetic=false, no model_name, de/en",
+        "filter": "reviewed ready human-only best-ranked prompter/assistant pairs, synthetic=false, no model_name, de/en; tree-disjoint split",
         "benchmark_screening": "exact frozen chat prompts only; semantic/public-suite screening still required",
         "screened_benchmark_file_sha256": sha_file(args.frozen_benchmark),
         "independent_privacy_and_license_review": False,
