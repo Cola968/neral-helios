@@ -150,8 +150,13 @@ def load_bundle(bundle:Path,device_request:str):
     device=torch.device("cuda" if use_cuda else "cpu")
     if use_cuda and not torch.cuda.is_bf16_supported():raise ValueError("CUDA BF16 is required for Frontier 350")
     payload=torch.load(model_path,map_location="cpu",weights_only=True)
+    if payload.get("deployment_format")!="frontier350-inference-v1":
+        raise ValueError("unsanitized Frontier checkpoint refused")
     if payload.get("config")!=FRONTIER350_CONFIG:raise ValueError("Frontier config mismatch")
     if payload.get("tokenizer_sha256")!=FRONTIER350_TOKENIZER_SHA256:raise ValueError("checkpoint tokenizer mismatch")
+    source_sha=payload.get("source_sha256")
+    if not isinstance(source_sha,str) or not re.fullmatch(r"[a-f0-9]{64}",source_sha):
+        raise ValueError("missing Frontier source lineage")
     state=payload.get("model");shapes=expected_state_shapes()
     if not isinstance(state,dict) or set(state)!=set(shapes):raise ValueError("Frontier state keys mismatch")
     model,cfg=build_model(torch);model.load_state_dict(state,strict=True)
