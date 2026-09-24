@@ -119,10 +119,17 @@ def build_split(split:str)->list[dict]:
 
     arithmetic_count=90 if split=="train" else 18
     for i in _range(split,arithmetic_count,400):
-        a=17+(i%43);b=6+((i*7)%29)
+        if split=="train":
+            a=17+(i%43);b=6+((i*7)%29)
+            c=9+(i%17);d=3+((i*5)%11)
+        else:
+            # Hold validation arithmetic in a range never emitted by train.
+            # This prevents modulo-period collisions from leaking identical questions.
+            j=i-10_400
+            a=101+j;b=51+((j*7)%17)
+            c=31+j;d=17+((j*5)%13)
         rows.append(conversation(f"{split}-math-de-{i}","arithmetic","de",
             [(f"Berechne {a} + {b} und antworte in genau einem kurzen Satz.",f"Das Ergebnis ist {a+b}.")]))
-        c=9+(i%17);d=3+((i*5)%11)
         rows.append(conversation(f"{split}-math-en-{i}","arithmetic","en",
             [(f"Calculate {c} × {d} and answer in exactly one short sentence.",f"The result is {c*d}.")]))
 
