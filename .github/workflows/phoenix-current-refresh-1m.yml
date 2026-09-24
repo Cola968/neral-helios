@@ -84,7 +84,10 @@ jobs:
           $sel=$shape.selected
           if($shape.training_candidate_written -ne $false -or $shape.production_eligible -ne $false){throw 'Unsafe shape benchmark state'}
           if($shape.precision_contract -ne 'fp32_master_fp32_adamw_bf16_autocast'){throw 'Shape benchmark used wrong precision contract'}
-          if([int]$sel.microbatch * [int]$sel.grad_accum -ne 4){throw 'Selected shape violates 1024-token update contract'}
+          $tokensPerUpdate=256 * [int]$sel.microbatch * [int]$sel.grad_accum
+          if($tokensPerUpdate -lt 1024 -or $tokensPerUpdate -gt 4096){throw 'Selected shape violates audited 1K..4K token/update range'}
+          if((1048576 % $tokensPerUpdate) -ne 0){throw '1Mi stop is not an exact optimizer-update boundary'}
+          if([double]$sel.peak_reserved_mib -gt 10240){throw 'Selected shape exceeds 10 GiB reserved-VRAM ceiling'}
           $gcFlag=if($sel.gradient_checkpointing -eq $true){' --gradient-checkpointing'}else{''}
           $compileFlag=if($sel.compile_mode -eq 'default'){' --compile-mode default'}elseif($sel.compile_mode -eq 'none'){''}else{throw 'Unsupported selected compile mode'}
           Write-Host '=== SELECTED FULL-MODEL SHAPE ==='
