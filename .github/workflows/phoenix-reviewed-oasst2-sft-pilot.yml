@@ -1,0 +1,147 @@
+name: Phoenix reviewed OASST2 SFT pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_checkpoint:
+        description: 'Absolute Windows path to trusted historical or FP32 foundation-v2 checkpoint'
+        required: true
+        type: string
+      base_sha256:
+        description: 'Exact lowercase SHA-256 of base checkpoint'
+        required: true
+        type: string
+      train_jsonl:
+        description: 'Absolute Windows path to independently reviewed OASST2 train JSONL'
+        required: true
+        type: string
+      validation_jsonl:
+        description: 'Absolute Windows path to independently reviewed OASST2 validation JSONL'
+        required: true
+        type: string
+      source_manifest:
+        description: 'Absolute Windows path to approved SFT manifest v1'
+        required: true
+        type: string
+      screening_report:
+        description: 'Absolute Windows path to independent zero-overlap/privacy screen.json'
+        required: true
+        type: string
+      holdout_hashes:
+        description: 'Absolute Windows path to frozen private holdout prompt-hash registry'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  reviewed-sft:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact revision without repository credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_reviewed_sft_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Verify reviewed evidence, pack response-only SFT data, then run bounded pilot
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_reviewed_sft_' + $env:GITHUB_RUN_ID)
+          $base='${{ inputs.base_checkpoint }}'
+          $baseSha=('${{ inputs.base_sha256 }}').ToLowerInvariant()
+          $train='${{ inputs.train_jsonl }}'
+          $valid='${{ inputs.validation_jsonl }}'
+          $manifest='${{ inputs.source_manifest }}'
+          $screen='${{ inputs.screening_report }}'
+          $holdout='${{ inputs.holdout_hashes }}'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $private='D:\NeralPrivateAssets\phoenix'
+          $pack=Join-Path $private ('reviewed_sft_pack_' + $env:GITHUB_RUN_ID)
+          $out=Join-Path $private ('reviewed_sft_pilot_' + $env:GITHUB_RUN_ID)
+
+          if($baseSha -notmatch '^[0-9a-f]{64}$'){throw 'Exact base checkpoint SHA-256 required'}
+          foreach($p in @($repo,$base,$train,$valid,$manifest,$screen,$holdout,$assets,$tokenizer,$pack,$out)){
+            if($p.Contains("'")){throw 'Unsafe quote in local path'}
+          }
+          foreach($p in @($base,$train,$valid,$manifest,$screen,$holdout,$tokenizer)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required reviewed input missing: $p"}
+            $item=Get-Item -LiteralPath $p -Force
+            if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw "Symlink/reparse input refused: $p"}
+          }
+          if((Get-FileHash -LiteralPath $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne $baseSha){throw 'Base checkpoint SHA mismatch'}
+          if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Tokenizer SHA mismatch'}
+          if(Test-Path -LiteralPath $pack){throw 'Create-only SFT pack path already exists'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only SFT candidate path already exists'}
+
+          # Fail closed on source identity before Python/Torch: this workflow is specifically OASST2 human review.
+          $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          if($m.version -ne 1 -or -not $m.sources -or $m.sources.Count -lt 1){throw 'SFT manifest v1/source list required'}
+          foreach($s in $m.sources){
+            if(-not ([string]$s.id).StartsWith('oasst2-')){throw 'Reviewed SFT workflow accepts OASST2 source IDs only'}
+            if($s.approved_for_training -ne $true -or $s.privacy_reviewed -ne $true -or $s.benchmark_screened -ne $true){throw 'Human source review not complete'}
+            if(([string]$s.license) -ne 'Apache-2.0'){throw 'Unexpected OASST2 license receipt'}
+          }
+          $screenObj=Get-Content -LiteralPath $screen -Raw | ConvertFrom-Json
+          if($screenObj.version -ne 1 -or $screenObj.approved -ne $true){throw 'Independent screen not approved'}
+          foreach($key in @('exact_overlap_count','near_overlap_count','privacy_hits')){
+            if([int]$screenObj.$key -ne 0){throw "Independent screen did not clear $key"}
+          }
+
+          $compile="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/sft_contract.py frontier350/nextgen_v1/sft_runtime_evidence.py frontier350/nextgen_v1/phoenix_master_precision.py frontier350/nextgen_v1/train_sft_pilot.py"
+          & wsl.exe -- bash -lc $compile
+          if($LASTEXITCODE -ne 0){throw 'SFT Python compile preflight failed'}
+
+          $packCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/sft_contract.py --manifest '$(ToWsl $manifest)' --train '$(ToWsl $train)' --validation '$(ToWsl $valid)' --tokenizer '$(ToWsl $tokenizer)' --holdout-hashes '$(ToWsl $holdout)' --screening '$(ToWsl $screen)' --out '$(ToWsl $pack)' --seq 512"
+          & wsl.exe -- bash -lc $packCmd
+          if($LASTEXITCODE -ne 0){throw 'Reviewed OASST2 pack creation failed; no training started'}
+          $packReport=Get-Content -LiteralPath (Join-Path $pack 'pack_report.json') -Raw | ConvertFrom-Json
+          if($packReport.classification -ne 'local_only_untrained_sft_pack'){throw 'Wrong SFT pack classification'}
+
+          Write-Host 'Pre-SFT GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $trainCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/train_sft_pilot.py --execute --trusted-local-checkpoint --checkpoint '$(ToWsl $base)' --checkpoint-sha256 '$baseSha' --pack '$(ToWsl $pack)' --tokenizer '$(ToWsl $tokenizer)' --source-manifest '$(ToWsl $manifest)' --screening-report '$(ToWsl $screen)' --holdout-hashes '$(ToWsl $holdout)' --out '$(ToWsl $out)' --train-blocks 4 --batch 2 --steps 20"
+          & wsl.exe -- bash -lc $trainCmd
+          if($LASTEXITCODE -ne 0){throw 'Bounded reviewed SFT pilot failed'}
+
+          $report=Get-Content -LiteralPath (Join-Path $out 'report.json') -Raw | ConvertFrom-Json
+          if($report.classification -ne 'unpromoted_local_sft_pilot' -or $report.eligible_for_production -ne $false){throw 'Unsafe SFT report state'}
+          if($report.master_parameter_dtype -ne 'float32' -or $report.adamw_moment_dtype -ne 'float32' -or $report.compute_autocast_dtype -ne 'bfloat16'){throw 'Wrong SFT precision receipt'}
+          if($report.validation_loss_improved -ne $true -or -not $report.candidate_sha256){throw 'Reviewed SFT did not produce an improving candidate'}
+          Write-Host '=== REVIEWED SFT PILOT RECEIPT ==='
+          [ordered]@{
+            validation_loss_before=$report.validation_loss_before
+            validation_loss_after=$report.validation_loss_after
+            supervised_answer_tokens=$report.supervised_answer_tokens
+            historical_pretraining_tokens=$report.historical_pretraining_tokens
+            new_foundation_lineage_tokens=$report.new_foundation_lineage_tokens
+            cumulative_reference_tokens=$report.cumulative_reference_tokens
+            candidate_sha256=$report.candidate_sha256
+            production_eligible=$report.eligible_for_production
+          } | ConvertTo-Json -Compress | Write-Host
+
+      - name: Post-run GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'Private reviewed text and candidate checkpoint remain local on D:. No artifact upload.'
