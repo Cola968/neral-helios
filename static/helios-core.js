@@ -14,7 +14,8 @@
     const original=pairs.length;
     while(pairs.length&&(pairs.length>6||bytes(format(pairs.flat()))+1+budget>maxContext))pairs.shift();
     const history=pairs.flat();
-    return {history,omitted:original-pairs.length,fits:bytes(format(history))+1+budget<=maxContext};
+    const used=bytes(format(history))+1+budget;
+    return {history,omitted:original-pairs.length,fits:used<=maxContext,used,maxContext,budget,pairs:history.length/2};
   }
   function blocks(text){
     const out=[];let code=null,language='';
