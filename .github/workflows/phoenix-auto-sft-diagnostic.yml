@@ -62,6 +62,7 @@ jobs:
           if($r.classification -ne 'auto_screened_public_oasst2_diagnostic_not_human_approved') { throw 'Wrong diagnostic classification' }
           if($r.production_eligible -ne $false -or $r.human_review_complete -ne $false -or $r.independent_holdout_checked -ne $false) { throw 'Unsafe promotion state' }
           if($r.validation_loss_improved -ne $true -or $r.candidate_checkpoint_written -ne $true) { throw 'No validated diagnostic candidate' }
+          if($r.master_parameter_dtype -ne 'float32' -or $r.adamw_moment_dtype -ne 'float32' -or $r.compute_autocast_dtype -ne 'bfloat16') { throw 'Wrong SFT precision contract' }
           Write-Host '=== SAFE AGGREGATE SFT RESULT ==='
           [ordered]@{
             parameters=$r.parameters
