@@ -11,7 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from phoenix_blind_ab_audit import ORIGINAL_SHA, SHA, TAG, load
+from phoenix_blind_ab_audit import SHA, TAG, load
 
 
 def summarize(packet: dict, packet_sha: str, grades: dict, grades_sha: str,
@@ -37,10 +37,11 @@ def summarize(packet: dict, packet_sha: str, grades: dict, grades_sha: str,
             type(key['schema']) is not int or key['schema'] != 1 or
             key['packet_sha256'] != packet_sha or
             key['holdout_sha256'] != packet['holdout_sha256'] or
-            key['baseline_checkpoint_sha256'] != ORIGINAL_SHA or
+            not isinstance(key['baseline_checkpoint_sha256'], str) or
+            not SHA.fullmatch(key['baseline_checkpoint_sha256']) or
             not isinstance(key['candidate_checkpoint_sha256'], str) or
             not SHA.fullmatch(key['candidate_checkpoint_sha256']) or
-            key['candidate_checkpoint_sha256'] == ORIGINAL_SHA):
+            key['candidate_checkpoint_sha256'] == key['baseline_checkpoint_sha256']):
         raise ValueError('key provenance is incomplete or wrong')
     if (not isinstance(grades['items'], list) or
             not isinstance(key['case_mapping'], list) or
@@ -99,7 +100,7 @@ def summarize(packet: dict, packet_sha: str, grades: dict, grades_sha: str,
             'classification': 'HUMAN_REPORTED_SCORES_NOT_INDEPENDENTLY_VERIFIED',
             'packet_sha256': packet_sha, 'grading_sha256': grades_sha,
             'holdout_sha256': packet['holdout_sha256'],
-            'baseline_checkpoint_sha256': ORIGINAL_SHA,
+            'baseline_checkpoint_sha256': key['baseline_checkpoint_sha256'],
             'candidate_checkpoint_sha256': key['candidate_checkpoint_sha256'],
             'n': len(items), **totals,
             'paired_net_correct_delta': totals['candidate_only'] - totals['baseline_only'],
