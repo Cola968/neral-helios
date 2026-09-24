@@ -30,3 +30,31 @@ def require_fp32_master(model, optimizer, torch, *, require_moments: bool) -> No
             moment = slot.get(name)
             if not torch.is_tensor(moment) or moment.dtype != torch.float32 or moment.shape != param.shape:
                 raise RuntimeError('AdamW moments must be FP32 with matching shapes')
+
+
+def require_fp32_trainable_subset(model, optimizer, torch, *, require_moments: bool) -> None:
+    """Require FP32 model masters while AdamW owns exactly the trainable subset."""
+    params = list(model.parameters())
+    if not params or any(p.dtype != torch.float32 for p in params):
+        raise RuntimeError('FP32 master parameters required for partial-block training')
+    trainable = [p for p in params if p.requires_grad]
+    if not trainable:
+        raise RuntimeError('no trainable FP32 parameters')
+    configured = [p for group in optimizer.param_groups for p in group['params']]
+    if len(configured) != len(trainable) or {id(p) for p in configured} != {id(p) for p in trainable}:
+        raise RuntimeError('AdamW must own exactly every trainable master parameter once')
+    state = optimizer.state
+    if not require_moments:
+        if state:
+            raise RuntimeError('fresh partial-block AdamW must start with empty moments')
+        return
+    if len(state) != len(trainable):
+        raise RuntimeError('AdamW moments missing for a trainable master parameter')
+    for param in trainable:
+        slot = state.get(param)
+        if not isinstance(slot, dict):
+            raise RuntimeError('trainable AdamW moment slot absent')
+        for name in ('exp_avg', 'exp_avg_sq'):
+            moment = slot.get(name)
+            if not torch.is_tensor(moment) or moment.dtype != torch.float32 or moment.shape != param.shape:
+                raise RuntimeError('trainable AdamW moments must be FP32 with matching shapes')
