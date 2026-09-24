@@ -102,10 +102,10 @@ def prepare(holdout: dict, holdout_sha: str, base: dict, candidate: dict) -> tup
     cases = validate_holdout(holdout)
     for report in (base, candidate):
         validate_generations(report, cases, holdout_sha)
-    if base['checkpoint_sha256'] != ORIGINAL_SHA:
-        raise ValueError('baseline must be the pinned unchanged original checkpoint')
-    if candidate['checkpoint_sha256'] == ORIGINAL_SHA:
-        raise ValueError('candidate must have a different checkpoint hash')
+    if not SHA.fullmatch(base['checkpoint_sha256']):
+        raise ValueError('baseline checkpoint SHA must be exact lowercase SHA-256')
+    if candidate['checkpoint_sha256'] == base['checkpoint_sha256']:
+        raise ValueError('candidate must differ from the exact baseline checkpoint')
     for key in ('tokenizer_sha256', 'max_new_tokens', 'decode'):
         if base[key] != candidate[key]:
             raise ValueError('baseline/candidate evaluation setting mismatch: ' + key)
