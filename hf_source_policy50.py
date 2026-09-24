@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 
-REGISTRY_VERSION = 2
+REGISTRY_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,18 @@ SOURCES = {
     "HuggingFaceTB/smollm-corpus": SourcePolicy(
         "HuggingFaceTB/smollm-corpus", "blocked-external-synthetic", "ODC-By-1.0", "mixed-including-model-generated",
         False, False, "Contains large model-generated components; excluded from the current own-data policy."),
+    "HuggingFaceTB/smol-smoltalk": SourcePolicy(
+        "HuggingFaceTB/smol-smoltalk", "blocked-external-synthetic", "Apache-2.0", "external-model-generated-sft",
+        False, False, "Synthetic SFT corpus; useful as a research reference but excluded by the current own-data policy."),
+    "HuggingFaceTB/smoltalk": SourcePolicy(
+        "HuggingFaceTB/smoltalk", "blocked-external-synthetic", "UNVERIFIED", "external-model-generated-sft",
+        False, False, "Synthetic SFT corpus and no license value surfaced in the 2026-09-24 Hub inspection; blocked."),
+    "HuggingFaceH4/ultrachat_200k": SourcePolicy(
+        "HuggingFaceH4/ultrachat_200k", "blocked-external-synthetic", "MIT", "chatgpt-generated-dialogue",
+        False, False, "Dialogue content is model-generated; top-level MIT metadata does not override Neral's data-origin policy."),
+    "HuggingFaceH4/ultrafeedback_binarized": SourcePolicy(
+        "HuggingFaceH4/ultrafeedback_binarized", "blocked-mixed-sft", "MIT", "model-completions-and-model-scoring",
+        False, False, "Preference corpus contains model completions and GPT-4 scoring; research reference only under current policy."),
     "allenai/tulu-3-sft-mixture": SourcePolicy(
         "allenai/tulu-3-sft-mixture", "blocked-mixed-sft", "MIXED", "human+machine-generated",
         False, False, "Mixture contains machine-generated and differently licensed/non-commercial subsets."),
