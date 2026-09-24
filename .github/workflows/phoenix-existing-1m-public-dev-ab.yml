@@ -1,0 +1,75 @@
+name: Phoenix existing 1Mi FP32 refresh public A-B
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-existing-1m-public-dev-ab.yml'
+      - 'frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-existing-1m-public-dev-ab
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact evaluation revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_existing_1m_ab_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Verify and evaluate existing 1Mi FP32-master checkpoint
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_existing_1m_ab_'+$env:GITHUB_RUN_ID)
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $candidate='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466\resume.pt'
+          $candidateSha='e38197435cf3862c3376e775c09d6b5017b978b3a6ee384ec472b842c99fbf7e'
+          $out='D:\NeralPrivateAssets\phoenix\foundation_existing_1m_ab_' + $env:GITHUB_RUN_ID + '.json'
+
+          foreach($p in @($repo,$base,$assets,$candidate,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          foreach($p in @($base,$candidate)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required checkpoint missing: $p"}}
+          if(Test-Path -LiteralPath $out){throw 'Create-only evaluation output exists'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $candidateSha){throw 'Existing 1Mi candidate SHA mismatch'}
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $base)' --candidate-checkpoint '$(ToWsl $candidate)' --candidate-sha256 '$candidateSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Existing 1Mi public-development A/B failed'}
+
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.production_eligible -ne $false -or $r.independent_holdout -ne $false -or $r.quality_gain_verified -ne $false){throw 'Unsafe evaluation promotion state'}
+          Write-Host '=== EXISTING 1Mi PUBLIC DEVELOPMENT A/B ==='
+          [ordered]@{
+            candidate_sha256=$r.candidate_sha256
+            candidate_meta=$r.candidate_meta
+            baseline=$r.baseline.summary
+            candidate=$r.candidate.summary
+            delta=$r.delta_candidate_minus_base
+            knowledge_choice_delta_pct=$r.knowledge_choice_delta_pct
+            independent_holdout=$r.independent_holdout
+            production_eligible=$r.production_eligible
+          } | ConvertTo-Json -Compress -Depth 10 | Write-Host
+
+      - name: Post-evaluation GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No checkpoint was modified or uploaded.'
