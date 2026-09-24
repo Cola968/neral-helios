@@ -43,6 +43,7 @@ def main(argv=None):
     p.add_argument("--private-root",type=Path,required=True)
     p.add_argument("--archive",type=Path,required=True)
     p.add_argument("--main-data",type=Path,required=True)
+    p.add_argument("--foundation-admission",type=Path,required=True)
     p.add_argument("--replay",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
     a=p.parse_args(argv)
@@ -56,10 +57,17 @@ def main(argv=None):
     repo_root=Path(__file__).resolve().parents[2]
     tokenizer,bos,eos,splits,data_report=auto_prepare(repo_root,a.archive,private,tokenizer_path)
 
-    # Verify all replay bytes before Torch/CUDA.
-    main_manifest=json_manifest(a.main_data.parent/"manifest.json")
-    if main_manifest.get("benchmark_content_included") is not False:
-        raise ValueError("main foundation manifest is not benchmark-separated")
+    # Verify all replay bytes before Torch/CUDA. Benchmark cleanliness must come
+    # from a separate admission receipt bound to the exact corpus manifest SHA.
+    main_manifest_path=a.main_data.parent/"manifest.json"
+    main_manifest=json_manifest(main_manifest_path)
+    admission=json_manifest(a.foundation_admission)
+    if admission.get("classification")!="foundation_corpus_admission_pass":
+        raise ValueError("foundation admission report did not pass")
+    if admission.get("corpus_manifest_sha256")!=sha256_file(main_manifest_path):
+        raise ValueError("foundation admission report is not bound to this exact manifest")
+    if admission.get("tokenizer_sha256")!=TOKENIZER_SHA:
+        raise ValueError("foundation admission tokenizer mismatch")
     if main_manifest.get("tokenizer",{}).get("tokenizer_sha256")!=TOKENIZER_SHA:
         raise ValueError("main foundation tokenizer mismatch")
     main_shards=verify_shards(a.main_data,main_manifest.get("train_files"))
@@ -130,7 +138,6 @@ def main(argv=None):
         m=fresh_model();named=configure_trainable(m,cfg["blocks"]);params=[p for _,p in named]
         opt=torch.optim.AdamW(params,lr=cfg["lr"],betas=(.9,.95),eps=1e-8,weight_decay=.01,fused=True)
         require_fp32_trainable_subset(m,opt,torch,require_moments=False)
-        require_fp32_trainable_subset(m,opt,torch,require_moments=False)
         sft_rng=random.Random(20260923);replay_rng=random.Random(20260924);supervised=0;replay_tokens=0;start=time.monotonic()
         m.train()
         for step in range(1,cfg["steps"]+1):
@@ -182,11 +189,11 @@ def main(argv=None):
           "torch_rng":best_payload["torch_rng"],"cuda_rng":best_payload["cuda_rng"],"config":FRONTIER_350.to_dict(),
           "tokenizer_sha256":TOKENIZER_SHA,"base_checkpoint_sha256":HISTORICAL_SHA,
           "historical_pretraining_tokens":historical_tokens,"source_archive_sha256":data_report["source_archive_sha256"],
-          "foundation_main_manifest_sha256":sha256_file(a.main_data.parent/"manifest.json"),
+          "foundation_main_manifest_sha256":sha256_file(main_manifest_path),
+          "foundation_admission_sha256":sha256_file(a.foundation_admission),
           "foundation_replay_manifest_sha256":sha256_file(a.replay/"manifest.json"),"selected":selected,
           "master_parameter_dtype":"float32","adamw_moment_dtype":"float32",
           "compute_autocast_dtype":"bfloat16",
-          "master_parameter_dtype":"float32","adamw_moment_dtype":"float32","compute_autocast_dtype":"bfloat16",
           "human_review_complete":False,"independent_holdout_checked":False,"production_eligible":False}
         cp=a.out/"candidate_replay_protected_auto_sft.pt";atomic_save(torch,state,cp);candidate_sha=sha256_file(cp)
 
