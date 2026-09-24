@@ -130,6 +130,7 @@ def main(argv=None):
         m=fresh_model();named=configure_trainable(m,cfg["blocks"]);params=[p for _,p in named]
         opt=torch.optim.AdamW(params,lr=cfg["lr"],betas=(.9,.95),eps=1e-8,weight_decay=.01,fused=True)
         require_fp32_trainable_subset(m,opt,torch,require_moments=False)
+        require_fp32_trainable_subset(m,opt,torch,require_moments=False)
         sft_rng=random.Random(20260923);replay_rng=random.Random(20260924);supervised=0;replay_tokens=0;start=time.monotonic()
         m.train()
         for step in range(1,cfg["steps"]+1):
@@ -185,6 +186,7 @@ def main(argv=None):
           "foundation_replay_manifest_sha256":sha256_file(a.replay/"manifest.json"),"selected":selected,
           "master_parameter_dtype":"float32","adamw_moment_dtype":"float32",
           "compute_autocast_dtype":"bfloat16",
+          "master_parameter_dtype":"float32","adamw_moment_dtype":"float32","compute_autocast_dtype":"bfloat16",
           "human_review_complete":False,"independent_holdout_checked":False,"production_eligible":False}
         cp=a.out/"candidate_replay_protected_auto_sft.pt";atomic_save(torch,state,cp);candidate_sha=sha256_file(cp)
 
