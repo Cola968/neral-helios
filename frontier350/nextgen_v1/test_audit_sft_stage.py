@@ -31,12 +31,31 @@ class StageReviewTests(unittest.TestCase):
             second['user']='Where do I find the first yellow tree near the park?'
             valid.write_text(json.dumps(second)+'\n', encoding='utf8')
             result=run(train,valid,benchmark,sha(train),sha(valid))
+            self.assertEqual(result['schema'],2)
             self.assertFalse(result['approved_for_training'])
             self.assertFalse(result['training_started'])
             self.assertEqual(result['candidate_rows_requiring_privacy_or_format_review'],1)
             self.assertNotIn('sample@example.org',json.dumps(result))
             with self.assertRaisesRegex(ValueError,'staging split changed'):
                 run(train,valid,benchmark,'0'*64,sha(valid))
+
+    def test_full_dialogue_similarity_catches_copied_answer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)
+            benchmark=folder/'b.py'
+            benchmark.write_text("PAIR_CASES=[]\nEXACT_GENERATION_CASES=[]\n",encoding='utf8')
+            train=folder/'train.jsonl'; valid=folder/'validation.jsonl'
+            shared='alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu'
+            a={'id':'t','source_id':'fixture','user':'How does a turbine work in simple terms?', 'assistant':shared}
+            b={'id':'v','source_id':'fixture','user':'Explain photosynthesis to a beginner please?', 'assistant':shared}
+            train.write_text(json.dumps(a)+'\n',encoding='utf8')
+            valid.write_text(json.dumps(b)+'\n',encoding='utf8')
+            sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+            result=run(train,valid,benchmark,sha(train),sha(valid))
+            self.assertEqual(result['cross_split_near_duplicate_pairs'],1)
+            hit=result['near_duplicate_ids_no_text'][0]
+            self.assertLess(hit['prompt_jaccard'],0.84)
+            self.assertGreaterEqual(hit['dialogue_jaccard'],0.84)
 
 
 if __name__=='__main__':
