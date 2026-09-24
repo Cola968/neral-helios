@@ -16,11 +16,12 @@ from phoenix_auto_sft_diagnostic import auto_prepare, _cpu_tree, atomic_save, sh
 from phoenix_auto_sft_public_dev_eval import pair_eval, exact_generation_eval
 from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
 from real_gpu_preflight import json_manifest, verify_shards
+from phoenix_master_precision import require_fp32_trainable_subset
 
 HISTORICAL_SHA="f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
 PARAMETERS=349_825_152
-SCHEMA="phoenix_replay_protected_auto_sft_v1"
-CLASSIFICATION="replay_protected_auto_sft_public_dev_selected_not_promotable"
+SCHEMA="phoenix_replay_protected_auto_sft_v2"
+CLASSIFICATION="replay_protected_fp32_master_auto_sft_public_dev_selected_not_promotable"
 DOMAINS=("education","general","math_reasoning")
 REPLAY_SEQUENCE=("main",)*9+DOMAINS
 PAIR_CATEGORIES=("instruction_following","dialogue_state","truthfulness","robustness","compositional_reasoning")
@@ -95,7 +96,7 @@ def main(argv=None):
         return x.to(device),y.to(device)
 
     def fresh_model():
-        m=Neral350M().to(device=device,dtype=torch.bfloat16);m.load_state_dict(base_weights,strict=True)
+        m=Neral350M().to(device=device,dtype=torch.float32);m.load_state_dict(base_weights,strict=True)
         if m.parameter_report()["total"]!=PARAMETERS:raise RuntimeError("parameter contract changed")
         return m
 
@@ -128,6 +129,7 @@ def main(argv=None):
         torch.cuda.reset_peak_memory_stats()
         m=fresh_model();named=configure_trainable(m,cfg["blocks"]);params=[p for _,p in named]
         opt=torch.optim.AdamW(params,lr=cfg["lr"],betas=(.9,.95),eps=1e-8,weight_decay=.01,fused=True)
+        require_fp32_trainable_subset(m,opt,torch,require_moments=False)
         sft_rng=random.Random(20260923);replay_rng=random.Random(20260924);supervised=0;replay_tokens=0;start=time.monotonic()
         m.train()
         for step in range(1,cfg["steps"]+1):
@@ -144,7 +146,9 @@ def main(argv=None):
             (sloss/den).backward();(rloss*(w/den)).backward()
             grad=torch.nn.utils.clip_grad_norm_(params,1.0,error_if_nonfinite=True)
             if not math.isfinite(float(grad)):raise FloatingPointError("nonfinite combined gradient")
-            opt.step();supervised+=int((sy!=-100).sum().item());replay_tokens+=512
+            opt.step()
+            if step==1: require_fp32_trainable_subset(m,opt,torch,require_moments=True)
+            supervised+=int((sy!=-100).sum().item());replay_tokens+=512
             if step%25==0 or step==cfg["steps"]:
                 torch.cuda.synchronize();guard.require_safe_runtime_temperature()
         elapsed=time.monotonic()-start
@@ -164,7 +168,7 @@ def main(argv=None):
         key=(exact["accuracy_pct"],pair["overall_pct"],-val)
         if qualifies and (best_key is None or key>best_key):
             best_key=key;best_payload={"selected":row,
-              "model":{n:t.detach().to("cpu",dtype=torch.bfloat16) for n,t in m.state_dict().items()},
+              "model":{n:t.detach().to("cpu",dtype=torch.float32) for n,t in m.state_dict().items()},
               "optimizer":_cpu_tree(torch,opt.state_dict()),"sft_rng":sft_rng.getstate(),"replay_rng":replay_rng.getstate(),
               "torch_rng":torch.get_rng_state(),"cuda_rng":[v.cpu() for v in torch.cuda.get_rng_state_all()]}
         del opt,params,named,m;torch.cuda.empty_cache()
@@ -179,12 +183,15 @@ def main(argv=None):
           "historical_pretraining_tokens":historical_tokens,"source_archive_sha256":data_report["source_archive_sha256"],
           "foundation_main_manifest_sha256":sha256_file(a.main_data.parent/"manifest.json"),
           "foundation_replay_manifest_sha256":sha256_file(a.replay/"manifest.json"),"selected":selected,
+          "master_parameter_dtype":"float32","adamw_moment_dtype":"float32",
+          "compute_autocast_dtype":"bfloat16",
           "human_review_complete":False,"independent_holdout_checked":False,"production_eligible":False}
         cp=a.out/"candidate_replay_protected_auto_sft.pt";atomic_save(torch,state,cp);candidate_sha=sha256_file(cp)
 
     report={"event":"phoenix_replay_protected_sft_sweep_finished","classification":CLASSIFICATION,
       "baseline":baseline,"configs":results,"qualified_count":sum(r["qualifies"] for r in results),
       "selected":selected,"candidate_checkpoint_written":candidate_sha is not None,"candidate_sha256":candidate_sha,
+      "master_parameter_dtype":"float32","adamw_moment_dtype":"float32","compute_autocast_dtype":"bfloat16",
       "human_review_complete":False,"independent_holdout_checked":False,"production_eligible":False}
     (a.out/"report.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     print(json.dumps({"event":report["event"],"baseline":baseline,"qualified_count":report["qualified_count"],
