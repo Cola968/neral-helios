@@ -147,19 +147,41 @@ def runtime_details():
             'runtime_max_new_tokens':MAX_NEW_TOKENS,'kv_cache':False,'decoder':'legacy-full-context-v1',
             'vram_allocated_mib':0,'vram_reserved_mib':0}
 
+MODEL_SELECTION=STATE/'active-model.json'
+
+def remembered_model():
+    try:
+        data=json.loads(MODEL_SELECTION.read_text(encoding='utf-8'))
+    except (OSError,ValueError,TypeError):
+        return None
+    name=data.get('checkpoint') if isinstance(data,dict) else None
+    if not isinstance(name,str):return None
+    available=set(checkpoint_paths())|set(imported_models())
+    return name if name in available else None
+
+def remember_model(name):
+    if name not in set(checkpoint_paths())|set(imported_models()):raise ValueError('Unbekanntes Modell kann nicht gespeichert werden.')
+    tmp=MODEL_SELECTION.with_suffix('.tmp')
+    tmp.write_text(json.dumps({'checkpoint':name},separators=(',',':'))+'\n',encoding='utf-8')
+    os.replace(tmp,MODEL_SELECTION)
+
 def initialize_runtime():
     global runtime_error
     if PREPARATION_MODE:
         runtime_error='Vorbereitungsmodus: keine Modellinferenz. SOLVE, Codeprüfung und Projekte sind bereit.'
         return
-    name=os.environ.get('HELIOS_CHECKPOINT') or ('pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original')
-    if name not in checkpoint_paths():
-        runtime_error='Der ausgewählte eigene Checkpoint ist nicht installiert.'
-        return
-    if not checkpoint_paths()[name][0].is_file():
-        runtime_error='Kein eigener Checkpoint verfügbar. SOLVE, Codeprüfung und Projekte sind bereit.'
-        return
-    try:load_runtime(name)
+    legacy=checkpoint_paths();frontier=imported_models()
+    name=os.environ.get('HELIOS_CHECKPOINT') or remembered_model()
+    if not name:
+        name='neral50m_i1' if 'neral50m_i1' in legacy else ('pilot_02' if 'pilot_02' in legacy else 'original')
+    try:
+        if name in legacy:
+            if not legacy[name][0].is_file():raise ValueError('checkpoint missing')
+            load_runtime(name)
+        elif name in frontier and frontier[name].get('runtime_family')==FRONTIER350_RUNTIME:
+            select_frontier_runtime(name)
+        else:
+            runtime_error='Der ausgewählte eigene Checkpoint ist nicht installiert.'
     except Exception:
         app.logger.exception('Eigener Checkpoint konnte nicht geladen werden')
         runtime_error='Checkpoint konnte nicht sicher geladen werden. SOLVE, Codeprüfung und Projekte sind bereit.'
@@ -251,6 +273,7 @@ def select_model():
         name=data['checkpoint']
         if name in checkpoint_paths():load_runtime(name)
         else:select_frontier_runtime(name)
+        remember_model(name)
         return jsonify(info_payload())
     except FrontierUnavailable as e:
         return jsonify(error=str(e)),503
