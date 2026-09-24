@@ -31,3 +31,8 @@ def test_health_reports_kv_cache_streaming_and_cpu_without_torch_cuda_calls():
     assert health["kv_cache"] is True and health["streaming"] is True
     assert health["cancel_supported"] is True and health["device"]=="cpu"
     assert health["max_new_tokens"]==runtime.MAX_NEW_TOKENS==256
+
+def test_repetition_guard_detects_real_loop_but_not_short_text():
+    assert runtime._looping("kurz text") is False
+    text=("alpha beta gamma " * 8).strip()
+    assert runtime._looping(text) is True
