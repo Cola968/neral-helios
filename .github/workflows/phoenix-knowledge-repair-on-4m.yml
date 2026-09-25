@@ -5,6 +5,8 @@ on:
     branches: [experiment/phoenix-blind-ab-audit-20260919]
     paths:
       - '.github/workflows/phoenix-knowledge-repair-on-4m.yml'
+      - 'frontier350/nextgen_v1/phoenix_knowledge_repair_sft.py'
+      - 'frontier350/nextgen_v1/test_phoenix_knowledge_repair_sft.py'
   workflow_dispatch:
 
 permissions:
