@@ -13,11 +13,36 @@ if str(REPO_ROOT) not in sys.path:sys.path.insert(0,str(REPO_ROOT))
 
 from helios350_preview import TOKENIZER_SHA,trusted_asset
 from helios_domain_dev_probe import PUBLIC_DEV_CASES,prompt_styles,validate_public_cases
-from helios_prompt_ablation import ranked_digits
 from phoenix_auto_sft_diagnostic import sha256_file
 from phoenix_foundation_refresh_public_dev_eval import load_candidate
 
 FOUNDATION_SHA="d54d3f752b22be09257164459c3bf56b0dd5c430db023882c4546430988a4963"
+DIGITS=tuple(str(i) for i in range(10))
+
+
+def ranked_digits_device(model,tokenizer,bos,torch,prefix,expected):
+    device=next(model.parameters()).device
+    context=[bos,*tokenizer.encode(prefix,add_special_tokens=False).ids]
+    candidates=[tokenizer.encode(" "+digit,add_special_tokens=False).ids for digit in DIGITS]
+    lengths={len(ids) for ids in candidates}
+    if not context or len(context)>384 or len(lengths)!=1 or 0 in lengths:raise ValueError("unsupported digit candidates")
+    scores=[]
+    with torch.inference_mode():
+        if next(iter(lengths))==1:
+            logits,_=model(torch.tensor([context],dtype=torch.long,device=device))
+            logp=torch.log_softmax(logits[0,-1].float(),dim=-1)
+            scores=[float(logp[ids[0]].item()) for ids in candidates]
+        else:
+            for ids in candidates:
+                x=torch.tensor([context+ids[:-1]],dtype=torch.long,device=device)
+                logits,_=model(x)
+                logp=torch.log_softmax(logits[0,len(context)-1:].float(),dim=-1)
+                target=torch.tensor(ids,dtype=torch.long,device=device)
+                scores.append(float(logp.gather(-1,target[:,None]).sum().item()))
+    expected_index=int(expected);ranking=sorted(range(10),key=lambda i:scores[i],reverse=True)
+    return {"top_digit":DIGITS[ranking[0]],"correct_rank":ranking.index(expected_index)+1,
+            "correct_top1":ranking[0]==expected_index,
+            "correct_vs_best_wrong_logprob_margin":scores[expected_index]-max(scores[i] for i in range(10) if i!=expected_index)}
 
 
 def main(argv=None):
@@ -51,7 +76,7 @@ def main(argv=None):
 
     details=[]
     for case_id,domain,language,question,expected,equation in PUBLIC_DEV_CASES:
-        rankings={name:ranked_digits(model,tok,int(bos),torch,prefix,expected)
+        rankings={name:ranked_digits_device(model,tok,int(bos),torch,prefix,expected)
                   for name,prefix in prompt_styles(question,language,equation).items()}
         details.append({"id":case_id,"domain":domain,"language":language,"expected":expected,"rankings":rankings})
     formats=sorted({name for row in details for name in row["rankings"]})
