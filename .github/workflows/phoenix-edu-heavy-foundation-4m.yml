@@ -62,7 +62,7 @@ jobs:
           if((Get-FileHash -LiteralPath $anchor -Algorithm SHA256).Hash.ToLowerInvariant() -ne $anchorSha){throw 'Anchor SHA mismatch'}
           if((Get-FileHash -LiteralPath $reference -Algorithm SHA256).Hash.ToLowerInvariant() -ne $referenceSha){throw 'Current 4Mi reference SHA mismatch'}
           if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Tokenizer SHA mismatch'}
-          if(Test-Path -LiteralPath $corpus -or Test-Path -LiteralPath $trainOut){throw 'Create-only output path already exists'}
+          if((Test-Path -LiteralPath $corpus) -or (Test-Path -LiteralPath $trainOut)){throw 'Create-only output path already exists'}
           if((Get-PSDrive D).Free -lt 25GB){throw 'Less than 25 GiB free on D:'}
 
           $build="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; rm -rf .edu_deps; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --no-input --quiet --target .edu_deps 'datasets==4.1.1' 'huggingface-hub>=0.34,<1.0'; export PYTHONPATH=.edu_deps:frontier350:frontier350/nextgen_v1; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/build_phoenix_edu_heavy_bpe_data.py frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py frontier350/nextgen_v1/phoenix_foundation_mix_ab.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/build_phoenix_edu_heavy_bpe_data.py --root '$(ToWsl $corpus)' --tokenizer '$(ToWsl $tokenizer)' --train-tokens 20000000 --valid-tokens 500000 --shard-tokens 5000000"
