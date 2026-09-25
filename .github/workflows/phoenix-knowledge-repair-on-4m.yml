@@ -1,0 +1,102 @@
+name: Phoenix knowledge-repair SFT on 4Mi foundation
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-knowledge-repair-on-4m.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  knowledge-repair:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact knowledge-repair revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_knowledge_repair_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Verify 4Mi base and run bounded knowledge-repair sweep
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_knowledge_repair_'+$env:GITHUB_RUN_ID)
+          $base='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466\resume.pt'
+          $baseSha='d54d3f752b22be09257164459c3bf56b0dd5c430db023882c4546430988a4963'
+          $private='D:\NeralPrivateAssets'
+          $archive=Join-Path $private 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $corpus=Join-Path $private 'phoenix\foundation_refresh_35969626270'
+          $manifest=Join-Path $corpus 'manifest.json'
+          $manifestSha='7f1ef3c90ce680d81f7e4647e7c4d7bc00c8aeb445697ad2c771643724705112'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $out=Join-Path $private ('phoenix\knowledge_repair_4m_'+$env:GITHUB_RUN_ID)
+
+          foreach($p in @($repo,$base,$private,$archive,$corpus,$manifest,$assets,$out)){
+            if($p.Contains("'")){throw 'Unsafe quote in path'}
+          }
+          foreach($p in @($base,$archive,$manifest)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}
+          }
+          foreach($p in @($private,$corpus,$assets)){
+            if(-not(Test-Path -LiteralPath $p -PathType Container)){throw "Required directory missing: $p"}
+          }
+          if(Test-Path -LiteralPath $out){throw 'Create-only knowledge output already exists'}
+          if((Get-FileHash -LiteralPath $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne $baseSha){throw '4Mi base checkpoint SHA mismatch'}
+          if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifestSha){throw 'Foundation replay manifest SHA mismatch'}
+          if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'){throw 'Pinned OASST2 archive SHA mismatch'}
+
+          $tests="set -euo pipefail; cd '$(ToWsl $repo)/frontier350/nextgen_v1'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile phoenix_knowledge_repair_sft.py test_phoenix_knowledge_repair_sft.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest -v test_phoenix_knowledge_repair_sft"
+          & wsl.exe -- bash -lc $tests
+          if($LASTEXITCODE -ne 0){throw 'Knowledge-repair CPU contracts failed; no training started'}
+
+          Write-Host 'Pre-knowledge GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'Pre-knowledge GPU telemetry failed'}
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_knowledge_repair_sft.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $base)' --checkpoint-sha256 '$baseSha' --assets-root '$(ToWsl $assets)' --private-root '$(ToWsl $private)' --archive '$(ToWsl $archive)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Knowledge-repair sweep failed'}
+
+          $report=Join-Path $out 'report.json'
+          if(-not(Test-Path -LiteralPath $report -PathType Leaf)){throw 'Knowledge-repair report missing'}
+          $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
+          if($r.production_eligible -ne $false -or $r.independent_holdout_checked -ne $false -or $r.quality_gain_verified -ne $false){throw 'Unsafe promotion state'}
+          Write-Host '=== KNOWLEDGE REPAIR DEVELOPMENT RECEIPT ==='
+          [ordered]@{
+            base_checkpoint_sha256=$r.base_checkpoint_sha256
+            data_rows=$r.data_report.packed_rows
+            categories=$r.data_report.category_counts
+            base_summary=$r.base_summary
+            base_knowledge_choice=$r.base_knowledge_choice
+            qualified_count=$r.qualified_count
+            selected=$r.selected
+            candidate_checkpoint_written=$r.candidate_checkpoint_written
+            candidate_sha256=$r.candidate_sha256
+            production_eligible=$r.production_eligible
+          } | ConvertTo-Json -Compress -Depth 12 | Write-Host
+
+      - name: Post-run GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'Knowledge text/checkpoints remain local on D:. No model or raw-data artifact uploaded.'
