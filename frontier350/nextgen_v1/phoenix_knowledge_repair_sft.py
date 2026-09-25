@@ -40,11 +40,11 @@ PAIR_KEYS=(
     "nis2_robustness_pct","nis2_compositional_reasoning_pct",
 )
 CONFIGS=(
-    {"lr":2e-6,"steps":40,"replay_weight":0.20},
-    {"lr":5e-6,"steps":40,"replay_weight":0.20},
-    {"lr":5e-6,"steps":80,"replay_weight":0.25},
-    {"lr":1e-5,"steps":40,"replay_weight":0.25},
+    {"blocks":8,"lr":2e-6,"steps":40,"replay_weight":0.30},
+    {"blocks":8,"lr":5e-6,"steps":40,"replay_weight":0.30},
+    {"blocks":8,"lr":5e-6,"steps":60,"replay_weight":0.40},
 )
+TARGET_CATEGORY_CYCLE=("math","science","aviation_transport","science","math","explanation","everyday")
 WORD=re.compile(r"[a-zA-ZÀ-ÿ0-9]+",re.UNICODE)
 SCIENCE=("physics","physik","chemistry","chemie","biology","biologie","astronomy","astronomie",
          "planet","star","stern","atom","molecule","molekül","gravity","gravitation","energy","energie",
@@ -160,6 +160,7 @@ def prepare_knowledge(repo_root:Path,archive:Path,private_root:Path,tokenizer_pa
                                    tok,int(bos),int(eos),16_384,512)
             except ValueError:
                 rejects["sequence_or_token_contract"]=rejects.get("sequence_or_token_contract",0)+1;continue
+            encoded["_category"]=row["_category"]
             packed[split].append(encoded);counts[row["_category"]]=counts.get(row["_category"],0)+1
         category_counts[split]=counts
     if len(packed["train"])<160 or len(packed["validation"])<20:raise RuntimeError("too little packed knowledge data")
@@ -231,6 +232,15 @@ def main(argv=None):
         for i,row in enumerate(selected):
             n=len(row["input_ids"]);x[i,:n]=torch.tensor(row["input_ids"]);y[i,:n]=torch.tensor(row["labels"])
         return x.to(device),y.to(device)
+    def stratified_picks(rows,rng,step,batch_size=4):
+        buckets={}
+        for i,row in enumerate(rows):buckets.setdefault(row.get("_category","everyday"),[]).append(i)
+        picks=[]
+        for offset in range(batch_size):
+            wanted=TARGET_CATEGORY_CYCLE[((step-1)*batch_size+offset)%len(TARGET_CATEGORY_CYCLE)]
+            pool=buckets.get(wanted) or list(range(len(rows)))
+            picks.append(pool[rng.randrange(len(pool))])
+        return picks
     def validation(m):
         m.eval();vals=[]
         with torch.no_grad():
@@ -250,12 +260,12 @@ def main(argv=None):
         guard.require_safe_runtime_temperature()
         seed=20260925;torch.manual_seed(seed);torch.cuda.manual_seed_all(seed);random.seed(seed);np.random.seed(seed)
         sft_rng=random.Random(seed+index);replay_rng=random.Random(seed+100+index);torch.cuda.reset_peak_memory_stats()
-        m=fresh_model();named=configure_trainable(m,4);params=[p for _,p in named]
+        m=fresh_model();named=configure_trainable(m,cfg["blocks"]);params=[p for _,p in named]
         opt=torch.optim.AdamW(params,lr=cfg["lr"],betas=(.9,.95),eps=1e-8,weight_decay=.01,fused=True)
         require_fp32_trainable_subset(m,opt,torch,require_moments=False)
         supervised=replay_tokens=0;started=time.monotonic();m.train()
         for step in range(1,cfg["steps"]+1):
-            picks=[sft_rng.randrange(len(splits["train"])) for _ in range(4)]
+            picks=stratified_picks(splits["train"],sft_rng,step,4)
             sx,sy=batch(splits["train"],picks);rx,ry=replay.batch(1,512,device,replay_rng)
             opt.zero_grad(set_to_none=True)
             with torch.autocast("cuda",dtype=torch.bfloat16):_,sloss=m(sx,sy);_,rloss=m(rx,ry)
@@ -273,6 +283,7 @@ def main(argv=None):
         qualifies=candidate_qualifies(base_summary,summary,base_knowledge,knowledge,before,after)
         row={"index":index,**cfg,"validation_loss_before":before,"validation_loss_after":after,
              "supervised_answer_tokens":supervised,"foundation_replay_tokens":replay_tokens,
+             "sampling":"category_stratified_v2",
              "training_wall_seconds":round(elapsed,3),"peak_reserved_mib":round(torch.cuda.max_memory_reserved()/1048576,1),
              "summary":summary,"knowledge_choice":{k:v["accuracy_pct"] for k,v in knowledge.items()},"qualifies":qualifies}
         results.append(row);print(json.dumps({"event":"knowledge_repair_candidate",**row},sort_keys=True),flush=True)
