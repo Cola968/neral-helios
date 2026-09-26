@@ -35,12 +35,11 @@ def test_no_random_model_or_external_fallback(client,monkeypatch):
     assert client.post('/api/generate',json={'prompt':'Hallo Neral'},base_url='http://localhost').status_code==503
 
 
-def test_startup_failure_leaves_tools_available(client,monkeypatch):
-    class Assets:
-        def __truediv__(self,other):return self
-        def is_file(self):return True
-    monkeypatch.setattr(runtime,'ASSETS',Assets())
-    monkeypatch.setattr(runtime,'checkpoint_paths',lambda:{'pilot_02':(Assets(),Assets())})
+def test_startup_failure_leaves_tools_available(client,monkeypatch,tmp_path):
+    model=tmp_path/'model.pt';digest=tmp_path/'model.sha256'
+    model.write_bytes(b'not-loaded');digest.write_text('0'*64)
+    monkeypatch.setattr(runtime,'checkpoint_paths',lambda:{'pilot_02':(model,digest)})
+    monkeypatch.setattr(runtime,'imported_models',lambda:{})
     def broken(name):raise ValueError('secret local path')
     monkeypatch.setattr(runtime,'load_runtime',broken)
     runtime.initialize_runtime()
