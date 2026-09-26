@@ -16,7 +16,7 @@ from phoenix_foundation_refresh_dev import (
     lineage,
     validate_refresh_manifest_contract,
 )
-from source_lock350 import LOCK_PATH
+from source_lock350 import LOCK_PATH, load_lock
 from recovery_identity import file_sha
 from train_sft_pilot import base_token_accounting
 
@@ -71,7 +71,7 @@ def good_manifest() -> dict:
 class RefreshContractTests(unittest.TestCase):
     def test_current_policy_approved_manifest_contract_passes(self):
         report = validate_refresh_manifest_contract(
-            good_manifest(), TOKENIZER_SHA, file_sha(LOCK_PATH)
+            good_manifest(), TOKENIZER_SHA, load_lock()
         )
         self.assertEqual(
             report["source_ids"],
@@ -87,13 +87,13 @@ class RefreshContractTests(unittest.TestCase):
         manifest["continuation_profile"] = "phoenix-quality-refresh-v1"
         manifest["finemath_candidate_included"] = True
         with self.assertRaisesRegex(ValueError, "legacy|unapproved"):
-            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, file_sha(LOCK_PATH))
+            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, load_lock())
 
     def test_finemath_flag_is_blocked_even_under_current_profile(self):
         manifest = good_manifest()
         manifest["finemath_candidate_included"] = True
         with self.assertRaisesRegex(ValueError, "FineMath"):
-            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, file_sha(LOCK_PATH))
+            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, load_lock())
 
     def test_source_policy_receipt_cannot_smuggle_unapproved_family(self):
         manifest = good_manifest()
@@ -104,13 +104,65 @@ class RefreshContractTests(unittest.TestCase):
             "content_origin": "web-human-filtered",
         }
         with self.assertRaisesRegex(ValueError, "not currently admitted|exact admitted"):
-            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, file_sha(LOCK_PATH))
+            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, load_lock())
 
     def test_benchmark_cleanliness_cannot_be_claimed_by_builder(self):
         manifest = good_manifest()
         manifest["benchmark_content_included"] = False
         with self.assertRaisesRegex(ValueError, "benchmark cleanliness"):
-            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, file_sha(LOCK_PATH))
+            validate_refresh_manifest_contract(manifest, TOKENIZER_SHA, load_lock())
+
+
+    def test_clean_finemath_development_manifest_is_separate_bounded_contract(self):
+        manifest=good_manifest()
+        manifest["continuation_profile"]="phoenix-quality-refresh-v3-finemath-development"
+        manifest["finemath_candidate_included"]=True
+        manifest["benchmark_content_included"]=False
+        manifest["benchmark_screening_status"]="FULL_STREAM_REJECTION_RESERVED_AND_PUBLIC_DEV_V1"
+        manifest["source_mix"]={"fineweb_edu_en":0.55,"fineweb_en":0.10,"fineweb2_de":0.15,"finemath":0.20}
+        manifest["source_policy"]["finemath"]={
+            "dataset_id":"HuggingFaceTB/finemath","role":"future-pretrain-candidate",
+            "license":"ODC-By-1.0","content_origin":"web-human-filtered","development_only":True,
+        }
+        lock=load_lock()
+        manifest["resolved_revisions"]={name:lock["sources"][name]["revision"] for name in manifest["source_mix"]}
+        manifest["finemath_candidate_admission_sha256"]="a"*64
+        manifest["finemath_candidate_admission"]={
+            "dataset_id":"HuggingFaceTB/finemath","revision":lock["sources"]["finemath"]["revision"],
+            "audit_pass":True,"eligible_for_manual_policy_review":True,
+            "training_allowed_by_current_policy":False,
+            "evidence":{"sampled_rows":10_000,"external_model_generated_rows":0,
+                        "benchmark_overlap":{"exact_prompt_matches":0,"near_duplicate_matches":0,"answer_leak_matches":0}},
+        }
+        manifest["full_stream_leakage_screen"]={"documents_screened":1234,"exact_rejections":2,"near_rejections":1}
+        report=validate_refresh_manifest_contract(manifest,TOKENIZER_SHA,lock)
+        self.assertTrue(report["development_only"])
+        self.assertIn("HuggingFaceTB/finemath",report["source_ids"])
+
+    def test_finemath_development_manifest_rejects_dirty_admission(self):
+        manifest=good_manifest()
+        manifest["continuation_profile"]="phoenix-quality-refresh-v3-finemath-development"
+        manifest["finemath_candidate_included"]=True
+        manifest["benchmark_content_included"]=False
+        manifest["benchmark_screening_status"]="FULL_STREAM_REJECTION_RESERVED_AND_PUBLIC_DEV_V1"
+        manifest["source_mix"]={"fineweb_edu_en":0.55,"fineweb_en":0.10,"fineweb2_de":0.15,"finemath":0.20}
+        manifest["source_policy"]["finemath"]={
+            "dataset_id":"HuggingFaceTB/finemath","role":"future-pretrain-candidate",
+            "license":"ODC-By-1.0","content_origin":"web-human-filtered","development_only":True,
+        }
+        lock=load_lock()
+        manifest["resolved_revisions"]={name:lock["sources"][name]["revision"] for name in manifest["source_mix"]}
+        manifest["finemath_candidate_admission_sha256"]="a"*64
+        manifest["finemath_candidate_admission"]={
+            "dataset_id":"HuggingFaceTB/finemath","revision":lock["sources"]["finemath"]["revision"],
+            "audit_pass":True,"eligible_for_manual_policy_review":True,
+            "training_allowed_by_current_policy":False,
+            "evidence":{"sampled_rows":10_000,"external_model_generated_rows":0,
+                        "benchmark_overlap":{"exact_prompt_matches":0,"near_duplicate_matches":1,"answer_leak_matches":0}},
+        }
+        manifest["full_stream_leakage_screen"]={"documents_screened":1234,"exact_rejections":0,"near_rejections":0}
+        with self.assertRaisesRegex(ValueError,"contamination|audit"):
+            validate_refresh_manifest_contract(manifest,TOKENIZER_SHA,lock)
 
     def test_sft_token_accounting_preserves_historical_anchor(self):
         refresh = {
