@@ -70,8 +70,32 @@ Initial implementation priorities:
 
 The first production optimizer choice remains an experiment. AdamW is the safe baseline. Muon may be tested on matrix weights only after a controlled proxy comparison; it is not required for the architecture.
 
+## Resume contract
+
+The proxy trainer now treats resume as a complete state transition, not just weight loading. Every resumable checkpoint contains:
+
+- model weights
+- AdamW optimizer state
+- warmup/cosine scheduler state
+- Python, NumPy, Torch CPU and CUDA RNG state
+- exact deterministic data epoch/cursor
+- completed optimizer update and token count
+- model/training contract
+- SHA-256 fingerprints of train and validation token files
+- initial and best held-out validation CE
+
+Checkpoints are written only after a complete optimizer update and are atomically replaced. If the process dies in the middle of an update, the previous checkpoint remains authoritative and that update is replayed after restart. Resume rejects changed data, model shapes, schedules or optimizer-critical settings.
+
+The repository test compares a continuous proxy run against a split run followed by resume and requires tensor-for-tensor identical final model weights on CPU.
+
+## First learning proof
+
+The first learnability experiment intentionally uses synthetic held-out token streams. It is not a capability benchmark. Its only purpose is to prove that the new attention/normalization/loss/trainer stack can lower validation cross-entropy on structure not used as the exact training stream.
+
+The RTX smoke gate runs 40 updates and requires at least 50% relative held-out CE improvement. It uses only temporary synthetic data and uploads JSON/JSONL evidence, never weights or token binaries.
+
 ## Immediate target
 
-The next deliverable is not "train 1B for billions of tokens." It is:
+Do not train 1B for billions of tokens yet.
 
-**prove that the Helios architecture, tokenizer and training stack learn correctly on cheap proxies, then spend compute.**
+**First prove architecture, exact resume, tokenizer and learnability. Then run a short full-size allocation/throughput smoke. Only after that spend real token budget.**
