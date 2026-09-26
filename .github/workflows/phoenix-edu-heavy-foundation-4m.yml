@@ -5,6 +5,8 @@ on:
     branches: [experiment/phoenix-blind-ab-audit-20260919]
     paths:
       - '.github/workflows/phoenix-edu-heavy-foundation-4m.yml'
+      - 'frontier350/nextgen_v1/build_phoenix_edu_heavy_bpe_data.py'
+      - 'frontier350/nextgen_v1/phoenix_foundation_mix_ab.py'
   workflow_dispatch:
 
 permissions:
