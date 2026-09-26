@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "action": "run_realdata_pilot",
+  "target_tokens": 1000000,
+  "train_tokens": 1100000,
+  "val_tokens": 100000
+}

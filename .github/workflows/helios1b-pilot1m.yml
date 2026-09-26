@@ -1,0 +1,101 @@
+name: Helios 1B real-data 1M pilot
+
+on:
+  push:
+    branches:
+      - helios-1b-pilot1m
+    paths:
+      - 'helios1b/pilot1m_request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helios1b-realdata-pilot1m
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NERAL_ASSETS_FALLBACK: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral
+      NERAL_HELIOS_PYTHON: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe
+      HELIOS_TOKENIZER_RUN: 36239128610
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: helios-1b-pilot1m
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve private local assets
+        run: |
+          @echo off
+          set "ASSETS=%NERAL_ASSETS_FALLBACK%"
+          if defined NERAL_ASSETS_ROOT set "ASSETS=%NERAL_ASSETS_ROOT%"
+          set "DATA_PY=%ASSETS%\frontier350_data_env\Scripts\python.exe"
+          set "TOKENIZER=%ASSETS%\helios1b_assets\tokenizer32k_candidates\run_%HELIOS_TOKENIZER_RUN%\tokenizer.json"
+          if not exist "%DATA_PY%" exit /b 1
+          if not exist "%NERAL_HELIOS_PYTHON%" exit /b 1
+          if not exist "%TOKENIZER%" exit /b 1
+          echo ASSETS=%ASSETS%>>"%GITHUB_ENV%"
+          echo DATA_PY=%DATA_PY%>>"%GITHUB_ENV%"
+          echo TOKENIZER=%TOKENIZER%>>"%GITHUB_ENV%"
+
+      - name: Validate explicit pilot request
+        run: |
+          @echo off
+          "%NERAL_HELIOS_PYTHON%" -c "import json; r=json.load(open('helios1b/pilot1m_request.json')); assert r=={'version':1,'action':'run_realdata_pilot','target_tokens':1000000,'train_tokens':1100000,'val_tokens':100000}; print(r)"
+          if errorlevel 1 exit /b 1
+
+      - name: Build exact disjoint real-data pilot corpus
+        run: |
+          @echo off
+          set "DATA_ROOT=%ASSETS%\helios1b_assets\pilot1m_data_run_%GITHUB_RUN_ID%"
+          if exist "%DATA_ROOT%" exit /b 1
+          "%DATA_PY%" -m helios1b.pilot_data --tokenizer "%TOKENIZER%" --out "%DATA_ROOT%" --train-tokens 1100000 --val-tokens 100000
+          if errorlevel 1 exit /b 1
+          echo DATA_ROOT=%DATA_ROOT%>>"%GITHUB_ENV%"
+
+      - name: Train full Helios 1B for bounded real 1M-token pilot
+        run: |
+          @echo off
+          set "RUN_ROOT=%ASSETS%\helios1b_runs\pilot1m_run_%GITHUB_RUN_ID%"
+          if exist "%RUN_ROOT%" exit /b 1
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.train_pilot1m --data "%DATA_ROOT%" --out "%RUN_ROOT%" --target-tokens 1000000 --seq 512 --grad-accum 4 --peak-lr 0.0002 --warmup-updates 20 --eval-every 100 --eval-batches 32 --min-relative-val-improvement 0.05
+          if errorlevel 1 exit /b 1
+          echo RUN_ROOT=%RUN_ROOT%>>"%GITHUB_ENV%"
+
+      - name: Prepare metadata-only evidence
+        if: always()
+        run: |
+          @echo off
+          if not exist runner_reports mkdir runner_reports
+          if defined DATA_ROOT if exist "%DATA_ROOT%\manifest.json" copy /Y "%DATA_ROOT%\manifest.json" runner_reports\DATA_MANIFEST.json
+          if defined RUN_ROOT if exist "%RUN_ROOT%\summary.json" copy /Y "%RUN_ROOT%\summary.json" runner_reports\PILOT_SUMMARY.json
+          if defined RUN_ROOT if exist "%RUN_ROOT%\metrics.jsonl" copy /Y "%RUN_ROOT%\metrics.jsonl" runner_reports\PILOT_METRICS.jsonl
+
+      - name: Assert no corpus tokenizer or weights uploaded
+        if: always()
+        run: |
+          @echo off
+          for %%E in (pt pth bin safetensors) do (
+            dir /b /s "runner_reports\*.%%E" >nul 2>nul
+            if not errorlevel 1 exit /b 1
+          )
+          if exist runner_reports\tokenizer.json exit /b 1
+          exit /b 0
+
+      - name: Upload pilot evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios1b-realdata-pilot1m-evidence
+          path: runner_reports/
+          retention-days: 30
+          if-no-files-found: warn
