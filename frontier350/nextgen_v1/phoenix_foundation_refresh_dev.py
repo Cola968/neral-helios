@@ -71,9 +71,9 @@ def _validate_finemath_development_manifest(manifest: dict, tokenizer_sha: str,
         raise ValueError("unexpected FineMath development profile")
     if manifest.get("finemath_candidate_included") is not True:
         raise ValueError("FineMath development profile must declare candidate inclusion")
-    if manifest.get("benchmark_content_included") is not False:
-        raise ValueError("FineMath development corpus must remove screened benchmark/public-dev matches")
-    if manifest.get("benchmark_screening_status")!="FULL_STREAM_REJECTION_RESERVED_AND_PUBLIC_DEV_V1":
+    if manifest.get("benchmark_content_included") is not None:
+        raise ValueError("FineMath development builder cannot claim exhaustive benchmark cleanliness")
+    if manifest.get("benchmark_screening_status")!="FULL_STREAM_REJECTION_FROZEN_SUITES_AND_PUBLIC_DEV_V1_NONEXHAUSTIVE":
         raise ValueError("FineMath full-stream leakage screen receipt missing")
     expected_mix={"fineweb_edu_en":0.55,"fineweb_en":0.10,"fineweb2_de":0.15,"finemath":0.20}
     mix=manifest.get("source_mix")
