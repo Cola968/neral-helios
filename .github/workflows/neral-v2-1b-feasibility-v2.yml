@@ -5,6 +5,7 @@ on:
     branches: [experiment/neral-v2-1b-benchmark-20260926]
     paths:
       - '.github/workflows/neral-v2-1b-feasibility-v2.yml'
+      - 'experiments/neral_v2_1b/benchmark_1b_rtx4070.py'
   workflow_dispatch:
 
 permissions:
@@ -85,7 +86,9 @@ jobs:
             best_peak_reserved_mib=[double]$best.peak_reserved_mib
             gpu=[string]$best.gpu
             torch_version=[string]$best.torch_version
-            muon_available=[bool]$best.muon_available
+            native_muon_available=[bool]$best.native_muon_available
+            muon_implementation=[string]$best.muon_implementation
+            muon_momentum_dtype=[string]$best.muon_momentum_dtype
             productive_training_tokens=0
             checkpoint_written=$false
           }|ConvertTo-Json -Compress -Depth 6|Write-Host
