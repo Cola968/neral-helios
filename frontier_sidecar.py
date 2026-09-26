@@ -3,11 +3,19 @@ from __future__ import annotations
 
 import json
 from urllib.error import HTTPError,URLError
-from urllib.request import Request,urlopen
+from urllib.request import HTTPRedirectHandler,ProxyHandler,Request,build_opener
 
 from model_catalog import FRONTIER350_RUNTIME
 
 MAX_RESPONSE_BYTES=256*1024
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self,req,fp,code,msg,headers,newurl):
+        return None
+
+# The sidecar is a loopback-only trust boundary. Never inherit system proxy
+# settings and never follow redirects that could escape 127.0.0.1.
+_OPENER=build_opener(ProxyHandler({}),_NoRedirect())
 
 class FrontierUnavailable(ValueError):
     pass
@@ -25,7 +33,7 @@ def _json_request(url,payload=None,timeout=1.0):
     req=Request(url,data=data,method="GET" if data is None else "POST",
                 headers={} if data is None else {"Content-Type":"application/json"})
     try:
-        with urlopen(req,timeout=timeout) as response:
+        with _OPENER.open(req,timeout=timeout) as response:
             if response.status!=200:raise FrontierUnavailable("Frontier-Runtime antwortet nicht bereit.")
             raw=response.read(MAX_RESPONSE_BYTES+1)
     except (HTTPError,URLError,TimeoutError,OSError) as exc:
@@ -74,7 +82,7 @@ def stream_chat(row,messages,max_new_tokens,request_id,on_event,timeout=125.0):
     raw=json.dumps(payload,separators=(",",":")).encode("utf-8")
     req=Request(_base(row)+"/stream",data=raw,method="POST",headers={"Content-Type":"application/json"})
     try:
-        with urlopen(req,timeout=timeout) as response:
+        with _OPENER.open(req,timeout=timeout) as response:
             if response.status!=200:raise FrontierUnavailable("Frontier-Streaming konnte nicht gestartet werden.")
             final=None
             for line in response:
