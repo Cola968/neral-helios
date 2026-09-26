@@ -1,0 +1,68 @@
+name: Phoenix current-anchor data catalog read-only
+# trigger: 2026-09-23
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-current-anchor-data-catalog.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Find foundation manifests around current local training area
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='D:\NeralScaleV81'
+          if(-not(Test-Path -LiteralPath $root -PathType Container)){throw 'NeralScaleV81 root missing'}
+          $rows=@()
+          $files=@(Get-ChildItem -LiteralPath $root -Filter 'manifest.json' -File -Recurse -Depth 5 -ErrorAction SilentlyContinue | Select-Object -First 150)
+          foreach($file in $files){
+            try{
+              $m=Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
+              $role=$m.corpus_role
+              $from=$m.continuation_from_tokens
+              $target=$m.target_cumulative_tokens
+              if($role -ne 'foundation-pretraining' -and $null -eq $from){continue}
+              $rootFull=[IO.Path]::GetFullPath($root).TrimEnd('\')
+              $dirFull=[IO.Path]::GetFullPath($file.DirectoryName)
+              $relative=if($dirFull.StartsWith($rootFull,[StringComparison]::OrdinalIgnoreCase)){$dirFull.Substring($rootFull.Length).TrimStart('\')}else{$file.Directory.Name}
+              $rows += [ordered]@{
+                relative_root=$relative
+                manifest_sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                schema=$m.schema
+                architecture=$m.architecture
+                corpus_role=$role
+                continuation_profile=$m.continuation_profile
+                continuation_from_tokens=$from
+                target_cumulative_tokens=$target
+                target_tokens=$m.target_tokens
+                train_tokens=$m.train_tokens
+                validation_tokens=$m.validation_tokens
+                pilot_only=$m.pilot_only
+                development_only=$m.development_only
+                benchmark_content_included=$m.benchmark_content_included
+              }
+            }catch{
+              $rows += [ordered]@{relative_root=$file.Directory.Name;parse_error=$true}
+            }
+          }
+          [ordered]@{
+            event='current_anchor_data_catalog_read_only'
+            manifests_found=$rows.Count
+            exact_current_anchor_matches=@($rows | Where-Object {[int64]$_.continuation_from_tokens -eq 2073161216}).Count
+            rows=$rows
+            raw_text_read=$false
+            gpu_used=$false
+            training_started=$false
+          } | ConvertTo-Json -Compress -Depth 8 | Write-Host

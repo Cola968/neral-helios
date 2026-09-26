@@ -1,0 +1,106 @@
+name: Phoenix fast-lane private SFT readiness inventory
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fastlane-sft-inventory.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-private-sft-readiness
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Read only private SFT readiness metadata
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'D:\NeralPrivateAssets' }
+          if(-not (Test-Path -LiteralPath $root -PathType Container)) {
+            $fallback = Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'
+            if(Test-Path -LiteralPath $fallback -PathType Container) { $root = $fallback }
+          }
+
+          $phoenix = Join-Path $root 'phoenix'
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          if(-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            $archive = 'D:\NeralPrivateAssets\sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          }
+          $queue = 'D:\NeralPrivateAssets\phoenix\screened_review_queue_v1.jsonl'
+          $queueReceipt = 'D:\NeralPrivateAssets\phoenix\screened_review_queue_v1_receipt.json'
+          $reviewHtml = 'D:\NeralPrivateAssets\phoenix\screened_review_queue_v2.html'
+          $autoAudit = 'D:\NeralPrivateAssets\phoenix\screened_review_auto_audit_v1.json'
+          $decisions = 'D:\NeralPrivateAssets\phoenix\phoenix_review_decisions_v1.json'
+          $decisionReceipt = 'D:\NeralPrivateAssets\phoenix\phoenix_review_decisions_v1_validated_receipt.json'
+          $holdoutCandidates = @(
+            'D:\NeralPrivateAssets\phoenix\holdout_hashes.json',
+            'D:\NeralPrivateAssets\phoenix\holdout_v2_hashes.json',
+            (Join-Path $root 'phoenix\holdout_hashes.json')
+          ) | Select-Object -Unique
+
+          function FileMeta([string]$p) {
+            if(-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+              return [ordered]@{present=$false}
+            }
+            $item=Get-Item -LiteralPath $p -Force
+            if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              return [ordered]@{present=$true; regular=$false}
+            }
+            return [ordered]@{
+              present=$true
+              regular=$true
+              bytes=[int64]$item.Length
+              sha256=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          }
+
+          $archiveMeta=FileMeta $archive
+          $queueMeta=FileMeta $queue
+          $decisionMeta=FileMeta $decisions
+          $receiptMeta=FileMeta $decisionReceipt
+          $holdouts=@()
+          foreach($p in $holdoutCandidates) {
+            $m=FileMeta $p
+            if($m.present) { $holdouts += $m }
+          }
+
+          $decisionState=$null
+          if($receiptMeta.present -and $receiptMeta.regular) {
+            try {
+              $r=Get-Content -LiteralPath $decisionReceipt -Raw | ConvertFrom-Json
+              $decisionState=[ordered]@{
+                training_approved=$r.training_approved
+                independent_holdout_checked=$r.independent_holdout_checked
+                review_sample_rows=$r.review_sample_rows
+              }
+            } catch {
+              $decisionState=[ordered]@{parse_error=$true}
+            }
+          }
+
+          $report=[ordered]@{
+            event='phoenix_fastlane_sft_private_inventory'
+            pinned_oasst2_archive=$archiveMeta
+            pinned_archive_expected_sha_match=($archiveMeta.present -and $archiveMeta.regular -and $archiveMeta.sha256 -eq 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751')
+            screened_review_queue=$queueMeta
+            screened_review_queue_expected_sha_match=($queueMeta.present -and $queueMeta.regular -and $queueMeta.sha256 -eq '94053e24e34b309ced74cf0ecdf75db484b4168718a260039ae3b7931c579f81')
+            queue_receipt_present=(Test-Path -LiteralPath $queueReceipt -PathType Leaf)
+            review_html_present=(Test-Path -LiteralPath $reviewHtml -PathType Leaf)
+            automatic_audit_present=(Test-Path -LiteralPath $autoAudit -PathType Leaf)
+            human_decisions_export=$decisionMeta
+            validated_decision_receipt=$receiptMeta
+            validated_decision_state=$decisionState
+            frozen_holdout_candidates_present=$holdouts.Count
+            approved_pack_present=$false
+            training_started=$false
+            raw_text_logged=$false
+          }
+          $report | ConvertTo-Json -Compress -Depth 6 | Write-Host
+          Write-Host 'No private conversation text or holdout content was printed or uploaded.'

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 
-REGISTRY_VERSION = 2
+REGISTRY_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -73,12 +73,30 @@ SOURCES = {
     "HuggingFaceTB/finemath": SourcePolicy(
         "HuggingFaceTB/finemath", "future-pretrain-candidate", "ODC-By-1.0", "web-human-filtered",
         False, False, "Promising math corpus, but adding it mid-I1 would change the frozen curriculum; audit before I2."),
+    "databricks/databricks-dolly-15k": SourcePolicy(
+        "databricks/databricks-dolly-15k", "future-sft-human-candidate", "CC-BY-SA-3.0", "human-employee-authored",
+        False, False, "Human-authored instruction data; candidate only until attribution/share-alike implications, overlap and privacy/content review are completed."),
+    "HuggingFaceH4/no_robots": SourcePolicy(
+        "HuggingFaceH4/no_robots", "blocked-noncommercial-sft", "CC-BY-NC-4.0", "human-annotated",
+        False, False, "High-quality human SFT data, but the non-commercial license is incompatible with automatic admission to Neral's intended unrestricted path."),
     "HuggingFaceTB/stack-edu": SourcePolicy(
         "HuggingFaceTB/stack-edu", "future-pretrain-candidate", "UNVERIFIED-MIXED", "code-found-filtered",
         False, False, "Useful code corpus, but file-level/source licensing must be resolved before Neral training."),
     "HuggingFaceTB/smollm-corpus": SourcePolicy(
         "HuggingFaceTB/smollm-corpus", "blocked-external-synthetic", "ODC-By-1.0", "mixed-including-model-generated",
         False, False, "Contains large model-generated components; excluded from the current own-data policy."),
+    "HuggingFaceTB/smol-smoltalk": SourcePolicy(
+        "HuggingFaceTB/smol-smoltalk", "blocked-external-synthetic", "Apache-2.0", "external-model-generated-sft",
+        False, False, "Synthetic SFT corpus; useful as a research reference but excluded by the current own-data policy."),
+    "HuggingFaceTB/smoltalk": SourcePolicy(
+        "HuggingFaceTB/smoltalk", "blocked-external-synthetic", "UNVERIFIED", "external-model-generated-sft",
+        False, False, "Synthetic SFT corpus and no license value surfaced in the 2026-09-24 Hub inspection; blocked."),
+    "HuggingFaceH4/ultrachat_200k": SourcePolicy(
+        "HuggingFaceH4/ultrachat_200k", "blocked-external-synthetic", "MIT", "chatgpt-generated-dialogue",
+        False, False, "Dialogue content is model-generated; top-level MIT metadata does not override Neral's data-origin policy."),
+    "HuggingFaceH4/ultrafeedback_binarized": SourcePolicy(
+        "HuggingFaceH4/ultrafeedback_binarized", "blocked-mixed-sft", "MIT", "model-completions-and-model-scoring",
+        False, False, "Preference corpus contains model completions and GPT-4 scoring; research reference only under current policy."),
     "allenai/tulu-3-sft-mixture": SourcePolicy(
         "allenai/tulu-3-sft-mixture", "blocked-mixed-sft", "MIXED", "human+machine-generated",
         False, False, "Mixture contains machine-generated and differently licensed/non-commercial subsets."),
@@ -91,6 +109,7 @@ SOURCES = {
 ALLOWED_ROLES = {
     "pretrain", "sft-human", "public-eval-holdout", "future-pretrain-candidate",
     "blocked-external-synthetic", "blocked-mixed-sft",
+    "future-sft-human-candidate", "blocked-noncommercial-sft",
 }
 
 
@@ -123,6 +142,37 @@ def assert_training_allowed(dataset_id: str) -> SourcePolicy:
         raise ValueError(f"Unregistered Hugging Face dataset: {dataset_id}")
     if not row.allow_training:
         raise ValueError(f"Training source blocked by policy: {dataset_id} ({row.role}) - {row.reason}")
+    return row
+
+
+
+def assert_bounded_development_candidate(dataset_id: str, admission: dict) -> SourcePolicy:
+    """Allow a future pretrain candidate only inside an explicitly bounded dev experiment.
+
+    This does NOT change allow_training and therefore cannot make the dataset available
+    to ordinary foundation/SFT builders. The caller must supply a completed admission result
+    from the repository audit tooling.
+    """
+    row=SOURCES.get(dataset_id)
+    if row is None:
+        raise ValueError(f"Unregistered Hugging Face dataset: {dataset_id}")
+    if row.allow_training or row.role!="future-pretrain-candidate":
+        raise ValueError(f"Not a bounded future pretrain candidate: {dataset_id}")
+    if not isinstance(admission,dict) or admission.get("dataset_id")!=dataset_id:
+        raise ValueError("Candidate admission result does not match dataset")
+    if admission.get("audit_pass") is not True or admission.get("eligible_for_manual_policy_review") is not True:
+        raise ValueError("Candidate admission audit did not pass")
+    if admission.get("training_allowed_by_current_policy") is not False:
+        raise ValueError("Bounded candidate must remain blocked from ordinary training")
+    evidence=admission.get("evidence")
+    if not isinstance(evidence,dict) or int(evidence.get("sampled_rows",0))<10_000:
+        raise ValueError("At least 10,000 audited candidate rows are required")
+    if int(evidence.get("external_model_generated_rows",-1))!=0:
+        raise ValueError("External-model-generated rows are not admitted")
+    overlap=evidence.get("benchmark_overlap")
+    required=("exact_prompt_matches","near_duplicate_matches","answer_leak_matches")
+    if not isinstance(overlap,dict) or any(int(overlap.get(k,-1))!=0 for k in required):
+        raise ValueError("Candidate benchmark contamination audit is not clean")
     return row
 
 

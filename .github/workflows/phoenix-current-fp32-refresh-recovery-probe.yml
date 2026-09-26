@@ -1,0 +1,64 @@
+name: Phoenix current FP32 refresh recovery probe
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-current-fp32-refresh-recovery-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-recovery-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_recovery_probe_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Inspect local FP32 refresh resume metadata only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_recovery_probe_' + $env:GITHUB_RUN_ID)
+          $out='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466'
+          $resume=Join-Path $out 'resume.pt'
+          if(-not(Test-Path -LiteralPath $resume -PathType Leaf)){throw 'Current resume.pt missing'}
+          $sha=(Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size=(Get-Item -LiteralPath $resume).Length
+          Write-Host ("resume_sha256=" + $sha)
+          Write-Host ("resume_bytes=" + $size)
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python - <<'PY'\nimport json, torch\nfrom pathlib import Path\np=Path('$(ToWsl $resume)')\ns=torch.load(p,map_location='cpu',weights_only=False)\nlineage=s.get('lineage',{})\nprint(json.dumps({\n 'checkpoint_schema':s.get('checkpoint_schema'),\n 'classification':s.get('classification'),\n 'processed_tokens':s.get('processed_tokens'),\n 'step':s.get('step'),\n 'best_validation':s.get('best_validation'),\n 'master_parameter_dtype':s.get('master_parameter_dtype'),\n 'adamw_moment_dtype':s.get('adamw_moment_dtype'),\n 'compute_autocast_dtype':s.get('compute_autocast_dtype'),\n 'refresh_manifest_sha256':s.get('refresh_manifest_sha256'),\n 'lineage':lineage,\n 'production_eligible':s.get('production_eligible'),\n},sort_keys=True))\nPY"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Resume metadata probe failed'}
+
+          Write-Host 'Journal/recovery files:'
+          Get-ChildItem -LiteralPath $out -File |
+            Where-Object { $_.Name -match 'resume|journal|checkpoint' } |
+            Sort-Object Name |
+            ForEach-Object {
+              $h=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ($_.Name + ' ' + $_.Length + ' ' + $h)
+            }
+
+          $metrics=Join-Path $out 'metrics.jsonl'
+          if(Test-Path -LiteralPath $metrics -PathType Leaf){
+            Write-Host 'Last aggregate metric records:'
+            Get-Content -LiteralPath $metrics -Tail 12
+          }

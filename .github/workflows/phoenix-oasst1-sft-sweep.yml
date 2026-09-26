@@ -1,0 +1,91 @@
+name: Phoenix OASST1 quality-gated SFT fast lane
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  oasst1-sft:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_oasst1_sft_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Prepare pinned OASST1 source and run quality-gated sweep
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_oasst1_sft_' + $env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $private='D:\NeralPrivateAssets'
+          $archive=Join-Path $private 'sft50_sources\2023-04-12_oasst_ready.messages.jsonl.gz'
+          $legacy='D:\NeralScaleV81\sft_review_stage_35126393909\2023-04-12_oasst_ready.messages.jsonl.gz'
+          $out=Join-Path $private ('phoenix\oasst1_sft_sweep_' + $env:GITHUB_RUN_ID)
+
+          foreach($p in @($repo,$source,$assets,$private,$archive,$legacy,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not (Test-Path -LiteralPath $source -PathType Leaf)){throw 'Historical 350M checkpoint missing'}
+          if(-not (Test-Path -LiteralPath $assets -PathType Container)){throw 'Tokenizer assets root missing'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only output already exists'}
+
+          if(-not (Test-Path -LiteralPath $archive -PathType Leaf)){
+            if(Test-Path -LiteralPath $legacy -PathType Leaf){
+              $archive=$legacy
+              Write-Host 'Using existing pinned OASST1 archive from prior local staging.'
+            } else {
+              $folder=Split-Path -Parent $archive
+              New-Item -ItemType Directory -Force -Path $folder | Out-Null
+              $url='https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/fdf72ae0827c1cda404aff25b6603abec9e3399b/2023-04-12_oasst_ready.messages.jsonl.gz'
+              Invoke-WebRequest -Uri $url -OutFile $archive -MaximumRedirection 5 -TimeoutSec 240 -ErrorAction Stop
+              Write-Host 'Downloaded exact revision-pinned OASST1 archive to local private data root.'
+            }
+          }
+          $bytes=(Get-Item -LiteralPath $archive).Length
+          if($bytes -lt 1000000 -or $bytes -gt 150000000){throw 'Unexpected OASST1 archive size'}
+
+          Write-Host 'Pre-SFT GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'nvidia-smi failed'}
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_oasst1_sft_sweep.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_oasst1_sft_sweep.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'OASST1 SFT sweep failed'}
+
+          $report=Join-Path $out 'sweep_report.json'
+          if(-not (Test-Path -LiteralPath $report -PathType Leaf)){throw 'Sweep report missing'}
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($r.production_eligible -ne $false -or $r.human_review_complete -ne $false -or $r.independent_holdout_checked -ne $false){throw 'Unsafe promotion state'}
+          Write-Host '=== SAFE OASST1 SWEEP SUMMARY ==='
+          [ordered]@{
+            baseline=$r.baseline
+            qualified_count=$r.qualified_count
+            selected=$r.selected
+            candidate_checkpoint_written=$r.candidate_checkpoint_written
+            candidate_sha256=$r.candidate_sha256
+            production_eligible=$r.production_eligible
+          } | ConvertTo-Json -Compress -Depth 8 | Write-Host
+
+      - name: Post-SFT GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'All source text and candidate checkpoints remain local. No raw dialogue data is uploaded.'

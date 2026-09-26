@@ -1,0 +1,110 @@
+name: Phoenix 350M full-model RTX 4070 performance benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fullmodel-perf-benchmark.yml'
+      - 'frontier350/nextgen_v1/phoenix_fullmodel_perf_benchmark.py'
+      - 'frontier350/nextgen_v1/phoenix_master_precision.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact experimental revision without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_fullmodel_bench_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Benchmark exact 24/24 model with disposable synthetic token IDs
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_fullmodel_bench_' + $env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $out=Join-Path $repo '_benchmark_results'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+
+          if(-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Historical 350M source missing' }
+          if($repo.Contains("'") -or $source.Contains("'") -or $out.Contains("'")) { throw 'Unsafe quote in local path' }
+
+          Write-Host 'Pre-benchmark GPU telemetry:'
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
+
+          $configs=@(
+            @{name='fp32_s256_m1_a4_gc_compile'; seq=256; mb=1; accum=4; gc='on';  compile='default'},
+            @{name='fp32_s256_m2_a2_gc_compile'; seq=256; mb=2; accum=2; gc='on';  compile='default'},
+            @{name='fp32_s256_m4_a1_gc_compile'; seq=256; mb=4; accum=1; gc='on';  compile='default'},
+            @{name='fp32_s256_m2_a2_nogc_compile'; seq=256; mb=2; accum=2; gc='off'; compile='default'},
+            @{name='fp32_s256_m4_a1_nogc_compile';  seq=256; mb=4;  accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m6_a1_nogc_compile';  seq=256; mb=6;  accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m8_a1_nogc_compile';  seq=256; mb=8;  accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m12_a1_nogc_compile'; seq=256; mb=12; accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m16_a1_nogc_compile'; seq=256; mb=16; accum=1; gc='off'; compile='default'},
+            @{name='fp32_s256_m4_a1_nogc_eager';    seq=256; mb=4;  accum=1; gc='off'; compile='none'}
+          )
+          $successful=@()
+          foreach($c in $configs) {
+            $json=Join-Path $out ($c.name + '.json')
+            $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/phoenix_fullmodel_perf_benchmark.py; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_fullmodel_perf_benchmark.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --out-json '$(ToWsl $json)' --seq $($c.seq) --microbatch $($c.mb) --grad-accum $($c.accum) --gradient-checkpointing $($c.gc) --compile-mode $($c.compile)"
+            Write-Host "=== BENCHMARK $($c.name) ==="
+            & wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $json -PathType Leaf)) {
+              $successful += (Get-Content -LiteralPath $json -Raw | ConvertFrom-Json)
+            } else {
+              Write-Warning "Configuration $($c.name) failed or did not fit; continuing to remaining configurations."
+            }
+          }
+
+          if($successful.Count -lt 1) { throw 'No benchmark configuration completed successfully' }
+          $best=$successful | Sort-Object {[double]$_.tokens_per_second} -Descending | Select-Object -First 1
+          $summary=[ordered]@{
+            schema='phoenix_fullmodel_perf_matrix_v2_large_microbatch'
+            classification='fp32_master_compute_loop_benchmark_not_end_to_end'
+            successful_configurations=$successful.Count
+            best_seq=[int]$best.seq
+            best_microbatch=[int]$best.microbatch
+            best_grad_accum=[int]$best.grad_accum
+            best_gradient_checkpointing=[bool]$best.gradient_checkpointing
+            best_compile_mode=[string]$best.compile_mode
+            best_tokens_per_second=[double]$best.tokens_per_second
+            best_peak_cuda_reserved_mib=[double]$best.peak_cuda_reserved_mib
+            data_loader_included=$false
+            validation_included=$false
+            checkpoint_io_included=$false
+            compile_warmup_included=$false
+            productive_training_tokens=0
+            quality_improvement_verified=$false
+          }
+          $summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $out 'matrix_summary.json') -Encoding utf8
+          Write-Host '=== FULL-MODEL BENCHMARK SUMMARY ==='
+          $summary | ConvertTo-Json -Depth 5
+
+      - name: Post-benchmark GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No model checkpoint or corpus was written or uploaded.'

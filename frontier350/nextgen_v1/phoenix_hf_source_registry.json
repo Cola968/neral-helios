@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "observed_date": "2026-09-24",
+  "purpose": "Phoenix 350M Hugging Face source-family policy overlay; no row-level approval",
+  "invariant": "A permissive Hub license tag or source lock never authorizes weight-changing training by itself.",
+  "reserved_public_eval_dataset_ids": [
+    "allenai/ai2_arc",
+    "deepmind/code_contests",
+    "google/IFEval",
+    "google/boolq",
+    "google-research-datasets/mbpp",
+    "openai/gsm8k",
+    "truthfulqa/truthful_qa"
+  ],
+  "sources": [
+    {
+      "dataset_id": "allenai/tulu-3-sft-mixture",
+      "hub_license_observed": "odc-by collection; subset licenses vary",
+      "origin": "mixed human and machine-generated SFT",
+      "phoenix_role": "research_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": true,
+      "decision": "blocked_wholesale_mixed_and_noncommercial_subsources"
+    },
+    {
+      "dataset_id": "databricks/databricks-dolly-15k",
+      "hub_license_observed": "cc-by-sa-3.0",
+      "origin": "human-authored by Databricks employees",
+      "phoenix_role": "future_human_sft_candidate",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "candidate_pending_attribution_sharealike_overlap_privacy_content_review"
+    },
+    {
+      "dataset_id": "HuggingFaceFW/fineweb",
+      "hub_license_observed": "odc-by",
+      "origin": "human web / Common Crawl",
+      "phoenix_role": "foundation",
+      "source_family_allowed_by_global_policy": true,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "allowed_family"
+    },
+    {
+      "dataset_id": "HuggingFaceFW/fineweb-2",
+      "hub_license_observed": "odc-by",
+      "origin": "multilingual human web / Common Crawl",
+      "phoenix_role": "foundation_de",
+      "source_family_allowed_by_global_policy": true,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "allowed_family"
+    },
+    {
+      "dataset_id": "HuggingFaceFW/fineweb-edu",
+      "hub_license_observed": "odc-by",
+      "origin": "human web, model-assisted quality filtering",
+      "phoenix_role": "foundation",
+      "source_family_allowed_by_global_policy": true,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "allowed_family"
+    },
+    {
+      "dataset_id": "HuggingFaceH4/no_robots",
+      "hub_license_observed": "cc-by-nc-4.0",
+      "origin": "human-annotated instruction demonstrations",
+      "phoenix_role": "research_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "blocked_noncommercial_license"
+    },
+    {
+      "dataset_id": "HuggingFaceH4/ultrachat_200k",
+      "hub_license_observed": "mit",
+      "origin": "ChatGPT-generated dialogues",
+      "phoenix_role": "research_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": true,
+      "decision": "blocked_by_current_own_data_policy"
+    },
+    {
+      "dataset_id": "HuggingFaceH4/ultrafeedback_binarized",
+      "hub_license_observed": "mit",
+      "origin": "model completions with GPT-4 scoring",
+      "phoenix_role": "research_preference_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": true,
+      "decision": "blocked_for_current_training"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/finemath",
+      "hub_license_observed": "odc-by",
+      "origin": "math educational web, model-assisted quality filtering",
+      "phoenix_role": "future_foundation_math",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "blocked_pending_candidate_admission_and_explicit_policy_change"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/smol-smoltalk",
+      "hub_license_observed": "apache-2.0",
+      "origin": "synthetic SFT",
+      "phoenix_role": "research_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": true,
+      "decision": "blocked_by_current_own_data_policy"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/smollm-corpus",
+      "hub_license_observed": "odc-by",
+      "origin": "mixed educational + large synthetic components",
+      "phoenix_role": "research_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": true,
+      "decision": "blocked_by_current_own_data_policy"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/smoltalk",
+      "hub_license_observed": "not surfaced in inspected Hub metadata",
+      "origin": "synthetic SFT",
+      "phoenix_role": "research_reference_only",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": true,
+      "decision": "blocked_by_current_own_data_policy"
+    },
+    {
+      "dataset_id": "HuggingFaceTB/stack-edu",
+      "hub_license_observed": "not surfaced in inspected Hub metadata",
+      "origin": "educational code filtered from The Stack v2",
+      "phoenix_role": "future_code_foundation_candidate",
+      "source_family_allowed_by_global_policy": false,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "blocked_pending_file_level_license_policy"
+    },
+    {
+      "dataset_id": "OpenAssistant/oasst1",
+      "hub_license_observed": "apache-2.0",
+      "origin": "human crowdsourced",
+      "phoenix_role": "legacy_human_sft_family",
+      "source_family_allowed_by_global_policy": true,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "legacy_or_reproduction_not_default_when_oasst2_used"
+    },
+    {
+      "dataset_id": "OpenAssistant/oasst2",
+      "hub_license_observed": "apache-2.0",
+      "origin": "human crowdsourced + source contains synthetic rows that Neral filters out",
+      "phoenix_role": "preferred_human_sft_family",
+      "source_family_allowed_by_global_policy": true,
+      "phoenix_pack_requires_hash_and_split_audit": true,
+      "external_model_generated_training_rows": false,
+      "decision": "candidate_pack_requires_independent_review"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+name: Phoenix FineMath self-hosted admission audit
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-finemath-selfhosted-audit.yml'
+      - 'audit_finemath_sample50.py'
+      - 'hf_candidate_admission50.py'
+      - 'hf_source_policy50.py'
+      - 'HF_REVISION_AUDIT_20260908.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-finemath-audit
+  cancel-in-progress: false
+
+jobs:
+  finemath-audit:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact audit revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_finemath_audit_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Run 10k stratified FineMath contamination and admission audit
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_finemath_audit_'+$env:GITHUB_RUN_ID)
+          $root='D:\NeralPrivateAssets\phoenix'
+          $out=Join-Path $root ('finemath_audit_'+$env:GITHUB_RUN_ID)
+          foreach($p in @($repo,$root,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not(Test-Path -LiteralPath $root -PathType Container)){throw 'Private Phoenix root missing'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only audit output already exists'}
+          New-Item -ItemType Directory -Path $out | Out-Null
+
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile audit_finemath_sample50.py hf_candidate_admission50.py hf_source_policy50.py; ~/.venvs/neral-triton-py312/bin/python -B -u audit_finemath_sample50.py --sample-rows 10000 --sampling stratified-v1 --request-interval 0.55 --out '$(ToWsl $out)'; ~/.venvs/neral-triton-py312/bin/python -B -u hf_candidate_admission50.py --manifest '$(ToWsl (Join-Path $out 'FINEMATH_CANDIDATE_MANIFEST.json'))' --out '$(ToWsl (Join-Path $out 'FINEMATH_ADMISSION_RESULT.json'))'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'FineMath self-hosted admission audit failed or quarantined source'}
+
+          $sample=Get-Content -LiteralPath (Join-Path $out 'FINEMATH_SAMPLE_AUDIT.json') -Raw|ConvertFrom-Json
+          $admission=Get-Content -LiteralPath (Join-Path $out 'FINEMATH_ADMISSION_RESULT.json') -Raw|ConvertFrom-Json
+          if($admission.audit_pass -ne $true){throw 'FineMath audit did not pass'}
+          if($admission.training_allowed_by_current_policy -ne $false){throw 'Audit must not silently alter source policy'}
+          if($admission.eligible_for_manual_policy_review -ne $true){throw 'FineMath not eligible for policy review'}
+          Write-Host '=== FINEMATH SELF-HOSTED AUDIT RECEIPT ==='
+          [ordered]@{
+            requested_rows=$sample.requested_rows
+            audited_rows=$sample.audited_rows
+            config=$sample.config
+            revision=$admission.revision
+            exact_prompt_matches=$admission.evidence.benchmark_overlap.exact_prompt_matches
+            near_duplicate_matches=$admission.evidence.benchmark_overlap.near_duplicate_matches
+            answer_leak_matches=$admission.evidence.benchmark_overlap.answer_leak_matches
+            audit_pass=$admission.audit_pass
+            eligible_for_manual_policy_review=$admission.eligible_for_manual_policy_review
+            training_allowed_by_current_policy=$admission.training_allowed_by_current_policy
+            local_report=$out
+          } | ConvertTo-Json -Compress -Depth 8 | Write-Host
+          Write-Host 'No FineMath text, checkpoint or model artifact is uploaded.'

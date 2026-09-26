@@ -1,0 +1,46 @@
+name: Phoenix HF knowledge-source metadata
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-hf-refresh-source-metadata.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve immutable SmolLM-Corpus revision and configs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet 'huggingface_hub>=0.30,<1' 'datasets==4.1.1'
+          python - <<'PY'
+          import json
+          import huggingface_hub
+          import datasets
+          from huggingface_hub import HfApi
+          repo='HuggingFaceTB/smollm-corpus'
+          info=HfApi().dataset_info(repo)
+          configs=datasets.get_dataset_config_names(repo, revision=info.sha)
+          wanted='cosmopedia-v2'
+          if wanted not in configs:
+              raise SystemExit('cosmopedia-v2 config missing at resolved revision')
+          print(json.dumps({
+              'event':'phoenix_hf_refresh_source_metadata',
+              'repo':repo,
+              'revision':info.sha,
+              'license_from_hub_metadata':'odc-by',
+              'wanted_config':wanted,
+              'wanted_config_present':True,
+              'config_count':len(configs),
+              'huggingface_hub_version':huggingface_hub.__version__,
+              'datasets_version':datasets.__version__,
+              'raw_rows_read':False,
+              'training_started':False,
+          },sort_keys=True))
+          PY

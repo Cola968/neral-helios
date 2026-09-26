@@ -1,0 +1,57 @@
+name: Phoenix full-model large-batch throughput probe
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fullmodel-large-batch-probe.yml'
+      - 'frontier350/nextgen_v1/phoenix_fullmodel_large_batch_probe.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-large-batch-probe
+  cancel-in-progress: false
+
+jobs:
+  large-batch:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_large_batch_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Probe larger microbatches
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_large_batch_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $corpus='D:\NeralPrivateAssets\phoenix\foundation_refresh_35900598370'
+          $manifest=Join-Path $corpus 'manifest.json'
+          $out='D:\NeralPrivateAssets\phoenix\large_batch_probe_'+$env:GITHUB_RUN_ID+'.json'
+          foreach($p in @($repo,$source,$corpus,$manifest,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          $manifestSha=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($manifestSha -ne 'f04313531e84b2d35ce684ff15a355079c087a2c0b2d9bd45cee2eda4a82c2f1'){throw 'Manifest changed'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only output exists'}
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_fullmodel_large_batch_probe.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_fullmodel_large_batch_probe.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Large-batch probe failed'}
+          Write-Host 'No model candidate was retained.'
+
+      - name: Post-probe telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader

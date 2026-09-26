@@ -20,7 +20,10 @@ from pathlib import Path
 
 import numpy as np
 
-from build_frontier_data import DEFAULT_SOURCES, content_hash, extract_text, normalize, quality_ok, stream_rows
+from build_frontier_data import (
+    DEFAULT_SOURCES, assert_sources_allowed_by_policy, content_hash, extract_text,
+    normalize, quality_ok, stream_rows,
+)
 from source_lock350 import locked_revisions
 
 SPECIALS = ["<|bos|>", "<|eos|>", "<|sep|>", "<|pad|>"]
@@ -196,6 +199,10 @@ def main() -> None:
     if args.target_tokens <= args.valid_tokens or args.valid_tokens < 100_000:
         raise SystemExit("invalid train/validation token budget")
 
+    # Must pass before output creation or any Hugging Face streaming. A source lock pins
+    # identity; it does not authorize a blocked source for weight-changing training.
+    source_policy = assert_sources_allowed_by_policy(DEFAULT_SOURCES)
+
     root = Path(args.root)
     train_root, valid_root = root / "train", root / "valid"
     if root.exists() and any(root.rglob("*.bin")):
@@ -226,8 +233,12 @@ def main() -> None:
         "target_tokens": args.target_tokens,
         "train_tokens": sum(x["tokens"] for x in train_files),
         "validation_tokens": sum(x["tokens"] for x in valid_files),
-        "benchmark_content_included": False,
+        "recipe_id": "frontier350-approved-policy-baseline-v2-no-finemath",
+        "finemath_candidate_included": False,
+        "benchmark_content_included": None,
+        "benchmark_screening_status": "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT",
         "licenses": sorted({s.license for s in DEFAULT_SOURCES}),
+        "source_policy": source_policy,
         "resolved_revisions": revisions,
         "sources": reports,
         "train_files": train_files,

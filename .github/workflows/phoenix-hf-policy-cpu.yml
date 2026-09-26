@@ -1,0 +1,41 @@
+name: Phoenix HF policy CPU checks
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-hf-policy-cpu.yml'
+      - 'hf_source_policy50.py'
+      - 'frontier350/build_frontier_data.py'
+      - 'frontier350/build_frontier_bpe_data.py'
+      - 'frontier350/nextgen_v1/phoenix_hf_source_registry.json'
+      - 'frontier350/nextgen_v1/validate_phoenix_hf_registry.py'
+      - 'frontier350/nextgen_v1/PHOENIX_HF_DATA_POLICY_2026_09_24.md'
+      - 'frontier350/nextgen_v1/PHOENIX_10B_QUALITY_ROADMAP.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile changed Python policy paths
+        run: |
+          python -m py_compile hf_source_policy50.py
+          python -m py_compile frontier350/build_frontier_data.py
+          python -m py_compile frontier350/build_frontier_bpe_data.py
+          python -m py_compile frontier350/nextgen_v1/validate_phoenix_hf_registry.py
+      - name: Validate global and Phoenix HF registries
+        run: |
+          python hf_source_policy50.py > /tmp/global_hf_policy.json
+          python frontier350/nextgen_v1/validate_phoenix_hf_registry.py > /tmp/phoenix_hf_policy.json
+          cat /tmp/phoenix_hf_policy.json
+      - name: Assert 350M builders contain fail-closed policy gate
+        run: |
+          grep -q 'assert_sources_allowed_by_policy' frontier350/build_frontier_data.py
+          grep -q 'assert_sources_allowed_by_policy' frontier350/build_frontier_bpe_data.py
+          echo 'HF policy gate present in both 350M corpus builders.'

@@ -1,0 +1,78 @@
+name: Phoenix foundation checkpoint public-dev eval only
+
+on:
+  workflow_dispatch:
+    inputs:
+      training_output:
+        description: 'Absolute Windows path containing resume.pt and summary.json'
+        required: true
+        type: string
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-foundation-eval-only.yml'
+      - 'frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact evaluator revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_foundation_eval_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Evaluate existing FP32-master development checkpoint only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_foundation_eval_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $requestedOut='${{ inputs.training_output }}'
+          $out=if([string]::IsNullOrWhiteSpace($requestedOut)){'D:\NeralPrivateAssets\phoenix\foundation_train_35972614466'}else{$requestedOut}
+          $summaryPath=Join-Path $out 'summary.json'
+          $resume=Join-Path $out 'resume.pt'
+          $evalOut=Join-Path $out ('public_dev_ab_evalonly_'+$env:GITHUB_RUN_ID+'.json')
+          foreach($p in @($repo,$source,$assets,$out,$summaryPath,$resume,$evalOut)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not(Test-Path -LiteralPath $summaryPath -PathType Leaf)){throw 'summary.json missing'}
+          if(-not(Test-Path -LiteralPath $resume -PathType Leaf)){throw 'resume.pt missing'}
+          if(Test-Path -LiteralPath $evalOut){throw 'Create-only eval output already exists'}
+          $summary=Get-Content -LiteralPath $summaryPath -Raw|ConvertFrom-Json
+          if($summary.classification -ne 'DEVELOPMENT_ONLY_FP32_MASTER_FOUNDATION_REFRESH'){throw 'Wrong checkpoint classification'}
+          if($summary.production_eligible -ne $false -or $summary.quality_gain_verified -ne $false){throw 'Unsafe development summary state'}
+          if($summary.master_parameter_dtype -ne 'float32' -or $summary.adamw_moment_dtype -ne 'float32'){throw 'Wrong precision contract'}
+          $sha=[string]$summary.resume_sha256
+          if($sha -notmatch '^[0-9a-f]{64}$'){throw 'Invalid resume SHA receipt'}
+          if((Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'resume.pt SHA mismatch'}
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $source)' --candidate-checkpoint '$(ToWsl $resume)' --candidate-sha256 '$sha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $evalOut)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Public development eval-only run failed'}
+          Write-Host '=== EVAL-ONLY DEVELOPMENT RESULT ==='
+          $report=Get-Content -LiteralPath $evalOut -Raw|ConvertFrom-Json
+          [ordered]@{
+            classification=$report.classification
+            candidate_sha256=$report.candidate_sha256
+            delta=$report.delta_candidate_minus_base
+            independent_holdout=$report.independent_holdout
+            quality_gain_verified=$report.quality_gain_verified
+            production_eligible=$report.production_eligible
+          }|ConvertTo-Json -Depth 8 -Compress|Write-Host
+          Write-Host 'No training occurred in this workflow.'

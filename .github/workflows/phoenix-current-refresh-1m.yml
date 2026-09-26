@@ -1,0 +1,138 @@
+name: Phoenix 1M full-model refresh and public A-B
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus_path:
+        description: 'Absolute Windows path to a NEW policy-approved refresh corpus'
+        required: true
+        type: string
+      manifest_sha256:
+        description: 'Exact lowercase SHA-256 of that corpus manifest.json'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  refresh-1m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact training revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_refresh_train_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Benchmark full model, train 1Mi tokens, and evaluate
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_refresh_train_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $requestedCorpus='${{ inputs.corpus_path }}'
+          $requestedManifestSha='${{ inputs.manifest_sha256 }}'
+          $corpus=if([string]::IsNullOrWhiteSpace($requestedCorpus)){'D:\NeralPrivateAssets\phoenix\foundation_refresh_35969626270'}else{$requestedCorpus}
+          $manifest=Join-Path $corpus 'manifest.json'
+          $expectedManifestSha=if([string]::IsNullOrWhiteSpace($requestedManifestSha)){'7f1ef3c90ce680d81f7e4647e7c4d7bc00c8aeb445697ad2c771643724705112'}else{$requestedManifestSha.ToLowerInvariant()}
+          $shapeOut='D:\NeralPrivateAssets\phoenix\foundation_shape_' + $env:GITHUB_RUN_ID + '.json'
+          $trainOut='D:\NeralPrivateAssets\phoenix\foundation_train_' + $env:GITHUB_RUN_ID
+          $evalOut=Join-Path $trainOut 'public_dev_ab.json'
+
+          foreach($p in @($repo,$source,$assets,$corpus,$manifest,$shapeOut,$trainOut,$evalOut)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not(Test-Path -LiteralPath $source -PathType Leaf)){throw 'Historical anchor missing'}
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw 'Historical anchor SHA mismatch'}
+          if(-not(Test-Path -LiteralPath $manifest -PathType Leaf)){throw 'Policy-approved refresh manifest missing'}
+          if(Test-Path -LiteralPath $shapeOut){throw 'Create-only shape report exists'}
+          if(Test-Path -LiteralPath $trainOut){throw 'Create-only training output exists'}
+          if((Get-PSDrive D).Free -lt 20GB){throw 'Less than 20 GiB free on D:'}
+
+          $manifestSha=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($expectedManifestSha -notmatch '^[0-9a-f]{64}$' -or $manifestSha -ne $expectedManifestSha){throw 'Explicit refresh manifest SHA mismatch'}
+          $manifestObj=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
+          if($manifestObj.continuation_profile -ne 'phoenix-quality-refresh-v2-approved-sources'){throw 'Legacy/unapproved refresh profile blocked'}
+          if($manifestObj.finemath_candidate_included -ne $false){throw 'FineMath candidate is not admitted in this refresh'}
+          if($manifestObj.benchmark_screening_status -ne 'NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT'){throw 'Unexpected benchmark screening state'}
+
+          Write-Host 'Pre-run GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $compileCmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py frontier350/nextgen_v1/phoenix_fullmodel_refresh_shape_benchmark.py frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py"
+          & wsl.exe -- bash -lc $compileCmd
+          if($LASTEXITCODE -ne 0){throw 'Refresh Python compile check failed'}
+
+          $shapeCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_fullmodel_refresh_shape_benchmark.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $shapeOut)'"
+          & wsl.exe -- bash -lc $shapeCmd
+          if($LASTEXITCODE -ne 0){throw 'Full-model shape benchmark failed'}
+
+          $shape=Get-Content -LiteralPath $shapeOut -Raw|ConvertFrom-Json
+          $sel=$shape.selected
+          if($shape.training_candidate_written -ne $false -or $shape.production_eligible -ne $false){throw 'Unsafe shape benchmark state'}
+          if($shape.precision_contract -ne 'fp32_master_fp32_adamw_bf16_autocast'){throw 'Shape benchmark used wrong precision contract'}
+          $tokensPerUpdate=256 * [int]$sel.microbatch * [int]$sel.grad_accum
+          if($tokensPerUpdate -lt 1024 -or $tokensPerUpdate -gt 4096){throw 'Selected shape violates audited 1K..4K token/update range'}
+          if((1048576 % $tokensPerUpdate) -ne 0){throw '1Mi stop is not an exact optimizer-update boundary'}
+          if([double]$sel.peak_reserved_mib -gt 10240){throw 'Selected shape exceeds 10 GiB reserved-VRAM ceiling'}
+          $gcFlag=if($sel.gradient_checkpointing -eq $true){' --gradient-checkpointing'}else{''}
+          $compileFlag=if($sel.compile_mode -eq 'default'){' --compile-mode default'}elseif($sel.compile_mode -eq 'none'){''}else{throw 'Unsupported selected compile mode'}
+          Write-Host '=== SELECTED FULL-MODEL SHAPE ==='
+          $sel|ConvertTo-Json -Compress|Write-Host
+
+          $trainCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $trainOut)' --target-new-tokens 20000000 --stop-after-new-tokens 1048576 --seq 256 --microbatch $($sel.microbatch) --grad-accum $($sel.grad_accum) --lr 0.00001$gcFlag$compileFlag"
+          & wsl.exe -- bash -lc $trainCmd
+          if($LASTEXITCODE -ne 0){throw '1Mi-token foundation refresh failed'}
+
+          $summaryPath=Join-Path $trainOut 'summary.json'
+          if(-not(Test-Path -LiteralPath $summaryPath -PathType Leaf)){throw 'Refresh summary missing'}
+          $summary=Get-Content -LiteralPath $summaryPath -Raw|ConvertFrom-Json
+          if([int64]$summary.new_processed_tokens -ne 1048576 -or [int]$summary.layers_trained -ne 24){throw 'Unexpected refresh counters'}
+          if($summary.source_unchanged -ne $true -or $summary.production_eligible -ne $false){throw 'Unsafe refresh summary'}
+          if($summary.master_parameter_dtype -ne 'float32' -or $summary.adamw_moment_dtype -ne 'float32' -or $summary.compute_autocast_dtype -ne 'bfloat16'){throw 'Wrong refresh precision contract'}
+          if($summary.checkpoint_kind -ne 'complete_resumable_state'){throw 'Final refresh checkpoint is not fully journaled'}
+          $resume=Join-Path $trainOut 'resume.pt'
+          $resumeSha=$summary.resume_sha256
+          if((Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $resumeSha){throw 'Final refresh checkpoint SHA mismatch'}
+
+          Write-Host '=== SAFE 1Mi FOUNDATION REFRESH SUMMARY ==='
+          [ordered]@{
+            parameters=$summary.parameters
+            layers_trained=$summary.layers_trained
+            new_processed_tokens=$summary.new_processed_tokens
+            optimizer_steps=$summary.optimizer_steps
+            baseline_validation_loss=$summary.baseline_validation_loss_for_invocation
+            best_validation_loss=$summary.best_validation_loss
+            training_wall_seconds=$summary.training_wall_seconds
+            peak_cuda_allocated_mib=$summary.peak_cuda_allocated_mib
+            peak_cuda_reserved_mib=$summary.peak_cuda_reserved_mib
+            resume_sha256=$resumeSha
+            manifest_sha256=$manifestSha
+            source_unchanged=$summary.source_unchanged
+            production_eligible=$summary.production_eligible
+          }|ConvertTo-Json -Compress|Write-Host
+
+          $evalCmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $source)' --candidate-checkpoint '$(ToWsl $resume)' --candidate-sha256 '$resumeSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $evalOut)'"
+          & wsl.exe -- bash -lc $evalCmd
+          if($LASTEXITCODE -ne 0){throw 'Foundation refresh public development A/B failed'}
+          Write-Host 'Detailed A/B generations remain private on D:.'
+
+      - name: Post-run GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No checkpoint or private evaluation outputs are uploaded.'

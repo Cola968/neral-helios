@@ -1,0 +1,57 @@
+name: Phoenix OASST1 candidate full public development A-B
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-oasst1-public-dev-ab.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  oasst1-ab:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact evaluation revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_oasst1_ab_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Compare OASST1 SFT candidate with immutable anchor
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_oasst1_ab_' + $env:GITHUB_RUN_ID)
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $candidate='D:\NeralPrivateAssets\phoenix\oasst1_sft_sweep_35896699343\candidate_oasst1_auto_sft.pt'
+          $sha='7ba42e9ee4b5d09dcb5fa5256d98cf45ae51e621743bab26d3ae4ce5b28ec71f'
+          $out='D:\NeralPrivateAssets\phoenix\oasst1_sft_sweep_35896699343\full_public_dev_ab_' + $env:GITHUB_RUN_ID + '.json'
+          foreach($p in @($repo,$base,$assets,$candidate,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not (Test-Path -LiteralPath $candidate -PathType Leaf)){throw 'OASST1 candidate missing'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'OASST1 candidate SHA changed'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only A/B output exists'}
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_oasst1_public_dev_eval.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_oasst1_public_dev_eval.py --execute --trusted-own-checkpoints --base-checkpoint '$(ToWsl $base)' --candidate-checkpoint '$(ToWsl $candidate)' --candidate-sha256 '$sha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'OASST1 public development A/B failed'}
+          Write-Host 'Detailed model outputs remain private; only aggregate metrics are logged.'
+
+      - name: Post-evaluation GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader

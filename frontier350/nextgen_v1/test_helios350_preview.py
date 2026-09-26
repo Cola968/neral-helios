@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from helios350_preview import MAX_INPUT_BYTES, parse_request, permitted_origin, sha256_file, trusted_asset
+from helios350_preview import CONTINUITY_SHA,MAX_INPUT_BYTES,TOKENIZER_SHA,health_payload,parse_request,permitted_origin,sha256_file,trusted_asset
 
 
 class PreviewSafetyTests(unittest.TestCase):
@@ -37,6 +37,15 @@ class PreviewSafetyTests(unittest.TestCase):
         for origin in ("http://evil.test:9681", "https://localhost:9681", "http://localhost:9682", "http://localhost:9681.evil.test", "http://localhost:9681/path", "http://localhost:9681/?a=1"):
             with self.subTest(origin=origin):
                 self.assertFalse(permitted_origin(origin, 9681))
+
+
+    def test_workspace_health_handshake_is_sha_bound(self):
+        health = health_payload(2_073_161_216, "continuity-2b", "cpu")
+        self.assertEqual(health["status"], "experimental-ready")
+        self.assertEqual(health["runtime_family"], "frontier350-bpe-v1")
+        self.assertEqual(health["checkpoint_sha256"], CONTINUITY_SHA)
+        self.assertEqual(health["tokenizer_sha256"], TOKENIZER_SHA)
+        self.assertEqual(health["max_new_tokens"], 64)
 
     def test_pinned_asset_and_no_traversal(self):
         with tempfile.TemporaryDirectory() as tmp:

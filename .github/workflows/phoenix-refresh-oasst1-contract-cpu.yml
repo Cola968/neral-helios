@@ -1,0 +1,28 @@
+name: Phoenix refresh plus OASST1 contract CPU
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-refresh-oasst1-contract-cpu.yml'
+      - 'frontier350/nextgen_v1/phoenix_oasst1_on_refresh.py'
+      - 'frontier350/nextgen_v1/test_phoenix_oasst1_on_refresh.py'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and run checkpoint-contract tests
+        env:
+          PYTHONPATH: .:frontier350:frontier350/nextgen_v1
+        run: |
+          python -m py_compile frontier350/nextgen_v1/phoenix_oasst1_on_refresh.py
+          python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_oasst1_on_refresh.py' -v

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helios · lokaler Chat</title><style>
+:root{font-family:system-ui,Arial,sans-serif;color-scheme:dark;background:#0b1020;color:#eff3ff}*{box-sizing:border-box}body{margin:0}main{height:100dvh;max-width:980px;margin:auto;display:flex;flex-direction:column;padding:18px;gap:12px}header{display:flex;justify-content:space-between;align-items:center;gap:15px;border-bottom:1px solid #304057;padding-bottom:12px}h1{font-size:1.3rem;margin:0}small,.hint{color:#b4c1d8;font-size:.85rem}.badge{border:1px solid #576b85;border-radius:99px;padding:4px 8px}#conversation{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:10px 0}.bubble{max-width:85%;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px 14px;border-radius:15px;background:#26334a;line-height:1.45}.user{align-self:flex-end;background:#274d80}.assistant{align-self:flex-start}form{display:flex;gap:8px;align-items:end}textarea{flex:1;resize:vertical;min-height:60px;max-height:150px;padding:12px;background:#162139;color:inherit;border:1px solid #536985;border-radius:12px;font:inherit}button{border:0;border-radius:10px;padding:12px;background:#82bcff;color:#081629;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:wait}#clear{background:#28374d;color:#e3ecff}#notice{min-height:1.1em}footer{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}@media(max-width:520px){main{padding:11px}.bubble{max-width:95%}header{align-items:flex-start}h1{font-size:1.1rem}}
+</style></head><body><main>
+<header><div><h1>Helios · Neral 350M</h1><small id="model">Verbinde mit lokalem Modell …</small></div><span class="badge">Experiment</span></header>
+<div class="hint">Echte lokale Modellantworten. Keine Cloud, kein automatisches Speichern. Maximal 64 Antwort-Tokens und 512 Kontext-Tokens; Qualität nicht nachgewiesen.</div>
+<section id="conversation" role="log" aria-live="polite" aria-label="Gespräch"><div class="bubble assistant">Helios ist bereit, sobald der Modellstatus geladen wurde. Stelle eine kurze Frage.</div></section>
+<div id="notice" class="hint" role="status"></div>
+<form id="chat"><textarea id="message" maxlength="1024" aria-label="Nachricht" placeholder="Schreibe eine Nachricht …" required></textarea><button type="submit" id="send">Senden</button></form>
+<footer><small>Enter: senden · Shift+Enter: Zeilenumbruch · Gespräch nur im Arbeitsspeicher dieses Tabs</small><button id="clear" type="button">Neuer Chat</button></footer>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), transcript=[];
+let busy=false;
+const add=(text,role)=>{const node=document.createElement('div');node.className='bubble '+role;node.textContent=text;$('conversation').append(node);$('conversation').scrollTop=$('conversation').scrollHeight;return node;};
+fetch('/health').then(r=>{if(!r.ok)throw Error();return r.json()}).then(s=>{$('model').textContent=`${s.model} · ${s.processed_tokens.toLocaleString('de-DE')} historische Tokens · ${s.device}`}).catch(()=>{$('model').textContent='Modell nicht erreichbar';});
+$('clear').onclick=()=>{if(busy)return;transcript.length=0;$('conversation').replaceChildren();add('Neuer Chat. Der alte Verlauf wurde aus diesem Tab entfernt.','assistant');$('notice').textContent='';};
+$('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('chat').requestSubmit();}});
+$('chat').onsubmit=async e=>{e.preventDefault();if(busy)return;const message=$('message').value.trim();if(!message)return;
+busy=true;$('send').disabled=true;$('clear').disabled=true;$('notice').textContent='Generiere lokal …';add(message,'user');$('message').value='';
+if(transcript.length>=12)transcript.splice(0,2);
+const candidate=[...transcript,{role:'user',content:message}];
+try{const response=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:candidate,max_new_tokens:64})});const result=await response.json();if(!response.ok)throw Error(result.error||'Modellanfrage fehlgeschlagen');
+if(result.dropped_history_pairs>0){transcript.splice(0,2*result.dropped_history_pairs);$('notice').textContent=`Kontextlimit: ${result.dropped_history_pairs} ältere Frage-Antwort-Paare weggelassen.`;}else{$('notice').textContent=`${result.generated_tokens} Tokens · Stopp: ${result.finish_reason}`;}
+if(result.answer.trim()){transcript.push({role:'user',content:message},{role:'assistant',content:result.answer});add(result.answer,'assistant');}else{add('Das Modell hat keine sichtbare Antwort erzeugt. Diese Runde wird nicht in den Kontext übernommen.','assistant');}}
+catch(error){add('Fehler: '+error.message+' · Diese Runde wurde nicht in den Kontext übernommen.','assistant');$('notice').textContent='Keine neue Modellantwort.';}
+finally{busy=false;$('send').disabled=false;$('clear').disabled=false;$('message').focus();}};
+</script></main></body></html>

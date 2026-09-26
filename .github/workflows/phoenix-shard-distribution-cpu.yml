@@ -1,0 +1,71 @@
+name: Phoenix shard, boundaries, training preflight and local chat synthetic CPU
+on:
+  pull_request:
+    paths:
+      - 'frontier350/fresh_stop_boundary350.py'
+      - 'frontier350/test_fresh_stop_boundary350.py'
+      - 'frontier350/test_fresh_stop_boundary_sweep350.py'
+      - 'frontier350/train350.py'
+      - 'frontier350/train350_compiled.py'
+      - 'frontier350/nextgen_v1/phoenix_shard_distribution_audit.py'
+      - 'frontier350/nextgen_v1/test_phoenix_shard_distribution_audit.py'
+      - 'frontier350/nextgen_v1/phoenix_audited_pilot_launcher.py'
+      - 'frontier350/nextgen_v1/test_phoenix_audited_pilot_launcher.py'
+      - 'frontier350/nextgen_v1/phoenix_weight_only_pilot.py'
+      - 'frontier350/nextgen_v1/test_phoenix_native_pilot_gate.py'
+      - 'frontier350/nextgen_v1/phoenix_preflight_only.py'
+      - 'frontier350/nextgen_v1/test_phoenix_preflight_only.py'
+      - 'frontier350/nextgen_v1/phoenix_training_progress.py'
+      - 'frontier350/nextgen_v1/test_phoenix_training_progress.py'
+      - 'frontier350/nextgen_v1/phoenix_holdout_gate.py'
+      - 'frontier350/nextgen_v1/test_phoenix_holdout_gate.py'
+      - 'frontier350/nextgen_v1/test_phoenix_holdout_gate_integration.py'
+      - 'frontier350/nextgen_v1/test_phoenix_launcher_overlap_contract.py'
+      - 'frontier350/nextgen_v1/phoenix_candidate_lineage.py'
+      - 'frontier350/nextgen_v1/phoenix_holdout_overlap_audit.py'
+      - 'frontier350/nextgen_v1/test_phoenix_holdout_overlap_audit.py'
+      - 'frontier350/nextgen_v1/test_phoenix_holdout_overlap_cli.py'
+      - 'frontier350/nextgen_v1/phoenix_blind_ab_audit.py'
+      - 'frontier350/nextgen_v1/phoenix_offline_cpu_check.py'
+      - 'frontier350/nextgen_v1/test_phoenix_offline_cpu_check.py'
+      - 'frontier350/nextgen_v1/helios350_preview.py'
+      - 'frontier350/nextgen_v1/helios_guarded_preview.py'
+      - 'frontier350/nextgen_v1/helios_chat_core.py'
+      - 'frontier350/nextgen_v1/helios_chat_app.py'
+      - 'frontier350/nextgen_v1/helios_chat_ui.html'
+      - 'frontier350/nextgen_v1/test_helios_chat_core.py'
+      - 'frontier350/nextgen_v1/test_helios_chat_app.py'
+      - '.github/workflows/phoenix-shard-distribution-cpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-shard-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native fresh stop boundaries and exhaustive synthetic sweep
+        working-directory: frontier350
+        run: python -B -m unittest -v test_fresh_stop_boundary350.py test_fresh_stop_boundary_sweep350.py
+      - name: Run identical offline CPU regression set and runner self-tests
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python -B phoenix_offline_cpu_check.py
+          python -B -m unittest -v test_phoenix_offline_cpu_check.py
+      - name: Test native preflight-only command with synthetic inputs
+        working-directory: frontier350/nextgen_v1
+        run: python -B -m unittest -v test_phoenix_preflight_only.py
+      - name: Test training receipt monitor without actual weights or training
+        working-directory: frontier350/nextgen_v1
+        run: python -B -m unittest -v test_phoenix_training_progress.py
+      - name: Test local multi-turn chat with fake model (no weights)
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python -B -m unittest -v test_helios_chat_core.py test_helios_chat_app.py

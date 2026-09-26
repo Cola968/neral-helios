@@ -1,0 +1,71 @@
+name: Phoenix OASST2 human-only staging audit
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-oasst2-stage-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-oasst2-stage
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact staging revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_oasst2_stage_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Stage pinned reviewed human-only OASST2 candidates
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_oasst2_stage_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $source=Join-Path $assets 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $out='D:\NeralPrivateAssets\phoenix\oasst2_stage_' + $env:GITHUB_RUN_ID
+          $frozen=Join-Path $repo 'benchmark_nis2_chat50.py'
+          foreach($p in @($repo,$source,$out,$frozen)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(-not(Test-Path -LiteralPath $source -PathType Leaf)){throw 'Pinned local OASST2 archive missing'}
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'){throw 'OASST2 source SHA mismatch'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only OASST2 staging output exists'}
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; export PYTHONPATH=frontier350/nextgen_v1:frontier350:. ; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/stage_oasst2_sft.py frontier350/nextgen_v1/test_stage_oasst2_sft.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest frontier350.nextgen_v1.test_stage_oasst2_sft; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/stage_oasst2_sft.py --source '$(ToWsl $source)' --frozen-benchmark '$(ToWsl $frozen)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'OASST2 staging/tests failed'}
+
+          $reportPath=Join-Path $out 'STAGING_REPORT.json'
+          if(-not(Test-Path -LiteralPath $reportPath -PathType Leaf)){throw 'OASST2 staging report missing'}
+          $r=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+          if($r.status -ne 'REVIEW_REQUIRED_NOT_APPROVED_NOT_TRAINED' -or $r.approved_for_training -ne $false -or $r.independent_privacy_and_license_review -ne $false){throw 'Unsafe OASST2 staging state'}
+          [ordered]@{
+            status=$r.status
+            source_revision=$r.source_revision
+            source_sha256=$r.source_sha256
+            source_messages=$r.source_messages
+            eligible_prompters=$r.eligible_prompters
+            eligible_assistant_messages=$r.eligible_assistant_messages
+            best_parent_reply_pairs=$r.best_parent_reply_pairs
+            candidate_counts=$r.candidate_counts
+            frozen_chat_hashes_checked=$r.frozen_chat_hashes_checked
+            screened_benchmark_file_sha256=$r.screened_benchmark_file_sha256
+            output_sha256=$r.output_sha256
+            approved_for_training=$r.approved_for_training
+          }|ConvertTo-Json -Depth 8 -Compress|Write-Host
+          Write-Host 'Candidate text remains local. No approval, upload, or training occurred.'

@@ -20,6 +20,7 @@ import time
 from sft_contract import sha
 from sft_eval_contract import dynamic_batch_width, token_weighted_loss, validation_indices
 from sft_runtime_evidence import verify_runtime_evidence
+from phoenix_master_precision import require_fp32_trainable_subset
 
 PARAMETERS = 349_825_152
 MAX_RESERVED = 9 * 1024 ** 3
@@ -91,6 +92,32 @@ def load_pack(directory: Path, tokenizer: Path) -> tuple[dict, dict[str, list[di
     return report, splits
 
 
+def base_token_accounting(base: dict) -> dict:
+    """Preserve historical + new-lineage token identity when SFT starts."""
+    processed = base.get("processed_tokens")
+    if type(processed) is not int or processed < 0:
+        raise ValueError("invalid base checkpoint token counter")
+    lineage = base.get("lineage")
+    if isinstance(lineage, dict) and lineage.get("kind") == "phoenix_foundation_refresh_fp32_master_adamw_v2":
+        historical = lineage.get("historical_processed_tokens")
+        if type(historical) is not int or historical <= 0:
+            raise ValueError("foundation refresh lineage lacks historical token anchor")
+        if processed > int(lineage.get("target_new_tokens", -1)):
+            raise ValueError("foundation refresh processed tokens exceed lineage target")
+        return {
+            "historical_pretraining_tokens": historical,
+            "new_foundation_lineage_tokens": processed,
+            "cumulative_reference_tokens": historical + processed,
+            "base_lineage_kind": lineage["kind"],
+        }
+    return {
+        "historical_pretraining_tokens": processed,
+        "new_foundation_lineage_tokens": 0,
+        "cumulative_reference_tokens": processed,
+        "base_lineage_kind": "historical_or_nonrefresh_base",
+    }
+
+
 def atomic_save_torch(torch_module, state: dict, path: Path) -> None:
     temp = path.with_suffix(".tmp")
     if path.exists() or temp.exists():
@@ -156,19 +183,23 @@ def main() -> int:
     base = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     if base.get("config") != FRONTIER_350.to_dict() or base.get("tokenizer_sha256") != report["tokenizer_sha256"]:
         raise ValueError("checkpoint architecture/tokenizer mismatch")
-    if int(base.get("processed_tokens", -1)) < 0:
-        raise ValueError("invalid base checkpoint token counter")
+    token_accounting = base_token_accounting(base)
 
     torch.manual_seed(20260916)
     torch.cuda.manual_seed_all(20260916)
     torch.backends.cuda.matmul.allow_tf32 = True
-    model = Neral350M().to(device="cuda", dtype=torch.bfloat16)
+    # Keep new master parameters in FP32; BF16 is compute-only under autocast.
+    model = Neral350M().to(device="cuda", dtype=torch.float32)
     model.load_state_dict(base["model"], strict=True)
     if sum(t.numel() for t in model.parameters()) != PARAMETERS:
         raise ValueError("changed model architecture")
     named = configure_trainable(model, args.train_blocks)
     params = [param for _, param in named]
-    optimizer = torch.optim.AdamW(params, lr=2e-5, betas=(0.9, 0.95), weight_decay=0.01, fused=True)
+    optimizer = torch.optim.AdamW(
+        params, lr=2e-5, betas=(0.9, 0.95), eps=1e-8,
+        weight_decay=0.01, fused=True
+    )
+    require_fp32_trainable_subset(model, optimizer, torch, require_moments=False)
     rng = random.Random(20260916)
     seq = report["context"]
     validation_selection = validation_indices(len(splits["validation"]))
@@ -187,7 +218,8 @@ def main() -> int:
     def validation_loss() -> float:
         model.eval()
         pairs = []
-        with torch.inference_mode():
+        # no_grad, NOT inference_mode: the RoPE cache is reused by later backward.
+        with torch.no_grad():
             for index in validation_selection:
                 x, y = batch(splits["validation"], [index])
                 with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -220,6 +252,8 @@ def main() -> int:
         if not bool(torch.isfinite(norm)):
             raise FloatingPointError("nonfinite SFT gradient")
         optimizer.step()
+        if step == 1:
+            require_fp32_trainable_subset(model, optimizer, torch, require_moments=True)
         torch.cuda.synchronize()
         if torch.cuda.memory_reserved() > MAX_RESERVED or temperature() > 82:
             raise RuntimeError("VRAM/thermal guard hit; discard pilot")
@@ -253,27 +287,34 @@ def main() -> int:
         "validation_loss_before": baseline, "validation_loss_after": after,
         "validation_loss_improved": after < baseline,
         "supervised_answer_tokens": token_counter,
+        **token_accounting,
         "training_wall_seconds": elapsed,
         "peak_reserved_gib": torch.cuda.max_memory_reserved() / 1024 ** 3,
         "temperature_c_end": temperature(),
+        "master_parameter_dtype": "float32",
+        "adamw_moment_dtype": "float32",
+        "compute_autocast_dtype": "bfloat16",
         "eligible_for_production": False,
         "throughput_60k_70k_verified": False,
         "note": "Bounded SFT experiment with runtime-bound approval evidence and deterministic sampled validation; NOT an end-to-end 5M stage, complete validation or independent NIS2/EOS/quality result. No resumable long run."}
     if after < baseline:
-        state = {"checkpoint_schema": "nextgen_sft_pilot_v1", "model": {
-            name: tensor.detach().to(device="cpu", dtype=torch.bfloat16)
+        state = {"checkpoint_schema": "nextgen_sft_pilot_v2_fp32_master", "model": {
+            name: tensor.detach().to(device="cpu", dtype=torch.float32)
             for name, tensor in model.state_dict().items()},
             "base_sha256": args.checkpoint_sha256, "config": FRONTIER_350.to_dict(),
             "tokenizer_sha256": report["tokenizer_sha256"],
             "sft_optimizer": optimizer.state_dict(), "sampler_rng": rng.getstate(),
             "torch_rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state_all(),
             "steps": args.steps, "sft_supervised_tokens": token_counter,
-            "pretraining_processed_tokens": int(base["processed_tokens"]),
+            **token_accounting,
             "pack_report_sha256": result["pack_report_sha256"],
             "source_manifest_sha256": result["source_manifest_sha256"],
             "screen_report_sha256": result["screen_report_sha256"],
             "holdout_sha256": result["holdout_sha256"],
             "trainable_names": [name for name, _ in named],
+            "master_parameter_dtype": "float32",
+            "adamw_moment_dtype": "float32",
+            "compute_autocast_dtype": "bfloat16",
             "production_eligible": False}
         output = args.out / "candidate_sft_experimental.pt"
         atomic_save_torch(torch, state, output)

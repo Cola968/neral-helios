@@ -19,6 +19,7 @@ import torch
 
 from model350 import Neral350M, FRONTIER_350
 from native_resume_preflight350 import corpus_identity, read_verified_resume, run_contract
+from fresh_stop_boundary350 import require_fresh_stop_boundary
 from recovery_identity import file_sha
 from window_sampler350 import SAMPLER_VERSION, WindowSampler
 
@@ -165,6 +166,11 @@ def main():
         raise ValueError('invalid optimizer settings')
     if args.seq > FRONTIER_350.max_seq_len:
         raise ValueError('sequence exceeds architecture context')
+    # Refuse an intermediate partial AdamW update on FRESH runs too. This must
+    # execute before output creation, GPU checks and any model allocation.
+    require_fresh_stop_boundary(target=args.target_tokens, stop=run_until,
+                                seq=args.seq, microbatch=args.microbatch,
+                                grad_accum=args.grad_accum)
 
     out = Path(args.out).absolute()
     if out.exists() and any(out.iterdir()) and (not args.resume or Path(args.resume).resolve() != (out / 'resume.pt').resolve()):

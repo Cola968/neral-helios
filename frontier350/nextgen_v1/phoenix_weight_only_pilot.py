@@ -231,6 +231,21 @@ def require_vram_budget(torch) -> None:
 def main(argv=None) -> None:
     args = parser_args(argv)
     plan = prepare(args)
+    # Mandatory corpus and exact-holdout integrity gates also apply to the FP32-master path.
+    # Direct invocation and explicit resume must not bypass the audited pilot launcher checks.
+    from phoenix_audited_pilot_launcher import verify_snapshot
+    from phoenix_holdout_gate import require_zero_exact_overlap
+    report = verify_snapshot(args, plan)
+    overlap = require_zero_exact_overlap(args, plan)
+    if (report.get('all_token_ids_in_vocab') is not True or
+            overlap.get('exact_overlap_gate_passed') is not True):
+        raise ValueError('mandatory pilot corpus/holdout integrity preflight failed')
+    print(json.dumps({'event': 'native_pilot_integrity_gate_complete',
+                      'train_shards': report['train']['shards'],
+                      'validation_shards': report['validation']['shards'],
+                      'exact_overlap_gate_passed': True,
+                      'holdout_independence_verified': False,
+                      'trainer_started': False}, sort_keys=True), flush=True)
     import phoenix_cuda_diagnostic as gpu_guard
     gpu_guard.require_stably_idle_gpu()  # Three snapshots before CUDA access.
     import numpy as np

@@ -1,0 +1,57 @@
+name: Phoenix full-model compile benchmark
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-fullmodel-compile-probe.yml'
+      - 'frontier350/nextgen_v1/phoenix_fullmodel_compile_probe.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-compile-probe
+  cancel-in-progress: false
+
+jobs:
+  compile-probe:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_compile_probe_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Compare eager vs torch compile on winning shape
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_compile_probe_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $corpus='D:\NeralPrivateAssets\phoenix\foundation_refresh_35900598370'
+          $manifest=Join-Path $corpus 'manifest.json'
+          $out='D:\NeralPrivateAssets\phoenix\fullmodel_compile_probe_'+$env:GITHUB_RUN_ID+'.json'
+          foreach($p in @($repo,$source,$corpus,$manifest,$out)){if($p.Contains("'")){throw 'Unsafe quote in path'}}
+          if(Test-Path -LiteralPath $out){throw 'Create-only report exists'}
+          $manifestSha=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($manifestSha -ne 'f04313531e84b2d35ce684ff15a355079c087a2c0b2d9bd45cee2eda4a82c2f1'){throw 'Manifest changed'}
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_fullmodel_compile_probe.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_fullmodel_compile_probe.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $source)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Compile benchmark failed'}
+          Write-Host 'Aggregate benchmark remains local; no checkpoint is written.'
+
+      - name: Post-probe telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader

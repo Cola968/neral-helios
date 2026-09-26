@@ -11,7 +11,7 @@ from build_targeted_sft50_oasst2 import (
     WEIGHTS,
 )
 from fetch_oasst2_sft50 import UPSTREAM_REVISION, UPSTREAM_SHA256, choose_pairs, reviewed_human
-from hf_source_policy50 import SOURCES, assert_not_reserved_eval, assert_training_allowed, validate_registry
+from hf_source_policy50 import SOURCES, assert_bounded_development_candidate, assert_not_reserved_eval, assert_training_allowed, validate_registry
 
 
 def _message(mid, role, lang, text, parent=None, *, rank=None, synthetic=False, model_name=None, review=True, deleted=False):
@@ -78,3 +78,18 @@ def test_oasst2_pin_is_explicit_and_sha256_shaped():
     assert len(UPSTREAM_REVISION) == 40
     assert len(UPSTREAM_SHA256) == 64
     assert SOURCES["OpenAssistant/oasst2"].license == "Apache-2.0"
+
+
+def test_finemath_bounded_development_gate_does_not_enable_normal_training():
+    evidence={"sampled_rows":10_000,"external_model_generated_rows":0,
+              "benchmark_overlap":{"exact_prompt_matches":0,"near_duplicate_matches":0,"answer_leak_matches":0}}
+    admission={"dataset_id":"HuggingFaceTB/finemath","audit_pass":True,
+               "eligible_for_manual_policy_review":True,
+               "training_allowed_by_current_policy":False,"evidence":evidence}
+    row=assert_bounded_development_candidate("HuggingFaceTB/finemath",admission)
+    assert row.role=="future-pretrain-candidate" and row.allow_training is False
+    with pytest.raises(ValueError):
+        assert_training_allowed("HuggingFaceTB/finemath")
+    dirty={**admission,"evidence":{**evidence,"benchmark_overlap":{**evidence["benchmark_overlap"],"near_duplicate_matches":1}}}
+    with pytest.raises(ValueError):
+        assert_bounded_development_candidate("HuggingFaceTB/finemath",dirty)

@@ -1,0 +1,64 @@
+name: Phoenix critical Python compile checks
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-critical-python-compile.yml'
+      - 'frontier350/build_frontier_data.py'
+      - 'frontier350/build_frontier_bpe_data.py'
+      - 'frontier350/nextgen_v1/build_phoenix_refresh_bpe_data.py'
+      - 'frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py'
+      - 'frontier350/nextgen_v1/phoenix_fullmodel_perf_benchmark.py'
+      - 'frontier350/nextgen_v1/phoenix_replay_protected_sft_sweep.py'
+      - 'frontier350/nextgen_v1/phoenix_oasst1_sft_sweep.py'
+      - 'frontier350/nextgen_v1/stage_oasst2_sft.py'
+      - 'frontier350/nextgen_v1/validate_frontier_corpus_admission.py'
+      - 'frontier350/nextgen_v1/validate_phoenix_hf_registry.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-critical-python-check
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_compile_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Compile critical Python paths in WSL
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_compile_' + $env:GITHUB_RUN_ID)
+          $files=@(
+            'frontier350/build_frontier_data.py',
+            'frontier350/build_frontier_bpe_data.py',
+            'frontier350/nextgen_v1/build_phoenix_refresh_bpe_data.py',
+            'frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py',
+            'frontier350/nextgen_v1/phoenix_fullmodel_perf_benchmark.py',
+            'frontier350/nextgen_v1/phoenix_replay_protected_sft_sweep.py',
+            'frontier350/nextgen_v1/phoenix_oasst1_sft_sweep.py',
+            'frontier350/nextgen_v1/stage_oasst2_sft.py',
+            'frontier350/nextgen_v1/validate_frontier_corpus_admission.py',
+            'frontier350/nextgen_v1/validate_phoenix_hf_registry.py'
+          )
+          $joined=($files -join ' ')
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; python3 -m py_compile $joined"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'py_compile failed' }
+          Write-Host 'Critical Python compile check passed.'

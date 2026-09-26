@@ -35,5 +35,5 @@
       "role": "math"
     }
   },
-  "origin": "Revisions measured and admitted by successful data pilot run 34378553049. Production corpus construction must not silently advance these SHAs."
+  "origin": "Immutable source revisions measured during data-pilot work. This file locks identity only; training authorization is controlled separately by hf_source_policy50.py. Presence here does not admit FineMath."
 }

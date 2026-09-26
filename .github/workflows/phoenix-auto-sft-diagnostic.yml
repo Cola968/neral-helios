@@ -1,0 +1,88 @@
+name: Phoenix auto-screened OASST2 SFT diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: true
+
+jobs:
+  real-auto-sft:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_auto_sft_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Run bounded real OASST2 SFT diagnostic on own 350M weights
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_auto_sft_' + $env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private='D:\NeralPrivateAssets'
+          $archive=Join-Path $private 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $out=Join-Path $private ('phoenix\auto_sft_diag_' + $env:GITHUB_RUN_ID)
+
+          foreach($p in @($repo,$source,$assets,$private,$archive,$out)) {
+            if($p.Contains("'")) { throw 'Unsafe quote in local path' }
+          }
+          if(-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Historical 350M source missing' }
+          if(-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned OASST2 archive missing' }
+          if(-not (Test-Path -LiteralPath $assets -PathType Container)) { throw 'Tokenizer assets root missing' }
+          if(Test-Path -LiteralPath $out) { throw 'Create-only SFT diagnostic output already exists' }
+
+          Write-Host 'Pre-SFT GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_auto_sft_diagnostic.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_auto_sft_diagnostic.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --private-root '$(ToWsl $private)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)' --steps 50 --batch 4 --train-blocks 4"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Auto-screened SFT diagnostic failed or did not improve validation' }
+
+          $report=Join-Path $out 'report.json'
+          if(-not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'SFT diagnostic report missing' }
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($r.classification -ne 'auto_screened_public_oasst2_diagnostic_not_human_approved') { throw 'Wrong diagnostic classification' }
+          if($r.production_eligible -ne $false -or $r.human_review_complete -ne $false -or $r.independent_holdout_checked -ne $false) { throw 'Unsafe promotion state' }
+          if($r.validation_loss_improved -ne $true -or $r.candidate_checkpoint_written -ne $true) { throw 'No validated diagnostic candidate' }
+          if($r.master_parameter_dtype -ne 'float32' -or $r.adamw_moment_dtype -ne 'float32' -or $r.compute_autocast_dtype -ne 'bfloat16') { throw 'Wrong SFT precision contract' }
+          Write-Host '=== SAFE AGGREGATE SFT RESULT ==='
+          [ordered]@{
+            parameters=$r.parameters
+            trainable_parameters=$r.trainable_parameters
+            steps=$r.steps
+            packed_rows=$r.packed_rows
+            auto_rejected_rows=$r.auto_rejected_rows
+            validation_loss_before=$r.validation_loss_before
+            validation_loss_after=$r.validation_loss_after
+            supervised_answer_tokens_trained=$r.supervised_answer_tokens_trained
+            training_wall_seconds=$r.training_wall_seconds
+            peak_cuda_allocated_mib=$r.peak_cuda_allocated_mib
+            peak_cuda_reserved_mib=$r.peak_cuda_reserved_mib
+            candidate_sha256=$r.candidate_sha256
+            production_eligible=$r.production_eligible
+          } | ConvertTo-Json -Compress | Write-Host
+
+      - name: Post-SFT GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'Candidate and all private data remain local on D:. Nothing is uploaded as an artifact.'

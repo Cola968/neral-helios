@@ -1,0 +1,68 @@
+name: Phoenix low-LR auto-SFT development sweep
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact sweep revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_auto_sft_sweep_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Run predeclared low-LR SFT sweep and save only hard-gated best
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_auto_sft_sweep_' + $env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private='D:\NeralPrivateAssets'
+          $archive=Join-Path $private 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $out=Join-Path $private ('phoenix\auto_sft_sweep_' + $env:GITHUB_RUN_ID)
+          foreach($p in @($repo,$source,$assets,$private,$archive,$out)) { if($p.Contains("'")) { throw 'Unsafe quote in path' } }
+          if(Test-Path -LiteralPath $out) { throw 'Create-only sweep output exists' }
+          nvidia-smi --query-gpu=name,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_auto_sft_sweep.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_auto_sft_sweep.py --execute --trusted-own-checkpoint --checkpoint '$(ToWsl $source)' --assets-root '$(ToWsl $assets)' --private-root '$(ToWsl $private)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'SFT sweep failed' }
+
+          $report=Join-Path $out 'sweep_report.json'
+          if(-not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'Sweep report missing' }
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($r.production_eligible -ne $false -or $r.human_review_complete -ne $false -or $r.independent_holdout_checked -ne $false) { throw 'Unsafe sweep state' }
+          Write-Host '=== SAFE SWEEP SUMMARY ==='
+          [ordered]@{
+            baseline=$r.baseline
+            qualified_count=$r.qualified_count
+            selected=$r.selected
+            candidate_checkpoint_written=$r.candidate_checkpoint_written
+            candidate_sha256=$r.candidate_sha256
+            production_eligible=$r.production_eligible
+          } | ConvertTo-Json -Compress -Depth 6 | Write-Host
+
+      - name: Post-sweep GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No private data or candidate checkpoint uploaded.'

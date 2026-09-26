@@ -43,15 +43,47 @@ class SourceSpec:
     kind: str
 
 
-# 10B foundation target: language/knowledge + education + math, with a meaningful German slice.
-# OASST2 and future preference/code instruction sets are post-training sources, not repeated
-# hundreds of millions of times in foundation pretraining.
+# Policy-approved production baseline. FineMath remains a separately locked candidate,
+# not a default source, until its candidate-admission/contamination review is completed.
+# The 61/24/15 recipe is explicit rather than silently renormalizing the old 85% subset.
 DEFAULT_SOURCES = [
-    SourceSpec("fineweb_edu_en", "HuggingFaceFW/fineweb-edu", "sample-10BT", "train", "odc-by", "text", 0.52, "en", "education"),
-    SourceSpec("fineweb_en", "HuggingFaceFW/fineweb", "sample-10BT", "train", "odc-by", "text", 0.20, "en", "general"),
-    SourceSpec("fineweb2_de", "HuggingFaceFW/fineweb-2", "deu_Latn", "train", "odc-by", "text", 0.13, "de", "general"),
-    SourceSpec("finemath", "HuggingFaceTB/finemath", "finemath-3plus", "train", "odc-by", "text", 0.15, "multi", "math"),
+    SourceSpec("fineweb_edu_en", "HuggingFaceFW/fineweb-edu", "sample-10BT", "train", "odc-by", "text", 0.61, "en", "education"),
+    SourceSpec("fineweb_en", "HuggingFaceFW/fineweb", "sample-10BT", "train", "odc-by", "text", 0.24, "en", "general"),
+    SourceSpec("fineweb2_de", "HuggingFaceFW/fineweb-2", "deu_Latn", "train", "odc-by", "text", 0.15, "de", "general"),
 ]
+
+FINEMATH_CANDIDATE = SourceSpec(
+    "finemath", "HuggingFaceTB/finemath", "finemath-3plus", "train",
+    "odc-by", "text", 0.15, "multi", "math"
+)
+
+
+def assert_sources_allowed_by_policy(specs=DEFAULT_SOURCES) -> dict[str, dict]:
+    """Fail closed before any network/data side effect if a source is not policy-approved.
+
+    The 350M source recipe must not bypass the repository-wide Hugging Face policy merely
+    because a dataset has an allowed top-level license or an immutable source lock.
+    """
+    import sys
+    repo_root = str(Path(__file__).resolve().parents[1])
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from hf_source_policy50 import assert_training_allowed
+
+    checked: dict[str, dict] = {}
+    for spec in specs:
+        policy = assert_training_allowed(spec.repo)
+        if policy.role != "pretrain":
+            raise RuntimeError(
+                f"350M foundation source must be policy role pretrain: {spec.repo} ({policy.role})"
+            )
+        checked[spec.name] = {
+            "dataset_id": policy.dataset_id,
+            "role": policy.role,
+            "license": policy.license,
+            "content_origin": policy.content_origin,
+        }
+    return checked
 
 
 def normalize(text: str) -> str:
@@ -241,6 +273,7 @@ def main() -> None:
         raise SystemExit("validation tokens must be smaller than total")
     if abs(sum(s.share for s in DEFAULT_SOURCES) - 1.0) > 1e-9:
         raise RuntimeError("source shares must sum to 1")
+    source_policy = assert_sources_allowed_by_policy(DEFAULT_SOURCES)
     for spec in DEFAULT_SOURCES:
         if spec.license not in ALLOWED_LICENSES:
             raise RuntimeError(f"license not admitted: {spec}")
@@ -281,8 +314,12 @@ def main() -> None:
         "train_tokens": sum(x["tokens"] for x in train_files),
         "validation_tokens": sum(x["tokens"] for x in valid_files),
         "seed_note": args.seed_note,
-        "benchmark_content_included": False,
+        "recipe_id": "frontier350-approved-policy-baseline-v2-no-finemath",
+        "finemath_candidate_included": False,
+        "benchmark_content_included": None,
+        "benchmark_screening_status": "NOT_PERFORMED_BY_THIS_BUILDER_REQUIRES_SEPARATE_AUDIT",
         "licenses": sorted({s.license for s in DEFAULT_SOURCES}),
+        "source_policy": source_policy,
         "resolved_revisions": resolved,
         "sources": source_reports,
         "train_files": train_files,

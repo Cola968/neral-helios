@@ -153,6 +153,46 @@ class CheckpointJournal:
                 'processed_tokens': tokens, 'bytes': dest.stat().st_size,
                 'kind': kind}
 
+    def _retire_old_generations(self) -> list[dict]:
+        """Keep only the newest verified generations and retain a metadata audit trail.
+
+        Pruning happens only AFTER latest.json points at a SHA-verified current
+        generation. Deleting an old hard link never removes resume.pt or another
+        retained generation. This bounds disk growth without weakening rollback.
+        """
+        latest = json.loads((self.root / 'latest.json').read_text(encoding='utf8'))
+        latest_path = _checked_generation(self.root, latest)
+        entries = []
+        for path in self.root.glob('ckpt-*.pt'):
+            match = _NAME.fullmatch(path.name)
+            if match is None or path.is_symlink() or not path.is_file():
+                raise RuntimeError('unknown or redirected checkpoint generation')
+            entries.append((int(match.group(1)), match.group(2), path))
+        entries.sort(key=lambda item: (item[0], item[1]))
+        if len(entries) <= self.retain:
+            return []
+        keep = {path.name for _, _, path in entries[-self.retain:]}
+        keep.add(latest_path.name)
+        retired = []
+        for tokens, digest, path in entries:
+            if path.name in keep:
+                continue
+            # Filename identity is part of the journal contract. Verify bytes one
+            # final time before retiring the hard link; preserve only metadata.
+            if sha256_file(path) != digest:
+                raise ValueError('old checkpoint generation is corrupt; refuse pruning')
+            record = {'schema': 1, 'name': path.name, 'sha256': digest,
+                      'processed_tokens': tokens, 'bytes': path.stat().st_size}
+            history = self.root / 'retired.jsonl'
+            with history.open('a', encoding='utf8') as output:
+                output.write(json.dumps(record, sort_keys=True, separators=(',', ':')) + '\n')
+                output.flush()
+                os.fsync(output.fileno())
+            path.unlink()
+            retired.append(record)
+        _sync_directory(self.root)
+        return retired
+
     def commit(self, state: dict, target: Path) -> dict:
         if Path(target).resolve() != self.resume:
             self.writer(state, Path(target))  # For example, best_validation.pt.
@@ -180,8 +220,9 @@ class CheckpointJournal:
         receipt = self._archive(tokens, digest)
         _atomic_receipt(self.root / 'latest.json', receipt)
         self.last_tokens, self.last_sha = tokens, digest
-        # Non-destructive retention: leave old generations until separately
-        # audited disk-pressure management. Never delete a known-good state here.
+        # Keep a small rolling set of fully resumable, SHA-verified generations.
+        # Older hard links are retired only after the new latest receipt is durable.
+        self._retire_old_generations()
         return receipt
 
     def verify(self) -> dict:
@@ -190,6 +231,45 @@ class CheckpointJournal:
         if sha256_file(self.resume) != latest['sha256']:
             raise ValueError('resume.pt changed after commit; recover from journal explicitly')
         return latest
+
+
+def quarantine_stale_resume_temp(resume: Path) -> dict:
+    """Quarantine an interrupted atomic-save temp only after durable state verification.
+
+    The function never accepts the temp as a checkpoint and never deletes it. It first
+    proves that resume.pt, latest.json and the latest hard-linked generation all share
+    the same SHA-256. Only then may an existing resume.pt.tmp be moved to a unique,
+    content-addressed abandoned file next to resume.pt.
+    """
+    resume = Path(resume).resolve()
+    if resume.name != 'resume.pt' or not resume.is_file():
+        raise ValueError('regular resume.pt required')
+    root = resume.parent / 'checkpoint_journal'
+    latest_path = root / 'latest.json'
+    if not latest_path.is_file():
+        raise FileNotFoundError('journal latest receipt missing')
+    receipt = json.loads(latest_path.read_text(encoding='utf8'))
+    generation = _checked_generation(root, receipt)
+    digest = receipt['sha256']
+    if sha256_file(resume) != digest or sha256_file(generation) != digest:
+        raise ValueError('resume/journal identity mismatch; refuse temp quarantine')
+    temporary = resume.with_name(resume.name + '.tmp')
+    if not temporary.exists():
+        return {'quarantined': False, 'resume_sha256': digest,
+                'processed_tokens': receipt['processed_tokens']}
+    if temporary.is_symlink() or not temporary.is_file():
+        raise ValueError('stale temp is redirected or not a regular file')
+    temp_digest = sha256_file(temporary)
+    destination = resume.parent / f'abandoned-resume-tmp-{temp_digest}.pt'
+    if destination.exists():
+        raise FileExistsError('content-addressed temp quarantine already exists')
+    os.replace(temporary, destination)
+    _sync_directory(resume.parent)
+    if sha256_file(destination) != temp_digest:
+        raise IOError('quarantined temp changed during move')
+    return {'quarantined': True, 'resume_sha256': digest,
+            'processed_tokens': receipt['processed_tokens'],
+            'temp_sha256': temp_digest, 'quarantine_name': destination.name}
 
 
 def recover_to_new_file(*, journal: Path, destination: Path) -> dict:

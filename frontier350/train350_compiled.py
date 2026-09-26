@@ -19,6 +19,7 @@ from model350 import FRONTIER_350, Neral350M
 from train350 import CHECKPOINT_SCHEMA, append_jsonl, atomic_save, checkpoint_state, cosine_lr
 from recovery_identity import file_sha
 from native_resume_preflight350 import corpus_identity, read_verified_resume, run_contract
+from fresh_stop_boundary350 import require_fresh_stop_boundary
 from window_sampler350 import SAMPLER_VERSION, WindowSampler
 
 PARAMETERS = 349_825_152
@@ -127,6 +128,11 @@ def main() -> None:
         raise ValueError('invalid optimizer settings')
     if args.seq > FRONTIER_350.max_seq_len:
         raise ValueError('sequence exceeds architecture context')
+    # Fresh as well as resumed calls must never stop inside an intermediate
+    # AdamW update; guard before dataset, GPU or output side effects.
+    require_fresh_stop_boundary(target=args.target_tokens, stop=run_until,
+                                seq=args.seq, microbatch=args.microbatch,
+                                grad_accum=args.grad_accum)
 
     out = Path(args.out).absolute()
     if out.exists() and any(out.iterdir()) and (not args.resume or Path(args.resume).resolve() != (out / 'resume.pt').resolve()):
@@ -301,7 +307,8 @@ def main() -> None:
         best = min(best, val)
         ev = {'event': 'validation', 'step': step, 'processed_tokens': processed,
               'validation_loss': val, 'best_validation_loss': best,
-              'validation_seed': validation_seed, 'validation_identity': validation_identity}
+              'validation_seed': validation_seed,
+              'validation_identity': validation_identity}
         print(json.dumps(ev), flush=True)
         append_jsonl(metrics, ev)
     atomic_save(save_state(), out / 'resume.pt')
