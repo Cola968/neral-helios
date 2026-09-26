@@ -45,24 +45,30 @@ jobs:
           $anchorSha='f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'
           $reference='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466\resume.pt'
           $referenceSha='d54d3f752b22be09257164459c3bf56b0dd5c430db023882c4546430988a4963'
-          $audit='D:\NeralPrivateAssets\phoenix\finemath_audit_36231386302\FINEMATH_ADMISSION_RESULT.json'
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
           $private='D:\NeralPrivateAssets\phoenix'
+          $auditDir=Join-Path $private ('finemath_dev_audit_'+$env:GITHUB_RUN_ID)
+          $audit=Join-Path $auditDir 'FINEMATH_ADMISSION_RESULT.json'
           $corpus=Join-Path $private ('finemath_dev_refresh_'+$env:GITHUB_RUN_ID)
           $trainOut=Join-Path $private ('finemath_dev_train_'+$env:GITHUB_RUN_ID)
           $mixEval=Join-Path $trainOut 'mix_ab.json'
 
-          foreach($p in @($repo,$anchor,$reference,$audit,$assets,$tokenizer,$private,$corpus,$trainOut,$mixEval)){
+          foreach($p in @($repo,$anchor,$reference,$assets,$tokenizer,$private,$auditDir,$audit,$corpus,$trainOut,$mixEval)){
             if($p.Contains("'")){throw 'Unsafe quote in path'}
           }
-          foreach($p in @($anchor,$reference,$audit,$tokenizer)){
+          foreach($p in @($anchor,$reference,$tokenizer)){
             if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}
           }
           if((Get-FileHash -LiteralPath $anchor -Algorithm SHA256).Hash.ToLowerInvariant() -ne $anchorSha){throw 'Anchor SHA mismatch'}
           if((Get-FileHash -LiteralPath $reference -Algorithm SHA256).Hash.ToLowerInvariant() -ne $referenceSha){throw 'Reference SHA mismatch'}
           if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Tokenizer SHA mismatch'}
-          if((Test-Path -LiteralPath $corpus) -or (Test-Path -LiteralPath $trainOut)){throw 'Create-only output path exists'}
+          if((Test-Path -LiteralPath $auditDir) -or (Test-Path -LiteralPath $corpus) -or (Test-Path -LiteralPath $trainOut)){throw 'Create-only output path exists'}
+
+          $auditCmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile audit_finemath_sample50.py hf_candidate_admission50.py hf_source_policy50.py; ~/.venvs/neral-triton-py312/bin/python -B -u audit_finemath_sample50.py --sample-rows 10000 --sampling stratified-v1 --request-interval 0.55 --out '$(ToWsl $auditDir)'; ~/.venvs/neral-triton-py312/bin/python -B -u hf_candidate_admission50.py --manifest '$(ToWsl (Join-Path $auditDir 'FINEMATH_CANDIDATE_MANIFEST.json'))' --out '$(ToWsl $audit)'"
+          & wsl.exe -- bash -lc $auditCmd
+          if($LASTEXITCODE -ne 0){throw 'FineMath 10k audit failed; no corpus/training started'}
+          if(-not(Test-Path -LiteralPath $audit -PathType Leaf)){throw 'FineMath admission result missing'}
 
           $a=Get-Content -LiteralPath $audit -Raw|ConvertFrom-Json
           if($a.dataset_id -ne 'HuggingFaceTB/finemath' -or $a.audit_pass -ne $true -or
