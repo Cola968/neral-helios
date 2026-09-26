@@ -297,6 +297,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--seq", type=int, default=256)
     ap.add_argument("--microbatch", type=int, default=1)
+    ap.add_argument("--grad-accum", type=int, default=1)
     ap.add_argument("--gradient-checkpointing", choices=("on", "off"), default="off")
     ap.add_argument("--compile-mode", choices=("none", "default"), default="none")
     ap.add_argument("--warmup-updates", type=int, default=1)
@@ -306,7 +307,7 @@ def main() -> int:
         ap.error("--execute required")
     if args.out.exists():
         raise RuntimeError("output is create-only")
-    if not (1 <= args.seq <= CFG.max_seq_len and 1 <= args.microbatch <= 8):
+    if not (1 <= args.seq <= CFG.max_seq_len and 1 <= args.microbatch <= 8 and 1 <= args.grad_accum <= 32):
         raise ValueError("invalid benchmark shape")
     if min(args.warmup_updates, args.measure_updates) <= 0:
         raise ValueError("positive update counts required")
@@ -335,20 +336,29 @@ def main() -> int:
 
     gen = torch.Generator(device=device)
     gen.manual_seed(12026)
-    x = torch.randint(0, CFG.vocab_size, (args.microbatch, args.seq), generator=gen, device=device)
-    y = torch.randint(0, CFG.vocab_size, (args.microbatch, args.seq), generator=gen, device=device)
 
     def update() -> float:
         muon.zero_grad(set_to_none=True)
         adamw.zero_grad(set_to_none=True)
-        loss = train_model(x, y)
-        if not bool(torch.isfinite(loss)):
-            raise FloatingPointError("non-finite loss")
-        loss.backward()
+        total_loss = 0.0
+        for _ in range(args.grad_accum):
+            x = torch.randint(
+                0, CFG.vocab_size, (args.microbatch, args.seq),
+                generator=gen, device=device
+            )
+            y = torch.randint(
+                0, CFG.vocab_size, (args.microbatch, args.seq),
+                generator=gen, device=device
+            )
+            loss = train_model(x, y)
+            if not bool(torch.isfinite(loss)):
+                raise FloatingPointError("non-finite loss")
+            (loss / args.grad_accum).backward()
+            total_loss += float(loss.detach())
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
         muon.step()
         adamw.step()
-        return float(loss.detach())
+        return total_loss / args.grad_accum
 
     model.train()
     warmup_seconds = 0.0
@@ -367,7 +377,7 @@ def main() -> int:
         times.append(time.perf_counter() - t0)
 
     measured_seconds = sum(times)
-    tokens_per_update = args.seq * args.microbatch
+    tokens_per_update = args.seq * args.microbatch * args.grad_accum
     measured_tokens = tokens_per_update * args.measure_updates
     props = torch.cuda.get_device_properties(0)
     summary = {
@@ -382,6 +392,7 @@ def main() -> int:
         "compile_mode": args.compile_mode,
         "seq": args.seq,
         "microbatch": args.microbatch,
+        "grad_accum": args.grad_accum,
         "tokens_per_update": tokens_per_update,
         "warmup_seconds": warmup_seconds,
         "measured_updates": args.measure_updates,
@@ -406,7 +417,7 @@ def main() -> int:
     args.out.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, sort_keys=True), flush=True)
 
-    del train_model, model, muon, adamw, x, y
+    del train_model, model, muon, adamw
     gc.collect()
     torch.cuda.empty_cache()
     return 0
