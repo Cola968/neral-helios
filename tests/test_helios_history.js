@@ -12,6 +12,12 @@ const pair=(text,checkpoint='pilot_02')=>[{role:'user',mode:'chat',content:text}
 test('history drops whole pairs and respects byte budget',()=>{
   const r=core.context([...pair('😀'.repeat(20)),...pair('neu')],'Hi',30,100,'pilot_02');
   assert.equal(r.omitted,1);assert.equal(r.history.length,2);assert.equal(r.history[0].role,'user');assert.ok(r.fits);
+  assert.equal(r.budget,30);assert.equal(r.maxContext,100);assert.equal(r.pairs,1);assert.ok(r.used<=r.maxContext);
+});
+test('compatible history keeps only complete matching model pairs',()=>{
+  const rows=[...pair('alt','neral50m'),...pair('eins'),...pair('zwei'),...pair('drei')];
+  const r=core.compatibleHistory(rows,'pilot_02',2);
+  assert.equal(r.length,4);assert.equal(r[0].content,'zwei');assert.equal(r[2].content,'drei');
 });
 test('history never mixes checkpoints or tools',()=>{
   const rows=[...pair('anderes','neral50m'),{role:'user',mode:'solve',content:'2+2'},{role:'assistant',mode:'solve-tool',content:'4'},...pair('eigen')];

@@ -36,7 +36,9 @@ def import_checkpoint(source,expected_sha,key,label,assets):
         (target/'import-report.json').write_text(json.dumps(report,indent=2))
         catalog_path=root/'catalog.json';rows=json.loads(catalog_path.read_text()) if catalog_path.exists() else []
         if len(rows)>=32 or any(r['id']==key for r in rows):raise ValueError('Catalog full or duplicate')
-        rows.append({'id':key,'label':label})
+        rows.append({'id':key,'label':label,'runtime_family':'legacy-byte-v1',
+                     'status':'development','parameters':parameters,
+                     'context_tokens':cfg.max_seq_len})
         with tempfile.NamedTemporaryFile('w',dir=root,delete=False,encoding='utf-8') as tmp:json.dump(rows,tmp);tmp.flush();os.fsync(tmp.fileno());name=tmp.name
         os.replace(name,catalog_path)
     finally:

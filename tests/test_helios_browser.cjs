@@ -20,16 +20,27 @@ const root=path.resolve(__dirname,'..');
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/api/**',async route=>{
    const url=new URL(route.request().url());let data={available:false};if(url.pathname==='/api/chats')data={chats:[]};
-   if(url.pathname==='/api/info')data={parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},checkpoint_sha256:'test-fixture',device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:true,checkpoints:['pilot_02','neral50m'],i1_export_available:false};
+   if(url.pathname==='/api/info')data={parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},checkpoint_sha256:'test-fixture',device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:true,checkpoints:['pilot_02','neral50m'],models:[{id:'pilot_02',label:'Neral 20M · Preview 02',runtime_family:'legacy-byte-v1',status:'development',selectable:true,active:true},{id:'neral50m',label:'Neral 50M · Sprachpilot',runtime_family:'legacy-byte-v1',status:'development',selectable:true,active:false},{id:'neral-arctus-350',label:'Arctus 350M · Phoenix',runtime_family:'frontier350-bpe-v1',status:'candidate',parameters:349825152,context_tokens:512,selectable:false,active:false,blocked_reason:'Frontier-350-Runtime noch nicht mit Workspace verbunden.'}],i1_export_available:false};
    if(url.pathname==='/api/projects')data={projects:[]};
    if(url.pathname==='/api/generate'||url.pathname==='/api/model'){modelCalls++;throw Error('Model requests forbidden in UI tests');}
    await route.fulfill({json:data});
   });
   await page.goto('http://127.0.0.1:'+server.address().port);
   await page.locator('#checkpoint option[value=pilot_02]').waitFor({state:'attached'});
+  await page.locator('#runtimeChipText').waitFor();
+  assert.match(await page.locator('#runtimeChipText').textContent(),/pilot_02/);
+  assert.equal(await page.locator('#runtimeChip').getAttribute('data-state'),'ready');
+  await page.locator('#prompt').fill('Kontextanzeige testen');
+  assert.equal(await page.locator('#contextMeter').isVisible(),true);
+  assert.match(await page.locator('#contextText').textContent(),/^Kontext \d+ %$/);
+  assert.equal(await page.locator('#contextTrack').getAttribute('aria-valuenow')!==null,true);
+  await page.locator('#runtimeChip').click();assert.equal(await page.locator('#inspector').isVisible(),true);await page.locator('#closeInspect').click();
   await page.locator('#modelPicker summary').click();
-  assert.equal(await page.locator('#modelOptions button').count(),2);
+  assert.equal(await page.locator('#modelOptions button').count(),3);
   assert.equal(await page.locator('#modelOptions button[aria-pressed=true]').count(),1);
+  assert.equal(await page.locator('#modelOptions button[data-runtime="frontier350-bpe-v1"]').count(),1);
+  assert.equal(await page.locator('#modelOptions button[data-runtime="frontier350-bpe-v1"]').isDisabled(),true);
+  assert.match(await page.locator('#modelOptions button[data-runtime="frontier350-bpe-v1"]').textContent(),/Arctus 350M/);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#modelPicker').getAttribute('open'),null);
   assert.equal(await page.locator('.composer-model #checkpoint').count(),1);
@@ -56,6 +67,14 @@ const root=path.resolve(__dirname,'..');
    const box=await page.locator('#modelPicker summary').boundingBox();assert(box&&box.x>=0&&box.x+box.width<=width,'model picker outside viewport');
    if(width<730){await page.locator('#menu').click();await page.locator('#sidebarBackdrop').click({position:{x:width-10,y:300}});assert.equal(await page.locator('#sidebarBackdrop').isVisible(),false);}
   }
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await page.locator('#mobileNav').isVisible(),true);
+  await page.locator('#mobileSolve').click();assert.match(await page.locator('#prompt').getAttribute('placeholder'),/Rechnung/);
+  assert.equal(await page.locator('#mobileSolve').getAttribute('aria-pressed'),'true');
+  await page.locator('#mobileProjects').click();await page.locator('#projectWorkspace').waitFor({state:'visible'});
+  await page.locator('#mobileChat').click();assert.equal(await page.locator('#projectWorkspace').isVisible(),false);
+  await page.locator('#mobileSettings').click();assert.equal(await page.locator('#settingsDialog').isVisible(),true);await page.locator('#closeSettings').click();
+  await page.setViewportSize({width:1440,height:900});assert.equal(await page.locator('#mobileNav').isVisible(),false);
   await page.locator('#welcomeProjects').click();await page.locator('#projectWorkspace').waitFor({state:'visible'});
   await page.keyboard.press('Escape');assert.equal(await page.locator('#projectWorkspace').isVisible(),false);
   await page.locator('#chatActions summary').click();await page.locator('#theme').click();
@@ -71,7 +90,8 @@ const root=path.resolve(__dirname,'..');
   await page.route('**/api/info',route=>route.fulfill({json:{parameters:20587008,layers:6,heads:8,vocab_size:260,max_seq_len:4096,checkpoint_meta:{},device:'cpu',active_checkpoint:'pilot_02',checkpoint_loaded:false,checkpoints:['pilot_02','neral50m'],preparation_mode:true}}));
   await page.reload();await page.locator('#modelOptions button').first().waitFor({state:'attached'});
   assert.equal(await page.locator('#modelOptions button:disabled').count(),2);
+  assert.equal(await page.locator('#runtimeChip').getAttribute('data-state'),'tools');
   assert.deepEqual(errors,[]);assert.equal(modelCalls,0);
-  console.log('PASS: light/dark, draft/reload, import/Markdown/XSS, variants/delete, model picker, mobile navigation, projects; zero model requests');
+  console.log('PASS: runtime status, context meter, mobile primary navigation, light/dark, draft/reload, import/Markdown/XSS, variants/delete, model picker, projects; zero model requests');
  }finally{if(browser)await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

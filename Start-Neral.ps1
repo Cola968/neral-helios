@@ -130,15 +130,50 @@ if(-not $appPython){
     if($LASTEXITCODE -ne 0){throw 'App-Abhaengigkeiten konnten nicht installiert werden.'}
 }
 
+# Frontier needs Hugging Face tokenizers, but legacy Helios must remain usable when
+# that optional dependency cannot be installed (for example while offline).
+& $appPython -c "import tokenizers" *> $null
+if($LASTEXITCODE -ne 0){
+    Write-Host 'Helios versucht die optionale Frontier-Tokenizer-Runtime zu ergänzen.' -ForegroundColor Yellow
+    & $appPython -m pip install --disable-pip-version-check tokenizers
+    if($LASTEXITCODE -ne 0){
+        Write-Warning 'tokenizers fehlt. Legacy Neral bleibt nutzbar; Frontier 350 kann bis zur Installation nicht gestartet werden.'
+    }
+}
+
+function Test-FrontierCudaPython {
+    param([string]$Exe)
+    if(-not $Exe -or -not(Test-Path -LiteralPath $Exe -PathType Leaf)){return $false}
+    try{
+        & $Exe -c "import torch, tokenizers; raise SystemExit(0 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 1)" *> $null
+        return ($LASTEXITCODE -eq 0)
+    }catch{return $false}
+}
+
+if(-not $env:HELIOS_FRONTIER_PYTHON){
+    $frontierCandidates=@(
+        $env:NERAL_FRONTIER_PYTHON,
+        (Join-Path $appRoot '.venv\Scripts\python.exe'),
+        $appPython
+    ) | Where-Object { $_ } | Select-Object -Unique
+    foreach($candidate in $frontierCandidates){
+        if(Test-FrontierCudaPython $candidate){
+            $env:HELIOS_FRONTIER_PYTHON=(Resolve-Path -LiteralPath $candidate).Path
+            Write-Host 'Frontier 350 nutzt automatisch die vorhandene CUDA-Python-Umgebung.' -ForegroundColor Green
+            break
+        }
+    }
+}
+
 $env:PYTHONDONTWRITEBYTECODE='1'
 $env:HELIOS_DEVICE='cpu'
 $env:CUDA_VISIBLE_DEVICES=''
 $env:HELIOS_STATE_ROOT=$state
 $env:HELIOS_PREPARATION_MODE='0'
-$env:HELIOS_CHECKPOINT='neral50m_i1'
 $env:HELIOS_PORT='9686'
 $env:HELIOS_ASSETS_ROOT=Join-Path $appRoot 'deployment'
 
+$supportedAppVersions=@('2.0','2.1-dev')
 $url='http://127.0.0.1:9686/'
 function Get-NeralInfo {
     $null=Invoke-WebRequest $url -UseBasicParsing -SessionVariable appSession -TimeoutSec 2
@@ -147,16 +182,16 @@ function Get-NeralInfo {
 $ready=$false
 try{
     $info=Get-NeralInfo
-    $ready=($info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
+    $ready=($supportedAppVersions -contains $info.app_version -and -not $info.preparation_mode)
 }catch{}
 
 if(-not $ready){
     Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','app.py') -WorkingDirectory $appRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'app.log') -RedirectStandardError (Join-Path $state 'app-error.log') | Out-Null
-    for($attempt=0;$attempt -lt 45;$attempt++){
+    for($attempt=0;$attempt -lt 90;$attempt++){
         Start-Sleep -Seconds 1
         try{
             $info=Get-NeralInfo
-            if($info.checkpoint_loaded -and $info.device -eq 'cpu' -and $info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and -not $info.preparation_mode){$ready=$true;break}
+            if(($supportedAppVersions -contains $info.app_version) -and -not $info.preparation_mode){$ready=$true;break}
         }catch{}
     }
 }

@@ -1,0 +1,104 @@
+name: Helios Frontier 350 RTX qualification
+
+on:
+  push:
+    branches: [app/helios-context-status-20260924]
+    paths:
+      - '.github/workflows/helios-frontier-rtx-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-helios-frontier-rtx-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact runtime revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: helios_rtx_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Sanitize own 350M checkpoint and qualify CUDA runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('helios_rtx_'+$env:GITHUB_RUN_ID)
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $sourceSha='f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $tokenizerSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $private='D:\NeralPrivateAssets\phoenix'
+          $root=Join-Path $private ('helios_rtx_qualification_'+$env:GITHUB_RUN_ID)
+          $deployment=Join-Path $root 'deployment'
+          $reports=Join-Path $root 'reports'
+          $bundle=Join-Path $deployment 'installed_models\neral-arctus-350'
+
+          foreach($p in @($repo,$source,$assets,$tokenizer,$private,$root,$deployment,$reports,$bundle)){
+            if($p.Contains("'")){throw 'Unsafe quote in path'}
+          }
+          foreach($p in @($source,$tokenizer)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}
+          }
+          if(-not(Test-Path -LiteralPath $private -PathType Container)){throw 'Private Phoenix root missing'}
+          if(Test-Path -LiteralPath $root){throw 'Create-only qualification root already exists'}
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sourceSha){throw 'Historical checkpoint SHA mismatch'}
+          if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tokenizerSha){throw 'Tokenizer SHA mismatch'}
+
+          Write-Host 'Pre-qualification GPU telemetry:'
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'nvidia-smi failed'}
+
+          $cmd="set -euo pipefail; export PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -c 'import torch,tokenizers; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0))'; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350_contract.py frontier_sidecar.py frontier_runtime.py import_frontier350.py qualify_frontier350.py; mkdir -p '$(ToWsl $deployment)' '$(ToWsl $reports)'; ~/.venvs/neral-triton-py312/bin/python -B -u import_frontier350.py --source '$(ToWsl $source)' --sha256 '$sourceSha' --tokenizer '$(ToWsl $tokenizer)' --tokenizer-sha256 '$tokenizerSha' --id neral-arctus-350 --label 'Arctus 350M 2.073B technical qualification' --assets '$(ToWsl $deployment)' --status development --context-tokens 512 --runtime-port 9683; ~/.venvs/neral-triton-py312/bin/python -B -u qualify_frontier350.py --bundle '$(ToWsl $bundle)' --runtime-script '$(ToWsl (Join-Path $repo 'frontier_runtime.py'))' --out-dir '$(ToWsl $reports)' --context-tokens 512"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Frontier 350 RTX runtime qualification failed'}
+
+          $report=Get-ChildItem -LiteralPath $reports -Filter 'frontier350-qualification-*.json' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if(-not $report){throw 'Qualification report missing'}
+          $q=Get-Content -LiteralPath $report.FullName -Raw|ConvertFrom-Json
+          if($q.qualified -ne $true -or $q.training_started -ne $false -or $q.quality_promotion -ne $false -or $q.bundle_unchanged -ne $true){
+            throw 'Qualification gates did not pass'
+          }
+          Write-Host '=== HELIOS FRONTIER 350 RTX QUALIFICATION ==='
+          [ordered]@{
+            qualified=$q.qualified
+            gpu=$q.health.gpu
+            device=$q.health.device
+            decoder=$q.health.decoder
+            kv_cache=$q.health.kv_cache
+            streaming=$q.health.streaming
+            cancel_supported=$q.health.cancel_supported
+            cancel_effective=$q.gates.cancel_effective
+            median_first_token_ms=$q.metrics.median_first_token_ms
+            median_decode_tokens_per_second=$q.metrics.median_decode_tokens_per_second
+            max_peak_vram_mib=$q.metrics.max_peak_vram_mib
+            responses_with_tokens=$q.metrics.responses_with_tokens
+            deployment_sha256=$q.bundle.deployment_sha256
+            tokenizer_sha256=$q.bundle.tokenizer_sha256
+            bundle_unchanged=$q.bundle_unchanged
+            local_report=$report.FullName
+          } | ConvertTo-Json -Compress -Depth 8 | Write-Host
+          Write-Host 'Sanitized deployment and technical reports remain local on D:. No model artifact uploaded.'
+
+      - name: Post-run GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader

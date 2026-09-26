@@ -2,7 +2,7 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
-  function context(messages,prompt,budget,maxContext,checkpoint){
+  function compatibleHistory(messages,checkpoint,maxPairs=6){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
@@ -10,11 +10,17 @@
         pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content}]);i++;
       }
     }
+    return pairs.slice(-Math.max(0,maxPairs)).flat();
+  }
+  function context(messages,prompt,budget,maxContext,checkpoint){
+    const historyAll=compatibleHistory(messages,checkpoint,Number.MAX_SAFE_INTEGER);
+    const pairs=[];for(let i=0;i<historyAll.length;i+=2)pairs.push(historyAll.slice(i,i+2));
     const format=rows=>rows.map(m=>(m.role==='user'?'User':'Assistant')+': '+m.content.trim()+'\n').join('')+'User: '+prompt.trim()+'\nAssistant:';
     const original=pairs.length;
     while(pairs.length&&(pairs.length>6||bytes(format(pairs.flat()))+1+budget>maxContext))pairs.shift();
     const history=pairs.flat();
-    return {history,omitted:original-pairs.length,fits:bytes(format(history))+1+budget<=maxContext};
+    const used=bytes(format(history))+1+budget;
+    return {history,omitted:original-pairs.length,fits:used<=maxContext,used,maxContext,budget,pairs:history.length/2};
   }
   function blocks(text){
     const out=[];let code=null,language='';
@@ -63,6 +69,6 @@
     });
     return {title:data.title.slice(0,80)||'Importierter Chat',messages,draft:'',temporary:false,imported:true};
   }
-  const api={context,blocks,render,parseImport};
+  const api={compatibleHistory,context,blocks,render,parseImport};
   if(typeof module!=='undefined')module.exports=api;else root.HeliosCore=api;
 })(typeof window==='undefined'?{}:window);

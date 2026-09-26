@@ -1,0 +1,52 @@
+name: Helios app self-hosted runtime contracts
+
+on:
+  push:
+    branches: [app/helios-context-status-20260924]
+    paths:
+      - '.github/workflows/helios-app-selfhosted-contracts.yml'
+      - 'frontier_sidecar.py'
+      - 'frontier_manager.py'
+      - 'frontier_runtime.py'
+      - 'frontier350_contract.py'
+      - 'model_catalog.py'
+      - 'app.py'
+      - 'tests/test_frontier_sidecar.py'
+      - 'tests/test_frontier350_contract.py'
+      - 'tests/test_helios_runtime.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-helios-app-selfhosted-contracts
+  cancel-in-progress: false
+
+jobs:
+  runtime-contracts:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: helios_app_contracts_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Run isolated CPU runtime contracts
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('helios_app_contracts_'+$env:GITHUB_RUN_ID)
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; rm -rf .app_test_deps; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --no-input --quiet --target .app_test_deps 'flask>=3,<4' 'pytest>=8,<9'; export PYTHONPATH=.app_test_deps:.; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier_sidecar.py frontier_manager.py frontier_runtime.py frontier350_contract.py model_catalog.py app.py; ~/.venvs/neral-triton-py312/bin/python -B -m pytest -q tests/test_frontier350_contract.py tests/test_frontier_sidecar.py tests/test_helios_runtime.py"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Helios self-hosted runtime contracts failed'}
+          Write-Host 'HELIOS_SELFHOSTED_RUNTIME_CONTRACTS_PASS'
