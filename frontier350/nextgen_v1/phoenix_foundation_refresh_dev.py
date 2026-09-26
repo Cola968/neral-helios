@@ -28,7 +28,7 @@ from helios350_preview import CONTINUITY_SHA, TOKENIZER_SHA, trusted_asset
 from phoenix_continuity_cpu_probe import EXPECTED_TOKENS, require_pinned_checkpoint
 from phoenix_master_precision import require_fp32_master
 from source_lock350 import LOCK_PATH, load_lock
-from hf_source_policy50 import SOURCES
+from hf_source_policy50 import SOURCES, assert_bounded_development_candidate
 
 SCHEMA = "phoenix_foundation_refresh_dev_v2"
 CLASSIFICATION = "DEVELOPMENT_ONLY_FP32_MASTER_FOUNDATION_REFRESH"
@@ -63,6 +63,88 @@ def atomic_save(torch, state: dict, path: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
+
+def _validate_finemath_development_manifest(manifest: dict, tokenizer_sha: str,
+                                           current_lock: dict) -> dict:
+    """Validate the one bounded FineMath development recipe; never a production source admission."""
+    if manifest.get("continuation_profile")!="phoenix-quality-refresh-v3-finemath-development":
+        raise ValueError("unexpected FineMath development profile")
+    if manifest.get("finemath_candidate_included") is not True:
+        raise ValueError("FineMath development profile must declare candidate inclusion")
+    if manifest.get("benchmark_content_included") is not False:
+        raise ValueError("FineMath development corpus must remove screened benchmark/public-dev matches")
+    if manifest.get("benchmark_screening_status")!="FULL_STREAM_REJECTION_RESERVED_AND_PUBLIC_DEV_V1":
+        raise ValueError("FineMath full-stream leakage screen receipt missing")
+    expected_mix={"fineweb_edu_en":0.55,"fineweb_en":0.10,"fineweb2_de":0.15,"finemath":0.20}
+    mix=manifest.get("source_mix")
+    if not isinstance(mix,dict) or set(mix)!=set(expected_mix):
+        raise ValueError("FineMath development source family set changed")
+    for name,value in expected_mix.items():
+        if not math.isclose(float(mix.get(name,-1)),value,rel_tol=0.0,abs_tol=1e-12):
+            raise ValueError("FineMath development source mix changed")
+    admission=manifest.get("finemath_candidate_admission")
+    policy=assert_bounded_development_candidate("HuggingFaceTB/finemath",admission)
+    admission_sha=manifest.get("finemath_candidate_admission_sha256")
+    if not isinstance(admission_sha,str) or not SHA64.fullmatch(admission_sha):
+        raise ValueError("FineMath admission report SHA missing")
+    screen=manifest.get("full_stream_leakage_screen")
+    if (not isinstance(screen,dict) or type(screen.get("documents_screened")) is not int
+            or screen["documents_screened"]<=0
+            or type(screen.get("exact_rejections")) is not int or screen["exact_rejections"]<0
+            or type(screen.get("near_rejections")) is not int or screen["near_rejections"]<0):
+        raise ValueError("FineMath full-stream leakage screen counts invalid")
+
+    receipts=manifest.get("source_policy")
+    if not isinstance(receipts,dict) or set(receipts)!=set(expected_mix):
+        raise ValueError("FineMath development source-policy receipts incomplete")
+    ordinary={
+        "fineweb_edu_en":"HuggingFaceFW/fineweb-edu",
+        "fineweb_en":"HuggingFaceFW/fineweb",
+        "fineweb2_de":"HuggingFaceFW/fineweb-2",
+    }
+    observed=set()
+    for name,dataset_id in ordinary.items():
+        receipt=receipts.get(name)
+        source_policy=SOURCES.get(dataset_id)
+        if (not isinstance(receipt,dict) or source_policy is None or source_policy.allow_training is not True
+                or source_policy.role!="pretrain" or receipt.get("dataset_id")!=dataset_id
+                or receipt.get("role")!=source_policy.role or receipt.get("license")!=source_policy.license
+                or receipt.get("content_origin")!=source_policy.content_origin):
+            raise ValueError(f"FineMath development ordinary source is not admitted: {dataset_id}")
+        observed.add(dataset_id)
+    fm=receipts.get("finemath")
+    if (not isinstance(fm,dict) or fm.get("dataset_id")!="HuggingFaceTB/finemath"
+            or fm.get("role")!=policy.role or fm.get("license")!=policy.license
+            or fm.get("content_origin")!=policy.content_origin or fm.get("development_only") is not True):
+        raise ValueError("FineMath development policy receipt invalid")
+    observed.add("HuggingFaceTB/finemath")
+
+    lock_sources=current_lock.get("sources") if isinstance(current_lock,dict) else None
+    revisions=manifest.get("resolved_revisions")
+    expected_specs={
+        "fineweb_edu_en":{"repo":"HuggingFaceFW/fineweb-edu","config":"sample-10BT","split":"train","license":"odc-by"},
+        "fineweb_en":{"repo":"HuggingFaceFW/fineweb","config":"sample-10BT","split":"train","license":"odc-by"},
+        "fineweb2_de":{"repo":"HuggingFaceFW/fineweb-2","config":"deu_Latn","split":"train","license":"odc-by"},
+        "finemath":{"repo":"HuggingFaceTB/finemath","config":"finemath-3plus","split":"train","license":"odc-by"},
+    }
+    if not isinstance(lock_sources,dict) or not isinstance(revisions,dict) or set(revisions)!=set(expected_specs):
+        raise ValueError("FineMath development source lock/revisions incomplete")
+    for name,expected in expected_specs.items():
+        locked=lock_sources.get(name)
+        if not isinstance(locked,dict) or {k:locked.get(k) for k in expected}!=expected:
+            raise ValueError(f"FineMath development source identity changed: {name}")
+        revision=str(locked.get("revision","")).lower()
+        if not re.fullmatch(r"[0-9a-f]{40}",revision) or revisions.get(name)!=revision:
+            raise ValueError(f"FineMath development revision mismatch: {name}")
+    if admission.get("revision")!=revisions["finemath"]:
+        raise ValueError("FineMath audit revision differs from source lock")
+
+    token=manifest.get("tokenizer",{})
+    if token.get("vocab_size")!=16_384 or token.get("tokenizer_sha256")!=tokenizer_sha:
+        raise ValueError("FineMath development tokenizer contract mismatch")
+    return {"source_names":set(expected_specs),"source_ids":observed,"development_only":True}
+
+
 def validate_refresh_manifest_contract(manifest: dict, tokenizer_sha: str,
                                       current_lock: dict) -> dict:
     """Validate policy/lineage metadata without touching shards or CUDA."""
@@ -85,7 +167,10 @@ def validate_refresh_manifest_contract(manifest: dict, tokenizer_sha: str,
     build_lock_sha = manifest.get("source_lock_sha256")
     if not isinstance(build_lock_sha, str) or not SHA64.fullmatch(build_lock_sha):
         raise ValueError("refresh corpus build-time source-lock SHA missing")
-    if manifest.get("continuation_profile") != "phoenix-quality-refresh-v2-approved-sources":
+    profile=manifest.get("continuation_profile")
+    if profile=="phoenix-quality-refresh-v3-finemath-development":
+        return _validate_finemath_development_manifest(manifest,tokenizer_sha,current_lock)
+    if profile != "phoenix-quality-refresh-v2-approved-sources":
         raise ValueError("legacy/unapproved refresh profile blocked; rebuild corpus with current policy")
     if manifest.get("finemath_candidate_included") is not False:
         raise ValueError("FineMath candidate is not admitted in the current refresh lineage")
