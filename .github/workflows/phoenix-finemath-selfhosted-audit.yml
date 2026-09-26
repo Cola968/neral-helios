@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neral-nextgen-local-gpu-training
+  group: neral-nextgen-local-finemath-audit
   cancel-in-progress: false
 
 jobs:
