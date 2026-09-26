@@ -117,8 +117,8 @@ class RefreshContractTests(unittest.TestCase):
         manifest=good_manifest()
         manifest["continuation_profile"]="phoenix-quality-refresh-v3-finemath-development"
         manifest["finemath_candidate_included"]=True
-        manifest["benchmark_content_included"]=False
-        manifest["benchmark_screening_status"]="FULL_STREAM_REJECTION_RESERVED_AND_PUBLIC_DEV_V1"
+        manifest["benchmark_content_included"]=None
+        manifest["benchmark_screening_status"]="FULL_STREAM_REJECTION_FROZEN_SUITES_AND_PUBLIC_DEV_V1_NONEXHAUSTIVE"
         manifest["source_mix"]={"fineweb_edu_en":0.55,"fineweb_en":0.10,"fineweb2_de":0.15,"finemath":0.20}
         manifest["source_policy"]["finemath"]={
             "dataset_id":"HuggingFaceTB/finemath","role":"future-pretrain-candidate",
@@ -143,8 +143,8 @@ class RefreshContractTests(unittest.TestCase):
         manifest=good_manifest()
         manifest["continuation_profile"]="phoenix-quality-refresh-v3-finemath-development"
         manifest["finemath_candidate_included"]=True
-        manifest["benchmark_content_included"]=False
-        manifest["benchmark_screening_status"]="FULL_STREAM_REJECTION_RESERVED_AND_PUBLIC_DEV_V1"
+        manifest["benchmark_content_included"]=None
+        manifest["benchmark_screening_status"]="FULL_STREAM_REJECTION_FROZEN_SUITES_AND_PUBLIC_DEV_V1_NONEXHAUSTIVE"
         manifest["source_mix"]={"fineweb_edu_en":0.55,"fineweb_en":0.10,"fineweb2_de":0.15,"finemath":0.20}
         manifest["source_policy"]["finemath"]={
             "dataset_id":"HuggingFaceTB/finemath","role":"future-pretrain-candidate",
