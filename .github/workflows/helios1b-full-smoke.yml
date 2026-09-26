@@ -59,14 +59,23 @@ jobs:
           if not exist runner_reports mkdir runner_reports
           "%NERAL_HELIOS_PYTHON%" -m helios1b.smoke_1b --seq 256 --batch 1 --warmup 1 --steps 2 --max-reserved-gib 11.25 --out runner_reports\FULL1B_SMOKE_SEQ256.json
           if errorlevel 1 exit /b 1
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.smoke_1b --seq 512 --batch 1 --warmup 1 --steps 2 --max-reserved-gib 11.25 --out runner_reports\FULL1B_SMOKE_SEQ512.json
+          if errorlevel 1 exit /b 1
 
       - name: Assert evidence-only upload
         if: always()
         run: |
           @echo off
           if not exist runner_reports exit /b 0
-          for /r runner_reports %%F in (*.pt *.pth *.bin *.safetensors tokenizer.json) do (
-            echo Forbidden model/corpus/tokenizer artifact: %%F
+          for %%E in (pt pth bin safetensors) do (
+            dir /b /s "runner_reports\*.%%E" >nul 2>nul
+            if not errorlevel 1 (
+              echo Forbidden model/corpus artifact extension: %%E
+              exit /b 1
+            )
+          )
+          if exist "runner_reports\tokenizer.json" (
+            echo Forbidden tokenizer artifact
             exit /b 1
           )
           exit /b 0
