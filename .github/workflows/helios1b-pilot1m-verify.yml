@@ -1,0 +1,74 @@
+name: Helios 1B pilot checkpoint verification
+
+on:
+  push:
+    branches:
+      - helios-1b-pilot1m
+    paths:
+      - 'helios1b/verify1m_request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helios1b-pilot1m-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NERAL_ASSETS_FALLBACK: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral
+      NERAL_HELIOS_PYTHON: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe
+      PILOT_RUN_ID: 36239818392
+      PILOT_CHECKPOINT_SHA256: 914dcfdb41964141a1d80326e01dc5835038bf4f04adae893085c485084542ba
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: helios-1b-pilot1m
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve local pilot checkpoint
+        run: |
+          @echo off
+          set "ASSETS=%NERAL_ASSETS_FALLBACK%"
+          if defined NERAL_ASSETS_ROOT set "ASSETS=%NERAL_ASSETS_ROOT%"
+          set "CKPT=%ASSETS%\helios1b_runs\pilot1m_run_%PILOT_RUN_ID%\latest.pt"
+          set "DATA_ROOT=%ASSETS%\helios1b_assets\pilot1m_data_run_%PILOT_RUN_ID%"
+          if not exist "%CKPT%" exit /b 1
+          if not exist "%CKPT%.sha256" exit /b 1
+          if not exist "%DATA_ROOT%\manifest.json" exit /b 1
+          echo CKPT=%CKPT%>>"%GITHUB_ENV%"
+          echo DATA_ROOT=%DATA_ROOT%>>"%GITHUB_ENV%"
+
+      - name: Verify immutable checkpoint and execute next resumed update
+        run: |
+          @echo off
+          if not exist runner_reports mkdir runner_reports
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.verify_pilot1m_checkpoint --checkpoint "%CKPT%" --data "%DATA_ROOT%" --expected-sha256 "%PILOT_CHECKPOINT_SHA256%" --out runner_reports\CHECKPOINT_VERIFY.json
+          if errorlevel 1 exit /b 1
+
+      - name: Assert evidence-only upload
+        if: always()
+        run: |
+          @echo off
+          for %%E in (pt pth bin safetensors) do (
+            dir /b /s "runner_reports\*.%%E" >nul 2>nul
+            if not errorlevel 1 exit /b 1
+          )
+          exit /b 0
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios1b-pilot1m-checkpoint-verify
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 30
