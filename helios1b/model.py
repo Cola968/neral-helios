@@ -7,6 +7,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .config import HeliosConfig
 
@@ -149,6 +150,7 @@ class HeliosForCausalLM(nn.Module):
         )
         if self.cfg.tie_embeddings:
             self.lm_head.weight = self.tok_emb.weight
+        self.gradient_checkpointing = False
         self.apply(self._init_weights)
         self._scale_residual_projections()
 
@@ -163,6 +165,12 @@ class HeliosForCausalLM(nn.Module):
             nn.init.normal_(block.attn.out_proj.weight, mean=0.0, std=std)
             nn.init.normal_(block.mlp.down.weight, mean=0.0, std=std)
 
+    def gradient_checkpointing_enable(self) -> None:
+        self.gradient_checkpointing = True
+
+    def gradient_checkpointing_disable(self) -> None:
+        self.gradient_checkpointing = False
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -175,7 +183,10 @@ class HeliosForCausalLM(nn.Module):
 
         x = self.tok_emb(input_ids)
         for block in self.blocks:
-            x = block(x)
+            if self.gradient_checkpointing and self.training and torch.is_grad_enabled():
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
         x = self.final_norm(x)
         logits = self.lm_head(x)
 
