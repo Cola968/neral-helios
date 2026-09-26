@@ -8,7 +8,7 @@ families, immutable revisions, tokenizer, dedupe and manifest safety contracts.
 No FineMath, no synthetic SFT, no production approval.
 """
 
-import argparse,hashlib,json,sys,time
+import argparse,hashlib,json,os,sys,time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
@@ -99,4 +99,10 @@ def main(argv=None):
                       "documents":documents,"resolved_revisions":revisions,
                       "production_eligible":False},sort_keys=True),flush=True)
 
-if __name__=="__main__":main()
+if __name__=="__main__":
+    main()
+    # pyarrow/datasets can crash during CPython extension finalization under the
+    # WSL runner even after every corpus shard and the manifest are fully closed.
+    # Bypass only that interpreter teardown path after main() returned success.
+    sys.stdout.flush();sys.stderr.flush()
+    os._exit(0)
