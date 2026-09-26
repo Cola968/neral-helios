@@ -45,7 +45,7 @@ jobs:
           $anchorSha='f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'
           $reference='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466\resume.pt'
           $referenceSha='d54d3f752b22be09257164459c3bf56b0dd5c430db023882c4546430988a4963'
-          $audit='D:\NeralPrivateAssets\phoenix\finemath_audit_36231131220\FINEMATH_ADMISSION_RESULT.json'
+          $audit='D:\NeralPrivateAssets\phoenix\finemath_audit_36231386302\FINEMATH_ADMISSION_RESULT.json'
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
           $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
           $private='D:\NeralPrivateAssets\phoenix'
