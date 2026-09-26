@@ -145,6 +145,37 @@ def assert_training_allowed(dataset_id: str) -> SourcePolicy:
     return row
 
 
+
+def assert_bounded_development_candidate(dataset_id: str, admission: dict) -> SourcePolicy:
+    """Allow a future pretrain candidate only inside an explicitly bounded dev experiment.
+
+    This does NOT change allow_training and therefore cannot make the dataset available
+    to ordinary foundation/SFT builders. The caller must supply a completed admission result
+    from the repository audit tooling.
+    """
+    row=SOURCES.get(dataset_id)
+    if row is None:
+        raise ValueError(f"Unregistered Hugging Face dataset: {dataset_id}")
+    if row.allow_training or row.role!="future-pretrain-candidate":
+        raise ValueError(f"Not a bounded future pretrain candidate: {dataset_id}")
+    if not isinstance(admission,dict) or admission.get("dataset_id")!=dataset_id:
+        raise ValueError("Candidate admission result does not match dataset")
+    if admission.get("audit_pass") is not True or admission.get("eligible_for_manual_policy_review") is not True:
+        raise ValueError("Candidate admission audit did not pass")
+    if admission.get("training_allowed_by_current_policy") is not False:
+        raise ValueError("Bounded candidate must remain blocked from ordinary training")
+    evidence=admission.get("evidence")
+    if not isinstance(evidence,dict) or int(evidence.get("sampled_rows",0))<10_000:
+        raise ValueError("At least 10,000 audited candidate rows are required")
+    if int(evidence.get("external_model_generated_rows",-1))!=0:
+        raise ValueError("External-model-generated rows are not admitted")
+    overlap=evidence.get("benchmark_overlap")
+    required=("exact_prompt_matches","near_duplicate_matches","answer_leak_matches")
+    if not isinstance(overlap,dict) or any(int(overlap.get(k,-1))!=0 for k in required):
+        raise ValueError("Candidate benchmark contamination audit is not clean")
+    return row
+
+
 def assert_not_reserved_eval(dataset_ids):
     blocked = sorted(d for d in dataset_ids if d in SOURCES and SOURCES[d].role == "public-eval-holdout")
     if blocked:
