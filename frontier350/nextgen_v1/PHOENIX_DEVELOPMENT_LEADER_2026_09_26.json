@@ -1,0 +1,82 @@
+{
+  "schema": "phoenix-development-leader-v1",
+  "as_of": "2026-09-26",
+  "production_eligible": false,
+  "independent_holdout_verified": false,
+  "selection_basis": "public development A/B plus latent knowledge probes; not release promotion",
+  "historical_anchor": {
+    "processed_tokens": 2073161216,
+    "sha256": "f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7"
+  },
+  "current_leader": {
+    "name": "fp32-refresh-55-15-30-4Mi",
+    "sha256": "d54d3f752b22be09257164459c3bf56b0dd5c430db023882c4546430988a4963",
+    "new_foundation_tokens": 4194304,
+    "cumulative_reference_tokens": 2077355520,
+    "source_mix": {
+      "fineweb_edu_en": 0.55,
+      "fineweb_en": 0.15,
+      "fineweb2_de": 0.3
+    },
+    "public_dev": {
+      "nis2_pair_overall_pct": 57.5,
+      "nis2_instruction_pair_pct": 50,
+      "nis2_dialogue_state_pct": 75,
+      "nis2_truthfulness_pct": 37.5,
+      "nis2_robustness_pct": 62.5,
+      "nis2_compositional_reasoning_pct": 62.5,
+      "nis2_exact_generation_pct": 0,
+      "free_answer_strict": 0,
+      "free_answer_digit_prefix": 0,
+      "knowledge_choice_chat_pct": 50,
+      "knowledge_choice_qa_pct": 41.666666666666664,
+      "latent_digit_instruction_chat_top1": 4,
+      "latent_digit_minimal_chat_top1": 3,
+      "latent_digit_qa_top1": 2,
+      "latent_digit_equation_top1": 0
+    }
+  },
+  "rejected_ablations": [
+    {
+      "name": "edu-heavy-75-10-15-4Mi",
+      "sha256": "895ec5bfbb0e3f76367e5cd71ca313906290a7ada74810cbf92e0b7b8000446d",
+      "run_id": 36230699357,
+      "source_mix": {
+        "fineweb_edu_en": 0.75,
+        "fineweb_en": 0.1,
+        "fineweb2_de": 0.15
+      },
+      "public_dev": {
+        "nis2_pair_overall_pct": 55,
+        "nis2_robustness_pct": 50,
+        "free_answer_strict": 0,
+        "knowledge_choice_chat_pct": 50,
+        "knowledge_choice_qa_pct": 66.66666666666667,
+        "latent_digit_instruction_chat_top1": 4,
+        "latent_digit_minimal_chat_top1": 5,
+        "latent_digit_qa_top1": 5,
+        "latent_digit_equation_top1": 0
+      },
+      "decision": "reject_as_overall_leader",
+      "reason": "knowledge and latent QA improved, but NIS2 overall and robustness regressed versus current 4Mi leader"
+    }
+  ],
+  "active_experiments": [
+    {
+      "name": "edu-midpoint-65-12p5-22p5-4Mi",
+      "workflow_run_status": "queued_or_running",
+      "purpose": "line search between current leader and edu-heavy ablation"
+    },
+    {
+      "name": "finemath-10k-admission-audit",
+      "workflow_run_status": "queued",
+      "purpose": "fail-closed eligibility check; no weight updates"
+    },
+    {
+      "name": "finemath-55-10-15-20-4Mi",
+      "workflow_run_status": "blocked_on_clean_audit",
+      "purpose": "target arithmetic/knowledge weakness without ordinary source-policy admission"
+    }
+  ],
+  "next_stage_rule": "Only a candidate with measurable knowledge/free-answer gain and no protected public-development regression can become the next development leader; generic chat SFT remains gated until foundation knowledge improves."
+}
