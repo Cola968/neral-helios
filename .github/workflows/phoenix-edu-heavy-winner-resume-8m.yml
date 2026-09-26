@@ -38,7 +38,7 @@ jobs:
           function ToWsl([string]$p) {
             $f=[IO.Path]::GetFullPath($p)
             if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
-            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\\','/')
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\','/')
           }
 
           $sourceRun='36230699357'
