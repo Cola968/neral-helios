@@ -1,0 +1,92 @@
+name: Neral Nova 1B Architecture Benchmark
+
+on:
+  push:
+    branches: [research/neral1b-nova-v1]
+    paths:
+      - 'frontier1b_requests/benchmark.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-nova1b-architecture-benchmark
+  cancel-in-progress: false
+
+jobs:
+  nova1b:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Nova branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/neral1b-nova-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded benchmark request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier1b_requests\benchmark.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'Nova benchmark request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,batch,candidate,compile,request_id,seq,steps,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'benchmark_nova1b'){throw 'invalid Nova benchmark action'}
+          if($r.candidate -notin @('nova1b-m3-amw-rope','nova1b-m3-nobridge-rope','nova1b-m3-amw-nope')){throw 'unsupported candidate'}
+          if([int]$r.seq -notin @(256,512,1024,2048)){throw 'unsupported seq'}
+          if([int]$r.batch -lt 1 -or [int]$r.batch -gt 4){throw 'batch outside bounded range'}
+          if([int]$r.steps -lt 1 -or [int]$r.steps -gt 10){throw 'steps outside bounded range'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+          "candidate=$($r.candidate)" >> $env:GITHUB_OUTPUT
+          "seq=$([int]$r.seq)" >> $env:GITHUB_OUTPUT
+          "batch=$([int]$r.batch)" >> $env:GITHUB_OUTPUT
+          "steps=$([int]$r.steps)" >> $env:GITHUB_OUTPUT
+          "compile=$([bool]$r.compile)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve WSL repository path
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=[IO.Path]::GetFullPath((Get-Location).Path)
+          if($p -notmatch '^([A-Za-z]):\\(.*)$'){throw 'cannot map workspace to WSL'}
+          $drive=$matches[1].ToLower(); $tail=$matches[2] -replace '\\','/'
+          "repo=/mnt/$drive/$tail" >> $env:GITHUB_OUTPUT
+
+      - name: Verify Nova source syntax and analytical contract
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; python3 -m py_compile frontier1b/architecture1b.py frontier1b/model1b.py frontier1b/bench1b.py; python3 frontier1b/architecture1b.py"
+          if($LASTEXITCODE -ne 0){throw 'Nova analytical contract failed'}
+
+      - name: Ensure dedicated pinned Mamba-3 runtime
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; tr -d '\r' < frontier1b/ensure_nova_runtime.sh > /tmp/neral-nova-runtime.sh; bash /tmp/neral-nova-runtime.sh"
+          if($LASTEXITCODE -ne 0){throw 'Nova Mamba-3 runtime bootstrap failed'}
+
+      - name: Run BF16 forward backward benchmark
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          New-Item -ItemType Directory -Force frontier1b_bench_report | Out-Null
+          $compile=''
+          if('${{ steps.req.outputs.compile }}' -eq 'True'){$compile='--compile'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-nova1b/bin/python -u frontier1b/bench1b.py --candidate '${{ steps.req.outputs.candidate }}' --seq '${{ steps.req.outputs.seq }}' --batch '${{ steps.req.outputs.batch }}' --steps '${{ steps.req.outputs.steps }}' $compile > frontier1b_bench_report/nova1b_bench.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Nova GPU benchmark failed'}
+          Get-Content frontier1b_bench_report\nova1b_bench.json
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nova1b-bench-${{ github.run_id }}
+          path: frontier1b_bench_report/
+          retention-days: 30
+          if-no-files-found: warn

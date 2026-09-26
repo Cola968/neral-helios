@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "action": "benchmark_nova1b",
+  "candidate": "nova1b-m3-amw-rope",
+  "seq": 512,
+  "batch": 1,
+  "steps": 3,
+  "compile": false,
+  "request_id": "nova1b-arch-smoke-v1"
+}
