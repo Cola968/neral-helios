@@ -157,6 +157,101 @@ def param_count(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
+def zeropower_newton_schulz5(grad: torch.Tensor, steps: int = 5, eps: float = 1e-7) -> torch.Tensor:
+    """Approximate the matrix zeroth power used by Muon.
+
+    The iteration intentionally runs in BF16: that is the efficient/stable regime
+    used by the published Muon algorithm for transformer hidden matrices.
+    """
+    if grad.ndim != 2:
+        raise ValueError("Muon requires 2-D hidden matrices")
+    if not 1 <= steps < 100:
+        raise ValueError("invalid Newton-Schulz step count")
+    a, b, c = 3.4445, -4.7750, 2.0315
+    x = grad.to(dtype=torch.bfloat16, copy=True)
+    x.div_(x.norm().clamp_min(eps))
+    transposed = x.size(0) > x.size(1)
+    if transposed:
+        x = x.mT
+    for _ in range(steps):
+        gram = x @ x.mT
+        poly = b * gram + c * (gram @ gram)
+        x = a * x + poly @ x
+    if transposed:
+        x = x.mT
+    return x
+
+
+class LocalMuon(torch.optim.Optimizer):
+    """Dependency-free Muon fallback for PyTorch releases without torch.optim.Muon."""
+
+    def __init__(
+        self,
+        params,
+        lr: float = 0.02,
+        momentum: float = 0.95,
+        weight_decay: float = 0.1,
+        nesterov: bool = True,
+        ns_steps: int = 5,
+    ):
+        if lr <= 0 or not 0 <= momentum < 1 or weight_decay < 0:
+            raise ValueError("invalid Muon hyperparameters")
+        defaults = dict(
+            lr=float(lr), momentum=float(momentum), weight_decay=float(weight_decay),
+            nesterov=bool(nesterov), ns_steps=int(ns_steps)
+        )
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            momentum = group["momentum"]
+            weight_decay = group["weight_decay"]
+            nesterov = group["nesterov"]
+            ns_steps = group["ns_steps"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                if g.ndim != 2:
+                    raise RuntimeError("LocalMuon received non-matrix parameter")
+                state = self.state[p]
+                buf = state.get("momentum_buffer")
+                if buf is None:
+                    # Keeping momentum in the parameter/gradient dtype is essential
+                    # to make a ~1B model feasible on a 12-GB consumer GPU.
+                    buf = state["momentum_buffer"] = torch.zeros_like(g)
+                buf.mul_(momentum).add_(g)
+                update = g.add(buf, alpha=momentum) if nesterov else buf
+                update = zeropower_newton_schulz5(update, steps=ns_steps)
+
+                # match_rms_adamw scaling from the scalable-Muon recipe.
+                adjusted_lr = lr * 0.2 * math.sqrt(max(p.shape))
+                if weight_decay:
+                    p.mul_(1.0 - adjusted_lr * weight_decay)
+                p.add_(update.to(dtype=p.dtype), alpha=-adjusted_lr)
+        return loss
+
+
+def optimizer_self_test(device: torch.device) -> None:
+    p = nn.Parameter(torch.randn(16, 8, device=device, dtype=torch.bfloat16))
+    p.grad = torch.randn_like(p)
+    before = p.detach().clone()
+    opt = LocalMuon([p], lr=0.02, momentum=0.95, weight_decay=0.1)
+    opt.step()
+    if not bool(torch.isfinite(p).all()) or bool(torch.equal(before, p)):
+        raise RuntimeError("local Muon self-test failed")
+    state = opt.state[p].get("momentum_buffer")
+    if state is None or state.dtype != torch.bfloat16 or state.shape != p.shape:
+        raise RuntimeError("local Muon momentum-state contract failed")
+    del opt, p, before, state
+
+
 def build_optimizers(model: nn.Module):
     matrix_params, other_params = [], []
     seen = set()
@@ -170,23 +265,30 @@ def build_optimizers(model: nn.Module):
         else:
             other_params.append(p)
 
-    if not hasattr(torch.optim, "Muon"):
-        raise RuntimeError(
-            f"torch.optim.Muon unavailable in torch {torch.__version__}; "
-            "upgrade the isolated benchmark environment before a Muon feasibility claim"
-        )
-    try:
-        muon = torch.optim.Muon(
-            matrix_params, lr=0.02, momentum=0.95, weight_decay=0.1,
-            adjust_lr_fn="match_rms_adamw"
-        )
-    except TypeError:
-        muon = torch.optim.Muon(matrix_params, lr=0.02, momentum=0.95, weight_decay=0.1)
+    if hasattr(torch.optim, "Muon"):
+        try:
+            muon = torch.optim.Muon(
+                matrix_params, lr=0.02, momentum=0.95, weight_decay=0.1,
+                adjust_lr_fn="match_rms_adamw"
+            )
+            muon_impl = "torch.optim.Muon"
+        except TypeError:
+            muon = LocalMuon(matrix_params, lr=0.02, momentum=0.95, weight_decay=0.1)
+            muon_impl = "local_muon_v1"
+    else:
+        muon = LocalMuon(matrix_params, lr=0.02, momentum=0.95, weight_decay=0.1)
+        muon_impl = "local_muon_v1"
+
     adamw = torch.optim.AdamW(
         other_params, lr=3e-4, betas=(0.9, 0.95), eps=1e-8,
         weight_decay=0.01, fused=True
     )
-    return muon, adamw, sum(p.numel() for p in matrix_params), sum(p.numel() for p in other_params)
+    return (
+        muon, adamw,
+        sum(p.numel() for p in matrix_params),
+        sum(p.numel() for p in other_params),
+        muon_impl,
+    )
 
 
 def main() -> int:
@@ -218,12 +320,14 @@ def main() -> int:
     device = torch.device("cuda")
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
+    optimizer_self_test(device)
+    torch.cuda.empty_cache()
 
     model = NeralV2OneB(CFG, args.gradient_checkpointing == "on").to(device=device, dtype=torch.bfloat16)
     params = param_count(model)
     if params != EXPECTED_PARAMS:
         raise RuntimeError(f"parameter contract changed: {params:,} != {EXPECTED_PARAMS:,}")
-    muon, adamw, muon_params, adamw_params = build_optimizers(model)
+    muon, adamw, muon_params, adamw_params, muon_impl = build_optimizers(model)
 
     train_model = model
     if args.compile_mode == "default":
@@ -292,7 +396,9 @@ def main() -> int:
         "torch_version": torch.__version__,
         "cuda_version": torch.version.cuda,
         "flash_sdp_enabled": bool(torch.backends.cuda.flash_sdp_enabled()),
-        "muon_available": hasattr(torch.optim, "Muon"),
+        "native_muon_available": hasattr(torch.optim, "Muon"),
+        "muon_implementation": muon_impl,
+        "muon_momentum_dtype": "bfloat16" if muon_impl == "local_muon_v1" else "implementation_default",
         "checkpoint_written": False,
         "productive_training_tokens": 0,
     }
