@@ -52,16 +52,20 @@ jobs:
           if($LASTEXITCODE -ne 0){throw '1B benchmark preflight failed'}
 
           $configs=@(
-            @{name='1b_eager_s256_m1';seq=256;mb=1;gc='off';compile='none'},
-            @{name='1b_compile_s256_m1';seq=256;mb=1;gc='off';compile='default'},
-            @{name='1b_gc_eager_s512_m1';seq=512;mb=1;gc='on';compile='none'}
+            @{name='1b_s512_m1_a8_gc_eager';seq=512;mb=1;accum=8;gc='on';compile='none'},
+            @{name='1b_s512_m1_a16_gc_eager';seq=512;mb=1;accum=16;gc='on';compile='none'},
+            @{name='1b_s512_m2_a8_gc_eager';seq=512;mb=2;accum=8;gc='on';compile='none'},
+            @{name='1b_s512_m2_a8_nogc_eager';seq=512;mb=2;accum=8;gc='off';compile='none'},
+            @{name='1b_s1024_m1_a8_gc_eager';seq=1024;mb=1;accum=8;gc='on';compile='none'},
+            @{name='1b_s1024_m1_a8_gc_compile';seq=1024;mb=1;accum=8;gc='on';compile='default'},
+            @{name='1b_s1024_m2_a4_gc_eager';seq=1024;mb=2;accum=4;gc='on';compile='none'}
           )
           $success=@()
           foreach($c in $configs){
             $json=Join-Path $out ($c.name+'.json')
             $jsonWsl=ToWsl $json
             Write-Host ("=== TEST "+$c.name+" ===")
-            $cmd="set -euo pipefail; cd '$repoWsl'; ~/.venvs/neral-triton-py312/bin/python -B -u experiments/neral_v2_1b/benchmark_1b_rtx4070.py --execute --out '$jsonWsl' --seq $($c.seq) --microbatch $($c.mb) --gradient-checkpointing $($c.gc) --compile-mode $($c.compile) --warmup-updates 1 --measure-updates 2"
+            $cmd="set -euo pipefail; cd '$repoWsl'; ~/.venvs/neral-triton-py312/bin/python -B -u experiments/neral_v2_1b/benchmark_1b_rtx4070.py --execute --out '$jsonWsl' --seq $($c.seq) --microbatch $($c.mb) --grad-accum $($c.accum) --gradient-checkpointing $($c.gc) --compile-mode $($c.compile) --warmup-updates 1 --measure-updates 2"
             & wsl.exe -- bash -lc $cmd
             if($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $json -PathType Leaf)){
               $row=Get-Content -LiteralPath $json -Raw|ConvertFrom-Json
@@ -81,6 +85,8 @@ jobs:
             best_tokens_per_second=[double]$best.tokens_per_second
             best_seq=[int]$best.seq
             best_microbatch=[int]$best.microbatch
+            best_grad_accum=[int]$best.grad_accum
+            best_tokens_per_update=[int]$best.tokens_per_update
             best_gradient_checkpointing=[bool]$best.gradient_checkpointing
             best_compile_mode=[string]$best.compile_mode
             best_peak_reserved_mib=[double]$best.peak_reserved_mib
