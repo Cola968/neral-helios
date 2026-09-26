@@ -1,0 +1,130 @@
+name: Phoenix edu-heavy winner gated resume to 8Mi
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-edu-heavy-winner-resume-8m.yml'
+      - 'frontier350/nextgen_v1/phoenix_foundation_progress_ab.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  gated-8m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact progression revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_edu8m_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Gate 4Mi mix winner, exact-resume to 8Mi, evaluate progression
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\\','/')
+          }
+
+          $sourceRun='36230699357'
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_edu8m_'+$env:GITHUB_RUN_ID)
+          $anchor='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $private='D:\NeralPrivateAssets\phoenix'
+          $corpus=Join-Path $private ('edu_heavy_refresh_'+$sourceRun)
+          $out=Join-Path $private ('edu_heavy_train_'+$sourceRun)
+          $manifest=Join-Path $corpus 'manifest.json'
+          $summary=Join-Path $out 'summary.json'
+          $mix=Join-Path $out 'mix_ab.json'
+          $resume=Join-Path $out 'resume.pt'
+          $reference4=Join-Path $out 'leader_4m.pt'
+          $progress=Join-Path $out ('progress_4m_to_8m_'+$env:GITHUB_RUN_ID+'.json')
+
+          foreach($p in @($repo,$anchor,$assets,$private,$corpus,$out,$manifest,$summary,$mix,$resume,$reference4,$progress)){
+            if($p.Contains("'")){throw 'Unsafe quote in path'}
+          }
+          foreach($p in @($anchor,$manifest,$summary,$mix,$resume)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required source-run result missing: $p"}
+          }
+          if(Test-Path -LiteralPath $progress){throw 'Create-only progression output exists'}
+
+          $s=Get-Content -LiteralPath $summary -Raw|ConvertFrom-Json
+          $ab=Get-Content -LiteralPath $mix -Raw|ConvertFrom-Json
+          if([int64]$s.new_processed_tokens -ne 4194304){throw 'Education-heavy source run did not finish exact 4Mi'}
+          if($ab.same_new_token_boundary -ne $true -or $ab.production_eligible -ne $false){throw 'Invalid 4Mi mix A/B state'}
+          $sha=([string]$s.resume_sha256).ToLowerInvariant()
+          if($sha -notmatch '^[0-9a-f]{64}$' -or (Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw '4Mi candidate SHA mismatch'}
+          if(([string]$ab.candidate_meta.sha256).ToLowerInvariant() -ne $sha){throw 'Mix A/B did not evaluate this 4Mi candidate'}
+
+          # Conservative leader gate: no protected NIS2/knowledge regression; no digit-format regression;
+          # and at least one strict gain in raw answer, knowledge, NIS2 or latent digit behavior.
+          $protected=@('nis2_pair_overall_pct','nis2_instruction_pair_pct','nis2_dialogue_state_pct',
+                       'nis2_truthfulness_pct','nis2_robustness_pct','nis2_compositional_reasoning_pct',
+                       'nis2_exact_generation_pct')
+          foreach($k in $protected){
+            if([double]$ab.candidate.summary.$k -lt [double]$ab.reference.summary.$k){
+              Write-Host ("GATE_REJECT protected regression: "+$k); exit 0
+            }
+          }
+          foreach($k in @('chat','qa')){
+            if([double]$ab.knowledge_delta_pct.$k -lt 0){Write-Host ("GATE_REJECT knowledge regression: "+$k); exit 0}
+          }
+          $strictGain=$false
+          if([double]$ab.candidate.summary.free_answer_strict -gt [double]$ab.reference.summary.free_answer_strict){$strictGain=$true}
+          if([double]$ab.candidate.summary.free_answer_digit_prefix -gt [double]$ab.reference.summary.free_answer_digit_prefix){$strictGain=$true}
+          foreach($k in $protected){if([double]$ab.candidate.summary.$k -gt [double]$ab.reference.summary.$k){$strictGain=$true}}
+          foreach($k in @('chat','qa')){if([double]$ab.knowledge_delta_pct.$k -gt 0){$strictGain=$true}}
+          foreach($prop in $ab.digit_delta.PSObject.Properties){
+            $d=$prop.Value
+            if([double]$d.top1 -lt 0 -or [double]$d.mean_rank -gt 0){Write-Host ("GATE_REJECT latent digit regression: "+$prop.Name); exit 0}
+            if([double]$d.top1 -gt 0 -or [double]$d.mean_rank -lt 0){$strictGain=$true}
+          }
+          if(-not $strictGain){Write-Host 'GATE_REJECT no strict quality gain'; exit 0}
+          Write-Host ('GATE_ACCEPT edu-heavy 4Mi candidate '+$sha)
+
+          if(Test-Path -LiteralPath $reference4){
+            if((Get-FileHash -LiteralPath $reference4 -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'Existing 4Mi preserved reference differs'}
+          } else {
+            Copy-Item -LiteralPath $resume -Destination $reference4
+            if((Get-FileHash -LiteralPath $reference4 -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw '4Mi reference copy failed'}
+          }
+          $manifestSha=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py frontier350/nextgen_v1/phoenix_foundation_progress_ab.py; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $anchor)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $out)' --target-new-tokens 20000000 --stop-after-new-tokens 8388608 --resume '$(ToWsl $resume)' --resume-sha256 '$sha' --seq 256 --microbatch 4 --grad-accum 1 --lr 0.00001 --compile-mode default"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Edu-heavy exact resume to 8Mi failed'}
+
+          $s8=Get-Content -LiteralPath $summary -Raw|ConvertFrom-Json
+          if([int64]$s8.new_processed_tokens -ne 8388608){throw '8Mi boundary not reached'}
+          $sha8=([string]$s8.resume_sha256).ToLowerInvariant()
+          if((Get-FileHash -LiteralPath $resume -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha8){throw '8Mi SHA mismatch'}
+
+          $eval="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_progress_ab.py --execute --trusted-own-checkpoints --reference '$(ToWsl $reference4)' --reference-sha256 '$sha' --candidate '$(ToWsl $resume)' --candidate-sha256 '$sha8' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $progress)'"
+          & wsl.exe -- bash -lc $eval
+          if($LASTEXITCODE -ne 0){throw '4Mi-to-8Mi progression A/B failed'}
+
+          $p=Get-Content -LiteralPath $progress -Raw|ConvertFrom-Json
+          Write-Host '=== EDU-HEAVY 4Mi -> 8Mi PROGRESSION RECEIPT ==='
+          [ordered]@{reference_sha256=$sha;candidate_sha256=$sha8;delta=$p.delta_candidate_minus_reference;
+                     knowledge_delta=$p.knowledge_delta_pct;digit_delta=$p.digit_delta;
+                     production_eligible=$p.production_eligible}|ConvertTo-Json -Compress -Depth 12|Write-Host
+
+      - name: Post-run GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
