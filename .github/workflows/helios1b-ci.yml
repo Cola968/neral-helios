@@ -5,6 +5,7 @@ on:
     paths:
       - 'helios1b/**'
       - 'tests/test_model1b_architecture.py'
+      - 'tests/test_model1b_tokenizer.py'
       - '.github/workflows/helios1b-ci.yml'
 
 permissions:
@@ -22,8 +23,10 @@ jobs:
       - name: Install CPU test dependencies
         run: |
           python -m pip install pytest
+          python -m pip install -r helios1b/requirements-tokenizer.txt
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Compile Helios 1B package
         run: python -m compileall -q helios1b
-      - name: Run architecture proxy tests
-        run: python -m pytest -q tests/test_model1b_architecture.py
+      - name: Run Helios 1B foundation tests
+        run: |
+          python -m pytest -q             tests/test_model1b_architecture.py             tests/test_model1b_tokenizer.py
