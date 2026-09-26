@@ -1,0 +1,96 @@
+name: Neral v2 1B RTX 4070 feasibility
+
+on:
+  push:
+    branches: [experiment/neral-v2-1b-benchmark-20260926]
+    paths:
+      - '.github/workflows/neral-v2-1b-feasibility.yml'
+      - 'experiments/neral_v2_1b/benchmark_1b_rtx4070.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-v2-1b-feasibility
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout isolated benchmark branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: neral_v2_1b_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Run disposable 1B fit and throughput matrix
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('neral_v2_1b_'+$env:GITHUB_RUN_ID)
+          $out=Join-Path $repo '_benchmark_results'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+
+          $repoWsl=(& wsl.exe -- wslpath -a $repo).Trim()
+          if(-not $repoWsl.StartsWith('/mnt/')){throw 'Could not resolve checkout path in WSL'}
+
+          Write-Host '=== PRE-BENCHMARK GPU ==='
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'nvidia-smi failed'}
+
+          $preflight="set -euo pipefail; cd '$repoWsl'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile experiments/neral_v2_1b/benchmark_1b_rtx4070.py"
+          & wsl.exe -- bash -lc $preflight
+          if($LASTEXITCODE -ne 0){throw '1B benchmark preflight failed'}
+
+          $configs=@(
+            @{name='1b_eager_s256_m1';seq=256;mb=1;gc='off';compile='none'},
+            @{name='1b_compile_s256_m1';seq=256;mb=1;gc='off';compile='default'},
+            @{name='1b_gc_eager_s512_m1';seq=512;mb=1;gc='on';compile='none'}
+          )
+          $success=@()
+          foreach($c in $configs){
+            $json=Join-Path $out ($c.name+'.json')
+            $jsonWsl=(& wsl.exe -- wslpath -a $json).Trim()
+            Write-Host ("=== TEST "+$c.name+" ===")
+            $cmd="set -euo pipefail; cd '$repoWsl'; ~/.venvs/neral-triton-py312/bin/python -B -u experiments/neral_v2_1b/benchmark_1b_rtx4070.py --execute --out '$jsonWsl' --seq $($c.seq) --microbatch $($c.mb) --gradient-checkpointing $($c.gc) --compile-mode $($c.compile) --warmup-updates 1 --measure-updates 2"
+            & wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $json -PathType Leaf)){
+              $row=Get-Content -LiteralPath $json -Raw|ConvertFrom-Json
+              $success += $row
+              Write-Host ("PASS "+$c.name+" | "+[math]::Round([double]$row.tokens_per_second,1)+" tok/s | "+[math]::Round([double]$row.peak_reserved_mib,0)+" MiB")
+            } else {
+              Write-Warning ("FAIL/NO-FIT "+$c.name)
+            }
+          }
+
+          if($success.Count -lt 1){throw 'No 1B configuration completed a real optimizer update'}
+          $best=$success|Sort-Object {[double]$_.tokens_per_second} -Descending|Select-Object -First 1
+          Write-Host '=== NERAL V2 1B FEASIBILITY RECEIPT ==='
+          [ordered]@{
+            successful_configurations=$success.Count
+            parameters=[int64]$best.parameters
+            best_tokens_per_second=[double]$best.tokens_per_second
+            best_seq=[int]$best.seq
+            best_microbatch=[int]$best.microbatch
+            best_gradient_checkpointing=[bool]$best.gradient_checkpointing
+            best_compile_mode=[string]$best.compile_mode
+            best_peak_reserved_mib=[double]$best.peak_reserved_mib
+            gpu=[string]$best.gpu
+            torch_version=[string]$best.torch_version
+            muon_available=[bool]$best.muon_available
+            productive_training_tokens=0
+            checkpoint_written=$false
+          }|ConvertTo-Json -Compress -Depth 6|Write-Host
+
+      - name: Post-benchmark GPU telemetry
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'Synthetic benchmark only. No model checkpoint was saved.'
