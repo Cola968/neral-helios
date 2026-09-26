@@ -13,18 +13,30 @@ class Handler(BaseHTTPRequestHandler):
     health_model_sha=MODEL_SHA
     seen=None
     cancelled=None
+    redirect_health=False
+    redirect_target_hit=False
     def log_message(self,*args):pass
     def _send(self,status,payload,kind="application/json"):
         raw=payload if isinstance(payload,bytes) else json.dumps(payload).encode()
         self.send_response(status);self.send_header("Content-Type",kind)
         self.send_header("Content-Length",str(len(raw)));self.end_headers();self.wfile.write(raw)
+    def _health(self):
+        return {"status":"experimental-ready","runtime_family":FRONTIER350_RUNTIME,
+                "checkpoint_sha256":self.health_model_sha,
+                "tokenizer_sha256":TOKENIZER_SHA,"device":"cpu","streaming":True,
+                "cancel_supported":True,"kv_cache":True,"max_new_tokens":256,
+                "processed_tokens":2073161216}
     def do_GET(self):
+        if self.path=="/health" and type(self).redirect_health:
+            self.send_response(302)
+            self.send_header("Location",f"http://127.0.0.1:{self.server.server_port}/redirect-target")
+            self.end_headers()
+            return
+        if self.path=="/redirect-target":
+            type(self).redirect_target_hit=True
+            return self._send(200,self._health())
         if self.path!="/health":return self._send(404,{})
-        return self._send(200,{"status":"experimental-ready","runtime_family":FRONTIER350_RUNTIME,
-                 "checkpoint_sha256":self.health_model_sha,
-                 "tokenizer_sha256":TOKENIZER_SHA,"device":"cpu","streaming":True,
-                 "cancel_supported":True,"kv_cache":True,"max_new_tokens":256,
-                 "processed_tokens":2073161216})
+        return self._send(200,self._health())
     def do_POST(self):
         size=int(self.headers.get("Content-Length","0"));body=json.loads(self.rfile.read(size))
         if self.path=="/cancel":
@@ -49,6 +61,7 @@ class Handler(BaseHTTPRequestHandler):
 @pytest.fixture
 def server():
     Handler.health_model_sha=MODEL_SHA;Handler.seen=None;Handler.cancelled=None
+    Handler.redirect_health=False;Handler.redirect_target_hit=False
     httpd=ThreadingHTTPServer(("127.0.0.1",0),Handler)
     thread=threading.Thread(target=httpd.serve_forever,daemon=True);thread.start()
     try:yield httpd
@@ -86,3 +99,10 @@ def test_stream_and_cancel_contract(server):
 def test_non_frontier_or_unreachable_endpoint_rejected():
     with pytest.raises(FrontierUnavailable):probe({"runtime_family":"legacy-byte-v1","runtime_port":9683})
     with pytest.raises(FrontierUnavailable):probe(row(65534),timeout=0.05)
+
+
+def test_probe_does_not_follow_local_redirect(server):
+    Handler.redirect_health=True
+    with pytest.raises(FrontierUnavailable):
+        probe(row(server.server_port))
+    assert Handler.redirect_target_hit is False
