@@ -1,0 +1,127 @@
+name: Phoenix audited FineMath development 4Mi A-B
+
+on:
+  push:
+    branches: [experiment/phoenix-blind-ab-audit-20260919]
+    paths:
+      - '.github/workflows/phoenix-finemath-dev-4m.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-finemath-dev
+  cancel-in-progress: false
+
+jobs:
+  finemath-dev-4m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact FineMath development revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_finemath4m_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Require clean 10k audit, build screened corpus, train 4Mi, compare
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'Absolute Windows path required'}
+            return '/mnt/'+$matches[1].ToLowerInvariant()+'/'+$matches[2].Replace('\\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_finemath4m_'+$env:GITHUB_RUN_ID)
+          $anchor='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $anchorSha='f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'
+          $reference='D:\NeralPrivateAssets\phoenix\foundation_train_35972614466\resume.pt'
+          $referenceSha='d54d3f752b22be09257164459c3bf56b0dd5c430db023882c4546430988a4963'
+          $audit='D:\NeralPrivateAssets\phoenix\finemath_audit_36231131220\FINEMATH_ADMISSION_RESULT.json'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $private='D:\NeralPrivateAssets\phoenix'
+          $corpus=Join-Path $private ('finemath_dev_refresh_'+$env:GITHUB_RUN_ID)
+          $trainOut=Join-Path $private ('finemath_dev_train_'+$env:GITHUB_RUN_ID)
+          $mixEval=Join-Path $trainOut 'mix_ab.json'
+
+          foreach($p in @($repo,$anchor,$reference,$audit,$assets,$tokenizer,$private,$corpus,$trainOut,$mixEval)){
+            if($p.Contains("'")){throw 'Unsafe quote in path'}
+          }
+          foreach($p in @($anchor,$reference,$audit,$tokenizer)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "Required file missing: $p"}
+          }
+          if((Get-FileHash -LiteralPath $anchor -Algorithm SHA256).Hash.ToLowerInvariant() -ne $anchorSha){throw 'Anchor SHA mismatch'}
+          if((Get-FileHash -LiteralPath $reference -Algorithm SHA256).Hash.ToLowerInvariant() -ne $referenceSha){throw 'Reference SHA mismatch'}
+          if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'Tokenizer SHA mismatch'}
+          if((Test-Path -LiteralPath $corpus) -or (Test-Path -LiteralPath $trainOut)){throw 'Create-only output path exists'}
+
+          $a=Get-Content -LiteralPath $audit -Raw|ConvertFrom-Json
+          if($a.dataset_id -ne 'HuggingFaceTB/finemath' -or $a.audit_pass -ne $true -or
+             $a.eligible_for_manual_policy_review -ne $true -or $a.training_allowed_by_current_policy -ne $false){
+            throw 'FineMath 10k admission audit did not pass bounded-development gate'
+          }
+          if([int]$a.evidence.sampled_rows -lt 10000 -or [int]$a.evidence.external_model_generated_rows -ne 0){throw 'FineMath audit evidence incomplete'}
+          foreach($k in @('exact_prompt_matches','near_duplicate_matches','answer_leak_matches')){
+            if([int]$a.evidence.benchmark_overlap.$k -ne 0){throw "FineMath audit contamination hit: $k"}
+          }
+
+          $tests="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile hf_source_policy50.py frontier350/nextgen_v1/build_phoenix_finemath_dev_bpe_data.py frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest -v frontier350.nextgen_v1.test_phoenix_foundation_refresh_contract"
+          & wsl.exe -- bash -lc $tests
+          if($LASTEXITCODE -ne 0){throw 'FineMath development contracts failed; no data/training started'}
+
+          $build="set -euo pipefail; cd '$(ToWsl $repo)'; rm -rf .finemath_deps; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --no-input --quiet --target .finemath_deps 'datasets==4.1.1' 'huggingface-hub>=0.34,<1.0'; export PYTHONPATH=.finemath_deps:frontier350:frontier350/nextgen_v1; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/build_phoenix_finemath_dev_bpe_data.py --root '$(ToWsl $corpus)' --tokenizer '$(ToWsl $tokenizer)' --admission-result '$(ToWsl $audit)' --train-tokens 20000000 --valid-tokens 500000 --shard-tokens 5000000"
+          & wsl.exe -- bash -lc $build
+          if($LASTEXITCODE -ne 0){throw 'FineMath development corpus build failed'}
+
+          $manifest=Join-Path $corpus 'manifest.json'
+          if(-not(Test-Path -LiteralPath $manifest -PathType Leaf)){throw 'FineMath manifest missing'}
+          $manifestSha=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          $m=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'phoenix-quality-refresh-v3-finemath-development' -or
+             $m.finemath_candidate_included -ne $true -or $m.production_eligible -ne $false){
+            throw 'FineMath manifest classification mismatch'
+          }
+          if($m.benchmark_content_included -ne $null -or
+             $m.benchmark_screening_status -ne 'FULL_STREAM_REJECTION_FROZEN_SUITES_AND_PUBLIC_DEV_V1_NONEXHAUSTIVE'){
+            throw 'FineMath leakage receipt mismatch'
+          }
+
+          Write-Host 'Pre-FineMath GPU telemetry:'
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'GPU telemetry failed'}
+
+          $train="set -euo pipefail; cd '$(ToWsl $repo)'; export PYTHONPATH=.finemath_deps:frontier350:frontier350/nextgen_v1; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_refresh_dev.py --execute --trusted-own-checkpoint --source-checkpoint '$(ToWsl $anchor)' --assets-root '$(ToWsl $assets)' --corpus-root '$(ToWsl $corpus)' --manifest-sha256 '$manifestSha' --out '$(ToWsl $trainOut)' --target-new-tokens 20000000 --stop-after-new-tokens 4194304 --seq 256 --microbatch 4 --grad-accum 1 --lr 0.00001 --compile-mode default"
+          & wsl.exe -- bash -lc $train
+          if($LASTEXITCODE -ne 0){throw 'FineMath development 4Mi training failed'}
+
+          $summary=Get-Content -LiteralPath (Join-Path $trainOut 'summary.json') -Raw|ConvertFrom-Json
+          if([int64]$summary.new_processed_tokens -ne 4194304 -or [int]$summary.layers_trained -ne 24){throw 'FineMath run did not reach exact 4Mi'}
+          $candidate=Join-Path $trainOut 'resume.pt';$candidateSha=([string]$summary.resume_sha256).ToLowerInvariant()
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $candidateSha){throw 'FineMath candidate SHA mismatch'}
+
+          $eval="set -euo pipefail; cd '$(ToWsl $repo)'; export PYTHONPATH=.finemath_deps:frontier350:frontier350/nextgen_v1; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_foundation_mix_ab.py --execute --trusted-own-checkpoints --reference '$(ToWsl $reference)' --reference-sha256 '$referenceSha' --candidate '$(ToWsl $candidate)' --candidate-sha256 '$candidateSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $mixEval)'"
+          & wsl.exe -- bash -lc $eval
+          if($LASTEXITCODE -ne 0){throw 'FineMath direct 4Mi A/B failed'}
+
+          $ab=Get-Content -LiteralPath $mixEval -Raw|ConvertFrom-Json
+          Write-Host '=== FINEMATH DEVELOPMENT 4Mi RECEIPT ==='
+          [ordered]@{candidate_sha256=$candidateSha;manifest_sha256=$manifestSha;
+                     screen=$m.full_stream_leakage_screen;best_validation_loss=$summary.best_validation_loss;
+                     reference=$ab.reference.summary;candidate=$ab.candidate.summary;
+                     delta=$ab.delta_candidate_minus_reference;knowledge_delta=$ab.knowledge_delta_pct;
+                     digit_delta=$ab.digit_delta;production_eligible=$ab.production_eligible}|ConvertTo-Json -Compress -Depth 12|Write-Host
+
+      - name: Post-run GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'FineMath experiment remains local DEVELOPMENT_ONLY; no weights/data uploaded.'
