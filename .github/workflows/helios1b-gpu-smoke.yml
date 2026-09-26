@@ -23,7 +23,9 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        shell: cmd
+    env:
+      NERAL_HELIOS_PYTHON: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe
 
     steps:
       - name: Checkout exact PR revision
@@ -32,48 +34,46 @@ jobs:
           clean: true
           persist-credentials: false
 
-      - name: Resolve isolated Neral Python
-        id: env
+      - name: Verify exact isolated CUDA Python
         run: |
-          $ErrorActionPreference = 'Stop'
-          $python = $env:NERAL_PYTHON
-          if (-not $python) {
-            $cmd = Get-Command py -ErrorAction SilentlyContinue
-            if (-not $cmd) { throw 'NERAL_PYTHON is unset and py.exe is unavailable.' }
-            $python = 'py -3.12'
-          } elseif (-not (Test-Path $python -PathType Leaf)) {
-            throw "NERAL_PYTHON does not exist: $python"
-          }
-          "python=$python" >> $env:GITHUB_OUTPUT
-
-      - name: Verify runtime without touching private assets
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $py = '${{ steps.env.outputs.python }}'
-          $code = "import json,torch,numpy,pytest; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'bf16':torch.cuda.is_bf16_supported()}))"
-          if ($py -eq 'py -3.12') { & py -3.12 -c $code } else { & $py -c $code }
+          @echo off
+          if not exist "%NERAL_HELIOS_PYTHON%" (
+            echo exact_neral_python_missing
+            exit /b 1
+          )
+          "%NERAL_HELIOS_PYTHON%" -c "import json,torch,numpy,pytest; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'bf16':torch.cuda.is_bf16_supported()}))"
+          if errorlevel 1 exit /b 1
           nvidia-smi --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader
 
       - name: Prove architecture and exact CPU resume
         run: |
-          $ErrorActionPreference = 'Stop'
-          $py = '${{ steps.env.outputs.python }}'
-          $args = @('-m','pytest','-q','tests/test_model1b_architecture.py','tests/test_model1b_resume.py')
-          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+          @echo off
+          "%NERAL_HELIOS_PYTHON%" -m pytest -q tests/test_model1b_architecture.py tests/test_model1b_resume.py
+          if errorlevel 1 exit /b 1
 
       - name: Run first RTX learnability experiment
         run: |
-          $ErrorActionPreference = 'Stop'
-          $root = Join-Path $env:RUNNER_TEMP 'helios1b_learnability_v1'
-          if (Test-Path $root) { Remove-Item $root -Recurse -Force }
-          $py = '${{ steps.env.outputs.python }}'
-          $args = @('-m','helios1b.learning_experiment','--out',$root,'--steps','40','--minimum-relative-improvement','0.50','--device','cuda')
-          if ($py -eq 'py -3.12') { & py -3.12 @args } else { & $py @args }
+          @echo off
+          set ROOT=%RUNNER_TEMP%\helios1b_learnability_v1
+          if exist "%ROOT%" rmdir /s /q "%ROOT%"
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.learning_experiment --out "%ROOT%" --steps 40 --minimum-relative-improvement 0.50 --device cuda
+          if errorlevel 1 exit /b 1
 
-          New-Item -ItemType Directory -Force -Path 'runner_reports' | Out-Null
-          Copy-Item (Join-Path $root 'LEARNABILITY_RESULT.json') 'runner_reports/LEARNABILITY_RESULT.json' -Force
-          Copy-Item (Join-Path $root 'run/summary.json') 'runner_reports/TRAINING_SUMMARY.json' -Force
-          Copy-Item (Join-Path $root 'run/metrics.jsonl') 'runner_reports/METRICS.jsonl' -Force
+          if not exist runner_reports mkdir runner_reports
+          copy /Y "%ROOT%\LEARNABILITY_RESULT.json" "runner_reports\LEARNABILITY_RESULT.json"
+          copy /Y "%ROOT%\run\summary.json" "runner_reports\TRAINING_SUMMARY.json"
+          copy /Y "%ROOT%\run\metrics.jsonl" "runner_reports\METRICS.jsonl"
+
+      - name: Assert no weights or corpus are uploaded
+        if: always()
+        run: |
+          @echo off
+          if not exist runner_reports exit /b 0
+          for /r runner_reports %%F in (*.pt *.pth *.bin *.safetensors) do (
+            echo Forbidden model or corpus artifact: %%F
+            exit /b 1
+          )
+          exit /b 0
 
       - name: Upload numeric/text evidence only
         if: always()
@@ -83,10 +83,3 @@ jobs:
           path: runner_reports/
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Assert no weights or corpus are uploaded
-        if: always()
-        run: |
-          if (-not (Test-Path 'runner_reports')) { exit 0 }
-          $bad = Get-ChildItem 'runner_reports' -Recurse -File | Where-Object { $_.Extension -in '.pt','.pth','.bin','.safetensors' }
-          if ($bad) { throw 'Forbidden model/corpus artifact found in report upload directory.' }
