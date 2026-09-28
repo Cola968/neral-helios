@@ -1,0 +1,34 @@
+name: Helios 180M FastChat speed gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [helios-180m-fastchat-v1]
+    paths:
+      - "helios180/**"
+      - ".github/workflows/helios180-speed-gate.yml"
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment
+        shell: cmd
+        run: |
+          python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))"
+      - name: Syntax and parameter contract
+        shell: cmd
+        run: |
+          python -m compileall -q helios180
+          python -c "from helios180 import Helios180Config; c=Helios180Config(); assert c.parameter_count()==180923136, c.parameter_count(); print(c.parameter_count())"
+      - name: Eager speed gate
+        shell: cmd
+        run: python -m helios180.speed_gate --seq-len 512 --batches 2 4 8 --steps 5
+      - name: Upload metadata only
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios180-speed-gate
+          path: helios180_speed_gate.json
+          if-no-files-found: error
