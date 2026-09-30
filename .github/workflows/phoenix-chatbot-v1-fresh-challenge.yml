@@ -1,0 +1,100 @@
+name: Phoenix Chatbot v1 fresh challenge
+
+on:
+  push:
+    branches: [experiment/chatbot-v1-pilot-20260924]
+    paths:
+      - '.github/workflows/phoenix-chatbot-v1-fresh-challenge.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  fresh-challenge:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact challenge revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_chatbot_v1_fresh_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: CPU challenge contract
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_v1_fresh_' + $env:GITHUB_RUN_ID)
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/chatbot_v1_fresh_challenge.py frontier350/nextgen_v1/test_chatbot_v1_fresh_challenge.py; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/test_chatbot_v1_fresh_challenge.py"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Fresh challenge CPU contract failed' }
+
+      - name: Compare immutable anchor vs Chatbot v1 winner
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_v1_fresh_' + $env:GITHUB_RUN_ID)
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $candidate='D:\NeralPrivateAssets\phoenix\chatbot_v1_36031597883\candidate_lr2e5_s40.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private='D:\NeralPrivateAssets\phoenix'
+          $out=Join-Path $private ('chatbot_v1_fresh_' + $env:GITHUB_RUN_ID + '.json')
+
+          foreach($p in @($repo,$base,$candidate,$assets,$private,$out)) {
+            if($p.Contains("'")) { throw 'Unsafe quote in local path' }
+          }
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Historical anchor missing'}
+          if(-not(Test-Path -LiteralPath $candidate -PathType Leaf)){throw 'Chatbot-v1 winning candidate missing'}
+          if((Get-FileHash -LiteralPath $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw 'Base SHA mismatch'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne '2221a57dadb4fba137c6b1da9b07dd4e00a3f34361219fc2a9b1fbee5c3b2674'){throw 'Candidate SHA mismatch'}
+          if(Test-Path -LiteralPath $out){throw 'Create-only fresh challenge output already exists'}
+
+          nvidia-smi --query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/chatbot_v1_fresh_challenge.py --execute --base-checkpoint '$(ToWsl $base)' --candidate-checkpoint '$(ToWsl $candidate)' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          $challengeExit=$LASTEXITCODE
+
+          if(-not(Test-Path -LiteralPath $out -PathType Leaf)){throw "Fresh challenge report missing (exit $challengeExit)"}
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($r.classification -ne 'FRESH_PROJECT_OWNED_OBJECTIVE_CHALLENGE_DEVELOPMENT_ONLY'){throw 'Wrong fresh challenge classification'}
+          if($r.production_eligible -ne $false -or $r.independent_holdout -ne $false){throw 'Unsafe challenge state'}
+
+          Write-Host '=== FRESH CHATBOT V1 CHALLENGE ==='
+          [ordered]@{
+            baseline_correct=$r.baseline.correct
+            candidate_correct=$r.candidate.correct
+            total=$r.candidate.total
+            overall_delta_pct=$r.overall_delta_pct
+            category_delta_pct=$r.category_delta_pct
+            qualifies_for_knowledge_lane=$r.qualifies_for_knowledge_lane
+            candidate_sha256=$r.candidate_sha256
+          } | ConvertTo-Json -Depth 8 -Compress | Write-Host
+
+          if($challengeExit -ne 0 -or $r.qualifies_for_knowledge_lane -ne $true){
+            throw 'Chatbot-v1 candidate failed the fresh objective challenge; do not continue from it'
+          }
+
+      - name: Post-challenge GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'Fresh per-case results remain local on D:. No model weights or answers are uploaded.'

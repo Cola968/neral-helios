@@ -1,0 +1,110 @@
+name: Phoenix Chatbot v1.1 knowledge truthfulness repair
+
+on:
+  push:
+    branches: [experiment/chatbot-v1-pilot-20260924]
+    paths:
+      - '.github/workflows/phoenix-chatbot-v1-knowledge-repair.yml'
+      - 'frontier350/nextgen_v1/chatbot_v1_knowledge_data.py'
+      - 'frontier350/nextgen_v1/phoenix_chatbot_v1_knowledge_repair.py'
+      - 'frontier350/nextgen_v1/test_chatbot_v1_knowledge_repair.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  knowledge-repair:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout exact repair revision without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_chatbot_repair_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Compile and run repair CPU contracts
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_repair_' + $env:GITHUB_RUN_ID)
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -B -m py_compile frontier350/nextgen_v1/chatbot_v1_knowledge_data.py frontier350/nextgen_v1/phoenix_chatbot_v1_knowledge_repair.py frontier350/nextgen_v1/test_chatbot_v1_knowledge_repair.py; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/test_chatbot_v1_knowledge_repair.py"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Chatbot-v1.1 repair CPU contracts failed; GPU training was not started' }
+
+      - name: Run bounded knowledge truthfulness repair sweep
+        run: |
+          $ErrorActionPreference='Stop'
+          function ToWsl([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('phoenix_chatbot_repair_' + $env:GITHUB_RUN_ID)
+          $historical='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $behavior='D:\NeralPrivateAssets\phoenix\chatbot_v1_36026707161\candidate_lr2e5_s40.pt'
+          $behaviorSha='2221a57dadb4fba137c6b1da9b07dd4e00a3f34361219fc2a9b1fbee5c3b2674'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private='D:\NeralPrivateAssets\phoenix'
+          $out=Join-Path $private ('chatbot_v1_knowledge_' + $env:GITHUB_RUN_ID)
+
+          foreach($p in @($repo,$historical,$behavior,$assets,$private,$out)) { if($p.Contains("'")) { throw 'Unsafe quote in path' } }
+          foreach($p in @($historical,$behavior)) { if(-not(Test-Path -LiteralPath $p -PathType Leaf)) { throw "Required checkpoint missing: $p" } }
+          if(-not(Test-Path -LiteralPath $assets -PathType Container)) { throw 'Assets root missing' }
+          if(Test-Path -LiteralPath $out) { throw 'Create-only repair output already exists' }
+          if((Get-PSDrive D).Free -lt 15GB) { throw 'Less than 15 GiB free on D:' }
+          if((Get-FileHash -LiteralPath $historical -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Historical SHA mismatch' }
+          if((Get-FileHash -LiteralPath $behavior -Algorithm SHA256).Hash.ToLowerInvariant() -ne $behaviorSha) { throw 'Behavior parent SHA mismatch' }
+
+          Write-Host 'Pre-repair GPU telemetry:'
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+
+          $cmd="set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -u frontier350/nextgen_v1/phoenix_chatbot_v1_knowledge_repair.py --execute --trusted-own-checkpoints --historical '$(ToWsl $historical)' --behavior-candidate '$(ToWsl $behavior)' --behavior-sha256 '$behaviorSha' --assets-root '$(ToWsl $assets)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          $repairExit=$LASTEXITCODE
+
+          $report=Join-Path $out 'report.json'
+          if(-not(Test-Path -LiteralPath $report -PathType Leaf)) { throw "Repair report missing; exit $repairExit" }
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($r.classification -ne 'project_owned_chatbot_v1_knowledge_truthfulness_repair_development_only') { throw 'Wrong repair classification' }
+          if($r.historical_source_unchanged -ne $true -or $r.behavior_parent_unchanged -ne $true) { throw 'Source integrity failed' }
+          if($r.external_sft_text_used -ne $false -or $r.private_holdout_opened -ne $false) { throw 'Unexpected training data state' }
+          if($r.production_eligible -ne $false -or $r.quality_gain_verified -ne $false) { throw 'Unsafe promotion claim' }
+
+          Write-Host '=== CHATBOT V1.1 KNOWLEDGE REPAIR SUMMARY ==='
+          [ordered]@{
+            dataset_sha256=$r.dataset.dataset_sha256
+            train_rows=$r.dataset.train_rows
+            validation_rows=$r.dataset.validation_rows
+            development_gate_passed=$r.development_gate_passed
+            selected_config=if($r.selected_candidate){$r.selected_candidate.config.name}else{$null}
+            selected_sha256=if($r.selected_candidate){$r.selected_candidate.candidate_sha256}else{$null}
+            truthfulness=if($r.selected_candidate){$r.selected_candidate.public_metrics.nis2_truthfulness_pct}else{$null}
+            fresh_correct=if($r.selected_candidate){$r.selected_candidate.fresh.correct}else{$null}
+            fresh_gained=if($r.selected_candidate){$r.selected_candidate.gate.fresh_gained}else{$null}
+            fresh_lost=if($r.selected_candidate){$r.selected_candidate.gate.fresh_lost}else{$null}
+            next_action=$r.next_action
+          } | ConvertTo-Json -Depth 8 -Compress | Write-Host
+
+          if($repairExit -ne 0 -or $r.development_gate_passed -ne $true) { throw 'No Chatbot-v1.1 repair recipe passed all gates' }
+          Write-Host ('Winning repair checkpoint remains local at ' + (Join-Path $out $r.selected_candidate.candidate_file))
+
+      - name: Post-repair GPU telemetry
+        if: always()
+        run: |
+          nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader
+          Write-Host 'No private checkpoint, training data or generated answer is uploaded by this workflow.'

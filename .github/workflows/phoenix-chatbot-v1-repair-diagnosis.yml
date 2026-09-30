@@ -1,0 +1,68 @@
+name: Phoenix Chatbot v1.1 repair diagnosis
+
+on:
+  push:
+    branches: [experiment/chatbot-v1-pilot-20260924]
+    paths:
+      - '.github/workflows/phoenix-chatbot-v1-repair-diagnosis.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read safe aggregate repair metrics
+        run: |
+          $ErrorActionPreference='Stop'
+          $report='D:\NeralPrivateAssets\phoenix\chatbot_v1_knowledge_36028240436\report.json'
+          if(-not(Test-Path -LiteralPath $report -PathType Leaf)){throw 'Repair report missing'}
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          Write-Host '=== BASELINES ==='
+          [ordered]@{
+            historical_truthfulness=$r.historical_public_metrics.nis2_truthfulness_pct
+            behavior_truthfulness=$r.behavior_public_metrics.nis2_truthfulness_pct
+            behavior_exact=$r.behavior_public_metrics.nis2_exact_generation_pct
+            behavior_instruction=$r.behavior_public_metrics.nis2_instruction_following_pct
+            behavior_dialogue=$r.behavior_public_metrics.nis2_dialogue_state_pct
+            behavior_robustness=$r.behavior_public_metrics.nis2_robustness_pct
+            behavior_reasoning=$r.behavior_public_metrics.nis2_compositional_reasoning_pct
+            behavior_fresh=$r.behavior_fresh_summary.correct
+            validation_before=$r.validation_loss_before
+          } | ConvertTo-Json -Compress | Write-Host
+          foreach($x in $r.results){
+            Write-Host ('=== CONFIG ' + $x.config.name + ' ===')
+            [ordered]@{
+              lr=$x.config.lr
+              steps=$x.config.steps
+              supervised_tokens=$x.supervised_tokens
+              validation_before=$x.validation_loss_before
+              validation_after=$x.validation_loss_after
+              truthfulness=$x.public_metrics.nis2_truthfulness_pct
+              exact=$x.public_metrics.nis2_exact_generation_pct
+              instruction=$x.public_metrics.nis2_instruction_following_pct
+              dialogue=$x.public_metrics.nis2_dialogue_state_pct
+              robustness=$x.public_metrics.nis2_robustness_pct
+              reasoning=$x.public_metrics.nis2_compositional_reasoning_pct
+              free_nonempty=$x.public_metrics.free_answer_nonempty
+              free_digit=$x.public_metrics.free_answer_digit_prefix
+              fresh_correct=$x.fresh.correct
+              gate_passed=$x.gate.passed
+              truthfulness_repaired=$x.gate.truthfulness_repaired_to_historical
+              public_behavior_protected=$x.gate.public_behavior_protected
+              free_answer_protected=$x.gate.free_answer_protected
+              fresh_core_preserved=$x.gate.fresh_core_behavior_preserved
+              fresh_knowledge_gain=$x.gate.fresh_knowledge_gain
+              fresh_nonregression=$x.gate.fresh_nonregression
+              validation_improved=$x.gate.validation_improved
+              fresh_gained=$x.gate.fresh_gained
+              fresh_lost=$x.gate.fresh_lost
+              public_delta=$x.gate.public_delta_vs_behavior_candidate
+            } | ConvertTo-Json -Depth 8 -Compress | Write-Host
+          }
+          Write-Host 'Only aggregate metrics were read. No raw generations or checkpoint bytes were emitted.'
