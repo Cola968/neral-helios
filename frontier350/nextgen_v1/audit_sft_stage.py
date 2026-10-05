@@ -83,24 +83,24 @@ def run(train: Path, valid: Path, benchmark: Path, expected_train_sha: str,
         if problems:
             privacy_count+=1
             flagged.append({'id':ident,'split':split,'reason':','.join(sorted(set(problems)))})
-        # Track prompt and full dialogue independently. Prompt-only catches paraphrased
-        # questions; full-dialogue catches copied answers paired with lightly edited prompts.
-        sets.append((split,ident,tokens(row['user']),tokens(row['user']+' '+row['assistant'])))
+        # Score prompts and answers independently. Combining them into one dialogue set
+        # dilutes an exactly copied answer when the paired prompts are intentionally different.
+        sets.append((split,ident,tokens(row['user']),tokens(row['assistant'])))
     near=[]
     # Cross-split comparisons are prioritized; exact prompt duplicates already failed closed.
     train_sets=[r for r in sets if r[0]=='train']
     valid_sets=[r for r in sets if r[0]=='validation']
-    for _,v_id,v_prompt,v_dialogue in valid_sets:
-        for _,t_id,t_prompt,t_dialogue in train_sets:
+    for _,v_id,v_prompt,v_answer in valid_sets:
+        for _,t_id,t_prompt,t_answer in train_sets:
             prompt_score=similar(v_prompt,t_prompt)
-            dialogue_score=similar(v_dialogue,t_dialogue)
-            if max(prompt_score,dialogue_score) >= 0.84:
+            answer_score=similar(v_answer,t_answer)
+            if max(prompt_score,answer_score) >= 0.84:
                 near.append({'train_id':t_id,'validation_id':v_id,
                              'prompt_jaccard':round(prompt_score,4),
-                             'dialogue_jaccard':round(dialogue_score,4)})
+                             'answer_jaccard':round(answer_score,4)})
                 if len(near)>=200:
                     raise ValueError('excessive near-duplicate candidates; stop review')
-    return {'schema':2,'classification':'AUTOMATED_FLAGS_ONLY_NOT_APPROVED_NOT_TRAINED',
+    return {'schema':3,'classification':'AUTOMATED_FLAGS_ONLY_NOT_APPROVED_NOT_TRAINED',
             'training_rows':len(train_sets),'validation_rows':len(valid_sets),
             'frozen_chat_core_exact_hits':frozen_count,
             'candidate_rows_requiring_privacy_or_format_review':privacy_count,
@@ -108,7 +108,7 @@ def run(train: Path, valid: Path, benchmark: Path, expected_train_sha: str,
             'flagged_ids_no_text':flagged,'near_duplicate_ids_no_text':near,
             'limitations':['heuristic PII detection misses many identifiers','URL/role flags can be false positives',
                            'word-set similarity misses paraphrases and same facts in different wording',
-                           'prompt and full-dialogue Jaccard are lexical heuristics, not semantic deduplication',
+                           'prompt and answer Jaccard are lexical heuristics, not semantic deduplication',
                            'only frozen NIS2 chat-core exact prompts were checked, not full NIS2',
                            'human rights/privacy/content review is NOT done'],
             'approved_for_training':False,'training_started':False}
