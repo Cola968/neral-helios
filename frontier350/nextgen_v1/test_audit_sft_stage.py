@@ -42,7 +42,9 @@ class StageReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             folder=Path(tmp)
             benchmark=folder/'b.py'
-            benchmark.write_text("PAIR_CASES=[]\nEXACT_GENERATION_CASES=[]\n",encoding='utf8')
+            # Keep the benchmark fixture structurally valid: the auditor must fail closed
+            # if the frozen NIS2 chat-core cannot be extracted, even in this unit test.
+            benchmark.write_text("PAIR_CASES=[('x','User: Never train on this.\\nAssistant:',' good',' bad')]\nEXACT_GENERATION_CASES=[('x','Only YES',['YES'])]\n",encoding='utf8')
             train=folder/'train.jsonl'; valid=folder/'validation.jsonl'
             shared='alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu'
             a={'id':'t','source_id':'fixture','user':'How does a turbine work in simple terms?', 'assistant':shared}
