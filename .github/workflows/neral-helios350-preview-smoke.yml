@@ -1,0 +1,51 @@
+name: Helios 350M real checkpoint preview smoke (READ ONLY)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-helios350-preview-smoke.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  own-checkpoint-inference:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout pinned isolated source without deleting user files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: helios350_smoke_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Verify immutable SAFE and run the exact user launcher plus real local HTTP generation
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid absolute Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('helios350_smoke_source_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $safe=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tokSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          if(-not(Test-Path -LiteralPath $safe -PathType Leaf) -or -not(Test-Path -LiteralPath $tok -PathType Leaf)){throw 'own SAFE assets missing; no inference'}
+          if((Get-FileHash -LiteralPath $safe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'SAFE identity mismatch'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tokSha){throw 'tokenizer identity mismatch'}
+          $launcher=Join-Path $repo 'start-helios350.ps1'
+          if(-not(Test-Path -LiteralPath $launcher -PathType Leaf)){throw 'launcher not checked out'}
+          & $launcher -Smoke
+          if($LASTEXITCODE -ne 0){throw 'verified 350M launcher failed; preview NOT validated'}
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios350_http_smoke.py --assets-root '$(W $assets)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'actual Helios 350M HTTP health/origin/generation test failed'}
+          Write-Host 'Real own-weight localhost HTTP GET, unauthorized-origin refusal and POST generation passed; all services shut down. The verified user launcher remains in its own checkout. No GPU training or checkpoint modification.'

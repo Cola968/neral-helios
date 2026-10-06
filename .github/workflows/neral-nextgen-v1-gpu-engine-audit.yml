@@ -1,0 +1,52 @@
+name: Neral GPU per-process engine diagnosis READ ONLY
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-gpu-engine-audit.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-wddm-engine:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 4
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read-only Windows GPU engine counters and NVIDIA occupancy
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu=@(nvidia-smi --query-gpu=name,memory.free,temperature.gpu,utilization.gpu --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1){throw 'NVIDIA occupancy unavailable'}
+          $records=@()
+          $counterAvailable=$false
+          $failure=''
+          try {
+            $measurements=@(Get-Counter -Counter '\GPU Engine(*)\Utilization Percentage' -SampleInterval 2 -MaxSamples 3 -ErrorAction Stop)
+            foreach($sample in $measurements){
+              foreach($counter in $sample.CounterSamples){
+                if($counter.InstanceName -match '(?i)pid_(\d+)_.*engtype_([^_]+)'){
+                  $pidNumber=[int]$Matches[1]
+                  $engine=$Matches[2]
+                  $name=try{(Get-Process -Id $pidNumber -ErrorAction Stop).ProcessName.ToLowerInvariant()}catch{'unresolved'}
+                  $value=[math]::Round([double]$counter.CookedValue,2)
+                  if(-not [double]::IsNaN($value) -and -not [double]::IsInfinity($value) -and $value -gt 0){
+                    $records+= [pscustomobject]@{pid=$pidNumber;process=$name;engine=$engine;percent=$value}
+                  }
+                }
+              }
+            }
+            $counterAvailable=$true
+          } catch {
+            $failure=$_.Exception.Message
+          }
+          $top=@($records | Group-Object pid,process,engine | ForEach-Object {
+            $item=$_.Group[0]
+            [pscustomobject]@{pid=$item.pid;process=$item.process;engine=$item.engine;maximum_engine_percent=[math]::Round(($_.Group | Measure-Object percent -Maximum).Maximum,2)}
+          } | Sort-Object maximum_engine_percent -Descending | Select-Object -First 20)
+          [ordered]@{event='neral_readonly_wddm_engine_diagnosis';nvidia_sample=$gpu[0];gpu_engine_counter_available=$counterAvailable;counter_failure=$failure;engine_records=$records.Count;top_process_engines=$top;training_started=$false;checkpoint_accessed=$false;processes_terminated=$false} | ConvertTo-Json -Compress -Depth 5 | Write-Host
+          Write-Host 'Diagnostic only: engine percentages may be separate from global NVIDIA utilization; do not use this to override the existing fail-closed preflight.'

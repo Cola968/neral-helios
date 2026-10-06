@@ -1,0 +1,112 @@
+name: Neral NextGen three-step CUDA reproducibility diagnostic
+# Bounded training retry after user closed Roblox: preserve preflight and SAFE anchor.
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-determinism-probe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  independent-three-step-comparison:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          clean: true
+
+      - name: Check original anchor, corpus, available GPU and virgin A/B paths
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $parent='D:\NeralScaleV81'
+          $a=Join-Path $parent ('nextgen_determinism_' + $env:GITHUB_RUN_ID + '_a')
+          $b=Join-Path $parent ('nextgen_determinism_' + $env:GITHUB_RUN_ID + '_b')
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f.Length -lt 3 -or $f[1] -ne ':'){throw 'invalid Windows path'};return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          $repo=W (Get-Location).Path
+          $anchorSha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tokenizerSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/deterministic_live_v9.py frontier350/nextgen_v1/live_v9.py frontier350/nextgen_v1/compare_v9_training_state.py; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$(W $anchor)' --anchor-sha256 '$anchorSha' --main-data '$(W $main)' --replay '$(W $replay)' --tokenizer-sha256 '$tokenizerSha' --arm-a '$(W $a)' --arm-b '$(W $b)'"
+          New-Item -ItemType Directory -Path frontier350_nextgen_determinism_logs -Force | Out-Null
+          $result=& wsl.exe -- bash -lc $cmd 2>&1
+          $exitCode=$LASTEXITCODE
+          $result | Out-File -LiteralPath frontier350_nextgen_determinism_logs/preflight.json -Encoding utf8
+          $result | Write-Host
+          if($exitCode -ne 0){throw 'Preflight rejected; no training started'}
+          "repo=$repo" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor=$(W $anchor)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor_sha=$anchorSha" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "main=$(W $main)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "replay=$(W $replay)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "a=$(W $a)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "b=$(W $b)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "a_win=$a" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "b_win=$b" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Independent A, exactly three eager deterministic optimizer updates with live logs
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$a='${{ steps.guard.outputs.a }}'
+          $args="--anchor '${{ steps.guard.outputs.anchor }}' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --main-data '${{ steps.guard.outputs.main }}' --replay '${{ steps.guard.outputs.replay }}' --mode replay_only --new-tokens 73728 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.00002 --lr-end 0.00002 --replay-boost 1.78"
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py $args --out '$a'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'A failed deterministic short test; do not start B'}
+          $s=Get-Content -LiteralPath '${{ steps.guard.outputs.a_win }}\summary.json' -Raw | ConvertFrom-Json
+          if(!$s.complete -or $s.updates -ne 3 -or $s.new_tokens -ne 73728){throw 'A did not complete exactly three updates'}
+          Copy-Item '${{ steps.guard.outputs.a_win }}\metrics.jsonl' frontier350_nextgen_determinism_logs/arm_a_metrics.jsonl
+          Copy-Item '${{ steps.guard.outputs.a_win }}\summary.json' frontier350_nextgen_determinism_logs/arm_a_summary.json
+
+      - name: Independent B, same anchor and three eager deterministic updates
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$b='${{ steps.guard.outputs.b }}'
+          $args="--anchor '${{ steps.guard.outputs.anchor }}' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --main-data '${{ steps.guard.outputs.main }}' --replay '${{ steps.guard.outputs.replay }}' --mode replay_only --new-tokens 73728 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.00002 --lr-end 0.00002 --replay-boost 1.78"
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py $args --out '$b'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'B failed deterministic short test; no equality claim'}
+          $s=Get-Content -LiteralPath '${{ steps.guard.outputs.b_win }}\summary.json' -Raw | ConvertFrom-Json
+          if(!$s.complete -or $s.updates -ne 3 -or $s.new_tokens -ne 73728){throw 'B did not complete exactly three updates'}
+          Copy-Item '${{ steps.guard.outputs.b_win }}\metrics.jsonl' frontier350_nextgen_determinism_logs/arm_b_metrics.jsonl
+          Copy-Item '${{ steps.guard.outputs.b_win }}\summary.json' frontier350_nextgen_determinism_logs/arm_b_summary.json
+
+      - name: Compare every weight, optimizer buffer, RNG, sample hash and progress counter
+        run: |
+          $ErrorActionPreference='Stop'
+          $a='${{ steps.guard.outputs.a_win }}\resume.pt';$b='${{ steps.guard.outputs.b_win }}\resume.pt'
+          $ha=(Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hb=(Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash.ToLowerInvariant()
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_v9_training_state.py --arm-a '$(W $a)' --arm-b '$(W $b)' --sha-a '$ha' --sha-b '$hb' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --updates 3 --tokens 73728 --acknowledge-trusted-local-pickle"
+          $result=& wsl.exe -- bash -lc $cmd 2>&1
+          $exitCode=$LASTEXITCODE
+          $result | Out-File frontier350_nextgen_determinism_logs/three_step_equality.json -Encoding utf8
+          $result | Write-Host
+          if($exitCode -ne 0){throw 'Two independent pre-resume states differ or validation failed. NO further training authorized.'}
+          Write-Host 'Three-step independent starts equal in this eager diagnostic ONLY. Process-boundary resume, quality and throughput still unverified.'
+
+      - name: Upload metrics and diagnostic verdict ONLY; never upload checkpoints or dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-determinism-logs-${{ github.run_id }}
+          path: frontier350_nextgen_determinism_logs/*.json*
+          if-no-files-found: warn
+          retention-days: 14

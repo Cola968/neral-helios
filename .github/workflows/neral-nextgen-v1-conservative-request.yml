@@ -1,0 +1,159 @@
+name: Neral NextGen requested conservative development pilot
+
+# GPU training can start ONLY by committing the exact, dated request file.
+# Workflow edits alone do NOT trigger GPU training.
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['frontier350_nextgen_requests/conservative_pilot_20260916.json']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-requested-conservative-gpu
+  cancel-in-progress: false
+
+jobs:
+  bounded-research:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout pinned source in dedicated path without deleting user files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: conservative_pilot_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Validate one explicit, bounded local-only user request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:GITHUB_WORKSPACE ('conservative_pilot_source_'+$env:GITHUB_RUN_ID+'\frontier350_nextgen_requests\conservative_pilot_20260916.json')
+          if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'explicit request missing'}
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          $keys=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($keys -join ',') -ne 'action,anchor_sha256,learning_rate,replay_boost,request_id,steps,tokens,version'){throw 'unrecognized request fields'}
+          if($r.version -ne 1 -or $r.action -ne 'run_local_conservative_20step_pilot' -or $r.request_id -ne 'conservative-v1-20260916'){throw 'request contract mismatch'}
+          if($r.anchor_sha256 -ne 'ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c' -or [int]$r.steps -ne 20 -or [long]$r.tokens -ne 491520){throw 'unsafe checkpoint or token budget'}
+          if([math]::Abs([double]$r.learning_rate-0.000005) -gt 1e-12 -or [math]::Abs([double]$r.replay_boost-1.0) -gt 1e-12){throw 'unreviewed training hyperparameters'}
+          Write-Host 'Authorized bounded local 20-step research pilot; no production promotion or cloud.'
+
+      - name: Verify SHA-pinned C original, D vault, corpus and free GPU BEFORE training
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('conservative_pilot_source_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $mainroot=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05'
+          $main=Join-Path $mainroot 'train';$replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tokSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $manifestSha='3f60c38a7eae90072b813fcb8f53ef2b3a67ea2dad07ce7c8537ec290bab620b'
+          $vault='D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-'+$sha
+          $out='D:\NeralScaleV81\nextgen_conservative_'+$env:GITHUB_RUN_ID+'_candidate'
+          $unused='D:\NeralScaleV81\nextgen_conservative_'+$env:GITHUB_RUN_ID+'_unused'
+          $report=Join-Path $env:GITHUB_WORKSPACE ('conservative_pilot_report_'+$env:GITHUB_RUN_ID)
+          foreach($p in @($anchor,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "missing required asset: $p"}}
+          if(-not(Test-Path -LiteralPath $vault -PathType Container)){throw 'verified SAFE backup missing; training denied'}
+          if((Get-FileHash -LiteralPath $anchor -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'SAFE source hash changed'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tokSha){throw 'tokenizer hash changed'}
+          if(Test-Path -LiteralPath $report){throw 'existing report path; no overwrite'}
+          New-Item -ItemType Directory -Path $report | Out-Null
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/checkpoint_vault.py verify --backup '$(W $vault)' --expected-sha '$sha'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/verify_holdout_shards.py --corpus-root '$(W $mainroot)' --tokenizer-sha '$tokSha' --out '$(W $report)/holdout_integrity.json'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$(W $anchor)' --anchor-sha256 '$sha' --main-data '$(W $main)' --replay '$(W $replay)' --tokenizer-sha256 '$tokSha' --arm-a '$(W $out)' --arm-b '$(W $unused)'"
+          $results=@(& wsl.exe -- bash -lc $cmd 2>&1);$results|ForEach-Object {Write-Host $_}
+          if($LASTEXITCODE -ne 0){throw 'vault/data/GPU preflight rejected; NO training'}
+          $holdout=Get-Content -LiteralPath (Join-Path $report 'holdout_integrity.json') -Raw|ConvertFrom-Json
+          if($holdout.status -ne 'read_only_holdout_verified' -or $holdout.manifest_sha256 -ne $manifestSha){throw 'independently pinned holdout manifest SHA mismatch; NO training'}
+          "repo=$(W $repo)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor=$(W $anchor)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor_win=$anchor"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "main=$(W $main)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "replay=$(W $replay)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tok=$(W $tok)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "valid=$(W (Join-Path $mainroot 'valid'))"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "out=$(W $out)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "out_win=$out"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "report=$(W $report)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "report_win=$report"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha=$sha"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Baseline on protected fixed validation and development suites
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$ck='${{ steps.guard.outputs.anchor }}';$v='${{ steps.guard.outputs.valid }}';$tok='${{ steps.guard.outputs.tok }}';$r='${{ steps.guard.outputs.report }}'
+          $cmd="set -euo pipefail; cd '$repo'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$v' --out '$r/base_validation.json' --seq 512 --batch 4 --batches 32 --seed 351337; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out '$r/base_dev.json' --expected-tokens 1010003584"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'baseline quality evaluation failed; no training'}
+
+      - name: Train isolated conservative 20 updates with an immutable 10-update midpoint and live JSON logs
+        id: train
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$ck='${{ steps.guard.outputs.anchor }}';$sha='${{ steps.guard.outputs.sha }}'
+          $out='${{ steps.guard.outputs.out }}';$main='${{ steps.guard.outputs.main }}';$replay='${{ steps.guard.outputs.replay }}'
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONUNBUFFERED=1 PYTHONPATH='$repo/frontier350'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py --anchor '$ck' --anchor-sha '$sha' --main-data '$main' --replay '$replay' --out '$out' --mode replay_only --new-tokens 491520 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.000005 --lr-end 0.000005 --replay-boost 1.0 --snapshot-fraction 0.5"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'candidate training stopped; SAFE unchanged; do not promote'}
+          $local='${{ steps.guard.outputs.out_win }}';$summary=Get-Content -LiteralPath (Join-Path $local 'summary.json') -Raw|ConvertFrom-Json
+          if(!$summary.complete -or [int]$summary.updates -ne 20 -or [long]$summary.new_tokens -ne 491520 -or !$summary.frozen_weights_unchanged -or $summary.promoted){throw 'candidate training contract failed'}
+          $mid=Join-Path $local 'midpoint.pt';$final=Join-Path $local 'resume.pt'
+          if(-not(Test-Path -LiteralPath $mid -PathType Leaf) -or -not(Test-Path -LiteralPath $final -PathType Leaf)){throw 'missing midpoint/final; no promotion'}
+          $midSha=(Get-FileHash -LiteralPath $mid -Algorithm SHA256).Hash.ToLowerInvariant()
+          $finalSha=(Get-FileHash -LiteralPath $final -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($summary.midpoint_sha256 -ne $midSha -or $summary.checkpoint_sha256 -ne $finalSha){throw 'candidate snapshot SHA mismatches'}
+          if((Get-FileHash -LiteralPath '${{ steps.guard.outputs.anchor_win }}' -Algorithm SHA256).Hash.ToLowerInvariant() -ne '${{ steps.guard.outputs.sha }}'){throw 'SAFE changed: fail closed'}
+          Copy-Item -LiteralPath (Join-Path $local 'summary.json') -Destination (Join-Path '${{ steps.guard.outputs.report_win }}' 'train_summary.json')
+          Copy-Item -LiteralPath (Join-Path $local 'metrics.jsonl') -Destination (Join-Path '${{ steps.guard.outputs.report_win }}' 'train_metrics.jsonl')
+          "mid_sha=$midSha"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "final_sha=$finalSha"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Evaluate separate 10-step checkpoint on same fixed dev and validation
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$ck='${{ steps.guard.outputs.out }}/midpoint.pt';$v='${{ steps.guard.outputs.valid }}';$tok='${{ steps.guard.outputs.tok }}';$r='${{ steps.guard.outputs.report }}'
+          $cmd="set -euo pipefail; cd '$repo'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$v' --out '$r/mid_validation.json' --seq 512 --batch 4 --batches 32 --seed 351337; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out '$r/mid_dev.json' --expected-tokens 1010249344"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'midpoint eval failed; no promotion'}
+
+      - name: Evaluate separate 20-step checkpoint on identical dev and validation
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$ck='${{ steps.guard.outputs.out }}/resume.pt';$v='${{ steps.guard.outputs.valid }}';$tok='${{ steps.guard.outputs.tok }}';$r='${{ steps.guard.outputs.report }}'
+          $cmd="set -euo pipefail; cd '$repo'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$v' --out '$r/final_validation.json' --seq 512 --batch 4 --batches 32 --seed 351337; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out '$r/final_dev.json' --expected-tokens 1010495104"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'final eval failed; no promotion'}
+
+      - name: Compare pinned checkpoints; report quality and KEEP ALL candidates unpromoted
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$r='${{ steps.guard.outputs.report }}';$w='${{ steps.guard.outputs.report_win }}'
+          $sha='${{ steps.guard.outputs.sha }}';$mid='${{ steps.train.outputs.mid_sha }}';$final='${{ steps.train.outputs.final_sha }}'
+          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_fixed_validation.py --base '$r/base_validation.json' --candidate '$r/mid_validation.json' --anchor-sha '$sha' --candidate-sha '$mid' --anchor-tokens 1010003584 --candidate-tokens 1010249344 --out '$r/mid_comparison.json'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_fixed_validation.py --base '$r/base_validation.json' --candidate '$r/final_validation.json' --anchor-sha '$sha' --candidate-sha '$final' --anchor-tokens 1010003584 --candidate-tokens 1010495104 --out '$r/final_comparison.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'checkpoint/protocol validation comparison failed; no promotion'}
+          $base=Get-Content -LiteralPath (Join-Path $w 'base_dev.json') -Raw|ConvertFrom-Json
+          $midDev=Get-Content -LiteralPath (Join-Path $w 'mid_dev.json') -Raw|ConvertFrom-Json
+          $finalDev=Get-Content -LiteralPath (Join-Path $w 'final_dev.json') -Raw|ConvertFrom-Json
+          if($base.protocol_sha256 -ne $midDev.protocol_sha256 -or $base.protocol_sha256 -ne $finalDev.protocol_sha256){throw 'development suite changed'}
+          $result=[ordered]@{schema=1;baseline_dev_pct=$base.overall_accuracy_pct;midpoint_dev_pct=$midDev.overall_accuracy_pct;final_dev_pct=$finalDev.overall_accuracy_pct;promotion_allowed=$false;full_nis2_verified=$false;note='Pretraining diagnostic only. Earlier NIS2 regression unresolved; no automatic candidate acceptance.'}
+          $result|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $w 'dev_comparison.json') -Encoding utf8
+          $result|ConvertTo-Json|Write-Host
+          if((Get-FileHash -LiteralPath '${{ steps.guard.outputs.anchor_win }}' -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha){throw 'SAFE changed after pilot'}
+          Write-Host 'NO promotion, no merges, no deletes; all real checkpoint weights remain local only.'
+
+      - name: Upload diagnostics and per-step logs ONLY; never checkpoint, optimizer or data bytes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-conservative-${{ github.run_id }}
+          path: conservative_pilot_report_${{ github.run_id }}/
+          retention-days: 30
+          if-no-files-found: warn

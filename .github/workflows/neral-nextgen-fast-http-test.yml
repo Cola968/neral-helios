@@ -1,0 +1,48 @@
+name: Helios 350M fast browser end-to-end verification (CPU, READ ONLY)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-fast-http-test.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  actual-fast-preview:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout isolated commit without cleaning user files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: helios_fast_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Smoke exact user launcher and exercise true localhost HTTP cached generation
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'absolute Windows path required'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('helios_fast_source_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $safe=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $expected='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          if(-not(Test-Path -LiteralPath $safe -PathType Leaf)){throw 'SAFE anchor absent'}
+          if((Get-FileHash -LiteralPath $safe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'SAFE anchor mismatch'}
+          $launcher=Join-Path $repo 'start-helios350-fast.ps1'
+          if(-not(Test-Path -LiteralPath $launcher -PathType Leaf)){throw 'fast launcher not checked out'}
+          & $launcher -Smoke
+          if($LASTEXITCODE -ne 0){throw 'fast launcher smoke failed'}
+          $cmd="set -euo pipefail; cd '$(W $repo)'; export PYTHONPATH='$(W $repo)/frontier350:$(W $repo)/frontier350/nextgen_v1'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios350_fast_http_smoke.py --assets-root '$(W $assets)'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'fast HTTP parity/origin check failed; do not claim validation'}
+          Write-Host 'Verified own SAFE fast launcher and HTTP model parity. Local CPU only; server stopped; no training or checkpoint writes.'

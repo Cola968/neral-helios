@@ -2,20 +2,19 @@ from __future__ import annotations
 
 """V7.2 stage launcher: gated Fast2 first, proven V7.1/V5 fallbacks preserved.
 
-Fast2 is materialized as a temporary trainer copy, so a technical Fast2 failure does not
-contaminate the fallback trainer.  The newest V7 exact recovery state is reused across
-execution profiles exactly as in V7.1.  No semantic training contract is changed merely
-to change execution profile.
+Fast2 is materialized as a temporary trainer copy. Execution-profile fallbacks may
+resume the newest discovered exact recovery candidate, but NEVER delete or silently
+rewind a populated output directory if a recovery candidate is unavailable.
 """
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from apply_v6_fast2_patch import patch_trainer as patch_fast2
+from nextgen_v1.fallback_guard import fallback_allowed
 from train_v7_1_stage_launcher import arg_value, profile_args
 from v7_1_runtime_hotfix import patch_trainer as patch_runtime
 from v7_recovery import list_recovery_states
@@ -46,9 +45,7 @@ def main() -> None:
     if input_profile not in ("off", "coalesced-pin", "coalesced-pageable"):
         raise SystemExit(f"invalid NERAL_V71_INPUT_PROFILE={input_profile!r}")
 
-    # Keep one untouched V7/V7.1 base in memory.  The persistent trainer receives only
-    # the runtime hotfix used by legacy fallbacks.  Fast2 is patched into a disposable
-    # sibling file, so fallback semantics remain V5/V6/V7 compatible.
+    # Keep the existing V7/V7.1 fallback implementation and separate Fast2 file.
     base_text = TRAINER.read_text(encoding="utf-8")
     fallback_text = patch_runtime(base_text)
     TRAINER.write_text(fallback_text, encoding="utf-8")
@@ -65,8 +62,11 @@ def main() -> None:
         for attempt, profile in enumerate(profiles, 1):
             recoveries = list_recovery_states(out) if out.exists() else []
             recovery = recoveries[0] if recoveries else None
-            if attempt > 1 and recovery is None and out.exists():
-                shutil.rmtree(out, ignore_errors=True)
+            if attempt > 1 and not fallback_allowed(out, recovery):
+                print(json.dumps({"event": "v7_2_fallback_blocked",
+                                  "reason": "no_usable_exact_recovery_and_output_not_empty",
+                                  "preserved_output": str(out)}), flush=True)
+                raise SystemExit(last_code)
 
             if profile == "fast2":
                 args = profile_args(base_args, "turbo50", recovery, "off")
@@ -86,13 +86,16 @@ def main() -> None:
 
             recoveries = list_recovery_states(out) if out.exists() else []
             newest = recoveries[0] if recoveries else None
+            next_fallback = attempt < len(profiles) and fallback_allowed(out, newest)
             print(json.dumps({
                 "event": "v7_2_execution_profile_failed",
                 "profile": profile,
                 "returncode": last_code,
                 "recovery_available": str(newest) if newest else None,
-                "next_fallback": attempt < len(profiles),
+                "next_fallback": next_fallback,
             }), flush=True)
+            if not next_fallback:
+                raise SystemExit(last_code)
     finally:
         FAST2_TRAINER.unlink(missing_ok=True)
 

@@ -1,0 +1,110 @@
+name: Neral NextGen read-only fixed holdout A-B
+
+# Only evaluates two already existing checkpoints. NEVER trains or promotes.
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-fixed-holdout.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-fixed-holdout-gpu
+  cancel-in-progress: false
+
+jobs:
+  paired-validation:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout dedicated source without removing untracked user files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: neral_holdout_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+
+      - name: Pin both checkpoint bytes, verify protected SAFE and independent validation shards
+        id: paths
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'invalid Windows path'};return '/mnt/'+$matches[1].ToLower()+'/'+$matches[2].Replace('\','/')}
+          $repo=Join-Path $env:GITHUB_WORKSPACE ('neral_holdout_source_'+$env:GITHUB_RUN_ID)
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $base=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $candidate='D:\NeralScaleV81\nextgen_quality_35108412876_candidate\resume.pt'
+          $safeSha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $candidateSha='ec1f226511ad780b05cb2023878e9c543c86d9a8a846d638c7ca7ed9e1e8e466'
+          $tokSha='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $vault='D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-'+$safeSha
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $corpus=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05'
+          $report=Join-Path $env:GITHUB_WORKSPACE ('neral_holdout_report_'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $report){throw 'report exists; no overwrite'}
+          foreach($p in @($base,$candidate,$tok)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "missing checkpoint/tokenizer: $p"}
+          }
+          if(-not(Test-Path -LiteralPath $vault -PathType Container)){throw 'SAFE vault missing'}
+          if((Get-FileHash -LiteralPath $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne $safeSha){throw 'SAFE bytes changed'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne $candidateSha){throw 'candidate bytes changed'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne $tokSha){throw 'tokenizer bytes changed'}
+          $gpu=nvidia-smi --query-gpu=name,memory.free,temperature.gpu --format=csv,noheader,nounits
+          Write-Host "GPU=$gpu"
+          $parts=@(($gpu|Select-Object -First 1).Split(',')|ForEach-Object {$_.Trim()})
+          if($parts.Count -ne 3 -or $parts[0] -notmatch 'RTX 4070' -or [int]$parts[1] -lt 9000 -or [int]$parts[2] -gt 78){throw 'GPU memory/temperature/identity preflight failed'}
+          New-Item -ItemType Directory -Path $report | Out-Null
+          $cmd="set -euo pipefail; cd '$(W $repo)'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/checkpoint_vault.py verify --backup '$(W $vault)' --expected-sha '$safeSha'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/verify_holdout_shards.py --corpus-root '$(W $corpus)' --tokenizer-sha '$tokSha' --out '$(W $report)/holdout_integrity.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'vault or holdout identity invalid; no inference performed'}
+          foreach($item in @{repo=$repo;base=$base;candidate=$candidate;corpus=$corpus;report=$report}){
+            # No dynamic expression is needed for fixed outputs; set individually below.
+          }
+          "repo=$(W $repo)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "base=$(W $base)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "candidate=$(W $candidate)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "corpus=$(W $corpus)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "report=$(W $report)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "report_win=$report" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "base_win=$base" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "candidate_win=$candidate" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "safe_sha=$safeSha" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "candidate_sha=$candidateSha" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Evaluate SAFE on fixed 65536-token holdout (read-only)
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.paths.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '${{ steps.paths.outputs.base }}' --valid-data '${{ steps.paths.outputs.corpus }}/valid' --out '${{ steps.paths.outputs.report }}/base_validation.json' --seq 512 --batch 4 --batches 32 --seed 351337"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'SAFE validation failed; candidate not evaluated'}
+
+      - name: Evaluate rejected 20-step candidate on IDENTICAL fixed holdout (read-only)
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd="set -euo pipefail; cd '${{ steps.paths.outputs.repo }}'; PYTHONUNBUFFERED=1 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '${{ steps.paths.outputs.candidate }}' --valid-data '${{ steps.paths.outputs.corpus }}/valid' --out '${{ steps.paths.outputs.report }}/candidate_validation.json' --seq 512 --batch 4 --batches 32 --seed 351337"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'candidate validation failed; no promotion'}
+
+      - name: Recheck all original weights and generate NO-PROMOTION validation comparison
+        run: |
+          $ErrorActionPreference='Stop'
+          if((Get-FileHash -LiteralPath '${{ steps.paths.outputs.base_win }}' -Algorithm SHA256).Hash.ToLowerInvariant() -ne '${{ steps.paths.outputs.safe_sha }}'){throw 'SAFE changed during read-only benchmark'}
+          if((Get-FileHash -LiteralPath '${{ steps.paths.outputs.candidate_win }}' -Algorithm SHA256).Hash.ToLowerInvariant() -ne '${{ steps.paths.outputs.candidate_sha }}'){throw 'candidate changed during read-only benchmark'}
+          $cmd="set -euo pipefail; cd '${{ steps.paths.outputs.repo }}'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_fixed_validation.py --base '${{ steps.paths.outputs.report }}/base_validation.json' --candidate '${{ steps.paths.outputs.report }}/candidate_validation.json' --anchor-sha '${{ steps.paths.outputs.safe_sha }}' --candidate-sha '${{ steps.paths.outputs.candidate_sha }}' --anchor-tokens 1010003584 --candidate-tokens 1010495104 --out '${{ steps.paths.outputs.report }}/comparison.json'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'paired validation identity mismatch'}
+          Write-Host 'READ-ONLY RESEARCH: prior NIS2 chat-core regression still blocks promotion; no training or deletion.'
+
+      - name: Upload report JSON ONLY; never checkpoints, training data or tokenizer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-fixed-holdout-${{ github.run_id }}
+          path: neral_holdout_report_${{ github.run_id }}/
+          retention-days: 30
+          if-no-files-found: warn

@@ -1,0 +1,68 @@
+name: Neral NextGen real GPU preflight (READ ONLY)
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-real-preflight.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-v1-real-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          clean: true
+
+      - name: Verify independently retained V8.1 report identities, do not run training
+        run: |
+          $ErrorActionPreference='Stop'
+          # IDs pinned from separately uploaded V8.1 run 35069331704 diagnostics;
+          # report authorship alone does NOT independently prove SAFE provenance.
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $outputParent='D:\NeralScaleV81'
+          $armA=Join-Path $outputParent ('nextgen_readonly_' + $env:GITHUB_RUN_ID + '_arm_a')
+          $armB=Join-Path $outputParent ('nextgen_readonly_' + $env:GITHUB_RUN_ID + '_arm_b')
+          function W([string]$p) {
+            $f=[IO.Path]::GetFullPath($p)
+            if($f.Length -lt 3 -or $f[1] -ne ':'){throw 'expected Windows drive path'}
+            return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')
+          }
+          $repo=W (Get-Location).Path
+          $anchorWSL=W $anchor; $mainWSL=W $main; $replayWSL=W $replay
+          $armAWSL=W $armA; $armBWSL=W $armB
+          $anchorSHA='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tokenizerSHA='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$anchorWSL' --anchor-sha256 '$anchorSHA' --main-data '$mainWSL' --replay '$replayWSL' --tokenizer-sha256 '$tokenizerSHA' --arm-a '$armAWSL' --arm-b '$armBWSL'"
+          $result=& wsl.exe -- bash -lc $cmd 2>&1
+          $exitCode=$LASTEXITCODE
+          New-Item -ItemType Directory -Path 'frontier350_nextgen_preflight' -Force | Out-Null
+          $result | Out-File -LiteralPath 'frontier350_nextgen_preflight/report.json' -Encoding utf8
+          $result | Write-Host
+          if($exitCode -ne 0){throw "Preflight BLOCKED (exit $exitCode); no training or checkpoint writes"}
+          Write-Host 'READ-ONLY byte/GPU/storage checks succeeded; training NOT authorized or started.'
+
+      - name: Upload only preflight JSON, never checkpoints or datasets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-readonly-preflight-${{ github.run_id }}
+          path: frontier350_nextgen_preflight/report.json
+          if-no-files-found: warn
+          retention-days: 14

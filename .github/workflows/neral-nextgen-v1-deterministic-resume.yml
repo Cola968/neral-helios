@@ -1,0 +1,127 @@
+name: Neral NextGen deterministic eight-step resume validation
+
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-v1-deterministic-resume.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  exact-restart-ab:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: nextgen_resume_repo
+          clean: false
+          persist-credentials: false
+
+      - name: Verify pinned safe anchor, corpus, GPU and distinct unused output directories
+        id: guard
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);if($f.Length -lt 3 -or $f[1] -ne ':'){throw 'invalid Windows path'};return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          $repo=W (Join-Path $env:GITHUB_WORKSPACE 'nextgen_resume_repo')
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $anchor=Join-Path $assets 'runs\neral350_autorecovery_neral-autorecovery-v1-20260912-r1_selected\resume.pt'
+          $main=Join-Path $assets 'frontier350_safe_v8_arctus-safe-v8-20260912-r1_xling05\train'
+          $replay=Join-Path $assets 'frontier350_replay_v9_20260912'
+          $outputParent='D:\NeralScaleV81'
+          $a=Join-Path $outputParent ('nextgen_exact_resume_' + $env:GITHUB_RUN_ID + '_a')
+          $b=Join-Path $outputParent ('nextgen_exact_resume_' + $env:GITHUB_RUN_ID + '_b')
+          $sha='ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c'
+          $tok='4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'
+          New-Item -ItemType Directory -Path nextgen_exact_resume_logs -Force | Out-Null
+          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/nextgen_v1/deterministic_live_v9.py frontier350/nextgen_v1/compare_v9_training_state.py; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/real_gpu_preflight.py --anchor '$(W $anchor)' --anchor-sha256 '$sha' --main-data '$(W $main)' --replay '$(W $replay)' --tokenizer-sha256 '$tok' --arm-a '$(W $a)' --arm-b '$(W $b)'"
+          $result=& wsl.exe -- bash -lc $cmd 2>&1
+          $code=$LASTEXITCODE
+          $result | Out-File nextgen_exact_resume_logs/preflight.json -Encoding utf8
+          $result | Write-Host
+          if($code -ne 0){throw 'GPU/data preflight blocked: no training started'}
+          "repo=$repo" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor=$(W $anchor)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "anchor_sha=$sha" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "main=$(W $main)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "replay=$(W $replay)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "a=$(W $a)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "b=$(W $b)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "a_win=$a" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "b_win=$b" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: A continuous eight real optimizer updates with unbuffered live step logs
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$a='${{ steps.guard.outputs.a }}'
+          $common="--anchor '${{ steps.guard.outputs.anchor }}' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --main-data '${{ steps.guard.outputs.main }}' --replay '${{ steps.guard.outputs.replay }}' --mode replay_only --new-tokens 196608 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.00002 --lr-end 0.00002 --replay-boost 1.78"
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py $common --out '$a'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Arm A training failed; B not authorized'}
+          $s=Get-Content -LiteralPath '${{ steps.guard.outputs.a_win }}\summary.json' -Raw | ConvertFrom-Json
+          if(!$s.complete -or $s.updates -ne 8 -or $s.new_tokens -ne 196608){throw 'A budget mismatch'}
+          Copy-Item '${{ steps.guard.outputs.a_win }}\metrics.jsonl' nextgen_exact_resume_logs/arm_a_metrics.jsonl
+          Copy-Item '${{ steps.guard.outputs.a_win }}\summary.json' nextgen_exact_resume_logs/arm_a_summary.json
+
+      - name: B first three updates and checkpoint with separately logged hash
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$b='${{ steps.guard.outputs.b }}'
+          $common="--anchor '${{ steps.guard.outputs.anchor }}' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --main-data '${{ steps.guard.outputs.main }}' --replay '${{ steps.guard.outputs.replay }}' --mode replay_only --new-tokens 196608 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.00002 --lr-end 0.00002 --replay-boost 1.78"
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py $common --out '$b' --max-updates 3"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'B segment 1 failed; no resume'}
+          $s=Get-Content -LiteralPath '${{ steps.guard.outputs.b_win }}\summary.json' -Raw | ConvertFrom-Json
+          if($s.complete -or $s.updates -ne 3 -or $s.new_tokens -ne 73728){throw 'B segment 1 budget mismatch'}
+          Copy-Item '${{ steps.guard.outputs.b_win }}\summary.json' nextgen_exact_resume_logs/arm_b_first3_summary.json
+          $digest=(Get-FileHash -LiteralPath '${{ steps.guard.outputs.b_win }}\resume.pt' -Algorithm SHA256).Hash.ToLowerInvariant()
+          [ordered]@{schema=1;checkpoint_sha256=$digest;updates=3;new_tokens=73728} | ConvertTo-Json | Out-File nextgen_exact_resume_logs/arm_b_first3_identity.json -Encoding utf8
+          Write-Host "B recovery checkpoint SHA256=$digest"
+
+      - name: B fresh process restore and finish remaining five updates
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.guard.outputs.repo }}';$b='${{ steps.guard.outputs.b }}'
+          $common="--anchor '${{ steps.guard.outputs.anchor }}' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --main-data '${{ steps.guard.outputs.main }}' --replay '${{ steps.guard.outputs.replay }}' --mode replay_only --new-tokens 196608 --batch-size 4 --microbatches 12 --main-pack 9 --fast-replay-only --compile-mode none --lr 0.00002 --lr-end 0.00002 --replay-boost 1.78"
+          $cmd="set -euo pipefail; cd '$repo'; export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONHASHSEED=0 PYTHONPATH='$repo/frontier350' PYTHONUNBUFFERED=1; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/deterministic_live_v9.py $common --out '$b' --resume '$b/resume.pt'"
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'B restore or training failed; no equality claim'}
+          $s=Get-Content -LiteralPath '${{ steps.guard.outputs.b_win }}\summary.json' -Raw | ConvertFrom-Json
+          if(!$s.complete -or $s.updates -ne 8 -or $s.new_tokens -ne 196608){throw 'B final budget mismatch'}
+          Copy-Item '${{ steps.guard.outputs.b_win }}\metrics.jsonl' nextgen_exact_resume_logs/arm_b_metrics.jsonl
+          Copy-Item '${{ steps.guard.outputs.b_win }}\summary.json' nextgen_exact_resume_logs/arm_b_summary.json
+
+      - name: Compare every V9 state and all frozen/trained model weights
+        run: |
+          $ErrorActionPreference='Stop'
+          $a='${{ steps.guard.outputs.a_win }}\resume.pt';$b='${{ steps.guard.outputs.b_win }}\resume.pt'
+          $ha=(Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hb=(Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash.ToLowerInvariant()
+          function W([string]$p){$f=[IO.Path]::GetFullPath($p);return '/mnt/'+$f.Substring(0,1).ToLower()+'/'+$f.Substring(3).Replace('\','/')}
+          $repo='${{ steps.guard.outputs.repo }}'
+          $cmd="set -euo pipefail; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/compare_v9_training_state.py --arm-a '$(W $a)' --arm-b '$(W $b)' --sha-a '$ha' --sha-b '$hb' --anchor-sha '${{ steps.guard.outputs.anchor_sha }}' --updates 8 --tokens 196608 --acknowledge-trusted-local-pickle"
+          $result=& wsl.exe -- bash -lc $cmd 2>&1
+          $code=$LASTEXITCODE
+          $result | Out-File nextgen_exact_resume_logs/equality.json -Encoding utf8
+          $result | Write-Host
+          if($code -ne 0){throw 'A/B restart differs: NOT APPROVED; no further training'}
+          Write-Host 'Eight-step deterministic process-boundary resume equality only: NOT quality, NIS2, 44k throughput, full-model or production proof.'
+
+      - name: Upload JSON diagnostics only; no model, checkpoint, corpus or optimizer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-nextgen-exact-resume-${{ github.run_id }}
+          path: nextgen_exact_resume_logs/*.json*
+          if-no-files-found: warn
+          retention-days: 14

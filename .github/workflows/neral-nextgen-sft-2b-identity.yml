@@ -1,0 +1,43 @@
+name: Neral identify continuity checkpoint SHA - read only
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-sft-2b-identity.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Hash bounded checkpoint candidates; inspect summaries, never deserialize
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=if($env:NERAL_ASSETS_ROOT){Join-Path $env:NERAL_ASSETS_ROOT 'runs'}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral\runs'}
+          if(-not (Test-Path -LiteralPath $base -PathType Container)){throw 'runs folder missing'}
+          $names=@('neral350_scalev4_scalev4-20260913-2500m-a_r06_shadow','neral350_scalev4_scalev4-20260914-resume-b_r01_shadow','neral350_v10_arctus-guarded-v10-salvage-20260912-r5_selected','neral350_autolearn_neral-autolearn-v1-20260912-r2_r01_selected')
+          $expected='f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'
+          $matched=$false
+          foreach($name in $names){
+            $dir=Join-Path $base $name
+            $file=Join-Path $dir 'resume.pt'
+            if(-not (Test-Path -LiteralPath $file -PathType Leaf)){Write-Host ('not_found='+$name);continue}
+            $obj=Get-Item -LiteralPath $file
+            if($obj.Length -lt 100000000 -or $obj.Length -gt 3000000000){throw 'unexpected checkpoint size'}
+            $digest=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $isMatch=$digest -eq $expected
+            if($isMatch){$matched=$true}
+            Write-Host ('candidate_name='+$name+' checkpoint_sha256='+$digest+' continuity_exact_match='+$isMatch+' bytes='+$obj.Length)
+            $summary=Join-Path $dir 'summary.json'
+            if(Test-Path -LiteralPath $summary -PathType Leaf){
+              $s=Get-Content -LiteralPath $summary -Raw | ConvertFrom-Json
+              foreach($key in @('processed_tokens','tokens','complete','promoted','status')){
+                if($s.PSObject.Properties.Name -contains $key){Write-Host ('summary_'+$key+'='+$s.$key)}
+              }
+            }
+            if((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $digest){throw 'checkpoint mutated during read-only hash audit'}
+          }
+          Write-Host ('specified_2b_continuity_checkpoint_found='+$matched)
+          Write-Host 'No model weights deserialized, copied, modified, or promoted.'

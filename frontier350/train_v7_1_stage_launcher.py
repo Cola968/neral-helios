@@ -2,18 +2,18 @@ from __future__ import annotations
 
 """Scale V7.1 stage launcher.
 
-Fast3 is an execution-only profile selected by the RTX input-path benchmark.  Any Fast3
-failure falls back through the existing V7 profiles and resumes the newest exact compact
-recovery state; no semantic training state is discarded merely to change execution mode.
+Fast3 is an execution-only profile selected by the RTX input-path benchmark. Any
+fallback must preserve all prior output. Without a discovered exact recovery
+candidate, a populated output directory is NEVER deleted or restarted from scratch.
 """
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from nextgen_v1.fallback_guard import fallback_allowed
 from v7_recovery import list_recovery_states
 from v7_1_runtime_hotfix import main as apply_runtime_hotfix
 
@@ -86,9 +86,7 @@ def run_profile(trainer: Path, base_args: list[str], profile: str, recovery: Pat
 
 
 def main() -> None:
-    # The patch chain is assembled at workflow runtime. Apply the narrowly scoped fixes
-    # discovered by the first RTX 4070 smoke run only after V5/V6/V7/V7.1 have patched
-    # train_guarded_v9.py, so none of their proven contracts are replaced.
+    # Keep the existing patch chain, but NEVER delete training output to retry.
     apply_runtime_hotfix()
 
     base_args = sys.argv[1:]
@@ -111,8 +109,11 @@ def main() -> None:
     for attempt, profile in enumerate(profiles, 1):
         recoveries = list_recovery_states(out) if out.exists() else []
         recovery = recoveries[0] if recoveries else None
-        if attempt > 1 and recovery is None and out.exists():
-            shutil.rmtree(out, ignore_errors=True)
+        if attempt > 1 and not fallback_allowed(out, recovery):
+            print(json.dumps({"event": "v7_1_fallback_blocked",
+                              "reason": "no_usable_exact_recovery_and_output_not_empty",
+                              "preserved_output": str(out)}), flush=True)
+            raise SystemExit(last_code)
         last_code = run_profile(trainer, base_args, profile, recovery, input_profile)
         if last_code == 0:
             print(json.dumps({
@@ -124,13 +125,16 @@ def main() -> None:
             raise SystemExit(0)
         recoveries = list_recovery_states(out) if out.exists() else []
         newest = recoveries[0] if recoveries else None
+        next_fallback = attempt < len(profiles) and fallback_allowed(out, newest)
         print(json.dumps({
             "event": "v7_1_execution_profile_failed",
             "profile": profile,
             "returncode": last_code,
             "recovery_available": str(newest) if newest else None,
-            "next_fallback": attempt < len(profiles),
+            "next_fallback": next_fallback,
         }), flush=True)
+        if not next_fallback:
+            raise SystemExit(last_code)
 
     raise SystemExit(last_code)
 

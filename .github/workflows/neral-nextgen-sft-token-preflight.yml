@@ -1,0 +1,49 @@
+name: Neral SFT tokenizer and EOS preflight - read only
+on:
+  push:
+    branches: [experiment/nextgen-v1-isolated]
+    paths: ['.github/workflows/neral-nextgen-sft-token-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: nextgen_sft_token_repo
+          clean: false
+          persist-credentials: false
+      - name: Check own tokenizer, response mask, EOS and context without training
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $stage='D:\NeralScaleV81\sft_review_stage_35126575836\review_only_candidates'
+          $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $tokenizer=Join-Path $root 'frontier350_assets\tokenizer.json'
+          $report=Join-Path $stage 'TOKEN_PREFLIGHT.json'
+          if (Test-Path -LiteralPath $report) {throw 'refuse overwrite'}
+          function To-WSL([string]$p) {
+            if ($p -notmatch '^[CcDd]:\\' -or $p.Contains("'")) {throw 'invalid input path'}
+            return ('/mnt/'+$p.Substring(0,1).ToLowerInvariant()+'/'+$p.Substring(3).Replace('\','/'))
+          }
+          $repo=To-WSL (Join-Path $env:GITHUB_WORKSPACE 'nextgen_sft_token_repo')
+          $train=To-WSL (Join-Path $stage 'candidate_train.jsonl')
+          $valid=To-WSL (Join-Path $stage 'candidate_validation.jsonl')
+          $token=To-WSL $tokenizer
+          $out=To-WSL $report
+          & wsl.exe -- bash -lc "cd '$repo' && ~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/preflight_sft_tokenization.py --train '$train' --validation '$valid' --tokenizer '$token' --out '$out'"
+          if($LASTEXITCODE -ne 0){throw 'tokenization preflight failed; no model trained'}
+          $result=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if($result.approved_for_training -ne $false -or $result.training_started -ne $false){throw 'preflight contract violated'}
+          Write-Host 'SFT tokenization inspected, NOT approved and NOT trained.'
+      - name: Archive metadata-only tokenizer preflight
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-sft-token-preflight-metadata
+          path: D:\NeralScaleV81\sft_review_stage_35126575836\review_only_candidates\TOKEN_PREFLIGHT.json
+          if-no-files-found: error
+          retention-days: 14
