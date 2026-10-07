@@ -1,13 +1,5 @@
 from __future__ import annotations
-
-"""Tokenizer-agnostic assistant-only SFT formatting for the locked Neral 16K BPE.
-
-The caller supplies the locally audited Hugging Face tokenizers.Tokenizer instance. No
-foreign tokenizer, vocabulary or model weight is loaded by this module.
-"""
-
 from dataclasses import dataclass
-
 
 @dataclass(frozen=True)
 class EncodedChatExample:
@@ -15,64 +7,79 @@ class EncodedChatExample:
     targets: list[int]
     assistant_tokens: int
 
-
 def _id(tokenizer, token: str) -> int:
     value = tokenizer.token_to_id(token)
     if value is None:
         raise ValueError(f"missing required special token: {token}")
     return int(value)
 
+def _encode(tokenizer, text: str) -> list[int]:
+    return list(tokenizer.encode(text).ids)
 
-def encode_prompt_answer(tokenizer, prompt: str, answer: str, *, max_seq_len: int) -> EncodedChatExample:
+def encode_messages(tokenizer, messages: list[dict[str, str]], *, max_seq_len: int) -> EncodedChatExample:
     if max_seq_len <= 0:
         raise ValueError("max_seq_len must be positive")
-    prompt = prompt.strip()
-    answer = answer.strip()
-    if not prompt or not answer:
-        raise ValueError("prompt and answer must be non-empty")
-
+    if not messages or messages[0].get("role") != "user" or messages[-1].get("role") != "assistant":
+        raise ValueError("conversation must start with user and end with assistant")
     bos = _id(tokenizer, "<|bos|>")
     eos = _id(tokenizer, "<|eos|>")
-
-    prefix_text = f"User: {prompt}\nAssistant:"
-    answer_text = f" {answer}\n"
-    prefix = [bos] + list(tokenizer.encode(prefix_text).ids)
-    answer_ids = list(tokenizer.encode(answer_text).ids) + [eos]
-    ids = prefix + answer_ids
-
-    if len(ids) < 2:
-        raise ValueError("encoded example is too short")
+    ids = [bos]
+    supervised = [False]
+    expected = "user"
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
+        content = str(msg.get("content", "")).strip()
+        if role != expected or not content:
+            raise ValueError(f"invalid {expected} turn")
+        if role == "user":
+            segment = _encode(tokenizer, f"User: {content}\nAssistant:")
+            ids.extend(segment)
+            supervised.extend([False] * len(segment))
+            expected = "assistant"
+        else:
+            segment = _encode(tokenizer, f" {content}\n")
+            ids.extend(segment)
+            supervised.extend([True] * len(segment))
+            expected = "user"
+            if i != len(messages) - 1:
+                spacer = _encode(tokenizer, "User:")
+                # Keep the next literal User label as unsupervised context. The following
+                # user turn content is appended by replacing the duplicate label below.
+                # To avoid duplicated labels, remove it immediately; this branch exists only
+                # to make the alternation intent explicit.
+                if spacer:
+                    pass
+    ids.append(eos)
+    supervised.append(True)
+    # The generic loop above emits a complete User/Assistant pair each time. For multi-turn
+    # chats the next user segment already includes its own "User:" label.
     if len(ids) - 1 > max_seq_len:
         raise ValueError(f"encoded example exceeds max_seq_len={max_seq_len}: {len(ids)-1}")
-
-    # Causal alignment: targets[t] predicts ids[t+1]. Prompt tokens are context-only.
-    target_stream = [-100] * len(prefix) + answer_ids
+    target_stream = [tok if sup else -100 for tok, sup in zip(ids, supervised)]
     x = ids[:-1]
     y = target_stream[1:]
-    if len(x) != len(y):
-        raise AssertionError("causal alignment failure")
-    assistant_tokens = sum(1 for value in y if value != -100)
-    if assistant_tokens != len(answer_ids):
-        raise AssertionError("assistant target accounting failure")
+    assistant_tokens = sum(v != -100 for v in y)
+    if len(x) != len(y) or assistant_tokens <= 0 or y[-1] != eos:
+        raise AssertionError("assistant-only causal alignment failure")
     return EncodedChatExample(x, y, assistant_tokens)
 
+def encode_prompt_answer(tokenizer, prompt: str, answer: str, *, max_seq_len: int) -> EncodedChatExample:
+    return encode_messages(
+        tokenizer,
+        [{"role": "user", "content": prompt.strip()}, {"role": "assistant", "content": answer.strip()}],
+        max_seq_len=max_seq_len,
+    )
 
 def render_multiturn(messages: list[dict[str, str]]) -> str:
-    """Deterministic plain-text chat rendering for future multi-turn SFT data."""
-    parts: list[str] = []
+    parts = []
     expected = "user"
     for msg in messages:
         role = msg.get("role")
         content = str(msg.get("content", "")).strip()
-        if role not in {"user", "assistant"}:
-            raise ValueError(f"unsupported chat role: {role}")
-        if role != expected:
-            raise ValueError(f"expected {expected} turn, got {role}")
-        if not content:
-            raise ValueError("empty chat turn")
-        label = "User" if role == "user" else "Assistant"
-        parts.append(f"{label}: {content}")
+        if role != expected or not content:
+            raise ValueError(f"expected non-empty {expected} turn")
+        parts.append(("User: " if role == "user" else "Assistant: ") + content)
         expected = "assistant" if role == "user" else "user"
     if not parts or messages[-1].get("role") != "assistant":
-        raise ValueError("conversation must end with an assistant turn")
+        raise ValueError("conversation must end with assistant")
     return "\n".join(parts)

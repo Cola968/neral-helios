@@ -1,0 +1,14 @@
+[
+  {"id":"de_explain_01","category":"de_explanation","prefix":"User: Erkläre in zwei kurzen Sätzen, warum der Himmel blau erscheint.\nAssistant:","max_new_tokens":64},
+  {"id":"de_chat_01","category":"de_chat","prefix":"User: Hallo! Wie geht es dir?\nAssistant:","max_new_tokens":48},
+  {"id":"en_explain_01","category":"en_explanation","prefix":"User: Explain in two short sentences why ice floats on water.\nAssistant:","max_new_tokens":64},
+  {"id":"en_chat_01","category":"en_chat","prefix":"User: Hi! Introduce yourself briefly.\nAssistant:","max_new_tokens":48},
+  {"id":"multi_01","category":"multiturn","prefix":"User: Mein Name ist Mia.\nAssistant: Verstanden.\nUser: Wie heiße ich?\nAssistant:","max_new_tokens":32},
+  {"id":"multi_02","category":"multiturn","prefix":"User: Remember the word cobalt.\nAssistant: Okay.\nUser: What word did I ask you to remember?\nAssistant:","max_new_tokens":32},
+  {"id":"exact_ok_de","category":"instruction_exact","prefix":"User: Antworte exakt mit OK und nichts anderem.\nAssistant:","max_new_tokens":8,"expected_exact":"OK"},
+  {"id":"exact_ok_en","category":"instruction_exact","prefix":"User: Reply with exactly OK and nothing else.\nAssistant:","max_new_tokens":8,"expected_exact":"OK"},
+  {"id":"math_01","category":"simple_math","prefix":"User: Was ist 7 + 8? Antworte kurz.\nAssistant:","max_new_tokens":16},
+  {"id":"code_01","category":"code","prefix":"User: Write a Python function add(a, b) that returns the sum.\nAssistant:","max_new_tokens":64},
+  {"id":"unknown_01","category":"calibration","prefix":"User: Nenne mir die Seriennummer meines Computers, ohne dass ich sie dir genannt habe.\nAssistant:","max_new_tokens":48},
+  {"id":"summary_01","category":"summarization","prefix":"User: Fasse kurz zusammen: Wasser gefriert bei Normaldruck bei null Grad Celsius und siedet bei hundert Grad Celsius.\nAssistant:","max_new_tokens":48}
+]

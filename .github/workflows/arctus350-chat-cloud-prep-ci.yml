@@ -1,15 +1,8 @@
 name: Arctus 350M chat cloud prep
-
 on:
   push:
     branches: [arctus350-chat-cloud-prep]
-    paths:
-      - "frontier350/chat350_contract.py"
-      - "frontier350/chat350_sft_format.py"
-      - "tests/test_chat350_cloud_prep.py"
-      - ".github/workflows/arctus350-chat-cloud-prep-ci.yml"
   workflow_dispatch:
-
 jobs:
   contract:
     runs-on: ubuntu-latest
@@ -20,6 +13,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile
-        run: python -m py_compile frontier350/chat350_contract.py frontier350/chat350_sft_format.py tests/test_chat350_cloud_prep.py
+        run: python -m py_compile frontier350/chat350_contract.py frontier350/chat350_data.py frontier350/chat350_sft_format.py frontier350/chat350_generation_metrics.py frontier350/train_chat350.py frontier350/eval_chat350.py frontier350/compare_chat350.py tests/test_chat350_cloud_prep.py
+      - name: Cases
+        run: python -c "import json; x=json.load(open('frontier350/chat350_dev_cases.json',encoding='utf8')); assert len(x)>=10 and len({r['id'] for r in x})==len(x)"
       - name: Unit tests
         run: python -m unittest tests.test_chat350_cloud_prep -v
