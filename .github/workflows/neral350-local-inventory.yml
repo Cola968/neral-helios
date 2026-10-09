@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Find checkpoint paths without reading model contents
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference='Stop'
           $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
