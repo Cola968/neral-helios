@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, hashlib, json
+import argparse, hashlib, json, unicodedata
 from pathlib import Path
 
 try:
@@ -43,6 +43,7 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
     skipped_holdout=0
     length_ratio_filtered=0
     text_hygiene_filtered=0
+    equivalent_answers_filtered=0
     for pid,kids in sorted(children.items()):
         parent=by_id.get(pid)
         if not parent or parent.get("role")!="prompter" or not reviewed_human(parent):
@@ -61,6 +62,11 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
         if use[0].get("role")!="prompter" or use[-1].get("role")!="prompter":
             continue
         chosen,rejected=candidates[0],candidates[-1]
+        chosen_normalized=' '.join(unicodedata.normalize('NFKC',chosen['text']).casefold().split())
+        rejected_normalized=' '.join(unicodedata.normalize('NFKC',rejected['text']).casefold().split())
+        if not chosen_normalized or chosen_normalized==rejected_normalized:
+            equivalent_answers_filtered+=1
+            continue
         if not length_ratio_ok(chosen["text"],rejected["text"]):
             length_ratio_filtered+=1
             continue
@@ -80,7 +86,7 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
             skipped_holdout+=1
             continue
         out[split].append({"id":f"oasst2-pref:{pid}","language":parent["lang"],"source":"oasst2-human-ranked","license":LICENSE,"context":to_messages(use),"chosen":chosen["text"].strip(),"rejected":rejected["text"].strip(),"chosen_rank":int(chosen["rank"]),"rejected_rank":int(rejected["rank"]),"pair_sha256":digest})
-    return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout,"length_ratio_filtered":length_ratio_filtered,"text_hygiene_filtered":text_hygiene_filtered,"length_ratio_bounds":[0.25,4.0]}
+    return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout,"length_ratio_filtered":length_ratio_filtered,"text_hygiene_filtered":text_hygiene_filtered,"equivalent_answers_filtered":equivalent_answers_filtered,"length_ratio_bounds":[0.25,4.0]}
 
 def write_preferences(archive: Path, out_root: Path, repo_root: Path, *, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
     out_root=Path(out_root)
