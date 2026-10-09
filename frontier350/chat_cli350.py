@@ -4,40 +4,13 @@ from pathlib import Path
 import torch
 from tokenizers import Tokenizer
 from chat350_contract import EXPECTED_TOKENIZER_SHA256
-from model350 import FRONTIER_350,Neral350M
+from model350 import FRONTIER_350,Neral350M\nfrom chat_prompt350 import prompt_ids,trim_history
 
 def sha256_file(path):
     h=hashlib.sha256()
     with Path(path).open("rb") as f:
         for c in iter(lambda:f.read(4*1024*1024),b""):h.update(c)
     return h.hexdigest()
-
-def render_history(history):
-    parts=[]
-    for role,text in history:
-        text=str(text).strip()
-        if role=="user":parts.append("User: "+text+"\nAssistant:")
-        elif role=="assistant":parts.append(" "+text+"\n")
-        else:raise ValueError("role must be user/assistant")
-    return "".join(parts)
-
-def prompt_ids(tok,history):
-    bos=tok.token_to_id("<|bos|>")
-    if bos is None:raise ValueError("tokenizer missing BOS")
-    return [int(bos)]+list(tok.encode(render_history(history)).ids)
-
-def trim_history(tok,history,max_prompt_tokens):
-    if max_prompt_tokens<32:raise ValueError("max_prompt_tokens too small")
-    h=list(history)
-    while h and len(prompt_ids(tok,h))>max_prompt_tokens:
-        # Never remove just one side of an old completed turn if avoidable.
-        if len(h)>=3 and h[0][0]=="user" and h[1][0]=="assistant":
-            h=h[2:]
-        else:
-            h=h[1:]
-    if not h or h[-1][0]!="user":raise ValueError("latest user prompt cannot fit context")
-    if len(prompt_ids(tok,h))>max_prompt_tokens:raise ValueError("latest user prompt too long")
-    return h
 
 def sample_next(logits,generated,temperature,top_p,repetition_penalty):
     z=logits.float().clone()
