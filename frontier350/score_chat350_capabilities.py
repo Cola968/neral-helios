@@ -10,7 +10,9 @@ def score_one(text:str,spec:dict)->bool:
     if typ=="exact":
         return str(text).strip()==str(spec["value"]).strip()
     if typ=="integer":
-        found=re.findall(r"(?<![\\d.,])-?\\d+(?![\\d.,])",str(text))
+        # Match signed integers even when followed by normal punctuation ("95.", "-7,").
+        # Thousands/decimal separators are intentionally unsupported for this frozen benchmark.
+        found=re.findall(r"(?<!\d)[+-]?\d+(?!\d)",str(text))
         return bool(found) and int(found[-1])==int(spec["value"])
     if typ=="contains_all":
         return all(norm(x) in t for x in spec.get("values",[]))
@@ -47,5 +49,5 @@ def main():
     report=json.loads(Path(a.report).read_text(encoding="utf8"));cases=json.loads(Path(a.cases).read_text(encoding="utf8"));res=score(report,cases)
     if a.baseline_score:
         base=json.loads(Path(a.baseline_score).read_text(encoding="utf8"));res["comparison"]=compare(base,res)
-    Path(a.out).write_text(json.dumps(res,indent=2,ensure_ascii=False)+"\\n",encoding="utf8");print(json.dumps({k:v for k,v in res.items() if k!="details"},ensure_ascii=False))
+    Path(a.out).write_text(json.dumps(res,indent=2,ensure_ascii=False)+"\n",encoding="utf8");print(json.dumps({k:v for k,v in res.items() if k!="details"},ensure_ascii=False))
 if __name__=="__main__":main()
