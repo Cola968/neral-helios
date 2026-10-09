@@ -36,3 +36,16 @@ jobs:
               Write-Output ('FILE '+$rel+' | '+[math]::Round($_.Length/1MB)+' MB')
             }
           }
+          Write-Output 'OTHER_DRIVE_350_CANDIDATES'
+          foreach($disk in @('D:\','E:\')) {
+            if(-not (Test-Path $disk -PathType Container)){continue}
+            Write-Output ('DRIVE '+$disk)
+            Get-ChildItem -LiteralPath $disk -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              if($_.Name -match '(?i)neral|helios|model|train|codex|project|output|ai|ki|work') {
+                Write-Output ('CANDIDATE_DIRECTORY '+$_.FullName)
+                Get-ChildItem -LiteralPath $_.FullName -File -Recurse -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Length -gt 600MB -and $_.Name -match '(?i)checkpoint|resume|latest|model|best|state|\.pt|\.pth|\.bin|\.safetensors' } |
+                  Sort-Object Length -Descending | Select-Object -First 16 | ForEach-Object { Write-Output ('CANDIDATE_FILE '+$_.FullName+' | '+[math]::Round($_.Length/1MB)+' MB') }
+              }
+            }
+          }
