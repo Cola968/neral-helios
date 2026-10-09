@@ -18,6 +18,7 @@ from chat350_data import validate_dataset_root
 from chat350_sft_format import encode_messages
 from model350 import FRONTIER_350, Neral350M
 from sft_batching350 import length_bucket_batches, padding_stats
+from sft_stratified350 import stratified_batches, cohort_summary
 
 def sha256_file(path: Path) -> str:
     h=hashlib.sha256()
@@ -128,6 +129,8 @@ def main():
     ap.add_argument("--warmup-fraction",type=float,default=.05); ap.add_argument("--eval-every",type=int,default=50)
     ap.add_argument("--save-every",type=int,default=50); ap.add_argument("--eval-replay-batches",type=int,default=8)
     ap.add_argument("--seed",type=int,default=350_726); ap.add_argument("--gradient-checkpointing",action="store_true"); ap.add_argument("--length-bucket-size",type=int,default=64)
+    ap.add_argument("--sampling-mode",choices=["bucketed","human-balanced"],default="bucketed")
+    ap.add_argument("--human-per-batch",type=int,default=2)
     args=ap.parse_args()
     if args.seq>FRONTIER_350.max_seq_len or args.replay_seq>FRONTIER_350.max_seq_len: raise ValueError("sequence exceeds architecture")
     if min(args.steps,args.batch_size,args.replay_batch,args.replay_every,args.eval_every,args.save_every)<=0: raise ValueError("positive budgets required")
@@ -140,6 +143,10 @@ def main():
     root=Path(args.data); manifest,splits=validate_dataset_root(root)
     tok=load_tokenizer(Path(args.tokenizer))
     train=[encode_messages(tok,r["messages"],max_seq_len=args.seq) for r in splits["train"]]
+    train_is_human=[r["source"].startswith("oasst2-human") for r in splits["train"]]
+    mixture=cohort_summary(train_is_human)
+    if args.sampling_mode=="human-balanced" and not (0<args.human_per_batch<args.batch_size):
+        raise ValueError("human-per-batch must be between 1 and batch-size-1")
     val=[encode_messages(tok,r["messages"],max_seq_len=args.seq) for r in splits["val"]]
     test=[encode_messages(tok,r["messages"],max_seq_len=args.seq) for r in splits["test"]]
     pad_id=int(tok.token_to_id("<|pad|>")); eos_id=int(tok.token_to_id("<|eos|>"))
@@ -159,14 +166,19 @@ def main():
     baseline_sft=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
     baseline_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
     opt=torch.optim.AdamW(model.parameters(),lr=args.peak_lr,betas=(.9,.95),eps=1e-8,weight_decay=.03,fused=True)
-    rng=random.Random(args.seed+1); batches=length_bucket_batches(train,args.batch_size,rng,bucket_size=args.length_bucket_size)
+    rng=random.Random(args.seed+1)
+    batches=(stratified_batches(train,train_is_human,args.batch_size,rng,
+              human_per_batch=args.human_per_batch,bucket_size=args.length_bucket_size)
+              if args.sampling_mode=="human-balanced"
+              else length_bucket_batches(train,args.batch_size,rng,bucket_size=args.length_bucket_size))
     out=Path(args.out)
     if out.exists() and any(out.iterdir()): raise FileExistsError("chat output directory must be fresh")
     out.mkdir(parents=True,exist_ok=True)
     run={"stage":"Arctus 350M chat SFT pilot","source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
          "tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,"data_manifest":manifest,"baseline_sft":baseline_sft,
          "baseline_replay_loss":baseline_replay,"fresh_optimizer":True,"assistant_only":True,"args":vars(args),
-         "gpu":torch.cuda.get_device_name(0),"torch":str(torch.__version__)}
+         "gpu":torch.cuda.get_device_name(0),"torch":str(torch.__version__),
+         "sampling":{**mixture,"mode":args.sampling_mode,"human_per_batch":args.human_per_batch}}
     (out/"run.json").write_text(json.dumps(run,indent=2,ensure_ascii=False),encoding="utf8")
 
     def model_payload(step, val_report=None):
@@ -175,13 +187,16 @@ def main():
                 "chat_step":step,"data_manifest_sha256":manifest["manifest_sha256"],"validation":val_report}
 
     best=baseline_sft["answer_nll"]; best_eos=baseline_sft["terminal_eos_top1_pct"]
-    start=time.perf_counter(); measured_tokens=0; update_seconds=0.0; total_sft_real=0; total_sft_padded=0; torch.cuda.reset_peak_memory_stats()
+    start=time.perf_counter(); measured_tokens=0; update_seconds=0.0; total_sft_real=0; total_sft_padded=0; sampled_human=0; sampled_verified=0; torch.cuda.reset_peak_memory_stats()
     metrics=out/"metrics.jsonl"
     for step in range(1,args.steps+1):
         lr=lr_at(step,args.steps,args.peak_lr,args.min_lr,args.warmup_fraction)
         for g in opt.param_groups:g["lr"]=lr
         batch_rows=next(batches); pad=padding_stats(batch_rows); x,y=collate(batch_rows,pad_id,device); do_replay=step%args.replay_every==0
         total_sft_real+=pad["real_tokens"]; total_sft_padded+=pad["padded_tokens"]
+        if args.sampling_mode=="human-balanced":
+            sampled_human+=args.human_per_batch
+            sampled_verified+=args.batch_size-args.human_per_batch
         opt.zero_grad(set_to_none=True); torch.cuda.synchronize(); tick=time.perf_counter()
         sft=assistant_loss(model,x,y,eos_id,args.eos_weight)
         (sft*(args.sft_weight if do_replay else 1.0)).backward()
@@ -196,7 +211,8 @@ def main():
         row={"step":step,"sft_loss":float(sft.detach()),"replay_loss":None if replay_loss is None else float(replay_loss.detach()),
              "lr":lr,"grad_norm":float(gn),"seconds":dt,"compute_tokens":compute_tokens,"tokens_per_second":compute_tokens/max(dt,1e-9),
              "sft_batch_width":pad["batch_width"],"sft_real_tokens":pad["real_tokens"],"sft_padded_tokens":pad["padded_tokens"],
-             "sft_padding_tokens":pad["padding_tokens"],"sft_padding_fraction":pad["padding_fraction"]}
+             "sft_padding_tokens":pad["padding_tokens"],"sft_padding_fraction":pad["padding_fraction"],
+             "sampling_mode":args.sampling_mode}
         if step%args.eval_every==0 or step==args.steps:
             vr=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
             rr=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
@@ -222,6 +238,7 @@ def main():
              "best_answer_nll":best,"best_eos_top1_pct":best_eos,"optimizer_seconds":update_seconds,
              "mean_optimizer_tokens_per_second":measured_tokens/max(update_seconds,1e-9),
              "sft_real_tokens":total_sft_real,"sft_padded_tokens":total_sft_padded,"sft_padding_fraction":1.0-total_sft_real/max(1,total_sft_padded),
+             "sampled_human_rows":sampled_human,"sampled_verified_rows":sampled_verified,"sampling_mode":args.sampling_mode,
              "elapsed_seconds":time.perf_counter()-start,"peak_allocated_gib":torch.cuda.max_memory_allocated()/2**30,
              "peak_reserved_gib":torch.cuda.max_memory_reserved()/2**30,"best_checkpoint_exists":(out/"best_chat.pt").is_file()}
     (out/"summary.json").write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding="utf8")
