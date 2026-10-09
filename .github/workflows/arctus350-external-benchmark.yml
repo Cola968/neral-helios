@@ -93,6 +93,7 @@ jobs:
           "candidate_wsl=$(W $cand)" >> $env:GITHUB_OUTPUT
           "tokenizer_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
           "holdout_wsl=$(W $hold)" >> $env:GITHUB_OUTPUT
+          "holdout_win=$hold" >> $env:GITHUB_OUTPUT
           "gsm=$gsm" >> $env:GITHUB_OUTPUT
           "mbpp=$mbpp" >> $env:GITHUB_OUTPUT
 
@@ -126,7 +127,8 @@ jobs:
 
       - name: Add benchmark identity metadata
         run: |
-          $m=Get-Content (Join-Path (Join-Path (if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}) '${{ inputs.holdout_rel }}') 'manifest.json') -Raw|ConvertFrom-Json
+          $hold='${{ steps.env.outputs.holdout_win }}'
+          $m=Get-Content (Join-Path $hold 'manifest.json') -Raw|ConvertFrom-Json
           @{gsm8k_revision=$m.sources.gsm8k.revision;gsm8k_sha256=$m.sources.gsm8k.sha256;mbpp_revision=$m.sources.mbpp.revision;mbpp_sha256=$m.sources.mbpp.sha256;gsm_limit=[int]'${{ inputs.gsm_limit }}';mbpp_limit=[int]'${{ inputs.mbpp_limit }}';automatic_promotion=$false}|ConvertTo-Json|Set-Content 'external350_report\identity.json'
 
       - name: Upload reports only
