@@ -53,7 +53,7 @@ jobs:
           function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
           $rid='${{inputs.run_id }}';if($rid -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid run_id'}
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
-          $ck=Join-Path $assets (SafeRel '${{inputs.checkpoint_rel }}');$tok=Join-Path $assets (SafeRel '${{inputs.tokenizer_rel }}');$data=Join-Path $assets (SafeRel '${{inputs.sft_data_rel }}');$replay=Join-Path $assets (SafeRel '${{inputs.replay_data_rel }}')
+          $ck=if('${{inputs.checkpoint_rel }}' -eq 'SAFE350_VAULT'){'D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c\resume.pt'}else{Join-Path $assets (SafeRel '${{inputs.checkpoint_rel }}')};$tok=Join-Path $assets (SafeRel '${{inputs.tokenizer_rel }}');$data=Join-Path $assets (SafeRel '${{inputs.sft_data_rel }}');$replay=Join-Path $assets (SafeRel '${{inputs.replay_data_rel }}')
           foreach($p in @($ck,$tok)){if(-not(Test-Path $p -PathType Leaf)){throw "missing file: $p"}};foreach($p in @($data,$replay)){if(-not(Test-Path $p -PathType Container)){throw "missing dir: $p"}}
           if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLower() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'tokenizer SHA mismatch'}
           $out=Join-Path $assets ('runs\neral350_chat_'+$rid);if(Test-Path $out){throw "output exists: $out"}
