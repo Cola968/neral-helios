@@ -1,0 +1,371 @@
+[
+  {
+    "id": "exact_de_01",
+    "category": "instruction_exact",
+    "prefix": "User: Antworte exakt mit BER und nichts anderem.\nAssistant:",
+    "max_new_tokens": 8,
+    "scoring": {
+      "type": "exact",
+      "value": "BER"
+    }
+  },
+  {
+    "id": "exact_de_02",
+    "category": "instruction_exact",
+    "prefix": "User: Gib ausschließlich das Wort JA aus.\nAssistant:",
+    "max_new_tokens": 8,
+    "scoring": {
+      "type": "exact",
+      "value": "JA"
+    }
+  },
+  {
+    "id": "exact_en_01",
+    "category": "instruction_exact",
+    "prefix": "User: Reply with exactly BLUE and nothing else.\nAssistant:",
+    "max_new_tokens": 8,
+    "scoring": {
+      "type": "exact",
+      "value": "BLUE"
+    }
+  },
+  {
+    "id": "exact_en_02",
+    "category": "instruction_exact",
+    "prefix": "User: Output only the number 17.\nAssistant:",
+    "max_new_tokens": 8,
+    "scoring": {
+      "type": "exact",
+      "value": "17"
+    }
+  },
+  {
+    "id": "math_add_01",
+    "category": "math",
+    "prefix": "User: Berechne 37 + 58. Antworte knapp.\nAssistant:",
+    "max_new_tokens": 24,
+    "scoring": {
+      "type": "integer",
+      "value": 95
+    }
+  },
+  {
+    "id": "math_mul_01",
+    "category": "math",
+    "prefix": "User: Wie viel ist 12 mal 14? Antworte knapp.\nAssistant:",
+    "max_new_tokens": 24,
+    "scoring": {
+      "type": "integer",
+      "value": 168
+    }
+  },
+  {
+    "id": "math_alg_01",
+    "category": "math",
+    "prefix": "User: Löse 3x + 7 = 25 nach x. Nenne das Ergebnis.\nAssistant:",
+    "max_new_tokens": 40,
+    "scoring": {
+      "type": "integer",
+      "value": 6
+    }
+  },
+  {
+    "id": "math_pct_01",
+    "category": "math",
+    "prefix": "User: Wie viel sind 25 Prozent von 360?\nAssistant:",
+    "max_new_tokens": 32,
+    "scoring": {
+      "type": "integer",
+      "value": 90
+    }
+  },
+  {
+    "id": "math_seq_01",
+    "category": "math",
+    "prefix": "User: Setze fort: 4, 9, 14, 19, ... Welche Zahl kommt als Nächstes?\nAssistant:",
+    "max_new_tokens": 32,
+    "scoring": {
+      "type": "integer",
+      "value": 24
+    }
+  },
+  {
+    "id": "math_phys_01",
+    "category": "math",
+    "prefix": "User: Mit F = m·a: Welche Kraft ergibt sich für m = 7 kg und a = 8 m/s²?\nAssistant:",
+    "max_new_tokens": 40,
+    "scoring": {
+      "type": "integer",
+      "value": 56
+    }
+  },
+  {
+    "id": "math_sub_01",
+    "category": "math",
+    "prefix": "User: Berechne 703 - 268.\nAssistant:",
+    "max_new_tokens": 24,
+    "scoring": {
+      "type": "integer",
+      "value": 435
+    }
+  },
+  {
+    "id": "math_frac_01",
+    "category": "math",
+    "prefix": "User: Berechne drei Viertel von 20.\nAssistant:",
+    "max_new_tokens": 32,
+    "scoring": {
+      "type": "integer",
+      "value": 15
+    }
+  },
+  {
+    "id": "memory_de_01",
+    "category": "context_memory",
+    "prefix": "User: Merke dir das Wort Kobalt.\nAssistant: Verstanden.\nUser: Welches Wort solltest du dir merken?\nAssistant:",
+    "max_new_tokens": 24,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "kobalt"
+      ]
+    }
+  },
+  {
+    "id": "memory_en_01",
+    "category": "context_memory",
+    "prefix": "User: Remember the number 482.\nAssistant: Okay.\nUser: Which number did I ask you to remember?\nAssistant:",
+    "max_new_tokens": 24,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "482"
+      ]
+    }
+  },
+  {
+    "id": "memory_de_02",
+    "category": "context_memory",
+    "prefix": "User: Mein Lieblingsplanet in diesem Gespräch ist Mars.\nAssistant: Verstanden.\nUser: Was ist laut diesem Gespräch mein Lieblingsplanet?\nAssistant:",
+    "max_new_tokens": 32,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "mars"
+      ]
+    }
+  },
+  {
+    "id": "memory_en_02",
+    "category": "context_memory",
+    "prefix": "User: In this chat, the code word is cedar.\nAssistant: Got it.\nUser: What is the code word?\nAssistant:",
+    "max_new_tokens": 24,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "cedar"
+      ]
+    }
+  },
+  {
+    "id": "translate_de_01",
+    "category": "translation",
+    "prefix": "User: Übersetze ins Englische: Der Zug fährt um neun Uhr ab.\nAssistant:",
+    "max_new_tokens": 48,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "train",
+        "nine"
+      ]
+    }
+  },
+  {
+    "id": "translate_en_01",
+    "category": "translation",
+    "prefix": "User: Translate into German: The aircraft is ready for departure.\nAssistant:",
+    "max_new_tokens": 48,
+    "scoring": {
+      "type": "contains_any",
+      "values": [
+        "flugzeug",
+        "luftfahrzeug"
+      ],
+      "and_values": [
+        "abflug"
+      ]
+    }
+  },
+  {
+    "id": "translate_de_02",
+    "category": "translation",
+    "prefix": "User: Übersetze ins Englische: Die Messung zeigt zwölf Meter.\nAssistant:",
+    "max_new_tokens": 48,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "measurement",
+        "twelve",
+        "meter"
+      ]
+    }
+  },
+  {
+    "id": "translate_en_02",
+    "category": "translation",
+    "prefix": "User: Translate into German: The result is correct.\nAssistant:",
+    "max_new_tokens": 32,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "ergebnis",
+        "richtig"
+      ]
+    }
+  },
+  {
+    "id": "code_01",
+    "category": "code",
+    "prefix": "User: Schreibe eine Python-Funktion multiply(a, b), die das Produkt zurückgibt.\nAssistant:",
+    "max_new_tokens": 80,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "def multiply",
+        "return",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "id": "code_02",
+    "category": "code",
+    "prefix": "User: Write a Python function is_even(n) that returns whether n is even.\nAssistant:",
+    "max_new_tokens": 80,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "def is_even",
+        "return",
+        "%",
+        "2"
+      ]
+    }
+  },
+  {
+    "id": "code_03",
+    "category": "code",
+    "prefix": "User: Korrigiere in Python den Vergleich: if x = 5:\nAssistant:",
+    "max_new_tokens": 56,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "==",
+        "5"
+      ]
+    }
+  },
+  {
+    "id": "code_04",
+    "category": "code",
+    "prefix": "User: In Python, create a list containing 2, 3, and 4. Keep the answer short.\nAssistant:",
+    "max_new_tokens": 56,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "2",
+        "3",
+        "4",
+        "["
+      ]
+    }
+  },
+  {
+    "id": "calibration_de_01",
+    "category": "calibration",
+    "prefix": "User: Wie lautet das WLAN-Passwort in meiner Wohnung? Ich habe es dir nicht genannt.\nAssistant:",
+    "max_new_tokens": 64,
+    "scoring": {
+      "type": "contains_any",
+      "values": [
+        "weiß ich nicht",
+        "nicht wissen",
+        "nicht genannt",
+        "keinen zugriff",
+        "kann ich nicht wissen"
+      ]
+    }
+  },
+  {
+    "id": "calibration_en_01",
+    "category": "calibration",
+    "prefix": "User: What is the serial number of my laptop? I have not told you.\nAssistant:",
+    "max_new_tokens": 64,
+    "scoring": {
+      "type": "contains_any",
+      "values": [
+        "don't know",
+        "do not know",
+        "not told",
+        "cannot know",
+        "can't know",
+        "no access"
+      ]
+    }
+  },
+  {
+    "id": "summary_de_01",
+    "category": "summary",
+    "prefix": "User: Fasse in einem Satz zusammen: Ein Satellit umkreist die Erde. Seine Bahn wird wesentlich durch die Gravitation bestimmt.\nAssistant:",
+    "max_new_tokens": 56,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "satellit",
+        "erde",
+        "gravitation"
+      ]
+    }
+  },
+  {
+    "id": "summary_en_01",
+    "category": "summary",
+    "prefix": "User: Summarize in one sentence: A battery stores energy and can supply electrical devices when connected in a circuit.\nAssistant:",
+    "max_new_tokens": 56,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "battery",
+        "energy",
+        "electrical"
+      ]
+    }
+  },
+  {
+    "id": "science_de_01",
+    "category": "science",
+    "prefix": "User: Warum fällt ein Gegenstand in Erdnähe nach unten? Antworte in einem kurzen Satz.\nAssistant:",
+    "max_new_tokens": 48,
+    "scoring": {
+      "type": "contains_any",
+      "values": [
+        "gravitation",
+        "schwerkraft"
+      ]
+    }
+  },
+  {
+    "id": "science_en_01",
+    "category": "science",
+    "prefix": "User: Why does ice float on liquid water? Answer briefly.\nAssistant:",
+    "max_new_tokens": 64,
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "density",
+        "water"
+      ]
+    }
+  }
+]
