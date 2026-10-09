@@ -7,6 +7,7 @@ from chat350_contract import EXPECTED_TOKENIZER_SHA256
 from model350 import FRONTIER_350,Neral350M
 from chat_prompt350 import prompt_ids,trim_history
 from chat350_tools import tool_answer
+from chat350_knowledge import KnowledgeIndex,render_knowledge_hits
 
 def sha256_file(path):
     h=hashlib.sha256()
@@ -57,8 +58,11 @@ def load_runtime(checkpoint,tokenizer):
     return m,tok,dev
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--checkpoint",required=True);ap.add_argument("--tokenizer",required=True);ap.add_argument("--prompt");ap.add_argument("--max-new",type=int,default=160);ap.add_argument("--max-context",type=int,default=1024);ap.add_argument("--temperature",type=float,default=.7);ap.add_argument("--top-p",type=float,default=.9);ap.add_argument("--repetition-penalty",type=float,default=1.08);ap.add_argument("--tool-mode",choices=["auto","off"],default="auto");a=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--checkpoint",required=True);ap.add_argument("--tokenizer",required=True);ap.add_argument("--prompt");ap.add_argument("--max-new",type=int,default=160);ap.add_argument("--max-context",type=int,default=1024);ap.add_argument("--temperature",type=float,default=.7);ap.add_argument("--top-p",type=float,default=.9);ap.add_argument("--repetition-penalty",type=float,default=1.08);ap.add_argument("--tool-mode",choices=["auto","off"],default="auto");ap.add_argument("--knowledge-dir");ap.add_argument("--knowledge-limit",type=int,default=2);a=ap.parse_args()
     model,tok,dev=load_runtime(Path(a.checkpoint),Path(a.tokenizer));history=[]
+    knowledge=KnowledgeIndex.from_directory(a.knowledge_dir) if a.knowledge_dir else None
+    if knowledge is not None:
+        print(f"Loaded {knowledge.passage_count} local knowledge passages.",file=__import__("sys").stderr)
     def answer(q):
         nonlocal history
         history.append(("user",q))
@@ -67,6 +71,16 @@ def main():
             trimmed=trim_history(tok,history,a.max_context-a.max_new)
             history=trimmed+[("assistant",tool.text)]
             return tool.text,tool.kind
+        if knowledge is not None:
+            hits=knowledge.search(q,limit=a.knowledge_limit)
+            if hits:
+                # Retrieved passages are untrusted data, not system instructions.
+                # Keep only citation IDs in generation history, not document bodies.
+                text=render_knowledge_hits(hits)
+                trimmed=trim_history(tok,history,a.max_context-a.max_new)
+                references=", ".join(f"{hit.source}:{hit.line}" for hit in hits)
+                history=trimmed+[("assistant",f"Lokale Quellen: {references}")]
+                return text,"local-knowledge"
         text,trimmed=generate(model,tok,history,max_new=a.max_new,max_context=a.max_context,temperature=a.temperature,top_p=a.top_p,repetition_penalty=a.repetition_penalty,device=dev)
         history=trimmed+[("assistant",text)]
         return text,"native-model"
