@@ -1,0 +1,30 @@
+name: Neral 350M local inventory
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Find checkpoint paths without reading model contents
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          if(-not (Test-Path $root -PathType Container)){throw 'assets root missing'}
+          Write-Output "ASSETS_ROOT=$root"
+          Write-Output 'TOP_LEVEL_DIRECTORIES'
+          Get-ChildItem -LiteralPath $root -Directory | Select-Object -ExpandProperty Name
+          Write-Output 'CHECKPOINT_CANDIDATES (relative path and size MB only)'
+          Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object {$_.Extension -in @('.pt','.pth','.safetensors')} |
+            Sort-Object Length -Descending |
+            Select-Object -First 60 |
+            ForEach-Object { $relative=$_.FullName.Substring($root.Length).TrimStart([char]92); '{0} | {1:N0} MB' -f $relative,($_.Length/1MB) }
+          Write-Output 'LOCKED_TOKENIZER'
+          foreach($relative in @('frontier350_assets\tokenizer.json','frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2\train','frontier350_chat_data\neraltalk350-v3-20261009')){
+            $full=Join-Path $root $relative
+            Write-Output ("{0} = {1}" -f $relative,(Test-Path $full))
+          }
