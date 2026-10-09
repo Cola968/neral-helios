@@ -24,7 +24,7 @@ class TokenBudgetTests(unittest.TestCase):
             for split in ("train","val","test"):
                 rows=[chat_row(split+"-a","q-"+split,"a-"+split)]
                 if split=="train":
-                    rows.append(chat_row("long","q"*20,"a"*20))
+                    rows.append(chat_row("long","q"*100,"a"*100))
                 (root/f"{split}.jsonl").write_text("".join(json.dumps(x)+"\n" for x in rows))
             r=audit_chat(FakeTokenizer(),root,max_seq=60,hard_cap=500)
             self.assertFalse(r["pass"])
