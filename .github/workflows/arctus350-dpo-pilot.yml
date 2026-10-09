@@ -93,9 +93,16 @@ jobs:
       - name: Compile exact DPO tooling
         run: |
           $repo='${{ steps.env.outputs.repo_wsl }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_preference_format.py frontier350/precompute_dpo_ref350.py frontier350/train_dpo350.py frontier350/eval_replay350.py frontier350/score_chat350_capabilities.py frontier350/eval_chat350.py frontier350/compare_chat350.py"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_preference_format.py frontier350/validate_chat350_token_budget.py frontier350/precompute_dpo_ref350.py frontier350/train_dpo350.py frontier350/eval_replay350.py frontier350/score_chat350_capabilities.py frontier350/eval_chat350.py frontier350/compare_chat350.py"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'DPO tooling compile failed'}
+
+      - name: Exact preference token-budget gate
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$prefs='${{ steps.env.outputs.prefs_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/validate_chat350_token_budget.py --tokenizer '$tok' --preferences '$prefs' --preference-max-seq 768 --out dpo350_report/token_budget.json --strict"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'DPO token-budget gate failed'}
 
       - name: Evaluate SFT baseline generation and base-LM loss
         run: |
