@@ -22,7 +22,7 @@ def _frozen(repo_root: Path) -> list[str]:
         pass
     return phrases
 
-def extract(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_turns: int=8, max_bytes: int=1200):
+def extract(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_turns: int=8, max_bytes: int=360):
     if max_turns<4 or max_turns%2: raise ValueError("max_turns must be even and >=4")
     rows=load_archive(archive,verify_sha=verify_sha); by_id,children=indexes(rows); frozen=_frozen(repo_root)
     by_root={}
@@ -48,7 +48,7 @@ def extract(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_turns:
         out[split].append({"id":f"oasst2-multiturn:{root}:{path[-1]['message_id']}","language":path[0]["lang"],"domain":"chat","source":"oasst2-human-multiturn","license":LICENSE,"messages":m})
     return out,{"candidate_roots":len(by_root),"holdout_skipped":rejected_holdout,"accepted":{k:len(v) for k,v in out.items()}}
 
-def augment(archive: Path, dataset_root: Path, repo_root: Path, *, verify_sha: bool=True, max_turns: int=8, max_bytes: int=1200):
+def augment(archive: Path, dataset_root: Path, repo_root: Path, *, verify_sha: bool=True, max_turns: int=8, max_bytes: int=360):
     root=Path(dataset_root); base={s:read_jsonl(root/f"{s}.jsonl") for s in ("train","val","test")}
     add,stats=extract(archive,repo_root=repo_root,verify_sha=verify_sha,max_turns=max_turns,max_bytes=max_bytes)
     with tempfile.TemporaryDirectory(dir=root.parent) as td:
@@ -63,6 +63,6 @@ def augment(archive: Path, dataset_root: Path, repo_root: Path, *, verify_sha: b
     return prov
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--archive",required=True);ap.add_argument("--dataset-root",required=True);ap.add_argument("--repo-root",default=".");ap.add_argument("--max-turns",type=int,default=8);ap.add_argument("--max-bytes",type=int,default=1200);a=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--archive",required=True);ap.add_argument("--dataset-root",required=True);ap.add_argument("--repo-root",default=".");ap.add_argument("--max-turns",type=int,default=8);ap.add_argument("--max-bytes",type=int,default=360);a=ap.parse_args()
     print(json.dumps(augment(Path(a.archive),Path(a.dataset_root),Path(a.repo_root),max_turns=a.max_turns,max_bytes=a.max_bytes),ensure_ascii=False))
 if __name__=="__main__": main()

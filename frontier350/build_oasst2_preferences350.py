@@ -18,7 +18,7 @@ def _frozen(repo_root: Path) -> list[str]:
     except Exception: pass
     return phrases
 
-def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=1400):
+def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
     if max_context_turns<1 or max_context_turns%2!=1: raise ValueError("max_context_turns must be odd")
     rows=load_archive(archive,verify_sha=verify_sha); by_id,children=indexes(rows); frozen=_frozen(repo_root)
     out={"train":[],"val":[],"test":[]}; seen=set(); skipped_holdout=0
@@ -45,7 +45,7 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
         out[split].append({"id":f"oasst2-pref:{pid}","language":parent["lang"],"source":"oasst2-human-ranked","license":LICENSE,"context":to_messages(use),"chosen":chosen["text"].strip(),"rejected":rejected["text"].strip(),"chosen_rank":int(chosen["rank"]),"rejected_rank":int(rejected["rank"]),"pair_sha256":digest})
     return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout}
 
-def write_preferences(archive: Path, out_root: Path, repo_root: Path, *, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=1400):
+def write_preferences(archive: Path, out_root: Path, repo_root: Path, *, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
     out_root=Path(out_root)
     if out_root.exists() and any(out_root.iterdir()): raise FileExistsError("preference output must be fresh")
     out_root.mkdir(parents=True,exist_ok=True)
@@ -59,5 +59,5 @@ def write_preferences(archive: Path, out_root: Path, repo_root: Path, *, verify_
     return manifest
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--archive",required=True);ap.add_argument("--out",required=True);ap.add_argument("--repo-root",default=".");a=ap.parse_args();print(json.dumps(write_preferences(Path(a.archive),Path(a.out),Path(a.repo_root)),ensure_ascii=False))
+    ap=argparse.ArgumentParser();ap.add_argument("--archive",required=True);ap.add_argument("--out",required=True);ap.add_argument("--repo-root",default=".");ap.add_argument("--max-context-turns",type=int,default=7);ap.add_argument("--max-bytes",type=int,default=600);a=ap.parse_args();print(json.dumps(write_preferences(Path(a.archive),Path(a.out),Path(a.repo_root),max_context_turns=a.max_context_turns,max_bytes=a.max_bytes),ensure_ascii=False))
 if __name__=="__main__": main()
