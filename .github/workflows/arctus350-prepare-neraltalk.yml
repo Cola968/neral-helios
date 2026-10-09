@@ -1,0 +1,126 @@
+name: Prepare NeralTalk 350 locally
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: "Fresh local dataset build id"
+        required: true
+        default: "neraltalk350-v2"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-neraltalk350
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve local build paths
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $id='${{ inputs.build_id }}'
+          if($id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid build_id'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $py=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          if(-not(Test-Path $py -PathType Leaf)){throw "missing data Python: $py"}
+          $work=Join-Path $assets ('frontier350_chat_data\'+$id+'_work')
+          $screened=Join-Path $work 'screened_sft'
+          $sources=Join-Path $work 'sources'
+          $final=Join-Path $assets ('frontier350_chat_data\'+$id)
+          $prefs=Join-Path $assets ('frontier350_chat_data\'+$id+'_preferences')
+          if(Test-Path $final){throw "final dataset already exists: $final"}
+          if(Test-Path $prefs){throw "preference dataset already exists: $prefs"}
+          New-Item -ItemType Directory -Force $work,$sources|Out-Null
+          New-Item -ItemType Directory -Force neraltalk350_build_report|Out-Null
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$py" >> $env:GITHUB_OUTPUT
+          "sources=$sources" >> $env:GITHUB_OUTPUT
+          "screened=$screened" >> $env:GITHUB_OUTPUT
+          "final=$final" >> $env:GITHUB_OUTPUT
+          "prefs=$prefs" >> $env:GITHUB_OUTPUT
+
+      - name: Fetch pinned human-only OASST2 source
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 fetch_oasst2_sft50.py --out '${{ steps.env.outputs.sources }}' --max-en 16000 --max-de 6000
+          if($LASTEXITCODE -ne 0){throw 'OASST2 fetch/filter failed'}
+
+      - name: Add deterministic targeted curriculum
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 build_targeted_sft50_oasst2.py --root '${{ steps.env.outputs.sources }}' --per-generated-source 6000
+          if($LASTEXITCODE -ne 0){throw 'targeted SFT source build failed'}
+
+      - name: Build screened single-turn SFT splits
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 prepare_sft50_i1.py --source-root '${{ steps.env.outputs.sources }}' --out '${{ steps.env.outputs.screened }}' --target-train-examples 0 --max-seq 512
+          if($LASTEXITCODE -ne 0){throw 'screened SFT build failed'}
+          & $py -X utf8 validate_sft50_dataset.py --data '${{ steps.env.outputs.screened }}' --out neraltalk350_build_report\screened_sft_audit.json
+          if($LASTEXITCODE -ne 0){throw 'screened SFT validation failed'}
+
+      - name: Adapt to NeralTalk and add human multi-turn dialogs
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          $archive=Join-Path '${{ steps.env.outputs.sources }}' '2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $env:PYTHONPATH=(Join-Path (Get-Location) 'frontier350')
+          & $py -X utf8 frontier350\build_neraltalk350_from_screened.py --screened-root '${{ steps.env.outputs.screened }}' --out '${{ steps.env.outputs.final }}'
+          if($LASTEXITCODE -ne 0){throw 'NeralTalk adapter failed'}
+          & $py -X utf8 frontier350\build_oasst2_multiturn350.py --archive $archive --dataset-root '${{ steps.env.outputs.final }}' --repo-root . --max-turns 8 --max-bytes 360
+          if($LASTEXITCODE -ne 0){throw 'human multi-turn augmentation failed'}
+          & $py -X utf8 frontier350\chat350_data.py --root '${{ steps.env.outputs.final }}' --out neraltalk350_build_report\neraltalk_manifest.json
+          if($LASTEXITCODE -ne 0){throw 'NeralTalk validation failed'}
+
+      - name: Build human-ranked OASST2 preferences
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          $archive=Join-Path '${{ steps.env.outputs.sources }}' '2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $env:PYTHONPATH=(Join-Path (Get-Location) 'frontier350')
+          & $py -X utf8 frontier350\build_oasst2_preferences350.py --archive $archive --out '${{ steps.env.outputs.prefs }}' --repo-root . --max-context-turns 7 --max-bytes 600
+          if($LASTEXITCODE -ne 0){throw 'human preference build failed'}
+          Copy-Item '${{ steps.env.outputs.prefs }}\manifest.json' 'neraltalk350_build_report\preferences_manifest.json' -Force
+
+      - name: Enforce chat and preference quality gates
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          $env:PYTHONPATH=(Join-Path (Get-Location) 'frontier350')
+          & $py -X utf8 frontier350\audit_neraltalk350_quality.py --root '${{ steps.env.outputs.final }}' --out neraltalk350_build_report\quality_audit.json --strict
+          if($LASTEXITCODE -ne 0){throw 'NeralTalk quality gate failed'}
+          & $py -X utf8 frontier350\audit_preferences350.py --root '${{ steps.env.outputs.prefs }}' --out neraltalk350_build_report\preference_quality_audit.json --strict
+          if($LASTEXITCODE -ne 0){throw 'Preference quality gate failed'}
+
+      - name: Copy provenance metadata only
+        run: |
+          Copy-Item '${{ steps.env.outputs.final }}\provenance.json' 'neraltalk350_build_report\provenance.json' -Force
+          Copy-Item '${{ steps.env.outputs.final }}\multiturn_provenance.json' 'neraltalk350_build_report\multiturn_provenance.json' -Force
+          $m=Get-Content 'neraltalk350_build_report\neraltalk_manifest.json' -Raw|ConvertFrom-Json
+          $p=Get-Content 'neraltalk350_build_report\preferences_manifest.json' -Raw|ConvertFrom-Json
+          if([int]$m.splits.train.rows -lt 1000){throw 'too few clean NeralTalk train rows'}
+          if([int]$m.splits.val.rows -lt 50 -or [int]$m.splits.test.rows -lt 20){throw 'validation/test split too small'}
+          if([int]$p.stats.accepted.train -lt 100){throw 'too few human preference train pairs'}
+          @{status='ready';local_path='${{ steps.env.outputs.final }}';preference_path='${{ steps.env.outputs.prefs }}';train_rows=$m.splits.train.rows;val_rows=$m.splits.val.rows;test_rows=$m.splits.test.rows;preference_train_pairs=$p.stats.accepted.train}|ConvertTo-Json|Set-Content 'neraltalk350_build_report\ready.json'
+
+      - name: Upload metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neraltalk350-build-${{ github.run_id }}
+          path: neraltalk350_build_report/
+          retention-days: 30
