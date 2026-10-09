@@ -5,7 +5,7 @@ from pathlib import Path
 from frontier350.oasst2_human350 import indexes,path_to_root,valid_human_path,split_for_root_prompt
 from frontier350.chat350_preference_format import encode_final_response
 from frontier350.build_oasst2_multiturn350 import extract as extract_multi
-from frontier350.build_oasst2_preferences350 import extract_preferences
+from frontier350.build_oasst2_preferences350 import extract_preferences,length_ratio_ok
 
 class E:
     def __init__(self,ids):self.ids=ids
@@ -29,7 +29,7 @@ class HumanAlignmentTests(unittest.TestCase):
         e=encode_final_response(T(),[{"role":"user","content":"A"},{"role":"assistant","content":"B"},{"role":"user","content":"C"}],"D",max_seq_len=128)
         self.assertEqual(e.targets[-1],1);self.assertGreater(e.response_tokens,1);self.assertIn(-100,e.targets)
 
-    def test_synthetic_path_rejected(self):
+    def test_preference_length_ratio_filter(self):\n        self.assertTrue(length_ratio_ok("abcd","abc"))\n        self.assertFalse(length_ratio_ok("a","abcdefghij"))\n        self.assertFalse(length_ratio_ok("abcdefghij","a"))\n\n    def test_synthetic_path_rejected(self):
         rs=[row("u0",None,"prompter","Hallo"),row("a0","u0","assistant","Hi",0)]
         rs[1]["synthetic"]=True
         by,_=indexes(rs)
