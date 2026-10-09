@@ -1,0 +1,70 @@
+name: Prepare Arctus 350M external holdouts
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: "Fresh local holdout build id"
+        required: true
+        default: "external-holdouts-v1"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arctus350-external-holdout-prep
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve local paths
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $id='${{ inputs.build_id }}'
+          if($id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid build_id'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $py=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          if(-not(Test-Path $py -PathType Leaf)){throw "missing data Python: $py"}
+          & $py -c "import pyarrow"
+          if($LASTEXITCODE -ne 0){throw 'pyarrow missing from local data environment'}
+          $out=Join-Path $assets ('external_benchmarks\'+$id)
+          if(Test-Path $out){throw "output already exists: $out"}
+          New-Item -ItemType Directory -Force external350_prep_report|Out-Null
+          "python=$py" >> $env:GITHUB_OUTPUT
+          "out=$out" >> $env:GITHUB_OUTPUT
+
+      - name: Download pinned eval-only holdouts
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          & $py -X utf8 frontier350\prepare_external_holdouts350.py --out '${{ steps.env.outputs.out }}'
+          if($LASTEXITCODE -ne 0){throw 'external holdout preparation failed'}
+
+      - name: Export metadata only
+        run: |
+          Copy-Item '${{ steps.env.outputs.out }}\manifest.json' 'external350_prep_report\manifest.json' -Force
+          $m=Get-Content 'external350_prep_report\manifest.json' -Raw|ConvertFrom-Json
+          if([int]$m.sources.gsm8k.rows -ne 1319){throw 'unexpected GSM8K row count'}
+          if([int]$m.sources.mbpp.rows -ne 257){throw 'unexpected MBPP row count'}
+          @{status='ready';local_path='${{ steps.env.outputs.out }}';training_access='forbidden'}|ConvertTo-Json|Set-Content 'external350_prep_report\ready.json'
+
+      - name: Upload metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-external-holdouts-${{ github.run_id }}
+          path: external350_prep_report/
+          retention-days: 30
