@@ -46,6 +46,13 @@ class ToolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _arithmetic("(1).__class__")
 
+    def test_compound_requests_are_not_partially_answered(self):
+        self.assertIsNone(self.answer("Berechne 2 + 2 und ziehe dann 1 ab"))
+        self.assertIsNone(self.answer("What is 2 * 3? Then add 5."))
+        self.assertIsNone(self.answer("Berechne 3 + 4. Bitte starte ein Skript."))
+        self.assertEqual(self.answer("Compute 25 minus 9. Give only the numeric result."), "16")
+        self.assertEqual(self.answer("What is 8 times 7? Reply with the result."), "56")
+
     def test_mark_tool_outputs_separately(self):
         outcome = tool_answer("Calculate 8*9")
         self.assertEqual(outcome.kind, "calculator")
