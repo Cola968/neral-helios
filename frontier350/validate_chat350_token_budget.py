@@ -43,11 +43,15 @@ def audit_chat(tokenizer, root: Path, *, max_seq: int=512, hard_cap: int=8192):
     report={}
     total_bad=0
     for split in SPLITS:
-        lengths=[];bad=[]
+        lengths=[];bad=[];supervised=0;by_language=collections.Counter();by_domain=collections.Counter();by_source=collections.Counter()
         for row in splits[split]:
             try:
                 enc=encode_messages(tokenizer,row["messages"],max_seq_len=hard_cap)
                 n=len(enc.input_ids)
+                supervised+=enc.assistant_tokens
+                by_language[row["language"]]+=enc.assistant_tokens
+                by_domain[row["domain"]]+=enc.assistant_tokens
+                by_source[row["source"]]+=enc.assistant_tokens
             except ValueError:
                 n=hard_cap+1
             lengths.append(n)
