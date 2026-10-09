@@ -109,6 +109,19 @@ def _explicit_calculation(prompt: str) -> ToolAnswer | None:
     if not arithmetic:
         return None
     expr = arithmetic.group(1).strip()
+    # A partial arithmetic prefix is not the whole user request. Otherwise
+    # "Berechne 2 + 2 und ziehe 1 ab" would incorrectly return 4.
+    suffix = raw[arithmetic.end():].strip()
+    if suffix and not re.fullmatch(
+        r"(?:[.!?]\s*)?(?:"
+        r"antworte knapp|gib das ergebnis als zahl an|antworte mit der zahl|"
+        r"give only the numeric result|reply with the result|"
+        r"keep the answer short"
+        r")?[.!?]?",
+        suffix,
+        re.I,
+    ):
+        return None
     if not re.search(r"[+*/-]", expr) or not re.search(r"\d", expr):
         return None
     try:
