@@ -1,0 +1,138 @@
+name: Arctus 350M external benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_checkpoint_rel:
+        description: "Baseline checkpoint relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "runs/neral350_frontier_compiled_1b/resume.pt"
+        type: string
+      candidate_checkpoint_rel:
+        description: "Candidate checkpoint relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "runs/neral350_chat_chatpilot-v1/best_chat.pt"
+        type: string
+      tokenizer_rel:
+        description: "Locked tokenizer relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_assets/tokenizer.json"
+        type: string
+      holdout_rel:
+        description: "Prepared external holdout directory relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "external_benchmarks/external-holdouts-v1"
+        type: string
+      gsm_limit:
+        description: "0 = all 1319, otherwise deterministic subset size"
+        required: true
+        default: "100"
+        type: string
+      mbpp_limit:
+        description: "0 = all 257, otherwise deterministic subset size"
+        required: true
+        default: "50"
+        type: string
+      run_id:
+        description: "Report id"
+        required: true
+        default: "external-pilot-v1"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arctus350-external-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve local assets fail-closed
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function SafeRel([string]$x){
+            if([string]::IsNullOrWhiteSpace($x)-or $x.Length -gt 180 -or $x -match ':' -or $x -match '(^|[\\/])\.\.([\\/]|$)' -or $x -match '^[\\/]' -or $x -notmatch '^[A-Za-z0-9._/\\-]+$'){throw "unsafe relative path: $x"}
+            return $x.Replace('/','\')
+          }
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f)
+            if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"}
+            $d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/')
+            return "/mnt/$d/$r"
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $base=Join-Path $assets (SafeRel '${{ inputs.baseline_checkpoint_rel }}')
+          $cand=Join-Path $assets (SafeRel '${{ inputs.candidate_checkpoint_rel }}')
+          $tok=Join-Path $assets (SafeRel '${{ inputs.tokenizer_rel }}')
+          $hold=Join-Path $assets (SafeRel '${{ inputs.holdout_rel }}')
+          foreach($p in @($base,$cand,$tok)){if(-not(Test-Path $p -PathType Leaf)){throw "missing file: $p"}}
+          if(-not(Test-Path $hold -PathType Container)){throw "missing holdout directory: $hold"}
+          foreach($f in @('gsm8k_test.jsonl','mbpp_test.jsonl','manifest.json')){if(-not(Test-Path (Join-Path $hold $f) -PathType Leaf)){throw "missing holdout file: $f"}}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLower() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'tokenizer SHA mismatch'}
+          $gsm=[int]'${{ inputs.gsm_limit }}';$mbpp=[int]'${{ inputs.mbpp_limit }}'
+          if($gsm -lt 0 -or $gsm -gt 1319){throw 'gsm_limit must be 0..1319'}
+          if($mbpp -lt 0 -or $mbpp -gt 257){throw 'mbpp_limit must be 0..257'}
+          New-Item -ItemType Directory -Force external350_report|Out-Null
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "baseline_wsl=$(W $base)" >> $env:GITHUB_OUTPUT
+          "candidate_wsl=$(W $cand)" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+          "holdout_wsl=$(W $hold)" >> $env:GITHUB_OUTPUT
+          "gsm=$gsm" >> $env:GITHUB_OUTPUT
+          "mbpp=$mbpp" >> $env:GITHUB_OUTPUT
+
+      - name: Compile external benchmark tooling
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/external_bench350_scoring.py frontier350/mbpp_safe_runner350.py frontier350/eval_gsm8k350.py frontier350/eval_mbpp350.py frontier350/compare_external_bench350.py frontier350/chat_cli350.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'external benchmark compile failed'}
+
+      - name: Evaluate baseline
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.baseline_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$hold='${{ steps.env.outputs.holdout_wsl }}';$gsm='${{ steps.env.outputs.gsm }}';$mbpp='${{ steps.env.outputs.mbpp }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_gsm8k350.py --checkpoint '$ck' --tokenizer '$tok' --data '$hold/gsm8k_test.jsonl' --out external350_report/gsm_baseline.json --limit '$gsm'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_mbpp350.py --checkpoint '$ck' --tokenizer '$tok' --data '$hold/mbpp_test.jsonl' --out external350_report/mbpp_baseline.json --limit '$mbpp'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'baseline external benchmark failed'}
+
+      - name: Evaluate candidate
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.candidate_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$hold='${{ steps.env.outputs.holdout_wsl }}';$gsm='${{ steps.env.outputs.gsm }}';$mbpp='${{ steps.env.outputs.mbpp }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_gsm8k350.py --checkpoint '$ck' --tokenizer '$tok' --data '$hold/gsm8k_test.jsonl' --out external350_report/gsm_candidate.json --limit '$gsm'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_mbpp350.py --checkpoint '$ck' --tokenizer '$tok' --data '$hold/mbpp_test.jsonl' --out external350_report/mbpp_candidate.json --limit '$mbpp'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'candidate external benchmark failed'}
+
+      - name: Compare fixed subsets
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/compare_external_bench350.py --gsm-baseline external350_report/gsm_baseline.json --gsm-candidate external350_report/gsm_candidate.json --mbpp-baseline external350_report/mbpp_baseline.json --mbpp-candidate external350_report/mbpp_candidate.json --out external350_report/decision.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'external benchmark regression gate failed'}
+
+      - name: Add benchmark identity metadata
+        run: |
+          $m=Get-Content (Join-Path (Join-Path (if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}) '${{ inputs.holdout_rel }}') 'manifest.json') -Raw|ConvertFrom-Json
+          @{gsm8k_revision=$m.sources.gsm8k.revision;gsm8k_sha256=$m.sources.gsm8k.sha256;mbpp_revision=$m.sources.mbpp.revision;mbpp_sha256=$m.sources.mbpp.sha256;gsm_limit=[int]'${{ inputs.gsm_limit }}';mbpp_limit=[int]'${{ inputs.mbpp_limit }}';automatic_promotion=$false}|ConvertTo-Json|Set-Content 'external350_report\identity.json'
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-external-benchmark-${{ github.run_id }}
+          path: external350_report/
+          retention-days: 30
