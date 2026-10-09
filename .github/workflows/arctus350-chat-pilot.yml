@@ -49,7 +49,7 @@ jobs:
         id: env
         run: |
           $ErrorActionPreference='Stop'
-          function SafeRel([string]$x){if([string]::IsNullOrWhiteSpace($x)-or $x.Length -gt 180 -or $x -match ':' -or $x -match '(^|[\/])\.\.([\/]|$)' -or $x -match '^[\/]' -or $x -notmatch '^[A-Za-z0-9._/\\-]+$'){throw "unsafe relative path: $x"};return $x.Replace('/','\')}
+          function SafeRel([string]$x){if([string]::IsNullOrWhiteSpace($x)-or $x.Length -gt 180 -or $x -match ':' -or $x -match '(^|[\\/])\.\.([\\/]|$)' -or $x -match '^[\\/]' -or $x -notmatch '^[A-Za-z0-9._/\\-]+$'){throw "unsafe relative path: $x"};return $x.Replace('/','\')}
           function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
           $rid='${{inputs.run_id }}';if($rid -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid run_id'}
           $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
