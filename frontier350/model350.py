@@ -85,9 +85,13 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
 def _rope_table(max_seq_len: int, dim: int, theta: float, device: torch.device, dtype: torch.dtype):
     key = (device.type, device.index, str(dtype), int(max_seq_len), int(dim), float(theta))
     cached = _ROPE_CACHE.get(key)
-    if cached is not None:
+    if cached is not None and not any(t.is_inference() for t in cached):
         return cached
-    with torch.no_grad():
+    # Evaluation uses torch.inference_mode(). Caching tensors created inside
+    # that context makes the first subsequent training backward fail because
+    # autograd cannot save inference tensors (even if they require no grad).
+    # Explicitly disable inference mode when constructing static RoPE tables.
+    with torch.inference_mode(False), torch.no_grad():
         pos = torch.arange(max_seq_len, device=device, dtype=torch.float32)
         inv = 1.0 / (theta ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
         phase = torch.outer(pos, inv).repeat_interleave(2, -1)[None, None]
