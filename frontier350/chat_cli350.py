@@ -1,0 +1,100 @@
+from __future__ import annotations
+import argparse,hashlib
+from pathlib import Path
+import torch
+from tokenizers import Tokenizer
+from chat350_contract import EXPECTED_TOKENIZER_SHA256
+from model350 import FRONTIER_350,Neral350M
+
+def sha256_file(path):
+    h=hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for c in iter(lambda:f.read(4*1024*1024),b""):h.update(c)
+    return h.hexdigest()
+
+def render_history(history):
+    parts=[]
+    for role,text in history:
+        text=str(text).strip()
+        if role=="user":parts.append("User: "+text+"\nAssistant:")
+        elif role=="assistant":parts.append(" "+text+"\n")
+        else:raise ValueError("role must be user/assistant")
+    return "".join(parts)
+
+def prompt_ids(tok,history):
+    bos=tok.token_to_id("<|bos|>")
+    if bos is None:raise ValueError("tokenizer missing BOS")
+    return [int(bos)]+list(tok.encode(render_history(history)).ids)
+
+def trim_history(tok,history,max_prompt_tokens):
+    if max_prompt_tokens<32:raise ValueError("max_prompt_tokens too small")
+    h=list(history)
+    while h and len(prompt_ids(tok,h))>max_prompt_tokens:
+        # Never remove just one side of an old completed turn if avoidable.
+        if len(h)>=3 and h[0][0]=="user" and h[1][0]=="assistant":
+            h=h[2:]
+        else:
+            h=h[1:]
+    if not h or h[-1][0]!="user":raise ValueError("latest user prompt cannot fit context")
+    if len(prompt_ids(tok,h))>max_prompt_tokens:raise ValueError("latest user prompt too long")
+    return h
+
+def sample_next(logits,generated,temperature,top_p,repetition_penalty):
+    z=logits.float().clone()
+    if repetition_penalty<1.0:raise ValueError("repetition_penalty must be >=1")
+    if repetition_penalty>1.0:
+        for tid in set(generated):
+            v=z[tid];z[tid]=torch.where(v<0,v*repetition_penalty,v/repetition_penalty)
+    if temperature<=0:return int(torch.argmax(z))
+    z=z/temperature
+    probs=torch.softmax(z,dim=-1)
+    if not 0<top_p<=1:raise ValueError("top_p must be in (0,1]")
+    if top_p<1:
+        sp,si=torch.sort(probs,descending=True);cum=torch.cumsum(sp,dim=-1)
+        remove=cum-sp>top_p;sp[remove]=0;sp=sp/sp.sum()
+        return int(si[torch.multinomial(sp,1)])
+    return int(torch.multinomial(probs,1))
+
+@torch.inference_mode()
+def generate(model,tok,history,*,max_new=160,max_context=1024,temperature=.7,top_p=.9,repetition_penalty=1.08,device=None):
+    if max_new<=0 or max_new>=max_context:raise ValueError("invalid max_new/max_context")
+    h=trim_history(tok,history,max_context-max_new)
+    ids=prompt_ids(tok,h);generated=[]
+    eos=int(tok.token_to_id("<|eos|>"));bos=int(tok.token_to_id("<|bos|>"));pad=int(tok.token_to_id("<|pad|>"));sep=int(tok.token_to_id("<|sep|>"))
+    dev=device or next(model.parameters()).device
+    for _ in range(max_new):
+        x=torch.tensor([ids],device=dev,dtype=torch.long)
+        logits,_=model(x)
+        z=logits[0,-1].clone()
+        for bad in (bos,pad,sep):z[bad]=-float("inf")
+        nxt=sample_next(z,generated,temperature,top_p,repetition_penalty)
+        if nxt==eos:break
+        generated.append(nxt);ids.append(nxt)
+        if len(ids)>=max_context:break
+    return tok.decode(generated,skip_special_tokens=True).strip(),h
+
+def load_runtime(checkpoint,tokenizer):
+    if sha256_file(tokenizer)!=EXPECTED_TOKENIZER_SHA256:raise ValueError("locked tokenizer SHA mismatch")
+    tok=Tokenizer.from_file(str(tokenizer));ck=torch.load(checkpoint,map_location="cpu",weights_only=False)
+    if ck.get("config")!=FRONTIER_350.to_dict() or ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256:raise ValueError("checkpoint identity mismatch")
+    if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise RuntimeError("BF16 CUDA required")
+    dev=torch.device("cuda");m=Neral350M().to(device=dev,dtype=torch.bfloat16);m.load_state_dict(ck["model"],strict=True);m.eval()
+    return m,tok,dev
+
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument("--checkpoint",required=True);ap.add_argument("--tokenizer",required=True);ap.add_argument("--prompt");ap.add_argument("--max-new",type=int,default=160);ap.add_argument("--max-context",type=int,default=1024);ap.add_argument("--temperature",type=float,default=.7);ap.add_argument("--top-p",type=float,default=.9);ap.add_argument("--repetition-penalty",type=float,default=1.08);a=ap.parse_args()
+    model,tok,dev=load_runtime(Path(a.checkpoint),Path(a.tokenizer));history=[]
+    def answer(q):
+        nonlocal history
+        history.append(("user",q));text,trimmed=generate(model,tok,history,max_new=a.max_new,max_context=a.max_context,temperature=a.temperature,top_p=a.top_p,repetition_penalty=a.repetition_penalty,device=dev)
+        history=trimmed+[("assistant",text)];return text
+    if a.prompt is not None:print(answer(a.prompt));return
+    print("Arctus 350M local chat. /reset clears history, /quit exits.")
+    while True:
+        try:q=input("You> ").strip()
+        except (EOFError,KeyboardInterrupt):print();break
+        if not q:continue
+        if q=="/quit":break
+        if q=="/reset":history=[];print("History cleared.");continue
+        print("Neral> "+answer(q))
+if __name__=="__main__":main()
