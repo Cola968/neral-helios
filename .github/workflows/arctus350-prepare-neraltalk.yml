@@ -97,6 +97,15 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'human preference build failed'}
           Copy-Item '${{ steps.env.outputs.prefs }}\manifest.json' 'neraltalk350_build_report\preferences_manifest.json' -Force
 
+      - name: Enforce chat and preference quality gates
+        run: |
+          $py='${{ steps.env.outputs.python }}'
+          $env:PYTHONPATH=(Join-Path (Get-Location) 'frontier350')
+          & $py -X utf8 frontier350\audit_neraltalk350_quality.py --root '${{ steps.env.outputs.final }}' --out neraltalk350_build_report\quality_audit.json --strict
+          if($LASTEXITCODE -ne 0){throw 'NeralTalk quality gate failed'}
+          & $py -X utf8 frontier350\audit_preferences350.py --root '${{ steps.env.outputs.prefs }}' --out neraltalk350_build_report\preference_quality_audit.json --strict
+          if($LASTEXITCODE -ne 0){throw 'Preference quality gate failed'}
+
       - name: Copy provenance metadata only
         run: |
           Copy-Item '${{ steps.env.outputs.final }}\provenance.json' 'neraltalk350_build_report\provenance.json' -Force
