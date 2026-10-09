@@ -30,6 +30,19 @@ class RuntimeTests(unittest.TestCase):
         r=check(q,f,cap,sl)
         self.assertTrue(r["machine_gates_pass"])
         self.assertFalse(r["automatic_release"])
+        self.assertFalse(r["external_evidence_present"])
+
+    def test_required_external_evidence(self):
+        q={"gates":{"pass":True}}
+        f={"decision":"manual_review_required"}
+        cap={"comparison":{"capability_no_regression":True}}
+        sl={"slice_no_regression":True}
+        missing=check(q,f,cap,sl,require_external=True)
+        self.assertFalse(missing["machine_gates_pass"])
+        good=check(q,f,cap,sl,external_decision={"pass":True},require_external=True)
+        self.assertTrue(good["machine_gates_pass"])
+        bad=check(q,f,cap,sl,external_decision={"pass":False},require_external=True)
+        self.assertFalse(bad["machine_gates_pass"])
 
 if __name__=="__main__":
     unittest.main()
