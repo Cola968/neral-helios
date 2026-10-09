@@ -4,8 +4,10 @@ from pathlib import Path
 
 try:
     from .oasst2_human350 import load_archive,indexes,path_to_root,valid_human_path,to_messages,split_for_root_prompt,contaminated,sha256_file,LICENSE,SOURCE,reviewed_human
+    from .chat350_text_hygiene import all_texts_safe
 except ImportError:
     from oasst2_human350 import load_archive,indexes,path_to_root,valid_human_path,to_messages,split_for_root_prompt,contaminated,sha256_file,LICENSE,SOURCE,reviewed_human
+    from chat350_text_hygiene import all_texts_safe
 
 def _frozen(repo_root: Path) -> list[str]:
     import sys
@@ -40,6 +42,7 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
     seen=set()
     skipped_holdout=0
     length_ratio_filtered=0
+    text_hygiene_filtered=0
     for pid,kids in sorted(children.items()):
         parent=by_id.get(pid)
         if not parent or parent.get("role")!="prompter" or not reviewed_human(parent):
@@ -62,6 +65,10 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
             length_ratio_filtered+=1
             continue
         texts=[r["text"].strip() for r in use]+[chosen["text"].strip(),rejected["text"].strip()]
+        safe,_=all_texts_safe(texts)
+        if not safe:
+            text_hygiene_filtered+=1
+            continue
         if sum(len(x.encode("utf8")) for x in texts)>max_bytes or contaminated(texts,frozen):
             continue
         digest=hashlib.sha256(json.dumps([to_messages(use),chosen["text"].strip(),rejected["text"].strip()],ensure_ascii=False,sort_keys=True).encode("utf8")).hexdigest()
@@ -73,7 +80,7 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
             skipped_holdout+=1
             continue
         out[split].append({"id":f"oasst2-pref:{pid}","language":parent["lang"],"source":"oasst2-human-ranked","license":LICENSE,"context":to_messages(use),"chosen":chosen["text"].strip(),"rejected":rejected["text"].strip(),"chosen_rank":int(chosen["rank"]),"rejected_rank":int(rejected["rank"]),"pair_sha256":digest})
-    return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout,"length_ratio_filtered":length_ratio_filtered,"length_ratio_bounds":[0.25,4.0]}
+    return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout,"length_ratio_filtered":length_ratio_filtered,"text_hygiene_filtered":text_hygiene_filtered,"length_ratio_bounds":[0.25,4.0]}
 
 def write_preferences(archive: Path, out_root: Path, repo_root: Path, *, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
     out_root=Path(out_root)

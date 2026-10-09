@@ -4,9 +4,11 @@ from pathlib import Path
 try:
     from .chat350_data import validate_dataset_root, read_jsonl
     from .oasst2_human350 import load_archive,indexes,path_to_root,valid_human_path,to_messages,split_for_root_prompt,contaminated,sha256_file,LICENSE,SOURCE
+    from .chat350_text_hygiene import all_texts_safe
 except ImportError:
     from chat350_data import validate_dataset_root, read_jsonl
     from oasst2_human350 import load_archive,indexes,path_to_root,valid_human_path,to_messages,split_for_root_prompt,contaminated,sha256_file,LICENSE,SOURCE
+    from chat350_text_hygiene import all_texts_safe
 
 def _frozen(repo_root: Path) -> list[str]:
     import sys
@@ -34,6 +36,8 @@ def extract(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_turns:
         use=path[-max_turns:] if len(path)>max_turns else path
         if use[0].get("role")!="prompter" or use[-1].get("role")!="assistant": continue
         texts=[r["text"].strip() for r in use]
+        safe,_=all_texts_safe(texts)
+        if not safe: continue
         if sum(len(x.encode("utf8")) for x in texts)>max_bytes: continue
         if contaminated(texts,frozen): continue
         rank_sum=sum(int(r["rank"]) if isinstance(r.get("rank"),int) else 999 for r in use if r.get("role")=="assistant")
@@ -48,9 +52,41 @@ def extract(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_turns:
         out[split].append({"id":f"oasst2-multiturn:{root}:{path[-1]['message_id']}","language":path[0]["lang"],"domain":"chat","source":"oasst2-human-multiturn","license":LICENSE,"messages":m})
     return out,{"candidate_roots":len(by_root),"holdout_skipped":rejected_holdout,"accepted":{k:len(v) for k,v in out.items()}}
 
+def _message_key(text: str, *, min_normalized_chars: int=20):
+    import hashlib,unicodedata
+    value=" ".join(unicodedata.normalize("NFKC",str(text)).casefold().split())
+    if len(value)<min_normalized_chars:
+        return None
+    return hashlib.sha256(value.encode("utf8")).hexdigest()
+
+def filter_cross_split_message_leakage(base, additions, *, min_normalized_chars: int=20):
+    locations={}
+    for split,rows in base.items():
+        for row in rows:
+            for msg in row.get("messages",[]):
+                key=_message_key(msg.get("content",""),min_normalized_chars=min_normalized_chars)
+                if key:
+                    locations.setdefault(key,set()).add(split)
+    kept={k:[] for k in ("train","val","test")}
+    filtered=0
+    for split in ("train","val","test"):
+        for row in additions.get(split,[]):
+            keys=[_message_key(m.get("content",""),min_normalized_chars=min_normalized_chars) for m in row.get("messages",[])]
+            keys=[k for k in keys if k]
+            conflict=any(locations.get(k,set())-{split} for k in keys)
+            if conflict:
+                filtered+=1
+                continue
+            kept[split].append(row)
+            for key in keys:
+                locations.setdefault(key,set()).add(split)
+    return kept,{"cross_split_message_filtered":filtered,"message_key_min_normalized_chars":min_normalized_chars}
+
 def augment(archive: Path, dataset_root: Path, repo_root: Path, *, verify_sha: bool=True, max_turns: int=8, max_bytes: int=360):
     root=Path(dataset_root); base={s:read_jsonl(root/f"{s}.jsonl") for s in ("train","val","test")}
     add,stats=extract(archive,repo_root=repo_root,verify_sha=verify_sha,max_turns=max_turns,max_bytes=max_bytes)
+    add,leakage_stats=filter_cross_split_message_leakage(base,add)
+    stats.update(leakage_stats)
     with tempfile.TemporaryDirectory(dir=root.parent) as td:
         tmp=Path(td)
         for split in ("train","val","test"):
