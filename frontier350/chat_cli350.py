@@ -4,7 +4,8 @@ from pathlib import Path
 import torch
 from tokenizers import Tokenizer
 from chat350_contract import EXPECTED_TOKENIZER_SHA256
-from model350 import FRONTIER_350,Neral350M\nfrom chat_prompt350 import prompt_ids,trim_history
+from model350 import FRONTIER_350,Neral350M
+from chat_prompt350 import prompt_ids,trim_history
 
 def sha256_file(path):
     h=hashlib.sha256()
