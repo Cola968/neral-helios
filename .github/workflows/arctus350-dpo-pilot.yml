@@ -93,14 +93,14 @@ jobs:
       - name: Compile exact DPO tooling
         run: |
           $repo='${{ steps.env.outputs.repo_wsl }}'
-          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_preference_format.py frontier350/precompute_dpo_ref350.py frontier350/train_dpo350.py frontier350/eval_replay350.py frontier350/eval_chat350.py frontier350/compare_chat350.py"
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_preference_format.py frontier350/precompute_dpo_ref350.py frontier350/train_dpo350.py frontier350/eval_replay350.py frontier350/score_chat350_capabilities.py frontier350/eval_chat350.py frontier350/compare_chat350.py"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'DPO tooling compile failed'}
 
       - name: Evaluate SFT baseline generation and base-LM loss
         run: |
           $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$replay='${{ steps.env.outputs.replay_wsl }}'
-          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out dpo350_report/baseline_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_replay350.py --checkpoint '$ck' --replay-data '$replay' --out dpo350_report/baseline_replay.json"
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out dpo350_report/baseline_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out dpo350_report/baseline_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report dpo350_report/baseline_capability_generation.json --cases frontier350/chat350_capability_cases.json --out dpo350_report/baseline_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_replay350.py --checkpoint '$ck' --replay-data '$replay' --out dpo350_report/baseline_replay.json"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'baseline evaluation failed'}
 
@@ -134,7 +134,7 @@ jobs:
       - name: Evaluate DPO candidate generation and base-LM retention
         run: |
           $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.candidate.outputs.checkpoint_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$replay='${{ steps.env.outputs.replay_wsl }}'
-          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out dpo350_report/candidate_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_replay350.py --checkpoint '$ck' --replay-data '$replay' --out dpo350_report/candidate_replay.json"
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out dpo350_report/candidate_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out dpo350_report/candidate_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report dpo350_report/candidate_capability_generation.json --cases frontier350/chat350_capability_cases.json --baseline-score dpo350_report/baseline_capability_score.json --out dpo350_report/candidate_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_replay350.py --checkpoint '$ck' --replay-data '$replay' --out dpo350_report/candidate_replay.json"
           wsl.exe -- bash -lc $cmd
           if($LASTEXITCODE -ne 0){throw 'candidate evaluation failed'}
 
@@ -148,8 +148,9 @@ jobs:
           $c=Get-Content 'dpo350_report\candidate_replay.json' -Raw|ConvertFrom-Json
           $reg=100.0*([double]$c.mean_loss/[double]$b.mean_loss-1.0)
           $g=Get-Content 'dpo350_report\generation_decision.json' -Raw|ConvertFrom-Json
-          $ok=($reg -le 3.0) -and ($g.gate.health_no_regression -eq $true)
-          @{replay_regression_pct=$reg;replay_guard=$reg -le 3.0;generation_guard=$g.gate.health_no_regression;automatic_promotion=$false;decision=if($ok){'manual_review_required'}else{'reject'}}|ConvertTo-Json|Set-Content 'dpo350_report\final_decision.json'
+          $cap=Get-Content 'dpo350_report\candidate_capability_score.json' -Raw|ConvertFrom-Json
+          $ok=($reg -le 3.0) -and ($g.gate.health_no_regression -eq $true) -and ($cap.comparison.capability_no_regression -eq $true)
+          @{replay_regression_pct=$reg;replay_guard=$reg -le 3.0;generation_guard=$g.gate.health_no_regression;capability_guard=$cap.comparison.capability_no_regression;capability_delta_pp=$cap.comparison.overall_delta_pp;automatic_promotion=$false;decision=if($ok){'manual_review_required'}else{'reject'}}|ConvertTo-Json|Set-Content 'dpo350_report\final_decision.json'
           if(-not $ok){throw "DPO candidate failed guard: replay regression $reg percent"}
 
       - name: Upload reports only
