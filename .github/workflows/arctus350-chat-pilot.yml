@@ -5,7 +5,7 @@ on:
       checkpoint_rel:
         description: "Checkpoint relative to NERAL_ASSETS_ROOT"
         required: true
-        default: "runs/neral350_frontier_compiled_1b/resume.pt"
+        default: "SAFE350_VAULT"
         type: string
       tokenizer_rel:
         description: "Tokenizer relative to NERAL_ASSETS_ROOT"
@@ -15,7 +15,7 @@ on:
       sft_data_rel:
         description: "NeralTalk directory relative to NERAL_ASSETS_ROOT"
         required: true
-        default: "frontier350_chat_data/neraltalk350-v2"
+        default: "frontier350_chat_data/neraltalk350-v3-20261009"
         type: string
       replay_data_rel:
         description: "Replay shard directory relative to NERAL_ASSETS_ROOT"
@@ -63,6 +63,12 @@ jobs:
       - name: Compile
         run: |
           $repo='${{steps.env.outputs.repo_wsl }}';$cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_contract.py frontier350/validate_chat350_token_budget.py frontier350/chat350_data.py frontier350/chat350_sft_format.py frontier350/chat350_generation_metrics.py frontier350/score_chat350_capabilities.py frontier350/eval_chat350_slices.py frontier350/compare_chat350_slices.py frontier350/train_chat350.py frontier350/eval_chat350.py frontier350/compare_chat350.py";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'compile failed'}
+      - name: RoPE autograd regression gate
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -m unittest tests.test_rope_cache350 -v"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'RoPE cache backward regression failed'}
       - name: Validate data
         run: |
           $repo='${{steps.env.outputs.repo_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/chat350_data.py --root '$data' --out chat350_pilot_report/data_manifest.json";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'data validation failed'}
@@ -78,7 +84,7 @@ jobs:
           $repo='${{steps.env.outputs.repo_wsl }}';$ck='${{steps.env.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out chat350_pilot_report/baseline_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out chat350_pilot_report/baseline_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report chat350_pilot_report/baseline_capability_generation.json --cases frontier350/chat350_capability_cases.json --out chat350_pilot_report/baseline_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350_slices.py --checkpoint '$ck' --tokenizer '$tok' --data '$data' --split val --out chat350_pilot_report/baseline_slices.json --max-seq 512 --batch-size 4";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline eval failed'}
       - name: Train
         run: |
-          $repo='${{steps.env.outputs.repo_wsl }}';$ck='${{steps.env.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$replay='${{steps.env.outputs.replay_wsl }}';$out='${{steps.env.outputs.out_wsl }}';$cmd="set -o pipefail; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/train_chat350.py --init-from '$ck' --tokenizer '$tok' --data '$data' --replay-data '$replay' --out '$out' --steps 300 --seq 512 --batch-size 4 --replay-batch 2 --replay-seq 512 --replay-every 4 --sft-weight 0.90 --eos-weight 1.5 --peak-lr 2e-5 --min-lr 2e-6 --eval-every 50 --save-every 50";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'SFT failed'}
+          $repo='${{steps.env.outputs.repo_wsl }}';$ck='${{steps.env.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$replay='${{steps.env.outputs.replay_wsl }}';$out='${{steps.env.outputs.out_wsl }}';$cmd="set -o pipefail; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/train_chat350.py --init-from '$ck' --tokenizer '$tok' --data '$data' --replay-data '$replay' --out '$out' --steps 300 --seq 512 --batch-size 4 --replay-batch 2 --replay-seq 512 --replay-every 4 --sft-weight 0.90 --eos-weight 1.5 --peak-lr 2e-5 --min-lr 2e-6 --eval-every 50 --save-every 50 --gradient-checkpointing";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'SFT failed'}
       - name: Select local candidate
         id: candidate
         run: |
