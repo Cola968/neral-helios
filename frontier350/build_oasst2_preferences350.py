@@ -18,10 +18,10 @@ def _frozen(repo_root: Path) -> list[str]:
     except Exception: pass
     return phrases
 
-def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
+def length_ratio_ok(chosen: str, rejected: str, *, minimum: float=.25, maximum: float=4.0) -> bool:\n    cb=len(str(chosen).strip().encode("utf8")); rb=len(str(rejected).strip().encode("utf8"))\n    if cb<=0 or rb<=0: return False\n    ratio=cb/rb\n    return minimum<=ratio<=maximum\n\ndef extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
     if max_context_turns<1 or max_context_turns%2!=1: raise ValueError("max_context_turns must be odd")
     rows=load_archive(archive,verify_sha=verify_sha); by_id,children=indexes(rows); frozen=_frozen(repo_root)
-    out={"train":[],"val":[],"test":[]}; seen=set(); skipped_holdout=0
+    out={"train":[],"val":[],"test":[]}; seen=set(); skipped_holdout=0; length_ratio_filtered=0
     for pid,kids in sorted(children.items()):
         parent=by_id.get(pid)
         if not parent or parent.get("role")!="prompter" or not reviewed_human(parent): continue
@@ -43,7 +43,7 @@ def extract_preferences(archive: Path, *, repo_root: Path, verify_sha: bool=True
         split=split_for_root_prompt(root_text)
         if split=="holdout": skipped_holdout+=1; continue
         out[split].append({"id":f"oasst2-pref:{pid}","language":parent["lang"],"source":"oasst2-human-ranked","license":LICENSE,"context":to_messages(use),"chosen":chosen["text"].strip(),"rejected":rejected["text"].strip(),"chosen_rank":int(chosen["rank"]),"rejected_rank":int(rejected["rank"]),"pair_sha256":digest})
-    return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout}
+    return out,{"accepted":{k:len(v) for k,v in out.items()},"holdout_skipped":skipped_holdout,"length_ratio_filtered":length_ratio_filtered,"length_ratio_bounds":[0.25,4.0]}
 
 def write_preferences(archive: Path, out_root: Path, repo_root: Path, *, verify_sha: bool=True, max_context_turns: int=7, max_bytes: int=600):
     out_root=Path(out_root)
