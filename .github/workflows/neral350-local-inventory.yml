@@ -28,3 +28,11 @@ jobs:
             $full=Join-Path $root $relative
             Write-Output ("{0} = {1}" -f $relative,(Test-Path $full))
           }
+          Write-Output 'FRONTIER_350_FOLDERS_AND_FILES'
+          Get-ChildItem -LiteralPath $root -Directory -Filter 'frontier350_*' | ForEach-Object {
+            Write-Output ('DIRECTORY '+$_.Name)
+            Get-ChildItem -LiteralPath $_.FullName -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Length -gt 100MB } | Sort-Object Length -Descending | Select-Object -First 12 | ForEach-Object {
+              $rel=$_.FullName.Substring($root.Length).TrimStart([char]92)
+              Write-Output ('FILE '+$rel+' | '+[math]::Round($_.Length/1MB)+' MB')
+            }
+          }
