@@ -41,6 +41,6 @@ class TokenBudgetTests(unittest.TestCase):
             root=Path(td)
             for split in ("train","val","test"):
                 (root/f"{split}.jsonl").write_text(json.dumps(chat_row(split,"q","a"))+"\n")
-            self.assertTrue(audit_chat(FakeTokenizer(),root,max_seq=100,hard_cap=500)["pass"])
+            r=audit_chat(FakeTokenizer(),root,max_seq=100,hard_cap=500)\n            self.assertTrue(r["pass"])\n            self.assertGreater(r["splits"]["train"]["supervised_tokens"],0)\n            self.assertIn("de",r["splits"]["train"]["supervised_tokens_by_language"])
 
 if __name__=="__main__":unittest.main()
