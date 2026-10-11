@@ -12,7 +12,7 @@ def score_one(text:str,spec:dict)->bool:
     if typ=="integer":
         # Match signed integers even when followed by normal punctuation ("95.", "-7,").
         # Thousands/decimal separators are intentionally unsupported for this frozen benchmark.
-        found=re.findall(r"(?<!\d)[+-]?\d+(?!\d)",str(text))
+        found=re.findall(r"(?<![\w.,])[+-]?\d+(?![\w]|[.,]\d)",str(text))
         return bool(found) and int(found[-1])==int(spec["value"])
     if typ=="contains_all":
         return all(norm(x) in t for x in spec.get("values",[]))
