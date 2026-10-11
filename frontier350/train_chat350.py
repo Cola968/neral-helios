@@ -141,6 +141,10 @@ def main():
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(): raise RuntimeError("BF16 CUDA required")
 
     root=Path(args.data); manifest,splits=validate_dataset_root(root)
+    # Exact conversation de-duplication alone misses identical prompts with
+    # different answers across train and evaluation splits.
+    from chat350_data import validate_prompt_holdouts
+    prompt_holdout_audit = validate_prompt_holdouts(splits)
     tok=load_tokenizer(Path(args.tokenizer))
     train=[encode_messages(tok,r["messages"],max_seq_len=args.seq) for r in splits["train"]]
     train_is_human=[r["source"].startswith("oasst2-human") for r in splits["train"]]
