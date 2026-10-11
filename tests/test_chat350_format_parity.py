@@ -13,7 +13,51 @@ class CharTokenizer:
     def token_to_id(self,x): return self.specials.get(x)
     def encode(self,text): return Enc([100+ord(c) for c in str(text)])
 
+class BoundaryMergeTokenizer(CharTokenizer):
+    """Toy BPE: merge across ': ' only when both chars are encoded together."""
+    def encode(self, text):
+        ids = []
+        pos = 0
+        text = str(text)
+        while pos < len(text):
+            if text.startswith(": ", pos):
+                ids.append(9999)
+                pos += 2
+            else:
+                ids.append(100 + ord(text[pos]))
+                pos += 1
+        return Enc(ids)
+
+
 class FormatParityTests(unittest.TestCase):
+    def test_runtime_prefix_uses_sft_bpe_boundaries(self):
+        tok = BoundaryMergeTokenizer()
+        messages = [
+            {"role":"user","content":"Hallo"},
+            {"role":"assistant","content":"Hi"},
+            {"role":"user","content":"Wie heißt du?"},
+            {"role":"assistant","content":"Neral."},
+        ]
+        sft = encode_messages(tok, messages, max_seq_len=1024)
+        prefix = prompt_ids(tok, [(m["role"], m["content"]) for m in messages[:-1]])
+        response = tok.encode(" Neral.\n").ids
+        self.assertEqual(sft.input_ids, prefix + response)
+        self.assertNotEqual(prefix, [0] + tok.encode(
+            render_history([(m["role"], m["content"]) for m in messages[:-1]])
+        ).ids)
+        pref = encode_final_response(tok, messages[:-1], "Neral.", max_seq_len=1024)
+        self.assertEqual(sft.input_ids, pref.input_ids)
+
+    def test_runtime_token_count_matches_sft_multi_turn(self):
+        tok = BoundaryMergeTokenizer()
+        history=[("user","eins"),("assistant","zwei"),("user","drei")]
+        self.assertEqual(prompt_ids(tok,history)[0],0)
+        self.assertEqual(prompt_ids(tok,history)[1:],
+                         tok.encode("User: eins\\nAssistant:").ids +
+                         tok.encode(" zwei\\n").ids +
+                         tok.encode("User: drei\\nAssistant:").ids)
+
+
     def test_multiturn_sft_dpo_runtime_prefix_parity(self):
         tok=CharTokenizer()
         context=[
