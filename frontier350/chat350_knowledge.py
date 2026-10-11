@@ -115,9 +115,11 @@ class KnowledgeIndex:
                 excerpt = "\n".join(window).strip()
                 if not excerpt:
                     continue
-                tokens = _terms(excerpt)
+                visible_excerpt = excerpt[:2400]
+                # Index exactly the evidence we can display to the user.
+                tokens = _terms(visible_excerpt)
                 if tokens:
-                    passages.append(Passage(source, start + 1, excerpt[:2400], tuple(tokens)))
+                    passages.append(Passage(source, start + 1, visible_excerpt, tuple(tokens)))
         return cls(passages)
 
     def search(self, query: str, *, limit: int = 3) -> list[KnowledgeHit]:
