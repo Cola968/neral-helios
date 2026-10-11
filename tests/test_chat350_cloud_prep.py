@@ -84,6 +84,35 @@ class Chat350CloudPrepTests(unittest.TestCase):
                 (root/f"{split}.jsonl").write_text(json.dumps(row)+"\n",encoding="utf8")
             with self.assertRaises(ValueError): validate_dataset_root(root)
 
+    def test_prompt_holdout_rejects_different_answers_to_same_question(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for split, text, answer in [
+                ("train", "Wie viel ist 2 + 2?", "4"),
+                ("val", "  WIE   VIEL IST 2 + 2? ", "Die Antwort ist 4."),
+                ("test", "Wie heißt die Erde?", "Ein Planet."),
+            ]:
+                row = {"id": split, "language": "de", "domain": "math",
+                       "source": "unit", "license": "CC0",
+                       "prompt": text, "answer": answer}
+                (root / f"{split}.jsonl").write_text(
+                    json.dumps(row) + "\n", encoding="utf8")
+            _, splits = validate_dataset_root(root)  # Whole-dialogue hashes differ.
+            with self.assertRaisesRegex(ValueError, "prompt leakage"):
+                validate_prompt_holdouts(splits)
+
+    def test_prompt_holdout_allows_distinct_splits(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for split in ("train", "val", "test"):
+                row = {"id": split, "language": "de", "domain": "math",
+                       "source": "unit", "license": "CC0",
+                       "prompt": "unique-" + split, "answer": "answer"}
+                (root / f"{split}.jsonl").write_text(
+                    json.dumps(row) + "\n", encoding="utf8")
+            _, splits = validate_dataset_root(root)
+            self.assertEqual(validate_prompt_holdouts(splits)["first_user_prompt_overlap"], 0)
+
     def test_generation_health(self):
         base=summarize_generations([
             {"generated_ids":[5,6,7,5,6,7],"text":"x","expected_exact":"OK"}
