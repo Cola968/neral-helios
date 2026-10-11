@@ -27,6 +27,17 @@ class KnowledgeTests(unittest.TestCase):
             self.assertEqual(hits[0].line, 1)
             self.assertIn("[astronomie.md:Zeile 1]", render_knowledge_hits(hits))
 
+    def test_truncated_source_cannot_create_invisible_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "long.md").write_text(
+                "Sichtbarer Inhalt: " + "Platzhalter " * 250 +
+                "UnsichtbaresSignal UnsichtbareQuelle.\n", encoding="utf-8"
+            )
+            kb = KnowledgeIndex.from_directory(root)
+            self.assertEqual(kb.search("UnsichtbaresSignal UnsichtbareQuelle"), [])
+            self.assertFalse(any("UnsichtbaresSignal" in p.text for p in kb._passages))
+
     def test_no_weak_overlap_hallucination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
