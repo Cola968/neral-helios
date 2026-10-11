@@ -4,6 +4,11 @@ Eigenes lokales Sprachmodell mit CASCADE, RIPPLE, SOLVE und LIVING Answers.
 
 **Aktuell:** Neral-50M Sprachpilot mit **50.012.976 Parametern**. Ausschließlich eigene Neral-Gewichte, keine fremden Checkpoints und keine Cloud-Inferenz. Der Pilot besteht den freien Sprachtest noch nicht; **Neral-20M Preview 02 bleibt Standard**. Das ist ein Entwicklungsprojekt, kein zuverlässiger allgemeiner Chatbot.
 
+
+## Neral 350M: lokaler Browser-Chat (experimentell)
+
+Für den eigenständigen 350M-Entwicklungszweig gibt es jetzt eine [Browseroberfläche](frontier350/CHAT350_BROWSER.md). Sie benötigt für echte Modellinferenz den passenden eigenen, lokal gespeicherten Checkpoint, gesperrten Tokenizer und BF16-CUDA-GPU. Ohne Modell kann die Oberfläche ausdrücklich nur als Werkzeug-Vorschau laufen; sie gibt keine fremden KI-Antworten als Neral aus. Der 1.200-Schritte-SFT-Kandidat ist wegen verschlechterter nativer Capability-Tests weiterhin **nicht freigegeben**.
+
 ## Start
 
 Installation und Checkpoint-Pfade: [REPRODUCE.md](REPRODUCE.md). Danach `START_NERAL.bat` starten und http://127.0.0.1:9680 öffnen.
