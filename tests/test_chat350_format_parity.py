@@ -53,9 +53,9 @@ class FormatParityTests(unittest.TestCase):
         history=[("user","eins"),("assistant","zwei"),("user","drei")]
         self.assertEqual(prompt_ids(tok,history)[0],0)
         self.assertEqual(prompt_ids(tok,history)[1:],
-                         tok.encode("User: eins\\nAssistant:").ids +
-                         tok.encode(" zwei\\n").ids +
-                         tok.encode("User: drei\\nAssistant:").ids)
+                         tok.encode("User: eins\nAssistant:").ids +
+                         tok.encode(" zwei\n").ids +
+                         tok.encode("User: drei\nAssistant:").ids)
 
 
     def test_multiturn_sft_dpo_runtime_prefix_parity(self):
