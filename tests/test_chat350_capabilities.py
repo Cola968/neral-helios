@@ -9,6 +9,14 @@ class CapabilityTests(unittest.TestCase):
         self.assertTrue(score_one("x = -7.",{"type":"integer","value":-7}))
         self.assertFalse(score_one("37 + 58 = 94.",{"type":"integer","value":95}))
 
+    def test_integer_rejects_decimal_and_thousands_substrings(self):
+        integer={"type":"integer","value":2}
+        for response in ("0.2", "3.2", "0,2", "12.2", "1,234", "abc2", "12.02"):
+            with self.subTest(response=response):
+                self.assertFalse(score_one(response,integer))
+        self.assertTrue(score_one("Das Ergebnis ist 2.",integer))
+        self.assertTrue(score_one("x = +2,",integer))
+
     def test_contains(self):
         self.assertTrue(score_one("Die Schwerkraft zieht ihn.",{"type":"contains_any","values":["gravitation","schwerkraft"]}))
         self.assertTrue(score_one("The train leaves at nine.",{"type":"contains_all","values":["train","nine"]}))
