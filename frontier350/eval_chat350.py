@@ -8,6 +8,7 @@ import torch
 from tokenizers import Tokenizer
 
 from chat350_contract import EXPECTED_TOKENIZER_SHA256
+from secure_checkpoint350 import load_checkpoint
 from chat350_generation_metrics import summarize_generations
 from model350 import FRONTIER_350, Neral350M
 
@@ -48,7 +49,7 @@ def main():
     token_path=Path(args.tokenizer)
     if sha256_file(token_path)!=EXPECTED_TOKENIZER_SHA256: raise ValueError("tokenizer digest mismatch")
     tok=Tokenizer.from_file(str(token_path)); cases=load_cases(Path(args.cases))
-    ck=torch.load(args.checkpoint,map_location="cpu",weights_only=True)
+    ck=load_checkpoint(args.checkpoint)
     if ck.get("config")!=FRONTIER_350.to_dict(): raise ValueError("checkpoint architecture mismatch")
     if ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256: raise ValueError("checkpoint/tokenizer mismatch")
     state=ck.get("model")
