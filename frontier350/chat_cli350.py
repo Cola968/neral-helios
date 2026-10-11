@@ -4,6 +4,7 @@ from pathlib import Path
 import torch
 from tokenizers import Tokenizer
 from chat350_contract import EXPECTED_TOKENIZER_SHA256
+from secure_checkpoint350 import load_checkpoint
 from model350 import FRONTIER_350,Neral350M
 from chat_prompt350 import prompt_ids,trim_history
 from chat350_tools import tool_answer
@@ -51,7 +52,7 @@ def generate(model,tok,history,*,max_new=160,max_context=1024,temperature=.7,top
 
 def load_runtime(checkpoint,tokenizer):
     if sha256_file(tokenizer)!=EXPECTED_TOKENIZER_SHA256:raise ValueError("locked tokenizer SHA mismatch")
-    tok=Tokenizer.from_file(str(tokenizer));ck=torch.load(checkpoint,map_location="cpu",weights_only=True)
+    tok=Tokenizer.from_file(str(tokenizer));ck=load_checkpoint(checkpoint)
     if ck.get("config")!=FRONTIER_350.to_dict() or ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256:raise ValueError("checkpoint identity mismatch")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise RuntimeError("BF16 CUDA required")
     dev=torch.device("cuda");m=Neral350M().to(device=dev,dtype=torch.bfloat16);m.load_state_dict(ck["model"],strict=True);m.eval()
