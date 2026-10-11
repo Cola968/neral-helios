@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from tokenizers import Tokenizer
 
 from chat350_contract import EXPECTED_TOKENIZER_SHA256, validate_checkpoint_metadata
+from secure_checkpoint350 import load_checkpoint
 from chat350_data import validate_dataset_root
 from chat350_sft_format import encode_messages
 from model350 import FRONTIER_350, Neral350M
@@ -157,7 +158,7 @@ def main():
     replay=list_shards(Path(args.replay_data))
 
     source_path=Path(args.init_from); source_sha=sha256_file(source_path)
-    payload=torch.load(source_path,map_location="cpu",weights_only=True)
+    payload=load_checkpoint(source_path)
     validate_checkpoint_metadata(payload,min_processed_tokens=1_000_000_000)
     source_tokens=int(payload.get("processed_tokens",payload.get("source_processed_tokens",payload.get("tokens",0))))
     device=torch.device("cuda"); torch.manual_seed(args.seed); torch.cuda.manual_seed_all(args.seed)
