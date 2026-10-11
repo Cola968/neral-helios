@@ -8,7 +8,7 @@ from frontier350.chat350_contract import (
     EXPECTED_CONFIG, EXPECTED_SPECIALS, EXPECTED_TOKENIZER_SHA256,
     release_identity, validate_checkpoint_metadata, validate_tokenizer_lock,
 )
-from frontier350.chat350_data import validate_dataset_root
+from frontier350.chat350_data import validate_dataset_root, validate_prompt_holdouts
 from frontier350.chat350_generation_metrics import compare_health, summarize_generations
 from frontier350.chat350_sft_format import encode_messages, encode_prompt_answer, render_multiturn
 
