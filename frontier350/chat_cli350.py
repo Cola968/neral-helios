@@ -51,7 +51,7 @@ def generate(model,tok,history,*,max_new=160,max_context=1024,temperature=.7,top
 
 def load_runtime(checkpoint,tokenizer):
     if sha256_file(tokenizer)!=EXPECTED_TOKENIZER_SHA256:raise ValueError("locked tokenizer SHA mismatch")
-    tok=Tokenizer.from_file(str(tokenizer));ck=torch.load(checkpoint,map_location="cpu",weights_only=False)
+    tok=Tokenizer.from_file(str(tokenizer));ck=torch.load(checkpoint,map_location="cpu",weights_only=True)
     if ck.get("config")!=FRONTIER_350.to_dict() or ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256:raise ValueError("checkpoint identity mismatch")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise RuntimeError("BF16 CUDA required")
     dev=torch.device("cuda");m=Neral350M().to(device=dev,dtype=torch.bfloat16);m.load_state_dict(ck["model"],strict=True);m.eval()
