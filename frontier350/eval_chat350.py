@@ -48,7 +48,7 @@ def main():
     token_path=Path(args.tokenizer)
     if sha256_file(token_path)!=EXPECTED_TOKENIZER_SHA256: raise ValueError("tokenizer digest mismatch")
     tok=Tokenizer.from_file(str(token_path)); cases=load_cases(Path(args.cases))
-    ck=torch.load(args.checkpoint,map_location="cpu",weights_only=False)
+    ck=torch.load(args.checkpoint,map_location="cpu",weights_only=True)
     if ck.get("config")!=FRONTIER_350.to_dict(): raise ValueError("checkpoint architecture mismatch")
     if ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256: raise ValueError("checkpoint/tokenizer mismatch")
     state=ck.get("model")
