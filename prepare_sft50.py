@@ -91,6 +91,15 @@ def benchmark_literals(repo_root: Path):
             for value in values:
                 n=normalize(value)
                 if len(n)>=20:phrases.add(n)
+    capability_rel="frontier350/chat350_capability_cases.json"
+    capability_path=repo_root/capability_rel
+    if capability_path.is_file():
+        files[capability_rel]=sha256_file(capability_path)
+        payload=json.loads(capability_path.read_text(encoding="utf8"))
+        values=[];_collect_strings(payload,values)
+        for value in values:
+            n=normalize(value)
+            if len(n)>=20:phrases.add(n)
     for rel,names in FROZEN_PY_ASSIGNMENTS.items():
         path=repo_root/rel
         if not path.is_file():continue

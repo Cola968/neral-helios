@@ -1,0 +1,118 @@
+name: Arctus 350M Chat Pilot
+on:
+  workflow_dispatch:
+    inputs:
+      checkpoint_rel:
+        description: "Checkpoint relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "SAFE350_VAULT"
+        type: string
+      tokenizer_rel:
+        description: "Tokenizer relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_assets/tokenizer.json"
+        type: string
+      sft_data_rel:
+        description: "NeralTalk directory relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_chat_data/neraltalk350-v3-20261009"
+        type: string
+      replay_data_rel:
+        description: "Replay shard directory relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2/train"
+        type: string
+      run_id:
+        description: "Fresh local run id"
+        required: true
+        default: "chatpilot-v1"
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-chat-pilot
+  cancel-in-progress: false
+jobs:
+  chat-pilot:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{github.sha }}
+          clean: true
+          persist-credentials: false
+      - name: Resolve assets
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function SafeRel([string]$x){if([string]::IsNullOrWhiteSpace($x)-or $x.Length -gt 180 -or $x -match ':' -or $x -match '(^|[\\/])\.\.([\\/]|$)' -or $x -match '^[\\/]' -or $x -notmatch '^[A-Za-z0-9._/\\-]+$'){throw "unsafe relative path: $x"};return $x.Replace('/','\')}
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $rid='${{inputs.run_id }}';if($rid -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid run_id'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $ck=if('${{inputs.checkpoint_rel }}' -eq 'SAFE350_VAULT'){'D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c\resume.pt'}else{Join-Path $assets (SafeRel '${{inputs.checkpoint_rel }}')};$tok=Join-Path $assets (SafeRel '${{inputs.tokenizer_rel }}');$data=Join-Path $assets (SafeRel '${{inputs.sft_data_rel }}');$replay=Join-Path $assets (SafeRel '${{inputs.replay_data_rel }}')
+          foreach($p in @($ck,$tok)){if(-not(Test-Path $p -PathType Leaf)){throw "missing file: $p"}};foreach($p in @($data,$replay)){if(-not(Test-Path $p -PathType Container)){throw "missing dir: $p"}}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLower() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'tokenizer SHA mismatch'}
+          $out=Join-Path $assets ('runs\neral350_chat_'+$rid);if(Test-Path $out){throw "output exists: $out"}
+          $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets))).Substring(0,1);if($drive.Free -lt 8GB){throw 'need >=8 GiB free disk'}
+          New-Item -ItemType Directory -Force chat350_pilot_report|Out-Null
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT;"checkpoint_wsl=$(W $ck)" >> $env:GITHUB_OUTPUT;"tokenizer_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT;"data_wsl=$(W $data)" >> $env:GITHUB_OUTPUT;"replay_wsl=$(W $replay)" >> $env:GITHUB_OUTPUT;"out_wsl=$(W $out)" >> $env:GITHUB_OUTPUT;"out_win=$out" >> $env:GITHUB_OUTPUT
+      - name: Compile
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}';$cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_contract.py frontier350/validate_chat350_token_budget.py frontier350/chat350_data.py frontier350/chat350_sft_format.py frontier350/chat350_generation_metrics.py frontier350/score_chat350_capabilities.py frontier350/build_chat350_stress_cases.py frontier350/eval_chat350_slices.py frontier350/compare_chat350_slices.py frontier350/train_chat350.py frontier350/eval_chat350.py frontier350/compare_chat350.py";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'compile failed'}
+      - name: RoPE autograd regression gate
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -m unittest tests.test_rope_cache350 -v"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'RoPE cache backward regression failed'}
+      - name: Validate data
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/chat350_data.py --root '$data' --out chat350_pilot_report/data_manifest.json";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'data validation failed'}
+      - name: Exact tokenizer sequence-budget gate
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$data='${{ steps.env.outputs.data_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/validate_chat350_token_budget.py --tokenizer '$tok' --data '$data' --chat-max-seq 512 --out chat350_pilot_report/token_budget.json --strict"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'SFT token-budget gate failed'}
+
+      - name: Baseline generation
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}';$ck='${{steps.env.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out chat350_pilot_report/baseline_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out chat350_pilot_report/baseline_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report chat350_pilot_report/baseline_capability_generation.json --cases frontier350/chat350_capability_cases.json --out chat350_pilot_report/baseline_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350_slices.py --checkpoint '$ck' --tokenizer '$tok' --data '$data' --split val --out chat350_pilot_report/baseline_slices.json --max-seq 512 --batch-size 4";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'baseline eval failed'}
+      - name: Train
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}';$ck='${{steps.env.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$replay='${{steps.env.outputs.replay_wsl }}';$out='${{steps.env.outputs.out_wsl }}';$cmd="set -o pipefail; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/train_chat350.py --init-from '$ck' --tokenizer '$tok' --data '$data' --replay-data '$replay' --out '$out' --steps 1200 --seq 512 --batch-size 4 --replay-batch 2 --replay-seq 512 --replay-every 4 --sft-weight 0.90 --eos-weight 1.5 --peak-lr 0.000015 --min-lr 0.000001 --eval-every 200 --save-every 200 --gradient-checkpointing --sampling-mode human-balanced --human-per-batch 2";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'SFT failed'}
+      - name: Select local candidate
+        id: candidate
+        run: |
+          $out='${{steps.env.outputs.out_win }}';foreach($f in @('run.json','summary.json','metrics.jsonl')){$p=Join-Path $out $f;if(Test-Path $p){Copy-Item $p ("chat350_pilot_report\"+$f) -Force}};$best=Join-Path $out 'best_chat.pt';$latest=Join-Path $out 'latest_resume.pt';if(Test-Path $best){$chosen=$best;$kind='best_chat'}elseif(Test-Path $latest){$chosen=$latest;$kind='latest_no_selected_improvement'}else{throw 'no checkpoint'}
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"};"checkpoint_wsl=$(W $chosen)" >> $env:GITHUB_OUTPUT;@{candidate_kind=$kind;checkpoint_sha256=(Get-FileHash -LiteralPath $chosen -Algorithm SHA256).Hash.ToLower()}|ConvertTo-Json|Set-Content 'chat350_pilot_report\candidate_identity.json'
+      - name: Candidate generation
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}';$ck='${{steps.candidate.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$data='${{steps.env.outputs.data_wsl }}';$cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out chat350_pilot_report/candidate_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/compare_chat350.py --baseline chat350_pilot_report/baseline_generation.json --candidate chat350_pilot_report/candidate_generation.json --training-summary chat350_pilot_report/summary.json --out chat350_pilot_report/decision.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out chat350_pilot_report/candidate_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report chat350_pilot_report/candidate_capability_generation.json --cases frontier350/chat350_capability_cases.json --baseline-score chat350_pilot_report/baseline_capability_score.json --out chat350_pilot_report/candidate_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350_slices.py --checkpoint '$ck' --tokenizer '$tok' --data '$data' --split val --out chat350_pilot_report/candidate_slices.json --max-seq 512 --batch-size 4; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/compare_chat350_slices.py --baseline chat350_pilot_report/baseline_slices.json --candidate chat350_pilot_report/candidate_slices.json --out chat350_pilot_report/slice_decision.json --max-slice-regression 0.10";wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw 'comparison failed'}
+      - name: Procedural generalization diagnostics
+        run: |
+          $repo='${{steps.env.outputs.repo_wsl }}';$base='${{steps.env.outputs.checkpoint_wsl }}';$cand='${{steps.candidate.outputs.checkpoint_wsl }}';$tok='${{steps.env.outputs.tokenizer_wsl }}';$seed=$env:GITHUB_RUN_ID
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/build_chat350_stress_cases.py --seed '$seed' --out chat350_pilot_report/stress_cases.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$base' --tokenizer '$tok' --cases chat350_pilot_report/stress_cases.json --out chat350_pilot_report/stress_baseline_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report chat350_pilot_report/stress_baseline_generation.json --cases chat350_pilot_report/stress_cases.json --out chat350_pilot_report/stress_baseline_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$cand' --tokenizer '$tok' --cases chat350_pilot_report/stress_cases.json --out chat350_pilot_report/stress_candidate_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report chat350_pilot_report/stress_candidate_generation.json --cases chat350_pilot_report/stress_cases.json --baseline-score chat350_pilot_report/stress_baseline_score.json --out chat350_pilot_report/stress_candidate_score.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'procedural generalization diagnostics failed'}
+
+      - name: Apply final SFT promotion gates
+        run: |
+          $d=Get-Content 'chat350_pilot_report\decision.json' -Raw|ConvertFrom-Json
+          $cap=Get-Content 'chat350_pilot_report\candidate_capability_score.json' -Raw|ConvertFrom-Json
+          $slice=Get-Content 'chat350_pilot_report\slice_decision.json' -Raw|ConvertFrom-Json
+          $ok=($d.decision -eq 'manual_review_required') -and ($cap.comparison.capability_no_regression -eq $true) -and ($slice.slice_no_regression -eq $true)
+          @{generation_decision=$d.decision;capability_guard=$cap.comparison.capability_no_regression;capability_delta_pp=$cap.comparison.overall_delta_pp;slice_guard=$slice.slice_no_regression;slice_hard_regressions=$slice.hard_regressions;automatic_promotion=$false;decision=if($ok){'manual_review_required'}else{'reject'}}|ConvertTo-Json|Set-Content 'chat350_pilot_report\final_decision.json'
+          if(-not $ok){throw 'SFT candidate failed final promotion gates'}
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-chat-pilot-${{github.run_id }}
+          path: chat350_pilot_report/
+          retention-days: 30

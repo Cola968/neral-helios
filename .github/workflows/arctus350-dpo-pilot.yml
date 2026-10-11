@@ -1,0 +1,169 @@
+name: Arctus 350M DPO Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      sft_checkpoint_rel:
+        description: "Selected SFT checkpoint relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "runs/neral350_chat_chatpilot-v1/best_chat.pt"
+        type: string
+      tokenizer_rel:
+        description: "Locked tokenizer relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_assets/tokenizer.json"
+        type: string
+      preferences_rel:
+        description: "Preference directory relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_chat_data/neraltalk350-v2_preferences"
+        type: string
+      replay_data_rel:
+        description: "Foundation replay shard directory relative to NERAL_ASSETS_ROOT"
+        required: true
+        default: "frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2/train"
+        type: string
+      run_id:
+        description: "Fresh DPO run id"
+        required: true
+        default: "dpopilot-v1"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arctus350-dpo-pilot
+  cancel-in-progress: false
+
+jobs:
+  dpo:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve local assets fail-closed
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function SafeRel([string]$x){
+            if([string]::IsNullOrWhiteSpace($x)-or $x.Length -gt 180 -or $x -match ':' -or $x -match '(^|[\/])\.\.([\/]|$)' -or $x -match '^[\/]' -or $x -notmatch '^[A-Za-z0-9._/\\-]+$'){throw "unsafe relative path: $x"}
+            return $x.Replace('/','\')
+          }
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f)
+            if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"}
+            $d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/')
+            return "/mnt/$d/$r"
+          }
+          $rid='${{ inputs.run_id }}'
+          if($rid -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid run_id'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $ck=Join-Path $assets (SafeRel '${{ inputs.sft_checkpoint_rel }}')
+          $tok=Join-Path $assets (SafeRel '${{ inputs.tokenizer_rel }}')
+          $prefs=Join-Path $assets (SafeRel '${{ inputs.preferences_rel }}')
+          $replay=Join-Path $assets (SafeRel '${{ inputs.replay_data_rel }}')
+          foreach($p in @($ck,$tok)){if(-not(Test-Path $p -PathType Leaf)){throw "missing file: $p"}}
+          foreach($p in @($prefs,$replay)){if(-not(Test-Path $p -PathType Container)){throw "missing directory: $p"}}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLower() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'tokenizer SHA mismatch'}
+          foreach($f in @('train.jsonl','val.jsonl','manifest.json')){if(-not(Test-Path (Join-Path $prefs $f) -PathType Leaf)){throw "missing preference file: $f"}}
+          $out=Join-Path $assets ('runs\neral350_dpo_'+$rid)
+          if(Test-Path $out){throw "output exists: $out"}
+          $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets))).Substring(0,1)
+          if($drive.Free -lt 8GB){throw 'need >=8 GiB free disk'}
+          New-Item -ItemType Directory -Force $out|Out-Null
+          New-Item -ItemType Directory -Force dpo350_report|Out-Null
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $ck)" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+          "prefs_wsl=$(W $prefs)" >> $env:GITHUB_OUTPUT
+          "replay_wsl=$(W $replay)" >> $env:GITHUB_OUTPUT
+          "out_wsl=$(W $out)" >> $env:GITHUB_OUTPUT
+          "out_win=$out" >> $env:GITHUB_OUTPUT
+
+      - name: Compile exact DPO tooling
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/chat350_preference_format.py frontier350/validate_chat350_token_budget.py frontier350/precompute_dpo_ref350.py frontier350/train_dpo350.py frontier350/eval_replay350.py frontier350/score_chat350_capabilities.py frontier350/eval_chat350.py frontier350/compare_chat350.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'DPO tooling compile failed'}
+
+      - name: Exact preference token-budget gate
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$prefs='${{ steps.env.outputs.prefs_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/validate_chat350_token_budget.py --tokenizer '$tok' --preferences '$prefs' --preference-max-seq 768 --out dpo350_report/token_budget.json --strict"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'DPO token-budget gate failed'}
+
+      - name: Evaluate SFT baseline generation and base-LM loss
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$replay='${{ steps.env.outputs.replay_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out dpo350_report/baseline_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out dpo350_report/baseline_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report dpo350_report/baseline_capability_generation.json --cases frontier350/chat350_capability_cases.json --out dpo350_report/baseline_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_replay350.py --checkpoint '$ck' --replay-data '$replay' --out dpo350_report/baseline_replay.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'baseline evaluation failed'}
+
+      - name: Precompute SFT reference preference log-probabilities
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$prefs='${{ steps.env.outputs.prefs_wsl }}';$out='${{ steps.env.outputs.out_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/precompute_dpo_ref350.py --checkpoint '$ck' --tokenizer '$tok' --preferences '$prefs/train.jsonl' --out '$out/train_ref.json' --max-seq 768; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/precompute_dpo_ref350.py --checkpoint '$ck' --tokenizer '$tok' --preferences '$prefs/val.jsonl' --out '$out/val_ref.json' --max-seq 768"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'reference logprob precompute failed'}
+
+      - name: Run bounded human-ranked DPO
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$prefs='${{ steps.env.outputs.prefs_wsl }}';$out='${{ steps.env.outputs.out_wsl }}'
+          $cmd="set -o pipefail; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/train_dpo350.py --init-from '$ck' --tokenizer '$tok' --train '$prefs/train.jsonl' --val '$prefs/val.jsonl' --train-ref '$out/train_ref.json' --val-ref '$out/val_ref.json' --out '$out/dpo' --steps 200 --max-seq 768 --beta 0.1 --peak-lr 8e-7 --min-lr 8e-8 --eval-every 25"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'DPO training failed'}
+
+      - name: Select DPO candidate
+        id: candidate
+        run: |
+          $out='${{ steps.env.outputs.out_win }}'
+          $best=Join-Path $out 'dpo\best_dpo.pt'
+          $summary=Join-Path $out 'dpo\summary.json'
+          if(Test-Path $summary){Copy-Item $summary 'dpo350_report\summary.json' -Force}
+          if(Test-Path (Join-Path $out 'dpo\metrics.jsonl')){Copy-Item (Join-Path $out 'dpo\metrics.jsonl') 'dpo350_report\metrics.jsonl' -Force}
+          if(-not(Test-Path $best -PathType Leaf)){throw 'DPO produced no selected improvement checkpoint'}
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);$d=$root.Substring(0,1).ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          "checkpoint_wsl=$(W $best)" >> $env:GITHUB_OUTPUT
+          @{checkpoint_sha256=(Get-FileHash -LiteralPath $best -Algorithm SHA256).Hash.ToLower()}|ConvertTo-Json|Set-Content 'dpo350_report\candidate_identity.json'
+
+      - name: Evaluate DPO candidate generation and base-LM retention
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.candidate.outputs.checkpoint_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$replay='${{ steps.env.outputs.replay_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_dev_cases.json --out dpo350_report/candidate_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tok' --cases frontier350/chat350_capability_cases.json --out dpo350_report/candidate_capability_generation.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report dpo350_report/candidate_capability_generation.json --cases frontier350/chat350_capability_cases.json --baseline-score dpo350_report/baseline_capability_score.json --out dpo350_report/candidate_capability_score.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_replay350.py --checkpoint '$ck' --replay-data '$replay' --out dpo350_report/candidate_replay.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'candidate evaluation failed'}
+
+      - name: Apply fail-closed DPO promotion gates
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/compare_chat350.py --baseline dpo350_report/baseline_generation.json --candidate dpo350_report/candidate_generation.json --training-summary dpo350_report/summary.json --out dpo350_report/generation_decision.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'generation gate failed'}
+          $b=Get-Content 'dpo350_report\baseline_replay.json' -Raw|ConvertFrom-Json
+          $c=Get-Content 'dpo350_report\candidate_replay.json' -Raw|ConvertFrom-Json
+          $reg=100.0*([double]$c.mean_loss/[double]$b.mean_loss-1.0)
+          $g=Get-Content 'dpo350_report\generation_decision.json' -Raw|ConvertFrom-Json
+          $cap=Get-Content 'dpo350_report\candidate_capability_score.json' -Raw|ConvertFrom-Json
+          $ok=($reg -le 3.0) -and ($g.gate.health_no_regression -eq $true) -and ($cap.comparison.capability_no_regression -eq $true)
+          @{replay_regression_pct=$reg;replay_guard=$reg -le 3.0;generation_guard=$g.gate.health_no_regression;capability_guard=$cap.comparison.capability_no_regression;capability_delta_pp=$cap.comparison.overall_delta_pp;automatic_promotion=$false;decision=if($ok){'manual_review_required'}else{'reject'}}|ConvertTo-Json|Set-Content 'dpo350_report\final_decision.json'
+          if(-not $ok){throw "DPO candidate failed guard: replay regression $reg percent"}
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-dpo-pilot-${{ github.run_id }}
+          path: dpo350_report/
+          retention-days: 30

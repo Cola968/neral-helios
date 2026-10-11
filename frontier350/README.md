@@ -56,3 +56,7 @@ The 10B run is not sufficient by itself for publication. After pretraining:
 - safety/privacy red-team suite
 
 Only a checkpoint satisfying every hard release gate can be labelled a release candidate.
+
+## Lokale Chat-Oberfläche
+
+[Chat im PC-Browser starten und optional vom Handy im WLAN zugreifen](CHAT350_BROWSER.md). Für tatsächliche native 350M-Antworten sind kompatibler lokaler Checkpoint, gesperrter Tokenizer und BF16-CUDA nötig. Ein getrennter Werkzeug-Vorschaumodus funktioniert ohne Modell. UI-/Werkzeugtests sind **keine** Modell-Benchmarks. Der 1.200-Schritte-Pilot bleibt abgelehnt.

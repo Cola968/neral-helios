@@ -1,0 +1,22 @@
+name: Arctus 350M chat cloud prep
+on:
+  push:
+    branches: [arctus350-chat-cloud-prep]
+  workflow_dispatch:
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile
+        run: python -m py_compile frontier350/chat350_contract.py frontier350/secure_checkpoint350.py frontier350/chat350_text_hygiene.py frontier350/chat_prompt350.py frontier350/validate_chat350_token_budget.py frontier350/chat350_data.py frontier350/chat350_sft_format.py frontier350/chat350_preference_format.py frontier350/chat350_generation_metrics.py frontier350/oasst2_human350.py frontier350/build_oasst2_multiturn350.py frontier350/build_oasst2_preferences350.py frontier350/build_neraltalk350_from_screened.py frontier350/precompute_dpo_ref350.py frontier350/dpo_math350.py frontier350/train_dpo350.py frontier350/eval_replay350.py frontier350/score_chat350_capabilities.py frontier350/build_chat350_stress_cases.py frontier350/audit_neraltalk350_quality.py frontier350/audit_preferences350.py frontier350/eval_chat350_slices.py frontier350/compare_chat350_slices.py frontier350/chat_cli350.py frontier350/chat350_tools.py frontier350/chat350_knowledge.py frontier350/chat350_web_core.py frontier350/chat_web350.py frontier350/eval_chat350_tools.py frontier350/external_bench350_scoring.py frontier350/prepare_external_holdouts350.py frontier350/mbpp_safe_runner350.py frontier350/eval_gsm8k350.py frontier350/eval_mbpp350.py frontier350/compare_external_bench350.py frontier350/release_check350.py frontier350/sft_batching350.py frontier350/sft_stratified350.py frontier350/train_chat350.py frontier350/eval_chat350.py frontier350/compare_chat350.py tests/test_chat350_cloud_prep.py tests/test_chat350_human_alignment.py tests/test_chat350_capabilities.py tests/test_neraltalk350_adapter.py
+      - name: Cases
+        run: python -c "import json; d=json.load(open('frontier350/chat350_dev_cases.json',encoding='utf8')); c=json.load(open('frontier350/chat350_capability_cases.json',encoding='utf8')); assert len(d)>=10 and len(c)==30 and len({r['id'] for r in c})==30"
+      - name: Unit tests
+        run: python -m unittest tests.test_chat350_cloud_prep tests.test_chat350_token_budget tests.test_chat350_human_alignment tests.test_chat350_hygiene tests.test_chat350_format_parity tests.test_chat350_capabilities tests.test_chat350_stress_cases tests.test_chat350_quality_audits tests.test_chat350_slices tests.test_chat350_runtime tests.test_chat350_checkpoint_safety tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_knowledge tests.test_chat350_tool_eval tests.test_external_bench350 tests.test_dpo_math350 tests.test_sft_batching350 tests.test_sft_stratified350 tests.test_neraltalk350_adapter -v
+      - name: Tool-only benchmark (not model native)
+        run: python -m frontier350.eval_chat350_tools --frozen-cases frontier350/chat350_capability_cases.json --out /tmp/neral350_tool_only.json
