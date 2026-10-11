@@ -62,6 +62,33 @@ def conversation_sha256(row: dict) -> str:
     payload = json.dumps(row["messages"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf8")).hexdigest()
 
+def validate_prompt_holdouts(split_rows: dict[str, list[dict]]) -> dict:
+    """Fail closed on exact normalized initial-user prompts shared by data splits.
+
+    Different answers to the same root prompt still constitute holdout
+    contamination. Only hashes, never prompt contents, appear in exceptions.
+    This complements (not replaces) exact conversation and semantic audits.
+    """
+    seen: dict[str, str] = {}
+    overlaps: set[tuple[str, str, str]] = set()
+    for split in SPLITS:
+        for row in split_rows[split]:
+            first = row["messages"][0]["content"]
+            canonical = " ".join(unicodedata.normalize("NFKC", first).casefold().split())
+            digest = hashlib.sha256(canonical.encode("utf8")).hexdigest()
+            previous = seen.setdefault(digest, split)
+            if previous != split:
+                overlaps.add((digest, previous, split))
+    if overlaps:
+        sample = sorted(overlaps)[0]
+        raise ValueError(
+            f"first-user prompt leakage across train/val/test: "
+            f"{len(overlaps)} cross-split overlaps (first sha256={sample[0]}, "
+            f"{sample[1]} vs {sample[2]})"
+        )
+    return {"first_user_prompt_overlap": 0, "normalization": "NFKC-casefold-whitespace"}
+
+
 def file_sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
