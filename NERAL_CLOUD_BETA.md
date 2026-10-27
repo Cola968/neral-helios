@@ -54,11 +54,14 @@ explicitly approve the cost.
 
 The app checks an invite secret on every request and uses a bounded model
 response budget (256 output tokens), input caps, per-process IP rate limits,
-fixed URL, redirects disabled, proxy bypass, and no shell/file/network tools
-granted to the model. Logs intentionally omit chat contents, token and invites.
+a shared **60-request-per-process allowance**, and a maximum of **two simultaneous
+provider requests**, fixed URL, redirects disabled, proxy bypass, and no
+shell/file/network tools granted to the model. Every attempted provider call
+counts toward the allowance, even if it fails. These are deliberately
+conservative beta defaults and cannot be overridden by a browser user. Logs intentionally omit chat contents, token and invites.
 
-**Important**: the in-memory rate limit is per-process, resets on restart, and
-is NOT a globally enforceable cost ceiling. For broader release, enable
+**Important**: the in-memory rate limit AND total-call allowance are per-process,
+reset on restart, and are NOT globally enforceable, persistent cost ceilings. For broader release, enable
 provider-side spend ceilings, external abuse controls, authenticated accounts,
 central rate limiting (e.g. Redis), safe audit logs with explicit privacy
 policy, TOS, GDPR review, moderation, security audit and monitoring. Do not
