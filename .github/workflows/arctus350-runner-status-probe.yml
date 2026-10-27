@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Check presence of RTX GPU without allocating model or training
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "NERAL: self-hosted GPU runner picked up this diagnostic job."
