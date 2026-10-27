@@ -23,14 +23,8 @@ HF_ROUTER = "https://router.huggingface.co/v1/chat/completions"
 MODEL_ID = "Qwen/Qwen3.5-9B"
 MAX_UPSTREAM_BYTES = 128 * 1024
 MAX_REQUEST_BYTES = 16 * 1024
-SYSTEM_PROMPT = (
-    "You are NERAL Assistant, a careful and helpful bilingual assistant. "
-    "Reply in the user's language, including natural German. "
-    "Be candid about uncertainty and do not invent citations or claim to have "
-    "accessed live information, private files or tools. "
-    "You are the NERAL product powered by Qwen3.5-9B open weights. "
-    "Do not claim NERAL pretrained the Qwen model."
-)
+from neral_cloud.personality import PERSONA_VERSION, SYSTEM_PROMPT
+
 STATIC = Path(__file__).with_name("static")
 
 
@@ -121,6 +115,7 @@ def public_configuration(env=None):
     env=os.environ if env is None else env
     return {
         "product":"NERAL Assistant",
+        "persona_version":PERSONA_VERSION,
         "model":MODEL_ID,
         "model_provenance":"Qwen3.5-9B (Qwen/Alibaba, Apache-2.0); NERAL is the application",
         "available":_enabled(env),
@@ -232,6 +227,7 @@ def chat_turn(data, *, access_key, client_ip, env=None, transport=upstream_chat,
     return 200,{
         "answer":answer.strip(),"mode":"online-inference",
         "base_model":MODEL_ID,"product":"NERAL Assistant",
+        "persona_version":PERSONA_VERSION,
         "model_origin":"Qwen3.5-9B, Apache-2.0; not trained from scratch by NERAL",
         "tools_used":[],"cloud":True,
         "warning":"AI-generated text can be inaccurate.",
