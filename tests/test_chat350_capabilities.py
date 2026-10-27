@@ -27,4 +27,33 @@ class CapabilityTests(unittest.TestCase):
         c=score({"rows":[{"id":"a","text":"OK"},{"id":"b","text":"7"}]},cases)
         self.assertTrue(compare(b,c)["capability_no_regression"])
 
+
+    def test_scoring_rejects_duplicate_or_missing_report_rows(self):
+        cases=[{"id":"a","category":"math","scoring":{"type":"exact","value":"OK"}},
+               {"id":"b","category":"math","scoring":{"type":"exact","value":"YES"}}]
+        for rows in (
+            [{"id":"a","text":"no"},{"id":"a","text":"OK"},{"id":"b","text":"YES"}],
+            [{"id":"a","text":"OK"}],
+            [{"id":"a","text":"OK"},{"id":"b","text":"YES"},{"id":"extra","text":"YES"}],
+        ):
+            with self.subTest(rows=rows),self.assertRaises(ValueError):
+                score({"rows":rows},cases)
+
+    def test_scoring_requires_text_and_unique_case_ids(self):
+        cases=[{"id":"a","category":"math","scoring":{"type":"exact","value":"OK"}}]
+        for rows in ([{"id":"a"}], [{"id":"a","text":None}], [{"id":"a","text":3}]):
+            with self.subTest(rows=rows),self.assertRaises(ValueError):
+                score({"rows":rows},cases)
+        with self.assertRaises(ValueError):
+            score({"rows":[{"id":"a","text":"OK"}]},cases+cases)
+
+    def test_scoring_comparison_rejects_different_frozen_case_sets(self):
+        a=[{"id":"a","category":"math","scoring":{"type":"exact","value":"YES"}}]
+        b=[{"id":"b","category":"math","scoring":{"type":"exact","value":"YES"}}]
+        base=score({"rows":[{"id":"a","text":"YES"}]},a)
+        candidate=score({"rows":[{"id":"b","text":"YES"}]},b)
+        # Both are 100% in the same category, yet are NOT the same evaluation.
+        with self.assertRaises(ValueError):
+            compare(base,candidate)
+
 if __name__=="__main__":unittest.main()
