@@ -45,8 +45,9 @@ python frontier350/chat_web350.py --tool-only --knowledge-dir /trusted/neral-kno
 ```
 
 The same flags can be added to the native 350M start command.
-If a question matches at least two significant query terms in a passage,
-the interface returns **cited excerpts** (file name and line), not a
+For multi-keyword questions, at least two significant terms must match a passage;
+a single-keyword query requires that term to match. The interface returns
+**cited excerpts** (file name and line), not a
 generated factual summary. If no passage matches, it does not invent a
 source. Native responses, calculations and local-document retrieval remain
 visibly distinct.
