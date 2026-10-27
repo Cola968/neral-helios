@@ -69,8 +69,8 @@ def validate_examples(samples: list[dict]) -> dict:
             raise ValueError("Unexpected persona category")
         categories.add(category)
         if sample["license"] != "original-neral":
-            raise ValueError("Only manually authored/reviewed original NERAL examples allowed")
-        if sample["source"] != "human-authored-seed-2026-10-27":
+            raise ValueError("Only originally created NERAL seed examples allowed")
+        if sample["source"] != "ai-authored-original-draft-2026-10-27":
             raise ValueError("Unknown training example provenance")
         messages = sample["messages"]
         if not isinstance(messages, list) or len(messages) != 2:
@@ -121,17 +121,19 @@ def export_sft(samples: list[dict], train_path: Path | str,
     result = {
         "format": "messages-jsonl", "dataset_version": "NERAL-P1-SEED",
         "source_license": "original-neral",
-        "source": "human-authored-seed-2026-10-27",
+        "source": "ai-authored-original-draft-2026-10-27",
         "base_model": BASE_MODEL,
         "fine_tuning_method": "LoRA (planned, not executed)",
         "example_count": audit["count"],
         "categories": audit["categories"], "train_sha256": _digest(data),
         "training_status": "data_only",
+        "approved_for_training": False,
+        "review_status": "AI-authored draft, human review pending",
         "training_executed": False,
         "test_examples_included": 0,
         "quality_delta": None,
         "limitations": (
-            "Small human-authored style seed, insufficient to claim a useful "
+            "Small AI-authored draft style seed; human curation required before training. Insufficient to claim a useful "
             "fine-tuned model. Independent frozen holdout is not included."
         )
     }
