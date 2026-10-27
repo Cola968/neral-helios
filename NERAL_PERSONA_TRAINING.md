@@ -40,6 +40,44 @@ Hinweis: Ausgaben unter `local_state/` können private Modellantworten enthalten
 
 Für einen fairen Vorher-Nachher-Vergleich der **4B-Modellgewichte** muss zunächst auch die echte Baseline mit *dem gleichen* `qwen3.5:4b` und derselben Evaluierung gemessen werden. Das vorhandene 9B ist ein separater Produktvergleich und kein fairer Vorher/Nachher-Effekt eines 4B-Trainings.
 
+## NERAL-P1-Persönlichkeit getrennt beurteilen (ohne automatische Selbstbenotung)
+
+In `eval/neral_persona_style_holdout_v1.jsonl` liegen **16 weitere, strikt
+separate Aufgaben**, die speziell den persönlichen Charakter testen:
+Identität, klare Unsicherheit, Coding-Vorgehen, Eigeninitiative,
+respektvoller Ton, Sicherheit, Transparenz und Mehrsprachigkeit. Es sind
+original erzeugte, noch nicht extern geprüfte Entwürfe – **nicht** aus
+dem Training kopieren oder als SFT-Beispiele verwenden.
+
+Für jede Frage zunächst eine **echte Modellantwort** aufzeichnen (die
+Standard-Ollama-Routine für die 16 *exakten* Smoke-Tests führt diesen
+qualitativen Test noch NICHT automatisch aus). Die Antworten als JSON-Objekt
+`{"nstyle-001": "Antwort...", ...}` mit allen 16 Kennungen ablegen.
+Danach:
+
+```powershell
+python neral_persona_style_review.py prepare --answers local_state\\neral_persona\\style_answers.json --model qwen3.5:9b --output local_state\\neral_persona\\style_review.json
+```
+
+Öffne die erzeugte Datei und bewerte **manuell** für jede Antwort anhand
+des zugehörigen `rubric`-Textes: `rating=0` = verfehlt,
+`rating=1` = teilweise, `rating=2` = überzeugt. Setze dazu
+`reviewer="human"` und ergänze begründende Notizen. Ein leeres Feld
+bleibt ausdrücklich **unbewertet**, nicht 0 Punkte.
+
+```powershell
+python neral_persona_style_review.py score --sheet local_state\\neral_persona\\style_review.json
+```
+
+Die Bewertungsroutine lehnt fehlende Fälle, fremde Kategorien,
+sich widersprechende Rubriken sowie `reviewer="llm"` ab. Ein
+vollständiger Human-Report wird als **`human_reported_unverified`**
+gekennzeichnet: Selbst eingetragene menschliche Bewertungen sind
+keine unabhängige Identitäts- oder Modell-Attestierung.
+Für einen echten Vergleich müssten die Reviewer blind und unabhängig
+arbeiten, dieselben Fragen und Parameter sehen und die Rohantworten
+aufbewahrt werden. Kein NIS2.
+
 ## RTX 4070 und die spätere 4B-LoRA-Pilotphase
 
 Nach offiziellen Unsloth-Angaben: **Qwen3.5-4B BF16-LoRA etwa 10 GB VRAM**, Qwen3.5-9B BF16-LoRA etwa 22 GB. Die RTX 4070 mit 12 GB liegt beim 4B-Modell knapp über dem Richtwert, aber reale Speicherbelegung kann höher ausfallen. Training mit Batch 1, kurzer Sequenzlänge (zum Beispiel 512–1024 Tokens), Gradient-Checkpointing und rechtzeitigem Checkpoint-Speichern planen. **Unsloth empfiehlt für Qwen3.5 derzeit kein 4-Bit-QLoRA** wegen erhöhter Quantisierungsabweichungen.
