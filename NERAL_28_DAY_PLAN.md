@@ -9,7 +9,7 @@
 - Ein GitHub-Actions-Tagescheck oder eine ChatGPT-Tagesmeldung kann den Zustand **erkennen**, schreibt dadurch aber nicht automatisch guten Code. Für tatsächliche Codearbeit ohne PC braucht es einen **dauerhaft/cloud-gehosteten Coding-Agenten** und passende Freigaben. GitHub Copilot Cloud Agent/Automations ist ein potenzieller Weg (kostenpflichtiger Copilot-Zugang erforderlich).
 - Wir programmieren nicht direkt in `main`. Jede Änderung bekommt Tests und einen **Draft Pull Request**. Keine automatischen Merges, Deployments, Privilegienerweiterungen, Modellgewichte-Uploads oder Cloud-GPU-Trainings.
 - ChatGPT-Sitzungen arbeiten nicht automatisch weiter, wenn sie beendet werden. Tägliche Aufgaben und Copilot-Automatisierungen sind getrennte, echte Scheduling-Systeme und müssen ausdrücklich eingerichtet sein.
-- **Verbindliche neue Nutzergrenze vom 27.10.2026: höchstens 25 € zusätzliche Projektausgaben insgesamt; bevorzugt 0 €**. Nicht monatlich, kein automatisches Abo, keine Ausgabegenehmigung. Cloud-/Trainings-/Inference-Kosten nur nach ausdrücklicher Zustimmung; Anbieter-Limits, Vorabkalkulation, Steuern, Gebühren und Restbudget vorher prüfen. Haushaltsstrom für lokale RTX-4070-Läufe transparent separat schätzen und, wenn der Nutzer eine harte Alles-inklusive-Grenze meint, im 25-€-Budget berücksichtigen.
+- **Verbindliche Nutzergrenze vom 27.10.2026: höchstens 25 € zusätzliche direkte Projektausgaben insgesamt, ausdrücklich OHNE Haushaltsstrom; bevorzugt 0 €**. Nicht monatlich, kein automatisches Abo, keine Ausgabegenehmigung. Cloud-GPU, bezahlte Modell-APIs, Hosting und Abonnements zählen zum 25-€-Limit; lokale RTX-4070-Stromkosten zählen NICHT dazu. Cloud-/Trainings-/Inference-Kosten nur nach ausdrücklicher Zustimmung; Anbieter-Limits, Vorabkalkulation, Steuern, Gebühren und Restbudget vorher prüfen.
 - Es gibt keinen garantierten täglichen Codegewinn: Ein Tag gilt als Fortschritt, wenn nachvollziehbare grüne Tests, ein geklärter Fehler, ein verifizierter Benchmark, ein Review oder ein nutzbares Teilfeature nachgewiesen wurde; bei Blockern wird der Blocker offen gemeldet.
 
 ## Priorität und Qualitäts-Gates
@@ -67,12 +67,12 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 
 ## Budget und GPU-First-Strategie – absolute Obergrenze 25 €
 
-**Höchstens 25 € an zusätzlichen Ausgaben, nicht pro Monat.** Das ist keine Genehmigung, etwas zu kaufen. Standard bleibt **0 €**. Hardware: eigene NVIDIA GeForce RTX 4070 mit 12 GB VRAM, deren Laufzeit nicht immer verfügbar ist.
+**Höchstens 25 € an zusätzlichen direkten Projektausgaben (Cloud/Abos/Modelldienste), ohne Haushaltsstrom, nicht pro Monat.** Das ist keine Genehmigung, etwas zu kaufen. Standard bleibt **0 €**. Hardware: eigene NVIDIA GeForce RTX 4070 mit 12 GB VRAM, deren Laufzeit nicht immer verfügbar ist.
 
 1. **Zuerst lokal gratis trainieren:** Datenaudit, Baseline, minimale 4B-LoRA-Pilotläufe (sofern Trainingskonfiguration tatsächlich innerhalb 12 GB VRAM passt), Arctus-Smoke und lokale Evaluierung. Lokales Qwen3.5-9B-Inferenzmodell ist bereits vorhanden; daraus nicht schließen, dass 9B-LoRA in den Speicher passt.
 2. **Bei knapper VRAM-Kapazität Speicher sparen:** kurze Sequenzen, kleine Batches, Gradientenakkumulation, BF16 nur wenn unterstützt, LoRA, Checkpointing, CPU-Offload nur wenn nötig. Quantisierungsverfahren erst nach konkretem Qualitätsvergleich einsetzen. Nicht unsichtbar eine kleinere/andere Modellbasis behaupten.
 3. **Arctus getrennt verbessern:** eigene Gewichte und eingefrorenes NIS2-Eval bleiben unabhängig von Qwen und seinen Tool-Antworten. Training nur auf lizenzgeprüften Daten; keine Benchmark-Daten in Trainingscorpora.
-4. **Erst nach belegtem lokalen Engpass Cloud nutzen:** Optional für einen *vorher freigegebenen* kurzen Lauf auf geeigneter GPU. Maximaler Vorschlag: bis 15 € GPU, bis 5 € echte Evaluation/Cloud-Inferenz, mindestens 5 € Reserve – **Gesamtlimit 25 €** inklusive eventueller Steuern/Gebühren, gegebenenfalls abzüglich berücksichtigter Stromkosten. Kein automatischer Folgekauf, kein Abo ohne eigene Freigabe.
+4. **Erst nach belegtem lokalen Engpass Cloud nutzen:** Optional für einen *vorher freigegebenen* kurzen Lauf auf geeigneter GPU. Maximaler Vorschlag: bis 15 € GPU, bis 5 € echte Evaluation/Cloud-Inferenz, mindestens 5 € Reserve – **Gesamtlimit 25 €** inklusive eventueller Steuern/Gebühren, **ohne Stromkosten**. Kein automatischer Folgekauf, kein Abo ohne eigene Freigabe.
 5. **Kein Erfolg ohne Test:** reales Vorher/Nachher-Eval inklusive deutscher Gesprächskonsistenz, Aufgaben-/Coding-Leistung, Halluzinationskontrolle, Latenz, Kosten.
 
 ### Hardware-Schutz für lange RTX-4070-Trainingsläufe
@@ -82,7 +82,7 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 - GPU-Lüfter, Staub, Netzteil, Umgebungsluft, Stromstecker und Wartung sind Teil des Hardware-Risikos. Training kann Lüfterverschleiß und Stromverbrauch erhöhen; keine Garantie für Null-Risiko.
 - Auf Windows kann `nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,memory.used,memory.total --format=csv -l 5` Temperaturen, Last, Watt und VRAM während des Laufs anzeigen. Bei Sensorausfällen oder VRAM-OOM sicher abbrechen statt blind weitertrainieren.
 - Keine GPU-Übertaktung, Mining-ähnliche Dauerlast oder automatische Nacht-Trainingsjobs ohne explizite Zustimmung. Training mit Checkpoints, damit kurze verfügbare PC-Zeit ausreicht.
-- Die Stromrechnung zählt ebenfalls: Beispiel **300 W gesamte PC-Aufnahme × 10 Stunden = 3 kWh**; bei angenommenen 0,35 €/kWh wären das **1,05 €**, nicht nur die GPU-Leistung. Tatsächliche Werte messen, nicht raten.
+- **Strom zählt ausdrücklich NICHT zum 25-€-Budget**; nur als optionale technische Information: Beispiel **300 W gesamte PC-Aufnahme × 10 Stunden = 3 kWh**; bei angenommenen 0,35 €/kWh wären das **1,05 €**, nicht nur die GPU-Leistung. Tatsächliche Werte messen, nicht raten.
 
 ## Kostenvergleich (nur mögliche Dienste, keine Kaufempfehlung)
 
