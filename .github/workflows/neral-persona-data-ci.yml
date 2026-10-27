@@ -1,0 +1,25 @@
+name: NERAL Personality SFT data integrity
+on:
+  push:
+    branches: [feature/neral-persona-training-data-20261027]
+  pull_request:
+    paths:
+      - 'neral_persona_data.py'
+      - 'data/neral_persona_seed_v1.jsonl'
+      - 'tests/test_neral_persona_data.py'
+      - '.github/workflows/neral-persona-data-ci.yml'
+permissions:
+  contents: read
+jobs:
+  sft-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate original, bounded SFT examples and reproducible export
+        run: python -m unittest tests.test_neral_persona_data -v
+      - name: Compile training data utility (no GPU or model download)
+        run: python -m py_compile neral_persona_data.py
