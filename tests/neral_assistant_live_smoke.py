@@ -91,7 +91,7 @@ def flask_real_api_test():
         answer = payload["text"].strip()
         print("NERAL_HTTP_LIVE_OUTPUT " + json.dumps({
             "question": SECOND_PROMPT, "answer": answer[:280],
-            "expected": "391", "answer_contains_391": bool(re.search(r"(?<!\\d)391(?!\\d)", answer)),
+            "expected": "391", "answer_contains_391": bool(re.search(r"(?<!\d)391(?!\d)", answer)),
             "wall_seconds": elapsed,
             "generated_tokens": payload.get("generated_tokens"),
             "tokens_per_second": payload.get("tokens_per_second"),
