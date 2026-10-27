@@ -1,0 +1,50 @@
+name: Arctus 350M native baseline (read-only, no training)
+on:
+  push:
+    branches:
+      - fix/arctus350-eval-runtime-parity-20261027
+    paths:
+      - .github/workflows/arctus350-readonly-eval.yml
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+      - name: Verify immutable 350M input and perform frozen native evaluation
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function W([string]$Path) {
+            $f = [IO.Path]::GetFullPath($Path)
+            $root = [IO.Path]::GetPathRoot($f)
+            if ($root -notmatch '^([A-Za-z]):\\$') { throw 'unsupported drive path' }
+            $letter = $matches[1].ToLower()
+            return '/mnt/' + $letter + '/' + $f.Substring($root.Length).Replace('\\','/')
+          }
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral' }
+          $ckpt = Join-Path $assets 'runs\\neral350_frontier_compiled_1b\\resume.pt'
+          $tok = Join-Path $assets 'frontier350_assets\\tokenizer.json'
+          if (-not (Test-Path -LiteralPath $ckpt -PathType Leaf)) { throw 'source 350M checkpoint unavailable; no fallback or training' }
+          if (-not (Test-Path -LiteralPath $tok -PathType Leaf)) { throw 'locked tokenizer unavailable; no fallback or training' }
+          $repo = W (Get-Location).Path
+          $ck = W $ckpt
+          $tokenizer = W $tok
+          New-Item -Force -ItemType Directory -Path arctus350_readonly_report | Out-Null
+          $cmd = "set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/eval_chat350.py --checkpoint '$ck' --tokenizer '$tokenizer' --cases frontier350/chat350_capability_cases.json --out arctus350_readonly_report/native.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/score_chat350_capabilities.py --report arctus350_readonly_report/native.json --cases frontier350/chat350_capability_cases.json --out arctus350_readonly_report/score.json"
+          wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'read-only evaluation failed; no model writes or fallback' }
+      - name: Publish report only, never weights or tokenizer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-native-readonly-eval
+          path: arctus350_readonly_report/*.json
+          retention-days: 14
