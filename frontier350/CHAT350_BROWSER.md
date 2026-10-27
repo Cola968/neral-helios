@@ -29,9 +29,34 @@ UI preview without any model weights or GPU:
 python frontier350/chat_web350.py --tool-only
 ```
 
-The preview deliberately reports that no model is loaded. It can answer only
-a limited set of deterministic calculations; it is **not** evidence of chat
-quality or native model intelligence.
+The preview deliberately reports that no model is loaded. Without an optional
+knowledge directory it can answer only a limited set of deterministic
+calculations; it is **not** evidence of chat quality or native model intelligence.
+
+## Offline document lookup (also available without a model)
+
+Put files you want to search in a dedicated directory, for example
+`C:\\neral-knowledge`. Only local `.md` and `.txt` files are indexed;
+file size, total bytes and symlinks are restricted by `KnowledgeIndex`.
+The directory must be explicitly selected by the operator:
+
+```bash
+python frontier350/chat_web350.py --tool-only --knowledge-dir /trusted/neral-knowledge --knowledge-limit 2
+```
+
+The same flags can be added to the native 350M start command.
+If a question matches at least two significant query terms in a passage,
+the interface returns **cited excerpts** (file name and line), not a
+generated factual summary. If no passage matches, it does not invent a
+source. Native responses, calculations and local-document retrieval remain
+visibly distinct.
+
+The index is read-only and created at application startup, not monitored live.
+Never put secrets or unrelated private files into the selected directory.
+Retrieved document text is **not** inserted into subsequent native-model
+history; untrusted document instructions therefore do not gain the authority
+of model instructions through chat state. This is not general web search,
+a verified fact checker, or a claim that Neral 350M answers questions correctly.
 
 ## Access from a phone on the same private Wi-Fi
 
@@ -47,7 +72,7 @@ not be exposed to the public internet. No Gradio share link is permitted.
 ## Measurement and safety boundaries
 
 - Source labels visibly distinguish `Neral 350M (nativ)`, deterministic
-  tool-only responses and unavailable-model messages.
+  calculation tools, cited local document excerpts and unavailable-model messages.
 - The frozen native 30-case capability benchmark must **never** go through
   this UI's tool layer. Neither tool-only nor UI tests measure model quality.
 - The 1,200-step candidate from GitHub run 37965826440 remains rejected:
