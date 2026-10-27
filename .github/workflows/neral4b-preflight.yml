@@ -1,0 +1,29 @@
+name: NERAL 4B offline SFT preparation
+on:
+  push:
+    branches: [feature/neral4b-sft-pipeline-20261027]
+  pull_request:
+    paths:
+      - neral4b_training.py
+      - tests/test_neral4b_training.py
+      - .github/workflows/neral4b-preflight.yml
+      - NERAL4B_TRAINING.md
+permissions:
+  contents: read
+jobs:
+  prepare-no-gpu-no-model-download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      NERAL_4B_TRAIN_APPROVED: "NO"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m pytest -q tests/test_neral4b_training.py
+      - run: python -m py_compile neral4b_training.py
