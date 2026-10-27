@@ -27,11 +27,11 @@ jobs:
             $root = [IO.Path]::GetPathRoot($f)
             if ($root -notmatch '^([A-Za-z]):\\$') { throw 'unsupported drive path' }
             $letter = $matches[1].ToLower()
-            return '/mnt/' + $letter + '/' + $f.Substring($root.Length).Replace('\\','/')
+            return '/mnt/' + $letter + '/' + $f.Substring($root.Length).Replace('\','/')
           }
-          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'C:\\Users\\astad\\Documents\\Codex\\2026-09-05\\lo\\outputs\\neral' }
-          $ckpt = Join-Path $assets 'runs\\neral350_frontier_compiled_1b\\resume.pt'
-          $tok = Join-Path $assets 'frontier350_assets\\tokenizer.json'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $ckpt = Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          $tok = Join-Path $assets 'frontier350_assets\tokenizer.json'
           if (-not (Test-Path -LiteralPath $ckpt -PathType Leaf)) { throw 'source 350M checkpoint unavailable; no fallback or training' }
           if (-not (Test-Path -LiteralPath $tok -PathType Leaf)) { throw 'locked tokenizer unavailable; no fallback or training' }
           $repo = W (Get-Location).Path
