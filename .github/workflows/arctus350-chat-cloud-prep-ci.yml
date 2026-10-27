@@ -1,5 +1,7 @@
 name: Arctus 350M chat cloud prep
 on:
+  pull_request:
+    branches: [arctus350-chat-cloud-prep]
   push:
     branches: [arctus350-chat-cloud-prep]
   workflow_dispatch:
