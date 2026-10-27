@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import re
+import time
+from typing import Protocol, Callable
 
 
 class AgentError(ValueError):
@@ -69,6 +71,8 @@ def next_state(task: AgentTask, event: str, *, evidence: str) -> AgentTask:
     if task.phase in _TERMINAL:
         raise AgentError("Terminal task cannot be resumed without new assignment")
     proof = _evidence(evidence)
+    if event in ("operation_failed", "deadline_exceeded"):
+        return replace(task, phase="FAILED", events=task.events + ((event,proof),))
     if event == "cancel":
         return replace(task, phase="CANCELLED", events=task.events + ((event,proof),))
     if event == "tests_failed" and task.phase == "VERIFYING":
@@ -85,3 +89,83 @@ def next_state(task: AgentTask, event: str, *, evidence: str) -> AgentTask:
         if not suffix.isdecimal() or int(suffix) < 1 or proof != expected + suffix:
             raise AgentError("Draft PR must be in the assigned repository")
     return replace(task, phase=destination, events=task.events + ((event,proof),))
+
+
+class AgentTools(Protocol):
+    """Only a separately authorized, sandboxed implementation may implement this.
+
+    An AgentTools adapter is trusted integration code, NOT raw model output or
+    untrusted issue instructions. Its evidence must correspond to real events.
+    """
+    def plan(self, task: AgentTask) -> str: ...
+    def write_red_test(self, task: AgentTask) -> str: ...
+    def apply_patch(self, task: AgentTask) -> str: ...
+    def run_tests(self, task: AgentTask) -> tuple[bool, str]: ...
+    def create_draft_pr(self, task: AgentTask) -> str: ...
+
+
+class _Deadline(Exception):
+    pass
+
+
+def execute_approved_task(
+    task: AgentTask,
+    tools: AgentTools,
+    *,
+    max_seconds: int = 3600,
+    clock: Callable[[], float] = time.monotonic,
+) -> AgentTask:
+    """Continue *one already approved task* through a bounded multi-step cycle.
+
+    No implicit model call, arbitrary shell, GitHub API, persistent process or
+    remote run. Real effects depend on an external trusted tool adapter, which
+    MUST enforce per-step timeout, branch isolation, allowed paths, no secrets
+    to generated code, budget cap, and review-before-merge independently.
+
+    The deadline is checked between calls and DOES NOT interrupt a blocking
+    adapter. Never connect this to unsandboxed arbitrary model commands.
+    """
+    if type(max_seconds) is not int or not 1 <= max_seconds <= 3600:
+        raise AgentError("Workflow time limit must be between 1 and 3600 seconds")
+    if not isinstance(task, AgentTask) or task.phase != "PLANNING" or task.events:
+        raise AgentError("Only a fresh, explicitly approved scoped task can start")
+    # Revalidate instead of trusting an attacker-controlled dataclass instance.
+    if start_task(repo=task.repo, issue=task.issue,
+                  branch=task.branch, max_repairs=task.max_repairs) != task:
+        raise AgentError("Task metadata has been mutated; approval invalid")
+    started = clock()
+
+    def ensure_time():
+        if clock() >= started + max_seconds:
+            raise _Deadline
+
+    def step(event: str, action):
+        nonlocal task
+        ensure_time()
+        proof = action(task)
+        ensure_time()
+        task = next_state(task, event, evidence=proof)
+
+    try:
+        step("plan_ready", tools.plan)
+        step("red_test_observed", tools.write_red_test)
+        while task.phase == "IMPLEMENTING":
+            step("patch_committed", tools.apply_patch)
+            ensure_time()
+            outcome = tools.run_tests(task)
+            ensure_time()
+            if not isinstance(outcome, tuple) or len(outcome) != 2 or type(outcome[0]) is not bool:
+                raise AgentError("Tests must return (boolean_passed, evidence)")
+            passed, proof = outcome
+            task = next_state(task, "tests_passed" if passed else "tests_failed", evidence=proof)
+        if task.phase == "READY_FOR_DRAFT_PR":
+            step("draft_pr_opened", tools.create_draft_pr)
+    except _Deadline:
+        return next_state(task, "deadline_exceeded",
+                          evidence="Workflow deadline exceeded; intervention required")
+    except Exception:
+        # Do not echo potentially sensitive adapter exceptions, issue text,
+        # provider tokens, raw test output, or model prompts to audit evidence.
+        return next_state(task, "operation_failed",
+                          evidence="Adapter unavailable or invalid step evidence; intervention required")
+    return task
