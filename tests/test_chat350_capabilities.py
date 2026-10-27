@@ -56,4 +56,13 @@ class CapabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare(base,candidate)
 
+
+    def test_scoring_comparison_rejects_same_id_changed_answer_key(self):
+        a=[{"id":"q","category":"math","scoring":{"type":"exact","value":"YES"}}]
+        b=[{"id":"q","category":"math","scoring":{"type":"exact","value":"NO"}}]
+        base=score({"rows":[{"id":"q","text":"YES"}]},a)
+        candidate=score({"rows":[{"id":"q","text":"NO"}]},b)
+        with self.assertRaises(ValueError):
+            compare(base,candidate)
+
 if __name__=="__main__":unittest.main()
