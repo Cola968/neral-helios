@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 from pathlib import Path
 
 EVAL_PATH = Path(__file__).with_name("eval") / "neral_persona_holdout_v1.jsonl"
@@ -139,6 +140,69 @@ def grade_predictions(cases: list[dict], predictions: dict) -> dict:
     }
 
 
+
+def grade_recorded_run(cases: list[dict], run: dict) -> dict:
+    """Validate a runner envelope before assigning any diagnostic score.
+
+    Provenance is supplied by local software, not cryptographic attestation.
+    Never imply this small exact-answer smoke test measures NIS2 or personality.
+    """
+    validate_holdout(cases, [])
+    if not isinstance(run,dict) or set(run)!={"provenance","predictions"}:
+        raise ValueError("Missing or ambiguous model run envelope")
+    info=run["provenance"]
+    predictions=run["predictions"]
+    if not isinstance(info,dict) or not isinstance(predictions,dict):
+        raise ValueError("Invalid run metadata")
+    raw=json.dumps(cases,ensure_ascii=False,sort_keys=True,
+                   separators=(",",":"),allow_nan=False).encode("utf-8")
+    suite_hash=hashlib.sha256(raw).hexdigest()
+    if info.get("suite_sha256")!=suite_hash:
+        raise ValueError("Frozen holdout suite hash mismatch")
+    digest=info.get("model_digest")
+    if not isinstance(digest,str) or not re.fullmatch(r"[0-9a-f]{64}",digest):
+        raise ValueError("Missing verifiable local model digest")
+    model=info.get("model_id")
+    if not isinstance(model,str) or model not in ALLOWED_MODELS:
+        raise ValueError("Unknown model identity in run")
+    if info.get("runner")!="NERAL-P1-native-ollama-smoke":
+        raise ValueError("Unknown runner identity")
+    generation=info.get("generation")
+    if generation!={"temperature":0.0,"num_ctx":4096,"num_predict":128,
+                    "think":False,"tools":False}:
+        raise ValueError("Generation parameters are not comparable")
+    if set(predictions)!={case["id"] for case in cases}:
+        raise ValueError("Missing or unexpected predictions in run")
+    if not all(
+        isinstance(item,dict) and item.get("base_model")==model
+        for item in predictions.values()
+    ):
+        raise ValueError("Mixed model IDs in one recorded run")
+    mode=info.get("mode")
+    if mode not in ("local_ollama_http","simulated_test_transport"):
+        raise ValueError("Unknown inference mode")
+    if mode=="simulated_test_transport" or any(
+        item.get("model_generated") is not True for item in predictions.values()
+    ):
+        # The old exact-response scorer has no provenance and should not be
+        # applied to injected fake transports; return explicit unknown.
+        base=grade_predictions(cases,{})
+        base.update({"run_provenance":mode,
+                     "model_digest":None,
+                     "reason":"No verifiable local model generation; simulation cannot earn a score"})
+        return base
+    result=grade_predictions(cases,predictions)
+    return {
+        **result,
+        "run_provenance":mode,
+        "model_digest":digest,
+        "suite_sha256":suite_hash,
+        "warning":(
+            "Exact-match diagnostic only, not NIS2. Local log provenance "
+            "is self-reported and is not cryptographic device attestation."
+        ),
+    }
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Offline native model answer evaluator")
@@ -149,8 +213,10 @@ def main() -> None:
         raise ValueError("Oversized predictions")
     cases = load_holdout(options.holdout)
     predictions = json.loads(options.predictions.read_text(encoding="utf-8"))
-    print(json.dumps(grade_predictions(cases, predictions), ensure_ascii=False,
-                     indent=2, allow_nan=False))
+    result = (grade_recorded_run(cases, predictions)
+              if isinstance(predictions,dict) and "provenance" in predictions
+              else grade_predictions(cases, predictions))
+    print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
 
 
 if __name__ == "__main__":
