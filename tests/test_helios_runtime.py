@@ -142,3 +142,57 @@ def test_missing_local_assistant_returns_service_unavailable(client,monkeypatch)
     r=client.post('/api/generate',json={'mode':'assistant','prompt':'Hallo'},base_url='http://localhost')
     assert r.status_code==503
     assert 'model not installed' not in r.get_data(as_text=True)
+
+
+def test_assistant_full_flask_to_real_loopback_http_transport(client,monkeypatch):
+    """Real Flask request + real stdlib HTTP transport; Ollama response is mocked.
+
+    Complements separate native RTX-4070 Ollama test; cannot certify real 9B quality.
+    """
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+    import neral_assistant
+
+    requests=[]
+    class FakeOllama(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path!='/api/chat':
+                self.send_response(404);self.end_headers();return
+            size=int(self.headers.get('Content-Length','0'))
+            body=json.loads(self.rfile.read(size))
+            requests.append(body)
+            answer={'model':'qwen3.5:9b','message':{'role':'assistant','content':'Hallo aus NERAL.'},
+                    'done':True,'eval_count':4,'eval_duration':100000000}
+            encoded=json.dumps(answer).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length',str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+        def log_message(self,*a):pass
+
+    with ThreadingHTTPServer(('127.0.0.1',0),FakeOllama) as local:
+        worker=threading.Thread(target=local.serve_forever,daemon=True)
+        worker.start()
+        try:
+            monkeypatch.setattr(neral_assistant,'LOOPBACK_ENDPOINT',
+                                f'http://127.0.0.1:{local.server_port}/api/chat')
+            monkeypatch.setattr(runtime,'ASSISTANT_ENABLED',True)
+            monkeypatch.setattr(runtime,'ASSISTANT_MODEL','qwen3.5:9b')
+            monkeypatch.setattr(runtime,'ASSISTANT_THINK',False)
+            monkeypatch.setattr(runtime,'PREPARATION_MODE',False)
+            r=client.post('/api/generate',json={
+                'mode':'assistant','prompt':'Hallo','temperature':0,
+                'max_new_tokens':64,'stream':False
+            },base_url='http://localhost')
+            assert r.status_code==200 and r.json['text']=='Hallo aus NERAL.'
+            assert r.json['base_model']=='qwen3.5:9b'
+            assert r.json['model_generated'] is True
+            assert requests and requests[0]['model']=='qwen3.5:9b'
+            assert requests[0]['stream'] is False
+            assert [m['role'] for m in requests[0]['messages']]==['system','user']
+            assert requests[0]['messages'][1]['content']=='Hallo'
+            assert len(requests[0]['tools'])==1
+        finally:
+            local.shutdown();worker.join(timeout=2)
