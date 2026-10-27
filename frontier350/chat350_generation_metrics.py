@@ -1,6 +1,29 @@
 from __future__ import annotations
 import statistics
 
+# Changing this contract invalidates comparisons with previously generated
+# reports, even when their tokenizer digest and frozen case sets are identical.
+PROMPT_ENCODING_CONTRACT = "native-segmented-role-bpe-v1"
+
+
+def validate_comparable_reports(baseline: dict, candidate: dict) -> None:
+    """Refuse comparisons where input tokenization or case identity differs."""
+    for label, report in (("baseline", baseline), ("candidate", candidate)):
+        if report.get("prompt_encoding_contract") != PROMPT_ENCODING_CONTRACT:
+            raise ValueError(f"{label} has missing/obsolete prompt encoding contract")
+        if not isinstance(report.get("rows"), list) or not report["rows"]:
+            raise ValueError(f"{label} report missing generation rows")
+        row_ids = [row.get("id") if isinstance(row, dict) else None
+                   for row in report["rows"]]
+        if any(not isinstance(cid, str) or not cid for cid in row_ids) or len(set(row_ids)) != len(row_ids):
+            raise ValueError(f"{label} report contains invalid/duplicate case ids")
+    for field in ("tokenizer_sha256", "case_sha256"):
+        if not baseline.get(field) or baseline[field] != candidate.get(field):
+            raise ValueError(f"report identity mismatch: {field}")
+    if {row["id"] for row in baseline["rows"]} != {row["id"] for row in candidate["rows"]}:
+        raise ValueError("report case ids differ")
+
+
 def repeated_ngram_fraction(ids: list[int], n: int = 3) -> float:
     if n <= 0:
         raise ValueError("n must be positive")
