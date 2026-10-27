@@ -29,9 +29,9 @@
   function clearChat() {
     if (pending) return;
     history = [];
-    conversation.replaceChildren();
-    conversation.append($("welcome"));
-    $("welcome").hidden = false;
+    const welcome = $("welcome");
+    conversation.replaceChildren(welcome);
+    welcome.hidden = false;
     input.value = "";
     state();
     input.focus();
