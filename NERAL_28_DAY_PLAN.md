@@ -9,7 +9,7 @@
 - Ein GitHub-Actions-Tagescheck oder eine ChatGPT-Tagesmeldung kann den Zustand **erkennen**, schreibt dadurch aber nicht automatisch guten Code. Für tatsächliche Codearbeit ohne PC braucht es einen **dauerhaft/cloud-gehosteten Coding-Agenten** und passende Freigaben. GitHub Copilot Cloud Agent/Automations ist ein potenzieller Weg (kostenpflichtiger Copilot-Zugang erforderlich).
 - Wir programmieren nicht direkt in `main`. Jede Änderung bekommt Tests und einen **Draft Pull Request**. Keine automatischen Merges, Deployments, Privilegienerweiterungen, Modellgewichte-Uploads oder Cloud-GPU-Trainings.
 - ChatGPT-Sitzungen arbeiten nicht automatisch weiter, wenn sie beendet werden. Tägliche Aufgaben und Copilot-Automatisierungen sind getrennte, echte Scheduling-Systeme und müssen ausdrücklich eingerichtet sein.
-- Alle externen Inferenz-/Cloud-Kosten standardmäßig **0 €**. Das vorgeschlagene maximale Experiment-Budget ist **10 € gesamt**, keine Ausgabegenehmigung. Nur nach ausdrücklicher Freigabe und Provider-Billing-Caps aktivieren.
+- **Verbindliche neue Nutzergrenze vom 27.10.2026: höchstens 25 € zusätzliche Projektausgaben insgesamt; bevorzugt 0 €**. Nicht monatlich, kein automatisches Abo, keine Ausgabegenehmigung. Cloud-/Trainings-/Inference-Kosten nur nach ausdrücklicher Zustimmung; Anbieter-Limits, Vorabkalkulation, Steuern, Gebühren und Restbudget vorher prüfen. Haushaltsstrom für lokale RTX-4070-Läufe transparent separat schätzen und, wenn der Nutzer eine harte Alles-inklusive-Grenze meint, im 25-€-Budget berücksichtigen.
 - Es gibt keinen garantierten täglichen Codegewinn: Ein Tag gilt als Fortschritt, wenn nachvollziehbare grüne Tests, ein geklärter Fehler, ein verifizierter Benchmark, ein Review oder ein nutzbares Teilfeature nachgewiesen wurde; bei Blockern wird der Blocker offen gemeldet.
 
 ## Priorität und Qualitäts-Gates
@@ -65,12 +65,31 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 | 23.11.2026 · Tag 27 | **Release Candidate** | Nur bestandene PRs, Changelog, Demo-Video-Skript, Abweichungen. | NERAL RC Gate, ggf. ausdrücklich blockiert |
 | 24.11.2026 · Tag 28 | **Entscheidung & X-Launch** | Funktionierende Live-Demo, Messwerte, Kostenlage und Sicherheits-Gate final gegenprüfen. | Ehrlicher Launch-Entscheid und ggf. veröffentlichungsfertiger X-Post |
 
-## Kostenentscheidung bei 10 €
+## Budget und GPU-First-Strategie – absolute Obergrenze 25 €
+
+**Höchstens 25 € an zusätzlichen Ausgaben, nicht pro Monat.** Das ist keine Genehmigung, etwas zu kaufen. Standard bleibt **0 €**. Hardware: eigene NVIDIA GeForce RTX 4070 mit 12 GB VRAM, deren Laufzeit nicht immer verfügbar ist.
+
+1. **Zuerst lokal gratis trainieren:** Datenaudit, Baseline, minimale 4B-LoRA-Pilotläufe (sofern Trainingskonfiguration tatsächlich innerhalb 12 GB VRAM passt), Arctus-Smoke und lokale Evaluierung. Lokales Qwen3.5-9B-Inferenzmodell ist bereits vorhanden; daraus nicht schließen, dass 9B-LoRA in den Speicher passt.
+2. **Bei knapper VRAM-Kapazität Speicher sparen:** kurze Sequenzen, kleine Batches, Gradientenakkumulation, BF16 nur wenn unterstützt, LoRA, Checkpointing, CPU-Offload nur wenn nötig. Quantisierungsverfahren erst nach konkretem Qualitätsvergleich einsetzen. Nicht unsichtbar eine kleinere/andere Modellbasis behaupten.
+3. **Arctus getrennt verbessern:** eigene Gewichte und eingefrorenes NIS2-Eval bleiben unabhängig von Qwen und seinen Tool-Antworten. Training nur auf lizenzgeprüften Daten; keine Benchmark-Daten in Trainingscorpora.
+4. **Erst nach belegtem lokalen Engpass Cloud nutzen:** Optional für einen *vorher freigegebenen* kurzen Lauf auf geeigneter GPU. Maximaler Vorschlag: bis 15 € GPU, bis 5 € echte Evaluation/Cloud-Inferenz, mindestens 5 € Reserve – **Gesamtlimit 25 €** inklusive eventueller Steuern/Gebühren, gegebenenfalls abzüglich berücksichtigter Stromkosten. Kein automatischer Folgekauf, kein Abo ohne eigene Freigabe.
+5. **Kein Erfolg ohne Test:** reales Vorher/Nachher-Eval inklusive deutscher Gesprächskonsistenz, Aufgaben-/Coding-Leistung, Halluzinationskontrolle, Latenz, Kosten.
+
+### Hardware-Schutz für lange RTX-4070-Trainingsläufe
+
+- **100 % GPU-Auslastung allein ist normal** und kein Schadensindikator. NVIDIA gibt für die RTX 4070 200 W Total Graphics Power und 90 °C maximale GPU-Temperatur an (Referenzdesign; Partnerkarten abweichend): https://www.nvidia.com/de-de/geforce/graphics-cards/40-series/rtx-4070-family/
+- **Konservative interne Betriebsziele:** GPU-Core möglichst <80 °C, bei längeren 80–85 °C Kühlung prüfen, bei dauerhaft >85 °C oder auffälligen Lüfter-/Temperaturproblemen unterbrechen; zusätzlich VRAM/Hotspot und CPU-Temperatur beachten, falls Sensoren verfügbar. Diese Werte sind vorsichtige Projektziele, keine offiziellen NVIDIA-Abschaltgrenzen.
+- GPU-Lüfter, Staub, Netzteil, Umgebungsluft, Stromstecker und Wartung sind Teil des Hardware-Risikos. Training kann Lüfterverschleiß und Stromverbrauch erhöhen; keine Garantie für Null-Risiko.
+- Auf Windows kann `nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,memory.used,memory.total --format=csv -l 5` Temperaturen, Last, Watt und VRAM während des Laufs anzeigen. Bei Sensorausfällen oder VRAM-OOM sicher abbrechen statt blind weitertrainieren.
+- Keine GPU-Übertaktung, Mining-ähnliche Dauerlast oder automatische Nacht-Trainingsjobs ohne explizite Zustimmung. Training mit Checkpoints, damit kurze verfügbare PC-Zeit ausreicht.
+- Die Stromrechnung zählt ebenfalls: Beispiel **300 W gesamte PC-Aufnahme × 10 Stunden = 3 kWh**; bei angenommenen 0,35 €/kWh wären das **1,05 €**, nicht nur die GPU-Leistung. Tatsächliche Werte messen, nicht raten.
+
+## Kostenvergleich (nur mögliche Dienste, keine Kaufempfehlung)
 
 | Option | Wert fürs Projekt | Bewertung |
 |---|---|---|
 | Kostenlose Entwicklung (GitHub CI + bestehende lokale Gewichte) | Planung, Tests, Pull Requests ohne zusätzliches Abonnement; kein autonomer bezahlter Agent | **Unbedingt zuerst** |
-| GitHub Copilot Pro ($10/Monat, EUR-Endpreis je nach Steuern/Wechselkurs) | GitHub Cloud Coding Agent, Issue-Zuweisung und geplante Automatisierungen bei aktivierter Funktion; Credits begrenzt | **Beste erste kleine Investition für autonome Entwicklung**, aber 10 € können überschritten werden |
+| GitHub Copilot Pro (US-Dollar-Listenpreis, Preis vor Kauf prüfen) | Kann Cloud-Coding-Aufgaben ermöglichen, verbraucht aber fast die Hälfte des **gesamten** 25-€-Rahmens schon für einen Monat | **Vorläufig nicht kaufen; GPU-First-Training priorisieren** |
 | Hugging Face PRO ($9/Monat) | $2 monatliche inkludierte Inferenz-Credits, kein dauerhaft kostenloser 9B-GPU-Server | Nicht erste Wahl für Coding-Autonomie |
 | Extra Inferenz-Guthaben | Reale Cloud-Chats/Baseline; keine automatische Modellverbesserung | Nur falls begrenzte Live-Tests blockiert sind |
 
