@@ -30,7 +30,7 @@ def load_holdout(path: Path | str = EVAL_PATH) -> list[dict]:
 
 
 def _norm(text: str) -> str:
-    return " ".join(re.sub(r"[\\W_]+", " ", text.casefold(), flags=re.UNICODE).split())
+    return " ".join(re.sub(r"[\W_]+", " ", text.casefold(), flags=re.UNICODE).split())
 
 
 def validate_holdout(cases: list[dict], training_examples: list[dict]) -> dict:
