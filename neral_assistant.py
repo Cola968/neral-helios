@@ -141,10 +141,13 @@ def _calculate(call: dict) -> str:
 
 def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                    transport=None, model: str = DEFAULT_MODEL, think: bool = False,
-                   max_new: int = 256, temperature: float = 0.0) -> dict:
+                   max_new: int = 256, temperature: float = 0.0,
+                   enable_tools: bool = True) -> dict:
     """One NERAL turn: at most one allowlisted arithmetic call and one final answer."""
     history = [] if history is None else history
     _validate(prompt, history, model, max_new, temperature, think)
+    if type(enable_tools) is not bool:
+        raise AssistantError('Ungültige Tool-Konfiguration.')
     transport = local_ollama_request if transport is None else transport
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": row["role"], "content": row["content"].strip()} for row in history)
@@ -155,7 +158,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         payload = {
             "model": model,
             "messages": messages,
-            "tools": [CALCULATOR_SCHEMA],
+            "tools": [CALCULATOR_SCHEMA] if enable_tools else [],
             "stream": False,
             "think": think,
             "keep_alive": "5m",
@@ -167,6 +170,8 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         if not isinstance(calls, list) or len(calls) > 1:
             raise AssistantError("Unzulässige Anzahl Werkzeugaufrufe.")
         if calls:
+            if not enable_tools:
+                raise AssistantError('Nicht freigegebener Werkzeugaufruf im Modell-Benchmark.')
             if iteration or tools_used:
                 raise AssistantError("Werkzeugaufrufe überschreiten das Limit.")
             tool_output = _calculate(calls[0])
