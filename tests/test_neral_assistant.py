@@ -9,6 +9,30 @@ def answer(text, *, model="qwen3.5:9b"):
             "done": True, "eval_count": 12, "eval_duration": 1000000000}
 
 
+class PersonalityIntegrationTests(unittest.TestCase):
+    def test_actual_ollama_payload_uses_versioned_neral_personality(self):
+        from neral_assistant_persona import PERSONA_VERSION, SYSTEM_PROMPT
+        from neral_assistant import SYSTEM_PROMPT as ACTIVE_PROMPT
+        self.assertIs(ACTIVE_PROMPT, SYSTEM_PROMPT)
+        self.assertEqual(PERSONA_VERSION, "NERAL-P1")
+        self.assertIn("Qwen3.5", SYSTEM_PROMPT)
+        self.assertIn("Deutsch", SYSTEM_PROMPT)
+        self.assertIn("keine erfundenen Quellen", SYSTEM_PROMPT)
+        captured=[]
+        def fake(body):
+            captured.append(body)
+            return answer("Hallo! Ich bin NERAL.")
+        result=assistant_turn("Wer bist du?",transport=fake)
+        self.assertEqual(captured[0]["messages"][0]["content"],SYSTEM_PROMPT)
+        self.assertEqual(result["persona_version"],PERSONA_VERSION)
+        self.assertEqual(result["base_model"],"qwen3.5:9b")
+
+    def test_local_tool_access_is_not_misrepresented(self):
+        from neral_assistant_persona import SYSTEM_PROMPT
+        self.assertIn("calculator",SYSTEM_PROMPT)
+        self.assertIn("keine dauerhafte",SYSTEM_PROMPT)
+
+
 class AssistantTests(unittest.TestCase):
     def test_local_model_and_branding_are_explicit(self):
         sent = []
