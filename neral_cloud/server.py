@@ -110,6 +110,8 @@ def clean_messages(prompt,history):
         role="user" if i%2==0 else "assistant"
         if row["role"]!=role or not isinstance(row["content"],str) or not row["content"].strip():
             raise NeralCloudError("Invalid chat roles or content")
+        if len(row["content"])>4000:
+            raise NeralCloudError("Previous message exceeds per-turn limit")
         total+=len(row["content"].encode("utf-8"))
         if total>12000:
             raise NeralCloudError("Chat context exceeds byte limit")
