@@ -25,6 +25,12 @@ jobs:
           $data = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 8
           if (@($data.models | ForEach-Object {$_.name}) -notcontains 'qwen3.5:9b') { throw 'Preinstalled qwen3.5:9b missing. Refusing auto-download.' }
           Write-Host 'Preinstalled Ollama qwen3.5:9b found. No HF job, install, GPU training or model writes.'
+      - name: Scope PowerShell setup script execution to this job only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          # actions/setup-python invokes setup.ps1 in a child process.
+          # This only affects this GitHub job (not CurrentUser/LocalMachine policy).
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value 'PSExecutionPolicyPreference=Bypass'
       - name: Set up test-only Python in GitHub runner toolcache
         uses: actions/setup-python@v5
         with:
