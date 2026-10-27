@@ -22,9 +22,14 @@ def main() -> None:
                     help="Bind LAN interface for phone access (password required)")
     ap.add_argument("--port", type=int, default=9681)
     ap.add_argument("--tool-mode", choices=["auto", "off"], default="auto")
+    ap.add_argument("--knowledge-dir", help="Opt-in local .txt/.md knowledge directory (read-only)")
+    ap.add_argument("--knowledge-limit", type=int, default=2,
+                    help="Maximum cited local passages per question (1-10)")
     ap.add_argument("--max-new", type=int, default=160)
     ap.add_argument("--max-context", type=int, default=1024)
     args = ap.parse_args()
+    if not 1 <= args.knowledge_limit <= 10:
+        ap.error("--knowledge-limit must be between 1 and 10")
     if not 1024 <= args.port <= 65535:
         ap.error("--port must be 1024..65535")
     if not 1 <= args.max_new < args.max_context <= 8192:
@@ -38,6 +43,11 @@ def main() -> None:
         ap.error("tool-only mode requires --tool-mode auto")
 
     import gradio as gr
+
+    knowledge = None
+    if args.knowledge_dir:
+        from chat350_knowledge import KnowledgeIndex
+        knowledge = KnowledgeIndex.from_directory(args.knowledge_dir)
 
     native = None
     if not args.tool_only:
@@ -60,12 +70,15 @@ def main() -> None:
         host = "0.0.0.0"
         auth = ("neral", password)
 
-    mode_label = ("Nur Rechenwerkzeuge, kein Sprachmodell" if args.tool_only
+    mode_label = ("Nur lokale Werkzeuge, kein Sprachmodell" if args.tool_only
                   else "Eigenes Neral-350M-Modell (experimentell)")
     with gr.Blocks(title="Neral 350M | Lokaler Chat") as demo:
         gr.Markdown("# Neral / Helios 350M")
         gr.Markdown(f"**{mode_label}** · lokal · keine Cloud-Modellinferenz · "
                     "nicht für zuverlässige Fachauskünfte freigegeben")
+        if knowledge is not None:
+            gr.Markdown(f"Lokale Wissensbasis: {knowledge.passage_count} indexierte Textabschnitte. "
+                        "Quellen werden direkt angezeigt, nicht vom Modell zusammengefasst.")
         chat = gr.Chatbot(label="Gespräch", type="messages", height=470)
         state = gr.State([])
         message = gr.Textbox(label="Nachricht", placeholder="Stelle Neral eine Frage...",
@@ -78,11 +91,13 @@ def main() -> None:
             try:
                 answer, source, updated = run_turn(
                     question, context or [], native=native,
-                    enable_tools=args.tool_mode == "auto")
+                    enable_tools=args.tool_mode == "auto",
+                    knowledge=knowledge, knowledge_limit=args.knowledge_limit)
             except ValueError as error:
                 raise gr.Error(str(error)) from error
             source_name = ("Neral 350M (nativ)" if source == "native-model"
                            else "Kein Modell geladen" if source == "no-model"
+                           else "Lokale Dokumente (zitierter Textauszug)" if source == "tool:local-knowledge"
                            else "Deterministisches Rechenwerkzeug: " + source[5:])
             rows = list(displayed or [])
             rows.extend([{"role": "user", "content": question.strip()},
