@@ -1,5 +1,7 @@
 name: Arctus 350M chat cloud prep
 on:
+  pull_request:
+    branches: [arctus350-chat-cloud-prep]
   push:
     branches: [arctus350-chat-cloud-prep]
   workflow_dispatch:
@@ -17,6 +19,6 @@ jobs:
       - name: Cases
         run: python -c "import json; d=json.load(open('frontier350/chat350_dev_cases.json',encoding='utf8')); c=json.load(open('frontier350/chat350_capability_cases.json',encoding='utf8')); assert len(d)>=10 and len(c)==30 and len({r['id'] for r in c})==30"
       - name: Unit tests
-        run: python -m unittest tests.test_chat350_cloud_prep tests.test_chat350_token_budget tests.test_chat350_human_alignment tests.test_chat350_hygiene tests.test_chat350_format_parity tests.test_chat350_capabilities tests.test_chat350_stress_cases tests.test_chat350_quality_audits tests.test_chat350_slices tests.test_chat350_runtime tests.test_chat350_checkpoint_safety tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_knowledge tests.test_chat350_tool_eval tests.test_external_bench350 tests.test_dpo_math350 tests.test_sft_batching350 tests.test_sft_stratified350 tests.test_neraltalk350_adapter -v
+        run: python -m unittest tests.test_chat350_cloud_prep tests.test_chat350_token_budget tests.test_chat350_human_alignment tests.test_chat350_hygiene tests.test_chat350_format_parity tests.test_chat350_eval_prompt tests.test_chat350_capabilities tests.test_chat350_stress_cases tests.test_chat350_quality_audits tests.test_chat350_slices tests.test_chat350_runtime tests.test_chat350_checkpoint_safety tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_knowledge tests.test_chat350_tool_eval tests.test_external_bench350 tests.test_dpo_math350 tests.test_sft_batching350 tests.test_sft_stratified350 tests.test_neraltalk350_adapter -v
       - name: Tool-only benchmark (not model native)
         run: python -m frontier350.eval_chat350_tools --frozen-cases frontier350/chat350_capability_cases.json --out /tmp/neral350_tool_only.json
