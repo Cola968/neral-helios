@@ -17,7 +17,6 @@ jobs:
           $ErrorActionPreference='Stop'
           & wsl.exe --exec python3 --version
           if ($LASTEXITCODE -ne 0) { throw 'No default WSL Python 3 interpreter' }
-          & wsl.exe --exec python3 -m pip show flask torch waitress numpy 2>&1 | Select-String -Pattern '^Name:|^Version:|not found|No module named' | ForEach-Object { Write-Host $_.Line }
           & wsl.exe --exec bash -lc 'test -x ~/.venvs/neral-triton-py312/bin/python'
           Write-Host ("Existing Arctus WSL venv: "+($LASTEXITCODE -eq 0))
           $raw = & wsl.exe --exec curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>$null
