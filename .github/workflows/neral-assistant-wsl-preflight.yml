@@ -32,5 +32,5 @@ jobs:
               print("WSL_TO_WINDOWS_LOCAL_OLLAMA=False cause=" + type(e).__name__)
           PY
           '@
-          $script -replace '','' | & wsl.exe --exec bash -s
+          $script | & wsl.exe --exec bash -s | & wsl.exe --exec bash -s
           if ($LASTEXITCODE -ne 0) { throw 'WSL Python preflight failed; no installation performed.' }
