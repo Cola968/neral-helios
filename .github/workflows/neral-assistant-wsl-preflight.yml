@@ -17,9 +17,13 @@ jobs:
           $ErrorActionPreference='Stop'
           & wsl.exe --exec python3 --version
           if ($LASTEXITCODE -ne 0) { throw 'No default WSL Python 3 interpreter' }
-          $code = 'import importlib.util as m; print("WSL_PACKAGES " + " ".join(x+"="+str(m.find_spec(x) is not None) for x in ["torch","flask","waitress","numpy"]))'
-          & wsl.exe --exec python3 -c $code
-          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect WSL Python packages' }
-          $code2 = 'import urllib.request,json; op=urllib.request.build_opener(urllib.request.ProxyHandler({})); d=json.load(op.open("http://127.0.0.1:11434/api/tags",timeout=5)); print("WSL_LOCAL_OLLAMA_9B="+str(any(x.get("name")=="qwen3.5:9b" for x in d.get("models",[]))))'
-          & wsl.exe --exec python3 -c $code2
-          if ($LASTEXITCODE -ne 0) { Write-Host 'WSL cannot reach the Windows localhost Ollama service (no firewall changes attempted).' }
+          & wsl.exe --exec python3 -m pip show flask torch waitress numpy 2>&1 | Select-String -Pattern '^Name:|^Version:|not found|No module named' | ForEach-Object { Write-Host $_.Line }
+          & wsl.exe --exec bash -lc 'test -x ~/.venvs/neral-triton-py312/bin/python'
+          Write-Host ("Existing Arctus WSL venv: "+($LASTEXITCODE -eq 0))
+          $raw = & wsl.exe --exec curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $data = $raw | ConvertFrom-Json
+            Write-Host ("WSL_TO_WINDOWS_LOCAL_OLLAMA_9B="+(@($data.models | ForEach-Object {$_.name}) -contains 'qwen3.5:9b'))
+          } else {
+            Write-Host 'WSL_TO_WINDOWS_LOCAL_OLLAMA_9B=False (no firewall changes attempted)'
+          }
