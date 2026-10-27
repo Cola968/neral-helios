@@ -66,3 +66,9 @@ test('NERAL Assistant imported chat retains model provenance',()=>{
   }));
   assert.equal(imported.messages[1].base_model,'qwen3.5:9b');
 });
+
+test('NERAL Assistant is the default only after explicit assistant opt-in',()=>{
+  assert.equal(core.defaultChatMode(false),'chat');
+  assert.equal(core.defaultChatMode(undefined),'chat');
+  assert.equal(core.defaultChatMode(true),'assistant');
+});
