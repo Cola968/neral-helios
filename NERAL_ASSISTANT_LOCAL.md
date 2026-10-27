@@ -63,6 +63,28 @@ experimentelles NERAL/Helios-Gewicht; beide Modi sind strikt getrennt.
 Für einen kleineren Vergleich `qwen3.5:4b` manuell installieren und
 `NERAL_ASSISTANT_MODEL=qwen3.5:4b` setzen.
 
+## Reproduzierbarer erster Qualitätsvergleich
+
+Sobald Ollama läuft und das Modell installiert ist, können wir NERAL bei
+festen Kurzaufgaben messen. Die zwölf lokalen Diagnosefälle umfassen
+Deutsch/Englisch, mathematische Aufgaben, Kontext, Code, Naturwissenschaften,
+Anweisungsbefolgung und das Eingestehen fehlenden Wissens.
+
+```powershell
+python neral_reasoning_eval.py --model qwen3.5:9b --mode both --out local_state/neral_9b_diagnostic.json
+```
+
+Der Bericht trennt **native Modellantworten ohne Werkzeuge** von
+**Modellantworten mit zugelassenem Rechner**. Beide Varianten verwenden
+dieselben eingefrorenen Fälle, dieselbe Modellbasis und die gleiche
+Decoding-Konfiguration. Case-SHA-256, Antworten und Werkzeugaufrufe werden
+protokolliert. `--mode native` oder `--mode tools` erlaubt getrennte Läufe.
+
+Die Fallzahl ist absichtlich klein: Dieses Ergebnis ist eine
+**technische Entwicklungsdiagnose, kein unabhängiger Benchmark und keine
+Prognose der allgemeinen KI-Zuverlässigkeit**. Ein Vergleich mit Giotto,
+GPQA, AIME, HLE oder ChatGPT wäre damit nicht zulässig.
+
 ## Sicherheit und fachliche Grenzen
 
 - **Explizites Opt-in**: Ohne `NERAL_ASSISTANT_ENABLED=1` erscheint kein
