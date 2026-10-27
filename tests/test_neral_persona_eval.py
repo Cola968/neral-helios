@@ -14,6 +14,12 @@ class IndependentEvaluationTests(unittest.TestCase):
         self.assertEqual(validate_holdout(cases, load_seed())["overlaps"],0)
         self.assertGreaterEqual(len({x["category"] for x in cases}),3)
 
+    def test_holdout_overlap_rejects_punctuation_variants(self):
+        cases=load_holdout()
+        fake_train=[{"messages":[{"role":"user","content":cases[0]["prompt"]+"!"}]}]
+        with self.assertRaises(ValueError):
+            validate_holdout(cases,fake_train)
+
     def test_no_predictions_is_not_misreported_as_zero_or_perfect(self):
         cases=load_holdout()
         report=grade_predictions(cases,{})
