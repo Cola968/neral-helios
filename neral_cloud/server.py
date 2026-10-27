@@ -68,6 +68,43 @@ class RateGate:
 
 RATE=RateGate()
 
+class ProviderBudget:
+    """Best-effort *per-process* cap. NOT a durable HF billing/spend limit.
+
+    Count every dispatched request (including failures) because failed
+    upstream calls can still consume billable tokens.
+    """
+    def __init__(self, max_attempts=60, max_inflight=2):
+        if type(max_attempts) is not int or not 1 <= max_attempts <= 100000:
+            raise ValueError("max_attempts must be a positive integer")
+        if type(max_inflight) is not int or not 1 <= max_inflight <= 100:
+            raise ValueError("max_inflight must be a positive integer")
+        self.max_attempts=max_attempts
+        self.max_inflight=max_inflight
+        self.total_attempts=0
+        self.active=0
+        self.lock=Lock()
+
+    def enter(self):
+        with self.lock:
+            if self.total_attempts>=self.max_attempts:
+                return "exhausted"
+            if self.active>=self.max_inflight:
+                return "busy"
+            self.total_attempts+=1
+            self.active+=1
+            return "ok"
+
+    def leave(self):
+        with self.lock:
+            if self.active<1:
+                raise RuntimeError("ProviderBudget lease imbalance")
+            self.active-=1
+
+
+PROVIDER_BUDGET=ProviderBudget()
+
+
 
 def _enabled(env):
     return bool(
@@ -148,7 +185,7 @@ def upstream_chat(url,body,token,timeout=35):
 
 
 def chat_turn(data, *, access_key, client_ip, env=None, transport=upstream_chat,
-              rate_gate=None):
+              rate_gate=None, provider_budget=None):
     env=os.environ if env is None else env
     if not _enabled(env):
         return 503,{"error":"NERAL Cloud Beta is not configured for online inference.",
@@ -164,6 +201,14 @@ def chat_turn(data, *, access_key, client_ip, env=None, transport=upstream_chat,
     gate=RATE if rate_gate is None else rate_gate
     if not gate.allow(client_ip):
         return 429,{"error":"Too many requests. Please try again later.","code":"rate_limited"}
+    budget=PROVIDER_BUDGET if provider_budget is None else provider_budget
+    permitted=budget.enter()
+    if permitted!="ok":
+        return 429,{
+            "error":"NERAL Cloud Beta request allowance is temporarily exhausted." if permitted=="exhausted"
+                else "NERAL Cloud Beta is at its concurrent request limit.",
+            "code":"provider_budget_exhausted" if permitted=="exhausted" else "provider_busy",
+        }
     body={"model":MODEL_ID,"messages":messages,"stream":False,
           "temperature":0.3,"max_tokens":256}
     try:
@@ -182,6 +227,8 @@ def chat_turn(data, *, access_key, client_ip, env=None, transport=upstream_chat,
     except Exception:
         # Never surface upstream API body, HF token, or user prompt to client/log.
         return 503,{"error":"Model service is temporarily unavailable.","code":"upstream_unavailable"}
+    finally:
+        budget.leave()
     return 200,{
         "answer":answer.strip(),"mode":"online-inference",
         "base_model":MODEL_ID,"product":"NERAL Assistant",
