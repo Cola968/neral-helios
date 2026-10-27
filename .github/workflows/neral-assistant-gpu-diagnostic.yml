@@ -1,0 +1,54 @@
+name: NERAL Assistant RTX 4070 Ollama diagnostic (no downloads)
+on:
+  push:
+    branches: [feature/neral-assistant-local-reasoning-20261027]
+    paths:
+      - .github/workflows/neral-assistant-gpu-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  local-gpu-check:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect local GPU and installed Ollama models
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu = & nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+          if ($LASTEXITCODE -ne 0) { throw 'NVIDIA GPU detection failed' }
+          Write-Host "GPU: $gpu"
+          Write-Host 'No model downloads, training, or checkpoint writes are permitted.'
+          try {
+            $tags=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5
+          } catch {
+            Write-Host 'Ollama is not reachable on 127.0.0.1:11434; NERAL 9B runtime NOT verified.'
+            exit 0
+          }
+          $names=@($tags.models | ForEach-Object { $_.name })
+          Write-Host ("Locally available Ollama model count: " + $names.Count)
+          if ($names -notcontains 'qwen3.5:9b') {
+            Write-Host 'qwen3.5:9b is NOT installed. No automatic model pull will be attempted.'
+            exit 0
+          }
+          Write-Host 'qwen3.5:9b is installed. One bounded read-only generation follows.'
+          $req = @{
+            model='qwen3.5:9b'
+            stream=$false
+            think=$false
+            keep_alive='0'
+            messages=@(@{role='user';content='Antworte ausschließlich mit BER.'})
+            options=@{num_ctx=2048;num_predict=40;temperature=0}
+          } | ConvertTo-Json -Depth 8 -Compress
+          try {
+            $reply=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json' -Body $req -TimeoutSec 150
+            if ($reply.model -ne 'qwen3.5:9b' -or $reply.done -ne $true -or -not $reply.message.content) { throw 'Unexpected model response' }
+            $text=[string]$reply.message.content
+            Write-Host ("Native model answer: " + $text.Substring(0,[Math]::Min(120,$text.Length)))
+            Write-Host ("eval_count: " + $reply.eval_count)
+            Write-Host ("eval_duration_ns: " + $reply.eval_duration)
+            Write-Host 'Smoke test ONLY. This is not a multi-case intelligence benchmark.'
+          } catch {
+            Write-Host 'Installed local model could not generate a valid response.'
+            throw
+          }

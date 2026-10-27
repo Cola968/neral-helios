@@ -2,11 +2,12 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
+  function defaultChatMode(assistantEnabled){return assistantEnabled===true?'assistant':'chat';}
   function context(messages,prompt,budget,maxContext,checkpoint){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
-      if(u.role==='user'&&u.mode==='chat'&&a.role==='assistant'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint){
+      if(u.role==='user'&&a.role==='assistant'&&((u.mode==='chat'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint)||(u.mode==='assistant'&&a.mode==='neral-assistant'&&a.base_model===checkpoint))){
         pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content}]);i++;
       }
     }
@@ -56,13 +57,13 @@
     if(bytes(text)>2*1024*1024)throw Error('Import ist größer als 2 MB.');
     const data=JSON.parse(text);
     if(data?.format!=='neral-chat-v1'||typeof data.title!=='string'||!Array.isArray(data.messages)||data.messages.length>500)throw Error('Ungültiges Chat-Exportformat.');
-    const modes=new Set(['chat','solve','code','trained-generation','solve-tool','code-tool','guarded-response']);
+    const modes=new Set(['chat','assistant','neral-assistant','solve','code','trained-generation','solve-tool','code-tool','guarded-response']);
     const messages=data.messages.map(m=>{
       if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||bytes(m.content)>32768||!modes.has(m.mode))throw Error('Ungültige Nachricht im Import.');
-      return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,meta:'Importierter Verlauf · nicht neu berechnet'};
+      return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,base_model:['qwen3.5:9b','qwen3.5:4b'].includes(m.base_model)?m.base_model:undefined,meta:'Importierter Verlauf · nicht neu berechnet'};
     });
     return {title:data.title.slice(0,80)||'Importierter Chat',messages,draft:'',temporary:false,imported:true};
   }
-  const api={context,blocks,render,parseImport};
+  const api={context,blocks,render,parseImport,defaultChatMode};
   if(typeof module!=='undefined')module.exports=api;else root.HeliosCore=api;
 })(typeof window==='undefined'?{}:window);

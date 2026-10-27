@@ -4,6 +4,19 @@ Eigenes lokales Sprachmodell mit CASCADE, RIPPLE, SOLVE und LIVING Answers.
 
 **Aktuell:** Neral-50M Sprachpilot mit **50.012.976 Parametern**. Ausschließlich eigene Neral-Gewichte, keine fremden Checkpoints und keine Cloud-Inferenz. Der Pilot besteht den freien Sprachtest noch nicht; **Neral-20M Preview 02 bleibt Standard**. Das ist ein Entwicklungsprojekt, kein zuverlässiger allgemeiner Chatbot.
 
+## Optional: NERAL Assistant (lokale Open-Weight-Modellbasis)
+
+NERAL erhält zusätzlich einen **explizit aktivierbaren** Alltags-Chatmodus
+auf Basis von **Qwen3.5-9B über lokales Ollama**. Die Modellgewichte stammen
+von Qwen (Apache-2.0) und sind **nicht** die selbst trainierten
+Arctus-/NERAL-Gewichte. Der Standardbetrieb und alle bisherigen eigenen
+Checkpoint-Linien bleiben unverändert; es findet keine automatische
+Modellsubstitution statt.
+
+[NERAL Assistant auf der RTX 4070 installieren und starten](NERAL_ASSISTANT_LOCAL.md). Nach Einrichtung genügt ein Doppelklick auf **`Start-NERAL-Assistant.cmd`** im aktuellen Entwicklungsbranch; die NERAL-Oberfläche öffnet sich im Browser.
+Das erste CPU-Testpaket ist implementiert; **native Qualität auf der
+RTX 4070 ist noch nicht gemessen**, bei einem frühen Check noch nicht erreichbar war; ein erneuter lokaler Smoke-Test lieferte inzwischen eine echte 9B-Antwort (`BER`). Eine vollständige End-to-End-Bewertung in der NERAL-Oberfläche steht noch aus. Kein automatischer Download oder GPU-Training.
+
 ## Start
 
 Installation und Checkpoint-Pfade: [REPRODUCE.md](REPRODUCE.md). Danach `START_NERAL.bat` starten und http://127.0.0.1:9680 öffnen.

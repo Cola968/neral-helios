@@ -1,0 +1,33 @@
+name: NERAL RTX WSL Python/Ollama preflight (read only)
+on:
+  push:
+    branches: [feature/neral-assistant-local-reasoning-20261027]
+    paths:
+      - .github/workflows/neral-assistant-wsl-preflight.yml
+permissions:
+  contents: read
+jobs:
+  wsl-preflight:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 3
+    steps:
+      - name: Probe WSL Python, packages and Windows loopback network without installs
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          & wsl.exe --exec python3 --version
+          if ($LASTEXITCODE -ne 0) { throw 'No default WSL Python 3 interpreter' }
+          & wsl.exe --exec bash -lc 'test -x ~/.venvs/neral-triton-py312/bin/python'
+          Write-Host ("Existing Arctus WSL venv: "+($LASTEXITCODE -eq 0))
+          $ErrorActionPreference='Continue'
+          $raw = & wsl.exe --exec curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>$null
+          $networkExit = $LASTEXITCODE
+          $ErrorActionPreference='Stop'
+          if ($networkExit -eq 0) {
+            $data = $raw | ConvertFrom-Json
+            Write-Host ("WSL_TO_WINDOWS_LOCAL_OLLAMA_9B="+(@($data.models | ForEach-Object {$_.name}) -contains 'qwen3.5:9b'))
+          } else {
+            Write-Host 'WSL_TO_WINDOWS_LOCAL_OLLAMA_9B=False (no firewall changes attempted)'
+          }
+          # Unreachable WSL loopback is a diagnostic result, not a script crash.
+          exit 0

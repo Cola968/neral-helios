@@ -1,0 +1,66 @@
+name: NERAL Assistant live RTX 4070 model + Flask API smoke
+on:
+  push:
+    branches: [feature/neral-assistant-local-reasoning-20261027]
+    paths:
+      - .github/workflows/neral-assistant-live-smoke.yml
+      - tests/neral_assistant_live_smoke.py
+permissions:
+  contents: read
+jobs:
+  real-local-model-and-neral-api:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify GPU and local model before inference
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gpu = & nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+          if ($LASTEXITCODE -ne 0) { throw 'RTX GPU missing' }
+          Write-Host ("GPU: " + $gpu)
+          $data = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 8
+          if (@($data.models | ForEach-Object {$_.name}) -notcontains 'qwen3.5:9b') { throw 'Preinstalled qwen3.5:9b missing. Refusing auto-download.' }
+          Write-Host 'Preinstalled Ollama qwen3.5:9b found. No HF job, install, GPU training or model writes.'
+      - name: Scope PowerShell setup script execution to this job only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          # actions/setup-python invokes setup.ps1 in a child process.
+          # This only affects this GitHub job (not CurrentUser/LocalMachine policy).
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value 'PSExecutionPolicyPreference=Bypass'
+      - name: Set up test-only Python in GitHub runner toolcache
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only dependencies into isolated runner temporary venv
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $venv=Join-Path $env:RUNNER_TEMP 'neral-assistant-e2e-venv'
+          & python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create isolated temporary Python environment.' }
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir numpy==2.2.6 flask==3.1.3 waitress==3.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install isolated NERAL app dependencies.' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install CPU-only torch in temporary venv.' }
+          & $py -c 'import torch, flask, waitress, numpy; print("ISOLATED_TEST_PYTHON_OK CPU PyTorch:", torch.__version__)'
+          if ($LASTEXITCODE -ne 0) { throw 'Incomplete isolated NERAL test environment.' }
+      - name: Native NERAL model + live Flask session and assistant endpoint
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'neral-assistant-e2e-venv\Scripts\python.exe'
+          & $py -u tests/neral_assistant_live_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw ('NERAL real Ollama-backed API test failed with exit code '+$LASTEXITCODE) }
+      - name: Clean only the isolated GitHub-runner venv
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $venv=Join-Path $env:RUNNER_TEMP 'neral-assistant-e2e-venv'
+          if (Test-Path -LiteralPath $venv) { Remove-Item -LiteralPath $venv -Recurse -Force -ErrorAction SilentlyContinue }

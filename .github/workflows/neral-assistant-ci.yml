@@ -1,0 +1,27 @@
+name: NERAL Assistant local reasoning contract
+on:
+  push:
+    branches: [feature/neral-assistant-local-reasoning-20261027]
+  pull_request:
+    paths:
+      - neral_assistant.py
+      - neral_assistant_launcher.py
+      - Start-NERAL-Assistant.cmd
+      - tests/test_neral_assistant_launcher.py
+      - tests/test_neral_assistant.py
+      - .github/workflows/neral-assistant-ci.yml
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pure-Python local provider tests
+        run: python -m unittest tests.test_neral_assistant tests.test_neral_reasoning_eval tests.test_neral_assistant_launcher -v
+      - name: Syntax
+        run: python -m py_compile neral_assistant.py neral_reasoning_eval.py neral_assistant_launcher.py

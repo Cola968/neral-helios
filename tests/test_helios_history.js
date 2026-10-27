@@ -44,3 +44,31 @@ test('code remains literal and receives a copy control',()=>{
   assert.ok(all.some(x=>x.tag==='code'&&x.textContent==='<script>alert(1)</script>'));
   assert.ok(!all.some(x=>x.tag==='script'));
 });
+
+test('NERAL Assistant history preserves only same-base model pairs',()=>{
+  const rows=[
+    {role:'user',mode:'assistant',content:'Hallo'},
+    {role:'assistant',mode:'neral-assistant',content:'Hallo!',base_model:'qwen3.5:9b'},
+    {role:'user',mode:'assistant',content:'Andere Basis'},
+    {role:'assistant',mode:'neral-assistant',content:'Antwort',base_model:'qwen3.5:4b'},
+    ...pair('Eigenmodell'),
+  ];
+  const result=core.context(rows,'Wie geht es dir?',40,4096,'qwen3.5:9b');
+  assert.equal(result.history.length,2);
+  assert.deepEqual(result.history.map(row=>row.content),['Hallo','Hallo!']);
+});
+
+test('NERAL Assistant imported chat retains model provenance',()=>{
+  const imported=core.parseImport(JSON.stringify({
+    format:'neral-chat-v1',title:'NERAL Assistant',
+    messages:[{role:'user',mode:'assistant',content:'Hi'},
+              {role:'assistant',mode:'neral-assistant',content:'Hallo',base_model:'qwen3.5:9b'}]
+  }));
+  assert.equal(imported.messages[1].base_model,'qwen3.5:9b');
+});
+
+test('NERAL Assistant is the default only after explicit assistant opt-in',()=>{
+  assert.equal(core.defaultChatMode(false),'chat');
+  assert.equal(core.defaultChatMode(undefined),'chat');
+  assert.equal(core.defaultChatMode(true),'assistant');
+});

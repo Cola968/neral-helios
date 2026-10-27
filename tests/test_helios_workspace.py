@@ -149,3 +149,20 @@ def test_gateway_streams_before_backend_completes(tmp_path):
         release.set();assert response.readline()==b'{"type":"done"}\n'
     finally:
         release.set();conn.close();gateway.shutdown();gateway.server_close();backend.shutdown();backend.server_close();bt.join();gt.join()
+
+
+def test_neral_assistant_sync_keeps_mode_and_base_model(tmp_path):
+    store=ChatStore(tmp_path/'neral_assistant_sync.db')
+    key='12345678-1234-1234-1234-123456789aaa'
+    row=dict(
+        title='NERAL Assistant',mode='assistant',draft='',
+        messages=[
+            dict(role='user',mode='assistant',content='Hallo'),
+            dict(role='assistant',mode='neral-assistant',content='Hallo zurück',
+                 base_model='qwen3.5:9b',meta='lokal'),
+        ])
+    assert store.put(key,0,row)==1
+    restored=store.all()[0]['chat']
+    assert restored['mode']=='assistant'
+    assert restored['messages'][1]['base_model']=='qwen3.5:9b'
+    assert restored['messages'][1]['mode']=='neral-assistant'

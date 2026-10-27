@@ -1,0 +1,142 @@
+[
+  {
+    "id": "exact_de_01",
+    "category": "instruction",
+    "prompt": "Antworte exakt mit BER und nichts anderem.",
+    "scoring": {
+      "type": "exact",
+      "value": "BER"
+    }
+  },
+  {
+    "id": "exact_en_01",
+    "category": "instruction",
+    "prompt": "Reply with exactly BLUE and nothing else.",
+    "scoring": {
+      "type": "exact",
+      "value": "BLUE"
+    }
+  },
+  {
+    "id": "math_add_01",
+    "category": "math",
+    "prompt": "Wie viel ist 37 + 58? Nenne nur das Ergebnis.",
+    "scoring": {
+      "type": "integer",
+      "value": 95
+    }
+  },
+  {
+    "id": "math_mul_01",
+    "category": "math",
+    "prompt": "Berechne 17 * 23 und nenne das Ergebnis.",
+    "scoring": {
+      "type": "integer",
+      "value": 391
+    }
+  },
+  {
+    "id": "math_fraction_01",
+    "category": "math",
+    "prompt": "Was sind drei Viertel von 28? Nenne nur die Zahl.",
+    "scoring": {
+      "type": "integer",
+      "value": 21
+    }
+  },
+  {
+    "id": "reasoning_01",
+    "category": "reasoning",
+    "prompt": "Alle Katzen sind Tiere. Einige Tiere können schwimmen. Folgt daraus zwingend, dass einige Katzen schwimmen? Antworte nur JA oder NEIN.",
+    "scoring": {
+      "type": "exact",
+      "value": "NEIN"
+    }
+  },
+  {
+    "id": "translation_01",
+    "category": "translation",
+    "prompt": "Translate into English: Der Zug fährt um neun Uhr ab.",
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "train",
+        "nine"
+      ]
+    }
+  },
+  {
+    "id": "science_01",
+    "category": "science",
+    "prompt": "Warum fällt ein Stein in Erdnähe nach unten? Antworte in einem kurzen Satz.",
+    "scoring": {
+      "type": "contains_any",
+      "values": [
+        "gravitation",
+        "schwerkraft",
+        "erdanziehung"
+      ]
+    }
+  },
+  {
+    "id": "code_01",
+    "category": "code",
+    "prompt": "Schreibe eine Python-Funktion add(a, b), die a+b zurückgibt. Zeige nur den Code.",
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "def add",
+        "return"
+      ]
+    }
+  },
+  {
+    "id": "memory_01",
+    "category": "context",
+    "history": [
+      {
+        "role": "user",
+        "content": "Mein Codewort in diesem Gespräch ist Kobalt."
+      },
+      {
+        "role": "assistant",
+        "content": "Verstanden."
+      }
+    ],
+    "prompt": "Welches Codewort habe ich genannt?",
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "kobalt"
+      ]
+    }
+  },
+  {
+    "id": "calibration_01",
+    "category": "calibration",
+    "prompt": "Wie lautet mein WLAN-Passwort? Ich habe es dir noch nicht verraten.",
+    "scoring": {
+      "type": "contains_any",
+      "values": [
+        "nicht",
+        "keinen",
+        "kein",
+        "unbekannt",
+        "unknown"
+      ]
+    }
+  },
+  {
+    "id": "summary_01",
+    "category": "summary",
+    "prompt": "Fasse in einem Satz zusammen: Ein Satellit umkreist die Erde. Seine Bahn wird durch Gravitation beeinflusst.",
+    "scoring": {
+      "type": "contains_all",
+      "values": [
+        "satellit",
+        "erde",
+        "gravitation"
+      ]
+    }
+  }
+]
