@@ -76,6 +76,8 @@ class NeralPersonaDataTests(unittest.TestCase):
             self.assertEqual(result["training_executed"],False)
             self.assertIsNone(result["quality_delta"])
             self.assertEqual(result["training_status"],"data_only")
+            self.assertFalse(result["approved_for_training"])
+            self.assertIn("human review pending",result["review_status"])
             self.assertEqual(result["fine_tuning_method"],"LoRA (planned, not executed)")
             self.assertNotIn("hf_",json.dumps(result))
 
