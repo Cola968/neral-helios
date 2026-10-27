@@ -5,7 +5,7 @@ import threading
 import unittest
 from unittest import mock
 from neral_cloud.server import (
-    NeralCloudError, RateGate, clean_messages, chat_turn, public_configuration,
+    NeralCloudError, RateGate, ProviderBudget, clean_messages, chat_turn, public_configuration,
     upstream_chat, SYSTEM_PROMPT, MODEL_ID
 )
 
@@ -170,6 +170,59 @@ class CloudChatContract(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(2)
+
+
+    def test_provider_budget_limits_paid_attempts_across_ip_addresses(self):
+        budget = ProviderBudget(max_attempts=2,max_inflight=1)
+        self.assertEqual(budget.enter(),"ok")
+        self.assertEqual(budget.enter(),"busy")
+        budget.leave()
+        self.assertEqual(budget.enter(),"ok")
+        budget.leave()
+        self.assertEqual(budget.enter(),"exhausted")
+        self.assertEqual(budget.total_attempts,2)
+        self.assertEqual(budget.active,0)
+
+    def test_chat_budget_prevents_calls_and_releases_after_provider_failure(self):
+        budget = ProviderBudget(max_attempts=1,max_inflight=1)
+        called=[]
+        def failing(*args):
+            called.append(1)
+            raise RuntimeError("provider unexpectedly failed")
+        one,data=chat_turn({"message":"Hallo"},
+            access_key=self.env["NERAL_BETA_ACCESS_KEY"],client_ip="1.2.3.4",
+            env=self.env,rate_gate=RateGate(),provider_budget=budget,
+            transport=failing)
+        self.assertEqual(one,503)
+        self.assertEqual(data["code"],"upstream_unavailable")
+        self.assertEqual(budget.active,0)
+        self.assertEqual(len(called),1)
+        two,second=chat_turn({"message":"Hi"},
+            access_key=self.env["NERAL_BETA_ACCESS_KEY"],client_ip="5.6.7.8",
+            env=self.env,rate_gate=RateGate(),provider_budget=budget,
+            transport=failing)
+        self.assertEqual(two,429)
+        self.assertEqual(second["code"],"provider_budget_exhausted")
+        self.assertEqual(len(called),1)
+
+    def test_chat_rejects_parallel_provider_requests(self):
+        budget=ProviderBudget(max_attempts=4,max_inflight=1)
+        self.assertEqual(budget.enter(),"ok")
+        calls=[]
+        status,data=chat_turn({"message":"Hallo"},
+            access_key=self.env["NERAL_BETA_ACCESS_KEY"],client_ip="test-two",
+            env=self.env,rate_gate=RateGate(),provider_budget=budget,
+            transport=lambda *args:calls.append(1))
+        self.assertEqual(status,429)
+        self.assertEqual(data["code"],"provider_busy")
+        self.assertFalse(calls)
+        budget.leave()
+        self.assertEqual(budget.active,0)
+
+    def test_provider_budget_validates_configuration(self):
+        for args in ((0,1),(1,0),(-1,1),(True,1),(1,1.2)):
+            with self.subTest(args=args),self.assertRaises(ValueError):
+                ProviderBudget(max_attempts=args[0],max_inflight=args[1])
 
 
 if __name__=="__main__":
