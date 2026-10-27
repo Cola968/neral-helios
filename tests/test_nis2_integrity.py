@@ -69,5 +69,35 @@ class NIS2IntegrityTests(unittest.TestCase):
             self.assertIn("nis2_chat", status["invalid_evidence"])
 
 
+    def test_mixed_checkpoint_evidence_cannot_produce_nis2(self):
+        from neral_intelligence_score_v2 import components_from_reports
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("free.json","v3.json","v4.json","rawmath.json","targeted.json","v5.json"):
+                value={"checkpoint_sha256":"a"*64}
+                if name=="v5.json":
+                    value["checkpoint_sha256"]="b"*64
+                (Path(directory)/name).write_text(json.dumps(value))
+            (Path(directory)/"nis2_chat.json").write_text(json.dumps({
+                "benchmark":"nis2-chat-core-v1",
+                "checkpoint_sha256":"a"*64,
+                "suite_sha256":"c"*64,
+                "foreign_model_or_tool_assistance":False,
+                "used_for_checkpoint_selection":False,
+                "scores":{
+                    "instruction_following_pct":50.0,
+                    "dialogue_state_pct":50.0,
+                    "truthfulness_pct":50.0,
+                    "robustness_pct":50.0,
+                    "compositional_reasoning_pct":50.0,
+                },
+            }))
+            with self.assertRaises(ValueError):
+                components_from_reports(directory)
+            status=nis2_evidence_status(directory)
+            self.assertFalse(status["can_report_nis2"])
+            self.assertIsNone(status["nis2_score"])
+            self.assertIn("checkpoint_lineage",status["invalid_evidence"])
+
+
 if __name__=="__main__":
     unittest.main()
