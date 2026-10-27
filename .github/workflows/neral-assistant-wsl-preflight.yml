@@ -1,0 +1,36 @@
+name: NERAL RTX WSL Python/Ollama preflight (read only)
+on:
+  push:
+    branches: [feature/neral-assistant-local-reasoning-20261027]
+    paths:
+      - .github/workflows/neral-assistant-wsl-preflight.yml
+permissions:
+  contents: read
+jobs:
+  wsl-preflight:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 3
+    steps:
+      - name: Check existing WSL Python and Windows Ollama loopback reachability
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $script = @'
+          python3 - <<'PY'
+          import importlib.util, pathlib, urllib.request, json
+          print("WSL_PYTHON_AVAILABLE")
+          for mod in ("torch","flask","waitress","numpy"):
+              print("WSL_SYSTEM_" + mod.upper() + "=" + str(importlib.util.find_spec(mod) is not None))
+          custom=pathlib.Path.home()/".venvs/neral-triton-py312/bin/python"
+          print("WSL_EXISTING_VENV=" + str(custom.is_file()))
+          opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          try:
+              with opener.open("http://127.0.0.1:11434/api/tags",timeout=5) as resp:
+                  data=json.load(resp)
+              print("WSL_TO_WINDOWS_LOCAL_OLLAMA=" + str(any(x.get("name")=="qwen3.5:9b" for x in data.get("models",[]))))
+          except Exception as e:
+              print("WSL_TO_WINDOWS_LOCAL_OLLAMA=False cause=" + type(e).__name__)
+          PY
+          '@
+          $script -replace '','' | & wsl.exe --exec bash -s
+          if ($LASTEXITCODE -ne 0) { throw 'WSL Python preflight failed; no installation performed.' }
