@@ -129,5 +129,48 @@ class CloudChatContract(unittest.TestCase):
         self.assertNotIn("os.system",source)
 
 
+    def test_http_server_real_loopback_with_disabled_upstream(self):
+        import contextlib
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        from neral_cloud.server import NeralHandler
+        with mock.patch.dict("os.environ",{},clear=True):
+            server=ThreadingHTTPServer(("127.0.0.1",0),NeralHandler)
+            thread=threading.Thread(target=server.serve_forever,daemon=True)
+            thread.start()
+            try:
+                base="http://127.0.0.1:"+str(server.server_port)
+                with urllib.request.urlopen(base+"/health",timeout=2) as r:
+                    self.assertEqual(r.status,200)
+                    self.assertEqual(json.load(r)["inference_ready"],False)
+                with urllib.request.urlopen(base+"/api/config",timeout=2) as r:
+                    cfg=json.load(r)
+                    self.assertFalse(cfg["available"])
+                    self.assertEqual(cfg["model"],MODEL_ID)
+                with urllib.request.urlopen(base+"/",timeout=2) as r:
+                    html=r.read().decode()
+                    self.assertIn("NERAL",html)
+                    self.assertIn("no-store",r.headers["Cache-Control"])
+                req=urllib.request.Request(base+"/api/chat",method="POST",
+                    data=b'{"message":"Hallo"}',
+                    headers={"Content-Type":"application/json"})
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req,timeout=2)
+                self.assertEqual(ctx.exception.code,503)
+                self.assertEqual(json.load(ctx.exception)["code"],"configuration_required")
+                wrong=urllib.request.Request(base+"/api/chat",method="POST",
+                    data=b'{"message":"Hallo"}',
+                    headers={"Content-Type":"application/json","Origin":"https://malicious.example"})
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(wrong,timeout=2)
+                self.assertEqual(ctx.exception.code,403)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
+
 if __name__=="__main__":
     unittest.main()
