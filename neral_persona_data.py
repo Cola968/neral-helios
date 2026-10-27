@@ -46,7 +46,7 @@ def load_seed(path: Path | str = SEED_PATH) -> list[dict]:
 
 
 def _normalized_question(text: str) -> str:
-    return " ".join(text.casefold().split())
+    return " ".join(re.sub(r"[\\W_]+", " ", text.casefold(), flags=re.UNICODE).split())
 
 
 def validate_examples(samples: list[dict]) -> dict:
