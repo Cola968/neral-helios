@@ -5,6 +5,9 @@ on:
   pull_request:
     paths:
       - neral_assistant.py
+      - neral_assistant_launcher.py
+      - Start-NERAL-Assistant.cmd
+      - tests/test_neral_assistant_launcher.py
       - tests/test_neral_assistant.py
       - .github/workflows/neral-assistant-ci.yml
 permissions:
@@ -21,4 +24,4 @@ jobs:
       - name: Pure-Python local provider tests
         run: python -m unittest tests.test_neral_assistant tests.test_neral_reasoning_eval tests.test_neral_assistant_launcher -v
       - name: Syntax
-        run: python -m py_compile neral_assistant.py neral_reasoning_eval.py
+        run: python -m py_compile neral_assistant.py neral_reasoning_eval.py neral_assistant_launcher.py
