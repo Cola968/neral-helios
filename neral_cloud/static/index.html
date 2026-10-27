@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0d1016">
+  <meta name="description" content="NERAL Assistant – ein deutschsprachiger Cloud-KI-Assistent, betrieben mit Qwen3.5-9B.">
+  <title>NERAL — Assistant</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a href="/" class="brand" aria-label="NERAL Start">
+        <span class="brand-mark" aria-hidden="true">N<span>•</span></span>
+        <span class="brand-word">NERAL<small>ASSISTANT</small></span>
+      </a>
+      <button class="new-chat" id="newChat" type="button"><span aria-hidden="true">＋</span> Neuer Chat</button>
+      <div class="spacer"></div>
+      <div class="side-foot"><div class="sidebar-status"><span class="status-led" id="sidebarLed"></span><span id="sidebarStatus">Verbindung prüfen</span></div><p>Private Beta · Version 0.1</p></div>
+    </aside>
+    <main class="workspace">
+      <header class="topbar"><span>NERAL <span class="topbar-light">/ Assistant</span></span><span class="topbar-end"><span class="dot"></span> Qwen3.5-9B <span class="topbar-light">· Cloud</span></span></header>
+      <section class="conversation" id="conversation" aria-label="Unterhaltung" aria-live="polite">
+        <div class="welcome" id="welcome"><div class="welcome-icon">N<span>•</span></div><div class="eyebrow">DEIN INTELLIGENTER BEGLEITER</div><h1>Was möchtest du<br><em>heute herausfinden?</em></h1><p>Stell eine Frage, entwickle eine Idee oder arbeite an einem Problem. NERAL hilft dir dabei – klar, direkt und auf Deutsch.</p>
+          <div class="suggestions"><button type="button" data-prompt="Erkläre mir verständlich, wie künstliche Intelligenz funktioniert.">KI verstehen <span>↗</span></button><button type="button" data-prompt="Hilf mir, einen einfachen Lernplan für Python zu erstellen.">Python lernen <span>↗</span></button><button type="button" data-prompt="Erkläre den Unterschied zwischen einem Stern und einem Planeten.">Wissenschaft <span>↗</span></button></div>
+        </div>
+      </section>
+      <div class="composer-wrap">
+        <div id="notice" class="notice" role="status">Prüfe die Cloud-Verbindung …</div>
+        <form id="chatForm" class="composer"><label class="sr-only" for="prompt">Deine Nachricht</label><textarea id="prompt" rows="1" maxlength="4000" placeholder="Schreibe NERAL eine Nachricht …" aria-label="Deine Nachricht"></textarea><div class="composer-footer"><span>NERAL Assistant <span class="composer-quiet">· Qwen3.5-9B</span></span><button type="submit" id="send" disabled aria-label="Nachricht senden">↑</button></div></form>
+        <p class="disclaimer">NERAL kann Fehler machen. Überprüfe wichtige Informationen. <a href="https://huggingface.co/Qwen/Qwen3.5-9B" target="_blank" rel="noopener noreferrer">Modellbasis: Qwen</a></p>
+      </div>
+    </main>
+  </div>
+  <dialog id="accessDialog" aria-labelledby="accessTitle"><form method="dialog" class="access-card" id="accessForm"><div class="access-mark">N<span>•</span></div><h2 id="accessTitle">Willkommen bei NERAL.</h2><p>NERAL Cloud befindet sich in einer privaten Testphase. Gib deinen Einladungscode ein, um den Chat zu nutzen.</p><label for="accessKey">Einladungscode</label><input id="accessKey" type="password" autocomplete="off" required minlength="16" placeholder="Dein Beta-Zugangscode"><div id="accessError" role="alert"></div><div class="access-actions"><button id="saveAccess" value="unlock" type="submit">Chat freischalten</button></div><small>Der Code bleibt nur während dieser Sitzung im Speicher. Es wird keine Zahlung ausgelöst, solange der Betreiber keine Inferenz freigeschaltet hat.</small></form></dialog>
+</body>
+</html>
