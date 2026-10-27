@@ -102,6 +102,22 @@ def _validate_chat_evidence(chat: dict) -> None:
         _clamp(scores[key])
 
 
+def _validate_checkpoint_lineage(directory: Path, chat: dict) -> None:
+    """Every NIS2 source report must belong to exactly the same raw checkpoint."""
+    origin = chat["checkpoint_sha256"].lower()
+    for filename in NIS2_REQUIRED_FILES:
+        if filename == "nis2_chat.json":
+            continue
+        item = _load(directory / filename)
+        if not isinstance(item, dict):
+            raise ValueError("NIS2 report is not an object: " + filename)
+        digest = item.get("checkpoint_sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+            raise ValueError("NIS2 report is missing checkpoint lineage: " + filename)
+        if digest.lower() != origin:
+            raise ValueError("NIS2 mixed checkpoints forbidden: " + filename)
+
+
 def nis2_evidence_status(report_dir: str | Path) -> dict:
     """Return a truthful score status: never infer a score from partial evidence.
 
@@ -114,9 +130,16 @@ def nis2_evidence_status(report_dir: str | Path) -> dict:
     invalid = []
     if "nis2_chat.json" not in missing:
         try:
-            _validate_chat_evidence(_load(directory / "nis2_chat.json"))
+            frozen = _load(directory / "nis2_chat.json")
+            _validate_chat_evidence(frozen)
         except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError):
             invalid.append("nis2_chat")
+        else:
+            if not missing:
+                try:
+                    _validate_checkpoint_lineage(directory, frozen)
+                except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError):
+                    invalid.append("checkpoint_lineage")
     if missing or invalid:
         return {
             "version": SCORE_VERSION, "status": "not_measured",
@@ -156,6 +179,7 @@ def components_from_reports(report_dir: str | Path) -> dict[str, float]:
     metrics = extract(report_dir)
     chat_report = _load(chat_path)
     _validate_chat_evidence(chat_report)
+    _validate_checkpoint_lineage(report_dir, chat_report)
     chat = chat_report["scores"]
 
     math_generalization = (
