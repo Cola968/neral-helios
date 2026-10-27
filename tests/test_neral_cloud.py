@@ -225,5 +225,41 @@ class CloudChatContract(unittest.TestCase):
                 ProviderBudget(max_attempts=args[0],max_inflight=args[1])
 
 
+class NeralPersonalityContract(unittest.TestCase):
+    """Prove branding/prompt consistency, not actual LLM character or quality."""
+
+    def test_persona_contract_is_versioned_and_used_in_actual_provider_request(self):
+        from neral_cloud.personality import PERSONA_VERSION, SYSTEM_PROMPT as NERAL_PROMPT
+        from neral_cloud.server import SYSTEM_PROMPT as ACTIVE_PROMPT
+        self.assertEqual(PERSONA_VERSION, "NERAL-P1")
+        self.assertIs(ACTIVE_PROMPT, NERAL_PROMPT)
+        self.assertIn("NERAL", NERAL_PROMPT)
+        for requirement in ("Deutsch", "Qwen3.5-9B", "keine erfundenen Quellen",
+                            "Coding", "keine dauerhafte", "Unsicherheit"):
+            self.assertIn(requirement, NERAL_PROMPT)
+
+    def test_persona_version_and_base_model_are_disclosed_in_response(self):
+        from neral_cloud.personality import PERSONA_VERSION
+        env = {"NERAL_HF_TOKEN":"hf_test_private_key",
+               "NERAL_BETA_ACCESS_KEY":"long-random-beta-invite-key",
+               "NERAL_CLOUD_INFERENCE_ENABLED":"1"}
+        def canned(url,body,token,timeout):
+            self.assertEqual(body["messages"][0]["content"],SYSTEM_PROMPT)
+            return {"choices":[{"message":{"role":"assistant","content":"Hallo, ich bin NERAL."}}]}
+        status,result=chat_turn({"message":"Hallo"},
+            access_key=env["NERAL_BETA_ACCESS_KEY"],client_ip="192.0.2.90",env=env,
+            rate_gate=RateGate(),provider_budget=ProviderBudget(),transport=canned)
+        self.assertEqual(status,200)
+        self.assertEqual(result["persona_version"],PERSONA_VERSION)
+        self.assertEqual(result["base_model"],"Qwen/Qwen3.5-9B")
+        self.assertEqual(public_configuration(env)["persona_version"],PERSONA_VERSION)
+
+    def test_persona_data_does_not_include_inference_secret_or_claims_of_own_pretraining(self):
+        from neral_cloud.personality import SYSTEM_PROMPT
+        self.assertNotIn("hf_",SYSTEM_PROMPT)
+        self.assertNotIn("Wir haben Qwen trainiert",SYSTEM_PROMPT)
+        self.assertIn("Modellbasis",SYSTEM_PROMPT)
+
+
 if __name__=="__main__":
     unittest.main()
