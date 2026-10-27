@@ -116,6 +116,22 @@ class AssistantTests(unittest.TestCase):
             return answer("Antwort")
         assistant_turn("Hallo",transport=fake)
 
+    def test_native_benchmark_mode_exposes_no_tool_calls(self):
+        def native_only(payload):
+            self.assertEqual(payload["tools"], [])
+            return answer("Die Antwort lautet 4.")
+        result = assistant_turn("Berechne 2+2", transport=native_only, enable_tools=False)
+        self.assertEqual(result["tools_used"], [])
+        with self.assertRaises(AssistantError):
+            assistant_turn("Hi",transport=native_only,enable_tools="no")
+
+    def test_native_only_rejects_unexpected_tool_request(self):
+        def malicious(_):
+            return {"model":"qwen3.5:9b","done":True,"message":{"role":"assistant",
+                "tool_calls":[{"function":{"name":"calculator","arguments":{"expression":"2+2"}}}]}}
+        with self.assertRaises(AssistantError):
+            assistant_turn("Berechne 2+2", transport=malicious, enable_tools=False)
+
 
 if __name__ == "__main__":
     unittest.main()
