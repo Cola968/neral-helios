@@ -7,6 +7,8 @@ on:
       - 'neral_persona_data.py'
       - 'data/neral_persona_seed_v1.jsonl'
       - 'tests/test_neral_persona_data.py'
+      - 'tests/test_neral_persona_ollama_runner.py'
+      - 'neral_persona_ollama_runner.py'
       - '.github/workflows/neral-persona-data-ci.yml'
 permissions:
   contents: read
@@ -20,9 +22,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Validate original, bounded SFT examples and reproducible export
-        run: python -m unittest tests.test_neral_persona_data tests.test_neral_persona_eval -v
+        run: python -m unittest tests.test_neral_persona_data tests.test_neral_persona_eval tests.test_neral_persona_ollama_runner -v
       - name: Compile training data utility (no GPU or model download)
-        run: python -m py_compile neral_persona_data.py neral_persona_eval.py
+        run: python -m py_compile neral_persona_data.py neral_persona_eval.py neral_persona_ollama_runner.py
       - name: Verify reproducible data export and draft-only training status
         run: |
           mkdir -p /tmp/neral-persona-check
