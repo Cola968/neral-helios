@@ -3,8 +3,11 @@
 **Status:** Der Code für NERAL Assistant und die eigene App-Oberfläche ist als
 Entwicklungs-Pull-Request vorhanden. **Kein Leistungsversprechen und keine
 Produktfreigabe.** Der Runner hat am 27.10.2026 die RTX 4070 (12.282 MiB)
-erkannt, aber keine Ollama-API auf `127.0.0.1:11434` erreicht. Daher wurde
-bislang **kein nativer Qwen3.5-9B-Test** auf der RTX 4070 ausgeführt.
+erkannt. Ein erneuter Runner-Test bestätigte am 27.10.2026,
+dass **Ollama erreichbar und Qwen3.5-9B installiert** ist. Ein **einziger
+nativer Smoke-Test** lieferte auf die Aufforderung, exakt BER zu antworten,
+korrekt `BER`. Vollständige NERAL-App-End-to-End-Tests mit echtem Modell
+und aussagekräftige Qualitätsmessungen stehen weiterhin aus.
 
 ## Was NERAL ist – und was nicht
 
@@ -63,6 +66,38 @@ experimentelles NERAL/Helios-Gewicht; beide Modi sind strikt getrennt.
 Für einen kleineren Vergleich `qwen3.5:4b` manuell installieren und
 `NERAL_ASSISTANT_MODEL=qwen3.5:4b` setzen.
 
+## NERAL Assistant mit einem Doppelklick starten (Windows)
+
+Wenn Python und die NERAL-Projektabhängigkeiten eingerichtet sind, kann die
+App ab diesem Branch mit **`Start-NERAL-Assistant.cmd`** gestartet werden.
+
+- Der Starter prüft, ob Ollama erreichbar ist und `qwen3.5:9b` bereits
+  installiert wurde. Er lädt **nichts** automatisch herunter.
+- Er startet nur die NERAL-App des aktuellen Projektordners und aktiviert
+  ausschließlich den separat ausgewiesenen Modus **✦ NERAL Assistant**.
+- Er öffnet automatisch `http://127.0.0.1:9680` im Browser.
+- Falls eine alte NERAL-Version bereits Port 9680 belegt, meldet er diesen
+  Konflikt und startet **nicht** die falsche Version. Die alte App schließen
+  und den Starter erneut ausführen; persönliche Daten nicht löschen.
+- Die Eigenmodelllinie Arctus/NERAL bleibt unverändert.
+
+**Wichtig:** Du musst den Projektstand aus dem Entwicklungsbranch
+`feature/neral-assistant-local-reasoning-20261027` benutzen, nicht die
+ältere Hauptversion. Sollten Python-Module fehlen, musst du einmalig
+im passenden Python-Environment `python -m pip install -r requirements.txt`
+und CPU-PyTorch installieren:
+
+```powershell
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+Diese Installation ist **separat vom Ollama-Modell** und nicht automatisch.
+Eine normale NERAL-Assistant-Antwort kommt im Chatfenster, nicht im Terminal.
+Aktuell erfolgt die Ausgabe nach vollständiger Berechnung und nicht
+Token für Token. Der Prototyp ist ausschließlich lokal unter localhost
+erreichbar. Eine öffentliche Web-App benötigt Authentifizierung, Server,
+Datenschutz- und Abuse-Schutz.
+
 ## Reproduzierbarer erster Qualitätsvergleich
 
 Sobald Ollama läuft und das Modell installiert ist, können wir NERAL bei
@@ -107,7 +142,7 @@ GPQA, AIME, HLE oder ChatGPT wäre damit nicht zulässig.
 ## Nachweise
 
 - PR #129: https://github.com/Cola968/neral-helios/pull/129
-- RTX-Diagnose (erreichbarer Runner, kein Ollama):
+- RTX-Diagnose (nach erneutem Lauf: Ollama + 9B verfügbar, Antwort `BER`):
   https://github.com/Cola968/neral-helios/actions/runs/40577556815
 - Getrennte CPU-Tests: `python -m unittest tests.test_neral_assistant -v`
 - Vollständige Helios-App-Tests: `.github/workflows/helios-app-ci.yml`
