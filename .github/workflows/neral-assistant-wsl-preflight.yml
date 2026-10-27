@@ -11,26 +11,15 @@ jobs:
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 3
     steps:
-      - name: Check existing WSL Python and Windows Ollama loopback reachability
+      - name: Probe WSL Python, packages and Windows loopback network without installs
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference='Stop'
-          $script = @'
-          python3 - <<'PY'
-          import importlib.util, pathlib, urllib.request, json
-          print("WSL_PYTHON_AVAILABLE")
-          for mod in ("torch","flask","waitress","numpy"):
-              print("WSL_SYSTEM_" + mod.upper() + "=" + str(importlib.util.find_spec(mod) is not None))
-          custom=pathlib.Path.home()/".venvs/neral-triton-py312/bin/python"
-          print("WSL_EXISTING_VENV=" + str(custom.is_file()))
-          opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
-          try:
-              with opener.open("http://127.0.0.1:11434/api/tags",timeout=5) as resp:
-                  data=json.load(resp)
-              print("WSL_TO_WINDOWS_LOCAL_OLLAMA=" + str(any(x.get("name")=="qwen3.5:9b" for x in data.get("models",[]))))
-          except Exception as e:
-              print("WSL_TO_WINDOWS_LOCAL_OLLAMA=False cause=" + type(e).__name__)
-          PY
-          '@
-          $script | & wsl.exe --exec bash -s | & wsl.exe --exec bash -s
-          if ($LASTEXITCODE -ne 0) { throw 'WSL Python preflight failed; no installation performed.' }
+          & wsl.exe --exec python3 --version
+          if ($LASTEXITCODE -ne 0) { throw 'No default WSL Python 3 interpreter' }
+          $code = 'import importlib.util as m; print("WSL_PACKAGES " + " ".join(x+"="+str(m.find_spec(x) is not None) for x in ["torch","flask","waitress","numpy"]))'
+          & wsl.exe --exec python3 -c $code
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect WSL Python packages' }
+          $code2 = 'import urllib.request,json; op=urllib.request.build_opener(urllib.request.ProxyHandler({})); d=json.load(op.open("http://127.0.0.1:11434/api/tags",timeout=5)); print("WSL_LOCAL_OLLAMA_9B="+str(any(x.get("name")=="qwen3.5:9b" for x in d.get("models",[]))))'
+          & wsl.exe --exec python3 -c $code2
+          if ($LASTEXITCODE -ne 0) { Write-Host 'WSL cannot reach the Windows localhost Ollama service (no firewall changes attempted).' }
