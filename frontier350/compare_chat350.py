@@ -1,13 +1,12 @@
 from __future__ import annotations
 import argparse,json
 from pathlib import Path
-from chat350_generation_metrics import compare_health
+from chat350_generation_metrics import compare_health, validate_comparable_reports
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--baseline",required=True); ap.add_argument("--candidate",required=True); ap.add_argument("--out",required=True); ap.add_argument("--training-summary",default="")
     a=ap.parse_args(); b=json.loads(Path(a.baseline).read_text(encoding="utf8")); c=json.loads(Path(a.candidate).read_text(encoding="utf8"))
-    for k in ("tokenizer_sha256","case_sha256"):
-        if b.get(k)!=c.get(k): raise ValueError(f"report identity mismatch: {k}")
+    validate_comparable_reports(b,c)
     gate=compare_health(b["summary"],c["summary"])
     training=None
     if a.training_summary: training=json.loads(Path(a.training_summary).read_text(encoding="utf8"))
