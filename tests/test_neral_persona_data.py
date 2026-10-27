@@ -18,11 +18,16 @@ class NeralPersonaDataTests(unittest.TestCase):
 
     def test_duplicate_or_near_duplicate_prompts_cannot_enter_train_and_eval(self):
         good=load_seed()
-        bad=good+[dict(good[0],id="duplicate-variant",messages=[
+        bad=good+[dict(good[0],id="np1-999",messages=[
             {"role":"user","content":good[0]["messages"][0]["content"].upper()},
             {"role":"assistant","content":"Hello!"}])]
         with self.assertRaises(ValueError):
             validate_examples(bad)
+        punctuation=good+[dict(good[0],id="np1-998",messages=[
+            {"role":"user","content":"Wer bist du!"},
+            {"role":"assistant","content":"Fake duplicate"}])]
+        with self.assertRaises(ValueError):
+            validate_examples(punctuation)
 
     def test_role_and_schema_must_be_exact_and_no_untrusted_system_messages(self):
         row=load_seed()[0]
