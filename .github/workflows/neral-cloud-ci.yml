@@ -20,5 +20,7 @@ jobs:
           python-version: '3.12'
       - name: Offline cloud security tests (no real HF calls)
         run: python -m unittest tests.test_neral_cloud -v
+      - name: JavaScript syntax (browser client)
+        run: node --check neral_cloud/static/app.js
       - name: Syntax and import checks
         run: python -m compileall -q neral_cloud tests/test_neral_cloud.py
