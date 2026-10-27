@@ -18,29 +18,55 @@ weiterarbeiten, damit die Benutzeroberfläche, API, Tools und Agentenfunktion
 nutzbar werden, **bis** Arctus reale Qualitätsgates besteht. Keine
 stillschweigende Substitution bei fehlendem eigenen Checkpoint.
 
-## Was ist heute wirklich vorhanden?
+## Was ist heute wirklich vorhanden? — korrigiert nach aktuellem 350M-Stand
 
-- **Eigene NERAL-Modelle (20M/40M/50M)** und nachgewiesener 50M-
-  Sprachpilot mit 999.424 Pretraining-Tokens. Laut `MODEL_CARD.md`
-  bestehen die freien Sprach-/Zuverlässigkeitsprüfungen noch nicht.
-  Als fertigen Chatbot dürfen wir diese Modelle nicht bezeichnen.
-- **100M Helix**: `model100.py` und `pretrain100_helix.py` im
-  Hauptbranch, inklusive zufälliger Gewichtsinitialisierung,
-  Gradient-Checkpointing, BF16/CUDA-Gate, Training/Validierung und
-  Checkpoint-Fortsetzung. Das Vorhandensein des Codes **beweist keinen
-  erfolgreich trainierten 100M-Checkpoint**.
-- **Arctus350**: GPU-Workflows für Datenvorbereitung und Chatpilot
-  vorhanden, aber `frontier350/train_chat350.py` und weitere
-  `frontier350`-Quellen im heutigen **main** nicht enthalten.
-  Mögliche separate Branches/lokale Quellen müssen explizit
-  nachvollzogen werden; 350M daher nicht als reproduzierbar startbereit
-  oder als bereits erfolgreiches Chatmodell melden.
-- **NERAL-P1 SFT-Drafts (PR #139)** gehören zur möglichen
-  *Qwen-abgeleiteten Produktlinie*, nicht automatisch zu Arctus.
-  Für Arctus brauchen wir einen bewusst getrennten Datenaudit und eine
-  passende, unabhängig initialisierte Modell-/Tokenisierungs-Pipeline.
-- **NIS2 ist für Arctus ohne vollständige Originalmodell-Evidence nicht
-  ermittelt.** Weder Qwen-Scores noch Tool-Antworten fließen ein.
+**Primärer Entwicklungsstrang: Arctus 350M, nicht 50M oder 100M.**
+Das unabhängige Modell hat **349.825.152 Parameter** und verwendet einen
+eigenen 16K-BPE-Tokenizer. Der Nutzer bestätigt eine bereits trainierte
+Historie von **über zwei Milliarden verarbeiteten Tokens**. Frühere
+Trainingsberichte nennen einen 2B-Fortsetzungsstand von ungefähr
+**2,073 Milliarden Tokens** (späterer Bericht: 2.077.355.520).
+Dies bezeichnet **historisch verarbeitete Tokens**, keine jetzt neu
+trainierten Tokens und keinen bewiesenen Qualitätsstand.
+
+**Wichtigster Unterschied:** der zuletzt erwähnte **1B-SAFE-Checkpoint**
+ist nicht automatisch identisch mit dem jüngeren **2B-Foundation-
+Fortsetzungscheckpoint**. Der 2B-Checkpoint darf nicht als SAFE,
+chat-tauglich oder als release-geeignet bezeichnet werden, solange
+Checkpoint-Digest, Lese-/Resume-Fähigkeit und Qualitäts-/Replayschutz
+nicht im aktuellen Lauf kontrolliert sind.
+
+**Quellcode ist vorhanden** – aber überwiegend auf dem separaten
+Branch [`arctus350-chat-cloud-prep`](https://github.com/Cola968/neral-helios/tree/arctus350-chat-cloud-prep)
+(auch `frontier/neral350-v1` und
+`feature/arctus350-browser-knowledge-20261027`).
+Beispiele:
+- `frontier350/train350.py` – native 350M-Pretraining mit eigenem Resume
+- `frontier350/train_chat350.py` – native Chat-/SFT-Versuche
+- `frontier350/ARCTUS_2B_PLAN.md` – Foundation-Gates und 1B-Baseline
+- `frontier350/CHAT350_RELEASE_GATES.md` – Posttraining-Gates
+- `frontier350/POSTTRAINING_RESEARCH_2026_10_10.md` – dokumentierte
+  Chat-SFT-Regression (NLL besser, Fähigkeiten 3/30 → 2/30)
+
+Dass das Verzeichnis im `main`-Tree nicht vorhanden ist, war **kein
+Beweis, dass der 350M-Trainingsstrang fehlt oder nicht existiert**.
+Die vorangegangene Empfehlung `50M → 100M → 350M` als nötiger
+Neustart war daher falsch. Keine Architekturänderung oder
+Random-Reinitialisierung vor bestehender Checkpoint-Inventur.
+
+**Historische 50M- und 100M-Dateien** bleiben Vergleichs- und
+Architekturmaterial, sind aber **kein verpflichtender
+Zwischenschritt für Arctus 350M**.
+
+**Aktuelle Leistungsgrenze:** Zwei Milliarden Tokens machen Arctus
+noch nicht zu einem verlässlichen Chatbot. Eigene
+Pretraining- und frühe SFT-Berichte zeigen Schwächen bei
+EOS/Antwortende, Wiederholung, exakter Instruktionsbefolgung
+und freier Ausgabe. Ein 1.200-Schritt-SFT-Versuch verringerte
+zwar den Validierungsverlust, verschlechterte jedoch die
+30-Fragen-Fähigkeitsprobe von 3 auf 2; der Kandidat
+darf deshalb nicht einfach befördert werden.
+**NIS2 ist weiterhin nicht vollständig und gültig gemessen.**
 
 ## Welche Rolle darf Qwen noch spielen?
 
@@ -59,34 +85,40 @@ beginnen wir bewusst mit **human-/quellenbasierten, lizenzgeprüften Daten**,
 einer von uns validierten Architektur und eigener Initialisierung;
 synthetische Lehrer-Daten sind kein zwingender Bestandteil.
 
-## GPU-First-Forschungsreihenfolge
+## GPU-First-Forschungsreihenfolge — 350M fortsetzen, nicht neu starten
 
-**Stufe A: 20M/50M zuverlässig messen.** Kein Training nach Gefühl.
-Preflight von Treiber, VRAM, Speicher, Tokenizer und Checkpoint-Digest,
-kurze freie Generierung, Wiederholungsrate, EOS, val loss, Sprachqualität,
-korrigierbare Fehler und eindeutig getrennte Tool-Ergebnisse.
+**Stufe A: Native 350M-Bestandsaufnahme ohne GPU-Lauf.**
+Branch `arctus350-chat-cloud-prep` als Basis der realen
+350M-Quellen prüfen; 1B-SAFE und 2B-Fortsetzungscheckpoint in
+einer versionsgebundenen Evidenzmatrix getrennt aufführen.
+Bekannte Pfade/Hashes, Tokenstände, Tokenizer, Run-IDs, verwendete
+Layer und Optimizerstatus aus GitHub-Artefakten erfassen, ohne
+lokale Gewichte zu behaupten oder zu verändern. Fehlende Daten
+als `not_verified` markieren.
 
-**Stufe B: 100M Helix reproduzierbar betreiben.** CPU-only
-Konfigurations-/Smoke-Tests auf GitHub; auf RTX 4070 einen explizit
-freigegebenen kurzen BF16-Pilot mit `pretrain100_helix.py` ausführen.
-Verlustkurve, echte freie Antworten, NIS2-Evidence-Status, VRAM und
-Checkpoint-Resume protokollieren. Nur bei besserer Qualität sukzessive
-mehr *lizenzierte* Tokens investieren. Ein guter Loss allein reicht nicht.
+**Stufe B: Kontrollierte echte RTX-4070-2B-Baseline.**
+Erst bei eingeschaltetem PC Checkpoint/Tokenizer-Hashes,
+Parameterzahl, CUDA, BF16, VRAM, tatsächliche trainierte Layers
+und ein sehr kurzer reproduzierbarer Inferenz-/Eval-Test prüfen.
+1B-SAFE und 2B-Foundation **mit gleichen Testbedingungen**
+vergleichen. Kein automatisches Weitertrainieren; kein 1B-
+Checkpoint durch 2B ersetzen ohne Freigabe und harte Qualitätsgates.
 
-**Stufe C: Arctus350 reproduzierbar machen.** Existierende
-`frontier350`-Quellen aus identifizierten Branches/lokalen
-Arbeitsständen sichern und Tests/CIs zum Hauptprojekt ergänzen,
-Datensplits/Lizenzen/Tokenizer-Herkunft prüfen; erst dann
-350M-Trainingsversuch freigeben. Ein größeres Modell ohne ausreichend
-Daten und Compute wird nicht automatisch besser.
+**Stufe C: Arctus 350M nachtrainieren und chatfähig machen.**
+Nach Baseline auf einer separaten Fortsetzungs-/Posttraining-Linie
+gezielt Antwortende/EOS, Anti-Repetition, deutsche Sprache,
+Antwortqualität, Coding und dialogische Instruktionsbefolgung
+verbessern. Train/Val/Holdout strikt trennen; Verschlechterung
+des eingefrorenen Capability-Tests blockiert die Promotion.
+Nur checkpointfähige kleine lokale RTX-4070-Versuche und
+separat freigegebene GPU-Zeit. Keine fremden Qwen-Gewichte.
 
-**Stufe D: Chatfähigkeit und Agentenwerkzeuge.** Wenn das eigene
-Grundmodell schon echte, unabhängige Rohmodell-Baselines besteht:
-eigene geeignete Konversationsdaten und ggf. SFT/Preference-Training
-auf **Arctus-Gewichten**. Calculator, Projektgedächtnis, Dateizugriff
-und Coding-Agent sind separat autorisierte Softwarewerkzeuge,
-keine vermeintlichen Fähigkeiten im Grundmodell. Kein Eigenmodell
-wird automatisch zum produktiven Backend befördert.
+**Stufe D: Eigener NERAL-Chat & Coding-Agent.**
+Eigene Arctus-Gewichte im Produkt **nur nach echten Chat-
+Qualitätsgates** aktivieren. Parallel können wir UI und
+sichere agentische Werkzeuge weiterentwickeln; sie verbessern
+den Nutzwert, ersetzen aber nicht die Rohmodellleistung.
+Qwen-Übergang muss bis dahin deutlich offengelegt werden.
 
 ## Strikte Release-Gates
 
@@ -115,12 +147,12 @@ erzwungenes Training mit überhitztem System. Hardwarediagnose separat.
 **Maximal 25 € zusätzliche direkte Ausgaben insgesamt, Haushaltsstrom
 zählt nicht.** Es gibt weiterhin **keine Freigabe**, Kosten auszulösen.
 Ohne aktive RTX 4070 lässt sich hier Code/Datenaudit/Tests in GitHub
-weiterführen, aber kein eigener 100M/350M-Checkpoint auf dem
+weiterführen, aber kein eigener 350M-Checkpoint auf dem
 ausgeschalteten PC trainieren.
 
 ## Realismus
 
-Ein eigenes 100M/350M-Modell kann – selbst nach viel lokaler Arbeit –
+Ein eigenes 350M-Modell kann – selbst nach zwei Milliarden Tokens –
 in allgemeiner Gesprächsqualität weit hinter Qwen3.5-9B liegen.
 Kein Datum garantiert „ChatGPT-Qualität“. Der Meilenstein ist zuerst
 eine **ehrlich eigene, funktionierende KI mit nachweisbar wachsender
