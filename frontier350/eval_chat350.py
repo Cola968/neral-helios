@@ -9,7 +9,8 @@ from tokenizers import Tokenizer
 
 from chat350_contract import EXPECTED_TOKENIZER_SHA256
 from secure_checkpoint350 import load_checkpoint
-from chat350_generation_metrics import summarize_generations
+from chat350_generation_metrics import summarize_generations, PROMPT_ENCODING_CONTRACT
+from chat350_eval_prompt import benchmark_prompt_ids
 from model350 import FRONTIER_350, Neral350M
 
 def sha256_file(path: Path):
@@ -30,8 +31,11 @@ def load_cases(path: Path):
 
 @torch.inference_mode()
 def generate(model,tok,prefix,max_new,device):
-    bos=int(tok.token_to_id("<|bos|>")); eos=int(tok.token_to_id("<|eos|>"))
-    ids=[bos]+list(tok.encode(prefix).ids); generated=[]
+    eos=int(tok.token_to_id("<|eos|>"))
+    ids=benchmark_prompt_ids(tok,prefix)
+    if len(ids)+max_new>FRONTIER_350.max_seq_len:
+        raise ValueError("benchmark prompt and completion exceed model context")
+    generated=[]
     for _ in range(max_new):
         if len(ids)>=FRONTIER_350.max_seq_len: break
         x=torch.tensor([ids],device=device,dtype=torch.long)
@@ -65,6 +69,7 @@ def main():
     summary=summarize_generations(rows,int(tok.token_to_id("<|eos|>")))
     case_sha=hashlib.sha256(json.dumps(cases,sort_keys=True,ensure_ascii=False).encode("utf8")).hexdigest()
     report={"checkpoint_sha256":sha256_file(Path(args.checkpoint)),"tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,
+            "prompt_encoding_contract":PROMPT_ENCODING_CONTRACT,
             "case_sha256":case_sha,"summary":summary,"rows":rows}
     Path(args.out).write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding="utf8")
     print(json.dumps({"summary":summary,"case_sha256":case_sha},ensure_ascii=False),flush=True)
