@@ -20,13 +20,8 @@ DEFAULT_MODEL = "qwen3.5:9b"
 LOOPBACK_ENDPOINT = "http://127.0.0.1:11434/api/chat"
 MAX_INPUT_BYTES = 4096
 MAX_RESPONSE_BYTES = 256 * 1024
-SYSTEM_PROMPT = (
-    "Du bist NERAL Assistant, ein hilfreicher lokaler KI-Assistent. "
-    "Antworte präzise, verständlich und auf Deutsch, wenn der Nutzer Deutsch schreibt. "
-    "Gib Unsicherheit offen zu. Erfinde keine Quellen, Fähigkeiten oder Messergebnisse. "
-    "Für genaue Rechnungen steht dir das Werkzeug calculator zur Verfügung. "
-    "Das zugrunde liegende Open-Weight-Modell ist Qwen3.5; NERAL ist die Anwendung."
-)
+from neral_assistant_persona import PERSONA_VERSION, SYSTEM_PROMPT
+
 CALCULATOR_SCHEMA = {
     "type": "function",
     "function": {
@@ -194,6 +189,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         speed = round(count * 1e9 / eval_duration, 2) if type(eval_duration) is int and eval_duration > 0 and count else 0
         return {
             "mode": "neral-assistant",
+            "persona_version": PERSONA_VERSION,
             "model_generated": True,
             "name": "NERAL Assistant",
             "base_model": model,
