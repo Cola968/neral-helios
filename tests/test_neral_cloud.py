@@ -13,7 +13,8 @@ from neral_cloud.server import (
 class CloudChatContract(unittest.TestCase):
     def setUp(self):
         self.env = {"NERAL_HF_TOKEN": "hf_test_private_key",
-                    "NERAL_BETA_ACCESS_KEY": "long-random-beta-invite-key"}
+                    "NERAL_BETA_ACCESS_KEY": "long-random-beta-invite-key",
+                    "NERAL_CLOUD_INFERENCE_ENABLED":"1"}
 
     def test_provider_is_never_called_without_opt_in_secrets(self):
         for missing in ("NERAL_HF_TOKEN","NERAL_BETA_ACCESS_KEY"):
