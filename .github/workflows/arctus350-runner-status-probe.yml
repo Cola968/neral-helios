@@ -1,0 +1,23 @@
+name: Arctus 350M runner status probe (no training)
+on:
+  push:
+    branches:
+      - fix/arctus350-eval-runtime-parity-20261027
+    paths:
+      - .github/workflows/arctus350-runner-status-probe.yml
+permissions:
+  contents: read
+jobs:
+  runner-status:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 3
+    steps:
+      - name: Check presence of RTX GPU without allocating model or training
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "NERAL: self-hosted GPU runner picked up this diagnostic job."
+          $gpu = & nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+          if ($LASTEXITCODE -ne 0 -or -not $gpu) { throw 'nvidia-smi unavailable' }
+          Write-Host "Detected GPU: $gpu"
+          Write-Host "No model inference, checkpoint read/write, or training performed."

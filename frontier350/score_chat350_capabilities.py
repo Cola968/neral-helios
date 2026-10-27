@@ -22,21 +22,45 @@ def score_one(text:str,spec:dict)->bool:
     raise ValueError(f"unknown scoring type: {typ}")
 
 def score(report:dict,cases:list[dict])->dict:
+    """Score exactly one output per immutable benchmark case, fail closed."""
+    if not isinstance(cases,list) or not cases or not all(
+        isinstance(c,dict) and isinstance(c.get("id"),str) and c["id"]
+        and isinstance(c.get("category"),str)
+        and isinstance(c.get("scoring"),dict) for c in cases
+    ):
+        raise ValueError("invalid frozen case specification")
     cmap={c["id"]:c for c in cases}
-    rows=report.get("rows")
-    if not isinstance(rows,list):raise ValueError("report missing rows")
-    got={r.get("id"):r for r in rows}
-    if set(got)!=set(cmap):raise ValueError(f"case/report id mismatch: missing={sorted(set(cmap)-set(got))} extra={sorted(set(got)-set(cmap))}")
+    if len(cmap)!=len(cases):raise ValueError("duplicate frozen case ids")
+    rows=report.get("rows") if isinstance(report,dict) else None
+    if not isinstance(rows,list) or len(rows)!=len(cases):
+        raise ValueError("report missing/extra generation rows")
+    if not all(isinstance(r,dict) and isinstance(r.get("id"),str)
+               and isinstance(r.get("text"),str) for r in rows):
+        raise ValueError("report rows require case ids and generated text")
+    got={r["id"]:r for r in rows}
+    if len(got)!=len(rows):raise ValueError("duplicate generated case id")
+    if set(got)!=set(cmap):
+        raise ValueError(f"case/report id mismatch: missing={sorted(set(cmap)-set(got))} extra={sorted(set(got)-set(cmap))}")
+    # Fingerprint the entire prompt, scoring rule and generation budget:
+    # matching IDs/categories alone would allow a silent benchmark rewrite.
+    contract=json.dumps(sorted(cases,key=lambda r:r["id"]),ensure_ascii=False,
+                        sort_keys=True,separators=(",",":")).encode("utf8")
+    import hashlib
+    case_sha256=hashlib.sha256(contract).hexdigest()
     cats=collections.defaultdict(list);detail=[]
     for cid,c in cmap.items():
-        text=str(got[cid].get("text",""))
+        text=got[cid]["text"]
         ok=score_one(text,c["scoring"]);cats[c["category"]].append(ok)
         detail.append({"id":cid,"category":c["category"],"pass":ok,"text":text})
     by={k:{"passed":sum(v),"cases":len(v),"pct":100*sum(v)/len(v)} for k,v in sorted(cats.items())}
     total=sum(x["pass"] for x in detail)
-    return {"cases":len(detail),"passed":total,"overall_pct":100*total/len(detail),"by_category":by,"details":detail}
+    return {"cases":len(detail),"passed":total,"overall_pct":100*total/len(detail),
+            "case_contract_sha256":case_sha256,
+            "by_category":by,"details":detail}
 
 def compare(base:dict,cand:dict)->dict:
+    if not base.get("case_contract_sha256") or base["case_contract_sha256"]!=cand.get("case_contract_sha256"):
+        raise ValueError("frozen benchmark cases, prompts or answer keys differ")
     cats=sorted(set(base["by_category"])|set(cand["by_category"]))
     deltas={k:cand["by_category"].get(k,{"pct":0})["pct"]-base["by_category"].get(k,{"pct":0})["pct"] for k in cats}
     hard_reg=[k for k,d in deltas.items() if d < -20.0]
