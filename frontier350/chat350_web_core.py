@@ -9,8 +9,10 @@ from collections.abc import Callable
 
 try:
     from .chat350_tools import tool_answer
+    from .chat350_knowledge import KnowledgeIndex, render_knowledge_hits
 except ImportError:
     from chat350_tools import tool_answer
+    from chat350_knowledge import KnowledgeIndex, render_knowledge_hits
 
 History = list[tuple[str, str]]
 NativeGenerator = Callable[[History], tuple[str, History]]
@@ -18,7 +20,9 @@ NativeGenerator = Callable[[History], tuple[str, History]]
 
 def run_turn(message: str, history: History, *,
              native: NativeGenerator | None = None,
-             enable_tools: bool = True) -> tuple[str, str, History]:
+             enable_tools: bool = True,
+             knowledge: KnowledgeIndex | None = None,
+             knowledge_limit: int = 2) -> tuple[str, str, History]:
     if not isinstance(message, str) or not message.strip():
         raise ValueError("Bitte eine Frage eingeben.")
     question = message.strip()
@@ -30,6 +34,16 @@ def run_turn(message: str, history: History, *,
     tool = tool_answer(question) if enable_tools else None
     if tool is not None:
         return tool.text, "tool:" + tool.kind, pending + [("assistant", tool.text)]
+    if enable_tools and knowledge is not None:
+        # Documents are opt-in, untrusted input. Show attributed excerpts
+        # directly; never feed their content to a native model in a later turn.
+        hits = knowledge.search(question, limit=knowledge_limit)
+        if hits:
+            rendered = render_knowledge_hits(hits)
+            safe_history = pending + [
+                ("assistant", "[Lokale Quellen angezeigt; keine Modellantwort.]")
+            ]
+            return rendered, "tool:local-knowledge", safe_history
     if native is None:
         answer = ("Kein Neral-350M-Modell geladen. In diesem Modus sind nur "
                   "ausdrücklich unterstützte Rechenaufgaben verfügbar.")
