@@ -13,10 +13,9 @@ Arctus-/NERAL-Gewichte. Der Standardbetrieb und alle bisherigen eigenen
 Checkpoint-Linien bleiben unverändert; es findet keine automatische
 Modellsubstitution statt.
 
-[NERAL Assistant auf der RTX 4070 installieren und starten](NERAL_ASSISTANT_LOCAL.md).
+[NERAL Assistant auf der RTX 4070 installieren und starten](NERAL_ASSISTANT_LOCAL.md). Nach Einrichtung genügt ein Doppelklick auf **`Start-NERAL-Assistant.cmd`** im aktuellen Entwicklungsbranch; die NERAL-Oberfläche öffnet sich im Browser.
 Das erste CPU-Testpaket ist implementiert; **native Qualität auf der
-RTX 4070 ist noch nicht gemessen**, weil Ollama beim Runner-Check noch nicht
-erreichbar war. Kein automatischer Download oder GPU-Training.
+RTX 4070 ist noch nicht gemessen**, bei einem frühen Check noch nicht erreichbar war; ein erneuter lokaler Smoke-Test lieferte inzwischen eine echte 9B-Antwort (`BER`). Eine vollständige End-to-End-Bewertung in der NERAL-Oberfläche steht noch aus. Kein automatischer Download oder GPU-Training.
 
 ## Start
 
