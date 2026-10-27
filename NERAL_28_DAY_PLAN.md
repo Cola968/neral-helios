@@ -16,7 +16,7 @@
 
 **P0:** Einfache, ehrliche, stabile Chatantworten samt Fehlerbehandlung; Cloud-Provider-Authentifizierung, Budgetlimits, Herkunftskennzeichnung, keine Fake-Demos.
 **P1:** Coding-Agent mit `RUNNING/WAITING_APPROVAL/FAILED/COMPLETED`, fixem Scope, Plan, Sandbox, getesteten Patch-Retries und PR-Review-Gates.
-**P2:** Eigene Arctus-Gewichte priorisieren: von random init und belegter Checkpoint-Linie, Qualitätsgate 50M → lokaler 100M-Helix-Pilot → 350M erst nach vollständigen Quellen-/Daten-/Runtime-Gates. Unabhängige Raw-Modell-Evaluation vor Release.
+**P2:** **Bestehenden Arctus 350M mit historisch über 2 Milliarden trainierten Tokens** priorisieren: 1B-SAFE und 2B-Fortsetzungscheckpoint getrennt inventarisieren, 350M-Branch `arctus350-chat-cloud-prep` als Quellbasis prüfen, echte RTX-4070-Rohmodell-Baseline vor kontrolliertem Posttraining. **Kein Neuanfang bei 50M/100M.**
 **P3:** Produktpersönlichkeit und Agentenwerkzeuge weiterentwickeln, aber **Qwen-4B-LoRA-Fine-Tuning ist keine Priorität** für das native NERAL-Modell. SFT nur auf geeigneten **eigenen Arctus-Gewichten** nach Baseline, Daten-/Lizenz-Audit und Freigabe. **NIS2-Arctus bleibt ungemessen**, bis echte gefrorene Rohmodellberichte vorliegen.
 
 ### Was bedeutet 'arbeitet weiter'?
@@ -55,7 +55,7 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 | 13.11.2026 · Tag 17 | **Mehrstufige Aufgaben** | Drei abhängige Teilaufgaben unter einem Arbeitsauftrag nacheinander ausführen. | Task-Graph mit überprüfbarem Abschluss |
 | 14.11.2026 · Tag 18 | **Besseres Coding** | Einfache Python-/JavaScript-Aufgaben auf einem eingefrorenen internen Testsatz messen. | Vorher/Nachher Coding-Gates |
 | 15.11.2026 · Tag 19 | **NERAL-Personality-Daten** | Eigene urheberrechtlich zulässige Gespräche kuratieren; Eval-Daten strikt aussparen. | Versionierter Datenmanifest-Entwurf |
-| 16.11.2026 · Tag 20 | **Arctus-Training** | 50M-Pilot-Evidence prüfen, 100M-Helix-Preflight und 350M-Quelllücken erfassen, Qwen strikt getrennt halten. | Native-Only-Roadmap + reproduzierbarer RTX-4070-Pilotplan ohne ungefragten Jobstart |
+| 16.11.2026 · Tag 20 | **Arctus 350M fortsetzen** | Historische ~2.073B–2.077B-Token-Linie und 1B-SAFE voneinander trennen; echten 350M-Code und Checkpoint-Lebenslauf dokumentieren; Qwen strikt getrennt halten. | 350M-Inventur, reproduzierbares RTX-4070-Baseline-Protokoll und geprüfte Posttraining-Gates – kein unautorisierter Jobstart |
 | 17.11.2026 · Tag 21 | **Wochenreview 3** | Persona, Halluzinationsrisiko, Codingleistung, mehrstufiges Arbeiten messen. | W3 Benchmarkbericht mit tatsächlichen Testzahlen |
 | 18.11.2026 · Tag 22 | **Agenten-Stresstest** | Rate-Limits, Kontextabbruch, Test-Zeitüberschreitung, bösartige Issues. | Robustheits-/Abuse-Testbericht |
 | 19.11.2026 · Tag 23 | **Modellherkunft** | UX: Transparenz über Qwen, eigene NERAL-Software und Arctus; keine KI-Fake-Antworten. | Release-gerechte Provenance-Ansicht |
@@ -69,9 +69,9 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 
 **Höchstens 25 € an zusätzlichen direkten Projektausgaben (Cloud/Abos/Modelldienste), ohne Haushaltsstrom, nicht pro Monat.** Das ist keine Genehmigung, etwas zu kaufen. Standard bleibt **0 €**. Hardware: eigene NVIDIA GeForce RTX 4070 mit 12 GB VRAM, deren Laufzeit nicht immer verfügbar ist.
 
-1. **Zuerst Arctus eigenständig verbessern:** Datenaudit, Raw-Modell-Baselines, eigene 50M/100M-Trainingspipeline und Checkpoints mit unveränderter Herkunftslinie. **Qwen-4B-LoRA ist nicht der Entwicklungsweg für das gewünschte Originalmodell**; die vorhandene 9B-Inferenz bleibt nur offengelegte Übergangs-Software.
+1. **Zuerst bestehenden Arctus 350M weiterentwickeln:** Das Modell hat bereits historisch über zwei Milliarden Tokens verarbeitet. 1B-SAFE-Checkpoint und 2B-Foundation-Fortsetzung separat auditen; native 350M-Codebasis vom Branch `arctus350-chat-cloud-prep` verwenden. **Kein Neustart bei 50M/100M**, keine ungeprüfte Checkpoint-Promotion. Qwen-4B-LoRA ist nicht der Weg zum gewünschten Originalmodell; 9B-Inferenz bleibt nur offengelegte Übergangs-Software.
 2. **Bei knapper VRAM-Kapazität Speicher sparen:** kurze Sequenzen, kleine Batches, Gradientenakkumulation, BF16 nur wenn unterstützt, LoRA, Checkpointing, CPU-Offload nur wenn nötig. Quantisierungsverfahren erst nach konkretem Qualitätsvergleich einsetzen. Nicht unsichtbar eine kleinere/andere Modellbasis behaupten.
-3. **Arctus ist der primäre Forschungsweg:** ausschließlich eigene, zufällig initialisierte Gewichte und eingefrorenes NIS2-Eval unabhängig von Qwen und seinen Tool-Antworten; 100M-Helix zuerst technisch verifizieren, 350M-Workflows erst nach Vervollständigung der fehlenden Quellen einsetzen. Training nur auf lizenzgeprüften Daten; keine Benchmark-Daten in Trainingscorpora.
+3. **Arctus 350M ist der primäre Forschungsweg:** eigene, historisch von Grund auf trainierte Gewichte und eingefrorenes NIS2-Eval unabhängig von Qwen. Der 350M-Code befindet sich in separaten GitHub-Branches; fehlender `main`-Ordner ist kein fehlendes Projekt. Erst aktuellen Checkpoint-/Tokenizer-Status verifizieren, dann kontrolliertes Posttraining auf lizenzgeprüften Daten ohne Benchmark-Kontamination.
 4. **Erst nach belegtem lokalen Engpass Cloud nutzen:** Optional für einen *vorher freigegebenen* kurzen Lauf auf geeigneter GPU. Maximaler Vorschlag: bis 15 € GPU, bis 5 € echte Evaluation/Cloud-Inferenz, mindestens 5 € Reserve – **Gesamtlimit 25 €** inklusive eventueller Steuern/Gebühren, **ohne Stromkosten**. Kein automatischer Folgekauf, kein Abo ohne eigene Freigabe.
 5. **Kein Erfolg ohne Test:** reales Vorher/Nachher-Eval inklusive deutscher Gesprächskonsistenz, Aufgaben-/Coding-Leistung, Halluzinationskontrolle, Latenz, Kosten.
 
