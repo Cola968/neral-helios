@@ -1,0 +1,46 @@
+name: NERAL Assistant live RTX 4070 model + Flask API smoke
+on:
+  push:
+    branches: [feature/neral-assistant-local-reasoning-20261027]
+    paths:
+      - .github/workflows/neral-assistant-live-smoke.yml
+      - tests/neral_assistant_live_smoke.py
+permissions:
+  contents: read
+jobs:
+  real-local-model-and-neral-api:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify GPU and local model before inference
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gpu = & nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+          if ($LASTEXITCODE -ne 0) { throw 'RTX GPU missing' }
+          Write-Host ("GPU: " + $gpu)
+          $data = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 8
+          if (@($data.models | ForEach-Object {$_.name}) -notcontains 'qwen3.5:9b') { throw 'Preinstalled qwen3.5:9b missing. Refusing auto-download.' }
+          Write-Host 'Preinstalled Ollama qwen3.5:9b found. No HF job, install, GPU training or model writes.'
+      - name: Native NERAL Python and live Flask HTTP integration against installed weights
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          $ErrorActionPreference='Stop'
+          $chosen=$null
+          foreach ($name in @('python','py')) {
+            $cmd=Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $cmd) { continue }
+            $prefix = if ($name -eq 'py') { @('-3') } else { @() }
+            & $cmd.Source @prefix -c 'import sys; print("Python:", sys.version.split()[0]); import torch, flask, waitress, numpy' 2>&1 | Out-Host
+            if ($LASTEXITCODE -eq 0) { $chosen=[pscustomobject]@{exe=$cmd.Source;args=$prefix}; break }
+          }
+          if (-not $chosen) {
+            throw 'NERAL E2E BLOCKED: No Windows Python environment with torch+flask+waitress+numpy on this runner. No packages installed automatically.'
+          }
+          & $chosen.exe @($chosen.args) -u tests/neral_assistant_live_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw ('NERAL live E2E failed with exit code '+$LASTEXITCODE) }
