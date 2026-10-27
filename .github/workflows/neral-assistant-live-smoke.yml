@@ -10,7 +10,7 @@ permissions:
 jobs:
   real-local-model-and-neral-api:
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 9
+    timeout-minutes: 13
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,22 +25,36 @@ jobs:
           $data = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 8
           if (@($data.models | ForEach-Object {$_.name}) -notcontains 'qwen3.5:9b') { throw 'Preinstalled qwen3.5:9b missing. Refusing auto-download.' }
           Write-Host 'Preinstalled Ollama qwen3.5:9b found. No HF job, install, GPU training or model writes.'
-      - name: Native NERAL Python and live Flask HTTP integration against installed weights
+      - name: Set up test-only Python in GitHub runner toolcache
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only dependencies into isolated runner temporary venv
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $venv=Join-Path $env:RUNNER_TEMP 'neral-assistant-e2e-venv'
+          & python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create isolated temporary Python environment.' }
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -m pip install --disable-pip-version-check --no-cache-dir numpy==2.2.6 flask==3.1.3 waitress==3.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install isolated NERAL app dependencies.' }
+          & $py -m pip install --disable-pip-version-check --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install CPU-only torch in temporary venv.' }
+          & $py -c 'import torch, flask, waitress, numpy; print("ISOLATED_TEST_PYTHON_OK CPU PyTorch:", torch.__version__)'
+          if ($LASTEXITCODE -ne 0) { throw 'Incomplete isolated NERAL test environment.' }
+      - name: Native NERAL model + live Flask session and assistant endpoint
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           $ErrorActionPreference='Stop'
-          $chosen=$null
-          foreach ($name in @('python','py')) {
-            $cmd=Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $cmd) { continue }
-            $prefix = if ($name -eq 'py') { @('-3') } else { @() }
-            & $cmd.Source @prefix -c 'import sys; print("Python:", sys.version.split()[0]); import torch, flask, waitress, numpy' 2>&1 | Out-Host
-            if ($LASTEXITCODE -eq 0) { $chosen=[pscustomobject]@{exe=$cmd.Source;args=$prefix}; break }
-          }
-          if (-not $chosen) {
-            throw 'NERAL E2E BLOCKED: No Windows Python environment with torch+flask+waitress+numpy on this runner. No packages installed automatically.'
-          }
-          & $chosen.exe @($chosen.args) -u tests/neral_assistant_live_smoke.py
-          if ($LASTEXITCODE -ne 0) { throw ('NERAL live E2E failed with exit code '+$LASTEXITCODE) }
+          $py=Join-Path $env:RUNNER_TEMP 'neral-assistant-e2e-venv\Scripts\python.exe'
+          & $py -u tests/neral_assistant_live_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw ('NERAL real Ollama-backed API test failed with exit code '+$LASTEXITCODE) }
+      - name: Clean only the isolated GitHub-runner venv
+        if: always()
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $venv=Join-Path $env:RUNNER_TEMP 'neral-assistant-e2e-venv'
+          if (Test-Path -LiteralPath $venv) { Remove-Item -LiteralPath $venv -Recurse -Force -ErrorAction SilentlyContinue }
