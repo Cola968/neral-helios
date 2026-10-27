@@ -19,8 +19,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'No default WSL Python 3 interpreter' }
           & wsl.exe --exec bash -lc 'test -x ~/.venvs/neral-triton-py312/bin/python'
           Write-Host ("Existing Arctus WSL venv: "+($LASTEXITCODE -eq 0))
+          $ErrorActionPreference='Continue'
           $raw = & wsl.exe --exec curl -fsS --max-time 5 http://127.0.0.1:11434/api/tags 2>$null
-          if ($LASTEXITCODE -eq 0) {
+          $networkExit = $LASTEXITCODE
+          $ErrorActionPreference='Stop'
+          if ($networkExit -eq 0) {
             $data = $raw | ConvertFrom-Json
             Write-Host ("WSL_TO_WINDOWS_LOCAL_OLLAMA_9B="+(@($data.models | ForEach-Object {$_.name}) -contains 'qwen3.5:9b'))
           } else {
