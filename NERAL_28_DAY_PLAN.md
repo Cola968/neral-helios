@@ -2,7 +2,7 @@
 
 **Ziel:** Ein eigenständiger, verlässlicher NERAL-KI-Chatbot mit klarer Persönlichkeit und ein **beaufsichtigter autonomer Coding-Agent**, der nach einem Startauftrag weiterplant, Codeänderungen umsetzt, Tests ausführt, Fehler korrigiert und einen Draft-PR vorbereitet – ohne nach jedem einzelnen Schritt eine neue Chat-Nachricht zu verlangen.
 
-**Gegenstand:** Produktentwicklung, nicht automatisch bessere Modellgewichte. Qwen3.5-9B bleibt vorläufig die deklarierte Modellbasis. Das eigene Arctus-Modell und dessen NIS2 werden getrennt evaluiert.
+**Verbindliche Identität:** NERAL soll langfristig **ein von Grund auf eigenständig trainiertes Arctus-Grundmodell** sein, nicht Qwen mit einer anderen Persönlichkeit oder einem LoRA-Adapter. Qwen3.5-9B ist ausschließlich ein offengelegtes, vorläufiges Produkt-Backend. Forschungs-/Trainingspriorität folgt [NERAL_NATIVE_MODEL_FIRST.md](NERAL_NATIVE_MODEL_FIRST.md); Arctus und NIS2 werden strikt getrennt evaluiert.
 
 ## Wahrheit und Grenzen
 
@@ -16,8 +16,8 @@
 
 **P0:** Einfache, ehrliche, stabile Chatantworten samt Fehlerbehandlung; Cloud-Provider-Authentifizierung, Budgetlimits, Herkunftskennzeichnung, keine Fake-Demos.
 **P1:** Coding-Agent mit `RUNNING/WAITING_APPROVAL/FAILED/COMPLETED`, fixem Scope, Plan, Sandbox, getesteten Patch-Retries und PR-Review-Gates.
-**P2:** Eigenständige NERAL-Persönlichkeit mit eigenen und rechtlich sauberen SFT-Beispielen, empirischer A/B-Evaluierung statt Marketing.
-**P3:** Training von Arctus und 4B-Anpassungen erst nach Daten-/Lizenz-Audit, Budgetfreigabe und einer vollständigen Baseline; **NIS2-Arctus bleibt ungemessen**, bis echte gefrorene Rohmodellberichte vorliegen.
+**P2:** Eigene Arctus-Gewichte priorisieren: von random init und belegter Checkpoint-Linie, Qualitätsgate 50M → lokaler 100M-Helix-Pilot → 350M erst nach vollständigen Quellen-/Daten-/Runtime-Gates. Unabhängige Raw-Modell-Evaluation vor Release.
+**P3:** Produktpersönlichkeit und Agentenwerkzeuge weiterentwickeln, aber **Qwen-4B-LoRA-Fine-Tuning ist keine Priorität** für das native NERAL-Modell. SFT nur auf geeigneten **eigenen Arctus-Gewichten** nach Baseline, Daten-/Lizenz-Audit und Freigabe. **NIS2-Arctus bleibt ungemessen**, bis echte gefrorene Rohmodellberichte vorliegen.
 
 ### Was bedeutet 'arbeitet weiter'?
 
@@ -29,7 +29,7 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 |---|---|---|
 | 1 | 28.10.–03.11. | Produkt-/Persona-Vertrag, stabiler Cloud-Chat, erste grüne Tests |
 | 2 | 04.11.–10.11. | Coding-Agent MVP: Issue → Plan → Patch → Test → begrenzter Retry → Draft-PR |
-| 3 | 11.11.–17.11. | Mehrstufiges Arbeiten + Repo-Kontext + Persona und Benchmarkgrundlagen |
+| 3 | 11.11.–17.11. | Mehrstufiges Arbeiten + eigene Arctus-Modelllinie, Datenaudit und getrennte Rohmodell-Benchmarkgrundlagen |
 | 4 | 18.11.–24.11. | Robustheit, Modellherkunft, Sicherheits-/Kosten-Gates, ehrlicher Releaseentscheid |
 
 ## Tägliche, überprüfbare Aufgaben
@@ -55,7 +55,7 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 | 13.11.2026 · Tag 17 | **Mehrstufige Aufgaben** | Drei abhängige Teilaufgaben unter einem Arbeitsauftrag nacheinander ausführen. | Task-Graph mit überprüfbarem Abschluss |
 | 14.11.2026 · Tag 18 | **Besseres Coding** | Einfache Python-/JavaScript-Aufgaben auf einem eingefrorenen internen Testsatz messen. | Vorher/Nachher Coding-Gates |
 | 15.11.2026 · Tag 19 | **NERAL-Personality-Daten** | Eigene urheberrechtlich zulässige Gespräche kuratieren; Eval-Daten strikt aussparen. | Versionierter Datenmanifest-Entwurf |
-| 16.11.2026 · Tag 20 | **Lehrer/Schüler-Pfad** | 4B-QLoRA vs. 9B-Inferenz vs. Arctus-Rohmodell sauber trennen. | Reproduzierbarer Fine-Tuning-Plan ohne ungefragten Jobstart |
+| 16.11.2026 · Tag 20 | **Arctus-Training** | 50M-Pilot-Evidence prüfen, 100M-Helix-Preflight und 350M-Quelllücken erfassen, Qwen strikt getrennt halten. | Native-Only-Roadmap + reproduzierbarer RTX-4070-Pilotplan ohne ungefragten Jobstart |
 | 17.11.2026 · Tag 21 | **Wochenreview 3** | Persona, Halluzinationsrisiko, Codingleistung, mehrstufiges Arbeiten messen. | W3 Benchmarkbericht mit tatsächlichen Testzahlen |
 | 18.11.2026 · Tag 22 | **Agenten-Stresstest** | Rate-Limits, Kontextabbruch, Test-Zeitüberschreitung, bösartige Issues. | Robustheits-/Abuse-Testbericht |
 | 19.11.2026 · Tag 23 | **Modellherkunft** | UX: Transparenz über Qwen, eigene NERAL-Software und Arctus; keine KI-Fake-Antworten. | Release-gerechte Provenance-Ansicht |
@@ -69,9 +69,9 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 
 **Höchstens 25 € an zusätzlichen direkten Projektausgaben (Cloud/Abos/Modelldienste), ohne Haushaltsstrom, nicht pro Monat.** Das ist keine Genehmigung, etwas zu kaufen. Standard bleibt **0 €**. Hardware: eigene NVIDIA GeForce RTX 4070 mit 12 GB VRAM, deren Laufzeit nicht immer verfügbar ist.
 
-1. **Zuerst lokal gratis trainieren:** Datenaudit, Baseline, minimale 4B-LoRA-Pilotläufe (sofern Trainingskonfiguration tatsächlich innerhalb 12 GB VRAM passt), Arctus-Smoke und lokale Evaluierung. Lokales Qwen3.5-9B-Inferenzmodell ist bereits vorhanden; daraus nicht schließen, dass 9B-LoRA in den Speicher passt.
+1. **Zuerst Arctus eigenständig verbessern:** Datenaudit, Raw-Modell-Baselines, eigene 50M/100M-Trainingspipeline und Checkpoints mit unveränderter Herkunftslinie. **Qwen-4B-LoRA ist nicht der Entwicklungsweg für das gewünschte Originalmodell**; die vorhandene 9B-Inferenz bleibt nur offengelegte Übergangs-Software.
 2. **Bei knapper VRAM-Kapazität Speicher sparen:** kurze Sequenzen, kleine Batches, Gradientenakkumulation, BF16 nur wenn unterstützt, LoRA, Checkpointing, CPU-Offload nur wenn nötig. Quantisierungsverfahren erst nach konkretem Qualitätsvergleich einsetzen. Nicht unsichtbar eine kleinere/andere Modellbasis behaupten.
-3. **Arctus getrennt verbessern:** eigene Gewichte und eingefrorenes NIS2-Eval bleiben unabhängig von Qwen und seinen Tool-Antworten. Training nur auf lizenzgeprüften Daten; keine Benchmark-Daten in Trainingscorpora.
+3. **Arctus ist der primäre Forschungsweg:** ausschließlich eigene, zufällig initialisierte Gewichte und eingefrorenes NIS2-Eval unabhängig von Qwen und seinen Tool-Antworten; 100M-Helix zuerst technisch verifizieren, 350M-Workflows erst nach Vervollständigung der fehlenden Quellen einsetzen. Training nur auf lizenzgeprüften Daten; keine Benchmark-Daten in Trainingscorpora.
 4. **Erst nach belegtem lokalen Engpass Cloud nutzen:** Optional für einen *vorher freigegebenen* kurzen Lauf auf geeigneter GPU. Maximaler Vorschlag: bis 15 € GPU, bis 5 € echte Evaluation/Cloud-Inferenz, mindestens 5 € Reserve – **Gesamtlimit 25 €** inklusive eventueller Steuern/Gebühren, **ohne Stromkosten**. Kein automatischer Folgekauf, kein Abo ohne eigene Freigabe.
 5. **Kein Erfolg ohne Test:** reales Vorher/Nachher-Eval inklusive deutscher Gesprächskonsistenz, Aufgaben-/Coding-Leistung, Halluzinationskontrolle, Latenz, Kosten.
 
@@ -109,4 +109,4 @@ Eine **vom Nutzer klar zugewiesene Aufgabe** darf im Agenten maximal 60 Minuten 
 - [NERAL Cloud Beta PR #131](https://github.com/Cola968/neral-helios/pull/131)
 - [NIS2 Integritäts-Gates PR #132](https://github.com/Cola968/neral-helios/pull/132)
 
-**Release-Blocker:** echter End-to-End-Chat mit Modell, reproduzierbare Coding-/Safety-Benchmarks, Budget-/Missbrauchsschutz, DSGVO/Datenschutz, Betriebsmonitoring und öffentliche rechtliche Pflichtangaben. Kein erfundener NIS2-Wert, keine versteckte Qwen-Herkunft.
+**Release-Blocker:** echter End-to-End-Chat mit Modell, reproduzierbare Coding-/Safety-Benchmarks, Budget-/Missbrauchsschutz, DSGVO/Datenschutz, Betriebsmonitoring und öffentliche rechtliche Pflichtangaben. **NERAL-native** darf nur beworben werden, wenn tatsächlich eigene Arctus-Gewichte aktiv sind und unabhängig geprüfte Leistung nachgewiesen wurde; ein Qwen-Backend ist klar als Übergang zu kennzeichnen. Kein erfundener NIS2-Wert, keine versteckte Qwen-Herkunft.
