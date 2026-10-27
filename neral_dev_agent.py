@@ -11,6 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import re
 import time
+import json
+import hashlib
+import hmac
 from typing import Protocol, Callable
 
 
@@ -168,4 +171,75 @@ def execute_approved_task(
         # provider tokens, raw test output, or model prompts to audit evidence.
         return next_state(task, "operation_failed",
                           evidence="Adapter unavailable or invalid step evidence; intervention required")
+    return task
+
+
+_SNAPSHOT_FIELDS = frozenset({
+    "version", "repo", "issue", "branch", "max_repairs",
+    "phase", "repair_attempts", "events", "sha256",
+})
+
+
+def _canonical_json(value) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                      allow_nan=False)
+
+
+def task_snapshot(task: AgentTask) -> str:
+    """Store task history on a *trusted* server; this does not grant authority.
+
+    SHA-256 is an accidental-corruption checksum, NOT an authentication tag.
+    Anyone who can modify snapshots and recompute their checksum can forge
+    them. Never accept client snapshots as approval; use server-side storage.
+    """
+    if not isinstance(task, AgentTask) or len(task.events)>32:
+        raise AgentError("Invalid or oversized agent task")
+    _=start_task(repo=task.repo, issue=task.issue,
+                 branch=task.branch, max_repairs=task.max_repairs)
+    reconstructed=_
+    for item in task.events:
+        if not isinstance(item,tuple) or len(item)!=2:
+            raise AgentError("Invalid task event history")
+        reconstructed=next_state(reconstructed,item[0],evidence=item[1])
+    if reconstructed!=task:
+        raise AgentError("Task history does not match current phase and repair count")
+    data={
+        "version":1, "repo":task.repo, "issue":task.issue,
+        "branch":task.branch, "max_repairs":task.max_repairs,
+        "phase":task.phase, "repair_attempts":task.repair_attempts,
+        "events":[list(item) for item in task.events],
+    }
+    checksum=hashlib.sha256(_canonical_json(data).encode("utf-8")).hexdigest()
+    return _canonical_json({**data,"sha256":checksum})
+
+
+def restore_task(snapshot: str) -> AgentTask:
+    """Read a previously stored task; replay each transition before trusting phase."""
+    if not isinstance(snapshot,str) or len(snapshot.encode("utf-8"))>16384:
+        raise AgentError("Invalid agent task snapshot length")
+    try:
+        data=json.loads(snapshot)
+        if not isinstance(data,dict) or set(data)!=_SNAPSHOT_FIELDS or data["version"]!=1:
+            raise AgentError("Unsupported agent task snapshot")
+        received=data["sha256"]
+        if not isinstance(received,str) or not re.fullmatch(r"[0-9a-f]{64}",received):
+            raise AgentError("Agent task checksum missing")
+        unsigned={k:v for k,v in data.items() if k!="sha256"}
+        expected=hashlib.sha256(_canonical_json(unsigned).encode("utf-8")).hexdigest()
+        if not hmac.compare_digest(received,expected):
+            raise AgentError("Agent task snapshot changed after it was stored")
+        task=start_task(repo=data["repo"],issue=data["issue"],branch=data["branch"],
+                        max_repairs=data["max_repairs"])
+        events=data["events"]
+        if not isinstance(events,list) or len(events)>32:
+            raise AgentError("Invalid agent event list")
+        for entry in events:
+            if (not isinstance(entry,list) or len(entry)!=2
+                or not all(isinstance(v,str) for v in entry)):
+                raise AgentError("Invalid agent event entry")
+            task=next_state(task,entry[0],evidence=entry[1])
+        if data["phase"]!=task.phase or data["repair_attempts"]!=task.repair_attempts:
+            raise AgentError("Agent task sequence contradicts its claimed state")
+    except (ValueError,TypeError,KeyError,OverflowError,RecursionError) as exc:
+        raise AgentError("Agent snapshot validation failed") from exc
     return task
