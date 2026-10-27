@@ -19,6 +19,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Pure-Python local provider tests
-        run: python -m unittest tests.test_neral_assistant tests.test_neral_reasoning_eval -v
+        run: python -m unittest tests.test_neral_assistant tests.test_neral_reasoning_eval tests.test_neral_assistant_launcher -v
       - name: Syntax
         run: python -m py_compile neral_assistant.py neral_reasoning_eval.py
