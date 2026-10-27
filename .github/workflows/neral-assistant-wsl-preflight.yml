@@ -29,3 +29,5 @@ jobs:
           } else {
             Write-Host 'WSL_TO_WINDOWS_LOCAL_OLLAMA_9B=False (no firewall changes attempted)'
           }
+          # Unreachable WSL loopback is a diagnostic result, not a script crash.
+          exit 0
