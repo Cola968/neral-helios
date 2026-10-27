@@ -1,7 +1,7 @@
 """First NERAL Dev Agent core: deterministic, bounded work continuation."""
 import unittest
 
-from neral_dev_agent import AgentError, start_task, next_state
+from neral_dev_agent import AgentError, start_task, next_state, execute_approved_task
 
 
 class AgentWorkflowTests(unittest.TestCase):
@@ -76,6 +76,103 @@ class AgentWorkflowTests(unittest.TestCase):
         with self.assertRaises(AgentError):
             next_state(stopped,"draft_pr_opened",
                 evidence="https://github.com/Cola968/neral-helios/pull/138")
+
+
+
+class FakeAgentTools:
+    """Deterministic test double, NOT an AI model or GitHub access."""
+    def __init__(self, results=(True,)):
+        self.results=iter(results)
+        self.called=[]
+    def plan(self, task):
+        self.called.append("plan")
+        return "Plan: change only issue-scoped files; test first"
+    def write_red_test(self, task):
+        self.called.append("red")
+        return "Expected failing unittest observed (mock fixture)"
+    def apply_patch(self, task):
+        self.called.append("patch")
+        return "Fixture changed one file (mock fixture)"
+    def run_tests(self, task):
+        self.called.append("test")
+        return next(self.results), "Simulated test result; not real CI"
+    def create_draft_pr(self, task):
+        self.called.append("pr")
+        return "https://github.com/Cola968/neral-helios/pull/138"
+
+
+class AutonomousContinuationTests(unittest.TestCase):
+    def task(self):
+        return start_task(repo="Cola968/neral-helios",issue=137,
+            branch="agent/issue-137-automation",max_repairs=3)
+
+    def test_one_approved_command_runs_plan_patch_tests_draft_pr_uninterrupted(self):
+        tools=FakeAgentTools((False,False,True))
+        state=execute_approved_task(self.task(),tools)
+        self.assertEqual(state.phase,"WAITING_FOR_REVIEW")
+        self.assertEqual(state.repair_attempts,2)
+        self.assertEqual(tools.called,["plan","red","patch","test",
+                                       "patch","test","patch","test","pr"])
+        self.assertEqual(len(state.events),9)
+
+    def test_repair_exhaustion_stops_before_pr_and_never_loops_forever(self):
+        tools=FakeAgentTools((False,False,False,True))
+        state=execute_approved_task(self.task(),tools)
+        self.assertEqual(state.phase,"FAILED")
+        self.assertEqual(state.repair_attempts,3)
+        self.assertNotIn("pr",tools.called)
+        self.assertEqual(tools.called.count("test"),3)
+
+    def test_expired_deadline_stops_before_tool_access(self):
+        calls=[]
+        tools=FakeAgentTools()
+        def expired_clock():
+            calls.append(1)
+            return 10 if len(calls)==1 else 20
+        state=execute_approved_task(self.task(),tools,max_seconds=5,clock=expired_clock)
+        self.assertEqual(state.phase,"FAILED")
+        self.assertEqual(tools.called,[])
+        self.assertEqual(state.events[-1][0],"deadline_exceeded")
+
+    def test_adapter_crash_stops_without_leaking_exception_secret(self):
+        tools=FakeAgentTools()
+        def bad_plan(task):
+            raise RuntimeError("hf_secret_12345 must not be in audit trail")
+        tools.plan=bad_plan
+        state=execute_approved_task(self.task(),tools)
+        self.assertEqual(state.phase,"FAILED")
+        self.assertNotIn("hf_secret",str(state))
+        self.assertEqual(state.events[-1][0],"operation_failed")
+
+    def test_missing_genuine_evidence_cannot_claim_a_step_passed(self):
+        tools=FakeAgentTools()
+        tools.run_tests=lambda task:(True,"")
+        state=execute_approved_task(self.task(),tools)
+        self.assertEqual(state.phase,"FAILED")
+        self.assertNotIn("pr",tools.called)
+
+    def test_wrong_repo_pr_is_rejected_and_not_presented_as_success(self):
+        tools=FakeAgentTools()
+        tools.create_draft_pr=lambda task:"https://github.com/attacker/repo/pull/123"
+        state=execute_approved_task(self.task(),tools)
+        self.assertEqual(state.phase,"FAILED")
+        self.assertFalse(any(event=="draft_pr_opened" for event,_ in state.events))
+
+    def test_unsafe_tool_result_type_and_invalid_budget_fails_closed(self):
+        tools=FakeAgentTools()
+        tools.run_tests=lambda task:("yes","tests passed")
+        self.assertEqual(execute_approved_task(self.task(),tools).phase,"FAILED")
+        for seconds in (0,3601,True,1.2,-4):
+            with self.subTest(seconds=seconds),self.assertRaises(AgentError):
+                execute_approved_task(self.task(),FakeAgentTools(),max_seconds=seconds)
+
+    def test_partial_or_finished_tasks_cannot_restart_without_new_authorization(self):
+        with self.assertRaises(AgentError):
+            execute_approved_task(next_state(self.task(),"plan_ready",evidence="plan"),
+                                  FakeAgentTools())
+        with self.assertRaises(AgentError):
+            execute_approved_task(next_state(self.task(),"cancel",evidence="cancelled"),
+                                  FakeAgentTools())
 
 
 if __name__=="__main__":
