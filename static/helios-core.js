@@ -2,6 +2,7 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
+  function defaultChatMode(assistantEnabled){return assistantEnabled===true?'assistant':'chat';}
   function context(messages,prompt,budget,maxContext,checkpoint){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
@@ -63,6 +64,6 @@
     });
     return {title:data.title.slice(0,80)||'Importierter Chat',messages,draft:'',temporary:false,imported:true};
   }
-  const api={context,blocks,render,parseImport};
+  const api={context,blocks,render,parseImport,defaultChatMode};
   if(typeof module!=='undefined')module.exports=api;else root.HeliosCore=api;
 })(typeof window==='undefined'?{}:window);
