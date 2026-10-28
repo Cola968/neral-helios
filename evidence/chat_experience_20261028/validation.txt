@@ -70,3 +70,9 @@ FAILED tests/test_growth.py::test_40m_exact_count_and_inherited_weights_unchange
 FAILED tests/test_regressions.py::test_curriculum_disjoint_and_masked - FileN...
 FAILED tests/test_regressions.py::test_original_untouched_and_parameter_count
 5 failed, 451 passed, 1 skipped in 14.64s
+
+Batch launcher readiness RED
+AssertionError: batch launcher cannot recognize running Flask app (HTTP 401 without cookie session).
+
+Batch launcher readiness + real Flask browser GREEN
+PASS real Flask: DE/EN math, tools-only chat, no partial completion, source labels, failure/draft/reload, external import, XSS, keyboard, 4 viewport widths

@@ -43,6 +43,15 @@ Kompatibilität sowie unverständliche Parserfehler. Diese Ursachen wurden behob
 und die jeweiligen Prüfungen anschließend wiederholt. `validation.txt` enthält
 die zusammengefassten tatsächlichen Runner-Ausgaben, keine erfundenen Messwerte.
 
+Bei der abschließenden Startkettenprüfung wurde außerdem der alte Cookie-Fehler
+in `launcher.py` reproduziert: Der echte laufende Server lieferte ohne den über
+`/` ausgestellten Sitzungscookie HTTP 401 für `/api/info`; `launcher.status()`
+gab deshalb fälschlich False zurück. Nach der Korrektur verwendet die Prüfung
+einen privaten Cookie-Opener für beide Requests. Der vollständige echte Browser-
+Smoketest prüft nun auch diesen Statusaufruf in einem separaten Python-Prozess
+gegen den laufenden isolierten Flask-Server. RED und anschließender GREEN wurden
+ausgeführt. Keine Token-Datei wird dafür gelesen oder Authentifizierung abgeschaltet.
+
 ## Breiter Repository-Lauf und offene Grenzen
 
 `python -m pytest -q` wurde ebenfalls ausgeführt. Zuerst: 423 bestanden,

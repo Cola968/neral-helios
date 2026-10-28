@@ -28,6 +28,11 @@ Zahlenliterale werden aus den Originalziffern gelesen, ohne Float-Zwischenrundun
 - `/api/generate` nutzt den Rechner im **normalen Chatmodus** vor der nativen
   Runtime-Prüfung. Das funktioniert auch ohne Modell. Sicherheitsprüfung und
   HTTP-/Sitzungs-/Größenlimits bleiben vorgeschaltet.
+- Der Batch-Starter erkennt den laufenden Server wieder: `launcher.py` holt
+  zuerst die lokale Sitzung an `/` und prüft dann `/api/info` mit demselben
+  Cookie-Opener. Zuvor machte die Bereitschaftsprüfung immer eine unautorisierte
+  Anfrage. API-Schutz und Gateway-Token bleiben unverändert; der Test prüft den
+  echten Starter-Status gegen den echten Flask-Server.
 - Quellen werden im JSON und an den Nachrichten getrennt: `tool:calculator`,
   `tool:percentage`, `tool:solve`, `tool:code-check`, `local-rule:security`,
   `native-model`. Native Antworten nennen `model_family: neral-byte`; Info nennt

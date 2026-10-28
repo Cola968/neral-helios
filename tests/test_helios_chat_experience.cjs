@@ -2,7 +2,7 @@
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),http=require('node:http');
-const {spawn}=require('node:child_process');
+const {spawn,execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');
 (async()=>{
  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'neral-chat-smoke-'));
@@ -19,6 +19,11 @@ const root=path.resolve(__dirname,'..');
    await new Promise(r=>setTimeout(r,250));
   }
   assert(started,'Flask did not start: '+serverLog);
+  // START_NERAL.bat delegates to launcher.py: its readiness check must use
+  // the real server's local cookie session rather than polling an HTTP 401.
+  execFileSync(process.env.HELIOS_TEST_PYTHON||'python',['-c',
+   'import launcher; launcher.URL='+JSON.stringify(url)+'; assert launcher.status(), "batch launcher cannot recognize running Flask app"'],
+   {cwd:root,windowsHide:true,timeout:10000});
   browser=await chromium.launch({headless:true,...(process.env.HELIOS_TEST_BROWSER?{executablePath:process.env.HELIOS_TEST_BROWSER}:{}),args:['--disable-gpu','--disable-software-rasterizer']});
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));

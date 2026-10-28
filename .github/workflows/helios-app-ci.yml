@@ -1,7 +1,7 @@
 name: Helios app CPU tests
 on:
   pull_request:
-    paths: ['Start-Neral.ps1', 'tests/Test-NeralLauncher.ps1', 'app.py', 'chat_math.py', 'phone_gateway.py', 'setup_phone.py', 'chat_store.py', 'project_store.py', 'storage_codec.py', 'stream_runtime.py', 'model_catalog.py', 'import_neral.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_projects.py', 'tests/test_regressions.py', 'tests/test_model50.py', 'package.json', '.github/workflows/helios-app-ci.yml']
+    paths: ['Start-Neral.ps1', 'START_NERAL.bat', 'launcher.py', 'tests/Test-NeralLauncher.ps1', 'app.py', 'chat_math.py', 'phone_gateway.py', 'setup_phone.py', 'chat_store.py', 'project_store.py', 'storage_codec.py', 'stream_runtime.py', 'model_catalog.py', 'import_neral.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_projects.py', 'tests/test_regressions.py', 'tests/test_model50.py', 'package.json', '.github/workflows/helios-app-ci.yml']
   push:
     branches: [helios-history-markdown-i1-ready]
 permissions:
