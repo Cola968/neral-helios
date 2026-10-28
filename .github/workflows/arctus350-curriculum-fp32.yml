@@ -1,7 +1,7 @@
 name: Arctus350 controlled 240-step FP32 curriculum SFT (local RTX4070)
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
     paths:
       - 'frontier350/arctus350_curriculum_fp32.py'
       - 'tests/test_arctus350_curriculum_fp32.py'
@@ -24,7 +24,7 @@ jobs:
       - name: Compile
         run: python -m py_compile frontier350/arctus350_curriculum_fp32.py
   real-local-training:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == 'c0106bad017cd81663025f6e305426658e9a891f'
     needs: cpu-tests
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 35
