@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      HELIOS_ASSETS_ROOT: ${{ runner.temp }}/empty-models
-      HELIOS_STATE_ROOT: ${{ runner.temp }}/arctus-flask-state
+      HELIOS_ASSETS_ROOT: ${{ github.workspace }}/.test-arctus/empty-models
+      HELIOS_STATE_ROOT: ${{ github.workspace }}/.test-arctus/arctus-flask-state
       HELIOS_DEVICE: cpu
     steps:
       - uses: actions/checkout@v4
