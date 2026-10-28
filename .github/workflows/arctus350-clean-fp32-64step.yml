@@ -1,0 +1,76 @@
+name: Arctus350 2B clean-data bounded FP32-master pilot
+on:
+  pull_request:
+    types: [opened]
+    paths:
+      - 'frontier350/arctus350_clean_fp32_pilot.py'
+      - 'tests/test_arctus350_clean_fp32_pilot.py'
+      - '.github/workflows/arctus350-clean-fp32-64step.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-original-2b-clean-sft-controlled
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m unittest tests.test_arctus350_clean_fp32_pilot -v
+      - run: python -m py_compile frontier350/arctus350_clean_fp32_pilot.py tests/test_arctus350_clean_fp32_pilot.py
+  bounded-training:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_clean_fp32_checkout
+          clean: false
+          persist-credentials: false
+      - name: Pin source+cleaned data and fail closed on RTX4070/temperature/VRAM
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $out=Join-Path $assets 'runs\neral350_2b_fp32_clean64_${{github.run_id}}'
+          foreach($p in @($source,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'pinned source/tokenizer missing'}}
+          foreach($p in @($data)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'cleaned data missing'}}
+          if(Test-Path -LiteralPath $out){throw 'non-fresh experiment directory'}
+          $games=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like '*Roblox*'})
+          if($games.Count -gt 0){throw 'Roblox still running: keep GPU free for game, stop pilot'}
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'unreliable Nvidia VRAM/thermal telemetry'
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 83){
+            throw 'GPU name, 9GiB VRAM or <83C preflight not met'
+          }
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'unsafe Windows path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_clean_fp32_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_clean_fp32_pilot --checkpoint '$(W $source)' --tokenizer '$(W $tok)' --data '$(W $data)' --out '$(W $out)' --windows-free-mib $free"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw '64-step experimental pilot refused/failed; source untouched'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'arctus350_clean64_aggregate_${{github.run_id}}.json')
+      - name: Upload aggregate REPORT only; no weights, no original datasets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-clean64-sft-aggregate-only
+          path: arctus350_clean_fp32_checkout/arctus350_clean64_aggregate_*.json
+          retention-days: 7
+          if-no-files-found: warn
