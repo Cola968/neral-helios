@@ -1,0 +1,77 @@
+name: Arctus350 controlled 240-step FP32 curriculum SFT (local RTX4070)
+on:
+  pull_request:
+    types: [opened]
+    paths:
+      - 'frontier350/arctus350_curriculum_fp32.py'
+      - 'tests/test_arctus350_curriculum_fp32.py'
+      - '.github/workflows/arctus350-curriculum-fp32.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-local-curriculum-owner-session
+  cancel-in-progress: false
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Test curriculum safety/quotas
+        run: python -m unittest tests.test_arctus350_curriculum_fp32 -v
+      - name: Compile
+        run: python -m py_compile frontier350/arctus350_curriculum_fp32.py
+  real-local-training:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == 'c0106bad017cd81663025f6e305426658e9a891f'
+    needs: cpu-tests
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_curriculum_checkout
+          clean: false
+          persist-credentials: false
+      - name: Verify immutable original model and local cleaned data, GPU VRAM and temperature
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $ck='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $out=Join-Path $assets 'runs\neral350_2b_clean_curriculum240_${{github.run_id}}'
+          foreach($file in @($ck,$tok)){if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'original model/tokenizer missing'}}
+          if(-not(Test-Path -LiteralPath $data -PathType Container)){throw 'sanitized local dataset unavailable'}
+          if(Test-Path -LiteralPath $out){throw 'refuse preexisting experimental output path'}
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'unreliable NVIDIA metrics'
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name VRAM free=$free MiB temperature=$temp C"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){
+            throw 'GPU not idle/safe: require RTX4070, 9GiB free, temperature <80C'
+          }
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'non-Windows-drive path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_curriculum_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_curriculum_fp32 --checkpoint '$(W $ck)' --tokenizer '$(W $tok)' --data '$(W $data)' --out '$(W $out)' --windows-free-mib $free"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'curriculum pilot failed or refused; source remains unchanged'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'arctus350_curriculum240_evidence_${{github.run_id}}.json')
+      - name: Upload numerical metrics and public DEV generations only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-curriculum240-aggregate-evidence
+          path: arctus350_curriculum_checkout/arctus350_curriculum240_evidence_*.json
+          retention-days: 7
+          if-no-files-found: warn
