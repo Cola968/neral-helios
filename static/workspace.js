@@ -36,8 +36,9 @@ async function syncChats(manual=false){
   }
   const data=await jsonRequest('/api/chats');
   for(const remote of data.chats){if(Object.hasOwn(deletedQueue(),remote.id))continue;const local=chats.find(c=>c.id===remote.id);if(local?._dirty)continue;if(remote.deleted){chats=chats.filter(c=>c.id!==remote.id);if(current?.id===remote.id){current=null;fresh();}continue;}
-   if(!local){chats.push({...remote.chat,_revision:remote.revision,_dirty:false});continue;}
-   if((local._revision||0)<remote.revision){Object.assign(local,remote.chat,{_revision:remote.revision,_dirty:false});if(current?.id===local.id){$('prompt').value=local.draft||'';setMode(local.mode||'chat');}}
+   const recovered=HeliosCore.normalizeStoredChat(remote.chat);if(!recovered)continue;
+   if(!local){chats.push({...recovered,_revision:remote.revision,_dirty:false});continue;}
+   if((local._revision||0)<remote.revision){Object.assign(local,recovered,{_revision:remote.revision,_dirty:false});if(current?.id===local.id){$('prompt').value=local.draft||'';setMode(local.mode||'chat');}}
   }
   saveSynced();render();$('syncStatus').textContent=' · Gespeichert';if(manual)$('settingsStatus').textContent='Chats mit dem PC abgeglichen.';
  }catch(e){$('syncStatus').textContent=e.status===401?' · Neu verbinden':' · Lokal gespeichert';if(manual)$('settingsStatus').textContent=e.message;}

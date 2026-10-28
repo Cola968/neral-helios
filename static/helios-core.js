@@ -25,8 +25,14 @@
     if(message.mode==='error')return 'Anfrage fehlgeschlagen';
     if(message.mode==='no-model')return 'Kein natives Modell geladen';
     const names={original:'Neral 20M · Original',pilot_01:'Neral 20M · Pilot 01',pilot_02:'Neral 20M · Preview 02',neral40m:'Neral 40M · Experiment',neral50m:'Neral 50M · Sprachpilot',neral50m_i1:'Neral 50M · I1'};
-    const name=names[message.checkpoint]||labels[message.checkpoint];
-    return message.mode==='trained-generation'&&name?'Eigenes Modell · '+name:'Modellherkunft nicht verifiziert';
+    const name=Object.hasOwn(names,message.checkpoint)?names[message.checkpoint]:Object.hasOwn(labels,message.checkpoint)?labels[message.checkpoint]:null;
+    return message.mode==='trained-generation'&&typeof name==='string'?
+      (message.imported?'Modellangabe (nicht verifiziert) · ':'Eigenes Modell · ')+name:'Modellherkunft nicht verifiziert';
+  }
+  function normalizeStoredChat(chat){
+    if(!chat||typeof chat.id!=='string'||typeof chat.title!=='string'||!Array.isArray(chat.messages))return null;
+    return {...chat,messages:chat.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string')
+      .map(m=>({...m,imported:typeof m.imported==='boolean'?m.imported:chat.imported===true}))};
   }
   function generationResult(result){
     if(!result||typeof result.text!=='string')throw Error('Der Server hat keine gültige Antwort gesendet.');
@@ -120,6 +126,6 @@
     });
     return {title:data.title.slice(0,80)||'Importierter Chat',messages,draft:'',temporary:false,imported:true};
   }
-  const api={context,blocks,render,parseImport,sourceLabel,readGenerationResponse};
+  const api={context,blocks,render,parseImport,sourceLabel,readGenerationResponse,normalizeStoredChat};
   if(typeof module!=='undefined')module.exports=api;else root.HeliosCore=api;
 })(typeof window==='undefined'?{}:window);

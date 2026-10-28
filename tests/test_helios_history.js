@@ -44,6 +44,23 @@ test('imports preserve honest provenance but never become trusted model context'
   assert.equal(core.context(result.messages,'Hi',20,1024,'Qwen').history.length,0);
 });
 
+test('legacy imported chats retain their untrusted origin after reload and sync',()=>{
+  const legacy={id:'legacy',title:'Imported',imported:true,messages:pair('old imported')};
+  const migrated=core.normalizeStoredChat(legacy);
+  assert(migrated.messages.every(m=>m.imported===true));
+  assert.equal(core.context(migrated.messages,'Hi',20,1024,'pilot_02').history.length,0);
+  const own=pair('new native').map(m=>({...m,imported:false}));
+  const reloaded=core.normalizeStoredChat({...migrated,messages:[...migrated.messages,...own]});
+  assert.equal(core.context(reloaded.messages,'Hi',20,1024,'pilot_02').history.length,2);
+  assert.match(core.sourceLabel(migrated.messages[1]),/nicht verifiziert/);
+});
+
+test('prototype property names are never accepted as known model identities',()=>{
+  for(const checkpoint of ['constructor','toString','__proto__']){
+    assert.match(core.sourceLabel({mode:'trained-generation',checkpoint}),/nicht verifiziert/);
+  }
+});
+
 test('transport accepts a final NDJSON line without a newline',async()=>{
   const result={mode:'solve-tool',source:'tool:calculator',model_generated:false,text:'15'};
   const response=new Response(JSON.stringify({type:'done',result}),{headers:{'Content-Type':'application/x-ndjson'}});

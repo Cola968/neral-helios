@@ -61,6 +61,10 @@ Zahlenliterale werden aus den Originalziffern gelesen, ohne Float-Zwischenrundun
   Sprung zur neuesten Nachricht ist verfügbar. Importierte externe Texte bleiben
   explizit extern, werden weiterhin nur als Text/erlaubtes Markdown gerendert und
   verlassen nie über den nativen Kontext die Herkunftsgrenze.
+  Bereits gespeicherte/synchronisierte Import-Chats ohne Nachrichtenflag werden
+  beim Laden konservativ migriert; neue echte Antworten behalten ausdrücklich
+  `imported: false`. Unbekannte Modellnamen werden nicht aus geerbten JavaScript-
+  Objekteigenschaften als vermeintlich bekannte Modelle erkannt.
 
 ## Lokal starten – ohne Modellgewichte und ohne GPU
 

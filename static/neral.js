@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id), storageKey='neral.helios.chats.v1';
 let chats=[],current=null,mode='chat',busy=false,ready=false,modelReady=false,activeModel=null,job=null,pending=null,maxContext=4096,preparationMode=false,modelLabels={};
-try{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');if(Array.isArray(saved))chats=saved.filter(c=>c&&typeof c.id==='string'&&typeof c.title==='string'&&Array.isArray(c.messages)).map(c=>({...c,messages:c.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string')}));document.documentElement.dataset.theme=localStorage.getItem('neral.theme')||'dark';}catch{chats=[];}
+try{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');if(Array.isArray(saved))chats=saved.map(HeliosCore.normalizeStoredChat).filter(Boolean);document.documentElement.dataset.theme=localStorage.getItem('neral.theme')||'dark';}catch{chats=[];}
 function notify(text){$('status').textContent=text;$('status').hidden=!text;}
 function persist(){if(current&&!current.temporary){current._dirty=true;current._syncBlocked=false;}try{localStorage.setItem(storageKey,JSON.stringify(chats));window.dispatchEvent(new Event('neral:changed'));}catch{notify('Der lokale Speicher ist voll. Exportiere wichtige Chats, bevor du ältere löschst.');}}
 function saveDraft(){if(!current)return;current.draft=$('prompt').value;current.mode=mode;if(!current.temporary){if((current.messages.length||current.draft)&&!chats.some(c=>c.id===current.id))chats.unshift(current);persist();try{localStorage.setItem('neral.helios.active',current.id);}catch{}}}
@@ -69,7 +69,7 @@ $('composer').onsubmit=async event=>{
  const history=mode==='chat'&&modelReady?ctx.history:[];
  if(mode==='chat'&&modelReady&&!ctx.fits){notify('Eingabe und Antwortbudget sind zu lang. Kürze die Eingabe oder reduziere das Antwortbudget.');return;}
  if(ctx.omitted&&modelReady)notify(ctx.omitted+' ältere Nachrichtenpaare wurden aus dem Modellkontext ausgelassen. Der gespeicherte Verlauf bleibt vollständig.');
- current.messages.push({role:'user',content:prompt,mode});
+ current.messages.push({role:'user',content:prompt,mode,imported:false});
  if(current.messages.length===1){if(current.title==='Neuer Chat')current.title=prompt.slice(0,38);if(!current.temporary&&!chats.some(c=>c.id===current.id))chats.unshift(current);}
  job=crypto.randomUUID();render(true);setBusy(true);
  pending=document.createElement('article');pending.className='message assistant pending';
@@ -81,13 +81,13 @@ $('composer').onsubmit=async event=>{
    label.textContent='Eigene Modellgenerierung · unvollständig';
    if(update.text){p.textContent=update.text;pending.dataset.partial=update.text;}else p.textContent='Modell berechnet die Antwort …';
   });
-  current.messages.push({role:'assistant',content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,interrupted:!!r.cancelled,
+  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,interrupted:!!r.cancelled,
    meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':'')+r.generated_tokens+' Byte-Token · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
   persist();
  }catch(error){
   const partial=pending?.dataset.partial;
-  if(partial)current.messages.push({role:'assistant',mode:'trained-generation',source:'native-model',content:partial,interrupted:true,meta:'Verbindung unterbrochen · unvollständig · nicht im Modellkontext'});
-  else current.messages.push({role:'assistant',mode:'error',source:'system-error',content:error.message,meta:'Keine vollständige Antwort · erneut versuchen'});
+  if(partial)current.messages.push({role:'assistant',imported:false,mode:'trained-generation',source:'native-model',content:partial,interrupted:true,meta:'Verbindung unterbrochen · unvollständig · nicht im Modellkontext'});
+  else current.messages.push({role:'assistant',imported:false,mode:'error',source:'system-error',content:error.message,meta:'Keine vollständige Antwort · erneut versuchen'});
   if(!$('prompt').value)$('prompt').value=prompt;
   notify(error.message);persist();
  }finally{pending=null;job=null;setBusy(false);saveDraft();render();$('prompt').dispatchEvent(new Event('input'));$('prompt').focus();}

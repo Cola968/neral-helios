@@ -81,3 +81,8 @@ Linux CI RED at aac1db6: run 40760274731, job 123070003663
 AssertionError: composer must fit a short mobile viewport (390x480).
 Short-height layout fix: hide welcome block and cap textarea, keeping the original strict viewport assertion.
 Local real-Flask/browser GREEN repeated after CSS correction.
+
+Legacy origin RED: missing stored-chat migration and inherited prototype names mislabeled as own models.
+Legacy origin + protocol/history GREEN: 16 Node tests passed.
+Existing browser GREEN: old imported chat reload retains unverified label and zero native context.
+Workspace browser GREEN: sync, own subsequent messages, streaming and interrupted history preserved.

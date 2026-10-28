@@ -10,9 +10,11 @@ Details und Startbefehle: [Update-Dokumentation](../../docs/CHAT_EXPERIENCE_UPDA
   Schutz, Rechenrouting, Provenienz, ChatStore, Projekte, vorhandene Streaming-/
   Gateway-Integration. Native Antworten in API-Tests verwenden ausdrücklich einen
   injizierten Token-Produzenten, keine echten Modellgewichte.
-- **14 Node-Tests bestanden:** Kontextgrenzen und Unvollständigkeit, Herkunft,
+- **16 Node-Tests bestanden:** Kontextgrenzen und Unvollständigkeit, Herkunft,
   Import/XSS/Markdown, Stream-Abschluss mit/ohne Zeilenumbruch, fehlerhafte oder
   doppelte Abschlüsse, widersprüchliche Quellen und verständliche Formatfehler.
+  Zwei zusätzliche RED-/GREEN-Fälle sichern die Migration alter Import-Chats
+  und die Ablehnung von Prototype-Eigenschaftsnamen als vermeintliche Modellnamen.
 - **Drei Browserläufe bestanden:**
   - Bestehende UI-Regressionen: Theme, Entwurf/Reload, Import, Markdown/XSS,
     Varianten, Löschen, Modellmenü, Navigation, Projekte, Einstellungszustände.
@@ -60,6 +62,12 @@ konnten den Senden-Button unter den sichtbaren Rand schieben. Der kurze mobile
 Viewport blendet jetzt den Einstiegsblock aus und begrenzt das Eingabefeld.
 Der Test bleibt unverändert streng; es wird keine größere Bildschirmhöhe als
 Umgehung gewählt. Die Screenshots bei normaler Höhe bleiben repräsentativ.
+
+Alte importierte Gespräche ohne Herkunftsflag pro Nachricht werden beim Laden
+und Synchronisieren konservativ migriert. Neue echte Antworten werden explizit
+als nicht importiert gespeichert und bleiben davon unterscheidbar. Der bestehende
+Browserlauf lädt zusätzlich einen solchen alten Gesprächsstand neu und prüft
+Label und ausgeschlossenen nativen Kontext.
 
 ## Breiter Repository-Lauf und offene Grenzen
 
