@@ -1,0 +1,95 @@
+name: Arctus350 ONE Wednesday-only guarded native FP32 training session
+on:
+  push:
+    branches:
+      - experiment/arctus350-unattended-guarded-curriculum-20261028
+    paths:
+      - '.github/workflows/arctus350-wednesday-session.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-single-wednesday-20261028-guarded-session
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove all pure CPU contracts before allowing GPU
+        run: python -m unittest tests.test_arctus350_unattended_curriculum tests.test_arctus350_exact_math_curriculum tests.test_arctus350_reference_answer_audit tests.test_arctus350_targeted_exact_pilot -v
+      - run: python -m py_compile frontier350/arctus350_unattended_curriculum.py
+  tonight-only-rtx4070:
+    if: contains(github.event.head_commit.message, 'RUN_ONCE_NERAL_TODAY_20261028')
+    needs: validate
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 125
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_wednesday_checkout
+          clean: false
+          persist-credentials: false
+      - name: Independent Windows NVIDIA preflight; verify immutable local assets and today's deadline
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          Write-Host "LOCAL_START=$now; HARD_END=2026-10-28T21:30:00+01:00"
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now.Hour -ge 19 -and $now.Minute -ge 30){
+            throw 'Cannot safely fit the 2-hour cap before Wednesday hard cutoff'
+          }
+          if($now -ge [DateTimeOffset]::Parse('2026-10-28T19:30:00+01:00')){
+            throw 'Past 19:30 Berlin: one-day owner window has ended'
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_2b_fp32_clean64_40718736208\experimental_nonpromotable_64step.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $clean=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $new=Join-Path $assets 'runs\neraltalk350-exact-smallmath_40725139301'
+          $out=Join-Path $assets 'runs\neral350_guarded_wed3630_${{github.run_id}}'
+          foreach($p in @($parent,$tok)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw "pinned local file not found"}
+          }
+          foreach($p in @($clean,$new)){
+            if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'pinned local dataset absent'}
+          }
+          if(Test-Path -LiteralPath $out){throw 'refuse overwrite pre-existing experiment directory'}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '57bbd1f70fcca6aee5e557b132d6b1b3f7b5e3378d0248923e5478bae36caf58'){
+            throw 'source model integrity mismatch'
+          }
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){
+            throw 'locked native tokenizer mismatch'
+          }
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'cannot verify independent NVIDIA metrics'
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name; FREE_VRAM_MIB=$free; TEMPERATURE_C=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){
+            throw 'RTX4070 not idle/cool enough to share safely; no GPU training'
+          }
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'unsafe local path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_wednesday_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_unattended_curriculum --parent '$(W $parent)' --tokenizer '$(W $tok)' --clean-data '$(W $clean)' --supplement '$(W $new)' --out '$(W $out)' --windows-free-mib $free --windows-temperature-c $temp --max-wall-seconds 7200"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'one-day guarded experiment rejected or failed'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'arctus350_wednesday_report_${{github.run_id}}.json')
+      - name: Upload aggregate-only training evidence; NO checkpoints or text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-wednesday-guarded-aggregate
+          path: arctus350_wednesday_checkout/arctus350_wednesday_report_*.json
+          retention-days: 7
+          if-no-files-found: warn
