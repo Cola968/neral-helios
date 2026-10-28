@@ -57,7 +57,8 @@ def test_unavailable_runtime_has_machine_readable_identity(client):
     info = client.get('/api/info').json
     assert info['model_family'] == 'neral-byte'
     assert info['external_inference'] is False
-    assert info['native_arctus350_integrated'] is False
+    assert info['native_arctus350_integrated'] is True
+    assert info['checkpoint_loaded'] is False
     response = client.post('/api/generate', json={'prompt': 'Hallo Neral'})
     assert response.status_code == 503
     assert response.json['code'] == 'native_unavailable'
@@ -98,3 +99,15 @@ def test_sync_roundtrip_keeps_untrusted_origin_and_interrupted_flags(client):
     assert response.status_code == 200
     stored = app.ChatStore(app.chat_store.path).all()[0]['chat']['messages'][0]
     assert stored == message
+
+
+def test_tokenization_is_protected_against_concurrent_model_switch(client, monkeypatch):
+    monkeypatch.setattr(app, 'PREPARATION_MODE', False)
+    monkeypatch.setattr(app, 'checkpoint_loaded', True)
+    original_encode = app.tokenizer.encode
+    def encode(self, *args, **kwargs):
+        assert app._generation_lock.locked(), 'model can change while prompt is tokenized'
+        return original_encode(*args, **kwargs)
+    monkeypatch.setattr(type(app.tokenizer), 'encode', encode)
+    monkeypatch.setattr(app, 'generate_tokens', lambda *a, **k: [])
+    assert client.post('/api/generate', json={'prompt':'Hallo'}).status_code == 200

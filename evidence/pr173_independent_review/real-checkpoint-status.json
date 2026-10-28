@@ -1,0 +1,15 @@
+{
+  "status": "not_run_missing_assets",
+  "checkpoint_path_received": false,
+  "checkpoint_sha256_received": false,
+  "tokenizer_file_received": false,
+  "received_digest_kind": "tokenizer_sha256",
+  "received_digest": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "real_350m_load_verified": false,
+  "real_350m_streaming_verified": false,
+  "real_350m_cancellation_verified": false,
+  "real_350m_error_handling_verified": false,
+  "weights_modified": false,
+  "model_or_tokenizer_assets_downloaded": false,
+  "probe": "tools/probe_arctus350_app.py"
+}

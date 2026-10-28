@@ -110,3 +110,26 @@ test('code remains literal and receives a copy control',()=>{
   assert.ok(all.some(x=>x.tag==='code'&&x.textContent==='<script>alert(1)</script>'));
   assert.ok(!all.some(x=>x.tag==='script'));
 });
+
+test('contradictory stored native provenance never claims an own model',()=>{
+  for(const source of ['tool:calculator','no-model','local-rule:security']){
+    assert.match(core.sourceLabel({mode:'trained-generation',checkpoint:'pilot_02',source}),/nicht verifiziert/);
+  }
+});
+
+test('context never mixes different weights under the same model identifier',()=>{
+  const rows=pair('old weights');rows[1].checkpoint_sha256='a'.repeat(64);
+  assert.equal(core.context(rows,'Hi',20,1024,'pilot_02','b'.repeat(64)).history.length,0);
+  assert.equal(core.context(rows,'Hi',20,1024,'pilot_02','a'.repeat(64)).history.length,2);
+});
+
+test('BPE model context still respects the Flask input byte limit',()=>{
+  const rows=pair('x'.repeat(2500));
+  const result=core.context(rows,'y'.repeat(2000),100,8192,'pilot_02');
+  assert.equal(result.history.length,0);
+  assert.equal(result.omitted,1);
+});
+
+test('native Arctus labels identify the local checkpoint without calling it external',()=>{
+  assert.match(core.sourceLabel({mode:'trained-generation',checkpoint:'arctus350',source:'native-model'}),/Eigenes Modell · Arctus350/);
+});

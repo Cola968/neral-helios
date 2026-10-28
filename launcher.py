@@ -13,7 +13,7 @@ def status():
             pass
         with opener.open(URL+'/api/info',timeout=1) as response:
             data=json.load(response)
-        return data.get('name')=='Neral / Helios' and data.get('parameters') in {20587008,40051200,50012976}
+        return data.get('name')=='Neral / Helios' and data.get('parameters') in {20587008,40051200,50012976,349825152}
     except Exception:return False
 def main():
     if status():webbrowser.open(URL);return

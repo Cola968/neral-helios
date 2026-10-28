@@ -1,0 +1,37 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_tokenization_is_protected_against_concurrent_model_switch ________
+
+client = <FlaskClient <Flask 'app'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f41425fcf80>
+
+    def test_tokenization_is_protected_against_concurrent_model_switch(client, monkeypatch):
+        monkeypatch.setattr(app, 'PREPARATION_MODE', False)
+        monkeypatch.setattr(app, 'checkpoint_loaded', True)
+        original_encode = app.tokenizer.encode
+        def encode(self, *args, **kwargs):
+            assert app._generation_lock.locked(), 'model can change while prompt is tokenized'
+            return original_encode(*args, **kwargs)
+        monkeypatch.setattr(type(app.tokenizer), 'encode', encode)
+        monkeypatch.setattr(app, 'generate_tokens', lambda *a, **k: [])
+>       assert client.post('/api/generate', json={'prompt':'Hallo'}).status_code == 200
+E       AssertionError: assert 500 == 200
+E        +  where 500 = <WrapperTestResponse streamed [500 INTERNAL SERVER ERROR]>.status_code
+E        +    where <WrapperTestResponse streamed [500 INTERNAL SERVER ERROR]> = post('/api/generate', json={'prompt': 'Hallo'})
+E        +      where post = <FlaskClient <Flask 'app'>>.post
+
+tests/test_helios_chat_experience.py:112: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app:app.py:332 App incident bb0671e94187: AssertionError
+=============================== warnings summary ===============================
+../../opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/anyio/pytest_plugin.py:14
+  /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_helios_chat_experience.py::test_tokenization_is_protected_against_concurrent_model_switch
+1 failed, 1 warning in 1.72s

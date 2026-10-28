@@ -49,6 +49,9 @@ if device_name!='cpu':raise ValueError('This Helios app release is CPU-only.')
 device=torch.device(device_name)
 runtime_error=None
 checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original'
+def arctus_configured():
+    return all(os.environ.get(key) for key in ('HELIOS_ARCTUS350_CHECKPOINT','HELIOS_ARCTUS350_SHA256','HELIOS_ARCTUS350_TOKENIZER'))
+def model_family():return getattr(tokenizer,'model_family','neral-byte')
 def imported_models():
     try:return catalog(ASSETS)
     except (ValueError,OSError,KeyError):return {}
@@ -61,11 +64,21 @@ def checkpoint_paths():
     i1=ASSETS/'export/neral50m_i1/neral50m.pt';digest=i1.with_suffix('.sha256')
     if i1.is_file() and digest.is_file():paths['neral50m_i1']=(i1,digest)
     paths.update({key:row["paths"] for key,row in imported_models().items()})
+    if arctus_configured():paths['arctus350']=(Path(os.environ['HELIOS_ARCTUS350_CHECKPOINT']),None)
     return paths
 def load_runtime(name):
-    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error
+    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error,tokenizer
     if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
     if name not in checkpoint_paths():raise ValueError('Unbekannter Checkpoint.')
+    if name=='arctus350':
+        from arctus350_runtime import load_runtime as load_arctus
+        candidate=load_arctus(os.environ['HELIOS_ARCTUS350_CHECKPOINT'],os.environ['HELIOS_ARCTUS350_SHA256'],os.environ['HELIOS_ARCTUS350_TOKENIZER'])
+        candidate_report=candidate.model.parameter_report()
+        model=candidate.model;cfg=model.cfg;tokenizer=candidate
+        report={**candidate_report,'trainable':candidate_report['total']}
+        checkpoint_meta={'architecture':'frontier350-v1','tokenizer_sha256':'4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'}
+        checkpoint_sha256=candidate.checkpoint_sha256;checkpoint_loaded=True;active_checkpoint=name;runtime_error=None
+        return
     path,hash_path=checkpoint_paths()[name]
     if not path.is_file() or not hash_path.is_file():raise ValueError('Checkpoint oder SHA-256-Datei fehlt.')
     if path.stat().st_size>200*1024*1024:raise ValueError('Inferenz-Checkpoint zu groß.')
@@ -82,7 +95,7 @@ def load_runtime(name):
     else:candidate=Neral20M(candidate_cfg)
     candidate.load_state_dict(state,strict=True)
     if candidate.parameter_report()['total']!=expected:raise ValueError('Parameterzahl stimmt nicht.')
-    candidate.to(device);candidate.eval();model=candidate;cfg=candidate_cfg;report=model.parameter_report()
+    candidate.to(device);candidate.eval();model=candidate;cfg=candidate_cfg;report=model.parameter_report();tokenizer=ByteTokenizer()
     checkpoint_meta={k:v for k,v in payload.items() if isinstance(v,(str,int,float,bool))}
     checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name;runtime_error=None
 def initialize_runtime():
@@ -91,6 +104,9 @@ def initialize_runtime():
         runtime_error='Vorbereitungsmodus: keine Modellinferenz. SOLVE, Codeprüfung und Projekte sind bereit.'
         return
     name=os.environ.get('HELIOS_CHECKPOINT') or ('pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original')
+    if name=='arctus350':
+        runtime_error='Arctus350 wird ausschließlich durch ausdrückliche Modellauswahl geladen.'
+        return
     if name not in checkpoint_paths():
         runtime_error='Der ausgewählte eigene Checkpoint ist nicht installiert.'
         return
@@ -134,7 +150,7 @@ def text_key(value):
     if not isinstance(value,str) or not re.fullmatch(r'[a-zA-Z0-9_\-]{1,64}',value):raise ValueError('Ungültiger Schlüssel.')
     return value
 def info_payload():
-    return {'app_version':'2.0','name':'Neral / Helios','model_family':'neral-byte','external_inference':False,'native_arctus350_integrated':False,'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'model_labels':{k:v['label'] for k,v in imported_models().items()},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    return {'app_version':'2.0','name':'Neral / Helios','model_family':model_family(),'external_inference':False,'native_arctus350_integrated':True,'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'Arctus350-BPE-16384' if model_family()=='arctus350' else 'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'model_labels':{**{k:v['label'] for k,v in imported_models().items()},'arctus350':'Arctus350 · experimentell'},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 @app.before_request
 def local_and_rate_guard():
     if request.remote_addr not in {'127.0.0.1','::1'}:return jsonify(error='Nur lokale Verbindungen erlaubt.'),403
@@ -201,6 +217,7 @@ def cancel():
     return jsonify(cancelled=event is not None)
 @torch.inference_mode()
 def generate_tokens(ids,max_new,temperature,top_k,event,on_tokens=None):
+    if model_family()=='arctus350':return tokenizer.generate(ids,max_new,temperature,top_k,event,on_tokens)
     x=torch.tensor([ids],device=device,dtype=torch.long);output=[];deadline=time.monotonic()+120
     for _ in range(max_new):
         if time.monotonic()>deadline:event.set()
@@ -270,13 +287,21 @@ def generate():
             return jsonify(mode='solve-tool',source='tool:solve',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False,routing='deterministic-arithmetic-only')
         except ValueError:pass
     if PREPARATION_MODE:return jsonify(error='Vorbereitungsmodus: Kein natives Modell aktiv. Vollständige Rechenausdrücke funktionieren hier; mehrstufige Textaufgaben bitte als einen Ausdruck mit Klammern formulieren.',code='native_unavailable',source='no-model',model_generated=False),503
-    if not checkpoint_loaded:return jsonify(error='Kein eigenes Sprachmodell geladen. Rechenwerkzeuge, Codeprüfung und Projekte sind bereit. Für Sprachantworten einen kompatiblen eigenen Checkpoint installieren; Arctus350 hat einen separaten Einstieg.',code='native_unavailable',source='no-model',model_generated=False),503
-    formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'
-    ids=tokenizer.encode(formatted,bos=True)
-    if len(ids)+params['max_new_tokens']>cfg.max_seq_len:return jsonify(error='Kontext und Antwort überschreiten gemeinsam das Modelllimit.'),413
+    if not checkpoint_loaded:return jsonify(error='Kein eigenes Sprachmodell geladen. Rechenwerkzeuge, Codeprüfung und Projekte sind bereit. Für Sprachantworten einen kompatiblen eigenen Checkpoint installieren; Arctus350 kann optional ausdrücklich geladen werden.',code='native_unavailable',source='no-model',model_generated=False),503
     job=data.get('request_id',secrets.token_hex(16))
     if not isinstance(job,str) or not re.fullmatch(r'[a-zA-Z0-9-]{16,64}',job):return jsonify(error='Ungültige Anfrage-ID.'),400
     if not _generation_lock.acquire(blocking=False):return jsonify(error='Eine Antwort wird bereits berechnet.'),429
+    try:
+        if model_family()=='arctus350':ids=tokenizer.encode_history(history,prompt)
+        else:
+            formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'
+            ids=tokenizer.encode(formatted,bos=True)
+    except Exception:
+        _generation_lock.release()
+        return jsonify(error='Eingabe konnte mit dem aktiven Tokenizer nicht verarbeitet werden.'),400
+    if len(ids)+params['max_new_tokens']>cfg.max_seq_len:
+        _generation_lock.release()
+        return jsonify(error='Kontext und Antwort überschreiten gemeinsam das Modelllimit.'),413
     event=threading.Event()
     with _job_lock:_jobs[job]=event
     def finish():
@@ -287,7 +312,7 @@ def generate():
         args=(ids,params['max_new_tokens'],params['temperature'],params['top_k'],event)
         continuation=generate_tokens(*args,on_tokens=callback) if callback else generate_tokens(*args)
         elapsed=time.perf_counter()-start;text,redacted=sanitize_output(tokenizer.decode(continuation))
-        return dict(mode='trained-generation',source='native-model',model_family='neral-byte',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+        return dict(mode='trained-generation',source='native-model',model_family=model_family(),model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,checkpoint_sha256=checkpoint_sha256,request_id=job)
     if data.get('stream'):
         response=Response(response_stream(run,event,finish),mimetype='application/x-ndjson')
         response.headers['X-Accel-Buffering']='no'
