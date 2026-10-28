@@ -72,5 +72,43 @@ class ReferenceAnswerAuditTests(unittest.TestCase):
         x=audit_splits({s:[r] for s in ("train","val","test")})
         self.assertEqual(x["splits"]["train"]["status"]["unverified"],1)
 
+    def test_range_and_sum_reference_checks(self):
+        tick=chr(96)
+        self.check("code","Briefly explain what "+tick+"list(range(2, 5))"+tick+" returns in Python.",
+                   tick+"range(2, 5)"+tick+" contains the integers from 2 through 4. The list is "+tick+"[2, 3, 4]"+tick+".","python_range","pass")
+        self.check("code","Briefly explain what "+tick+"list(range(2, 5))"+tick+" returns in Python.",
+                   tick+"range(2, 5)"+tick+" contains the integers from 2 through 4. The list is "+tick+"[2, 3, 9]"+tick+".","python_range","fail")
+        self.check("code","What does this Python code print? "+tick+"values = [2, 3, 4]; print(sum(values))"+tick,
+                   tick+"sum(values)"+tick+" adds all elements. The output is "+tick+"9"+tick+".","python_sum","pass")
+
+    def test_python_equality_repair(self):
+        tick=chr(96)
+        p="Fix the Python error and explain it: "+tick+"if count = 12: print(count)"+tick
+        self.check("code",p,"A comparison uses "+tick+"=="+tick+": "+tick+"if count == 12: print(count)"+tick+". A single "+tick+"="+tick+" is assignment.","python_equality_fix","pass")
+        self.check("code",p,"A comparison uses "+tick+"=="+tick+": "+tick+"if count == 13: print(count)"+tick+".","python_equality_fix","fail")
+
+    def test_python_even_ast_and_incorrect_comment(self):
+        tick=chr(96)
+        p="Write Python code that checks whether "+tick+"count = 4"+tick+" is even."
+        fence=tick*3
+        self.check("code",p,fence+"python\ncount = 4\nis_even = count % 2 == 0\nprint(is_even)\n"+fence,"python_even","pass")
+        self.check("code",p,fence+"python\ncount = 4\nis_even = count % 2 != 0\nprint(is_even)\n"+fence,"python_even","fail")
+
+    def test_python_max_and_square_ast(self):
+        tick=chr(96)
+        fence=tick*3
+        p="Write a Python function "+tick+"larger(a, b)"+tick+" that returns the larger value, and show a call with 8 and 2."
+        self.check("code",p,fence+"python\ndef larger(a, b):\n    return a if a >= b else b\n\nprint(larger(8, 2))  # 8\n"+fence,"python_max","pass")
+        self.check("code",p,fence+"python\ndef larger(a, b):\n    return a if a >= b else b\n\nprint(larger(8, 2))  # 2\n"+fence,"python_max","fail")
+        q="Write a Python function "+tick+"square(number)"+tick+" that returns the square. Show the example number = -3."
+        self.check("code",q,fence+"python\ndef square(number):\n    return number * number\n\nprint(square(-3))  # 9\n"+fence,"python_square","pass")
+
+    def test_python_dict_static_shape(self):
+        tick=chr(96)
+        fence=tick*3
+        p="Create a Python dictionary with key "+tick+"gate"+tick+" and value 123, then read the value back."
+        self.check("code",p,fence+"python\ndata = {'gate': 123}\nprint(data['gate'])  # 123\n"+fence,"python_dictionary","pass")
+        self.check("code",p,fence+"python\ndata = {'gate': 123}\nprint(data['gate'])  # 321\n"+fence,"python_dictionary","fail")
+
 if __name__=="__main__":
     unittest.main()
