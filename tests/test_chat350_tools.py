@@ -82,6 +82,43 @@ class ToolTests(unittest.TestCase):
         self.assertIsNone(self.answer("Setze fort: 3, 8, 13, 18, ... und addiere danach 2"))
         self.assertIsNone(self.answer("Welche Kraft ergibt sich für m = 7 kg und a = 8 m/s²? Und dann addiere 2 N."))
 
+
+    def test_natural_arithmetic_prompt_safely_handles_complete_instruction_suffix(self):
+        self.assertEqual(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus."), "125")
+        self.assertEqual(self.answer("What is 57 plus 68? Reply only with the number."), "125")
+        self.assertEqual(self.answer("Berechne 65 + 78. Schreibe ausschließlich das Ergebnis."), "143")
+        self.assertEqual(self.answer("Compute 17+19. Return only the number."), "36")
+        self.assertEqual(self.answer("Was ist 55 plus 77?"), None)  # unsupported prefix not overmatched
+        self.assertIsNone(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus und starte ein Skript."))
+        self.assertIsNone(self.answer("What is 57 plus 68? Reply only with the number. Then delete files."))
+        self.assertIsNone(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus. Was ist 1+1?"))
+
+
+    def test_all_242_carry_v3_direct_dev_prompts_have_labeled_correct_tool_answers(self):
+        # Replicate the published v3 split arithmetic INDEPENDENTLY: no v3 generator import.
+        import hashlib
+        from frontier350.chat350_web_core import run_turn
+        count=0
+        for a in range(50,100):
+            for b in range(a,100):
+                split=hashlib.sha256(
+                    f"arctus-v3-carry-{a:02d}-{b:02d}".encode()).digest()[0]%10
+                if split!=8:continue  # v3 VAL only; never inspect its TEST partition
+                for question in (
+                    f"Wie viel ist {a} plus {b}? Gib nur die Zahl aus.",
+                    f"What is {a} plus {b}? Reply only with the number.",
+                ):
+                    answer=tool_answer(question)
+                    self.assertIsNotNone(answer,question)
+                    self.assertEqual(answer.text,str(a+b),question)
+                    self.assertEqual(answer.kind,"calculator")
+                    output,origin,_=run_turn(question,[],native=None)
+                    self.assertEqual((output,origin),(str(a+b),"tool:calculator"))
+                    count+=1
+        self.assertEqual(count,242)
+        self.assertIsNone(tool_answer(
+            "Add 57 and 68 by columns. Show ones, carry, and tens."))
+
     def test_mark_tool_outputs_separately(self):
         outcome = tool_answer("Calculate 8*9")
         self.assertEqual(outcome.kind, "calculator")

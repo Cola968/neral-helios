@@ -112,11 +112,15 @@ def _explicit_calculation(prompt: str) -> ToolAnswer | None:
     # A partial arithmetic prefix is not the whole user request. Otherwise
     # "Berechne 2 + 2 und ziehe 1 ab" would incorrectly return 4.
     suffix = raw[arithmetic.end():].strip()
+    # A sentence-final period is part of the instruction separator, not a decimal.
+    if suffix and expr.endswith("."):
+        expr = expr[:-1].rstrip()
     if suffix and not re.fullmatch(
         r"(?:[.!?]\s*)?(?:"
         r"antworte knapp|gib das ergebnis als zahl an|antworte mit der zahl|"
         r"give only the numeric result|reply with the result|"
-        r"keep the answer short"
+        r"keep the answer short|gib nur die zahl aus|schreibe ausschliesslich das ergebnis|"
+        r"reply only with the number|return only the number"
         r")?[.!?]?",
         suffix,
         re.I,
