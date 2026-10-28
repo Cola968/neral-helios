@@ -1,4 +1,5 @@
 name: Arctus350 carry steps v3 ONCE local protected dataset build
+# No model training and never automatically reruns during owner trip.
 on:
   push:
     branches: [data/arctus350-carry-steps-curriculum-v3-20261028]
