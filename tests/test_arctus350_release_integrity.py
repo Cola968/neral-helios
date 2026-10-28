@@ -95,7 +95,7 @@ class ArctusScoreIntegrityTests(unittest.TestCase):
                 compare(base,damaged)
 
     def test_counts_must_match_reported_accuracy(self):
-        base=result()
+        base=result(pass_de=1)
         fake={"overall_pct":100.0, "by_category":base["by_category"]}
         with self.assertRaises(ValueError):
             compare(base,fake)
