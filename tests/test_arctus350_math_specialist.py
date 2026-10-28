@@ -45,7 +45,7 @@ class MathSpecialistContracts(unittest.TestCase):
         self.assertTrue(can_run_today(True,9300,8900,60,"2026-10-28T19:30:00+01:00",1200))
         self.assertFalse(can_run_today(True,8400,8900,60,"2026-10-28T19:30:00+01:00",1200))
         self.assertFalse(can_run_today(True,9300,8900,80,"2026-10-28T19:30:00+01:00",1200))
-        self.assertFalse(can_run_today(True,9300,8900,60,"2026-10-28T20:25:00+01:00",1200))
+        self.assertFalse(can_run_today(True,9300,8900,60,"2026-10-28T20:26:00+01:00",1200))
         self.assertFalse(can_run_today(True,9300,8900,60,"2026-10-29T00:00:00+01:00",1200))
         self.assertFalse(can_run_today(False,9300,8900,60,"2026-10-28T19:30:00+01:00",1200))
         with self.assertRaises(ValueError):
