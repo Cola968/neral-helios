@@ -1,0 +1,81 @@
+name: Arctus350 Roblox-safe real FP32 norm gradient
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-fp32-norm.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  one-norm-only-update:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_fp32_norm_checkout
+          clean: false
+          persist-credentials: false
+      - name: Verify RTX4070 VRAM and keep Roblox running
+        id: admission
+        run: |
+          $ErrorActionPreference='Stop'
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*Roblox*' })
+          Write-Host "Roblox related processes still running: $($roblox.Count)"
+          if(-not(Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue)){
+            Write-Host 'SKIP: NVIDIA telemetry unavailable';"allowed=false" >> $env:GITHUB_OUTPUT;exit 0
+          }
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            Write-Host 'SKIP: invalid or ambiguous GPU telemetry';"allowed=false" >> $env:GITHUB_OUTPUT;exit 0
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3]
+          Write-Host "GPU=$name, total=$total MiB, free=$free MiB"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192){
+            Write-Host 'SKIP: GPU mismatch or require >=8192 MiB free to protect Roblox'
+            "allowed=false" >> $env:GITHUB_OUTPUT;exit 0
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $ck='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          if(-not(Test-Path -LiteralPath $ck -PathType Leaf) -or -not(Test-Path -LiteralPath $tok -PathType Leaf)){
+            throw 'Original immutable checkpoint/tokenizer missing'
+          }
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'unsafe drive root'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_fp32_norm_checkout'
+          "repo_wsl=$(W $repo)" >> $env:GITHUB_OUTPUT
+          "ck_wsl=$(W $ck)" >> $env:GITHUB_OUTPUT
+          "tok_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+          "windows_free_mib=$free" >> $env:GITHUB_OUTPUT
+          "allowed=true" >> $env:GITHUB_OUTPUT
+      - name: One FP32 master backprop + tiny RMSNorm AdamW step (in RAM only)
+        if: steps.admission.outputs.allowed == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{steps.admission.outputs.repo_wsl}}'
+          $ck='${{steps.admission.outputs.ck_wsl}}'
+          $tok='${{steps.admission.outputs.tok_wsl}}'
+          $free='${{steps.admission.outputs.windows_free_mib}}'
+          $out="arctus350_2b_fp32_norm_${{github.run_id}}.json"
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/roblox_fp32_norm_probe350.py --checkpoint '$ck' --tokenizer '$tok' --out '$out' --windows-free-mib '$free'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'FP32 norm gradient test aborted/failed; see diagnostic'}
+      - name: Upload aggregate GPU diagnostic (no weights or datasets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-2b-real-fp32-norm-gradient
+          path: arctus350_fp32_norm_checkout/arctus350_2b_fp32_norm_*.json
+          retention-days: 7
+          if-no-files-found: warn
