@@ -1,0 +1,21 @@
+name: NERAL chat bare arithmetic routing regression
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/chat350_tools.py'
+      - 'frontier350/chat350_web_core.py'
+      - 'tests/test_chat350_tools.py'
+      - '.github/workflows/chat350-bare-math-routing-tests.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_chat350_tools tests.test_chat350_web_core -v
