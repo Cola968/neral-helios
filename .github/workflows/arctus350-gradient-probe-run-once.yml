@@ -1,4 +1,5 @@
 name: Arctus350 ONE read-only RTX4070 task gradient diagnostic Wednesday
+# One authorized GPU probe today only. No model training and no recurring schedule.
 on:
   push:
     branches: [audit/arctus350-task-gradient-interference-20261028]
