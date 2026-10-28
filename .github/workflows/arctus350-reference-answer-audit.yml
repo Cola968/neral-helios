@@ -1,0 +1,66 @@
+name: Arctus350 real reference answer integrity (read-only CPU)
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_reference_answer_audit.py'
+      - 'tests/test_arctus350_reference_answer_audit.py'
+      - '.github/workflows/arctus350-reference-answer-audit.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-local-answer-integrity-cpu
+  cancel-in-progress: false
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Numerical, Python-AST, privacy and unsupported-case tests
+        run: python -m unittest tests.test_arctus350_reference_answer_audit -v
+      - name: Compile
+        run: python -m py_compile frontier350/arctus350_reference_answer_audit.py tests/test_arctus350_reference_answer_audit.py
+  real-local-data:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: unit-tests
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_reference_audit_checkout
+          clean: false
+          persist-credentials: false
+      - name: Verify local source exists then audit original question/answer pairs without exporting text
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $data=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          foreach($part in @('train.jsonl','val.jsonl','test.jsonl')){
+            if(-not(Test-Path -LiteralPath (Join-Path $data $part) -PathType Leaf)){throw 'local pinned source split missing'}
+          }
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'invalid local drive path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_reference_audit_checkout'
+          $out="arctus350_reference_integrity_${{github.run_id}}.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 ~/.venvs/neral-triton-py312/bin/python -m frontier350.arctus350_reference_answer_audit --data '$(W $data)' --out '$out'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'local read-only reference audit failed'}
+      - name: Upload aggregate counts ONLY (no raw prompts, code snippets or weights)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-reference-audit-aggregates
+          path: arctus350_reference_audit_checkout/arctus350_reference_integrity_*.json
+          retention-days: 7
+          if-no-files-found: warn
