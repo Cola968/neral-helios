@@ -1,0 +1,58 @@
+name: Arctus350 clean-data training readiness audit
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_training_readiness.py'
+      - 'tests/test_arctus350_training_readiness.py'
+      - '.github/workflows/arctus350-training-readiness.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m unittest tests.test_arctus350_training_readiness -v
+      - run: python -m py_compile frontier350/arctus350_training_readiness.py
+  local-audit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: cpu-contract
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_readiness_checkout
+          clean: false
+          persist-credentials: false
+      - name: Inspect eligible source/license/domain/sequence distribution, CPU only
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $data=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          if(-not(Test-Path -LiteralPath $data -PathType Container) -or -not(Test-Path -LiteralPath $tok -PathType Leaf)){throw 'missing pinned local assets'}
+          function W([string]$Path){
+            $p=[IO.Path]::GetFullPath($Path)
+            if($p -notmatch '^([A-Za-z]):\\'){throw 'unsafe local path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$p.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_readiness_checkout'
+          $out="arctus350_training_readiness_${{github.run_id}}.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=2 ~/.venvs/neral-triton-py312/bin/python -m frontier350.arctus350_training_readiness --data '$(W $data)' --tokenizer '$(W $tok)' --out '$out'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'real local training readiness audit failed'}
+      - name: Upload metadata counts ONLY (never dialogue, tokens, weights)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-clean-data-readiness-metadata
+          path: arctus350_readiness_checkout/arctus350_training_readiness_*.json
+          retention-days: 7
+          if-no-files-found: warn
