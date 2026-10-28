@@ -1,0 +1,72 @@
+name: Arctus350 single authorized local 96-step exact-output FP32 pilot
+on:
+  push:
+    branches: [experiment/arctus350-targeted-exact-fp32-20261028]
+    paths:
+      - '.github/workflows/arctus350-targeted-exact-run-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-exact-96step-single-local-session
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_targeted_exact_pilot tests.test_arctus350_exact_math_curriculum tests.test_arctus350_reference_answer_audit -v
+      - run: python -m py_compile frontier350/arctus350_targeted_exact_pilot.py
+  single-local-trial:
+    if: github.event.head_commit.message == 'ci: execute single local exact-output FP32 pilot for 28 Oct'
+    needs: verify
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_targeted_exact_checkout
+          clean: false
+          persist-credentials: false
+      - name: Windows RTX4070 VRAM and temperature admission and exact SHA-pinned local assets
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_2b_fp32_clean64_40718736208\experimental_nonpromotable_64step.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $clean=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $augment=Join-Path $assets 'runs\neraltalk350-exact-smallmath_40725139301'
+          $out=Join-Path $assets 'runs\neral350_targeted_exact96_${{github.run_id}}'
+          foreach($p in @($parent,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'SHA pinned local parent/tokenizer missing'}}
+          foreach($p in @($clean,$augment)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'pinned clean/augmented dataset unavailable'}}
+          if(Test-Path -LiteralPath $out){throw 'refuse preexisting output'}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '57bbd1f70fcca6aee5e557b132d6b1b3f7b5e3378d0248923e5478bae36caf58'){throw 'parent checkpoint SHA mismatch'}
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'uncertain NVIDIA telemetry'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name; FREE_VRAM=$free MiB; TEMPERATURE=$temp C"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){throw 'RTX4070 safety gate refused'}
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'unsafe path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_targeted_exact_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_targeted_exact_pilot --parent '$(W $parent)' --tokenizer '$(W $tok)' --clean-data '$(W $clean)' --augment-data '$(W $augment)' --out '$(W $out)' --windows-free-mib $free"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'bounded local FP32 trial failed or refused'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'arctus350_targeted_exact96_aggregate_${{github.run_id}}.json')
+      - name: Upload aggregate and public DEV responses ONLY; no private checkpoints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-exact96-single-pilot-report
+          path: arctus350_targeted_exact_checkout/arctus350_targeted_exact96_aggregate_*.json
+          retention-days: 7
+          if-no-files-found: warn
