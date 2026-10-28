@@ -54,7 +54,7 @@ class ChatStore:
 
                 if not isinstance(m,dict) or m.get('role') not in ['user','assistant'] or not isinstance(m.get('content'),str) or len(m['content'])>32768:raise ValueError('Ungültige Nachricht.')
 
-                clean.append({k:m[k] for k in ['role','content','mode','checkpoint','meta','interrupted','source','imported'] if k in m and isinstance(m[k],(str,bool))})
+                clean.append({k:m[k] for k in ['role','content','mode','checkpoint','meta','interrupted','source','imported','model_family','runtime_id'] if k in m and isinstance(m[k],(str,bool))})
 
             draft=chat.get('draft','')
 
@@ -81,4 +81,5 @@ class ChatStore:
             db.execute('INSERT OR REPLACE INTO chats VALUES(?,?,?,?,?)',(key,next_revision,time.time(),int(deleted),storage_codec.dumps(chat or {},ensure_ascii=True)))
 
             return next_revision
+
 
