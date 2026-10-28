@@ -64,7 +64,7 @@ def permit_readonly_probe(cuda_free_mib,temperature,iso_time):
     except (ValueError,TypeError) as e:raise ValueError("invalid timestamp") from e
     if now.tzinfo is None:raise ValueError("offset-aware timestamp required")
     local=now.astimezone(ZoneInfo("Europe/Berlin"))
-    return bool(cuda_free_mib>=9216 and temperature<80 and
+    return bool(cuda_free_mib>=8192 and temperature<80 and
                 local.date()==CUTOFF.date() and local<CUTOFF)
 
 
@@ -143,7 +143,7 @@ def main():
     if not torch.cuda.is_available() or "RTX 4070" not in torch.cuda.get_device_name(0):
         raise RuntimeError("expected local RTX4070")
     free=torch.cuda.mem_get_info(0)[0]//2**20
-    if (a.windows_free_mib<9216 or
+    if (a.windows_free_mib<8192 or
         not permit_readonly_probe(free,temp,datetime.now(ZoneInfo("Europe/Berlin")).isoformat())):
         raise RuntimeError("read-only GPU preflight refused")
     torch.cuda.set_per_process_memory_fraction(.65,device=0)
@@ -172,7 +172,7 @@ def main():
     model=Neral350M()
     model.load_state_dict(ck["model"],strict=True)
     del ck
-    if torch.cuda.mem_get_info(0)[0]//2**20<9216:
+    if torch.cuda.mem_get_info(0)[0]//2**20<8192:
         raise RuntimeError("CUDA GPU claimed before model transfer")
     model=model.to("cuda",dtype=torch.float32)
     model.eval()
