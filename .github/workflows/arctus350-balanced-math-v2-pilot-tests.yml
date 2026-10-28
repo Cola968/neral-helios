@@ -1,0 +1,21 @@
+name: Arctus350 balanced arithmetic v2 guarded FP32 pilot contracts
+on:
+  pull_request:
+    types: [opened,synchronize]
+    paths:
+      - 'frontier350/arctus350_balanced_math_v2_pilot.py'
+      - 'tests/test_arctus350_balanced_math_v2_pilot.py'
+      - '.github/workflows/arctus350-balanced-math-v2-pilot-tests.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_balanced_math_v2_pilot tests.test_arctus350_balanced_arithmetic_v2 -v
+      - run: python -m py_compile frontier350/arctus350_balanced_math_v2_pilot.py
