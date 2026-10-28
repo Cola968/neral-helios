@@ -1,0 +1,21 @@
+name: Arctus350 frozen FFN replay anti-forgetting TDD
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_frozen_ffn_replay.py'
+      - 'tests/test_arctus350_frozen_ffn_replay.py'
+      - '.github/workflows/arctus350-frozen-replay-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_frozen_ffn_replay -v
+      - run: python -m py_compile frontier350/arctus350_frozen_ffn_replay.py
