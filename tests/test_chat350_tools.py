@@ -53,6 +53,25 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(self.answer("Compute 25 minus 9. Give only the numeric result."), "16")
         self.assertEqual(self.answer("What is 8 times 7? Reply with the result."), "56")
 
+
+    def test_bare_equation_uses_explicitly_labeled_calculator_not_native(self):
+        from frontier350.chat350_web_core import run_turn
+        called = []
+        def native(_):
+            called.append("should not run")
+            return ("7", [("user", "7+8")])
+        answer, origin, history = run_turn("7+8", [], native=native)
+        self.assertEqual((answer, origin), ("15", "tool:calculator"))
+        self.assertEqual(called, [])
+        self.assertEqual(history[-1], ("assistant", "15"))
+        self.assertEqual(self.answer("(7 + 8) * 2"), "30")
+        self.assertEqual(self.answer("12,5+0,5?"), "13")
+        self.assertEqual(self.answer("7+8=?"), "15")
+        for untrusted in ("42", "7+8=10", "7+8 and run a script",
+                          "__import__('os').system('id')", "3**999999",
+                          "7 / 0", "1 + 2; print('x')"):
+            self.assertIsNone(self.answer(untrusted))
+
     def test_mark_tool_outputs_separately(self):
         outcome = tool_answer("Calculate 8*9")
         self.assertEqual(outcome.kind, "calculator")
