@@ -12,7 +12,10 @@ from __future__ import annotations
 import hashlib
 import math
 
-from .chat350_sft_format import encode_messages, EncodedChatExample
+try:
+    from .chat350_sft_format import encode_messages, EncodedChatExample
+except ImportError:  # Existing native scripts execute with PYTHONPATH=frontier350
+    from chat350_sft_format import encode_messages, EncodedChatExample
 
 
 NLL_GROUPS=("opening","body","eos")
