@@ -31,7 +31,7 @@ def probe(args):
         raise ValueError('tokenizer_sha256_mismatch')
     with tempfile.TemporaryDirectory(prefix='neral-arctus-probe-') as state:
         os.environ.update(HELIOS_STATE_ROOT=state, HELIOS_ASSETS_ROOT=state,
-                          HELIOS_PREPARATION_MODE='0', HELIOS_CHECKPOINT='arctus350',
+                          HELIOS_PREPARATION_MODE='0', HELIOS_DEVICE='cpu', HELIOS_CHECKPOINT='arctus350',
                           HELIOS_ARCTUS350_CHECKPOINT=str(checkpoint),
                           HELIOS_ARCTUS350_SHA256=args.sha256,
                           HELIOS_ARCTUS350_TOKENIZER=str(tokenizer))

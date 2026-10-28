@@ -48,6 +48,7 @@ $env:HELIOS_ARCTUS350_CHECKPOINT = 'C:\lokal\vorhandener-checkpoint.pt'
 $env:HELIOS_ARCTUS350_SHA256 = '<64-stelliger SHA-256 DIESES Checkpoints>'
 $env:HELIOS_ARCTUS350_TOKENIZER = 'C:\lokal\vorhandener-tokenizer.json'
 $env:HELIOS_PREPARATION_MODE = '0'
+$env:HELIOS_DEVICE = 'cpu'
 # Optional: vermeidet auch den bisherigen automatischen Byte-Modellstart.
 $env:HELIOS_CHECKPOINT = 'arctus350'
 python app.py
