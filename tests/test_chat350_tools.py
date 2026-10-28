@@ -72,6 +72,16 @@ class ToolTests(unittest.TestCase):
                           "7 / 0", "1 + 2; print('x')"):
             self.assertIsNone(self.answer(untrusted))
 
+
+    def test_compound_tasks_do_not_misreport_a_partial_math_result(self):
+        # A partial answer labeled as a completed calculation is unsafe.
+        self.assertIsNone(self.answer("Calculate 10% of 50 then add 3"))
+        self.assertIsNone(self.answer("What is 10% of 50 plus 3?"))
+        self.assertIsNone(self.answer("Berechne die Hälfte von 10 und addiere 3"))
+        self.assertIsNone(self.answer("Solve 2x + 3 = 7 then square x"))
+        self.assertIsNone(self.answer("Setze fort: 3, 8, 13, 18, ... und addiere danach 2"))
+        self.assertIsNone(self.answer("Welche Kraft ergibt sich für m = 7 kg und a = 8 m/s²? Und dann addiere 2 N."))
+
     def test_mark_tool_outputs_separately(self):
         outcome = tool_answer("Calculate 8*9")
         self.assertEqual(outcome.kind, "calculator")
