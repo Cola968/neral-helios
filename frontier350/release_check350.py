@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse,json
+import argparse,json,re
 from pathlib import Path
 
 def load(path):
@@ -8,12 +8,19 @@ def load(path):
 def check(data_quality,sft_final,sft_capability,sft_slice,dpo_final=None,dpo_capability=None,external_decision=None,require_external=False):
     # Strict booleans matter: bool("false") and bool(1) are True in Python,
     # which could let malformed JSON approve a weaker Arctus checkpoint.
+    def frozen_suite_present(document: dict) -> bool:
+        digest = document.get("suite_sha256")
+        return (isinstance(digest, str)
+                and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+                and digest != "0" * 64)
+
     cap = sft_capability.get("comparison", {})
     checks={
         "data_quality":data_quality.get("gates",{}).get("pass") is True,
         "sft_manual_review":sft_final.get("decision")=="manual_review_required",
         "sft_capability":(
-            sft_capability.get("cases") == 30
+            frozen_suite_present(sft_capability)
+            and sft_capability.get("cases") == 30
             and type(sft_capability.get("cases")) is int
             and cap.get("capability_no_regression") is True
             and cap.get("category_no_regression") is True
@@ -27,7 +34,7 @@ def check(data_quality,sft_final,sft_capability,sft_slice,dpo_final=None,dpo_cap
         checks["dpo_generation"]=dpo_final.get("generation_guard") is True
         checks["dpo_capability"]=dpo_final.get("capability_guard") is True
         if dpo_capability is not None:
-            checks["dpo_capability_report"]=(dpo_capability.get("cases") == 30 and type(dpo_capability.get("cases")) is int and dpo_capability.get("comparison",{}).get("capability_no_regression") is True and dpo_capability.get("comparison",{}).get("category_no_regression") is True)
+            checks["dpo_capability_report"]=(frozen_suite_present(dpo_capability) and dpo_capability.get("suite_sha256") == sft_capability.get("suite_sha256") and dpo_capability.get("cases") == 30 and type(dpo_capability.get("cases")) is int and dpo_capability.get("comparison",{}).get("capability_no_regression") is True and dpo_capability.get("comparison",{}).get("category_no_regression") is True)
         stage="dpo_candidate"
     external_present=external_decision is not None
     if external_present:
