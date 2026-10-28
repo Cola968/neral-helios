@@ -1,4 +1,5 @@
 name: Arctus350 ONE Wednesday frozen-last-FFN replay FP32 experiment
+# Exactly one start on 28 Oct; never re-trigger after owner leaves.
 on:
   push:
     branches: [experiment/arctus350-frozen-ffn-balanced-replay-20261028]
