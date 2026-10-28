@@ -1,0 +1,24 @@
+name: NERAL verified multi-step math CPU integration
+on:
+  pull_request:
+    paths:
+      - 'neral_reasoning_tools.py'
+      - 'tests/test_neral_reasoning_tools.py'
+      - 'tests/test_helios_chat_experience.py'
+      - 'app.py'
+      - '.github/workflows/neral-reasoning-ci.yml'
+permissions:
+  contents: read
+jobs:
+  verified-compound:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - run: HELIOS_PREPARATION_MODE=1 HELIOS_DEVICE=cpu python -m pytest -q tests/test_neral_reasoning_tools.py tests/test_helios_chat_experience.py tests/test_helios_runtime.py
+      - run: python -m py_compile neral_reasoning_tools.py app.py
