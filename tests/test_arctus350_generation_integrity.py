@@ -60,5 +60,19 @@ class GenerationIntegrityTests(unittest.TestCase):
         self.assertEqual(summary["exact_instruction_pct"],50.0)
 
 
+    def test_trailing_tokens_after_eos_are_invalid(self):
+        # Generation must terminate immediately at EOS; malformed persisted
+        # sequences cannot count as clean early stopping.
+        for ids in ([6, 0, 7], [6, 0, 0]):
+            with self.subTest(ids=ids), self.assertRaises(ValueError):
+                summarize_generations([{"generated_ids": ids, "text": "Antwort"}], eos_id=0)
+
+    def test_immediate_eos_is_a_valid_empty_generation(self):
+        summary = summarize_generations(
+            [{"generated_ids": [0], "text": ""}], eos_id=0
+        )
+        self.assertEqual(summary["eos_fraction"], 1.0)
+        self.assertEqual(summary["mean_generated_tokens_before_eos"], 0.0)
+
 if __name__=="__main__":
     unittest.main()
