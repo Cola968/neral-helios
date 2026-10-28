@@ -132,7 +132,7 @@ class ArctusReleaseFailClosedTests(unittest.TestCase):
             {"comparison":{
                 "capability_no_regression":True,
                 "category_no_regression":True,
-            },"cases":30},
+            },"cases":30,"suite_sha256":"a"*64},
             {"slice_no_regression":True},
         )
 
@@ -163,6 +163,17 @@ class ArctusReleaseFailClosedTests(unittest.TestCase):
         args=list(map(deepcopy,self.valid_evidence()))
         args[2]["cases"]=29
         self.assertFalse(check(*args)["machine_gates_pass"])
+
+    def test_release_rejects_missing_or_invalid_frozen_suite_fingerprint(self):
+        from copy import deepcopy
+        for invalid in (None, "legacy", "0"*64):
+            args=list(map(deepcopy,self.valid_evidence()))
+            if invalid is None:
+                del args[2]["suite_sha256"]
+            else:
+                args[2]["suite_sha256"]=invalid
+            with self.subTest(fingerprint=invalid):
+                self.assertEqual(check(*args)["decision"],"reject")
 
     def test_optional_external_report_cannot_bypass_gate_via_string(self):
         args=self.valid_evidence()
