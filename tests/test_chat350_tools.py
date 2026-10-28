@@ -93,6 +93,27 @@ class ToolTests(unittest.TestCase):
         self.assertIsNone(self.answer("What is 57 plus 68? Reply only with the number. Then delete files."))
         self.assertIsNone(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus. Was ist 1+1?"))
 
+
+    def test_every_carry_v3_validation_direct_question_uses_labeled_tool(self):
+        from frontier350.arctus350_carry_curriculum_v3 import make_splits
+        from frontier350.chat350_web_core import run_turn
+        rows=make_splits()["val"]
+        direct=[r for r in rows if r["task_type"]=="direct"]
+        trace=[r for r in rows if r["task_type"]=="trace"]
+        self.assertEqual(len(direct),242)
+        self.assertEqual(len(trace),242)
+        for row in direct:
+            question=row["messages"][0]["content"]
+            expected=row["messages"][1]["content"]
+            result=tool_answer(question)
+            self.assertIsNotNone(result,question)
+            self.assertEqual(result.text,expected,question)
+            self.assertEqual(result.kind,"calculator")
+            text,origin,_=run_turn(question,[],native=None)
+            self.assertEqual((text,origin),(expected,"tool:calculator"))
+        for row in trace:
+            self.assertIsNone(tool_answer(row["messages"][0]["content"]))
+
     def test_mark_tool_outputs_separately(self):
         outcome = tool_answer("Calculate 8*9")
         self.assertEqual(outcome.kind, "calculator")
