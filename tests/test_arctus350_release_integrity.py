@@ -67,6 +67,7 @@ class ArctusScoreIntegrityTests(unittest.TestCase):
     def test_any_category_regression_blocks_checkpoint_promotion(self):
         # A 10-point decline previously slipped through a '-20pp hard gate'.
         base={
+            "suite_sha256":"a"*64,
             "overall_pct":70.,
             "by_category":{
                 "math":{"cases":20,"passed":14,"pct":70.0},
@@ -74,6 +75,7 @@ class ArctusScoreIntegrityTests(unittest.TestCase):
             },
         }
         cand={
+            "suite_sha256":"a"*64,
             "overall_pct":70.,
             "by_category":{
                 "math":{"cases":20,"passed":12,"pct":60.0},
