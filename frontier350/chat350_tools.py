@@ -132,12 +132,16 @@ def _explicit_calculation(prompt: str) -> ToolAnswer | None:
 
 
 def _percentage(prompt: str) -> ToolAnswer | None:
-    pattern = rf"(?<!\d)({_NUM})\s*(?:%|prozent|percent)\s+(?:von|of)\s+({_NUM})\b"
-    match = re.search(pattern, prompt, re.I)
-    if not match or not re.search(r"wie\s+viel|wieviel|calculate|compute|what\s+is|berechne", prompt, re.I):
+    """Never return 10% of 50 as the full answer to '10% of 50 plus 3'."""
+    prefix = r"(?:wie\s+viel\s+(?:ist|sind)|wieviel\s+(?:ist|sind)|calculate|compute|what\s+is|berechne)"
+    pattern = rf"\s*{prefix}\s+({_NUM})\s*(?:%|prozent|percent)\s+(?:von|of)\s+({_NUM})\s*[?!.]?\s*"
+    match = re.fullmatch(pattern, prompt, re.I)
+    if not match:
         return None
-    return ToolAnswer("percentage", _pretty(_reasonable(_number(match.group(1)) * _number(match.group(2)) / 100)))
-
+    return ToolAnswer(
+        "percentage",
+        _pretty(_reasonable(_number(match.group(1))*_number(match.group(2))/100)),
+    )
 
 def _linear_equation(prompt: str) -> ToolAnswer | None:
     if not re.search(r"\blöse\b|\bsolve\b|\bnach\s+x\b", prompt, re.I):
@@ -223,9 +227,21 @@ def _bare_calculation(prompt: str) -> ToolAnswer | None:
         return None
 
 
+_COMPOUND_FOLLOWUP = re.compile(
+    r"\b(?:then|and\s+then|und\s+dann|und\s+danach|und|and|danach)\s+"
+    r"(?:(?:then|dann|danach)\s+)?"
+    r"(?:add|addiere|subtract|subtrahiere|multiply|multipliziere|"
+    r"square|quadriere|divide|teile|ziehe|berechne|compute|calculate)\b",
+    re.I,
+)
+
+
 def tool_answer(prompt: str) -> ToolAnswer | None:
     """Route only recognized explicit requests; otherwise use the native model."""
     if not isinstance(prompt, str) or len(prompt) > 500:
+        return None
+    # Multi-stage arithmetic is not a single supported tool result.
+    if _COMPOUND_FOLLOWUP.search(prompt):
         return None
     for handler in (_percentage, _linear_equation, _sequence, _fraction_words, _force, _explicit_calculation, _bare_calculation):
         try:
