@@ -42,6 +42,8 @@ def summarize_generations(rows: list[dict], eos_id: int) -> dict:
             or not all(type(token) is int and token >= 0 for token in ids)):
             raise ValueError("generated_ids must contain nonnegative integer IDs")
         hit = eos_id in ids
+        if hit and ids.index(eos_id) != len(ids) - 1:
+            raise ValueError("generated_ids must terminate at first EOS")
         content_ids = ids[:ids.index(eos_id)] if hit else ids
         text = row.get("text")
         if not isinstance(text, str):
