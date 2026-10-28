@@ -1,0 +1,21 @@
+name: Arctus350 absolute exact instruction capability gate
+on:
+  pull_request:
+    paths:
+      - 'frontier350/compare_chat350.py'
+      - 'tests/test_arctus350_absolute_exact_capability.py'
+      - '.github/workflows/arctus350-absolute-exact-capability.yml'
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: CPU-only release-gate regression
+        run: PYTHONPATH=frontier350 python -m unittest tests.test_arctus350_absolute_exact_capability -v
+      - name: Compile
+        run: python -m py_compile frontier350/compare_chat350.py tests/test_arctus350_absolute_exact_capability.py
