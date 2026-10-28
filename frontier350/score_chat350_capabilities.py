@@ -7,6 +7,7 @@ This is a small project diagnostic, not a validated NIS2 benchmark.
 from __future__ import annotations
 import argparse
 import collections
+import hashlib
 import json
 import math
 import re
@@ -95,7 +96,12 @@ def score(report: dict, cases: list[dict]) -> dict:
         for key, group in sorted(cats.items())
     }
     total = sum(item["pass"] for item in detail)
+    frozen_cases = json.dumps(
+        sorted(cases, key=lambda case: case["id"]), sort_keys=True,
+        separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
     return {
+        "suite_sha256": hashlib.sha256(frozen_cases).hexdigest(),
         "cases": len(detail),
         "passed": total,
         "overall_pct": 100 * total / len(detail),
@@ -141,6 +147,14 @@ def _validated_metrics(report: dict) -> tuple[float, dict[str, float], dict[str,
 
 
 def compare(base: dict, cand: dict) -> dict:
+    if not isinstance(base, dict) or not isinstance(cand, dict):
+        raise ValueError("invalid capability comparison report")
+    expected = base.get("suite_sha256")
+    actual = cand.get("suite_sha256")
+    if (not isinstance(expected, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected)
+        or actual != expected):
+        raise ValueError("cannot compare different or unverified frozen suites")
     base_overall, base_cats, base_sizes = _validated_metrics(base)
     cand_overall, cand_cats, cand_sizes = _validated_metrics(cand)
     if base_cats.keys() != cand_cats.keys() or base_sizes != cand_sizes:
