@@ -11,6 +11,7 @@ from model import Neral20M
 from tokenizer import ByteTokenizer
 from security_guard import check_prompt,sanitize_output
 from solve import solve
+from chat_math import tool_answer
 from code_check import check_code
 from architectures import expected_parameters
 from project_store import ProjectStore,ripple
@@ -133,7 +134,7 @@ def text_key(value):
     if not isinstance(value,str) or not re.fullmatch(r'[a-zA-Z0-9_\-]{1,64}',value):raise ValueError('Ungültiger Schlüssel.')
     return value
 def info_payload():
-    return {'app_version':'2.0','name':'Neral / Helios','parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'model_labels':{k:v['label'] for k,v in imported_models().items()},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    return {'app_version':'2.0','name':'Neral / Helios','model_family':'neral-byte','external_inference':False,'native_arctus350_integrated':False,'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths()),'model_labels':{k:v['label'] for k,v in imported_models().items()},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
 @app.before_request
 def local_and_rate_guard():
     if request.remote_addr not in {'127.0.0.1','::1'}:return jsonify(error='Nur lokale Verbindungen erlaubt.'),403
@@ -243,27 +244,33 @@ def generate():
     if history_bytes+prompt_bytes>MAX_PROMPT_BYTES:return jsonify(error='Chatkontext zu lang. Beginne einen neuen Chat.'),413
     for text in [h['content'] for h in history if h['role']=='user']+[prompt]:
         guard=check_prompt(text)
-        if not guard.allowed:return jsonify(mode='guarded-response',text=guard.response,security_category=guard.category,model_generated=False)
+        if not guard.allowed:return jsonify(mode='guarded-response',source='local-rule:security',text=guard.response,security_category=guard.category,model_generated=False)
     if mode=='code':
         try:
             result=check_code(prompt)
             text=('Python-Syntax gültig.' if result['syntax_ok'] else f"Syntaxfehler in Zeile {result['line']}: {result['message']}")
             text+='\n'+'\n'.join(f"Zeile {f['line']}: {f['message']}" for f in result['findings'])
             text+='\nDer Code wurde nicht ausgeführt. Syntaxprüfung beweist keine funktionale Korrektheit.'
-            return jsonify(mode='code-tool',text=text,code_check=result,model_generated=False)
+            return jsonify(mode='code-tool',source='tool:code-check',text=text,code_check=result,model_generated=False)
         except ValueError as e:return jsonify(error=str(e)),400
     if mode=='solve':
         try:
             result=solve(prompt.translate(str.maketrans({'×':'*','÷':'/','−':'-'})))
-            return jsonify(mode='solve-tool',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False)
+            return jsonify(mode='solve-tool',source='tool:solve',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False)
         except ValueError as e:return jsonify(error=str(e)),400
+    if mode=='chat':
+        calculated=tool_answer(prompt)
+        if calculated is not None:
+            return jsonify(mode='solve-tool',source='tool:'+calculated.kind,text=calculated.text,
+                           solve={'result':calculated.text,'engine':'bounded-fraction-calculator','model_generated':False},
+                           model_generated=False,routing='whole-request-math')
     if mode=='chat' and re.fullmatch(r'[0-9x\s.+*/()%=\-^]+',prompt.strip()) and re.search(r'\d',prompt):
         try:
             result=solve(prompt)
-            return jsonify(mode='solve-tool',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False,routing='deterministic-arithmetic-only')
+            return jsonify(mode='solve-tool',source='tool:solve',text='\n'.join(result['steps']+[f"Ergebnis: {result['result']}"]),solve=result,model_generated=False,routing='deterministic-arithmetic-only')
         except ValueError:pass
-    if PREPARATION_MODE:return jsonify(error='Vorbereitungsmodus: Modellinferenz ist deaktiviert.'),503
-    if not checkpoint_loaded:return jsonify(error='Kein eigener Checkpoint installiert. SOLVE, Codeprüfung und Projekte funktionieren lokal; Modellgewichte laut README bereitstellen.'),503
+    if PREPARATION_MODE:return jsonify(error='Vorbereitungsmodus: Kein natives Modell aktiv. Vollständige Rechenausdrücke funktionieren hier; mehrstufige Textaufgaben bitte als einen Ausdruck mit Klammern formulieren.',code='native_unavailable',source='no-model',model_generated=False),503
+    if not checkpoint_loaded:return jsonify(error='Kein eigenes Sprachmodell geladen. Rechenwerkzeuge, Codeprüfung und Projekte sind bereit. Für Sprachantworten einen kompatiblen eigenen Checkpoint installieren; Arctus350 hat einen separaten Einstieg.',code='native_unavailable',source='no-model',model_generated=False),503
     formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'
     ids=tokenizer.encode(formatted,bos=True)
     if len(ids)+params['max_new_tokens']>cfg.max_seq_len:return jsonify(error='Kontext und Antwort überschreiten gemeinsam das Modelllimit.'),413
@@ -280,7 +287,7 @@ def generate():
         args=(ids,params['max_new_tokens'],params['temperature'],params['top_k'],event)
         continuation=generate_tokens(*args,on_tokens=callback) if callback else generate_tokens(*args)
         elapsed=time.perf_counter()-start;text,redacted=sanitize_output(tokenizer.decode(continuation))
-        return dict(mode='trained-generation',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+        return dict(mode='trained-generation',source='native-model',model_family='neral-byte',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
     if data.get('stream'):
         response=Response(response_stream(run,event,finish),mimetype='application/x-ndjson')
         response.headers['X-Accel-Buffering']='no'

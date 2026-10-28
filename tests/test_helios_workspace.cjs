@@ -1,7 +1,7 @@
 // Browser integration against a deterministic fake API; no weights or inference.
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict'),http=require('node:http'),fs=require('node:fs'),path=require('node:path');
-const root=path.resolve(__dirname,'..'),records=new Map();let partial=false;
+const root=path.resolve(__dirname,'..'),records=new Map();let partial=false,cancelled=false,activeGeneration=false;
 (async()=>{
  const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');
@@ -15,11 +15,13 @@ const root=path.resolve(__dirname,'..'),records=new Map();let partial=false;
    records.set(id,{id,revision:revision+1,chat:data.chat,deleted:!!data.deleted});return json({revision:revision+1});
   }
   if(url.pathname==='/api/generate'){
+   cancelled=false;activeGeneration=true;
    res.writeHead(200,{'Content-Type':'application/x-ndjson'});
    res.write(JSON.stringify({type:'start'})+'\n');
    res.write(JSON.stringify({type:'progress',text:'Visible partial answer',generated_tokens:24})+'\n');
-   return setTimeout(()=>{if(!partial)res.write(JSON.stringify({type:'done',result:{text:'Complete answer',mode:'trained-generation',model_generated:true,generated_tokens:30,seconds:1,tokens_per_second:30,active_checkpoint:'neral-future'}})+'\n');res.end();},900);
+   return setTimeout(()=>{if(!partial)res.write(JSON.stringify({type:'done',result:{text:'Complete answer',mode:'trained-generation',model_generated:true,cancelled,generated_tokens:30,seconds:1,tokens_per_second:30,active_checkpoint:'neral-future'}})+'\n');res.end();activeGeneration=false;},900);
   }
+  if(url.pathname==='/api/cancel'){cancelled=activeGeneration;return json({cancelled});}
   if(url.pathname.startsWith('/api/'))return json({projects:[],available:false});
   const file=url.pathname==='/'?'templates/index.html':url.pathname==='/manifest.webmanifest'?'static/manifest.webmanifest':url.pathname==='/sw.js'?'static/sw.js':url.pathname.slice(1);
   if(!/^(static\/[a-z0-9.-]+|templates\/index.html)$/.test(file)||!fs.existsSync(path.join(root,file))){res.writeHead(404);return res.end();}
@@ -50,10 +52,18 @@ const root=path.resolve(__dirname,'..'),records=new Map();let partial=false;
   await p.keyboard.press('Control+Shift+Space');assert(await p.locator('#prompt').evaluate(e=>e===document.activeElement));
   await p.locator('#prompt').fill('A question');await p.locator('#send').click();
   await p.locator('#log').filter({hasText:'Visible partial answer'}).waitFor();
+  await p.evaluate(()=>render());
+  assert.equal(await p.locator('#log .pending').count(),1,'background rendering must preserve in-flight reply');
+  await p.locator('#prompt').fill('Next draft while waiting');
   await p.locator('#log').filter({hasText:'Complete answer'}).waitFor();
+  assert.equal(await p.locator('#prompt').inputValue(),'Next draft while waiting');
   partial=true;await p.locator('#prompt').fill('Interrupted question');await p.locator('#send').click();
   await p.locator('#status').filter({hasText:'Verbindung unterbrochen'}).waitFor();
   assert(await p.evaluate(()=>current.messages.some(m=>m.interrupted&&m.content==='Visible partial answer')));
+  partial=false;await p.locator('#prompt').fill('Cancellation fixture');await p.locator('#send').click();
+  await p.locator('#log .pending').waitFor();await p.locator('#stop').click();
+  await p.locator('#log .message.assistant').last().locator('.meta').filter({hasText:'Gestoppt'}).waitFor();
+  assert(await p.evaluate(()=>current.messages.at(-1).interrupted===true));
   await a.setOffline(true);await p.locator('#prompt').fill('Offline edit');
   assert(await p.evaluate(()=>localStorage.getItem(storageKey).includes('Offline edit')));
   await a.setOffline(false);
