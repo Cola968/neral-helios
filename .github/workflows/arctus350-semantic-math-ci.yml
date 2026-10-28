@@ -46,6 +46,25 @@ jobs:
               assert data[version]["gate"]["safe_for_controlled_sft"] is True
           assert all(x["gate"]["ready_for_release"] is False for x in data.values())
           PY
+      - name: Build a NEW local v1 copy with frozen TEST and zero numeric split overlap
+        run: |
+          python -m frontier350.arctus350_math_semantic_audit --sanitize-generated-v1-to "${RUNNER_TEMP}/arctus-v1-derived-clean"
+          python - <<'PY'
+          from pathlib import Path
+          import json,os
+          from frontier350.chat350_data import validate_dataset_root,validate_prompt_holdouts
+          from frontier350.arctus350_math_semantic_audit import audit_math_splits,require_disjoint_math_pairs
+          root=Path(os.environ["RUNNER_TEMP"])/"arctus-v1-derived-clean"
+          manifest,rows=validate_dataset_root(root)
+          validate_prompt_holdouts(rows)
+          require_disjoint_math_pairs(audit_math_splits(rows))
+          report=json.loads((root/"metadata_report.json").read_text())
+          assert report["original_numeric_overlap"]==61
+          assert report["remaining_numeric_overlap"]==0
+          assert report["dropped"]["test"]==0
+          assert report["derived_manifest_sha256"]==manifest["manifest_sha256"]
+          print("repaired v1 rows",report["retained_counts"],"removed",report["dropped"])
+          PY
       - name: Upload aggregate evidence only – never source dialogues or IDs
         uses: actions/upload-artifact@v4
         with:
