@@ -1,0 +1,25 @@
+name: Arctus350 Release Evidence Integrity
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+  pull_request:
+    paths:
+      - frontier350/score_chat350_capabilities.py
+      - frontier350/release_check350.py
+      - tests/test_arctus350_release_integrity.py
+      - .github/workflows/arctus350-release-integrity-ci.yml
+permissions:
+  contents: read
+jobs:
+  evidence-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native capability-score and release-gate regression tests
+        run: python -m unittest tests.test_chat350_capabilities tests.test_arctus350_release_integrity -v
+      - name: Compile native 350M gate without model downloads
+        run: python -m py_compile frontier350/score_chat350_capabilities.py frontier350/release_check350.py
