@@ -1,4 +1,5 @@
 name: NERAL native Arctus350 one read-only carry v3 VAL baseline Wednesday
+# Explicit one-time Wednesday only; never while owner away Thursday–Sunday.
 on:
   push:
     branches: [audit/arctus350-20261028-fresh-carry-baseline]
