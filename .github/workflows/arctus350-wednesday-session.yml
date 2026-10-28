@@ -41,7 +41,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
           Write-Host "LOCAL_START=$now; HARD_END=2026-10-28T21:30:00+01:00"
-          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now.Hour -ge 19 -and $now.Minute -ge 30){
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28'){
             throw 'Cannot safely fit the 2-hour cap before Wednesday hard cutoff'
           }
           if($now -ge [DateTimeOffset]::Parse('2026-10-28T19:30:00+01:00')){
