@@ -82,6 +82,17 @@ class ToolTests(unittest.TestCase):
         self.assertIsNone(self.answer("Setze fort: 3, 8, 13, 18, ... und addiere danach 2"))
         self.assertIsNone(self.answer("Welche Kraft ergibt sich für m = 7 kg und a = 8 m/s²? Und dann addiere 2 N."))
 
+
+    def test_natural_arithmetic_prompt_safely_handles_complete_instruction_suffix(self):
+        self.assertEqual(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus."), "125")
+        self.assertEqual(self.answer("What is 57 plus 68? Reply only with the number."), "125")
+        self.assertEqual(self.answer("Berechne 65 + 78. Schreibe ausschließlich das Ergebnis."), "143")
+        self.assertEqual(self.answer("Compute 17+19. Return only the number."), "36")
+        self.assertEqual(self.answer("Was ist 55 plus 77?"), None)  # unsupported prefix not overmatched
+        self.assertIsNone(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus und starte ein Skript."))
+        self.assertIsNone(self.answer("What is 57 plus 68? Reply only with the number. Then delete files."))
+        self.assertIsNone(self.answer("Wie viel ist 57 plus 68? Gib nur die Zahl aus. Was ist 1+1?"))
+
     def test_mark_tool_outputs_separately(self):
         outcome = tool_answer("Calculate 8*9")
         self.assertEqual(outcome.kind, "calculator")
