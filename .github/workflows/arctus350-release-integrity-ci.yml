@@ -25,3 +25,5 @@ jobs:
         run: python -m unittest tests.test_chat350_capabilities tests.test_arctus350_release_integrity tests.test_arctus350_generation_integrity -v
       - name: Compile native 350M gate without model downloads
         run: python -m py_compile frontier350/score_chat350_capabilities.py frontier350/release_check350.py frontier350/chat350_generation_metrics.py
+      - name: Full existing Arctus 350M chat unit-test suite
+        run: python -m unittest tests.test_chat350_cloud_prep tests.test_chat350_token_budget tests.test_chat350_human_alignment tests.test_chat350_hygiene tests.test_chat350_format_parity tests.test_chat350_capabilities tests.test_chat350_stress_cases tests.test_chat350_quality_audits tests.test_chat350_slices tests.test_chat350_runtime tests.test_chat350_checkpoint_safety tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_knowledge tests.test_chat350_tool_eval tests.test_external_bench350 tests.test_dpo_math350 tests.test_sft_batching350 tests.test_sft_stratified350 tests.test_neraltalk350_adapter -v
