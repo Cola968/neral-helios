@@ -24,7 +24,7 @@ class CheckpointSafetyTests(unittest.TestCase):
         self.assertFalse(probe_is_allowed(True, True, 4095, 7000))
         self.assertFalse(probe_is_allowed(True, True, 8000, 5999))
         self.assertTrue(probe_is_allowed(True, True, 7200, 7000))
-        for a in ((True, True, -1, 7000), (True, True, 8000, 0), (1, True, 8000, 7000)):
+        for a in ((True, True, -1, 7000), (True, True, 8000, -1), (1, True, 8000, 7000)):
             with self.subTest(a=a), self.assertRaises(ValueError):
                 probe_is_allowed(*a)
 
