@@ -1,0 +1,28 @@
+✔ chat import validates roles and keeps untrusted content literal (5.097535ms)
+✔ history drops whole pairs and respects byte budget (2.37202ms)
+✔ history never mixes checkpoints or tools (0.242087ms)
+✔ native context excludes interrupted, external and imported answers (0.809343ms)
+✔ unrecognized or external origins never look like the original Neral model (0.381807ms)
+✔ imports preserve honest provenance but never become trusted model context (0.972473ms)
+✔ legacy imported chats retain their untrusted origin after reload and sync (0.702352ms)
+✔ prototype property names are never accepted as known model identities (0.198712ms)
+✔ transport accepts a final NDJSON line without a newline (33.182588ms)
+✔ transport rejects missing completion, duplicate completion and false provenance (2.354654ms)
+✔ malformed transport is explained without exposing parser internals (1.957037ms)
+✔ overlong prompt fails without erasing original history (0.249285ms)
+✔ history uses at most six complete pairs (0.688227ms)
+✔ incomplete code fences remain readable code (0.882386ms)
+✔ markdown does not turn HTML or unsafe URLs into executable DOM (0.900082ms)
+✔ code remains literal and receives a copy control (0.349288ms)
+✔ contradictory stored native provenance never claims an own model (1.513839ms)
+✔ context never mixes different weights under the same model identifier (0.429963ms)
+✔ BPE model context still respects the Flask input byte limit (0.241306ms)
+✔ native Arctus labels identify the local checkpoint without calling it external (0.327783ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 65.978422

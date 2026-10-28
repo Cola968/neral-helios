@@ -32,6 +32,22 @@ def response_stream(run,event,finish):
 
             except queue.Full:continue
 
+    def terminal(data):
+
+        while True:
+
+            try:messages.put(data,timeout=.25);return
+
+            except queue.Full:
+
+                # A stop must not drop the final result/error or leave the
+                # worker holding the model lock after a disconnected client.
+                if event.is_set():
+
+                    try:messages.get_nowait()
+
+                    except queue.Empty:pass
+
     def worker():
 
         try:
@@ -40,15 +56,9 @@ def response_stream(run,event,finish):
 
             # Completion must remain deliverable after an explicit stop.
 
-            while True:
+            terminal({'type':'done','result':result})
 
-                try:messages.put({'type':'done','result':result},timeout=.25);break
-
-                except queue.Full:
-
-                    if event.is_set():break
-
-        except Exception:publish({'type':'error','error':'Die Berechnung wurde unterbrochen. Bitte erneut versuchen.'})
+        except Exception:terminal({'type':'error','error':'Die Berechnung wurde unterbrochen. Bitte erneut versuchen.'})
 
         finally:finish()
 

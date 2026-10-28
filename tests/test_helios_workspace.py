@@ -149,3 +149,26 @@ def test_gateway_streams_before_backend_completes(tmp_path):
         release.set();assert response.readline()==b'{"type":"done"}\n'
     finally:
         release.set();conn.close();gateway.shutdown();gateway.server_close();backend.shutdown();backend.server_close();bt.join();gt.join()
+
+
+def test_stream_failure_after_cancel_still_has_a_terminal_error():
+    stop=threading.Event()
+    def run(callback):
+        stop.set()
+        raise RuntimeError('synthetic-private-detail')
+    output=[json.loads(line) for line in response_stream(run,stop,lambda:None)]
+    assert output[-1]['type']=='error'
+    assert 'synthetic-private-detail' not in json.dumps(output)
+
+
+def test_cancelled_backpressure_keeps_completion_and_releases_worker():
+    stop=threading.Event();finished=threading.Event()
+    def run(callback):
+        for count in range(16):callback('synthetic progress',count)
+        stop.set()
+        return {'cancelled':True}
+    stream=response_stream(run,stop,finished.set)
+    assert finished.wait(3), 'worker must not depend on a disconnected consumer'
+    output=[json.loads(line) for line in stream]
+    assert output[-1]['type']=='done'
+    assert output[-1]['result']['cancelled'] is True

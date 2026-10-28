@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_stream_failure_after_cancel_still_has_a_terminal_error __________
+
+    def test_stream_failure_after_cancel_still_has_a_terminal_error():
+        stop=threading.Event()
+        def run(callback):
+            stop.set()
+            raise RuntimeError('synthetic-private-detail')
+        output=[json.loads(line) for line in response_stream(run,stop,lambda:None)]
+>       assert output[-1]['type']=='error'
+E       AssertionError: assert 'start' == 'error'
+E
+E         - error
+E         + start
+
+tests/test_helios_workspace.py:160: AssertionError
+=============================== warnings summary ===============================
+../../opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/anyio/pytest_plugin.py:14
+  /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_helios_workspace.py::test_stream_failure_after_cancel_still_has_a_terminal_error
+1 failed, 1 warning in 4.30s

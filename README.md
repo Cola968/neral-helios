@@ -23,8 +23,9 @@ Eingabeleiste, sichtbare Zustände und Herkunftslabels. Fehlgeschlagene Nachrich
 und Entwürfe bleiben erhalten; unvollständige oder importierte Antworten werden
 nicht als eigener Modellkontext verwendet. Streaming und lokale Synchronisierung
 bleiben integriert. Externe Modelle werden nicht aufgerufen; importierte externe
-Antworten werden als solche angezeigt. **Arctus350 ist ein separater Entwicklungszweig
-und wird von dieser Flask-App nicht als geladen ausgegeben.**
+Antworten werden als solche angezeigt. **Arctus350 kann optional und ausschließlich durch ausdrückliche Modellauswahl
+angebunden werden; echte Checkpoint-Abnahme steht noch aus.**
+[Konfiguration, Kompatibilitätsvertrag und Grenzen](docs/ARCTUS350_FLASK_OPTIONAL.md).
 
 [Architekturprüfung, Startanleitung, Tests und Screenshots](docs/CHAT_EXPERIENCE_UPDATE.md).
 

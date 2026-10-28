@@ -35,8 +35,9 @@ Zahlenliterale werden aus den Originalziffern gelesen, ohne Float-Zwischenrundun
   echten Starter-Status gegen den echten Flask-Server.
 - Quellen werden im JSON und an den Nachrichten getrennt: `tool:calculator`,
   `tool:percentage`, `tool:solve`, `tool:code-check`, `local-rule:security`,
-  `native-model`. Native Antworten nennen `model_family: neral-byte`; Info nennt
-  ausdrücklich `external_inference: false` und `native_arctus350_integrated: false`.
+  `native-model`. Native Antworten nennen ihre tatsächliche Modellfamilie (`neral-byte` oder optional
+  `arctus350`); Info nennt `external_inference: false`. Adapter-Unterstützung
+  ist von `checkpoint_loaded` getrennt. Siehe [optionale Anbindung](ARCTUS350_FLASK_OPTIONAL.md).
   Das bestehende `solve.result` bleibt für bisherige API-Clients verfügbar.
 - Keine Teilergebnisse als erledigte mehrstufige Aufgabe: `(7+8)*2` wird vollständig
   gerechnet. `Berechne 2+2 und ziehe 1 ab` fällt durch. Ohne Modell erscheint ein
@@ -86,8 +87,9 @@ Es werden keine Checkpoints, Cloud-Schlüssel oder fremden Modelle nachgeladen.
 Bestehende lokale Zustandsdateien werden außerhalb der Tests unter `local_state/`
 verwendet; Tests setzen separate leere Assets- und Zustandsordner.
 
-Das Paket enthält keine neu integrierte native Arctus350-Inferenz. Deren separates
-Tokenizer-/Checkpoint-/GPU-Protokoll wird durch die Byte-App nicht ersetzt.
+Der nachgelagerte unabhängige Review ergänzt einen optionalen CPU-Adapter für
+Arctus350 mit eigenem BPE-/Checkpoint-Vertrag und ausdrücklichem Laden. Die echte
+Asset-Abnahme ist mangels Dateien noch offen; siehe [Anleitung und Grenzen](ARCTUS350_FLASK_OPTIONAL.md).
 
 ## Reproduzierbare Prüfungen
 

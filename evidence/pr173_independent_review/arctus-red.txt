@@ -1,0 +1,63 @@
+F..FFFF                                                                  [100%]
+=================================== FAILURES ===================================
+__________ test_optional_model_is_offered_but_never_loaded_by_startup __________
+
+client = <FlaskClient <Flask 'app'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f38d8712150>
+
+    def test_optional_model_is_offered_but_never_loaded_by_startup(client, monkeypatch):
+        monkeypatch.setenv('HELIOS_CHECKPOINT', 'arctus350')
+        app.initialize_runtime()
+        info = client.get('/api/info').json
+>       assert 'arctus350' in info['checkpoints']
+E       AssertionError: assert 'arctus350' in ['original']
+
+tests/test_helios_arctus350.py:28: AssertionError
+___________ test_tokenizer_identity_rejected_before_checkpoint_load ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-2/test_tokenizer_identity_reject0')
+
+    def test_tokenizer_identity_rejected_before_checkpoint_load(tmp_path):
+>       from arctus350_runtime import load_runtime, TOKENIZER_SHA256
+E       ModuleNotFoundError: No module named 'arctus350_runtime'
+
+tests/test_helios_arctus350.py:48: ModuleNotFoundError
+___________ test_checkpoint_hash_is_required_before_deserialization ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-2/test_checkpoint_hash_is_requir0')
+
+    def test_checkpoint_hash_is_required_before_deserialization(tmp_path):
+>       from arctus350_runtime import checked_checkpoint
+E       ModuleNotFoundError: No module named 'arctus350_runtime'
+
+tests/test_helios_arctus350.py:56: ModuleNotFoundError
+_____________ test_wrong_config_or_tokenizer_metadata_is_rejected ______________
+
+    def test_wrong_config_or_tokenizer_metadata_is_rejected():
+>       from arctus350_runtime import validate_metadata
+E       ModuleNotFoundError: No module named 'arctus350_runtime'
+
+tests/test_helios_arctus350.py:63: ModuleNotFoundError
+_____________ test_segmented_prompt_and_special_mask_cancellation ______________
+
+    def test_segmented_prompt_and_special_mask_cancellation():
+>       from arctus350_runtime import ArctusRuntime
+E       ModuleNotFoundError: No module named 'arctus350_runtime'
+
+tests/test_helios_arctus350.py:71: ModuleNotFoundError
+=============================== warnings summary ===============================
+../../opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/anyio/pytest_plugin.py:14
+  /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_helios_arctus350.py::test_optional_model_is_offered_but_never_loaded_by_startup
+FAILED tests/test_helios_arctus350.py::test_tokenizer_identity_rejected_before_checkpoint_load
+FAILED tests/test_helios_arctus350.py::test_checkpoint_hash_is_required_before_deserialization
+FAILED tests/test_helios_arctus350.py::test_wrong_config_or_tokenizer_metadata_is_rejected
+FAILED tests/test_helios_arctus350.py::test_segmented_prompt_and_special_mask_cancellation
+5 failed, 2 passed, 1 warning in 4.21s

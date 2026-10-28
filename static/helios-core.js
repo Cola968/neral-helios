@@ -2,29 +2,32 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
-  function context(messages,prompt,budget,maxContext,checkpoint){
+  function context(messages,prompt,budget,maxContext,checkpoint,checkpointSha){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
       if(u.role==='user'&&u.mode==='chat'&&a.role==='assistant'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint&&
+         (!checkpointSha||a.checkpoint_sha256===checkpointSha)&&
          !a.interrupted&&!a.imported&&!u.imported&&(!a.source||a.source==='native-model')){
         pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content}]);i++;
       }
     }
     const format=rows=>rows.map(m=>(m.role==='user'?'User':'Assistant')+': '+m.content.trim()+'\n').join('')+'User: '+prompt.trim()+'\nAssistant:';
     const original=pairs.length;
-    while(pairs.length&&(pairs.length>6||bytes(format(pairs.flat()))+1+budget>maxContext))pairs.shift();
+    const inputBytes=()=>bytes(prompt)+pairs.flat().reduce((n,m)=>n+bytes(m.content),0);
+    while(pairs.length&&(pairs.length>6||bytes(format(pairs.flat()))+1+budget>maxContext||inputBytes()>4096))pairs.shift();
     const history=pairs.flat();
-    return {history,omitted:original-pairs.length,fits:bytes(format(history))+1+budget<=maxContext};
+    return {history,omitted:original-pairs.length,fits:bytes(format(history))+1+budget<=maxContext&&inputBytes()<=4096};
   }
   function sourceLabel(message,labels={}){
     if(message.mode==='external-model'||String(message.source||'').startsWith('external'))return 'Externes Modell · nicht NERAL';
+    if(message.mode==='trained-generation'&&message.source&&message.source!=='native-model')return 'Modellherkunft nicht verifiziert';
     if(message.mode==='solve-tool')return 'Rechenwerkzeug · '+(message.source==='tool:calculator'?'Rechner':message.source==='tool:percentage'?'Prozentrechnung':'SOLVE');
     if(message.mode==='code-tool')return 'Codeprüfung · lokal, ohne Ausführung';
     if(message.mode==='guarded-response')return 'Sicherheitsregel · keine Modellantwort';
     if(message.mode==='error')return 'Anfrage fehlgeschlagen';
     if(message.mode==='no-model')return 'Kein natives Modell geladen';
-    const names={original:'Neral 20M · Original',pilot_01:'Neral 20M · Pilot 01',pilot_02:'Neral 20M · Preview 02',neral40m:'Neral 40M · Experiment',neral50m:'Neral 50M · Sprachpilot',neral50m_i1:'Neral 50M · I1'};
+    const names={original:'Neral 20M · Original',pilot_01:'Neral 20M · Pilot 01',pilot_02:'Neral 20M · Preview 02',neral40m:'Neral 40M · Experiment',neral50m:'Neral 50M · Sprachpilot',neral50m_i1:'Neral 50M · I1',arctus350:'Arctus350 · experimentell'};
     const name=Object.hasOwn(names,message.checkpoint)?names[message.checkpoint]:Object.hasOwn(labels,message.checkpoint)?labels[message.checkpoint]:null;
     return message.mode==='trained-generation'&&typeof name==='string'?
       (message.imported?'Modellangabe (nicht verifiziert) · ':'Eigenes Modell · ')+name:'Modellherkunft nicht verifiziert';

@@ -1,0 +1,3 @@
+# Optional, explicit installation; never installs model/tokenizer assets.
+-r requirements.txt
+tokenizers==0.22.1
