@@ -12,7 +12,7 @@ Der alte deterministisch erzeugte v1-Mathematikkorpus wurde früher nur auf glei
 | v2 `arctus350_balanced_arithmetic_v2` | 9.616 | **0** | Verifizierte, im Rahmen der erkannten Vorlagen disjunkte Operandenpaare |
 | v3 `arctus350_carry_curriculum_v3` | 5.100 | **0** | Verifizierte, im Rahmen der erkannten Vorlagen disjunkte Operandenpaare |
 
-**Quelle:** [Actions-Lauf #40785868220](https://github.com/Cola968/neral-helios/actions/runs/40785868220). Die Zahlen wurden aus den tatsächlich vorhandenen nativen Generatoren neu berechnet, **nicht** aus Modellgenerierungen. „0“ bedeutet nicht semantische Freiheit von allen möglichen Trainingsdaten oder öffentlich versiegelten Benchmarks. Bekannte generierte Zeilen mit falschen Antworten/Metadaten werden **abgewiesen**, nicht still übersprungen.
+**Quelle:** [Actions-Lauf #40785868220](https://github.com/Cola968/neral-helios/actions/runs/40785868220). **Konkreter Reparaturbeleg:** [Actions #40786246597](https://github.com/Cola968/neral-helios/actions/runs/40786246597) erzeugte lokal den abgeleiteten v1-Datensatz mit **721 statt 782 Zeilen**: 58 aus TRAIN und 3 aus VAL entfernt, **TEST unverändert mit 69 Zeilen**, danach **0** arithmetische Cross-Split-Konflikte, ursprünglicher und abgeleiteter Manifest-SHA verifiziert; **15 neue CPU-Tests plus 14 Nachbarregressionen erfolgreich**. Die Zahlen wurden aus den tatsächlich vorhandenen nativen Generatoren neu berechnet, **nicht** aus Modellgenerierungen. „0“ bedeutet nicht semantische Freiheit von allen möglichen Trainingsdaten oder öffentlich versiegelten Benchmarks. Bekannte generierte Zeilen mit falschen Antworten/Metadaten werden **abgewiesen**, nicht still übersprungen.
 
 ## Zusätzlich implementiert: v1 ohne Veränderung der Originaldaten reparieren
 
