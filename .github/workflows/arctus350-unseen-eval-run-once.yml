@@ -1,0 +1,74 @@
+name: Arctus350 one-time 64 vs 96 unseen 76-task free generation (GPU read-only)
+# Trigger once today: no cron, no workflow_dispatch, only this one commit.
+on:
+  push:
+    branches: [experiment/arctus350-unseen-exact-math-gpu-eval-20261028]
+    paths:
+      - '.github/workflows/arctus350-unseen-eval-run-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-single-20261028-unseen-heldout-readonly-evaluation
+  cancel-in-progress: false
+jobs:
+  cpu-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_unseen_task_eval -v
+  only-today-rtx4070-eval:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_UNSEEN_EVAL_20261028')
+    needs: cpu-contract
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_unseen_checkout
+          persist-credentials: false
+          clean: false
+      - name: Verify Wednesday-only RTX 4070 and immutability of both local experimental files
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now -ge [DateTimeOffset]::Parse('2026-10-28T21:00:00+01:00')){throw 'Wednesday-only evaluation window over'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $baseline=Join-Path $assets 'runs\neral350_2b_fp32_clean64_40718736208\experimental_nonpromotable_64step.pt'
+          $candidate=Join-Path $assets 'runs\neral350_targeted_exact96_40726256404\experimental_only_nonpromotable.pt'
+          $supplement=Join-Path $assets 'runs\neraltalk350-exact-smallmath_40725139301'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          foreach($p in @($baseline,$candidate,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'required checkpoint/tokenizer absent'}}
+          if(-not(Test-Path -LiteralPath $supplement -PathType Container)){throw 'source split unavailable'}
+          if((Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant() -ne '57bbd1f70fcca6aee5e557b132d6b1b3f7b5e3378d0248923e5478bae36caf58'){throw 'baseline file changed'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne '9c13b315465b74312c347effee8ef9c9e520ce95749ce9844a0a1fd2b66f48b2'){throw '96step file changed'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'tokenizer checksum changed'}
+          $gpu=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or [string]$gpu[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'cannot verify GPU telemetry'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name; FREE_VRAM_MIB=$free; TEMP_C=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){throw 'GPU busy or hot, skip'}
+          function W([string]$path){
+            $full=[IO.Path]::GetFullPath($path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'not a local Windows drive path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_unseen_checkout'
+          $report="arctus350_unseen_eval_${{github.run_id}}.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_unseen_task_eval --baseline '$(W $baseline)' --candidate '$(W $candidate)' --tokenizer '$(W $tok)' --data '$(W $supplement)' --out '$report'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'read-only heldout evaluation aborted'}
+      - name: Upload ONLY aggregate exact-correctness data (no weights or original texts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-76-unseen-64-vs-96-aggregates
+          path: arctus350_unseen_checkout/arctus350_unseen_eval_*.json
+          retention-days: 7
+          if-no-files-found: warn
