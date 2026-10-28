@@ -8,6 +8,7 @@ This is only an additional local training dataset, NOT a frozen evaluation suite
 from __future__ import annotations
 from collections import Counter
 from itertools import combinations_with_replacement
+from functools import lru_cache
 import argparse
 import hashlib
 import json
@@ -32,6 +33,7 @@ def _ordered_pair(a,b):
     return (min(a,b),max(a,b))
 
 
+@lru_cache(maxsize=1)
 def protected_prior_holdout_pairs():
     prior=make_v1()
     protected={(7,8)}
@@ -42,7 +44,7 @@ def protected_prior_holdout_pairs():
             m=re.search(r"^(?:Berechne|Add)\s+(\d+)\s+(?:plus|and)\s+(\d+)\.",row["messages"][0]["content"])
             if m is None:raise ValueError("original v1 synthetic data parser drift")
             protected.add(_ordered_pair(*map(int,m.groups())))
-    return protected
+    return frozenset(protected)
 
 
 def _parse_prompt(text):
