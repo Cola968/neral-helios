@@ -14,7 +14,7 @@ class FrozenFFNReplayContracts(unittest.TestCase):
         self.assertEqual(choose_trainable_names(params),
              ["blocks.23.ffn.gate.weight","blocks.23.ffn.up.weight","blocks.23.ffn.down.weight"])
         with self.assertRaises(ValueError):
-            choose_trainable_names(params[:-2])
+            choose_trainable_names([p for p in params if p!='blocks.23.ffn.down.weight'])
         with self.assertRaises(ValueError):
             choose_trainable_names(params+["blocks.23.ffn.gate.weight"])
 
