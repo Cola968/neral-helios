@@ -7,7 +7,7 @@ class NormPrecisionGuard(unittest.TestCase):
         self.assertFalse(allow_norm_probe(False,10240,11000,0.38))
         self.assertFalse(allow_norm_probe(True,8100,11000,0.38))
         self.assertFalse(allow_norm_probe(True,10240,8100,0.38))
-        self.assertFalse(allow_norm_probe(True,10240,11000,0.50))
+        with self.assertRaises(ValueError):allow_norm_probe(True,10240,11000,0.50)
         with self.assertRaises(ValueError):allow_norm_probe(True,-1,9000,0.38)
         with self.assertRaises(ValueError):allow_norm_probe(1,10000,10000,0.38)
         with self.assertRaises(ValueError):allow_norm_probe(True,10000,10000,float("nan"))
