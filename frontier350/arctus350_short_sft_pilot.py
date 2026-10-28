@@ -28,7 +28,10 @@ def admit_pilot(authorized:bool, windows_free:int, cuda_free:int, fraction:float
 
 
 def select_short_examples(tok,rows,*,count:int,max_seq:int):
-    from chat350_sft_format import encode_messages
+    try:
+        from .chat350_sft_format import encode_messages
+    except ImportError:  # Native script uses PYTHONPATH=frontier350
+        from chat350_sft_format import encode_messages
     if type(count) is not int or not 1<=count<=32 or type(max_seq) is not int or not 16<=max_seq<=64:
         raise ValueError("invalid short training sample policy")
     ids=[row["id"] for row in rows]
