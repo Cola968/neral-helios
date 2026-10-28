@@ -1,0 +1,64 @@
+name: Arctus350 exact-output and small-arithmetic curriculum (CPU only)
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_exact_math_curriculum.py'
+      - 'tests/test_arctus350_exact_math_curriculum.py'
+      - '.github/workflows/arctus350-exact-math-curriculum.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-local-exact-math-data-only
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit tests for deterministic independent labels and protected splits
+        run: python -m unittest tests.test_arctus350_exact_math_curriculum -v
+      - name: Compile
+        run: python -m py_compile frontier350/arctus350_exact_math_curriculum.py tests/test_arctus350_exact_math_curriculum.py
+  new-local-data:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_exact_math_checkout
+          clean: false
+          persist-credentials: false
+      - name: Write fresh local only non-model curriculum with exact reference checks
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $target=Join-Path $assets 'runs\neraltalk350-exact-smallmath_${{github.run_id}}'
+          if(Test-Path -LiteralPath $target){throw 'refuse existing destination'}
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'invalid Windows path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_exact_math_checkout'
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 ~/.venvs/neral-triton-py312/bin/python -m frontier350.arctus350_exact_math_curriculum --out '$(W $target)'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'local-only curriculum builder failed'}
+          Copy-Item -LiteralPath (Join-Path $target 'metadata_report.json') -Destination (Join-Path $repo 'arctus350_exact_math_manifest_${{github.run_id}}.json')
+      - name: Upload aggregate metadata only (never generated train/val/test text)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-exact-smallmath-metadata
+          path: arctus350_exact_math_checkout/arctus350_exact_math_manifest_*.json
+          retention-days: 7
+          if-no-files-found: warn
