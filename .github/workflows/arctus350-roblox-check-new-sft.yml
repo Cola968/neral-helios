@@ -1,0 +1,94 @@
+name: Arctus350 Roblox-safe check NEW 2B FP32 SFT candidate
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-check-new-sft.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  verify-and-evaluate-short-sft-candidate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_candidate_verify
+          clean: false
+          persist-credentials: false
+      - name: Verify local experimental candidate file and GPU headroom
+        id: preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $ck=Join-Path $assets 'runs\neral350_2b_fp32_sft_sixstep_40691461347\experiment_only_not_release.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          if(-not(Test-Path -LiteralPath $ck -PathType Leaf)){throw 'new experimental 2B SFT candidate not found'}
+          $sha=(Get-FileHash -LiteralPath $ck -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -ne '05eb63767613458bdf6a1c5849b40b73d953729f274864aa345fe69c6c781c52'){
+            throw 'experimental candidate SHA-256 mismatch'
+          }
+          if(-not(Test-Path -LiteralPath $tok -PathType Leaf) -or -not(Test-Path -LiteralPath $data -PathType Container)){
+            throw 'original tokenizer or NERAL dev validation missing'
+          }
+          $r=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like '*Roblox*'})
+          Write-Host "Roblox related processes detected: $($r.Count)"
+          function W([string]$Path) {
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'invalid Windows drive'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          $src=Join-Path $env:GITHUB_WORKSPACE 'arctus350_candidate_verify'
+          "repo_wsl=$(W $src)" >> $env:GITHUB_OUTPUT
+          "ck_wsl=$(W $ck)" >> $env:GITHUB_OUTPUT
+          "tok_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+          "data_wsl=$(W $data)" >> $env:GITHUB_OUTPUT
+      - name: Test real candidate on same three independent prompts
+        run: |
+          $ErrorActionPreference='Stop'
+          $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'uncertain VRAM telemetry; do not use shared gaming GPU'
+          }
+          $free=[int]$matches[2]
+          if($free -lt 8192){throw 'need at least 8192 MiB free while Roblox runs'}
+          $repo='${{steps.preflight.outputs.repo_wsl}}'
+          $ck='${{steps.preflight.outputs.ck_wsl}}'
+          $tok='${{steps.preflight.outputs.tok_wsl}}'
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/roblox_checkpoint_probe350.py --checkpoint '$ck' --tokenizer '$tok' --out arctus350_new_2b_sft_freegen_${{github.run_id}}.json --windows-free-mib '$free' --max-new 16"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'real experimental candidate generation failed'}
+      - name: Calculate same 16-row development NLL on candidate (no training)
+        run: |
+          $ErrorActionPreference='Stop'
+          $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'uncertain VRAM; skip shared gaming GPU'
+          }
+          $free=[int]$matches[2]
+          if($free -lt 8192){throw 'need >=8192 MiB free'}
+          $repo='${{steps.preflight.outputs.repo_wsl}}'
+          $ck='${{steps.preflight.outputs.ck_wsl}}'
+          $tok='${{steps.preflight.outputs.tok_wsl}}'
+          $data='${{steps.preflight.outputs.data_wsl}}'
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350_token_nll.py --checkpoint '$ck' --tokenizer '$tok' --data '$data' --out arctus350_new_2b_sft_devnll_${{github.run_id}}.json --windows-free-mib '$free' --max-rows 16 --max-seq 512"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'real experimental candidate development NLL failed'}
+      - name: Share JSON reports only; leave new checkpoint on owner PC
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-experimental-2b-fp32-sft-readonly-evidence
+          path: |
+            arctus350_candidate_verify/arctus350_new_2b_sft_freegen_*.json
+            arctus350_candidate_verify/arctus350_new_2b_sft_devnll_*.json
+          retention-days: 7
+          if-no-files-found: warn
