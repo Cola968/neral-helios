@@ -1,0 +1,77 @@
+name: Arctus350 ONE local separated math specialist training Wednesday
+on:
+  push:
+    branches: [experiment/arctus350-separated-arithmetic-specialist-20261028]
+    paths:
+      - '.github/workflows/arctus350-math-specialist-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-specialist-20261028-one-FP32-run-only
+  cancel-in-progress: false
+jobs:
+  cpu-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_math_specialist tests.test_arctus350_balanced_arithmetic_v2 -v
+      - run: python -m py_compile frontier350/arctus350_math_specialist.py
+  gpu-rtx4070:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_1600_MATH_SPECIALIST_20261028')
+    needs: cpu-gate
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 29
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: math_specialist_checkout
+          clean: false
+          persist-credentials: false
+      - name: Check RTX4070 and pinned native model, run MAX 20min specialized addition only
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now -gt [DateTimeOffset]::Parse('2026-10-28T20:25:00+01:00')){
+            throw 'Only Wed 28 October before 20:25 permitted; user away Thu-Sun'
+          }
+          $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $root 'runs\neral350_math_rescue256_40736349769\math_rescue_nonpromotable_only.pt'
+          $tok=Join-Path $root 'frontier350_assets\tokenizer.json'
+          $v1=Join-Path $root 'runs\neraltalk350-exact-smallmath_40725139301'
+          $v2=Join-Path $root 'runs\neraltalk350-balanced-math-v2_40737679738'
+          $out=Join-Path $root 'runs\arctus350_math_specialist1600_${{github.run_id}}'
+          foreach($p in @($parent,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Pinned model/tokenizer absent'}}
+          foreach($p in @($v1,$v2)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'Immutable train/validation splits absent'}}
+          if(Test-Path -LiteralPath $out){throw 'Never overwrite prior specialist experiment'}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '34f248b2392de3cbef51bae4300bb6bcf270dd8d7af7a95ce6c90bc56af37ff4'){throw 'Native Arctus original best checkpoint SHA mismatch'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'BPE SHA mismatch'}
+          $lines=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1 -or [string]$lines[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'NVIDIA telemetry unavailable'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name; FREE_GPU_MIB=$free; TEMP_C=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8500 -or $temp -ge 80){throw 'User GPU busy or hot; no training'}
+          function W([string]$p){
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'Only local Windows drive paths supported'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'math_specialist_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_math_specialist --parent '$(W $parent)' --tokenizer '$(W $tok)' --v1 '$(W $v1)' --v2 '$(W $v2)' --out '$(W $out)' --windows-free-mib $free --windows-temperature-c $temp"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'One-time specialist training failed or was refused'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'arctus350_specialist1600_${{github.run_id}}_aggregate.json')
+      - name: Upload numeric aggregate only, never weight files or raw private text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-math-only-specialist-1600-aggregates
+          path: math_specialist_checkout/arctus350_specialist1600_*_aggregate.json
+          retention-days: 7
+          if-no-files-found: warn
