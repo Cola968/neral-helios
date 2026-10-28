@@ -206,6 +206,76 @@ def compare_native_runs(baseline, candidate):
     }
 
 
+
+def make_v3_carry_run(observations, *, checkpoint_sha256, sampling):
+    """Privacy-safe bridge for already generated native v3 *development* observations.
+
+    The caller must run the actual local model and verify the checkpoint bytes.
+    This helper only validates original carry labels and converts raw inference
+    outcomes into strict exact-completion booleans. It refuses to store prompts,
+    answers or token IDs, and it does NOT claim these are a sealed TEST split.
+    """
+    from .arctus350_carry_baseline_audit import recognize_verified_case
+    _sha(checkpoint_sha256, "checkpoint_sha256")
+    if not isinstance(observations, list):
+        raise EvidenceError("observations must be a bounded local list")
+    if not 8 <= len(observations) <= 512:
+        raise EvidenceError("8..512 case-level observations required")
+    cases = []
+    frozen_prompts = []
+    for item in observations:
+        if not isinstance(item, dict) or item.keys() != {"row", "text", "eos", "tokens"}:
+            raise EvidenceError("unexpected local observation shape")
+        if (not isinstance(item["text"], str) or len(item["text"]) > 8192 or
+            type(item["eos"]) is not bool):
+            raise EvidenceError("invalid actual generation fields")
+        if (not isinstance(item["tokens"], list) or len(item["tokens"]) > 2048 or
+            any(type(t) is not int or not 0 <= t < 16384 for t in item["tokens"])):
+            raise EvidenceError("invalid tokenizer IDs in actual generation")
+        row = item["row"]
+        try:
+            language, kind, a, b, carry = recognize_verified_case(row)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise EvidenceError("invalid source v3 generated case") from exc
+        identity = row.get("id")
+        category = "math_" + language + "_" + kind + "_" + ("carry" if carry else "no_carry")
+        # Strict complete generation, not a numeric mention or calculator output.
+        expected = row["messages"][1]["content"]
+        cases.append({
+            "id": identity, "category": category,
+            "correct": bool(item["eos"] and item["text"].strip() == expected),
+            "eos": item["eos"],
+        })
+        frozen_prompts.append({
+            "id": identity, "prompt": row["messages"][0]["content"],
+            "reference": expected,
+        })
+    canonical = sorted(({"id":x["id"], "category":x["category"]} for x in cases),
+                       key=lambda x:x["id"] if isinstance(x["id"],str) else "")
+    # Compute *content* fingerprint from real prompt/reference strings. Only the
+    # digest is carried into the report: private strings are never exported.
+    templates = sorted(frozen_prompts, key=lambda x:x["id"] if isinstance(x["id"],str) else "")
+    def digest(rows):
+        return hashlib.sha256(json.dumps(
+            rows,sort_keys=True,separators=(",",":"),ensure_ascii=False
+        ).encode("utf-8")).hexdigest()
+    report = {
+        "schema": SCHEMA,
+        "model_family": "neral-arctus350",
+        "evaluation_source": "native-checkpoint-readonly",
+        "benchmark_id": "arctus350-v3-val-development-only",
+        "benchmark_sha256": digest(canonical),
+        "prompt_template_sha256": digest(templates),
+        "scoring_version": "strict-exact-completed-v1",
+        "tokenizer_sha256": EXPECTED_TOKENIZER_SHA256,
+        "checkpoint_sha256": checkpoint_sha256,
+        "sampling": sampling,
+        "cases": cases,
+    }
+    _validate(report)
+    return report
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
