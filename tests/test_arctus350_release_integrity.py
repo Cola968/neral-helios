@@ -19,7 +19,8 @@ def cases():
 
 def result(pass_de: int = 2, pass_math: int = 1, pass_code: int = 1):
     cats={"de":pass_de/2*100,"math":pass_math*100,"code":pass_code*100}
-    return {"overall_pct":(pass_de+pass_math+pass_code)/4*100,
+    return {"suite_sha256":"a"*64,
+            "overall_pct":(pass_de+pass_math+pass_code)/4*100,
             "by_category":{k:{"cases":2 if k=="de" else 1,
                                "passed":pass_de if k=="de" else pass_math if k=="math" else pass_code,
                                "pct":v} for k,v in cats.items()}}
@@ -93,6 +94,28 @@ class ArctusScoreIntegrityTests(unittest.TestCase):
             damaged={**base,"overall_pct":bad}
             with self.subTest(bad=repr(bad)),self.assertRaises(ValueError):
                 compare(base,damaged)
+
+    def test_frozen_case_identity_must_match_before_checkpoint_comparison(self):
+        original=cases()
+        changed=[dict(row) for row in cases()]
+        changed[0]["scoring"]={"type":"exact","value":"Andere Antwort"}
+        rows=[{"id":item["id"],"text":"Ja"} for item in original]
+        baseline=score({"rows":rows},original)
+        candidate=score({"rows":rows},changed)
+        self.assertNotEqual(baseline["suite_sha256"],candidate["suite_sha256"])
+        with self.assertRaises(ValueError):
+            compare(baseline,candidate)
+
+    def test_score_comparison_refuses_missing_or_invalid_suite_fingerprint(self):
+        b=result()
+        for bad in (None,"not-a-sha","0"*64):
+            copy=dict(b)
+            if bad is None:
+                del copy["suite_sha256"]
+            else:
+                copy["suite_sha256"]=bad
+            with self.subTest(fingerprint=bad),self.assertRaises(ValueError):
+                compare(b,copy)
 
     def test_counts_must_match_reported_accuracy(self):
         base=result(pass_de=1)
