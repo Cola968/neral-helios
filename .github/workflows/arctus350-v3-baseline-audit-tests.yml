@@ -1,0 +1,21 @@
+name: Arctus350 fresh v3 carry inference audit CPU contracts
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_carry_baseline_audit.py'
+      - 'tests/test_arctus350_carry_baseline_audit.py'
+      - '.github/workflows/arctus350-v3-baseline-audit-tests.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_carry_baseline_audit tests.test_arctus350_carry_curriculum_v3 -v
+      - run: python -m py_compile frontier350/arctus350_carry_baseline_audit.py
