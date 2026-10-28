@@ -1,0 +1,84 @@
+name: Arctus350 ONE Wednesday frozen-last-FFN replay FP32 experiment
+on:
+  push:
+    branches: [experiment/arctus350-frozen-ffn-balanced-replay-20261028]
+    paths:
+      - '.github/workflows/arctus350-frozen-ffn-replay-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-20261028-one-frozen-ffn-sft
+  cancel-in-progress: false
+jobs:
+  cpu-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_frozen_ffn_replay tests.test_arctus350_gradient_diagnostics tests.test_arctus350_balanced_math_v2_pilot -v
+      - run: python -m py_compile frontier350/arctus350_frozen_ffn_replay.py
+  gpu-local-only:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_FROZEN_FFN_ARCTUS_20261028')
+    needs: cpu-gate
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: neral_frozen_ffn_checkout
+          clean: false
+          persist-credentials: false
+      - name: Own PC only, Wednesday before 20 15, pin all model and datasets
+        run: |
+          $ErrorActionPreference='Stop'
+          $local=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($local.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $local -ge [DateTimeOffset]::Parse('2026-10-28T20:15:00+01:00')){
+            throw 'Outside user authorized single Wednesday local session'
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_math_rescue256_40736349769\math_rescue_nonpromotable_only.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $v1=Join-Path $assets 'runs\neraltalk350-exact-smallmath_40725139301'
+          $v2=Join-Path $assets 'runs\neraltalk350-balanced-math-v2_40737679738'
+          $out=Join-Path $assets 'runs\neral350_frozen_ffn_replay_${{github.run_id}}'
+          foreach($p in @($parent,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Pinned local weights or tokenizer unavailable'}}
+          foreach($p in @($data,$v1,$v2)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'Pinned local split unavailable'}}
+          if(Test-Path -LiteralPath $out){throw 'Refuse to overwrite experiment'}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '34f248b2392de3cbef51bae4300bb6bcf270dd8d7af7a95ce6c90bc56af37ff4'){
+            throw 'Original best experiment checkpoint checksum failed'
+          }
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){
+            throw 'Native BPE tokenizer checksum failed'
+          }
+          $gpu=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or [string]$gpu[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'Missing independent NVIDIA telemetry'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name, VRAM_FREE_MIB=$free, TEMP_C=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192 -or $temp -ge 80){
+            throw 'User GPU busy or hot: do not run experiment'
+          }
+          function W([string]$path){
+            $full=[IO.Path]::GetFullPath($path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'Only local Windows drive paths allowed'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'neral_frozen_ffn_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_frozen_ffn_replay --parent '$(W $parent)' --tokenizer '$(W $tok)' --original '$(W $data)' --v1 '$(W $v1)' --v2 '$(W $v2)' --out '$(W $out)' --windows-free-mib $free --windows-temp-c $temp"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'One bounded native Arctus SFT experiment failed or was refused'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'neral_frozen_replay_${{github.run_id}}_aggregate.json')
+      - name: Export ONLY aggregate metrics without prompts or model weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frozen-last-ffn-288-aggregate-only
+          path: neral_frozen_ffn_checkout/neral_frozen_replay_*_aggregate.json
+          retention-days: 7
+          if-no-files-found: warn
