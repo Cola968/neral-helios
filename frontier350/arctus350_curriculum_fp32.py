@@ -38,6 +38,19 @@ def admit_curriculum(authorized,windows_free,cuda_free,cap,steps,seq):
                 and 0<cap<=.75 and 1<=steps<=240 and 16<=seq<=256)
 
 
+def approved_metadata_row(row):
+    """Allow authored NERAL training rows; human OASST2 only for chat.
+
+    License/source labels must be exact. This is *metadata-based* eligibility,
+    not a new legal provenance audit of external source content.
+    """
+    return bool(
+        (row[3].startswith("neral-generated-") and row[4]==LICENSE)
+        or (row[2]=="chat" and row[3].startswith("oasst2-human-")
+            and row[4]=="Apache-2.0")
+    )
+
+
 def select_curriculum(rows,quotas):
     """Select *unique* supported source examples; balance task exposure."""
     if (not isinstance(quotas,dict) or not quotas
@@ -49,8 +62,8 @@ def select_curriculum(rows,quotas):
     groups={}
     for domain,n in quotas.items():
         accepted=[
-            r for r in rows if r[2]==domain and r[4]==LICENSE and
-            r[3].startswith("neral-generated-") and r[1] in ("de","en")
+            r for r in rows if r[2]==domain and approved_metadata_row(r)
+            and r[1] in ("de","en")
         ]
         ordered=sorted(accepted,key=lambda r:(hashlib.sha256(r[0].encode("utf8")).hexdigest(),r[0]))
         if len(ordered)<n:
@@ -79,9 +92,10 @@ def _eligible(tok,rows):
     from .chat350_sft_format import encode_messages
     out=[]
     for row in rows:
-        if row["domain"] not in QUOTAS or row["license"]!=LICENSE:
+        if row["domain"] not in QUOTAS:
             continue
-        if not row["source"].startswith("neral-generated-"):
+        if not approved_metadata_row((row["id"],row["language"],row["domain"],
+                                     row["source"],row["license"],None)):
             continue
         try:
             e=encode_messages(tok,row["messages"],max_seq_len=SEQ)
