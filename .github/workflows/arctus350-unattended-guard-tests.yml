@@ -1,0 +1,21 @@
+name: Arctus350 unattended local training guard tests (CPU)
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_unattended_curriculum.py'
+      - 'tests/test_arctus350_unattended_curriculum.py'
+      - '.github/workflows/arctus350-unattended-guard-tests.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_unattended_curriculum -v
+      - run: python -m py_compile frontier350/arctus350_unattended_curriculum.py
