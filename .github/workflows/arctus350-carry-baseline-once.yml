@@ -1,0 +1,84 @@
+name: NERAL native Arctus350 one read-only carry v3 VAL baseline Wednesday
+on:
+  push:
+    branches: [audit/arctus350-20261028-fresh-carry-baseline]
+    paths:
+      - '.github/workflows/arctus350-carry-baseline-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral350-v3-untrained-baseline-once-20261028
+  cancel-in-progress: false
+jobs:
+  cpu-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_carry_baseline_audit tests.test_arctus350_carry_curriculum_v3 -v
+      - run: python -m py_compile frontier350/arctus350_carry_baseline_audit.py
+  one-read-only-owner-rtx4070:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_ARCTUS_CARRY_BASELINE_20261028')
+    needs: cpu-check
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: neral_carry_baseline_checkout
+          clean: false
+          persist-credentials: false
+      - name: Verify native parent, private v3 data, idle GPU and Wednesday cutoff; infer only
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now -ge [DateTimeOffset]::Parse('2026-10-28T20:15:00+01:00')){
+            throw 'Owner GPU use forbidden outside Wednesday or after preflight cutoff'
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_math_rescue256_40736349769\math_rescue_nonpromotable_only.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'runs\neraltalk350-column-carry-v3_40746201648'
+          foreach($p in @($parent,$tokenizer)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Pinned private native source/tokenizer absent'}
+          }
+          if(-not(Test-Path -LiteralPath $data -PathType Container)){throw 'V3 val split absent'}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '34f248b2392de3cbef51bae4300bb6bcf270dd8d7af7a95ce6c90bc56af37ff4'){
+            throw 'Native 96+256 best parent SHA differs'
+          }
+          if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){
+            throw 'Native BPE SHA differs'
+          }
+          $lines=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1 -or [string]$lines[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'Independent NVIDIA telemetry absent'
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name FREE_MIB=$free TEMP_C=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192 -or $temp -ge 80){
+            throw 'Owner GPU busy/hot, do not evaluate'
+          }
+          function W([string]$path){
+            $full=[IO.Path]::GetFullPath($path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'Only mounted local Windows path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'neral_carry_baseline_checkout'
+          $out="arctus350_v3_carry_readonly_${{github.run_id}}_aggregate.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_carry_baseline_audit --parent '$(W $parent)' --tokenizer '$(W $tokenizer)' --data '$(W $data)' --out '$out' --windows-free-mib $free --windows-temp-c $temp"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'One-time read-only inference failed or was denied'}
+      - name: Export aggregate counts only, never model weights or prompts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-carry-v3-readonly-val-aggregate
+          path: neral_carry_baseline_checkout/arctus350_v3_carry_readonly_*_aggregate.json
+          retention-days: 7
+          if-no-files-found: warn
