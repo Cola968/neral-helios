@@ -2,20 +2,24 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
-  function context(messages,prompt,budget,maxContext,checkpoint){
+  function context(messages,prompt,budget,maxContext,checkpoint,runtimeId=null,family='neral-byte'){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
       if(u.role==='user'&&u.mode==='chat'&&a.role==='assistant'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint&&
-         !a.interrupted&&!a.imported&&!u.imported&&(!a.source||a.source==='native-model')){
-        pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content}]);i++;
+         !a.interrupted&&!a.imported&&!u.imported&&(!a.source||a.source==='native-model')&&
+         (!runtimeId||(a.runtime_id===runtimeId&&a.model_family===family))){
+        pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content,
+          ...(runtimeId?{runtime_id:runtimeId,model_family:family,checkpoint,source:'native-model',imported:false,interrupted:false}:{})}]);i++;
       }
     }
     const format=rows=>rows.map(m=>(m.role==='user'?'User':'Assistant')+': '+m.content.trim()+'\n').join('')+'User: '+prompt.trim()+'\nAssistant:';
     const original=pairs.length;
-    while(pairs.length&&(pairs.length>6||bytes(format(pairs.flat()))+1+budget>maxContext))pairs.shift();
+    // BPE length is checked by the actual tokenizer on the server, never treated as bytes.
+    const fits=rows=>family==='neral-arctus350'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:bytes(format(rows))+1+budget<=maxContext;
+    while(pairs.length&&(pairs.length>6||!fits(pairs.flat())))pairs.shift();
     const history=pairs.flat();
-    return {history,omitted:original-pairs.length,fits:bytes(format(history))+1+budget<=maxContext};
+    return {history,omitted:original-pairs.length,fits:fits(history)};
   }
   function sourceLabel(message,labels={}){
     if(message.mode==='external-model'||String(message.source||'').startsWith('external'))return 'Externes Modell · nicht NERAL';
@@ -24,7 +28,7 @@
     if(message.mode==='guarded-response')return 'Sicherheitsregel · keine Modellantwort';
     if(message.mode==='error')return 'Anfrage fehlgeschlagen';
     if(message.mode==='no-model')return 'Kein natives Modell geladen';
-    const names={original:'Neral 20M · Original',pilot_01:'Neral 20M · Pilot 01',pilot_02:'Neral 20M · Preview 02',neral40m:'Neral 40M · Experiment',neral50m:'Neral 50M · Sprachpilot',neral50m_i1:'Neral 50M · I1'};
+    const names={arctus350:'Arctus350 · experimentell',original:'Neral 20M · Original',pilot_01:'Neral 20M · Pilot 01',pilot_02:'Neral 20M · Preview 02',neral40m:'Neral 40M · Experiment',neral50m:'Neral 50M · Sprachpilot',neral50m_i1:'Neral 50M · I1'};
     const name=Object.hasOwn(names,message.checkpoint)?names[message.checkpoint]:Object.hasOwn(labels,message.checkpoint)?labels[message.checkpoint]:null;
     return message.mode==='trained-generation'&&typeof name==='string'?
       (message.imported?'Modellangabe (nicht verifiziert) · ':'Eigenes Modell · ')+name:'Modellherkunft nicht verifiziert';
@@ -39,6 +43,8 @@
     if(result.mode==='trained-generation'){
       if(result.model_generated!==true||typeof result.active_checkpoint!=='string'||!result.active_checkpoint||
          (result.source&&result.source!=='native-model'))throw Error('Die Herkunft der Modellantwort ist widersprüchlich.');
+      if(result.active_checkpoint==='arctus350'&&(result.model_family!=='neral-arctus350'||
+         !/^neral-arctus350:[a-f0-9]{64}$/.test(result.runtime_id||'')))throw Error('Die Arctus350-Herkunft ist nicht verifiziert.');
     }else if(!['solve-tool','code-tool','guarded-response'].includes(result.mode)||result.model_generated!==false){
       throw Error('Die Herkunft der Antwort ist nicht verifiziert.');
     }
@@ -129,3 +135,4 @@
   const api={context,blocks,render,parseImport,sourceLabel,readGenerationResponse,normalizeStoredChat};
   if(typeof module!=='undefined')module.exports=api;else root.HeliosCore=api;
 })(typeof window==='undefined'?{}:window);
+
