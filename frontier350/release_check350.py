@@ -6,24 +6,32 @@ def load(path):
     return json.loads(Path(path).read_text(encoding="utf8"))
 
 def check(data_quality,sft_final,sft_capability,sft_slice,dpo_final=None,dpo_capability=None,external_decision=None,require_external=False):
+    # Strict booleans matter: bool("false") and bool(1) are True in Python,
+    # which could let malformed JSON approve a weaker Arctus checkpoint.
+    cap = sft_capability.get("comparison", {})
     checks={
-        "data_quality":bool(data_quality.get("gates",{}).get("pass")),
+        "data_quality":data_quality.get("gates",{}).get("pass") is True,
         "sft_manual_review":sft_final.get("decision")=="manual_review_required",
-        "sft_capability":bool(sft_capability.get("comparison",{}).get("capability_no_regression")),
-        "sft_slice":bool(sft_slice.get("slice_no_regression")),
+        "sft_capability":(
+            sft_capability.get("cases") == 30
+            and type(sft_capability.get("cases")) is int
+            and cap.get("capability_no_regression") is True
+            and cap.get("category_no_regression") is True
+        ),
+        "sft_slice":sft_slice.get("slice_no_regression") is True,
     }
     stage="sft_candidate"
     if dpo_final is not None:
         checks["dpo_manual_review"]=dpo_final.get("decision")=="manual_review_required"
-        checks["dpo_replay"]=bool(dpo_final.get("replay_guard"))
-        checks["dpo_generation"]=bool(dpo_final.get("generation_guard"))
-        checks["dpo_capability"]=bool(dpo_final.get("capability_guard"))
+        checks["dpo_replay"]=dpo_final.get("replay_guard") is True
+        checks["dpo_generation"]=dpo_final.get("generation_guard") is True
+        checks["dpo_capability"]=dpo_final.get("capability_guard") is True
         if dpo_capability is not None:
-            checks["dpo_capability_report"]=bool(dpo_capability.get("comparison",{}).get("capability_no_regression"))
+            checks["dpo_capability_report"]=(dpo_capability.get("cases") == 30 and type(dpo_capability.get("cases")) is int and dpo_capability.get("comparison",{}).get("capability_no_regression") is True and dpo_capability.get("comparison",{}).get("category_no_regression") is True)
         stage="dpo_candidate"
     external_present=external_decision is not None
     if external_present:
-        checks["external_holdouts_no_regression"]=bool(external_decision.get("pass"))
+        checks["external_holdouts_no_regression"]=external_decision.get("pass") is True
     elif require_external:
         checks["external_holdouts_present"]=False
     passed=all(checks.values())
