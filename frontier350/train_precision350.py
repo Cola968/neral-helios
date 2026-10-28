@@ -35,5 +35,9 @@ def checkpoint_model_state(model, mode: str, *, resume: bool = False, torch_modu
     state=model.state_dict()
     # Preserve the FP32 masters in the optimizer-resume checkpoint. BF16 is
     # exported only for the immutable selected inference candidate.
-    dtype=torch_module.float32 if resume else torch_module.bfloat16
-    return {name: value.detach().to(dtype).cpu() for name,value in state.items()}
+    if resume:
+        # Preserve the exact FP32 master tensor values without a redundant
+        # cast. The optimizer state remains FP32 as well.
+        return {name: value.detach().cpu() for name,value in state.items()}
+    return {name: value.detach().to(torch_module.bfloat16).cpu()
+            for name,value in state.items()}
