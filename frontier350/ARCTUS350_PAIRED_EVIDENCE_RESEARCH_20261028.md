@@ -44,6 +44,15 @@ Ergebnisse: Anzahl gepaarter Fälle, absolute korrekte Antworten pro Kategorie, 
 
 **Beweiskraft:** Eingabeangaben sind nicht kryptografisch an die tatsächlichen GPU-Inferenzläufe gebunden. \`provenance_verified=false\` und \`release_authorization=none\` bleiben daher auch bei erfolgreichen Paarvergleichen gesetzt. Die Test-Fixtures im Repository sind synthetisch und enthalten **keine tatsächlichen Modellleistungen**.
 
+
+### Brücke für echte v3-VAL-Modellbeobachtungen
+
+Zusätzlich implementiert: \`make_v3_carry_run(observations, checkpoint_sha256=..., sampling=...)\`. Es verarbeitet das bestehende **lokal erzeugte** \`arctus350_carry_baseline_audit.py\`-Observationsformat (\`row\`, \`text\`, \`eos\`, \`tokens\`) und prüft die originalen v3-Labels mit dem unabhängigen Quellparser. Nur \`correct/eos\` je Fall werden ausgegeben, plus eine aus den **tatsächlichen Prompt- und Referenztexten** berechnete Prüfsumme; Rohtexte und Tokens bleiben privat im lokalen Inferenzprozess. Die strenge Erfolgsdefinition verlangt **exakte Antwort und EOS-Abschluss**, kein bloßes Erwähnen der richtigen Zahl.
+
+Wichtig: Dies ist **zunächst ein getesteter Adapter für spätere reale Modellläufe**, kein Nachweis, dass ein solcher Lauf jetzt auf einer GPU durchgeführt worden wäre. Der vorhandene 32-Fälle-v3-Test wurde bereits zu Entwicklungsdaten; er ist **nicht** als unberührtes TEST-Set verwendbar. Der exakte Checkpoint-Digest muss vom lokalen System mit den tatsächlichen Gewichtedateien belegt werden.
+
+**CI (GitHub-hosted, ohne CUDA):** [15/15 grüne echte CPU-Tests](https://github.com/Cola968/neral-helios/actions/runs/40783964233) einschließlich bestehender v3-VAL-Auswahl/Scoring-Schutztests und der neuen Bridge-Tests. RED davor: [40783900407](https://github.com/Cola968/neral-helios/actions/runs/40783900407), da die Bridge zunächst nicht implementiert war.
+
 ## Hugging Face Referenzprüfung ohne Modell-Download
 
 | Referenz | Relevanz | Lizenz laut HF-Hub-Metadaten |
