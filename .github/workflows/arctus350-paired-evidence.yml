@@ -1,0 +1,26 @@
+name: Arctus350 Paired Evidence CPU Gate
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_paired_evidence.py'
+      - 'tests/test_arctus350_paired_evidence.py'
+      - 'tests/test_arctus350_paired_evidence_bridge.py'
+      - 'frontier350/arctus350_carry_baseline_audit.py'
+      - 'tests/test_arctus350_carry_baseline_audit.py'
+      - '.github/workflows/arctus350-paired-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paired-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pure Python offline evidence and existing carry tests (no GPU, no model)
+        run: python -m unittest tests.test_arctus350_paired_evidence tests.test_arctus350_paired_evidence_bridge tests.test_arctus350_carry_baseline_audit -v
+      - name: Syntax
+        run: python -m py_compile frontier350/arctus350_paired_evidence.py tests/test_arctus350_paired_evidence.py
