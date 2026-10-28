@@ -50,15 +50,18 @@ class SelectedCheckpointTests(unittest.TestCase):
                 return {"answer_nll": 1.8 if model.identity == "best_step" else 2.6,
                         "model_identity": model.identity}
             return go
-        return evaluate_selected_checkpoint(
-            model, checkpoint, loader=load, checkpoint_digest=lambda _: "c" * 64,
+        options=dict(
+            loader=load, checkpoint_digest=lambda _: "c" * 64,
             expected_config=self.config,
             expected_tokenizer_sha256=self.tokenizer,
             expected_source_sha256=self.source,
             expected_data_manifest_sha256=self.data,
             last_step=1200, expected_best_step=200,
             eval_validation=ev("val"), eval_test=ev("test"),
-            eval_replay=ev("replay"), **kw)
+            eval_replay=ev("replay"),
+        )
+        options.update(kw)
+        return evaluate_selected_checkpoint(model, checkpoint, **options)
 
     def test_best_weights_are_loaded_before_any_test_evaluation(self):
         with tempfile.TemporaryDirectory() as tmp:
