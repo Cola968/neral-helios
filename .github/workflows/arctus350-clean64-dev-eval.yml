@@ -1,0 +1,58 @@
+name: Arctus350 real 2B versus cleaned FP32-64 SFT dev evaluation
+on:
+  pull_request:
+    types: [opened]
+    paths:
+      - '.github/workflows/arctus350-clean64-dev-eval.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-clean64-candidate-readonly-dev-eval
+  cancel-in-progress: false
+jobs:
+  exact-development-evidence:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_clean64_eval_checkout
+          clean: false
+          persist-credentials: false
+      - name: Read-only 12-case native 2B versus local 64-step candidate
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $cand=Join-Path $assets 'runs\neral350_2b_fp32_clean64_40718736208\experimental_nonpromotable_64step.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $resources=@($base,$cand,$tok)
+          foreach($p in $resources){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'original or experimental local model missing'}}
+          if((Get-FileHash -LiteralPath $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw 'original source checkpoint SHA mismatch'}
+          if((Get-FileHash -LiteralPath $cand -Algorithm SHA256).Hash.ToLowerInvariant() -ne '57bbd1f70fcca6aee5e557b132d6b1b3f7b5e3378d0248923e5478bae36caf58'){throw 'clean64 candidate SHA mismatch'}
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'invalid NVIDIA memory evidence'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3]
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192){throw 'GPU or free-VRAM gate failed'}
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'unexpected Windows path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_clean64_eval_checkout'
+          $root=W $repo
+          $cmd="set -e; cd '$root'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$(W $base)' --tokenizer '$(W $tok)' --cases frontier350/chat350_dev_cases.json --out arctus350_clean64_baseline_${{github.run_id}}.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$(W $cand)' --tokenizer '$(W $tok)' --cases frontier350/chat350_dev_cases.json --out arctus350_clean64_candidate_${{github.run_id}}.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/compare_chat350.py --baseline arctus350_clean64_baseline_${{github.run_id}}.json --candidate arctus350_clean64_candidate_${{github.run_id}}.json --out arctus350_clean64_comparison_${{github.run_id}}.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'native development comparison failed without release'}
+      - name: Upload DEV reports, never private checkpoints or final holdouts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-clean64-12case-development-evidence
+          path: arctus350_clean64_eval_checkout/arctus350_clean64_*_*.json
+          retention-days: 7
+          if-no-files-found: warn
