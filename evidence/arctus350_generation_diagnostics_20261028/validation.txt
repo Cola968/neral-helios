@@ -1,0 +1,101 @@
+Synthetic CPU-only validation on 2026-10-28, Python 3.12.14, Windows.
+Base: 105502d; no GPU calls, checkpoints, tokenizers, original prompts or frozen case files opened.
+Commands, scope and interpretation: frontier350/README.md and evidence README.md.
+Runner outcomes and failing test/module names follow; local paths/tracebacks and repeated passes are omitted.
+
+INITIAL RED (before module existed)
+Expected failure: CPU diagnostics module must exist (20 tests); CLI module absent (4 tests).
+Ran 24 tests in 0.052s
+FAILED (failures=20, errors=4)
+
+EDGE RED (huge numeric input before range-check fix)
+ERROR: test_huge_summary_integer_is_rejected_as_invalid_not_an_overflow (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_huge_summary_integer_is_rejected_as_invalid_not_an_overflow)
+OverflowError: int too large to convert to float
+Ran 30 tests in 1.241s
+FAILED (errors=1)
+
+GREEN (30 new diagnostic tests)
+Ran 30 tests in 1.211s
+OK
+
+RELEASE INTEGRITY + NEW DIAGNOSTICS (96 tests)
+Ran 96 tests in 1.161s
+OK
+
+EXISTING CHAT + INTEGRITY + INITIAL 24 NEW TESTS (Windows)
+FAIL: test_safe_math (tests.test_external_bench350.ExternalEvalTests.test_safe_math)
+FAIL: test_safe_mbpp_pass (tests.test_external_bench350.ExternalEvalTests.test_safe_mbpp_pass)
+Ran 179 tests in 1.840s
+FAILED (failures=2, skipped=4)
+
+BROAD unittest discover (Windows; missing optional test dependencies)
+ERROR: test_arctus_recovery_hardening (unittest.loader._FailedTest.test_arctus_recovery_hardening)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_b2_data (unittest.loader._FailedTest.test_b2_data)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_benchmark_v5 (unittest.loader._FailedTest.test_benchmark_v5)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_curriculum_v2 (unittest.loader._FailedTest.test_curriculum_v2)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_finalize_b2_benchmark50 (unittest.loader._FailedTest.test_finalize_b2_benchmark50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_foundation_v2 (unittest.loader._FailedTest.test_foundation_v2)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_generation_probe50 (unittest.loader._FailedTest.test_generation_probe50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_gpu_control_bridge (unittest.loader._FailedTest.test_gpu_control_bridge)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_growth (unittest.loader._FailedTest.test_growth)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_gsm8k_benchmark50 (unittest.loader._FailedTest.test_gsm8k_benchmark50)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_helios_i1_ready (unittest.loader._FailedTest.test_helios_i1_ready)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_helios_runtime (unittest.loader._FailedTest.test_helios_runtime)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_hf_candidate_admission50 (unittest.loader._FailedTest.test_hf_candidate_admission50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_hf_data_policy50 (unittest.loader._FailedTest.test_hf_data_policy50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_i1_data_recovery (unittest.loader._FailedTest.test_i1_data_recovery)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_i1_hardening (unittest.loader._FailedTest.test_i1_hardening)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_instruct50 (unittest.loader._FailedTest.test_instruct50)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_kv_cache (unittest.loader._FailedTest.test_kv_cache)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_model100_helix (unittest.loader._FailedTest.test_model100_helix)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_model50 (unittest.loader._FailedTest.test_model50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_neral_intelligence_score (unittest.loader._FailedTest.test_neral_intelligence_score)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_nis2 (unittest.loader._FailedTest.test_nis2)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_pretrain50_stage_b (unittest.loader._FailedTest.test_pretrain50_stage_b)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_projects (unittest.loader._FailedTest.test_projects)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_public_eval_policy50 (unittest.loader._FailedTest.test_public_eval_policy50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_regressions (unittest.loader._FailedTest.test_regressions)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_resolve_g1_baseline50 (unittest.loader._FailedTest.test_resolve_g1_baseline50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_rope_cache350 (unittest.loader._FailedTest.test_rope_cache350)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_select_m1_source50 (unittest.loader._FailedTest.test_select_m1_source50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_sft50_data (unittest.loader._FailedTest.test_sft50_data)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_sft_padding_trim50 (unittest.loader._FailedTest.test_sft_padding_trim50)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_sft_sequence_contract (unittest.loader._FailedTest.test_sft_sequence_contract)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_validate_sft50_dataset (unittest.loader._FailedTest.test_validate_sft50_dataset)
+ModuleNotFoundError: No module named 'pytest'
+FAIL: test_safe_math (test_external_bench350.ExternalEvalTests.test_safe_math)
+FAIL: test_safe_mbpp_pass (test_external_bench350.ExternalEvalTests.test_safe_mbpp_pass)
+Ran 212 tests in 1.653s
+FAILED (failures=2, errors=33, skipped=4)

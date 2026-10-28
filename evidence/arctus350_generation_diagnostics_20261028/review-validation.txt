@@ -1,0 +1,107 @@
+PR #145 critical review, 2026-10-28, Python 3.12.14, Windows.
+Reviewed head: 1362fce0b4158e3722634c089d57008dfe92bc01.
+Synthetic CPU-only tests; no checkpoints, original prompts, frozen suites or GPU calls.
+Broad run: same FAIL/ERROR test/module names as the original recorded run (verified by set comparison).
+Compilation and git diff --check: exit 0.
+Tracebacks, private paths and repeated passing tests omitted.
+
+REVIEW RED (before semantic/validation fixes)
+ERROR: test_cli_reports_safe_actionable_validation_reason_without_echoing_private_values (tests.test_chat350_dev_generation_diagnostics.DiagnosticsCliTests.test_cli_reports_safe_actionable_validation_reason_without_echoing_private_values)
+FAIL: test_echo_rejects_invalid_unicode_instead_of_measuring_it (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_echo_rejects_invalid_unicode_instead_of_measuring_it) (prefix="'User: x\\nAssistant:'")
+FAIL: test_echo_rejects_invalid_unicode_instead_of_measuring_it (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_echo_rejects_invalid_unicode_instead_of_measuring_it) (prefix="'User: x\\ud800\\nAssistant:'")
+FAIL: test_eos_count_cannot_exceed_rows_that_generated_any_token (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_eos_count_cannot_exceed_rows_that_generated_any_token)
+FAIL: test_eos_count_requires_a_possible_shared_terminal_token (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_eos_count_requires_a_possible_shared_terminal_token)
+FAIL: test_prefix_echo_does_not_split_identifiers_or_combining_mark_words (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_prefix_echo_does_not_split_identifiers_or_combining_mark_words) (prompt='foo', answer='foo_bar')
+FAIL: test_prefix_echo_does_not_split_identifiers_or_combining_mark_words (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_prefix_echo_does_not_split_identifiers_or_combining_mark_words) (prompt='x', answer='x\u0301')
+FAIL: test_prefix_echo_does_not_split_identifiers_or_combining_mark_words (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_prefix_echo_does_not_split_identifiers_or_combining_mark_words) (prompt='Ja', answer='Ja-nein')
+FAIL: test_prefix_echo_does_not_split_identifiers_or_combining_mark_words (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_prefix_echo_does_not_split_identifiers_or_combining_mark_words) (prompt='can', answer="can't")
+FAIL: test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets) (change='changed')
+FAIL: test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets) (change='missing')
+FAIL: test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets) (change='added')
+FAIL: test_source_ngram_summary_must_be_feasible_with_reported_stops (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_source_ngram_summary_must_be_feasible_with_reported_stops) (key='mean_repeated_trigram_fraction')
+FAIL: test_source_ngram_summary_must_be_feasible_with_reported_stops (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_source_ngram_summary_must_be_feasible_with_reported_stops) (key='mean_distinct2_fraction')
+FAIL: test_summary_cannot_claim_an_eos_after_an_earlier_occurrence (tests.test_chat350_dev_generation_diagnostics.DiagnosticsTests.test_summary_cannot_claim_an_eos_after_an_earlier_occurrence)
+Ran 39 tests in 1.217s
+FAILED (failures=14, errors=1)
+
+IO RED (before path/atomic-output fixes)
+ERROR: test_cli_path_resolution_failure_is_private_and_does_not_write_unchecked_output (tests.test_chat350_dev_generation_diagnostics.DiagnosticsCliTests.test_cli_path_resolution_failure_is_private_and_does_not_write_unchecked_output)
+FAIL: test_cli_failed_output_replacement_preserves_destination_and_cleans_tempfile (tests.test_chat350_dev_generation_diagnostics.DiagnosticsCliTests.test_cli_failed_output_replacement_preserves_destination_and_cleans_tempfile)
+Ran 42 tests in 1.510s
+FAILED (failures=1, errors=1, skipped=1)
+
+FINAL NEW DIAGNOSTICS + RELEASE INTEGRITY
+Ran 109 tests in 1.495s
+OK (skipped=1)
+
+BROAD unittest discover (Windows)
+ERROR: test_arctus_recovery_hardening (unittest.loader._FailedTest.test_arctus_recovery_hardening)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_b2_data (unittest.loader._FailedTest.test_b2_data)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_benchmark_v5 (unittest.loader._FailedTest.test_benchmark_v5)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_curriculum_v2 (unittest.loader._FailedTest.test_curriculum_v2)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_finalize_b2_benchmark50 (unittest.loader._FailedTest.test_finalize_b2_benchmark50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_foundation_v2 (unittest.loader._FailedTest.test_foundation_v2)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_generation_probe50 (unittest.loader._FailedTest.test_generation_probe50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_gpu_control_bridge (unittest.loader._FailedTest.test_gpu_control_bridge)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_growth (unittest.loader._FailedTest.test_growth)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_gsm8k_benchmark50 (unittest.loader._FailedTest.test_gsm8k_benchmark50)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_helios_i1_ready (unittest.loader._FailedTest.test_helios_i1_ready)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_helios_runtime (unittest.loader._FailedTest.test_helios_runtime)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_hf_candidate_admission50 (unittest.loader._FailedTest.test_hf_candidate_admission50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_hf_data_policy50 (unittest.loader._FailedTest.test_hf_data_policy50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_i1_data_recovery (unittest.loader._FailedTest.test_i1_data_recovery)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_i1_hardening (unittest.loader._FailedTest.test_i1_hardening)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_instruct50 (unittest.loader._FailedTest.test_instruct50)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_kv_cache (unittest.loader._FailedTest.test_kv_cache)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_model100_helix (unittest.loader._FailedTest.test_model100_helix)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_model50 (unittest.loader._FailedTest.test_model50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_neral_intelligence_score (unittest.loader._FailedTest.test_neral_intelligence_score)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_nis2 (unittest.loader._FailedTest.test_nis2)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_pretrain50_stage_b (unittest.loader._FailedTest.test_pretrain50_stage_b)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_projects (unittest.loader._FailedTest.test_projects)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_public_eval_policy50 (unittest.loader._FailedTest.test_public_eval_policy50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_regressions (unittest.loader._FailedTest.test_regressions)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_resolve_g1_baseline50 (unittest.loader._FailedTest.test_resolve_g1_baseline50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_rope_cache350 (unittest.loader._FailedTest.test_rope_cache350)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_select_m1_source50 (unittest.loader._FailedTest.test_select_m1_source50)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_sft50_data (unittest.loader._FailedTest.test_sft50_data)
+ModuleNotFoundError: No module named 'pytest'
+ERROR: test_sft_padding_trim50 (unittest.loader._FailedTest.test_sft_padding_trim50)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_sft_sequence_contract (unittest.loader._FailedTest.test_sft_sequence_contract)
+ModuleNotFoundError: No module named 'torch'
+ERROR: test_validate_sft50_dataset (unittest.loader._FailedTest.test_validate_sft50_dataset)
+ModuleNotFoundError: No module named 'pytest'
+FAIL: test_safe_math (test_external_bench350.ExternalEvalTests.test_safe_math)
+FAIL: test_safe_mbpp_pass (test_external_bench350.ExternalEvalTests.test_safe_mbpp_pass)
+Ran 231 tests in 1.969s
+FAILED (failures=2, errors=33, skipped=5)
