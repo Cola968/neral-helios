@@ -132,12 +132,16 @@ def _explicit_calculation(prompt: str) -> ToolAnswer | None:
 
 
 def _percentage(prompt: str) -> ToolAnswer | None:
-    pattern = rf"(?<!\d)({_NUM})\s*(?:%|prozent|percent)\s+(?:von|of)\s+({_NUM})\b"
-    match = re.search(pattern, prompt, re.I)
-    if not match or not re.search(r"wie\s+viel|wieviel|calculate|compute|what\s+is|berechne", prompt, re.I):
+    """Never return 10% of 50 as the full answer to '10% of 50 plus 3'."""
+    prefix = r"(?:wie\s+viel\s+(?:ist|sind)|wieviel\s+(?:ist|sind)|calculate|compute|what\s+is|berechne)"
+    pattern = rf"\s*{prefix}\s+({_NUM})\s*(?:%|prozent|percent)\s+(?:von|of)\s+({_NUM})\s*[?!.]?\s*"
+    match = re.fullmatch(pattern, prompt, re.I)
+    if not match:
         return None
-    return ToolAnswer("percentage", _pretty(_reasonable(_number(match.group(1)) * _number(match.group(2)) / 100)))
-
+    return ToolAnswer(
+        "percentage",
+        _pretty(_reasonable(_number(match.group(1))*_number(match.group(2))/100)),
+    )
 
 def _linear_equation(prompt: str) -> ToolAnswer | None:
     if not re.search(r"\blöse\b|\bsolve\b|\bnach\s+x\b", prompt, re.I):
@@ -200,11 +204,46 @@ def _force(prompt: str) -> ToolAnswer | None:
     return ToolAnswer("newton-second-law", _pretty(_reasonable(_number(mass.group(1)) * _number(accel.group(1)))) + " N")
 
 
+def _bare_calculation(prompt: str) -> ToolAnswer | None:
+    """Only a COMPLETE standalone arithmetic expression; never partial text/code.
+
+    Whitelist AST already rejects calls, names, attributes and resource abuse.
+    The tool source is explicitly labeled in the local UI; this is not
+    evidence the native LM itself can calculate.
+    """
+    normalized = _normalized_expression(prompt)
+    normalized = re.sub(r"(?:\s*=\s*\??|\s*\?)\s*$", "", normalized).strip()
+    if not normalized or len(normalized) > 120:
+        return None
+    if re.fullmatch(r"[\d\s.()+\-*/]+", normalized) is None:
+        return None
+    try:
+        parsed = ast.parse(normalized, mode="eval")
+        if not any(isinstance(n, ast.BinOp) for n in ast.walk(parsed)):
+            return None
+        result = _arithmetic(normalized)
+        return ToolAnswer("calculator", _pretty(result))
+    except (ValueError, SyntaxError, OverflowError, ZeroDivisionError):
+        return None
+
+
+_COMPOUND_FOLLOWUP = re.compile(
+    r"\b(?:then|and\s+then|und\s+dann|und\s+danach|und|and|danach)\s+"
+    r"(?:(?:then|dann|danach)\s+)?"
+    r"(?:add|addiere|subtract|subtrahiere|multiply|multipliziere|"
+    r"square|quadriere|divide|teile|ziehe|berechne|compute|calculate)\b",
+    re.I,
+)
+
+
 def tool_answer(prompt: str) -> ToolAnswer | None:
     """Route only recognized explicit requests; otherwise use the native model."""
     if not isinstance(prompt, str) or len(prompt) > 500:
         return None
-    for handler in (_percentage, _linear_equation, _sequence, _fraction_words, _force, _explicit_calculation):
+    # Multi-stage arithmetic is not a single supported tool result.
+    if _COMPOUND_FOLLOWUP.search(prompt):
+        return None
+    for handler in (_percentage, _linear_equation, _sequence, _fraction_words, _force, _explicit_calculation, _bare_calculation):
         try:
             result = handler(prompt)
             if result is not None:
