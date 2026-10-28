@@ -1,0 +1,62 @@
+name: Arctus350 safe local derived NeralTalk dataset (no training)
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.github/workflows/arctus350-local-sanitize-splits.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-local-allturn-derived-dataset
+  cancel-in-progress: false
+jobs:
+  create-local-clean-copy:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_sanitize_checkout
+          clean: false
+          persist-credentials: false
+      - name: Ensure original local splits and new destination then sanitize
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $source=Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          $out=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_${{github.run_id}}'
+          if(Test-Path -LiteralPath $out){throw 'refusing existing sanitized output directory'}
+          foreach($name in @('train.jsonl','val.jsonl','test.jsonl')){
+            if(-not(Test-Path -LiteralPath (Join-Path $source $name) -PathType Leaf)){throw 'missing original local NeralTalk split'}
+          }
+          $before=@{}
+          foreach($name in @('train.jsonl','val.jsonl','test.jsonl')){
+            $before[$name]=(Get-FileHash -LiteralPath (Join-Path $source $name) -Algorithm SHA256).Hash
+          }
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'unexpected Windows drive'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_sanitize_checkout'
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 ~/.venvs/neral-triton-py312/bin/python -m frontier350.chat350_split_sanitizer --source '$(W $source)' --out '$(W $out)'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'sanitized local dataset preparation failed'}
+          foreach($name in @('train.jsonl','val.jsonl','test.jsonl')){
+            $after=(Get-FileHash -LiteralPath (Join-Path $source $name) -Algorithm SHA256).Hash
+            if($after -ne $before[$name]){throw 'original NeralTalk source changed'}
+          }
+          Copy-Item -LiteralPath (Join-Path $out 'sanitization_report.json') -Destination (Join-Path $repo 'arctus350_local_sanitization_${{github.run_id}}.json')
+      - name: Upload numerical summary only, never local source or derived data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-local-sanitized-split-summary
+          path: arctus350_sanitize_checkout/arctus350_local_sanitization_*.json
+          retention-days: 7
+          if-no-files-found: warn

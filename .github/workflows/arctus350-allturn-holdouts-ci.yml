@@ -1,0 +1,21 @@
+name: Arctus350 all-user-turn split safety (CPU-only)
+on:
+  pull_request:
+    paths:
+      - 'frontier350/chat350_data.py'
+      - 'tests/test_arctus350_allturn_holdouts.py'
+      - 'tests/test_arctus350_split_sanitizer.py'
+      - 'frontier350/chat350_split_sanitizer.py'
+      - '.github/workflows/arctus350-allturn-holdouts-ci.yml'
+permissions:
+  contents: read
+jobs:
+  allturn-holdouts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m unittest tests.test_arctus350_allturn_holdouts tests.test_arctus350_split_sanitizer -v
+      - run: python -m py_compile frontier350/chat350_data.py frontier350/chat350_split_sanitizer.py tests/test_arctus350_allturn_holdouts.py tests/test_arctus350_split_sanitizer.py

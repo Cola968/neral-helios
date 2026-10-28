@@ -63,30 +63,47 @@ def conversation_sha256(row: dict) -> str:
     return hashlib.sha256(payload.encode("utf8")).hexdigest()
 
 def validate_prompt_holdouts(split_rows: dict[str, list[dict]]) -> dict:
-    """Fail closed on exact normalized initial-user prompts shared by data splits.
+    """Fail closed on ANY normalized user prompt reused across data splits.
 
-    Different answers to the same root prompt still constitute holdout
-    contamination. Only hashes, never prompt contents, appear in exceptions.
-    This complements (not replaces) exact conversation and semantic audits.
+    The older first-turn-only check missed exact user messages in later chat
+    rounds. This is strict lexical contamination protection, not a semantic
+    deduplicator: changing numbers or paraphrasing can still escape this gate.
+    No private prompt text appears in error output.
     """
     seen: dict[str, str] = {}
     overlaps: set[tuple[str, str, str]] = set()
     for split in SPLITS:
+        if split not in split_rows:
+            raise ValueError("missing holdout split: " + split)
         for row in split_rows[split]:
-            first = row["messages"][0]["content"]
-            canonical = " ".join(unicodedata.normalize("NFKC", first).casefold().split())
-            digest = hashlib.sha256(canonical.encode("utf8")).hexdigest()
-            previous = seen.setdefault(digest, split)
-            if previous != split:
-                overlaps.add((digest, previous, split))
+            messages = row.get("messages")
+            if not isinstance(messages, list) or not messages:
+                raise ValueError("invalid conversation in prompt holdout check")
+            for turn in messages:
+                if not isinstance(turn, dict):
+                    raise ValueError("invalid turn in prompt holdout check")
+                if turn.get("role") != "user":
+                    continue
+                first = turn.get("content")
+                if not isinstance(first, str) or not first.strip():
+                    raise ValueError("empty or invalid user turn in holdout check")
+                canonical = " ".join(unicodedata.normalize("NFKC", first).casefold().split())
+                digest = hashlib.sha256(canonical.encode("utf8")).hexdigest()
+                previous = seen.setdefault(digest, split)
+                if previous != split:
+                    overlaps.add((digest, previous, split))
     if overlaps:
         sample = sorted(overlaps)[0]
         raise ValueError(
-            f"first-user prompt leakage across train/val/test: "
-            f"{len(overlaps)} cross-split overlaps (first sha256={sample[0]}, "
+            f"all-user-turn prompt leakage across train/val/test: "
+            f"{len(overlaps)} cross-split overlap keys (first sha256={sample[0]}, "
             f"{sample[1]} vs {sample[2]})"
         )
-    return {"first_user_prompt_overlap": 0, "normalization": "NFKC-casefold-whitespace"}
+    return {
+        "first_user_prompt_overlap": 0,  # backward compatible success field
+        "all_user_turn_overlap": 0,
+        "normalization": "NFKC-casefold-whitespace",
+    }
 
 
 def file_sha256(path: Path) -> str:
