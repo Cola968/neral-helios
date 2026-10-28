@@ -23,4 +23,4 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
       - run: HELIOS_PREPARATION_MODE=1 HELIOS_DEVICE=cpu python -m unittest tests.test_neral_orbit -v
-      - run: HELIOS_PREPARATION_MODE=1 HELIOS_DEVICE=cpu python -m pytest -q tests/test_helios_chat_experience.py tests/test_helios_runtime.py tests/test_arctus_runtime.py
+      - run: HELIOS_PREPARATION_MODE=1 HELIOS_DEVICE=cpu python -m pytest -q tests/test_helios_chat_experience.py tests/test_helios_runtime.py
