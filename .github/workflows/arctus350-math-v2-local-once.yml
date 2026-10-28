@@ -1,0 +1,58 @@
+name: Arctus350 balanced arithmetic v2 local data build ONCE Wednesday
+on:
+  push:
+    branches: [data/arctus350-balanced-arithmetic-v2-20261028]
+    paths:
+      - '.github/workflows/arctus350-math-v2-local-once.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_balanced_arithmetic_v2 -v
+  local-data-only:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_MATH_V2_LOCAL_DATA_20261028')
+    needs: cpu-contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_math_v2_checkout
+          clean: false
+          persist-credentials: false
+      - name: Wednesday-only write NEW local verified v2 split, never source/checkpoints
+        run: |
+          $ErrorActionPreference='Stop'
+          $today=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($today.ToString('yyyy-MM-dd') -ne '2026-10-28'){throw 'No owner PC work Thursday-Sunday'}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dir=Join-Path $assets 'runs\neraltalk350-balanced-math-v2_${{github.run_id}}'
+          if(Test-Path -LiteralPath $dir){throw 'Refuse existing v2 data path'}
+          function W([string]$path){
+            $full=[IO.Path]::GetFullPath($path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'local Windows drive required'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_math_v2_checkout'
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_balanced_arithmetic_v2 --out '$(W $dir)'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Synthetic local-only data build failed'}
+          Copy-Item -LiteralPath (Join-Path $dir 'metadata_report.json') -Destination (Join-Path $repo 'arctus350_math_v2_${{github.run_id}}_metadata.json')
+      - name: Upload ONLY split counts/sha/parity metadata, NOT generated texts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-balanced-math-v2-metadata-only
+          path: arctus350_math_v2_checkout/arctus350_math_v2_*_metadata.json
+          retention-days: 7
+          if-no-files-found: warn
