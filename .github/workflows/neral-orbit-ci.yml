@@ -4,6 +4,7 @@ on:
     paths:
       - 'neral_orbit.py'
       - 'tests/test_neral_orbit.py'
+      - 'tests/test_neral_orbit_browser.cjs'
       - 'app.py'
       - 'templates/orbit.html'
       - 'static/orbit.js'
@@ -14,7 +15,7 @@ permissions:
 jobs:
   orbit:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,3 +25,6 @@ jobs:
       - run: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
       - run: HELIOS_PREPARATION_MODE=1 HELIOS_DEVICE=cpu python -m unittest tests.test_neral_orbit -v
       - run: HELIOS_PREPARATION_MODE=0 HELIOS_DEVICE=cpu python -m pytest -q tests/test_helios_chat_experience.py tests/test_helios_runtime.py
+      - run: npm install --no-save playwright
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/test_neral_orbit_browser.cjs
