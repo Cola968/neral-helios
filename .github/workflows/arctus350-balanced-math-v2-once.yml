@@ -1,4 +1,5 @@
 name: Arctus350 Wednesday ONLY balanced bilingual arithmetic v2 native SFT
+# One local experiment only, no cron/dispatch, automatic cutoff before Thursday.
 on:
   push:
     branches: [experiment/arctus350-balanced-math-v2-sft-20261028]
