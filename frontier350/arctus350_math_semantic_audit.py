@@ -216,6 +216,56 @@ def sanitize_math_splits(rows: dict) -> tuple[dict,dict]:
     }
 
 
+
+def write_sanitized_generated_v1(destination: Path) -> dict:
+    """Create a NEW local v1 copy with commutative-split leaks removed.
+
+    This uses ONLY the repo's owned deterministic generator; no private local
+    dataset/weights are accessed. It never overwrites the source or destination.
+    """
+    from .arctus350_exact_math_curriculum import make_splits as v1
+    from .chat350_data import validate_dataset_root, validate_prompt_holdouts
+    destination=Path(destination)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError("refuse to overwrite an existing dataset or symlink")
+    original=v1()
+    clean,stats=sanitize_math_splits(original)
+    require_disjoint_math_pairs(audit_math_splits(clean))
+    if clean["test"]!=original["test"]:
+        raise AssertionError("immutable TEST has changed")
+    # Never create a dataset until every purely in-memory semantic check passes.
+    destination.mkdir(parents=False,exist_ok=False)
+    for split in SPLITS:
+        path=destination/(split+".jsonl")
+        with path.open("x",encoding="utf8") as out:
+            for row in clean[split]:
+                out.write(json.dumps(row,sort_keys=True,ensure_ascii=False)+"\n")
+    manifest,loaded=validate_dataset_root(destination)
+    validate_prompt_holdouts(loaded)
+    require_disjoint_math_pairs(audit_math_splits(loaded))
+    report={
+        "schema":"arctus350-v1-semantic-sanitized-derived-v1",
+        "original_numeric_overlap":stats["original_numeric_overlap"],
+        "remaining_numeric_overlap":stats["remaining_numeric_overlap"],
+        "priority":"TEST > VAL > TRAIN",
+        "dropped":stats["dropped"],
+        "original_counts":stats["original_counts"],
+        "retained_counts":stats["retained_counts"],
+        "derived_manifest_sha256":manifest["manifest_sha256"],
+        "read_only_source":True,
+        "immutable_test_rows":True,
+        "raw_text_or_record_ids_exported":False,
+        "training_started":False,
+        "release_allowed":False,
+        "caveat":"Synthetic derived curriculum, not independent validation or legal clearance.",
+    }
+    (destination/"metadata_report.json").write_text(
+        json.dumps(report,sort_keys=True,ensure_ascii=False,indent=2,allow_nan=False)+"\n",
+        encoding="utf8",
+    )
+    return report
+
+
 def generated_audit_reports() -> dict:
     """Recompute from native deterministic generators; development only."""
     from .arctus350_exact_math_curriculum import make_splits as v1
@@ -233,11 +283,19 @@ def main() -> None:
                         help="Audit three deterministic existing generators; no local files read.")
     choice.add_argument("--data",type=Path,
                         help="Read local prepared train/val/test JSONL; read-only.")
+    choice.add_argument("--sanitize-generated-v1-to",type=Path,
+                        help="Write a NEW locally derived synthetic v1 dataset with semantic split repair.")
     parser.add_argument("--out",type=Path,
                         help="Write aggregate-only report to a NEW file; never overwrite.")
     parser.add_argument("--strict",action="store_true",
                         help="Reject any semantic split overlap or unknown math.")
     args=parser.parse_args()
+    if args.sanitize_generated_v1_to is not None:
+        if args.out is not None or args.strict:
+            parser.error("--out/--strict are incompatible with --sanitize-generated-v1-to")
+        report=write_sanitized_generated_v1(args.sanitize_generated_v1_to)
+        print(json.dumps(report,sort_keys=True,ensure_ascii=False))
+        return
     if args.out is not None and args.out.exists():
         raise FileExistsError("refuse to overwrite evidence")
     if args.generated_audit:
