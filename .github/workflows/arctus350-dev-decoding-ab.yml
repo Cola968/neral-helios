@@ -1,0 +1,75 @@
+name: Arctus350 read-only native developer decoding A/B
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_dev_decode_probe.py'
+      - 'tests/test_arctus350_dev_decode_probe.py'
+      - '.github/workflows/arctus350-dev-decoding-ab.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-gpu-dev-decoding-readonly
+  cancel-in-progress: false
+jobs:
+  cpu-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m unittest tests.test_arctus350_dev_decode_probe -v
+      - run: python -m py_compile frontier350/arctus350_dev_decode_probe.py tests/test_arctus350_dev_decode_probe.py
+  real-gpu:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: cpu-contract
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_dev_decode_checkout
+          clean: false
+          persist-credentials: false
+      - name: Preflight, pinned checkpoint identity, then read-only CUDA generations
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $two='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $sft=Join-Path $assets 'runs\neral350_chat_chatpilot-humanbalanced1200-20261009\best_chat.pt'
+          $six=Join-Path $assets 'runs\neral350_2b_fp32_sft_sixstep_40691461347\experiment_only_not_release.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          foreach($f in @($two,$sft,$six,$tok)){
+            if(-not(Test-Path -LiteralPath $f -PathType Leaf)){throw 'missing exact pinned model or tokenizer'}
+          }
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            throw 'invalid NVIDIA telemetry'
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3]
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192){
+            throw 'RTX4070 or 8GiB free-VRAM threshold not met'
+          }
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'unexpected Windows drive'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_dev_decode_checkout'
+          $out="arctus350_dev_decoding_ab_${{github.run_id}}.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_dev_decode_probe --two-b '$(W $two)' --historical-sft '$(W $sft)' --sixstep '$(W $six)' --tokenizer '$(W $tok)' --cases frontier350/chat350_dev_cases.json --windows-free-mib $free --out '$out'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'authentic read-only development decoding failed'}
+      - name: Upload ONLY developer-case read-only evidence, no checkpoints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-dev-decoding-ab-evidence
+          path: arctus350_dev_decode_checkout/arctus350_dev_decoding_ab_*.json
+          retention-days: 7
+          if-no-files-found: warn
