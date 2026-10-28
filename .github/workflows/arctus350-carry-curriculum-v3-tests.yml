@@ -17,5 +17,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m unittest tests.test_arctus350_carry_curriculum_v3 -v
+      - run: python -m unittest tests.test_arctus350_carry_curriculum_v3 tests.test_arctus350_balanced_arithmetic_v2 tests.test_arctus350_math_specialist tests.test_arctus350_frozen_ffn_replay tests.test_arctus350_gradient_diagnostics tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_tool_eval tests.test_chat350_runtime tests.test_chat350_knowledge -v
       - run: python -m py_compile frontier350/arctus350_carry_curriculum_v3.py
