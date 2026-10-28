@@ -1,0 +1,130 @@
+name: Arctus350 Roblox-safe real checkpoint baseline
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-checkpoint-baseline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  checkpoint-inventory-and-mini-inference:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_readonly_checkpoint_probe
+          clean: false
+          persist-credentials: false
+      - name: Inventory native project checkpoint file CANDIDATES read-only
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'arctus350_readonly_checkpoint_probe'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $roots=@('D:\NeralScaleV81',(Join-Path $assets 'runs'))
+          $found=@()
+          $scanned=0
+          foreach($root in $roots) {
+            if(-not(Test-Path -LiteralPath $root -PathType Container)) {continue}
+            $todo=New-Object 'System.Collections.Queue'
+            $todo.Enqueue(@{dir=$root;depth=0})
+            while($todo.Count -gt 0 -and $scanned -lt 1200 -and $found.Count -lt 80) {
+              $node=$todo.Dequeue();$scanned+=1
+              $files=@(Get-ChildItem -LiteralPath $node.dir -File -ErrorAction SilentlyContinue)
+              foreach($item in $files) {
+                if($item.Extension -in @('.pt','.pth','.safetensors') -and $item.Length -ge 100MB) {
+                  $found+=@{relative_path=$item.FullName.Substring($root.Length).TrimStart('\');
+                            root_label=if($root -like 'D:*'){'NeralScaleV81'}else{'neral_outputs_runs'};
+                            name=$item.Name;size_bytes=$item.Length;
+                            modified_utc=$item.LastWriteTimeUtc.ToString('o')}
+                  if($found.Count -ge 80){break}
+                }
+              }
+              if($node.depth -lt 6 -and $scanned -lt 1200) {
+                foreach($child in @(Get-ChildItem -LiteralPath $node.dir -Directory -ErrorAction SilentlyContinue)) {
+                  if(($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    $todo.Enqueue(@{dir=$child.FullName;depth=$node.depth+1})
+                  }
+                }
+              }
+            }
+          }
+          $inv=@{schema=1;scanned_directories=$scanned;candidate_count=$found.Count;
+                 checkpoint_filenames_only=$found;
+                 warning='Filenames are not proof of 2B. Token metadata must be checked separately.'}
+          $inv | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $src 'arctus350_readonly_inventory.json') -Encoding UTF8
+          Write-Host "Read-only inventory: $scanned folders; $($found.Count) large candidate files. No model files copied."
+      - name: Windows NVIDIA VRAM and existing checkpoint admission
+        id: preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          "NERAL_GPU_PROBE_ALLOW=0" >> $env:GITHUB_ENV
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $ck='D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c\resume.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like '*Roblox*'})
+          Write-Host "Roblox-related processes detected: $($roblox.Count)"
+          if(-not(Test-Path -LiteralPath $ck -PathType Leaf) -or -not(Test-Path -LiteralPath $tok -PathType Leaf)){
+            Write-Host 'SKIP real inference: required historical 1B checkpoint or locked tokenizer missing.'
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          if(-not(Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue)){
+            Write-Host 'SKIP: missing NVIDIA telemetry'
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or ([string]$csv[0]) -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+            Write-Host 'SKIP: ambiguous GPU VRAM telemetry'
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $total=[int]$matches[1];$free=[int]$matches[2]
+          Write-Host "Windows GPU $total MiB total, $free MiB free"
+          if($total -le 0 -or $free -gt $total -or $free -lt 6144){
+            Write-Host 'SKIP: require at least 6144 MiB free to protect Roblox'
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          function W([string]$Path) {
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'invalid Windows path root'}
+            $drive=$matches[1].ToLowerInvariant()
+            return "/mnt/$drive/"+$f.Substring(3).Replace('\','/')
+          }
+          $src=Join-Path $env:GITHUB_WORKSPACE 'arctus350_readonly_checkpoint_probe'
+          "repo_wsl=$(W $src)" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $ck)" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+          "windows_free=$free" >> $env:GITHUB_OUTPUT
+          "NERAL_GPU_PROBE_ALLOW=1" >> $env:GITHUB_ENV
+          "allowed=true" >> $env:GITHUB_OUTPUT
+      - name: Run 1B-SAFE checkpoint (not 2B) three SHORT genuine predictions
+        if: steps.preflight.outputs.allowed == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{steps.preflight.outputs.repo_wsl}}'
+          $ck='${{steps.preflight.outputs.checkpoint_wsl}}'
+          $tok='${{steps.preflight.outputs.tokenizer_wsl}}'
+          $free='${{steps.preflight.outputs.windows_free}}'
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/roblox_checkpoint_probe350.py --checkpoint '$ck' --tokenizer '$tok' --out arctus350_readonly_real_inference.json --windows-free-mib '$free' --max-new 16"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Read-only real checkpoint probe failed; inspect report'}
+      - name: Upload JSON-only evidence, never private weights or training corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-readonly-roblox-checkpoint-evidence
+          path: |
+            arctus350_readonly_checkpoint_probe/arctus350_readonly_inventory.json
+            arctus350_readonly_checkpoint_probe/arctus350_readonly_real_inference.json
+          retention-days: 7
+          if-no-files-found: warn
