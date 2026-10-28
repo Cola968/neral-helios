@@ -52,6 +52,15 @@ Smoketest prüft nun auch diesen Statusaufruf in einem separaten Python-Prozess
 gegen den laufenden isolierten Flask-Server. RED und anschließender GREEN wurden
 ausgeführt. Keine Token-Datei wird dafür gelesen oder Authentifizierung abgeschaltet.
 
+Der erste abschließende Linux-CI-Lauf
+[`40760274731`](https://github.com/Cola968/neral-helios/actions/runs/40760274731)
+bestand Python-, Node-, bestehende Browser- und Startertests, fand aber einen
+echten Layoutfehler in der neuen 390×480-Mobilprüfung: Andere Schriftmetriken
+konnten den Senden-Button unter den sichtbaren Rand schieben. Der kurze mobile
+Viewport blendet jetzt den Einstiegsblock aus und begrenzt das Eingabefeld.
+Der Test bleibt unverändert streng; es wird keine größere Bildschirmhöhe als
+Umgehung gewählt. Die Screenshots bei normaler Höhe bleiben repräsentativ.
+
 ## Breiter Repository-Lauf und offene Grenzen
 
 `python -m pytest -q` wurde ebenfalls ausgeführt. Zuerst: 423 bestanden,

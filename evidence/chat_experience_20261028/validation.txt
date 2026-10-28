@@ -76,3 +76,8 @@ AssertionError: batch launcher cannot recognize running Flask app (HTTP 401 with
 
 Batch launcher readiness + real Flask browser GREEN
 PASS real Flask: DE/EN math, tools-only chat, no partial completion, source labels, failure/draft/reload, external import, XSS, keyboard, 4 viewport widths
+
+Linux CI RED at aac1db6: run 40760274731, job 123070003663
+AssertionError: composer must fit a short mobile viewport (390x480).
+Short-height layout fix: hide welcome block and cap textarea, keeping the original strict viewport assertion.
+Local real-Flask/browser GREEN repeated after CSS correction.

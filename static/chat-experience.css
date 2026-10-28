@@ -108,3 +108,11 @@ button:focus-visible,a:focus-visible,summary:focus-visible {outline:2px solid va
   .footnote {font-size:10px;}
   .inspector,.project-workspace {top:58px;}
 }
+/* A short viewport (landscape / resized window) reserves space for input.
+   System font metrics differ on Linux, Windows and mobile platforms. */
+@media(max-width:730px) and (max-height:600px) {
+  .welcome {display:none;}
+  .composer textarea {max-height:120px;}
+  .runtime-notice {margin-bottom:8px;}
+  .composer-wrap {padding-bottom:max(8px,env(safe-area-inset-bottom));}
+}
