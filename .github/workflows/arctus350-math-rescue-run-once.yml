@@ -1,4 +1,5 @@
 name: Arctus350 one-time 256step native math rescue (Wednesday only)
+# One authorized Wednesday run; never on Thursday or later.
 on:
   push:
     branches: [experiment/arctus350-math-rescue-20261028]
