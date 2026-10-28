@@ -1,7 +1,5 @@
 name: Arctus350 Flask CPU contracts
 on:
-  push:
-    branches: [codex/arctus350-flask-experimental]
   pull_request:
     paths:
       - arctus_runtime.py
@@ -12,6 +10,9 @@ on:
       - static/neral.js
       - tests/test_arctus*
       - .github/workflows/arctus350-flask-cpu.yml
+concurrency:
+  group: arctus350-flask-cpu-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:

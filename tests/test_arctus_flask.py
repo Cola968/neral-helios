@@ -96,6 +96,7 @@ def test_switch_generate_provenance_and_unload(client,monkeypatch):
     assert r.status_code==200 and r.json['text']=='synthetic answer'
     assert r.json['source']=='native-model' and r.json['model_family']==ar.FAMILY
     assert r.json['runtime_id']==IDENTITY and r.json['token_unit']=='BPE-Token'
+    assert r.json['finish_reason']=='eos' and not r.json['incomplete']
     assert native.model.calls==2 and web.model is None
     r=post(client,'/api/model',{'checkpoint':'none'})
     assert r.status_code==200 and not r.json['checkpoint_loaded']
@@ -147,6 +148,14 @@ def test_cancelled_native_generation_does_not_call_model():
     stop=threading.Event();stop.set()
     assert native.generate([0,4],8,0,0,stop)==[]
     assert native.model.calls==0
+    assert native.finish_reason=='cancelled'
+
+
+def test_budget_exhaustion_is_marked_incomplete(client,monkeypatch):
+    activate(monkeypatch);web.load_runtime('arctus350')
+    r=post(client,'/api/generate',{'prompt':'Hallo','runtime_id':IDENTITY,'max_new_tokens':1})
+    assert r.status_code==200 and r.json['finish_reason']=='length'
+    assert r.json['incomplete'] and not r.json['cancelled']
 
 
 def test_stream_uses_native_runtime_and_releases_lock(client,monkeypatch):

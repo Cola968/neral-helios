@@ -337,7 +337,7 @@ def generate():
         continuation=generate_tokens(*args,on_tokens=callback) if callback else generate_tokens(*args)
         decoded=arctus.decode(continuation) if arctus is not None else tokenizer.decode(continuation)
         elapsed=time.perf_counter()-start;text,redacted=sanitize_output(decoded)
-        return dict(mode='trained-generation',source='native-model',model_family=model_family(),runtime_id=identity,token_unit='BPE-Token' if arctus is not None else 'Byte-Token',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+        return dict(mode='trained-generation',source='native-model',model_family=model_family(),runtime_id=identity,token_unit='BPE-Token' if arctus is not None else 'Byte-Token',finish_reason=arctus.finish_reason if arctus is not None else None,incomplete=arctus is not None and arctus.finish_reason!='eos',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
     if data.get('stream'):
         response=Response(response_stream(run,event,finish),mimetype='application/x-ndjson')
         response.headers['X-Accel-Buffering']='no'

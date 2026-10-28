@@ -41,7 +41,7 @@ Der Adapter verwendet den bestehenden nativen Forward-Pfad auf **CPU/FP32**, ein
 
 Alle Modellladevorgänge und die gesamte Tokenisierung/Generierung/Dekodierung verwenden dieselbe Sperre. Mehrere Tabs können somit den Tokenizer nicht während einer Anfrage austauschen. Die UI wartet für Modellladen bis zu drei Minuten. Modellantworten tragen `source=native-model`, `model_family=neral-arctus350`, Checkpoint-ID und `runtime_id=neral-arctus350:<sha256>`. Werkzeugantworten behalten ihre eigenen Quellen und werden nicht als Arctus-Leistung bezeichnet.
 
-Nur vollständige, nicht importierte Antwortpaare mit passender Modellfamilie und exakter Checkpoint-Identität werden wiederverwendet. Die Identität überlebt Speichern, Synchronisieren und Neuladen. Ein HTTP-Client mit veralteter Runtime-ID erhält 409. Arctus-Anfragen mit fremdem oder nicht zugeordnetem Verlauf werden abgelehnt. Das sind Kontextzuordnungsregeln, keine kryptografische Beglaubigung beliebiger vom Benutzer editierter Gesprächsdaten.
+Arctus-Antworten ohne EOS werden bei erreichtem Antwortbudget als unvollständig markiert. Nur vollständige, nicht importierte Antwortpaare mit passender Modellfamilie und exakter Checkpoint-Identität werden wiederverwendet. Die Identität überlebt Speichern, Synchronisieren und Neuladen. Ein HTTP-Client mit veralteter Runtime-ID erhält 409. Arctus-Anfragen mit fremdem oder nicht zugeordnetem Verlauf werden abgelehnt. Das sind Kontextzuordnungsregeln, keine kryptografische Beglaubigung beliebiger vom Benutzer editierter Gesprächsdaten.
 
 ## Prüfungen und Grenzen
 

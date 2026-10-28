@@ -81,8 +81,8 @@ $('composer').onsubmit=async event=>{
    label.textContent='Eigene Modellgenerierung · unvollständig';
    if(update.text){p.textContent=update.text;pending.dataset.partial=update.text;}else p.textContent='Modell berechnet die Antwort …';
   });
-  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,interrupted:!!r.cancelled,
-   meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
+  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,interrupted:!!r.cancelled||!!r.incomplete,
+   meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':r.incomplete?'Antwortbudget erreicht · unvollständig · ':'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
   persist();
  }catch(error){
   const partial=pending?.dataset.partial;

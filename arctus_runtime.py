@@ -109,6 +109,8 @@ class ArctusRuntime:
 
     def encode(self, history, prompt, max_new):
         for message in history:
+            if message.get('imported') is True or message.get('interrupted') is True:
+                raise ArctusError('Arctus350: Importierter oder unvollständiger Verlauf ist kein Modellkontext.')
             if message['role'] == 'assistant' and (
                 message.get('runtime_id') != self.identity or
                 message.get('model_family') != FAMILY or
@@ -131,11 +133,13 @@ class ArctusRuntime:
         # Same native forward/sampling path as chat_cli350; no byte-token substitution.
         x = torch.tensor([ids], dtype=torch.long, device='cpu')
         output = []
+        self.finish_reason = 'length'
         deadline = time.monotonic() + 120
         for _ in range(max_new):
             if time.monotonic() > deadline:
                 event.set()
             if event.is_set():
+                self.finish_reason = 'cancelled'
                 break
             logits, _ = self.model(x)
             z = logits[:, -1, :].float().clone()
@@ -151,6 +155,7 @@ class ArctusRuntime:
                 next_id = torch.multinomial(torch.softmax(z, dim=-1), 1)
             token = int(next_id.item())
             if token == EXPECTED_SPECIALS['<|eos|>']:
+                self.finish_reason = 'eos'
                 break
             output.append(token)
             x = torch.cat([x, next_id], dim=1)
