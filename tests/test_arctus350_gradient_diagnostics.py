@@ -32,6 +32,7 @@ class GradientDiagnosticTests(unittest.TestCase):
 
     def test_today_only_gpu_safety(self):
         self.assertTrue(permit_readonly_probe(10000,65,"2026-10-28T19:30:00+01:00"))
+        self.assertTrue(permit_readonly_probe(9000,65,"2026-10-28T19:30:00+01:00"))
         self.assertFalse(permit_readonly_probe(8000,65,"2026-10-28T19:30:00+01:00"))
         self.assertFalse(permit_readonly_probe(10000,80,"2026-10-28T19:30:00+01:00"))
         self.assertFalse(permit_readonly_probe(10000,65,"2026-10-29T00:30:00+01:00"))
