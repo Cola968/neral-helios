@@ -1,0 +1,80 @@
+name: Arctus350 one-time 256step native math rescue (Wednesday only)
+on:
+  push:
+    branches: [experiment/arctus350-math-rescue-20261028]
+    paths:
+      - '.github/workflows/arctus350-math-rescue-run-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-math-rescue-20261028-one-rtx4070-experiment
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_math_rescue tests.test_arctus350_unseen_task_eval tests.test_arctus350_targeted_exact_pilot -v
+  one-local-trial:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_ARCTUS_MATH_20261028')
+    needs: verify
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_math_rescue_checkout
+          persist-credentials: false
+          clean: false
+      - name: Verify original local model and today-only idle RTX4070, then run bounded 256 FP32 updates
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now -ge [DateTimeOffset]::Parse('2026-10-28T20:40:00+01:00')){
+            throw 'Run only before 20:40 Berlin on Wednesday 28 October'
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_targeted_exact96_40726256404\experimental_only_nonpromotable.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $supplement=Join-Path $assets 'runs\neraltalk350-exact-smallmath_40725139301'
+          $out=Join-Path $assets 'runs\neral350_math_rescue256_${{github.run_id}}'
+          foreach($p in @($parent,$tok)){
+            if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'pinned model/tokenizer absent'}
+          }
+          foreach($p in @($data,$supplement)){
+            if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'pinned local dataset absent'}
+          }
+          if(Test-Path -LiteralPath $out){throw 'refuse overwriting local experiment'}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '9c13b315465b74312c347effee8ef9c9e520ce95749ce9844a0a1fd2b66f48b2'){throw '96-step parent SHA mismatch'}
+          if((Get-FileHash -LiteralPath $tok -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'tokenizer SHA mismatch'}
+          $gpu=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or [string]$gpu[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'no independent GPU telemetry'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name,FREE_MIB=$free,TEMP=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){throw 'GPU busy or unsafe'}
+          function W([string]$path){
+            $full=[IO.Path]::GetFullPath($path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'not local Windows drive'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_math_rescue_checkout'
+          $cmd="set -e; cd '$(W $repo)'; NERAL_LOCAL_SFT_ALLOW=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_math_rescue --parent '$(W $parent)' --tokenizer '$(W $tok)' --clean '$(W $data)' --supplement '$(W $supplement)' --out '$(W $out)' --windows-free-mib $free --windows-temp-c $temp"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'bounded local native SFT failed or refused'}
+          Copy-Item -LiteralPath (Join-Path $out 'aggregate_report.json') -Destination (Join-Path $repo 'arctus350_math_rescue_aggregate_${{github.run_id}}.json')
+      - name: Upload only aggregate diagnostics, never local model weights or private text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-math-rescue-256-aggregate-only
+          path: arctus350_math_rescue_checkout/arctus350_math_rescue_aggregate_*.json
+          retention-days: 7
+          if-no-files-found: warn
