@@ -50,5 +50,20 @@ class CurriculumContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             admit_curriculum(True,10000,10000,float("nan"),240,192)
 
+    def test_apache2_oasst_chat_only_and_wrong_license_rejected(self):
+        rows=self.fixture(4)
+        rows=[
+            x for x in rows if x[2]!="chat"
+        ]
+        rows.extend([
+            ("human1","en","chat","oasst2-human-en","Apache-2.0",1),
+            ("human2","de","chat","oasst2-human-de","Apache-2.0",2),
+            ("bad1","en","chat","oasst2-human-en","unknown",3),
+            ("bad2","en","math","oasst2-human-en","Apache-2.0",4),
+        ])
+        chosen=select_curriculum(rows,{"chat":2,"math":2})
+        self.assertEqual({x[0] for x in chosen if x[2]=="chat"},{"human1","human2"})
+        self.assertNotIn("bad2",{x[0] for x in chosen})
+
 if __name__=="__main__":
     unittest.main()
