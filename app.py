@@ -12,6 +12,7 @@ from tokenizer import ByteTokenizer
 from security_guard import check_prompt,sanitize_output
 from solve import solve
 from chat_math import tool_answer
+from neral_reasoning_tools import full_request_compound
 from code_check import check_code
 from architectures import expected_parameters
 from project_store import ProjectStore,ripple
@@ -290,6 +291,12 @@ def generate():
             return jsonify(mode='solve-tool',source='tool:'+calculated.kind,text=calculated.text,
                            solve={'result':calculated.text,'engine':'bounded-fraction-calculator','model_generated':False},
                            model_generated=False,routing='whole-request-math')
+        compound=full_request_compound(prompt)
+        if compound is not None:
+            return jsonify(mode='solve-tool',source='tool:calculator',text=compound.text,
+                           solve={'result':compound.text,'engine':'bounded-verified-compound-math',
+                                  'model_generated':False},
+                           model_generated=False,routing='verified-compound-arithmetic')
     if mode=='chat' and re.fullmatch(r'[0-9x\s.+*/()%=\-^]+',prompt.strip()) and re.search(r'\d',prompt):
         try:
             result=solve(prompt)
