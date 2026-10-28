@@ -4,6 +4,24 @@
 
 **Verbindliche Identität:** NERAL soll langfristig **ein von Grund auf eigenständig trainiertes Arctus-Grundmodell** sein, nicht Qwen mit einer anderen Persönlichkeit oder einem LoRA-Adapter. Qwen3.5-9B ist ausschließlich ein offengelegtes, vorläufiges Produkt-Backend. Forschungs-/Trainingspriorität folgt [NERAL_NATIVE_MODEL_FIRST.md](NERAL_NATIVE_MODEL_FIRST.md); Arctus und NIS2 werden strikt getrennt evaluiert.
 
+## Tagesfortschritt 28.10.2026 – Arctus 350M priorisiert
+
+**Heute belegbar umgesetzt (nicht nur geplant):** [Draft PR #140](https://github.com/Cola968/neral-helios/pull/140)
+härtet native 350M-Capability-, Generation- und Release-Checks.
+[CI-Lauf 40672968178](https://github.com/Cola968/neral-helios/actions/runs/40672968178)
+bestätigt **25 gezielte Tests plus 93 bestehende Chat-Tests grün (3 optional übersprungen)**.
+Duplikate, NaN, leere Scoring-Spezifikationen, unterschiedliche eingefrorene
+Cases, unbemerkte negative Kategorie-Deltas, fehlende Exact-Generation-
+Werte und irreführende boolesche Release-Flags sind abgesichert.
+
+**Nächster klarer Auftrag:** [Issue #141](https://github.com/Cola968/neral-helios/issues/141)
+— tatsächlichen 2B-Checkpoint auf der RTX 4070 read-only inventarisieren,
+separat vom 1B-SAFE-Stand unter denselben eingefrorenen Fällen bewerten,
+EOS/Wiederholung/Instruktionen prüfen und erst danach kontrolliertes
+Arctus-350M-Posttraining erwägen. Es wurde weder neu trainiert
+noch der NIS2-Score durch diese Softwarearbeiten verbessert.
+Geldkosten: **0 €** (Obergrenze 25 €, Strom ausgenommen).
+
 ## Wahrheit und Grenzen
 
 - Ein GitHub-Actions-Tagescheck oder eine ChatGPT-Tagesmeldung kann den Zustand **erkennen**, schreibt dadurch aber nicht automatisch guten Code. Für tatsächliche Codearbeit ohne PC braucht es einen **dauerhaft/cloud-gehosteten Coding-Agenten** und passende Freigaben. GitHub Copilot Cloud Agent/Automations ist ein potenzieller Weg (kostenpflichtiger Copilot-Zugang erforderlich).
