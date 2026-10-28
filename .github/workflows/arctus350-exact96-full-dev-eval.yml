@@ -1,0 +1,57 @@
+name: Arctus350 read-only 64 vs exact96 12-case dev evaluation
+on:
+  push:
+    branches: [experiment/arctus350-targeted-exact-fp32-20261028]
+    paths:
+      - '.github/workflows/arctus350-exact96-full-dev-eval.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-single-exact96-readonly-development-eval
+  cancel-in-progress: false
+jobs:
+  real-12case-development:
+    if: contains(github.event.head_commit.message, 'one read-only exact96 comparison')
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 16
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_exact96_dev_checkout
+          clean: false
+          persist-credentials: false
+      - name: Verify local pinned model files then evaluate identical 12 DEV cases
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_2b_fp32_clean64_40718736208\experimental_nonpromotable_64step.pt'
+          $candidate=Join-Path $assets 'runs\neral350_targeted_exact96_40726256404\experimental_only_nonpromotable.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          foreach($p in @($parent,$candidate,$tok)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'missing SHA pinned local model or tokenizer'}}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '57bbd1f70fcca6aee5e557b132d6b1b3f7b5e3378d0248923e5478bae36caf58'){throw 'parent SHA mismatch'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne '9c13b315465b74312c347effee8ef9c9e520ce95749ce9844a0a1fd2b66f48b2'){throw 'candidate SHA mismatch'}
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'unreliable GPU VRAM'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3]
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192){throw 'GPU memory check not met'}
+          function W([string]$Path){
+            $p=[IO.Path]::GetFullPath($Path)
+            if($p -notmatch '^([A-Za-z]):\\'){throw 'not local Windows drive'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$p.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_exact96_dev_checkout'
+          $prefix="arctus350_exact96_dev_${{github.run_id}}"
+          $cmd="set -e; cd '$(W $repo)'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$(W $parent)' --tokenizer '$(W $tok)' --cases frontier350/chat350_dev_cases.json --out $($prefix)_64baseline.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$(W $candidate)' --tokenizer '$(W $tok)' --cases frontier350/chat350_dev_cases.json --out $($prefix)_96targeted.json; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python frontier350/compare_chat350.py --baseline $($prefix)_64baseline.json --candidate $($prefix)_96targeted.json --out $($prefix)_comparison.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'real development comparison failed'}
+      - name: Upload DEV metrics and public DEV texts only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-original-64-vs-exact96-12dev-evidence
+          path: arctus350_exact96_dev_checkout/arctus350_exact96_dev_*.json
+          retention-days: 7
+          if-no-files-found: warn
