@@ -1,0 +1,52 @@
+name: Arctus350 local genuine NeralTalk split template audit
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.github/workflows/arctus350-local-data-leakage-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-local-data-audit
+  cancel-in-progress: false
+jobs:
+  local-data-readonly:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_local_data_audit_checkout
+          clean: false
+          persist-credentials: false
+      - name: Audit local, original train/val/test via CPU only, never raw text output
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $data=Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          foreach($file in @('train.jsonl','val.jsonl','test.jsonl')){
+            if(-not(Test-Path -LiteralPath (Join-Path $data $file) -PathType Leaf)){throw 'original local split missing'}
+          }
+          function W([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'unrecognized drive path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_local_data_audit_checkout'
+          $out="arctus350_real_local_template_audit_${{github.run_id}}.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 ~/.venvs/neral-triton-py312/bin/python -m frontier350.chat350_template_leakage_audit --root '$(W $data)' --out '$out'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'local read-only data audit failed'}
+      - name: Upload aggregate-only JSON counters, not data or prompts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-local-template-audit-aggregate
+          path: arctus350_local_data_audit_checkout/arctus350_real_local_template_audit_*.json
+          retention-days: 7
+          if-no-files-found: warn
