@@ -200,11 +200,34 @@ def _force(prompt: str) -> ToolAnswer | None:
     return ToolAnswer("newton-second-law", _pretty(_reasonable(_number(mass.group(1)) * _number(accel.group(1)))) + " N")
 
 
+def _bare_calculation(prompt: str) -> ToolAnswer | None:
+    """Only a COMPLETE standalone arithmetic expression; never partial text/code.
+
+    Whitelist AST already rejects calls, names, attributes and resource abuse.
+    The tool source is explicitly labeled in the local UI; this is not
+    evidence the native LM itself can calculate.
+    """
+    normalized = _normalized_expression(prompt)
+    normalized = re.sub(r"(?:\s*=\s*\??|\s*\?)\s*$", "", normalized).strip()
+    if not normalized or len(normalized) > 120:
+        return None
+    if re.fullmatch(r"[\d\s.()+\-*/]+", normalized) is None:
+        return None
+    try:
+        parsed = ast.parse(normalized, mode="eval")
+        if not any(isinstance(n, ast.BinOp) for n in ast.walk(parsed)):
+            return None
+        result = _arithmetic(normalized)
+        return ToolAnswer("calculator", _pretty(result))
+    except (ValueError, SyntaxError, OverflowError, ZeroDivisionError):
+        return None
+
+
 def tool_answer(prompt: str) -> ToolAnswer | None:
     """Route only recognized explicit requests; otherwise use the native model."""
     if not isinstance(prompt, str) or len(prompt) > 500:
         return None
-    for handler in (_percentage, _linear_equation, _sequence, _fraction_words, _force, _explicit_calculation):
+    for handler in (_percentage, _linear_equation, _sequence, _fraction_words, _force, _explicit_calculation, _bare_calculation):
         try:
             result = handler(prompt)
             if result is not None:
