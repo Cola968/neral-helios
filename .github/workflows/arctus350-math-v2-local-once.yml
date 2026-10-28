@@ -1,4 +1,5 @@
 name: Arctus350 balanced arithmetic v2 local data build ONCE Wednesday
+# This run is explicitly one-time and impossible to trigger on a later day.
 on:
   push:
     branches: [data/arctus350-balanced-arithmetic-v2-20261028]
