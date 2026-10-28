@@ -1,0 +1,119 @@
+name: Arctus350 Roblox-safe 2B vs SFT real inference
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-compare-2b-sft.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  compare-native-checkpoints:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: neral350_real_compare
+          clean: false
+          persist-credentials: false
+      - name: Strict GPU, original-tokenizer, two checkpoint and Roblox admission
+        id: paths
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $base='D:\NeralScaleV81'
+          $twoB=Join-Path $base '_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $sft=Join-Path $assets 'runs\neral350_chat_chatpilot-humanbalanced1200-20261009\best_chat.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'bad Windows path'}
+            $drive=$matches[1].ToLowerInvariant()
+            return "/mnt/$drive/"+$f.Substring(3).Replace('\','/')
+          }
+          $src=Join-Path $env:GITHUB_WORKSPACE 'neral350_real_compare'
+          "repo_wsl=$(W $src)" >> $env:GITHUB_OUTPUT
+          "twoB_exists=$([int](Test-Path -LiteralPath $twoB -PathType Leaf))" >> $env:GITHUB_OUTPUT
+          "sft_exists=$([int](Test-Path -LiteralPath $sft -PathType Leaf))" >> $env:GITHUB_OUTPUT
+          "twoB_wsl=$(W $twoB)" >> $env:GITHUB_OUTPUT
+          "sft_wsl=$(W $sft)" >> $env:GITHUB_OUTPUT
+          "tok_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+          if(-not(Test-Path -LiteralPath $tok -PathType Leaf)){throw 'missing locked tokenizer'}
+          Write-Host "Existing files: candidate2B=$([bool](Test-Path -LiteralPath $twoB -PathType Leaf)); SFT=$([bool](Test-Path -LiteralPath $sft -PathType Leaf)). No weights copied."
+      - name: Check Windows VRAM separately BEFORE 2B
+        id: admission2b
+        if: steps.paths.outputs.twoB_exists == '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like '*Roblox*'})
+          Write-Host "Roblox related processes: $($roblox.Count)"
+          $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+            Write-Host 'SKIP: uncertain GPU memory state'; "allowed=false" >> $env:GITHUB_OUTPUT; exit 0
+          }
+          $total=[int]$matches[1];$free=[int]$matches[2]
+          Write-Host "GPU total MiB: $total; free MiB: $free"
+          if($total -le 0 -or $free -gt $total -or $free -lt 6144){
+            Write-Host 'SKIP: need 6144 MiB free for short checkpoint read-only probe'
+            "allowed=false" >> $env:GITHUB_OUTPUT; exit 0
+          }
+          "free=$free" >> $env:GITHUB_OUTPUT
+          "allowed=true" >> $env:GITHUB_OUTPUT
+      - name: Evaluate authentic 2B foundation on three identical prompts
+        if: steps.admission2b.outputs.allowed == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{steps.paths.outputs.repo_wsl}}'
+          $ck='${{steps.paths.outputs.twoB_wsl}}'
+          $tok='${{steps.paths.outputs.tok_wsl}}'
+          $free='${{steps.admission2b.outputs.free}}'
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/roblox_checkpoint_probe350.py --checkpoint '$ck' --tokenizer '$tok' --out arctus350_real_2b_report.json --windows-free-mib '$free' --max-new 16"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw '2B provenance/inference failed; see emitted evidence'}
+      - name: Independently recheck Windows free VRAM BEFORE SFT
+        id: admissionsft
+        if: always() && steps.paths.outputs.sft_exists == '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -like '*Roblox*'})
+          Write-Host "Roblox related processes: $($roblox.Count)"
+          $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+            Write-Host 'SKIP: uncertain GPU memory state';"allowed=false" >> $env:GITHUB_OUTPUT;exit 0
+          }
+          $total=[int]$matches[1];$free=[int]$matches[2]
+          Write-Host "GPU total MiB: $total; free MiB: $free"
+          if($total -le 0 -or $free -gt $total -or $free -lt 6144){
+            Write-Host 'SKIP: need 6144 MiB free for short checkpoint read-only probe'
+            "allowed=false" >> $env:GITHUB_OUTPUT; exit 0
+          }
+          "free=$free" >> $env:GITHUB_OUTPUT
+          "allowed=true" >> $env:GITHUB_OUTPUT
+      - name: Evaluate authentic 1B SFT candidate on same three prompts
+        if: always() && steps.admissionsft.outputs.allowed == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{steps.paths.outputs.repo_wsl}}'
+          $ck='${{steps.paths.outputs.sft_wsl}}'
+          $tok='${{steps.paths.outputs.tok_wsl}}'
+          $free='${{steps.admissionsft.outputs.free}}'
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/roblox_checkpoint_probe350.py --checkpoint '$ck' --tokenizer '$tok' --out arctus350_real_sft_report.json --windows-free-mib '$free' --max-new 16"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'SFT provenance/inference failed; see emitted evidence'}
+      - name: Upload reports only, never the private 1B/2B model weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-genuine-2b-vs-chat-sft-readonly
+          path: |
+            neral350_real_compare/arctus350_real_2b_report.json
+            neral350_real_compare/arctus350_real_sft_report.json
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,0 +1,81 @@
+name: Arctus350 Roblox-safe GPU precision probe
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-safe-gpu-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-safe-gpu-probe
+  cancel-in-progress: false
+jobs:
+  tiny-precision-probe:
+    # Only the user's existing explicitly labelled GPU runner; no cloud GPU bill.
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: neral_gpu_probe_source
+          clean: false
+          persist-credentials: false
+      - name: Check Roblox/shared-VRAM safety before any CUDA initialization
+        id: gpu_admission
+        run: |
+          $ErrorActionPreference='Stop'
+          "GPU_PROBE_ALLOWED=0" >> $env:GITHUB_ENV
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*Roblox*' })
+          Write-Host "Roblox-related processes detected: $($roblox.Count)"
+          if (-not (Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue)) {
+            Write-Host "SKIP: nvidia-smi.exe unavailable; cannot safely assess VRAM"
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if ($LASTEXITCODE -ne 0 -or $csv.Count -ne 1) {
+            Write-Host "SKIP: GPU telemetry unavailable or more than one GPU"
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $line=[string]$csv[0]
+          if ($line -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$') {
+            Write-Host "SKIP: invalid/unknown VRAM telemetry"
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $total=[int]$matches[1];$free=[int]$matches[2]
+          Write-Host "GPU total $total MiB, free $free MiB (NVIDIA report)"
+          if ($total -le 0 -or $free -gt $total -or $free -lt 4096) {
+            Write-Host "SKIP: need at least 4096 MiB free VRAM to protect Roblox"
+            "allowed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          "GPU_PROBE_ALLOWED=1" >> $env:GITHUB_ENV
+          "allowed=true" >> $env:GITHUB_OUTPUT
+          Write-Host "ADMITTED: only tiny 4096-element synthetic AdamW parameter tensors"
+      - name: Run tiny CUDA synthetic precision experiment
+        if: steps.gpu_admission.outputs.allowed == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'neral_gpu_probe_source'
+          $full=[IO.Path]::GetFullPath($src)
+          if ($full -notmatch '^([A-Za-z]):\\') {throw "unexpected workspace root"}
+          $drive=$matches[1].ToLowerInvariant()
+          $tail=$full.Substring(3).Replace('\','/')
+          $wslRepo="/mnt/$drive/$tail"
+          $cmd="set -e; cd '$wslRepo'; NERAL_GPU_PROBE_ALLOW=1 ~/.venvs/neral-triton-py312/bin/python frontier350/gpu_precision_probe350.py --out arctus350_roblox_safe_precision_report.json --min-free-mib 4096 --max-torch-reserved-mib 256"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) {throw "GPU probe failed or exceeded safety budget"}
+      - name: Upload small diagnostic report only (no checkpoint/model/data files)
+        if: steps.gpu_admission.outputs.allowed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-roblox-safe-synthetic-precision
+          path: neral_gpu_probe_source/arctus350_roblox_safe_precision_report.json
+          retention-days: 7
+          if-no-files-found: error

@@ -15,9 +15,14 @@ def compare(base:dict,cand:dict,*,max_slice_regression=.10,min_tokens=128,min_ro
         bn=float(b["answer_nll"]);cn=float(c["answer_nll"]);reg=cn/max(bn,1e-12)-1.0
         eligible[name]={"baseline_nll":bn,"candidate_nll":cn,"relative_change":reg,"rows":c["rows"],"answer_tokens":c["answer_tokens"]}
         if name!="overall" and reg>max_slice_regression:hard.append(name)
+    # An improved overall NLL is not proof that language/domain/sourcing
+    # did not regress if every actual subgroup is filtered out.
+    eligible_subgroups=sorted(name for name in eligible if name!="overall")
+    skipped=int(bs["overall"].get("skipped_too_long",0))+int(cs["overall"].get("skipped_too_long",0))
     result={"overall_baseline_nll":b0,"overall_candidate_nll":c0,"overall_relative_change":c0/max(b0,1e-12)-1.0,
             "overall_improved":c0<b0,"eligible_slices":eligible,"hard_regressions":hard,
-            "slice_no_regression":c0<b0 and not hard,"thresholds":{"max_slice_regression":max_slice_regression,"min_tokens":min_tokens,"min_rows":min_rows}}
+            "eligible_subgroups":eligible_subgroups,"skipped_too_long_total":skipped,
+            "slice_no_regression":c0<b0 and bool(eligible_subgroups) and skipped==0 and not hard,"thresholds":{"max_slice_regression":max_slice_regression,"min_tokens":min_tokens,"min_rows":min_rows}}
     return result
 
 def main():

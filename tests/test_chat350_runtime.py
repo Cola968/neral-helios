@@ -25,7 +25,7 @@ class RuntimeTests(unittest.TestCase):
     def test_release_never_auto(self):
         q={"gates":{"pass":True}}
         f={"decision":"manual_review_required"}
-        cap={"comparison":{"capability_no_regression":True}}
+        cap={"cases":30,"suite_sha256":"a"*64,"comparison":{"capability_no_regression":True,"category_no_regression":True}}
         sl={"slice_no_regression":True}
         r=check(q,f,cap,sl)
         self.assertTrue(r["machine_gates_pass"])
@@ -35,7 +35,7 @@ class RuntimeTests(unittest.TestCase):
     def test_required_external_evidence(self):
         q={"gates":{"pass":True}}
         f={"decision":"manual_review_required"}
-        cap={"comparison":{"capability_no_regression":True}}
+        cap={"cases":30,"suite_sha256":"a"*64,"comparison":{"capability_no_regression":True,"category_no_regression":True}}
         sl={"slice_no_regression":True}
         missing=check(q,f,cap,sl,require_external=True)
         self.assertFalse(missing["machine_gates_pass"])

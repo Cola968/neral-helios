@@ -17,6 +17,8 @@ from chat350_contract import EXPECTED_TOKENIZER_SHA256, validate_checkpoint_meta
 from secure_checkpoint350 import load_checkpoint
 from chat350_data import validate_dataset_root
 from chat350_sft_format import encode_messages
+from chat350_checkpoint_selection import evaluate_selected_checkpoint
+from train_precision350 import validate_precision_mode, forward_with_amp, checkpoint_model_state
 from model350 import FRONTIER_350, Neral350M
 from sft_batching350 import length_bucket_batches, padding_stats
 from sft_stratified350 import stratified_batches, cohort_summary
@@ -70,7 +72,7 @@ def collate(encoded, pad_id, device):
     return x.to(device,non_blocking=True),y.to(device,non_blocking=True)
 
 def assistant_loss(model,x,y,eos_id,eos_weight):
-    logits,_=model(x)
+    logits,_=forward_with_amp(model,x)
     flat_y=y.reshape(-1); mask=flat_y!=-100
     if not bool(mask.any()): raise ValueError("batch has no assistant targets")
     selected=logits.reshape(-1,logits.size(-1))[mask].float()
@@ -84,7 +86,7 @@ def eval_sft(model,encoded,batch_size,pad_id,eos_id,device):
     model.eval(); nll=0.0; tokens=0; eos_ok=0; eos_total=0
     for i in range(0,len(encoded),batch_size):
         x,y=collate(encoded[i:i+batch_size],pad_id,device)
-        logits,_=model(x); fy=y.reshape(-1); mask=fy!=-100
+        logits,_=forward_with_amp(model,x); fy=y.reshape(-1); mask=fy!=-100
         loss=F.cross_entropy(logits.reshape(-1,logits.size(-1))[mask].float(),fy[mask],reduction="sum")
         nll+=float(loss); tokens+=int(mask.sum())
         em=y==eos_id
@@ -99,7 +101,7 @@ def eval_replay(model,shards,batch,seq,batches,device,seed):
     rng=random.Random(seed); model.eval(); vals=[]
     for _ in range(batches):
         x,y=replay_batch(shards,batch,seq,device,rng,model.cfg.vocab_size)
-        _,loss=model(x,y); vals.append(float(loss))
+        _,loss=forward_with_amp(model,x,y); vals.append(float(loss))
     model.train(); return sum(vals)/len(vals)
 
 def lr_at(step,total,peak,floor,warm_frac):
@@ -132,7 +134,10 @@ def main():
     ap.add_argument("--seed",type=int,default=350_726); ap.add_argument("--gradient-checkpointing",action="store_true"); ap.add_argument("--length-bucket-size",type=int,default=64)
     ap.add_argument("--sampling-mode",choices=["bucketed","human-balanced"],default="bucketed")
     ap.add_argument("--human-per-batch",type=int,default=2)
+    ap.add_argument("--precision-mode",choices=["legacy-bf16","fp32-master"],default="legacy-bf16",
+                    help="Opt-in FP32 master weights and AdamW with BF16 autocast; legacy is unchanged")
     args=ap.parse_args()
+    validate_precision_mode(args.precision_mode)
     if args.seq>FRONTIER_350.max_seq_len or args.replay_seq>FRONTIER_350.max_seq_len: raise ValueError("sequence exceeds architecture")
     if min(args.steps,args.batch_size,args.replay_batch,args.replay_every,args.eval_every,args.save_every)<=0: raise ValueError("positive budgets required")
     if args.length_bucket_size<args.batch_size or args.length_bucket_size%args.batch_size: raise ValueError("length-bucket-size must be >= batch-size and divisible by batch-size")
@@ -163,7 +168,8 @@ def main():
     source_tokens=int(payload.get("processed_tokens",payload.get("source_processed_tokens",payload.get("tokens",0))))
     device=torch.device("cuda"); torch.manual_seed(args.seed); torch.cuda.manual_seed_all(args.seed)
     random.seed(args.seed); np.random.seed(args.seed); torch.set_float32_matmul_precision("high")
-    model=Neral350M().to(device=device,dtype=torch.bfloat16)
+    train_dtype=torch.float32 if args.precision_mode=="fp32-master" else torch.bfloat16
+    model=Neral350M().to(device=device,dtype=train_dtype)
     model.load_state_dict(payload["model"],strict=True); del payload
     model.set_gradient_checkpointing(args.gradient_checkpointing); model.train()
     if model.parameter_report()["total"]!=349_825_152: raise RuntimeError("unexpected parameter count")
@@ -183,15 +189,17 @@ def main():
          "tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,"data_manifest":manifest,"baseline_sft":baseline_sft,
          "baseline_replay_loss":baseline_replay,"fresh_optimizer":True,"assistant_only":True,"args":vars(args),
          "gpu":torch.cuda.get_device_name(0),"torch":str(torch.__version__),
+         "precision_mode":args.precision_mode,
          "sampling":{**mixture,"mode":args.sampling_mode,"human_per_batch":args.human_per_batch}}
     (out/"run.json").write_text(json.dumps(run,indent=2,ensure_ascii=False),encoding="utf8")
 
-    def model_payload(step, val_report=None):
-        return {"model":model.state_dict(),"config":FRONTIER_350.to_dict(),"tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,
+    def model_payload(step, val_report=None, *, resume=False):
+        return {"model":checkpoint_model_state(model,args.precision_mode,resume=resume),"config":FRONTIER_350.to_dict(),"tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,
                 "source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
-                "chat_step":step,"data_manifest_sha256":manifest["manifest_sha256"],"validation":val_report}
+                "chat_step":step,"data_manifest_sha256":manifest["manifest_sha256"],
+                "precision_mode":args.precision_mode,"validation":val_report}
 
-    best=baseline_sft["answer_nll"]; best_eos=baseline_sft["terminal_eos_top1_pct"]
+    best=baseline_sft["answer_nll"]; best_eos=baseline_sft["terminal_eos_top1_pct"]; best_step=None
     start=time.perf_counter(); measured_tokens=0; update_seconds=0.0; total_sft_real=0; total_sft_padded=0; sampled_human=0; sampled_verified=0; torch.cuda.reset_peak_memory_stats()
     metrics=out/"metrics.jsonl"
     for step in range(1,args.steps+1):
@@ -208,7 +216,7 @@ def main():
         replay_loss=None; compute_tokens=x.numel()
         if do_replay:
             rx,ry=replay_batch(replay,args.replay_batch,args.replay_seq,device,rng,model.cfg.vocab_size)
-            _,rl=model(rx,ry); replay_loss=rl
+            _,rl=forward_with_amp(model,rx,ry); replay_loss=rl
             (rl*(1.0-args.sft_weight)).backward(); compute_tokens+=rx.numel()
         gn=torch.nn.utils.clip_grad_norm_(model.parameters(),1.0,error_if_nonfinite=True)
         opt.step(); torch.cuda.synchronize(); dt=time.perf_counter()-tick
@@ -225,27 +233,51 @@ def main():
             improved=vr["answer_nll"]<best-0.002 and vr["terminal_eos_top1_pct"]>=best_eos and replay_ok
             row.update(validation=vr,replay_validation_loss=rr,replay_guard=replay_ok,selected=improved)
             if improved:
-                best=vr["answer_nll"]; best_eos=vr["terminal_eos_top1_pct"]
+                best=vr["answer_nll"]; best_eos=vr["terminal_eos_top1_pct"]; best_step=step
                 atomic_save(model_payload(step,vr),out/"best_chat.pt")
         if step%args.save_every==0 or step==args.steps:
-            atomic_save({**model_payload(step,row.get("validation")),"optimizer":opt.state_dict(),
+            atomic_save({**model_payload(step,row.get("validation"),resume=True),"optimizer":opt.state_dict(),
                          "rng_state":rng.getstate(),"torch_rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},
                         out/"latest_resume.pt")
         with metrics.open("a",encoding="utf8") as f:f.write(json.dumps(row,ensure_ascii=False)+"\n")
         if step%10==0 or step==args.steps: print(json.dumps(row,ensure_ascii=False),flush=True)
 
-    final_sft=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
-    test_sft=eval_sft(model,test,args.batch_size,pad_id,eos_id,device)
-    final_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
+    # Report the last optimizer step as a diagnostic, NOT as the selected
+    # best_chat.pt checkpoint. Only evaluate held-out test data AFTER securely
+    # reloading the checkpoint we actually selected and validated.
+    last_step_sft=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
+    last_step_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
+    selected=evaluate_selected_checkpoint(
+        model,out/"best_chat.pt",loader=load_checkpoint,checkpoint_digest=sha256_file,
+        expected_config=FRONTIER_350.to_dict(),
+        expected_tokenizer_sha256=EXPECTED_TOKENIZER_SHA256,
+        expected_source_sha256=source_sha,
+        expected_data_manifest_sha256=manifest["manifest_sha256"],
+        last_step=args.steps,expected_best_step=best_step,
+        eval_validation=lambda:eval_sft(model,val,args.batch_size,pad_id,eos_id,device),
+        eval_test=lambda:eval_sft(model,test,args.batch_size,pad_id,eos_id,device),
+        eval_replay=lambda:eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91),
+    )
+    # Keep legacy final_sft / final_replay_loss fields explicitly last-step.
+    # test_sft now denotes only the real selected checkpoint, never an
+    # unselected last step. In absence of a best checkpoint it is null.
+    final_sft=last_step_sft
+    final_replay=last_step_replay
+    test_sft=selected["selected_checkpoint_test_sft"] if selected else None
     summary={"complete":True,"steps":args.steps,"source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
-             "baseline_sft":baseline_sft,"final_sft":final_sft,"test_sft":test_sft,"baseline_replay_loss":baseline_replay,
-             "final_replay_loss":final_replay,"replay_regression_pct":100*(final_replay/baseline_replay-1),
+             "baseline_sft":baseline_sft,"final_sft":final_sft,"last_step_sft":last_step_sft,
+             "test_sft":test_sft,"selected_checkpoint":selected,
+             "test_evaluated_checkpoint_kind":"best_chat" if selected else "none",
+             "baseline_replay_loss":baseline_replay,
+             "final_replay_loss":final_replay,"last_step_replay_loss":last_step_replay,
+             "replay_regression_pct":100*(final_replay/baseline_replay-1),
              "best_answer_nll":best,"best_eos_top1_pct":best_eos,"optimizer_seconds":update_seconds,
              "mean_optimizer_tokens_per_second":measured_tokens/max(update_seconds,1e-9),
              "sft_real_tokens":total_sft_real,"sft_padded_tokens":total_sft_padded,"sft_padding_fraction":1.0-total_sft_real/max(1,total_sft_padded),
              "sampled_human_rows":sampled_human,"sampled_verified_rows":sampled_verified,"sampling_mode":args.sampling_mode,
+             "precision_mode":args.precision_mode,
              "elapsed_seconds":time.perf_counter()-start,"peak_allocated_gib":torch.cuda.max_memory_allocated()/2**30,
-             "peak_reserved_gib":torch.cuda.max_memory_reserved()/2**30,"best_checkpoint_exists":(out/"best_chat.pt").is_file()}
+             "peak_reserved_gib":torch.cuda.max_memory_reserved()/2**30,"best_checkpoint_exists":selected is not None}
     (out/"summary.json").write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding="utf8")
     print(json.dumps(summary,ensure_ascii=False),flush=True)
 

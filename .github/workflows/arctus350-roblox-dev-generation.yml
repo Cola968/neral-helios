@@ -1,0 +1,81 @@
+name: Arctus350 Roblox-safe 12-case development generation
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-dev-generation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  honest-development-generation:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_dev_generation
+          clean: false
+          persist-credentials: false
+      - name: Check original 2B and new experimental six-step SFT file
+        id: repo_paths
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $base='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $candidate=Join-Path $assets 'runs\neral350_2b_fp32_sft_sixstep_40691461347\experiment_only_not_release.pt'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          foreach($f in @($base,$candidate,$tok)){
+            if(-not(Test-Path -LiteralPath $f -PathType Leaf)){throw 'required local original resource missing'}
+          }
+          if((Get-FileHash -LiteralPath $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7'){throw '2B source digest mismatch'}
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne '05eb63767613458bdf6a1c5849b40b73d953729f274864aa345fe69c6c781c52'){throw 'candidate digest mismatch'}
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object{$_.ProcessName -like '*Roblox*'})
+          Write-Host "Roblox-related processes: $($roblox.Count)"
+          function W([string]$Path) {
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'unsafe drive path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_dev_generation'
+          "repo_wsl=$(W $repo)" >> $env:GITHUB_OUTPUT
+          "base_wsl=$(W $base)" >> $env:GITHUB_OUTPUT
+          "candidate_wsl=$(W $candidate)" >> $env:GITHUB_OUTPUT
+          "tok_wsl=$(W $tok)" >> $env:GITHUB_OUTPUT
+      - name: Run equal 12-case DEV generation on 2B and new 2B-SFT
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{steps.repo_paths.outputs.repo_wsl}}'
+          $tok='${{steps.repo_paths.outputs.tok_wsl}}'
+          $cases="frontier350/chat350_dev_cases.json"
+          $checkpoints=@(
+            @{label='2b';path='${{steps.repo_paths.outputs.base_wsl}}'},
+            @{label='new_2b_fp32_sft';path='${{steps.repo_paths.outputs.candidate_wsl}}'}
+          )
+          foreach($item in $checkpoints) {
+            $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+            if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+              throw 'uncertain GPU telemetry; fail shared-graphics safety'
+            }
+            $free=[int]$matches[2]
+            Write-Host "$($item.label): free GPU VRAM=$free MiB"
+            if($free -lt 8192){throw 'require >=8GiB free VRAM for read-only generation with Roblox'}
+            $out="arctus350_devgen_$($item.label)_${{github.run_id}}.json"
+            $cmd="set -e; cd '$repo'; PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350.py --checkpoint '$($item.path)' --tokenizer '$tok' --cases '$cases' --out '$out'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw "native development generation failed for $($item.label)"}
+          }
+      - name: Upload DEV reports only, never frozen audit or weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-2b-vs-sixstep-dev-generation
+          path: arctus350_dev_generation/arctus350_devgen_*_*.json
+          retention-days: 7
+          if-no-files-found: warn

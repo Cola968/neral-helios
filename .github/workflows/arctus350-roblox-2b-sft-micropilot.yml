@@ -1,0 +1,86 @@
+name: Arctus350 Roblox-safe REAL 2B short FP32 SFT pilot
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-2b-sft-micropilot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  six-bounded-fp32-steps:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_short_sft_checkout
+          clean: false
+          persist-credentials: false
+      - name: Check Roblox, >=9 GiB free VRAM and fresh local trial directory
+        id: admission
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          $out=Join-Path $assets 'runs\neral350_2b_fp32_sft_sixstep_${{github.run_id}}'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'arctus350_short_sft_checkout'
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'unsafe Windows drive'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$f.Substring(3).Replace('\','/')
+          }
+          foreach($file in @($checkpoint,$tokenizer)){
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'missing pinned checkpoint/tokenizer'}
+          }
+          if(-not(Test-Path -LiteralPath $data -PathType Container)){throw 'missing original local SFT dataset'}
+          if(Test-Path -LiteralPath $out){throw 'refuse pre-existing output directory'}
+          $roblox=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*Roblox*' })
+          Write-Host "Roblox-related processes: $($roblox.Count); no process will be stopped"
+          $csv=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){
+            Write-Host 'SKIP: unreliable NVIDIA memory telemetry';"allowed=false" >> $env:GITHUB_OUTPUT;exit 0
+          }
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3]
+          Write-Host "GPU=$name, total=$total MiB, free=$free MiB"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216){
+            Write-Host 'SKIP: require RTX4070 and >=9216 MiB free for shared Roblox GPU'
+            "allowed=false" >> $env:GITHUB_OUTPUT;exit 0
+          }
+          "repo_wsl=$(W $source)" >> $env:GITHUB_OUTPUT
+          "ck_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tok_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "data_wsl=$(W $data)" >> $env:GITHUB_OUTPUT
+          "out_wsl=$(W $out)" >> $env:GITHUB_OUTPUT
+          "free_mib=$free" >> $env:GITHUB_OUTPUT
+          "allowed=true" >> $env:GITHUB_OUTPUT
+      - name: Train six real-data short FP32 steps from original 2B without promotion
+        if: steps.admission.outputs.allowed == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{steps.admission.outputs.repo_wsl}}'
+          $ck='${{steps.admission.outputs.ck_wsl}}'
+          $tok='${{steps.admission.outputs.tok_wsl}}'
+          $data='${{steps.admission.outputs.data_wsl}}'
+          $output='${{steps.admission.outputs.out_wsl}}'
+          $free='${{steps.admission.outputs.free_mib}}'
+          $report="arctus350_2b_sixstep_real_sft_${{github.run_id}}.json"
+          $cmd="set -e; cd '$repo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/arctus350_short_sft_pilot.py --checkpoint '$ck' --tokenizer '$tok' --data '$data' --out-dir '$output' --report '$report' --windows-free-mib '$free' --steps 6"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'bounded 2B SFT pilot rejected/failed; see emitted evidence'}
+      - name: Upload only non-sensitive metrics; candidate weights remain local
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-2b-sixstep-fp32-sft-metrics
+          path: arctus350_short_sft_checkout/arctus350_2b_sixstep_real_sft_*.json
+          retention-days: 7
+          if-no-files-found: warn

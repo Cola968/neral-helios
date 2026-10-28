@@ -3,6 +3,7 @@ import argparse,collections,hashlib,json
 from pathlib import Path
 import torch
 from chat350_contract import EXPECTED_TOKENIZER_SHA256
+from secure_checkpoint350 import load_checkpoint
 from chat350_data import validate_dataset_root
 from chat350_sft_format import encode_messages
 from model350 import FRONTIER_350,Neral350M
@@ -27,7 +28,7 @@ def group_rows(rows):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--checkpoint",required=True);ap.add_argument("--tokenizer",required=True);ap.add_argument("--data",required=True);ap.add_argument("--split",choices=["val","test"],default="val");ap.add_argument("--out",required=True);ap.add_argument("--max-seq",type=int,default=512);ap.add_argument("--batch-size",type=int,default=4);a=ap.parse_args()
     manifest,splits=validate_dataset_root(Path(a.data));rows=splits[a.split]
-    tok=load_tokenizer(Path(a.tokenizer));ck=torch.load(a.checkpoint,map_location="cpu",weights_only=False)
+    tok=load_tokenizer(Path(a.tokenizer));ck=load_checkpoint(a.checkpoint)
     if ck.get("config")!=FRONTIER_350.to_dict() or ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256:raise ValueError("checkpoint identity mismatch")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise RuntimeError("BF16 CUDA required")
     dev=torch.device("cuda");m=Neral350M().to(device=dev,dtype=torch.bfloat16);m.load_state_dict(ck["model"],strict=True);m.eval()
