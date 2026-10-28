@@ -1,0 +1,22 @@
+name: NERAL Day 2 Product + Agent Contract CPU
+on:
+  pull_request:
+    paths:
+      - 'NERAL_DAY2_PRODUCT_CONTRACT.md'
+      - 'neral_dev_agent.py'
+      - 'tests/test_neral_day2_contract.py'
+      - 'tests/test_neral_dev_agent.py'
+      - '.github/workflows/neral-day2-contract-ci.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_neral_day2_contract tests.test_neral_dev_agent -v
+      - run: python -m py_compile neral_dev_agent.py tests/test_neral_day2_contract.py
