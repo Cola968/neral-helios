@@ -9,7 +9,7 @@ class UnattendedContracts(unittest.TestCase):
         self.assertFalse(permit_run(False,10300,10100,61,"2026-10-28T16:00:00+00:00",3600,.65))
         self.assertFalse(permit_run(True,8000,10100,61,"2026-10-28T16:00:00+00:00",3600,.65))
         self.assertFalse(permit_run(True,10300,10100,80,"2026-10-28T16:00:00+00:00",3600,.65))
-        self.assertFalse(permit_run(True,10300,10100,61,"2026-10-31T00:00:00+00:00",3600,.65))
+        self.assertFalse(permit_run(True,10300,10100,61,"2026-10-29T00:00:00+01:00",3600,.65))
         self.assertFalse(permit_run(True,10300,10100,61,"2026-10-28T16:00:00+00:00",20000,.65))
         self.assertFalse(permit_run(True,10300,10100,61,"2026-10-28T16:00:00+00:00",3600,.80))
         with self.assertRaises(ValueError):permit_run(True,10300,10100,float("nan"),"2026-10-28T16:00:00+00:00",3600,.65)
@@ -47,7 +47,7 @@ class UnattendedContracts(unittest.TestCase):
 
     def test_deadline_and_temperature_are_hard_stops(self):
         self.assertEqual(stop_conditions(60,4000,66,3000,False),None)
-        self.assertEqual(stop_conditions(90,4000,66,3000,False),"deadline")
+        self.assertEqual(stop_conditions(4001,4000,66,3000,False),"deadline")
         self.assertEqual(stop_conditions(60,4000,80,3000,False),"temperature")
         self.assertEqual(stop_conditions(60,4000,None,3000,False),"missing_gpu_telemetry")
         self.assertEqual(stop_conditions(60,4000,60,1800,False),"cuda_vram")
