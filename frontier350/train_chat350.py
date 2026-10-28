@@ -17,6 +17,7 @@ from chat350_contract import EXPECTED_TOKENIZER_SHA256, validate_checkpoint_meta
 from secure_checkpoint350 import load_checkpoint
 from chat350_data import validate_dataset_root
 from chat350_sft_format import encode_messages
+from chat350_checkpoint_selection import evaluate_selected_checkpoint
 from model350 import FRONTIER_350, Neral350M
 from sft_batching350 import length_bucket_batches, padding_stats
 from sft_stratified350 import stratified_batches, cohort_summary
@@ -191,7 +192,7 @@ def main():
                 "source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
                 "chat_step":step,"data_manifest_sha256":manifest["manifest_sha256"],"validation":val_report}
 
-    best=baseline_sft["answer_nll"]; best_eos=baseline_sft["terminal_eos_top1_pct"]
+    best=baseline_sft["answer_nll"]; best_eos=baseline_sft["terminal_eos_top1_pct"]; best_step=None
     start=time.perf_counter(); measured_tokens=0; update_seconds=0.0; total_sft_real=0; total_sft_padded=0; sampled_human=0; sampled_verified=0; torch.cuda.reset_peak_memory_stats()
     metrics=out/"metrics.jsonl"
     for step in range(1,args.steps+1):
@@ -225,7 +226,7 @@ def main():
             improved=vr["answer_nll"]<best-0.002 and vr["terminal_eos_top1_pct"]>=best_eos and replay_ok
             row.update(validation=vr,replay_validation_loss=rr,replay_guard=replay_ok,selected=improved)
             if improved:
-                best=vr["answer_nll"]; best_eos=vr["terminal_eos_top1_pct"]
+                best=vr["answer_nll"]; best_eos=vr["terminal_eos_top1_pct"]; best_step=step
                 atomic_save(model_payload(step,vr),out/"best_chat.pt")
         if step%args.save_every==0 or step==args.steps:
             atomic_save({**model_payload(step,row.get("validation")),"optimizer":opt.state_dict(),
@@ -234,18 +235,41 @@ def main():
         with metrics.open("a",encoding="utf8") as f:f.write(json.dumps(row,ensure_ascii=False)+"\n")
         if step%10==0 or step==args.steps: print(json.dumps(row,ensure_ascii=False),flush=True)
 
-    final_sft=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
-    test_sft=eval_sft(model,test,args.batch_size,pad_id,eos_id,device)
-    final_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
+    # Report the last optimizer step as a diagnostic, NOT as the selected
+    # best_chat.pt checkpoint. Only evaluate held-out test data AFTER securely
+    # reloading the checkpoint we actually selected and validated.
+    last_step_sft=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
+    last_step_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
+    selected=evaluate_selected_checkpoint(
+        model,out/"best_chat.pt",loader=load_checkpoint,checkpoint_digest=sha256_file,
+        expected_config=FRONTIER_350.to_dict(),
+        expected_tokenizer_sha256=EXPECTED_TOKENIZER_SHA256,
+        expected_source_sha256=source_sha,
+        expected_data_manifest_sha256=manifest["manifest_sha256"],
+        last_step=args.steps,expected_best_step=best_step,
+        eval_validation=lambda:eval_sft(model,val,args.batch_size,pad_id,eos_id,device),
+        eval_test=lambda:eval_sft(model,test,args.batch_size,pad_id,eos_id,device),
+        eval_replay=lambda:eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91),
+    )
+    # Keep legacy final_sft / final_replay_loss fields explicitly last-step.
+    # test_sft now denotes only the real selected checkpoint, never an
+    # unselected last step. In absence of a best checkpoint it is null.
+    final_sft=last_step_sft
+    final_replay=last_step_replay
+    test_sft=selected["selected_checkpoint_test_sft"] if selected else None
     summary={"complete":True,"steps":args.steps,"source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
-             "baseline_sft":baseline_sft,"final_sft":final_sft,"test_sft":test_sft,"baseline_replay_loss":baseline_replay,
-             "final_replay_loss":final_replay,"replay_regression_pct":100*(final_replay/baseline_replay-1),
+             "baseline_sft":baseline_sft,"final_sft":final_sft,"last_step_sft":last_step_sft,
+             "test_sft":test_sft,"selected_checkpoint":selected,
+             "test_evaluated_checkpoint_kind":"best_chat" if selected else "none",
+             "baseline_replay_loss":baseline_replay,
+             "final_replay_loss":final_replay,"last_step_replay_loss":last_step_replay,
+             "replay_regression_pct":100*(final_replay/baseline_replay-1),
              "best_answer_nll":best,"best_eos_top1_pct":best_eos,"optimizer_seconds":update_seconds,
              "mean_optimizer_tokens_per_second":measured_tokens/max(update_seconds,1e-9),
              "sft_real_tokens":total_sft_real,"sft_padded_tokens":total_sft_padded,"sft_padding_fraction":1.0-total_sft_real/max(1,total_sft_padded),
              "sampled_human_rows":sampled_human,"sampled_verified_rows":sampled_verified,"sampling_mode":args.sampling_mode,
              "elapsed_seconds":time.perf_counter()-start,"peak_allocated_gib":torch.cuda.max_memory_allocated()/2**30,
-             "peak_reserved_gib":torch.cuda.max_memory_reserved()/2**30,"best_checkpoint_exists":(out/"best_chat.pt").is_file()}
+             "peak_reserved_gib":torch.cuda.max_memory_reserved()/2**30,"best_checkpoint_exists":selected is not None}
     (out/"summary.json").write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding="utf8")
     print(json.dumps(summary,ensure_ascii=False),flush=True)
 
