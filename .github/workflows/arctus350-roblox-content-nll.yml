@@ -1,0 +1,93 @@
+name: Arctus350 Roblox-safe real content-NLL diagnostic
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-roblox-content-nll.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-roblox-real-checkpoint-probe
+  cancel-in-progress: false
+jobs:
+  evaluate-token-partitions:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_token_nll_checkout
+          clean: false
+          persist-credentials: false
+      - name: Measure real 1B, 2B, SFT answer/EOS losses without training
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $src=Join-Path $env:GITHUB_WORKSPACE 'arctus350_token_nll_checkout'
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $dataset=Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          $checkpoints=@(
+            @{name='1b';path='D:\NeralScaleV81\_neral_safe_vault\SAFE-1010003584-ef3ee045203f1bfb7b9f501db800408b095aa5ef29da5d22a8a9486e115e9f7c\resume.pt'},
+            @{name='2b';path='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'},
+            @{name='sft';path=(Join-Path $assets 'runs\neral350_chat_chatpilot-humanbalanced1200-20261009\best_chat.pt')}
+          )
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            if($f -notmatch '^([A-Za-z]):\\'){throw 'invalid Windows drive path'}
+            $drive=$matches[1].ToLowerInvariant()
+            return "/mnt/$drive/"+$f.Substring(3).Replace('\','/')
+          }
+          if(-not(Test-Path -LiteralPath $tok -PathType Leaf)){throw 'Original locked tokenizer unavailable'}
+          if(-not(Test-Path -LiteralPath $dataset -PathType Container)){throw 'Original immutable validation corpus unavailable'}
+          $r=@(Get-Process -ErrorAction SilentlyContinue | Where-Object{$_.ProcessName -like '*Roblox*'})
+          Write-Host "Roblox related processes active: $($r.Count). No Roblox processes stopped."
+          if(-not(Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue)){throw 'NVIDIA VRAM telemetry unavailable'}
+          $hadFailure=$false
+          $hadSuccess=$false
+          foreach($one in $checkpoints){
+            if(-not(Test-Path -LiteralPath $one.path -PathType Leaf)){
+              Write-Host "SKIP $($one.name): checkpoint missing"
+              $hadFailure=$true
+              continue
+            }
+            $csv=@(& nvidia-smi.exe --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>$null)
+            if($LASTEXITCODE -ne 0 -or $csv.Count -ne 1 -or [string]$csv[0] -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*$'){
+              Write-Host "SKIP $($one.name): uncertain VRAM telemetry"
+              $hadFailure=$true
+              continue
+            }
+            $total=[int]$matches[1];$free=[int]$matches[2]
+            Write-Host "$($one.name): Windows GPU memory total=$total MiB, free=$free MiB"
+            if($total -le 0 -or $free -gt $total -or $free -lt 8192){
+              Write-Host "SKIP $($one.name): keeping >=8192 MiB free admission for Roblox"
+              $hadFailure=$true
+              continue
+            }
+            $wrepo=W $src
+            $wck=W $one.path
+            $wtok=W $tok
+            $wdata=W $dataset
+            $output="arctus350_$($one.name)_nll_${{github.run_id}}.json"
+            $cmd="set -e; cd '$wrepo'; NERAL_GPU_PROBE_ALLOW=1 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_chat350_token_nll.py --checkpoint '$wck' --tokenizer '$wtok' --data '$wdata' --out '$output' --windows-free-mib '$free' --max-rows 16 --max-seq 512"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){
+              Write-Host "ERROR $($one.name): NLL evaluator failed"
+              $hadFailure=$true
+            } else {
+              $hadSuccess=$true
+            }
+          }
+          if(-not $hadSuccess){throw 'No real model partitions were evaluated'}
+          if($hadFailure){Write-Host 'WARNING: one or more model partitions failed or were skipped; inspect JSON evidence'}
+      - name: Upload tiny aggregate reports only (never checkpoints or source data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-real-answer-vs-eos-nll
+          path: arctus350_token_nll_checkout/arctus350_*_nll_*.json
+          retention-days: 7
+          if-no-files-found: warn
