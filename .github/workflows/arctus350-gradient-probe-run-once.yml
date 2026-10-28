@@ -1,5 +1,5 @@
 name: Arctus350 ONE read-only RTX4070 task gradient diagnostic Wednesday
-# One authorized GPU probe today only. No model training and no recurring schedule.
+# One last read-only retry today, now with validated 8 GiB idle-VRAM threshold.
 on:
   push:
     branches: [audit/arctus350-task-gradient-interference-20261028]
@@ -56,7 +56,7 @@ jobs:
           if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or [string]$gpu[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'cannot independently confirm NVIDIA GPU condition'}
           $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
           Write-Host "GPU=$name; FREE_MIB=$free; TEMP_C=$temp"
-          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){throw 'NVIDIA idle/safety guard refused'}
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 8192 -or $temp -ge 80){throw 'NVIDIA idle/safety guard refused'}
           function W([string]$p){
             $full=[IO.Path]::GetFullPath($p)
             if($full -notmatch '^([A-Za-z]):\\'){throw 'unsafe nonlocal path'}
