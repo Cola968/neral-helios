@@ -1,0 +1,22 @@
+name: Arctus350 efficient SFT batches CPU
+on:
+  pull_request:
+    paths:
+      - 'frontier350/sft_batching350.py'
+      - 'frontier350/train_chat350.py'
+      - 'tests/test_sft_batching350.py'
+      - 'tests/test_arctus350_compact_sft_batches.py'
+      - '.github/workflows/arctus350-compact-sft-ci.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_sft_batching350 tests.test_arctus350_compact_sft_batches -v
+      - run: python -m py_compile frontier350/sft_batching350.py frontier350/train_chat350.py
