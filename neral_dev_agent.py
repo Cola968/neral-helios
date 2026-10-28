@@ -52,8 +52,11 @@ def start_task(*, repo: str, issue: int, branch: str, max_repairs: int = 3) -> A
         raise AgentError("Issue must be a positive GitHub issue number")
     if not isinstance(branch, str) or not _AGENT_BRANCH_RE.fullmatch(branch):
         raise AgentError("Agent may use only a restricted agent/* working branch")
-    if "//" in branch or ".." in branch or branch.endswith("/") or branch.endswith("."):
-        raise AgentError("Unsafe or ambiguous branch name")
+    if ("//" in branch or ".." in branch or branch.endswith("/") or
+        branch.endswith(".") or any(
+            part.startswith(".") or part.endswith(".lock")
+            for part in branch.split("/"))):
+        raise AgentError("Unsafe or ambiguous Git ref component")
     if type(max_repairs) is not int or not 1 <= max_repairs <= 3:
         raise AgentError("1–3 correction attempts are allowed")
     return AgentTask(repo=repo, issue=issue, branch=branch, max_repairs=max_repairs)
