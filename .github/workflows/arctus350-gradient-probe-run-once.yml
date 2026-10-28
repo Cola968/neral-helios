@@ -1,0 +1,76 @@
+name: Arctus350 ONE read-only RTX4070 task gradient diagnostic Wednesday
+on:
+  push:
+    branches: [audit/arctus350-task-gradient-interference-20261028]
+    paths:
+      - '.github/workflows/arctus350-gradient-probe-run-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-20261028-last-ffn-one-readonly-probe
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_gradient_diagnostics -v
+      - run: python -m py_compile frontier350/arctus350_gradient_diagnostics.py
+  gpu-readonly:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_ARCTUS_GRADIENT_20261028')
+    needs: verify
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: arctus350_gradient_probe_checkout
+          clean: false
+          persist-credentials: false
+      - name: Wednesday-only local SHA pinned model + NVIDIA idle preflight, no training
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28' -or $now -ge [DateTimeOffset]::Parse('2026-10-28T20:10:00+01:00')){
+            throw 'No PC processing outside user authorized Wednesday'
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $parent=Join-Path $assets 'runs\neral350_math_rescue256_40736349769\math_rescue_nonpromotable_only.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $clean=Join-Path $assets 'runs\neraltalk350-sanitized-allturn_40717899967'
+          $v1=Join-Path $assets 'runs\neraltalk350-exact-smallmath_40725139301'
+          $v2=Join-Path $assets 'runs\neraltalk350-balanced-math-v2_40737679738'
+          foreach($p in @($parent,$tokenizer)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'required local weight or BPE missing'}}
+          foreach($p in @($clean,$v1,$v2)){if(-not(Test-Path -LiteralPath $p -PathType Container)){throw 'source split missing'}}
+          if((Get-FileHash -LiteralPath $parent -Algorithm SHA256).Hash.ToLowerInvariant() -ne '34f248b2392de3cbef51bae4300bb6bcf270dd8d7af7a95ce6c90bc56af37ff4'){throw 'native checkpoint SHA drift'}
+          if((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'locked BPE SHA drift'}
+          $gpu=@(& nvidia-smi.exe --query-gpu=name,memory.total,memory.free,temperature.gpu --format=csv,noheader,nounits 2>$null)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1 -or [string]$gpu[0] -notmatch '^\s*(.+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$'){throw 'cannot independently confirm NVIDIA GPU condition'}
+          $name=$matches[1];$total=[int]$matches[2];$free=[int]$matches[3];$temp=[int]$matches[4]
+          Write-Host "GPU=$name; FREE_MIB=$free; TEMP_C=$temp"
+          if($name -notlike '*RTX 4070*' -or $free -gt $total -or $free -lt 9216 -or $temp -ge 80){throw 'NVIDIA idle/safety guard refused'}
+          function W([string]$p){
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'unsafe nonlocal path'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'arctus350_gradient_probe_checkout'
+          $report="arctus350_task_gradient_${{github.run_id}}_aggregate.json"
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 PYTHONPATH=frontier350 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_gradient_diagnostics --parent '$(W $parent)' --tokenizer '$(W $tokenizer)' --clean '$(W $clean)' --v1 '$(W $v1)' --v2 '$(W $v2)' --out '$report' --windows-free-mib $free"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'read-only task gradient diagnostic failed'}
+      - name: Upload aggregate norms and cosines ONLY, no local data or checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-gradient-task-interference-aggregate-only
+          path: arctus350_gradient_probe_checkout/arctus350_task_gradient_*_aggregate.json
+          retention-days: 7
+          if-no-files-found: warn
