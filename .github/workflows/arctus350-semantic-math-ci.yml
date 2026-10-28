@@ -6,6 +6,7 @@ on:
     paths:
       - 'frontier350/arctus350_math_semantic_audit.py'
       - 'tests/test_arctus350_math_semantic_audit.py'
+      - 'tests/test_arctus350_math_sanitization.py'
       - '.github/workflows/arctus350-semantic-math-ci.yml'
 permissions:
   contents: read
@@ -19,7 +20,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Native arithmetic dataset audits (no weights/GPU)
-        run: python -m unittest tests.test_arctus350_math_semantic_audit -v
+        run: python -m unittest tests.test_arctus350_math_semantic_audit tests.test_arctus350_math_sanitization -v
       - name: Check Python module syntax
         run: python -m py_compile frontier350/arctus350_math_semantic_audit.py
       - name: Re-run known neighboring curriculum gates
