@@ -8,6 +8,11 @@ on:
       - frontier350/release_check350.py
       - tests/test_arctus350_release_integrity.py
       - tests/test_arctus350_generation_integrity.py
+      - tests/test_arctus350_gemini_review_regressions.py
+      - frontier350/chat350_eval_contract.py
+      - frontier350/eval_chat350.py
+      - frontier350/eval_chat350_slices.py
+      - frontier350/compare_chat350_slices.py
       - frontier350/chat350_generation_metrics.py
       - .github/workflows/arctus350-release-integrity-ci.yml
 permissions:
@@ -22,8 +27,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Native capability-score and release-gate regression tests
-        run: python -m unittest tests.test_chat350_capabilities tests.test_arctus350_release_integrity tests.test_arctus350_generation_integrity -v
+        run: python -m unittest tests.test_chat350_capabilities tests.test_arctus350_release_integrity tests.test_arctus350_generation_integrity tests.test_arctus350_gemini_review_regressions -v
       - name: Compile native 350M gate without model downloads
-        run: python -m py_compile frontier350/score_chat350_capabilities.py frontier350/release_check350.py frontier350/chat350_generation_metrics.py
+        run: python -m py_compile frontier350/score_chat350_capabilities.py frontier350/release_check350.py frontier350/chat350_generation_metrics.py frontier350/chat350_eval_contract.py frontier350/eval_chat350.py frontier350/eval_chat350_slices.py
       - name: Full existing Arctus 350M chat unit-test suite
         run: python -m unittest tests.test_chat350_cloud_prep tests.test_chat350_token_budget tests.test_chat350_human_alignment tests.test_chat350_hygiene tests.test_chat350_format_parity tests.test_chat350_capabilities tests.test_chat350_stress_cases tests.test_chat350_quality_audits tests.test_chat350_slices tests.test_chat350_runtime tests.test_chat350_checkpoint_safety tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_knowledge tests.test_chat350_tool_eval tests.test_external_bench350 tests.test_dpo_math350 tests.test_sft_batching350 tests.test_sft_stratified350 tests.test_neraltalk350_adapter -v
