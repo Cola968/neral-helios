@@ -1,0 +1,73 @@
+name: Arctus350 semantic arithmetic split integrity (CPU)
+on:
+  push:
+    branches: [research/arctus350-math-split-leakage-audit-20261029]
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_math_semantic_audit.py'
+      - 'tests/test_arctus350_math_semantic_audit.py'
+      - 'tests/test_arctus350_math_sanitization.py'
+      - 'tests/test_arctus350_sanitized_export.py'
+      - '.github/workflows/arctus350-semantic-math-ci.yml'
+permissions:
+  contents: read
+jobs:
+  numeric-holdout-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native arithmetic dataset audits (no weights/GPU)
+        run: python -m unittest tests.test_arctus350_math_semantic_audit tests.test_arctus350_math_sanitization tests.test_arctus350_sanitized_export -v
+      - name: Check Python module syntax
+        run: python -m py_compile frontier350/arctus350_math_semantic_audit.py
+      - name: Re-run known neighboring curriculum gates
+        run: python -m unittest discover -s tests -p 'test_arctus350*curriculum*.py' -v
+      - name: Generate reproducible data-only evidence (v1/v2/v3)
+        run: python -m frontier350.arctus350_math_semantic_audit --generated-audit --out "${RUNNER_TEMP}/math-semantic-report.json"
+      - name: Assert legacy data is flagged and newer curricula are disjoint
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ["RUNNER_TEMP"])/"math-semantic-report.json").read_text())
+          for version in ("v1","v2","v3"):
+              out=data[version]
+              print(version, "rows",sum(x["total_rows"] for x in out["per_split"].values()),
+                    "cross_split_pairs",out["overlap"]["unique_unordered_pairs_any_split"],
+                    "safe_for_controlled_sft",out["gate"]["safe_for_controlled_sft"])
+          assert data["v1"]["overlap"]["unique_unordered_pairs_any_split"]>0
+          assert data["v1"]["gate"]["safe_for_controlled_sft"] is False
+          for version in ("v2","v3"):
+              assert data[version]["overlap"]["unique_unordered_pairs_any_split"]==0
+              assert data[version]["gate"]["safe_for_controlled_sft"] is True
+          assert all(x["gate"]["ready_for_release"] is False for x in data.values())
+          PY
+      - name: Build a NEW local v1 copy with frozen TEST and zero numeric split overlap
+        run: |
+          python -m frontier350.arctus350_math_semantic_audit --sanitize-generated-v1-to "${RUNNER_TEMP}/arctus-v1-derived-clean"
+          python - <<'PY'
+          from pathlib import Path
+          import json,os
+          from frontier350.chat350_data import validate_dataset_root,validate_prompt_holdouts
+          from frontier350.arctus350_math_semantic_audit import audit_math_splits,require_disjoint_math_pairs
+          root=Path(os.environ["RUNNER_TEMP"])/"arctus-v1-derived-clean"
+          manifest,rows=validate_dataset_root(root)
+          validate_prompt_holdouts(rows)
+          require_disjoint_math_pairs(audit_math_splits(rows))
+          report=json.loads((root/"metadata_report.json").read_text())
+          assert report["original_numeric_overlap"]==61
+          assert report["remaining_numeric_overlap"]==0
+          assert report["dropped"]["test"]==0
+          assert report["derived_manifest_sha256"]==manifest["manifest_sha256"]
+          print("repaired v1 rows",report["retained_counts"],"removed",report["dropped"])
+          PY
+      - name: Upload aggregate evidence only – never source dialogues or IDs
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-math-semantic-aggregate
+          path: ${{ runner.temp }}/math-semantic-report.json
+          retention-days: 7
