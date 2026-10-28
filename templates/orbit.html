@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>NERAL Orbit · Agenten</title>
+<link rel="stylesheet" href="/static/orbit.css">
+<script src="/static/orbit.js" defer></script>
+</head>
+<body>
+<main class="layout">
+<header><a class="back" href="/">← NERAL Chat</a><span class="eyebrow">NERAL LABS · EXPERIMENTELL</span></header>
+<section class="hero"><div class="eyebrow">DEIN PROJEKTRAUM</div>
+<h1>Orbit<span class="mark">.</span></h1>
+<p>Behalte Coding-Aufgaben, Recherchen und Beobachtungswünsche an einem Ort. Erstelle einen Plan, bevor du etwas ausführst.</p>
+<div class="notice"><strong>Lokaler Prototyp.</strong> Orbit speichert heute nur Entwürfe und Freigaben. Es gibt noch keine automatische Ausführung, keinen Cloud-Computer und keine laufenden Hintergrundaufgaben.</div>
+</section>
+<section class="columns">
+<div class="panel"><h2>Neuer Auftrag</h2>
+<form id="taskForm">
+<label for="kind">Art des Auftrags</label>
+<select id="kind" name="kind"><option value="coding">Programmieren</option><option value="research">Recherche</option><option value="monitor">Beobachten</option></select>
+<label for="title">Titel</label><input id="title" name="title" required minlength="3" maxlength="120" placeholder="Zum Beispiel: NERAL verbessern">
+<label for="goal">Was möchtest du erreichen?</label><textarea id="goal" name="goal" required minlength="8" maxlength="1200" rows="5" placeholder="Beschreibe Ziel und gewünschtes Ergebnis."></textarea>
+<button type="submit" id="create">Entwurf erstellen</button>
+</form>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+</div>
+<div class="panel"><div class="list-head"><h2>Deine Aufträge</h2><button id="refresh" class="secondary" type="button">Aktualisieren</button></div>
+<div id="tasks" aria-live="polite"><p class="empty">Noch keine Aufgaben geladen.</p></div></div>
+</section>
+<footer>NERAL Orbit v0 · Lokal gespeichert · Jede Freigabe bleibt ohne Ausführung, bis ein sicherer Worker ausdrücklich integriert und autorisiert wurde.</footer>
+</main>
+</body></html>
