@@ -16,6 +16,11 @@ from pathlib import Path
 
 PROBE_NAME="arctus350_fp32_master_norm_only_smoke_v1"
 
+def validate_precision_probe(mode):
+    if type(mode) is not str or mode not in ("legacy-bf16","fp32-master"):
+        raise ValueError("unsupported benchmark precision mode")
+    return mode
+
 def allow_norm_probe(authorized:bool,windows_free_mib:int,
                      cuda_free_mib:int,allocator_fraction:float)->bool:
     if (type(authorized) is not bool or type(windows_free_mib) is not int
@@ -52,12 +57,15 @@ def main():
     ap.add_argument("--tokenizer",required=True)
     ap.add_argument("--out",required=True)
     ap.add_argument("--windows-free-mib",required=True,type=int)
+    ap.add_argument("--precision-mode",choices=["legacy-bf16","fp32-master"],default="fp32-master")
     args=ap.parse_args()
+    validate_precision_probe(args.precision_mode)
     out=Path(args.out)
     if out.exists():raise FileExistsError("never overwrite old evidence")
     report={"probe":PROBE_NAME,"status":"skipped","training_corpus_used":False,
             "checkpoint_written":False,"full_parameter_optimizer":False,
-            "in_memory_norm_adamw_steps":0,"windows_free_mib_preflight":args.windows_free_mib}
+            "in_memory_norm_adamw_steps":0,"windows_free_mib_preflight":args.windows_free_mib,
+            "precision_mode":args.precision_mode}
     def write(status,reason):
         report["status"]=status
         report["reason"]=reason
@@ -96,7 +104,7 @@ def main():
         if model.parameter_report()["total"]!=EXPECTED_PARAMS:raise ValueError("model parameters changed")
         if torch.cuda.mem_get_info(0)[0]//2**20<8192:
             return write("skipped","headroom_changed_before_cuda_transfer")
-        model=model.to("cuda",dtype=torch.float32)
+        model=model.to("cuda",dtype=torch.float32 if args.precision_mode=="fp32-master" else torch.bfloat16)
         model.set_gradient_checkpointing(True)
         model.train()
         norms=[p for name,p in model.named_parameters()
@@ -136,11 +144,11 @@ def main():
         )
         if report["checkpoint_sha256_after"]!=report["checkpoint_sha256_before"]:
             return write("failed","checkpoint_file_changed")
-        if stats["changed_fraction"]==0:
+        if args.precision_mode=="fp32-master" and stats["changed_fraction"]==0:
             return write("failed","fp32_norm_weights_not_updated")
         if report["peak_pytorch_reserved_mib"]>4700:
             return write("aborted","gpu_memory_cap_exceeded")
-        return write("completed","real_2b_fp32_master_norm_gradient_verified")
+        return write("completed","real_2b_"+args.precision_mode+"_norm_gradient_measured")
     except (RuntimeError,ValueError,IndexError,ImportError,TypeError,OSError) as ex:
         report["detail"]=str(ex)[:240]
         return write("failed",type(ex).__name__)
