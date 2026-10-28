@@ -1,0 +1,26 @@
+name: Arctus350 semantic arithmetic split integrity (CPU)
+on:
+  push:
+    branches: [research/arctus350-math-split-leakage-audit-20261029]
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_math_semantic_audit.py'
+      - 'tests/test_arctus350_math_semantic_audit.py'
+      - '.github/workflows/arctus350-semantic-math-ci.yml'
+permissions:
+  contents: read
+jobs:
+  numeric-holdout-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native arithmetic dataset audits (no weights/GPU)
+        run: python -m unittest tests.test_arctus350_math_semantic_audit -v
+      - name: Check Python module syntax
+        run: python -m py_compile frontier350/arctus350_math_semantic_audit.py
+      - name: Re-run known neighboring curriculum gates
+        run: python -m unittest discover -s tests -p 'test_arctus350*curriculum*.py' -v
