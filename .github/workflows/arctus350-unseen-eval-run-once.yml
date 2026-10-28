@@ -1,4 +1,5 @@
 name: Arctus350 one-time 64 vs 96 unseen 76-task free generation (GPU read-only)
+# Trigger once today: no cron, no workflow_dispatch, only this one commit.
 on:
   push:
     branches: [experiment/arctus350-unseen-exact-math-gpu-eval-20261028]
