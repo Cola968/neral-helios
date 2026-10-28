@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import copy
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 MODULE = "frontier350.chat350_dev_generation_diagnostics"
@@ -59,6 +62,18 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(flags["prefix_echo"])
         self.assertFalse(flags["normalized_echo"])
         self.assertFalse(self.api.measure_prompt_echo(prefix, "Jahr")["prefix_echo"])
+
+    def test_prefix_echo_does_not_split_identifiers_or_combining_mark_words(self):
+        for prompt, answer in (("foo", "foo_bar"), ("x", "x\u0301"), ("Ja", "Ja-nein"), ("can", "can't")):
+            with self.subTest(prompt=prompt, answer=answer):
+                flags = self.api.measure_prompt_echo(f"User: {prompt}\nAssistant:", answer)
+                self.assertFalse(flags["prefix_echo"])
+        self.assertTrue(self.api.measure_prompt_echo("User: foo\nAssistant:", "foo: Erklärung")["prefix_echo"])
+
+    def test_echo_rejects_invalid_unicode_instead_of_measuring_it(self):
+        for prefix, text in (("User: x\nAssistant:", "x\ud800"), ("User: x\ud800\nAssistant:", "x")):
+            with self.subTest(prefix=repr(prefix)), self.assertRaises(ValueError):
+                self.api.measure_prompt_echo(prefix, text)
 
     def test_only_latest_user_turn_and_no_stripped_assistant_header(self):
         prefix = "User: Alt\nAssistant: Antwort\nUser: Neu\nAssistant:"
@@ -224,6 +239,74 @@ class DiagnosticsTests(unittest.TestCase):
             with self.subTest(missing=key), self.assertRaises(ValueError):
                 self.api.diagnose_report(source)
 
+    def test_eos_count_cannot_exceed_rows_that_generated_any_token(self):
+        source = report()
+        source["rows"][0].update(text="", generated_ids=[])
+        source["summary"].update(eos_fraction=1, mean_generated_tokens_before_eos=2)
+        with self.assertRaises(ValueError):
+            self.api.diagnose_report(source)
+
+    def test_eos_count_requires_a_possible_shared_terminal_token(self):
+        source = report()
+        # No token could have stopped both rows: their final IDs are different.
+        source["rows"] = [
+            {"id": "a", "category": "de", "text": "", "generated_ids": [7, 8]},
+            {"id": "b", "category": "de", "text": "", "generated_ids": [9, 10]},
+        ]
+        source["summary"].update(cases=2, eos_fraction=1, mean_generated_tokens_before_eos=1,
+                                 exact_instruction_pct=None, mean_repeated_trigram_fraction=0,
+                                 mean_distinct2_fraction=1)
+        with self.assertRaises(ValueError):
+            self.api.diagnose_report(source)
+
+    def test_summary_cannot_claim_an_eos_after_an_earlier_occurrence(self):
+        source = report()
+        source["rows"] = [{"id": "a", "category": "de", "text": "", "generated_ids": [7, 8, 7]}]
+        source["summary"].update(cases=1, eos_fraction=1, mean_generated_tokens_before_eos=2,
+                                 exact_instruction_pct=None, mean_repeated_trigram_fraction=0,
+                                 mean_distinct2_fraction=1)
+        with self.assertRaises(ValueError):
+            self.api.diagnose_report(source)
+
+    def test_source_ngram_summary_must_be_feasible_with_reported_stops(self):
+        # The three possible shared EOS choices are terminal ID 1 (two hits),
+        # no observed ID (zero hits), or no valid choice. Summary arithmetic
+        # alone cannot validate forged repetition / distinctness averages.
+        for key, forged in (("mean_repeated_trigram_fraction", 0.99), ("mean_distinct2_fraction", 0.01)):
+            source = report()
+            source["summary"][key] = forged
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.api.diagnose_report(source)
+
+    def test_valid_source_summaries_match_existing_helper_without_asserting_eos_identity(self):
+        from frontier350.chat350_generation_metrics import summarize_generations
+        for ids, eos in (([[], [2], [3, 4]], 99), ([[2, 8], [3, 8]], 8), ([[2, 8], [3, 4]], 8)):
+            source = report()
+            source["rows"] = [{"id": str(i), "category": "de", "text": "", "generated_ids": tokens}
+                              for i, tokens in enumerate(ids)]
+            source["summary"] = summarize_generations(source["rows"], eos)
+            value = self.api.diagnose_report(source)
+            self.assertEqual(value["reported_eos"]["status"], "reported_unverified")
+            self.assertEqual(value["overall"]["eos"]["status"], "not_measured")
+
+    def test_valid_eos_trimmed_ngram_summary_does_not_replace_raw_diagnostics(self):
+        source = report()
+        source["rows"] = [
+            {"id": "repeat", "category": "de", "text": "", "generated_ids": [9, 9, 9, 9, 1]},
+            {"id": "short", "category": "de", "text": "", "generated_ids": [2, 1]},
+        ]
+        source["summary"] = {"cases": 2, "eos_fraction": 1,
+                             "mean_repeated_trigram_fraction": 0.25,
+                             "mean_distinct2_fraction": 2 / 3,
+                             "mean_generated_tokens_before_eos": 2.5,
+                             "utf8_fraction": 1, "exact_instruction_pct": None}
+        value = self.api.diagnose_report(source)
+        self.assertAlmostEqual(value["overall"]["repeated_trigram"]["mean"], 1 / 6)
+        self.assertEqual(value["overall"]["distinct_bigram"]["mean"], 0.75)
+        self.assertEqual(value["overall"]["raw_token_count"]["sum"], 7)
+        self.assertIsNone(value["overall"]["eos"]["rate"])
+        self.assertNotIn("eos_token_id", json.dumps(value["provenance"]))
+
     def test_unknown_contract_missing_hashes_and_forged_future_metadata_rejected(self):
         for key, bad in (("evaluation_contract", None), ("evaluation_contract", "segment_bpe_mask_specials_v2"), ("tokenizer_sha256", "bad"), ("case_sha256", "0" * 64), ("checkpoint_sha256", None)):
             source = report()
@@ -255,6 +338,20 @@ class DiagnosticsTests(unittest.TestCase):
                 candidate[mutation] = "d" * 64
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 self.api.compare_reports([base, copy.deepcopy(base), candidate])
+
+    def test_same_suite_hash_cannot_hide_changed_or_missing_expected_targets(self):
+        for change in ("changed", "missing", "added"):
+            base, candidate = report(), report()
+            if change == "changed":
+                candidate["rows"][1]["expected_exact"] = "Andere Antwort"
+                candidate["summary"]["exact_instruction_pct"] = 0
+            elif change == "missing":
+                del candidate["rows"][1]["expected_exact"]
+                candidate["summary"]["exact_instruction_pct"] = None
+            else:
+                candidate["rows"][0]["expected_exact"] = " \n\t"
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.api.compare_reports([base, candidate])
 
     def test_matching_legacy_reports_still_cannot_prove_valid_generation_comparison(self):
         candidate = report()
@@ -321,6 +418,19 @@ class DiagnosticsCliTests(unittest.TestCase):
                 self.assertFalse(value["valid_comparison"])
                 self.assertNotIn("secret prompt", result.stdout + result.stderr + out.read_text())
 
+    def test_cli_reports_safe_actionable_validation_reason_without_echoing_private_values(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first, second, out = (Path(folder) / name for name in ("first.json", "second.json", "out.json"))
+            base, candidate = report(), report()
+            candidate["rows"][0]["id"] = "private prompt must stay private"
+            first.write_text(json.dumps(base), encoding="utf8")
+            second.write_text(json.dumps(candidate), encoding="utf8")
+            result = self.run_cli("--report", first, "--report", second, "--out", out)
+            self.assertEqual(result.returncode, 2)
+            value = json.loads(out.read_text())
+            self.assertEqual(value["reason"], "report case ID sets differ")
+            self.assertNotIn("private prompt", out.read_text() + result.stdout + result.stderr)
+
     def test_cli_never_overwrites_input_report(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "input.json"
@@ -328,6 +438,53 @@ class DiagnosticsCliTests(unittest.TestCase):
             before = source.read_bytes()
             result = self.run_cli("--report", source, "--out", source)
             self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(source.read_bytes(), before)
+
+    def test_cli_path_resolution_failure_is_private_and_does_not_write_unchecked_output(self):
+        api = __import__(MODULE, fromlist=["main"])
+        with tempfile.TemporaryDirectory() as folder:
+            source, out = Path(folder) / "input.json", Path(folder) / "out.json"
+            source.write_text(json.dumps(report()), encoding="utf8")
+            out.write_text("previous result", encoding="utf8")
+            for error in (OSError("private path"), RuntimeError("private path")):
+                with self.subTest(error=type(error).__name__):
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with patch.object(Path, "resolve", side_effect=error), redirect_stdout(stdout), redirect_stderr(stderr):
+                        code = api.main(["--report", str(source), "--out", str(out)])
+                    self.assertEqual(code, 2)
+                    self.assertEqual(json.loads(stderr.getvalue())["status"], "input_output_path_error")
+                    self.assertEqual(out.read_text(), "previous result")
+                    self.assertNotIn("private path", stdout.getvalue() + stderr.getvalue())
+
+    def test_cli_failed_output_replacement_preserves_destination_and_cleans_tempfile(self):
+        api = __import__(MODULE, fromlist=["main"])
+        with tempfile.TemporaryDirectory() as folder:
+            source, out = Path(folder) / "input.json", Path(folder) / "out.json"
+            source.write_text(json.dumps(report()), encoding="utf8")
+            out.write_text("previous result", encoding="utf8")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            # Fault injection at the filesystem boundary, e.g. a destination
+            # locked by another Windows process. Assert real file effects.
+            with patch("os.replace", side_effect=OSError("private path")), redirect_stdout(stdout), redirect_stderr(stderr):
+                code = api.main(["--report", str(source), "--out", str(out)])
+            self.assertEqual(code, 2)
+            self.assertEqual(out.read_text(), "previous result")
+            self.assertEqual(json.loads(stderr.getvalue())["status"], "output_write_failed")
+            self.assertEqual({p.name for p in Path(folder).iterdir()}, {"input.json", "out.json"})
+            self.assertNotIn("private path", stdout.getvalue() + stderr.getvalue())
+
+    def test_cli_hardlink_alias_cannot_overwrite_input(self):
+        import os
+        with tempfile.TemporaryDirectory() as folder:
+            source, out = Path(folder) / "input.json", Path(folder) / "alias.json"
+            source.write_text(json.dumps(report()), encoding="utf8")
+            try:
+                os.link(source, out)
+            except OSError:
+                self.skipTest("hardlinks unavailable on this platform")
+            before = source.read_bytes()
+            result = self.run_cli("--report", source, "--out", out)
+            self.assertEqual(result.returncode, 2)
             self.assertEqual(source.read_bytes(), before)
 
 

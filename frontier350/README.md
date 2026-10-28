@@ -81,9 +81,14 @@ python -m unittest tests.test_chat350_dev_generation_diagnostics -v
 Auch der direkte Skriptaufruf funktioniert. **Exitcode 2 ist bei aktuellen
 Berichten beabsichtigt:** Das JSON enthält Teilbeobachtungen und eine konkrete
 Diagnose fehlender Metadaten, aber keinen bestandenen Vergleich. Ungültige
-Eingaben erzeugen `status: "invalid_report"`; die Ausgabe ersetzt auch ein
-eventuell vorhandenes Ergebnis. Eine Eingabedatei darf nicht die Ausgabedatei
-sein. Die CLI gibt keine Antworttexte, Prompts oder Parser-Eingaben aus.
+Eingaben erzeugen `status: "invalid_report"` mit einer festen, erklärenden
+`reason` ohne private Eingabewerte. Die Ausgabe ersetzt ein eventuell vorhandenes
+Ergebnis atomisch. Bei `output_write_failed` bleibt das bisherige Ergebnis
+unverändert; bei `input_output_path_error` wird keine ungeprüfte Ausgabedatei
+geschrieben. Solche Dateifehler werden ohne private Pfade auf stderr gemeldet.
+Immer Exitcode **und** Status prüfen, nie eine alte Ausgabedatei als aktuelle
+Messung verwenden. Eine Eingabedatei darf auch über einen Hardlink nicht die
+Ausgabedatei sein. Die CLI gibt keine Antworttexte, Prompts oder Parser-Eingaben aus.
 
 ### Tatsächlich vorhandenes Eingabeschema und Messgrenzen
 
@@ -120,7 +125,11 @@ Halluzinationsgrenze. Exakt bedeutet Zeichenidentität mit dem geparsten letzten
 User-Inhalt; normalisiert bedeutet NFC plus vereinheitlichte Whitespace-Sequenzen.
 Großschreibung, Satzzeichen, `ß` und Umlaute bleiben verschieden. Prefix-Echo
 enthält volle Wiederholungen und beginnt mit dem **vollständigen** normalisierten
-User-Text; `Ja` → `Jahr` zählt nicht. Keine Fuzzy- oder semantische Ähnlichkeit.
+User-Text; `Ja` → `Jahr`, `foo` → `foo_bar`, `x` → `x` mit angehängtem
+kombinierendem Akzent und `can` → `can't` zählen nicht. Wortfortsetzungen über
+interne Apostrophe/Bindestriche und Unicode-Verbindungszeichen zählen nicht als
+Wortgrenze. Ungültige Unicode-Surrogate werden abgelehnt. Keine Fuzzy- oder
+semantische Ähnlichkeit.
 Die Bericht-CLI nimmt **keine** Originalprompts als zusätzliche Eingabe an.
 
 ### Ausgabe und Vergleichsvertrag
@@ -135,15 +144,21 @@ Anzahl `cases`. Nicht gemessene Raten haben `numerator: null`, `denominator: 0`,
 Prompt-, Antwort- und Zieltexte sowie Token-Arrays werden nicht kopiert.
 
 Mehrere Berichte werden erst einzeln validiert und dann gegen **alle** anderen
-auf identische Case-IDs, pro Fall identische Kategorien sowie identische
+auf identische Case-IDs, pro Fall identische Kategorien und vorhandene Sollantworten
+(einschließlich ihrer Anwesenheit) sowie identische
 Case-Suite-/Tokenizer-SHA und `evaluation_contract` geprüft. Die Prüfergebnisse
 stehen in `checked_identity`, einschließlich `observed_case_ids` und
-`category_counts`. Jede Untergruppe bleibt in jedem Bericht sichtbar. Fehlende,
+`category_counts` und `expected_targets_consistent`. Jede Untergruppe bleibt in jedem Bericht sichtbar. Fehlende,
 leere oder doppelte IDs, ungültige Typen/Hashes, NaN/Infinity (auch in Zusatzfeldern),
 doppelte JSON-Schlüssel, widersprüchliche Fallzahlen, EOS-/Längen-Arithmetik und
-Exact-/UTF-8-Summaries führen zum Abbruch. Unbekannte EOS-bereinigte
-Repetitionssummaries können nur auf Typ, Endlichkeit und Wertebereich geprüft
-werden; sie werden nicht als nachgerechnete Messungen ausgegeben.
+Exact-/UTF-8-Summaries führen zum Abbruch. Zusätzlich muss mindestens eine feste
+EOS-ID mit der gesamten behaupteten Stop-/Ngram-Summary vereinbar sein: EOS darf
+nur am Ende nichtleerer Tokenfolgen auftreten, nie schon davor. Bei behaupteten
+null EOS müssen die Ngram-Summaries den rohen IDs entsprechen. Auch eine
+arithmetisch plausible Summary wird abgelehnt, wenn keine solche Belegung
+existiert. Diese Existenzprüfung authentifiziert **keine** EOS-ID; mögliche IDs
+werden weder ausgegeben noch zum Berechnen der Diagnosemetriken verwendet.
+`reported_eos` bleibt `reported_unverified`, die EOS-Rate bleibt `not_measured`.
 
 Hashes sind **Herkunftsbehauptungen des Berichts**, keine Prüfung der Originaldateien.
 Selbst identische beobachtete Case-Sets können gemeinsam unvollständig sein.

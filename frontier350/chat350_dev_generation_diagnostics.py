@@ -11,9 +11,11 @@ import argparse
 from collections import Counter
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 import unicodedata
 
 try:
@@ -38,9 +40,18 @@ TEXT_BASIS = "stored_decoded_text"
 WORDS = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 
 
+class ReportValidationError(ValueError):
+    """A safe, fixed diagnostic message that never interpolates report values."""
+
+
 def _normalized(text: str) -> str:
     # NFC preserves case, umlauts, ß, punctuation and compatibility distinctions.
     return " ".join(unicodedata.normalize("NFC", text).split())
+
+
+def _word_continuation(char: str) -> bool:
+    category = unicodedata.category(char)
+    return category[0] in "LNM" or category == "Pc"
 
 
 def measure_prompt_echo(prefix: str, text: str) -> dict:
@@ -53,12 +64,19 @@ def measure_prompt_echo(prefix: str, text: str) -> dict:
     if not isinstance(text, str):
         raise ValueError("generation text must be a string")
     latest_user = parse_chat_prefix(prefix)[-1][1]
+    try:
+        prefix.encode("utf8", "strict")
+        text.encode("utf8", "strict")
+    except UnicodeError:
+        raise ValueError("echo input must be valid UTF-8 text") from None
     answer, _ = trim_hallucinated_user_turn(text)
     user_norm, answer_norm = _normalized(latest_user), _normalized(answer)
     starts = answer_norm.startswith(user_norm)
     suffix = answer_norm[len(user_norm):]
-    if starts and suffix and user_norm[-1].isalnum() and suffix[0].isalnum():
-        starts = False
+    if starts and suffix and _word_continuation(user_norm[-1]):
+        if (_word_continuation(suffix[0]) or
+                (suffix[0] in "'’-" and len(suffix) > 1 and _word_continuation(suffix[1]))):
+            starts = False
     return {
         "exact_echo": answer == latest_user,
         "normalized_echo": answer_norm == user_norm,
@@ -68,7 +86,7 @@ def measure_prompt_echo(prefix: str, text: str) -> dict:
 
 def _finite_json(value) -> None:
     if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("report contains a nonfinite number")
+        raise ReportValidationError("report contains a nonfinite number")
     if isinstance(value, dict):
         for item in value.values():
             _finite_json(item)
@@ -81,7 +99,7 @@ def _rate(summary: dict, key: str, scale: float = 1.0) -> float:
     value = summary.get(key)
     if (type(value) not in (int, float) or not 0 <= value <= scale
             or (isinstance(value, float) and not math.isfinite(value))):
-        raise ValueError("invalid/missing summary metric: " + key)
+        raise ReportValidationError("invalid/missing summary metric: " + key)
     return value
 
 
@@ -89,65 +107,105 @@ def _close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-9)
 
 
+def _validate_stop_summary(rows: list[dict], summary: dict) -> None:
+    """Reject summaries that no fixed EOS ID could have produced.
+
+    This is an existential consistency check, NOT verification of EOS identity.
+    Candidates are never exposed or used for diagnostic metrics. The evaluator
+    stops on the first EOS, so a possible EOS may occur only at row ends.
+    Grouping ngram deltas by terminal ID avoids rescoring all rows per candidate.
+    """
+    n = len(rows)
+    eos = _rate(summary, "eos_fraction")
+    count = round(eos * n)
+    lengths = [len(row["generated_ids"]) for row in rows]
+    mean_length = _rate(summary, "mean_generated_tokens_before_eos", sum(lengths))
+    if (not math.isclose(eos, count / n, rel_tol=0, abs_tol=1e-12)
+            or count > sum(length > 0 for length in lengths)
+            or not _close(mean_length * n, sum(lengths) - count)):
+        raise ReportValidationError("inconsistent source EOS count/token length summary")
+    wanted_rep = _rate(summary, "mean_repeated_trigram_fraction")
+    wanted_d2 = _rate(summary, "mean_distinct2_fraction")
+    occurrences, terminals = Counter(), Counter()
+    raw_rep, raw_d2, deltas = [], [], {}
+    for row in rows:
+        ids = row["generated_ids"]
+        rep, d2 = repeated_ngram_fraction(ids, 3), distinct_ngram_fraction(ids, 2)
+        raw_rep.append(rep)
+        raw_d2.append(d2)
+        occurrences.update(ids)
+        if ids:
+            terminal = ids[-1]
+            terminals[terminal] += 1
+            rep_delta, d2_delta = deltas.setdefault(terminal, ([], []))
+            rep_delta.append(repeated_ngram_fraction(ids[:-1], 3) - rep)
+            d2_delta.append(distinct_ngram_fraction(ids[:-1], 2) - d2)
+    rep_sum, d2_sum = math.fsum(raw_rep), math.fsum(raw_d2)
+    if count == 0:
+        consistent = _close(rep_sum / n, wanted_rep) and _close(d2_sum / n, wanted_d2)
+    else:
+        consistent = any(
+            terminals[token] == occurrences[token] == count
+            and _close((rep_sum + math.fsum(change[0])) / n, wanted_rep)
+            and _close((d2_sum + math.fsum(change[1])) / n, wanted_d2)
+            for token, change in deltas.items()
+        )
+    if not consistent:
+        raise ReportValidationError("source EOS/ngram summary cannot match a consistent stop token")
+
+
 def _validate_report(report: dict) -> list[dict]:
     if not isinstance(report, dict):
-        raise ValueError("report must be an object")
+        raise ReportValidationError("report must be an object")
     _finite_json(report)
     if "schema_version" in report or report.get("evaluation_contract") != CONTRACT:
-        raise ValueError("unsupported report version/evaluation_contract")
+        raise ReportValidationError("unsupported report version/evaluation_contract")
     for key in ("checkpoint_sha256", "tokenizer_sha256", "case_sha256"):
         digest = report.get(key)
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or digest == "0" * 64:
-            raise ValueError("invalid/missing report identity: " + key)
+            raise ReportValidationError("invalid/missing report identity: " + key)
     rows, summary = report.get("rows"), report.get("summary")
     if not isinstance(rows, list) or not rows or not isinstance(summary, dict):
-        raise ValueError("nonempty rows and summary are required")
+        raise ReportValidationError("nonempty rows and summary are required")
     ids = set()
     for row in rows:
         if not isinstance(row, dict):
-            raise ValueError("generation row must be an object")
+            raise ReportValidationError("generation row must be an object")
         for key in ("id", "category"):
             if not isinstance(row.get(key), str) or not row[key].strip():
-                raise ValueError("missing/invalid row " + key)
+                raise ReportValidationError("missing/invalid row " + key)
         if row["id"] in ids:
-            raise ValueError("duplicate case id")
+            raise ReportValidationError("duplicate case id")
         ids.add(row["id"])
         text, tokens = row.get("text"), row.get("generated_ids")
         if not isinstance(text, str):
-            raise ValueError("generation text must be a string")
+            raise ReportValidationError("generation text must be a string")
         try:
             text.encode("utf8", "strict")
         except UnicodeError:
-            raise ValueError("invalid UTF-8 generation text") from None
+            raise ReportValidationError("invalid UTF-8 generation text") from None
         if trim_hallucinated_user_turn(text)[1]:
-            raise ValueError("stored text violates hallucinated-User trimming contract")
+            raise ReportValidationError("stored text violates hallucinated-User trimming contract")
         if not isinstance(tokens, list) or any(type(t) is not int or t < 0 for t in tokens):
-            raise ValueError("generated_ids must be nonnegative integer IDs")
+            raise ReportValidationError("generated_ids must be nonnegative integer IDs")
         if not tokens and text:
-            raise ValueError("nonempty decoded text without any generated tokens")
+            raise ReportValidationError("nonempty decoded text without any generated tokens")
         if "expected_exact" in row and not isinstance(row["expected_exact"], str):
-            raise ValueError("expected_exact must be text")
+            raise ReportValidationError("expected_exact must be text")
     n = len(rows)
     if type(summary.get("cases")) is not int or summary["cases"] != n:
-        raise ValueError("summary case count does not match rows")
-    eos = _rate(summary, "eos_fraction")
-    _rate(summary, "mean_repeated_trigram_fraction")
-    _rate(summary, "mean_distinct2_fraction")
+        raise ReportValidationError("summary case count does not match rows")
+    _validate_stop_summary(rows, summary)
     if _rate(summary, "utf8_fraction") != 1:
-        raise ValueError("summary UTF-8 fraction does not match rows")
-    mean_length = _rate(summary, "mean_generated_tokens_before_eos", scale=sum(len(r["generated_ids"]) for r in rows))
-    # eval_chat350 stops immediately on EOS; each reported EOS removes exactly
-    # one final token from length. This checks arithmetic, NOT EOS identity.
-    if not _close(eos * n, round(eos * n)) or not _close(mean_length * n, sum(len(r["generated_ids"]) for r in rows) - eos * n):
-        raise ValueError("inconsistent source EOS count/token length summary")
+        raise ReportValidationError("summary UTF-8 fraction does not match rows")
     exact = [r["text"].strip() == r["expected_exact"].strip() for r in rows if "expected_exact" in r]
     if "exact_instruction_pct" not in summary:
-        raise ValueError("missing exact instruction summary metric")
+        raise ReportValidationError("missing exact instruction summary metric")
     if exact:
         if not _close(_rate(summary, "exact_instruction_pct", 100), 100 * sum(exact) / len(exact)):
-            raise ValueError("exact instruction summary does not match rows")
+            raise ReportValidationError("exact instruction summary does not match rows")
     elif summary["exact_instruction_pct"] is not None:
-        raise ValueError("exact instruction summary without targets")
+        raise ReportValidationError("exact instruction summary without targets")
     return rows
 
 
@@ -191,7 +249,7 @@ def _aggregate(rows: list[dict], min_words: int) -> dict:
 def diagnose_report(report: dict, min_words: int = 3) -> dict:
     """Return validated partial observations, never a passing generation gate."""
     if type(min_words) is not int or min_words <= 0:
-        raise ValueError("min_words must be a positive integer")
+        raise ReportValidationError("min_words must be a positive integer")
     rows = sorted(_validate_report(report), key=lambda r: r["id"])
     categories = sorted({r["category"] for r in rows})
     return {
@@ -219,19 +277,22 @@ def compare_reports(reports: list[dict], min_words: int = 3) -> dict:
     observed sets alone cannot establish completeness of the original suite.
     """
     if not isinstance(reports, list) or len(reports) < 2:
-        raise ValueError("comparison requires at least two reports")
+        raise ReportValidationError("comparison requires at least two reports")
     diagnosed = [diagnose_report(r, min_words) for r in reports]
     first = reports[0]
     assignments = {r["id"]: r["category"] for r in first["rows"]}
+    targets = {r["id"]: r["expected_exact"] for r in first["rows"] if "expected_exact" in r}
     for report in reports[1:]:
         for key in IDENTITY_KEYS:
             if first[key] != report[key]:
-                raise ValueError("report identity mismatch: " + key)
+                raise ReportValidationError("report identity mismatch: " + key)
         current = {r["id"]: r["category"] for r in report["rows"]}
         if assignments.keys() != current.keys():
-            raise ValueError("report case ID sets differ")
+            raise ReportValidationError("report case ID sets differ")
         if assignments != current:
-            raise ValueError("report per-case categories differ")
+            raise ReportValidationError("report per-case categories differ")
+        if targets != {r["id"]: r["expected_exact"] for r in report["rows"] if "expected_exact" in r}:
+            raise ReportValidationError("report per-case expected targets differ")
     return {
         "diagnostics_schema_version": 1, "status": "not_comparable",
         "valid_comparison": False, "automatic_promotion": False,
@@ -239,6 +300,7 @@ def compare_reports(reports: list[dict], min_words: int = 3) -> dict:
             **{k: first[k] for k in IDENTITY_KEYS},
             "observed_case_ids": sorted(assignments),
             "category_counts": dict(sorted(Counter(assignments.values()).items())),
+            "expected_targets_consistent": True,
             "suite_completeness": "unknown_without_expected_case_ids",
             "generation_settings": "unknown",
         },
@@ -251,13 +313,13 @@ def _unique_object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("duplicate JSON object key")
+            raise ReportValidationError("duplicate JSON object key")
         result[key] = value
     return result
 
 
 def _reject_constant(_value):
-    raise ValueError("nonfinite JSON constant")
+    raise ReportValidationError("nonfinite JSON constant")
 
 
 def main(argv=None) -> int:
@@ -267,25 +329,52 @@ def main(argv=None) -> int:
     parser.add_argument("--min-words", type=int, default=3)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
-    if any(args.out.resolve() == path.resolve() or
-           (args.out.exists() and path.exists() and args.out.samefile(path)) for path in args.report):
+    try:
+        aliases_input = any(args.out.resolve() == path.resolve() or
+                            (args.out.exists() and path.exists() and args.out.samefile(path))
+                            for path in args.report)
+    except (OSError, RuntimeError):  # resolve can raise RuntimeError for symlink loops on Python 3.11.
+        print('{"status":"input_output_path_error","valid_comparison":false}', file=sys.stderr)
+        return 2
+    if aliases_input:
         parser.error("output must not overwrite an input report")
     try:
         reports = [json.loads(path.read_text(encoding="utf8"), object_pairs_hook=_unique_object,
                               parse_constant=_reject_constant) for path in args.report]
         result = (diagnose_report(reports[0], args.min_words) if len(reports) == 1
                   else compare_reports(reports, args.min_words))
+    except ReportValidationError as exc:
+        result = {"diagnostics_schema_version": 1, "status": "invalid_report",
+                  "valid_comparison": False, "automatic_promotion": False,
+                  "error": "invalid_json_report_or_inconsistent_evaluation_evidence",
+                  "reason": str(exc)}
     except (ValueError, OSError, RecursionError):
         # Never reflect the parser's payload/path (possibly a private prompt).
         result = {"diagnostics_schema_version": 1, "status": "invalid_report",
                   "valid_comparison": False, "automatic_promotion": False,
-                  "error": "invalid_json_report_or_inconsistent_evaluation_evidence"}
+                  "error": "invalid_json_report_or_inconsistent_evaluation_evidence",
+                  "reason": "report is unreadable or is not valid finite JSON"}
+    temporary = None
     try:
-        args.out.write_text(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2,
-                                       allow_nan=False) + "\n", encoding="utf8")
+        payload = json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2, allow_nan=False) + "\n"
+        # Same-directory replacement is atomic; a locked destination/disk-full
+        # error must not truncate an existing result. Always honor exit status.
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf8", dir=args.out.parent,
+                                         prefix=".chat350-diagnostics-", suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, args.out)
     except OSError:
         print('{"status":"output_write_failed","valid_comparison":false}', file=sys.stderr)
         return 2
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass  # Never mask the original write failure with cleanup errors.
     print(json.dumps({"status": result["status"], "valid_comparison": False}))
     # Legacy reports cannot satisfy the full diagnostic contract. Exit nonzero
     # even when useful partial observations were successfully written.
