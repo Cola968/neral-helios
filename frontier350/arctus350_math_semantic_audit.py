@@ -160,6 +160,62 @@ def require_disjoint_math_pairs(report: dict) -> None:
         raise ValueError("semantic arithmetic train/val/test leakage or opaque math prevents approval")
 
 
+
+def sanitize_math_splits(rows: dict) -> tuple[dict,dict]:
+    """Make a NEW in-memory split copy, TEST > VAL > TRAIN priority.
+
+    A leaked commutative sum is excluded from the lower-priority partition,
+    while all variants of the same fact inside one partition stay together.
+    The original rows and TEST split are unchanged; no file write is made.
+    Non-generated math cannot be safely filtered and forces a stop.
+    """
+    from copy import deepcopy
+
+    original_report = audit_math_splits(rows)
+    if original_report["gate"]["opaque_math_rows"]:
+        raise ValueError("opaque math requires human data review before numeric split sanitization")
+    kept = {}
+    reserved = set()
+    dropped = {}
+    for split in ("test","val","train"):
+        accepted = []
+        seen_in_split = set()
+        for row in rows[split]:
+            source = row.get("source")
+            pair = _verified_pair(row) if source in _GENERATED_SOURCES else None
+            if pair is not None and pair in reserved:
+                continue
+            accepted.append(deepcopy(row))
+            if pair is not None:
+                seen_in_split.add(pair)
+        if not accepted:
+            raise ValueError("semantic math sanitization would leave split empty")
+        kept[split] = accepted
+        dropped[split] = len(rows[split])-len(accepted)
+        reserved.update(seen_in_split)
+    result = {split:kept[split] for split in SPLITS}
+    post = audit_math_splits(result)
+    require_disjoint_math_pairs(post)
+    # Preserve TEST exactly, without sharing mutable references to the source.
+    if result["test"] != rows["test"]:
+        raise AssertionError("TEST split changed unexpectedly")
+    return result,{
+        "schema":"arctus350-semantic-math-sanitization-v1",
+        "priority":"TEST > VAL > TRAIN; higher-priority original questions preserved",
+        "dropped":{split:dropped[split] for split in SPLITS},
+        "original_counts":{split:len(rows[split]) for split in SPLITS},
+        "retained_counts":{split:len(result[split]) for split in SPLITS},
+        "original_numeric_overlap":original_report["overlap"]["unique_unordered_pairs_any_split"],
+        "remaining_numeric_overlap":post["overlap"]["unique_unordered_pairs_any_split"],
+        "immutable_test_rows":True,
+        "source_modified":False,
+        "raw_text_or_record_ids_exported":False,
+        "training_started":False,
+        "release_allowed":False,
+        "caveat":"Owned deterministic arithmetic only; not a general semantic deduplicator or independent benchmark.",
+    }
+
+
 def generated_audit_reports() -> dict:
     """Recompute from native deterministic generators; development only."""
     from .arctus350_exact_math_curriculum import make_splits as v1
