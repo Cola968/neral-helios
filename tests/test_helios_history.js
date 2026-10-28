@@ -17,6 +17,55 @@ test('history never mixes checkpoints or tools',()=>{
   const rows=[...pair('anderes','neral50m'),{role:'user',mode:'solve',content:'2+2'},{role:'assistant',mode:'solve-tool',content:'4'},...pair('eigen')];
   assert.equal(core.context(rows,'Hi',20,1024,'pilot_02').history.length,2);
 });
+
+test('native context excludes interrupted, external and imported answers',()=>{
+  for(const extra of [{interrupted:true},{imported:true},{source:'external-model'}]){
+    const rows=pair('not native context');Object.assign(rows[1],extra);
+    assert.equal(core.context(rows,'Hi',20,1024,'pilot_02').history.length,0);
+  }
+});
+
+test('unrecognized or external origins never look like the original Neral model',()=>{
+  assert.match(core.sourceLabel({mode:'external-model',checkpoint:'Qwen'}),/Externes Modell/);
+  assert.match(core.sourceLabel({mode:'trained-generation',checkpoint:'Qwen'}),/nicht verifiziert/);
+  assert.match(core.sourceLabel({mode:'error'}),/fehlgeschlagen/);
+  assert.match(core.sourceLabel({mode:'solve-tool',source:'tool:calculator'}),/Rechenwerkzeug/);
+  assert.match(core.sourceLabel({mode:'trained-generation',checkpoint:'pilot_02'}),/Preview 02/);
+});
+
+test('imports preserve honest provenance but never become trusted model context',()=>{
+  const input={format:'neral-chat-v1',title:'External',messages:[
+    {role:'user',mode:'chat',content:'Hi'},
+    {role:'assistant',mode:'external-model',source:'external-model',checkpoint:'Qwen',content:'Example'},
+  ]};
+  const result=core.parseImport(JSON.stringify(input));
+  assert.equal(result.messages[1].source,'external-model');
+  assert.equal(result.messages[1].imported,true);
+  assert.equal(core.context(result.messages,'Hi',20,1024,'Qwen').history.length,0);
+});
+
+test('transport accepts a final NDJSON line without a newline',async()=>{
+  const result={mode:'solve-tool',source:'tool:calculator',model_generated:false,text:'15'};
+  const response=new Response(JSON.stringify({type:'done',result}),{headers:{'Content-Type':'application/x-ndjson'}});
+  assert.equal((await core.readGenerationResponse(response,()=>{})).text,'15');
+});
+
+test('transport rejects missing completion, duplicate completion and false provenance',async()=>{
+  const good={mode:'trained-generation',model_generated:true,active_checkpoint:'pilot_02',text:'fixture'};
+  for(const text of [JSON.stringify({type:'progress',text:'partial',generated_tokens:1}),
+      [1,2].map(()=>JSON.stringify({type:'done',result:good})).join('\n'),
+      JSON.stringify({type:'done',result:{...good,model_generated:false}}),
+      JSON.stringify({type:'done',result:{...good,source:'external-model'}}),
+      JSON.stringify({type:'done',result:{mode:'solve-tool',text:'15',model_generated:false,source:'native-model'}})]){
+    const response=new Response(text,{headers:{'Content-Type':'application/x-ndjson'}});
+    await assert.rejects(core.readGenerationResponse(response,()=>{}));
+  }
+});
+
+test('malformed transport is explained without exposing parser internals',async()=>{
+  const response=new Response('{private broken payload',{headers:{'Content-Type':'application/x-ndjson'}});
+  await assert.rejects(core.readGenerationResponse(response,()=>{}),/Antwortformat/);
+});
 test('overlong prompt fails without erasing original history',()=>{
   const rows=pair('alt'),before=JSON.stringify(rows);
   assert.equal(core.context(rows,'x'.repeat(200),10,100,'pilot_02').fits,false);

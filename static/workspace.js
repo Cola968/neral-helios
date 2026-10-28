@@ -4,17 +4,15 @@ try{const saved=JSON.parse(localStorage.getItem('neral.settings')||'{}');for(con
 document.documentElement.dataset.font=settings.font;
 function persistSettings(){try{localStorage.setItem('neral.settings',JSON.stringify(settings));}catch{notify('Einstellungen konnten nicht gespeichert werden.');}}
 async function generateRequest(payload,onProgress){
- const response=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,stream:settings.stream&&payload.mode==='chat'}),signal:AbortSignal.timeout(150000)});
- if(!response.ok){let data={};try{data=await response.json();}catch{}throw Error(data.error||'Anfrage fehlgeschlagen.');}
- if(!response.headers.get('content-type')?.includes('application/x-ndjson'))return response.json();
- const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',result=null;
  try{
-  while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});if(buffer.length>262144)throw Error('Ungültiger Antwortstrom.');
-   let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;const item=JSON.parse(line);if(item.type==='progress')onProgress(item);if(item.type==='done')result=item.result;if(item.type==='error')throw Error(item.error);}
-   if(done)break;
-  }
-  if(!result)throw Error('Verbindung unterbrochen. Die angezeigte Teilantwort bleibt erhalten.');return result;
- }finally{await reader.cancel().catch(()=>{});}
+  const response=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,stream:settings.stream&&payload.mode==='chat'}),signal:AbortSignal.timeout(150000)});
+  if(!response.ok){let data={};try{data=await response.json();}catch{}const error=Error(data.error||'Anfrage fehlgeschlagen. Bitte erneut versuchen.');error.status=response.status;throw error;}
+  return await HeliosCore.readGenerationResponse(response,onProgress);
+ }catch(error){
+  if(error.name==='AbortError'||error.name==='TimeoutError')throw Error('Die Antwort hat zu lange gedauert. Dein Entwurf bleibt erhalten.');
+  if(error instanceof TypeError)throw Error('Verbindung zum lokalen Server verloren. Prüfe die Verbindung und versuche es erneut.');
+  throw error;
+ }
 }
 function deletedQueue(){try{return JSON.parse(localStorage.getItem('neral.sync.deleted')||'{}');}catch{return {};}}
 function queueChatDelete(chat){if(chat.temporary)return;const pending=deletedQueue();pending[chat.id]=chat._revision||0;try{localStorage.setItem('neral.sync.deleted',JSON.stringify(pending));}catch{}scheduleSync();}
