@@ -1,0 +1,45 @@
+name: Arctus 350M Claude Review Bundle
+on:
+  push:
+    branches: [fix/arctus350-release-integrity-20261028]
+    paths:
+      - '.github/workflows/arctus350-claude-review-bundle.yml'
+      - 'reviews/ARCTUS350_CLAUDE_CODE_REVIEW_PART_A_20261028.md'
+      - 'reviews/ARCTUS350_CLAUDE_CODE_REVIEW_PART_B_20261028.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify the two reviewed source packets and bundle them offline
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          files = [
+              Path("reviews/ARCTUS350_CLAUDE_CODE_REVIEW_PART_A_20261028.md"),
+              Path("reviews/ARCTUS350_CLAUDE_CODE_REVIEW_PART_B_20261028.md"),
+          ]
+          for file in files:
+              data = file.read_text(encoding="utf-8")
+              assert len(data) > 20_000
+              assert "bf9f638f6c45311c175c3f154d7c62a7952b8465" in data
+              assert "L001 |" in data
+              assert "hf_" not in data.lower()
+          with ZipFile("arctus350-claude-review.zip", "w", ZIP_DEFLATED, compresslevel=9) as archive:
+              for file in files:
+                  archive.write(file, file.name)
+          print("Original Arctus350 source review files packaged. No model weights or token files.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-claude-review-md
+          path: arctus350-claude-review.zip
+          retention-days: 7
+          if-no-files-found: error
