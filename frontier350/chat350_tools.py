@@ -116,7 +116,8 @@ def _explicit_calculation(prompt: str) -> ToolAnswer | None:
         r"(?:[.!?]\s*)?(?:"
         r"antworte knapp|gib das ergebnis als zahl an|antworte mit der zahl|"
         r"give only the numeric result|reply with the result|"
-        r"keep the answer short"
+        r"keep the answer short|gib nur die zahl aus|schreibe ausschließlich das ergebnis|"
+        r"reply only with the number|return only the number"
         r")?[.!?]?",
         suffix,
         re.I,
