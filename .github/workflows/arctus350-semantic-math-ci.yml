@@ -24,3 +24,29 @@ jobs:
         run: python -m py_compile frontier350/arctus350_math_semantic_audit.py
       - name: Re-run known neighboring curriculum gates
         run: python -m unittest discover -s tests -p 'test_arctus350*curriculum*.py' -v
+      - name: Generate reproducible data-only evidence (v1/v2/v3)
+        run: python -m frontier350.arctus350_math_semantic_audit --generated-audit --out "${RUNNER_TEMP}/math-semantic-report.json"
+      - name: Assert legacy data is flagged and newer curricula are disjoint
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ["RUNNER_TEMP"])/"math-semantic-report.json").read_text())
+          for version in ("v1","v2","v3"):
+              out=data[version]
+              print(version, "rows",sum(x["total_rows"] for x in out["per_split"].values()),
+                    "cross_split_pairs",out["overlap"]["unique_unordered_pairs_any_split"],
+                    "safe_for_controlled_sft",out["gate"]["safe_for_controlled_sft"])
+          assert data["v1"]["overlap"]["unique_unordered_pairs_any_split"]>0
+          assert data["v1"]["gate"]["safe_for_controlled_sft"] is False
+          for version in ("v2","v3"):
+              assert data[version]["overlap"]["unique_unordered_pairs_any_split"]==0
+              assert data[version]["gate"]["safe_for_controlled_sft"] is True
+          assert all(x["gate"]["ready_for_release"] is False for x in data.values())
+          PY
+      - name: Upload aggregate evidence only – never source dialogues or IDs
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-math-semantic-aggregate
+          path: ${{ runner.temp }}/math-semantic-report.json
+          retention-days: 7
