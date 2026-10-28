@@ -1,0 +1,21 @@
+name: Arctus350 96-step math rescue CPU contracts
+on:
+  pull_request:
+    types: [opened,synchronize]
+    paths:
+      - 'frontier350/arctus350_math_rescue.py'
+      - 'tests/test_arctus350_math_rescue.py'
+      - '.github/workflows/arctus350-math-rescue-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_math_rescue tests.test_arctus350_unseen_task_eval -v
+      - run: python -m py_compile frontier350/arctus350_math_rescue.py
