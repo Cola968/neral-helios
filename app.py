@@ -19,6 +19,7 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
+from neral_orbit import OrbitStore, OrbitError, OrbitConflict
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -40,6 +41,9 @@ try:os.chmod(STATE/'gateway-token',0o600)
 except OSError:pass
 project_store=ProjectStore(STATE/'projects.sqlite3')
 chat_store=ChatStore(STATE/'chats.sqlite3')
+# Orbit only stores local task drafts, never schedules or executes any work.
+orbit_store=OrbitStore(STATE/'orbit.sqlite3')
+ORBIT_ENABLED=os.environ.get('HELIOS_ORBIT_ENABLED')=='1'
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
 torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
@@ -192,6 +196,36 @@ def index():
     response=app.make_response(render_template('index.html'))
     response.set_cookie('neral_local',SESSION_TOKEN,httponly=True,samesite='Strict',max_age=28800,secure=False)
     return response
+@app.get('/orbit')
+def orbit_index():
+    # The prototype page can explain opt-in even when the feature is disabled.
+    response=app.make_response(render_template('orbit.html'))
+    response.set_cookie('neral_local',SESSION_TOKEN,httponly=True,samesite='Strict',max_age=28800,secure=False)
+    return response
+
+@app.route('/api/orbit/tasks',methods=['GET','POST'])
+def orbit_tasks():
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit v0 ist nicht aktiviert.'),404
+    if request.method=='GET':
+        return jsonify(tasks=orbit_store.list(),executor_active=False,cloud_scheduled=False)
+    data,error=body()
+    if error:return error
+    try:
+        task=orbit_store.create(kind=data.get('kind'),title=data.get('title'),goal=data.get('goal'))
+        return jsonify(task=task),201
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+
+@app.post('/api/orbit/tasks/<task_id>/transition')
+def orbit_transition(task_id):
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit v0 ist nicht aktiviert.'),404
+    data,error=body()
+    if error:return error
+    try:
+        updated=orbit_store.transition(task_id,data.get('action'),revision=data.get('revision'))
+        return jsonify(task=updated)
+    except OrbitConflict as exc:return jsonify(error=str(exc)),409
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+
 @app.get('/manifest.webmanifest')
 def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',mimetype='application/manifest+json')
 @app.get('/sw.js')
