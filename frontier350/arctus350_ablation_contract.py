@@ -63,8 +63,8 @@ def read_ablation_json(text: str) -> dict:
                        parse_constant=_reject_constant)
     except (json.JSONDecodeError,UnicodeError,RecursionError) as exc:
         raise AblationError("invalid JSON") from exc
-    if not isinstance(obj,dict):
-        raise AblationError("manifest must be a JSON object")
+    if not isinstance(obj,dict) or obj.keys()!=_TOP:
+        raise AblationError("manifest must be an object with the exact approved fields")
     return obj
 
 
