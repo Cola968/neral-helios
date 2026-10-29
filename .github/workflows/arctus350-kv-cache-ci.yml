@@ -18,6 +18,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install tokenizers==0.22.1
+      - run: pip install tokenizers==0.22.1 numpy==2.2.6
       - run: PYTHONPATH=frontier350:. python -m unittest -v tests.test_arctus350_kv_cache tests.test_rope_cache350
       - run: python -m py_compile frontier350/model350.py frontier350/chat_cli350.py
