@@ -124,6 +124,19 @@ def _validated_manifest(root: Path) -> tuple[dict, list, dict]:
         p.name for p in root.glob("valid-*.jsonl")}
     if seen != present:
         raise ValueError("Missing or unexpected train/valid JSONL shard")
+    expected_counts = dict(collections.Counter({
+        split: sum(row["tokens"] for row in entries if row["split"] == split)
+        for split in ("train", "valid")
+        if any(row["split"] == split for row in entries)
+    }))
+    if manifest.get("tokens_by_split") != expected_counts:
+        raise ValueError("Staged manifest aggregate token counts differ from shards")
+    if ("actual_train_tokens" in manifest and
+            manifest["actual_train_tokens"] != expected_counts.get("train", 0)):
+        raise ValueError("Staged manifest actual train aggregate token count mismatches shards")
+    if ("actual_staged_tokens" in manifest and
+            manifest["actual_staged_tokens"] != sum(expected_counts.values())):
+        raise ValueError("Staged manifest total aggregate token count mismatches shards")
     return manifest, sorted(entries, key=lambda x: x["file"]), sources
 
 
