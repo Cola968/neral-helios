@@ -79,4 +79,20 @@ class PerExampleSFTLossTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assistant_loss_from_logits(self.logits,self.targets,9,1.5)
 
+
+    def test_invalid_assistant_token_ids_are_rejected_before_cross_entropy(self):
+        # A bad target can otherwise trigger a device-side CUDA assertion during
+        # F.cross_entropy and poison the entire training process.
+        for bad_id in (-2, self.logits.shape[-1]):
+            for aggregation in ("token", "per-example"):
+                with self.subTest(bad_id=bad_id, aggregation=aggregation):
+                    y=self.targets.clone()
+                    y[0,1]=bad_id
+                    with self.assertRaisesRegex(ValueError,"invalid assistant target token id"):
+                        assistant_loss_from_logits(
+                            self.logits,y,1,1.5,aggregation=aggregation)
+        # The only special ignored label is -100; ordinary runs must still pass.
+        self.assertTrue(torch.isfinite(assistant_loss_from_logits(
+            self.logits,self.targets,1,1.5,aggregation="per-example")))
+
 if __name__=="__main__":unittest.main()

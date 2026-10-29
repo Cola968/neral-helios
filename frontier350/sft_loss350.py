@@ -52,6 +52,11 @@ def assistant_loss_from_logits(
     # Extract only assistant-token logits, identical to the legacy trainer.
     selected = logits.reshape(-1, logits.shape[-1])[mask].float()
     selected_targets = flat_y[mask]
+    # Fail before cross_entropy: invalid labels can cause CUDA device-side
+    # asserts, which leave the process unable to continue safe training.
+    # -100 is the sole ignored label; it was excluded by the mask above.
+    if bool(((selected_targets < 0) | (selected_targets >= logits.shape[-1])).any()):
+        raise ValueError("invalid assistant target token id")
     per = F.cross_entropy(selected, selected_targets, reduction="none")
     weights = torch.ones_like(per)
     weights[selected_targets == eos_id] = float(eos_weight)
