@@ -17,6 +17,8 @@ def surface(tmp_path):
         encoding="utf8")
     (tmp_path / "static" / "neral.css").write_text(
         "body{font-family:system-ui,sans-serif}", encoding="utf8")
+    (tmp_path / "static" / "chat-experience.css").write_text(
+        "body{color:#fff}", encoding="utf8")
     (tmp_path / "static" / "neral.js").write_text(
         "const local = true;", encoding="utf8")
     return tmp_path
