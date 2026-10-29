@@ -1,0 +1,21 @@
+name: Arctus350 CPU compute feasibility
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_compute_budget.py'
+      - 'frontier350/ARCTUS350_COMPUTE_REALITY_20261029.md'
+      - 'tests/test_arctus350_compute_budget.py'
+      - '.github/workflows/arctus350-compute-budget.yml'
+permissions:
+  contents: read
+jobs:
+  arctus-compute-budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_arctus350_compute_budget -v
+      - run: python -m py_compile frontier350/arctus350_compute_budget.py tests/test_arctus350_compute_budget.py
