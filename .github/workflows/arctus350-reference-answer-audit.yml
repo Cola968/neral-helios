@@ -6,6 +6,13 @@ on:
       - 'frontier350/arctus350_reference_answer_audit.py'
       - 'tests/test_arctus350_reference_answer_audit.py'
       - '.github/workflows/arctus350-reference-answer-audit.yml'
+  workflow_dispatch:
+    inputs:
+      approve_pc:
+        description: 'Ich erlaube diesen einmaligen Lauf auf meinem PC'
+        type: boolean
+        default: false
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -13,6 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   unit-tests:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.approve_pc == true)
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -25,7 +33,7 @@ jobs:
       - name: Compile
         run: python -m py_compile frontier350/arctus350_reference_answer_audit.py tests/test_arctus350_reference_answer_audit.py
   real-local-data:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' && inputs.approve_pc == true
     needs: unit-tests
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 10

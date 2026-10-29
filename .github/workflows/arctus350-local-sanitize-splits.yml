@@ -1,10 +1,12 @@
 name: Arctus350 safe local derived NeralTalk dataset (no training)
 on:
-  pull_request:
-    types: [opened, synchronize]
-    paths:
-      - '.github/workflows/arctus350-local-sanitize-splits.yml'
   workflow_dispatch:
+    inputs:
+      approve_pc:
+        description: 'Ich erlaube diesen einmaligen Lauf auf meinem PC'
+        type: boolean
+        default: false
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -12,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   create-local-clean-copy:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' && inputs.approve_pc == true
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 12
     defaults:

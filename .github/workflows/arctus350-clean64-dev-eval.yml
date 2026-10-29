@@ -1,9 +1,12 @@
 name: Arctus350 real 2B versus cleaned FP32-64 SFT dev evaluation
 on:
-  pull_request:
-    types: [opened]
-    paths:
-      - '.github/workflows/arctus350-clean64-dev-eval.yml'
+  workflow_dispatch:
+    inputs:
+      approve_pc:
+        description: 'Ich erlaube diesen einmaligen Lauf auf meinem PC'
+        type: boolean
+        default: false
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -11,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   exact-development-evidence:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' && inputs.approve_pc == true
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 18
     defaults:
