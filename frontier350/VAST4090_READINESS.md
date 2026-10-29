@@ -74,6 +74,115 @@ cannot inspect unencrypted training data/weights. If Arctus weights
 must remain private, use a stronger-trust provider or refrain from
 uploading them to a marketplace host.
 
+## Stage 1.5 — NOW: pack the private trial files before paying for a GPU
+
+A new **local-only** exporter `frontier350/vast4090_transfer.py` completes
+the original checkpoint/data transfer workflow. It was tested with synthetic
+files; **it has not accessed or transferred the owner's real PC files**.
+
+On the trusted PC (or a trusted machine where your original checkpoint and
+locked corpus actually reside), first run the read-only command:
+
+```powershell
+python -m frontier350.vast4090_transfer
+```
+
+Locate the original **full optimizer** checkpoint (not an inference-only
+`best_validation.pt`) and native `schema=2` BPE `.bin` train/valid
+corpus. Check its SHA against Issue #141. To prepare a small pilot subset,
+replace the three input path placeholders with actual local paths:
+
+```powershell
+python -m frontier350.vast4090_transfer --pack `
+  --checkpoint "D:\\NERAL\\runs\\ORIGINAL-resume.pt" `
+  --checkpoint-sha256 f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7 `
+  --tokenizer "D:\\NERAL\\tokenizer.json" `
+  --data-manifest "D:\\NERAL\\BPE-CORPUS\\manifest.json" `
+  --out "D:\\NERAL-PRIVATE\\vast-transfer-01"
+```
+
+This is not a claim that these paths exist. The script **fails before
+creating the output** if the checkpoint digest, complete AdamW optimizer,
+original training-token schedule, locked tokenizer, or corpus integrity
+cannot be verified. For the normal 131,072-token GPU engineering pilot it
+selects **at least 512K train and 16K validation BPE tokens** from the
+hash-checked original corpus, not the complete 1B+ corpus. All files
+are copied to a new private folder; the originals remain untouched.
+The exported JSONL-free `schema=2` subset is directly readable by the
+native `train350_compiled.py` input reader. A smaller data subset is
+useful for **performance/integration experiments**, *not* for claiming
+new high-quality pretraining, novel documents or a validated improvement.
+
+The output uses this structure:
+
+```text
+vast-transfer-01/
+  inputs/
+    original-resume.pt
+    tokenizer.json
+    data/
+      manifest.json
+      train/*.bin
+      valid/*.bin
+  transfer-receipt.json
+```
+
+The command prints an **independently recorded**
+`receipt_sha256` and original checkpoint hash. Keep both digests
+on your trusted phone/PC; **do not store SSH keys or passwords in the
+transfer folder or commit the folder to GitHub**. The private folder
+contains full original optimizer weights and must be treated as sensitive.
+
+Now you can rent the GPU *after* checking actual package size, chosen
+host, live price, and a **separate secured backup destination**.
+A transfer typically requires a one-time action from the machine
+holding those private files. ChatGPT/GitHub cannot reach local
+PC disks or initiate the transfer itself.
+
+After renting, move the package over an authenticated SSH/SFTP connection
+provided by Vast. For a trusted Windows/WSL machine with `rsync`:
+
+```bash
+# Replace HOST, PORT and PRIVATE-LOCAL-PATH with values from your actual instance
+rsync -avP -e "ssh -p <PORT>" /trusted/PRIVATE-LOCAL-PATH/vast-transfer-01/ root@<HOST>:/workspace/vast-transfer-01/
+```
+
+Do **not** put an actual SSH private key, GitHub token, or cloud
+storage credentials inside the untrusted GPU host. Verify the SSH
+host key using Vast's documented connection details, do not
+disable host-key checks to get a command working. Do not upload
+any files until you consciously accept the provider's data
+confidentiality trade-off.
+
+**On the Vast machine, BEFORE any training**, independently check:
+
+```bash
+python -m frontier350.vast4090_transfer --verify \
+  --root /workspace/vast-transfer-01 \
+  --checkpoint-sha256 f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7 \
+  --receipt-sha256 <RECEIPT_SHA_PRINTED_ON_TRUSTED_PC>
+```
+
+Then pass these already verified file locations into the existing
+`vast4090_guard --prepare` command in Stage 2:
+
+- `--checkpoint /workspace/vast-transfer-01/inputs/original-resume.pt`
+- `--tokenizer /workspace/vast-transfer-01/inputs/tokenizer.json`
+- `--data-manifest /workspace/vast-transfer-01/inputs/data/manifest.json`
+
+Check CPU/RAM and the exact 4090 offer again. The `--verify`
+operation reads and hashes only; no CUDA/remote billing action
+is taken by the code.
+
+**Important possible blocker:** the Issue #141 checkpoint reports
+2,073,161,216 processed tokens but does **not** establish whether
+its original `target_tokens` is still larger. If the recorded schedule
+is already complete, this packer refuses to create a misleading
+resume plan. A separate, validated continuation recipe will be needed
+before further model weight updates.
+
+---
+
 ## Stage 2 — only after the host is rented and those files are present
 
 Select a Vast image with PyTorch 2.8.0, compatible NVIDIA CUDA and
