@@ -21,6 +21,8 @@ class PaddingCostAuditTests(unittest.TestCase):
         self.assertEqual(report["training_performed"], False)
         self.assertEqual(report["summary"]["padded_token_reduction_pct"], 0.0)
         self.assertEqual(report["summary"]["attention_proxy_reduction_pct"], 0.0)
+        self.assertEqual(report["summary"]["bucketed_padded_tokens_median"], 32 * 32)
+        self.assertEqual(report["summary"]["compact_attention_proxy_median"], 32 * 32**2)
 
     def test_heterogeneous_lengths_show_measurable_padding_cost(self):
         lengths = [4] * 32 + [128] * 32
@@ -31,6 +33,9 @@ class PaddingCostAuditTests(unittest.TestCase):
         self.assertGreater(report["summary"]["attention_proxy_reduction_pct"], 0.0)
         self.assertGreater(report["summary"]["bucketed_padded_tokens_median"],
                            report["summary"]["compact_padded_tokens_median"])
+        self.assertEqual(report["summary"]["compact_padded_tokens_median"], sum(lengths))
+        self.assertEqual(report["summary"]["compact_attention_proxy_median"],
+                         sum(n*n for n in lengths))
 
     def test_same_input_and_seed_is_reproducible(self):
         args = ([7, 12, 3, 45, 15, 8, 27, 60] * 4,)
