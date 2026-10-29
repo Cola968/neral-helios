@@ -55,7 +55,7 @@ def _task(n: int, lang: str, family: str) -> tuple[str, str, str]:
         else:
             prompt = (f"Fictional record: Object {oid}; Temperature = {t} K; Pressure = {p} kPa. "
                       "What temperature is listed? Reply only with value and unit.")
-        return "grounding", prompt, f"{t} K"
+        return "temperature", prompt, f"{t} K"
 
     if family == "mass":
         extra = (f"; Masse = {m} kg" if lang == "de" else f"; Mass = {m} kg") if attrs["has_mass"] else ""
