@@ -5,6 +5,7 @@ on:
       - 'frontier350/arctus350_padding_cost_audit.py'
       - 'tests/test_arctus350_padding_cost_audit.py'
       - '.github/workflows/arctus350-padding-cost-audit.yml'
+      - 'frontier350/ARCTUS350_PADDING_COST_AUDIT_20261029.md'
 permissions:
   contents: read
 jobs:
@@ -18,3 +19,26 @@ jobs:
           python-version: '3.12'
       - name: Length-only theoretical sampler comparison (no datasets or GPU)
         run: python -m unittest -v tests.test_arctus350_padding_cost_audit
+      - name: Reproducible synthetic CLI smoke (aggregate output only)
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          target = Path(os.environ["RUNNER_TEMP"]) / "arctus-synthetic-lengths.json"
+          target.write_text(json.dumps({"lengths": [4]*32 + [128]*32}))
+          PY
+          python -m frontier350.arctus350_padding_cost_audit \
+            --lengths-json "$RUNNER_TEMP/arctus-synthetic-lengths.json" \
+            --batch-size 4 --bucket-size 64 --seeds 8 \
+            --out "$RUNNER_TEMP/arctus-synthetic-aggregate.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads((Path(os.environ["RUNNER_TEMP"])/"arctus-synthetic-aggregate.json").read_text())
+          assert d["training_performed"] is False and d["model_quality"] == "NOT_MEASURED"
+          assert d["summary"]["padded_token_reduction_pct"] > 0
+          assert d["summary"]["attention_proxy_reduction_pct"] > 0
+          print(json.dumps({"example_count":d["example_count"],"synthetic_summary":d["summary"],
+                            "gpu_speed":d["gpu_speed"],"model_quality":d["model_quality"]},
+                           sort_keys=True))
+          PY
