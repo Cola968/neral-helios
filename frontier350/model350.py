@@ -139,6 +139,38 @@ class GQA(nn.Module):
         return self.o(y.transpose(1, 2).contiguous().view(b, t, self.cfg.d_model))
 
 
+    def forward_cached(self, x: torch.Tensor, past=None):
+        """Prefill or single-token GQA decode with exact absolute RoPE offsets.
+
+        Cache shape (batch, KV heads, processed tokens, head_dim). No parameter
+        or state_dict changes. Caller validates that a decode has one new token.
+        """
+        batch, length, _ = x.shape
+        offset = 0 if past is None else past[0].size(-2)
+        q = self.q(x).view(batch, length, self.cfg.n_heads, self.cfg.head_dim).transpose(1, 2)
+        k = self.k(x).view(batch, length, self.cfg.n_kv_heads, self.cfg.head_dim).transpose(1, 2)
+        v = self.v(x).view(batch, length, self.cfg.n_kv_heads, self.cfg.head_dim).transpose(1, 2)
+        q, k = self.qn(q), self.kn(k)
+        q, k = rope(q, k, self.cfg.rope_theta, self.cfg.max_seq_len, offset=offset)
+        if past is not None:
+            k = torch.cat((past[0], k), dim=-2)
+            v = torch.cat((past[1], v), dim=-2)
+        # Cached decode has only the final query; every cached key is visible.
+        # Initial prefill instead requires the ordinary causal attention mask.
+        causal = past is None
+        try:
+            y = F.scaled_dot_product_attention(
+                q, k, v, is_causal=causal,
+                dropout_p=0.0, enable_gqa=True,
+            )
+        except (TypeError, RuntimeError):
+            keys = k.repeat_interleave(self.cfg.gqa_groups, 1)
+            values = v.repeat_interleave(self.cfg.gqa_groups, 1)
+            y = F.scaled_dot_product_attention(q, keys, values,
+                                               is_causal=causal, dropout_p=0.0)
+        return self.o(y.transpose(1, 2).contiguous().view(batch, length, self.cfg.d_model)), (k, v)
+
+
 class SwiGLU(nn.Module):
     def __init__(self, cfg: Neral350Config):
         super().__init__()
@@ -161,6 +193,12 @@ class Block(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.n1(x))
         return x + self.ffn(self.n2(x))
+
+
+    def forward_cached(self, x: torch.Tensor, past=None):
+        residual, cache = self.attn.forward_cached(self.n1(x), past)
+        x = x + residual
+        return x + self.ffn(self.n2(x)), cache
 
 
 class Neral350M(nn.Module):
@@ -200,6 +238,51 @@ class Neral350M(nn.Module):
         if targets is not None:
             loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
         return logits, loss
+
+    @torch.inference_mode()
+    def forward_cached(self, idx: torch.Tensor, past_key_values=None):
+        """Return logits and ephemeral native GQA K/V cache (eval mode only).
+
+        The ordinary forward() and its state_dict are intentionally unchanged.
+        Prefill accepts 1..max_seq tokens; incremental decode exactly one.
+        Invalid or stale-shape caches are rejected before touching the model.
+        """
+        if self.training:
+            raise ValueError("KV cache is inference-only; call eval() first")
+        if (not isinstance(idx, torch.Tensor) or idx.dtype != torch.long or
+            idx.ndim != 2 or not 0 < idx.size(1) <= self.cfg.max_seq_len):
+            raise ValueError("invalid token shape or dtype")
+        batch, count = idx.shape
+        past_len = 0
+        if past_key_values is not None:
+            if (not isinstance(past_key_values, (list,tuple)) or
+                len(past_key_values) != len(self.blocks) or count != 1):
+                raise ValueError("cache requires one new token and all layers")
+            for pair in past_key_values:
+                if not isinstance(pair, (tuple,list)) or len(pair) != 2:
+                    raise ValueError("invalid KV pair")
+                k,v = pair
+                if not isinstance(k,torch.Tensor) or not isinstance(v,torch.Tensor):
+                    raise ValueError("KV values must be tensors")
+                if k.shape != v.shape or k.ndim != 4 or k.shape[:2] != (batch, self.cfg.n_kv_heads) or k.shape[-1] != self.cfg.head_dim:
+                    raise ValueError("KV shape mismatch")
+                if (k.device != idx.device or v.device != idx.device or
+                    k.dtype != self.tok_emb.weight.dtype or v.dtype != k.dtype):
+                    raise ValueError("KV device/dtype mismatch")
+                if past_len == 0:
+                    past_len = k.size(-2)
+                elif k.size(-2) != past_len:
+                    raise ValueError("KV layer lengths differ")
+            if not 0 < past_len < self.cfg.max_seq_len:
+                raise ValueError("invalid cached prefix length")
+        if count + past_len > self.cfg.max_seq_len:
+            raise ValueError("cached context exceeds model maximum")
+        x = self.tok_emb(idx)
+        future = []
+        for i,block in enumerate(self.blocks):
+            x, kv = block.forward_cached(x, None if past_key_values is None else past_key_values[i])
+            future.append(kv)
+        return self.lm_head(self.norm(x)), tuple(future)
 
     def parameter_report(self) -> dict:
         total = sum(p.numel() for p in self.parameters())
