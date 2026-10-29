@@ -1,5 +1,7 @@
 # NERAL Chat Experience & Stability
 
+Dieses Dokument beschreibt den historischen Stand von PR #173. Die späteren, optionalen Modellpfade sind in [Arctus350](ARCTUS350_FLASK.md) und [Qwen Assistant](NERAL_QWEN_INTEGRATION.md) dokumentiert.
+
 ## Audit und Branch-Basis
 
 Arbeitsbasis ist `main` auf `4e4dca3da0d8bc0d3ee5ec697edb7575cf9aa278`.
@@ -138,3 +140,4 @@ Mobil, echter Flask-Einstieg, heller Modus:
 Verständlicher Fehler statt irreführendem Teilergebnis:
 
 ![Fehlerzustand](../evidence/chat_experience_20261028/error.png)
+
