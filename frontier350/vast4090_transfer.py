@@ -78,7 +78,8 @@ def _copy_and_receipt(source: Path, root: Path, rel: str, expected_sha: str,
     })
 
 
-def verify_bundle(root: Path, *, test_tokenizer_sha256: str | None = None) -> dict:
+def verify_bundle(root: Path, *, expected_checkpoint_sha256: str | None = None,
+                  test_tokenizer_sha256: str | None = None) -> dict:
     """Verify all declared files, limited inventory, manifest and locked tokenizer.
 
     A receipt cannot establish origin authenticity alone: compare original
@@ -128,6 +129,10 @@ def verify_bundle(root: Path, *, test_tokenizer_sha256: str | None = None) -> di
         raise ValueError("Unexpected/missing file in transfer bundle")
     if next(e["sha256"] for e in entries if e["path"]=="inputs/original-resume.pt") != receipt.get("checkpoint_sha256"):
         raise ValueError("Checkpoint SHA256 differs from bundle receipt")
+    if expected_checkpoint_sha256 is not None:
+        _sha(expected_checkpoint_sha256, "trusted original checkpoint")
+        if receipt["checkpoint_sha256"] != expected_checkpoint_sha256:
+            raise ValueError("Checkpoint SHA256 differs from independently verified original")
     expected_tok = test_tokenizer_sha256 or EXPECTED_TOKENIZER_SHA256
     if next(e["sha256"] for e in entries if e["path"]=="inputs/tokenizer.json") != expected_tok:
         raise ValueError("Original tokenizer SHA256 not locked")
@@ -284,9 +289,9 @@ def main(argv=None):
     parser.add_argument("--min-valid-tokens", type=int, default=16_384)
     a = parser.parse_args(argv)
     if a.verify:
-        if a.root is None:
-            parser.error("--verify requires --root")
-        result = verify_bundle(a.root)
+        if a.root is None or not a.checkpoint_sha256:
+            parser.error("--verify requires --root and --checkpoint-sha256 from TRUSTED LOCAL records")
+        result = verify_bundle(a.root, expected_checkpoint_sha256=a.checkpoint_sha256)
     elif a.pack:
         if not all((a.checkpoint, a.checkpoint_sha256, a.tokenizer, a.data_manifest, a.out)):
             parser.error("--pack requires --checkpoint, --checkpoint-sha256, "
