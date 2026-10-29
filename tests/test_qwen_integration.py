@@ -62,6 +62,21 @@ def test_simulated_ollama_response_has_truthful_identity(client,monkeypatch):
     assert not web._generation_lock.locked()
 
 
+def test_optional_4b_uses_its_own_identity_and_rejects_9b_history(client,monkeypatch):
+    model='qwen3.5:4b'
+    monkeypatch.setattr(web,'ASSISTANT_MODEL',model,raising=False)
+    seen=[]
+    def fake(payload):
+        seen.append(payload)
+        return {'model':model,'done':True,'done_reason':'stop',
+                'message':{'role':'assistant','content':'4B Testantwort'}}
+    monkeypatch.setattr(assistant,'local_ollama_request',fake)
+    r=generate(client,base_model=model)
+    assert r.status_code==200 and r.json['base_model']==model and seen[0]['model']==model
+    r=generate(client,base_model=model,history=[{'role':'user','content':'Frage','imported':False},turn()])
+    assert r.status_code==400 and len(seen)==1
+
+
 def test_disabled_or_preparation_mode_never_calls_ollama(client,monkeypatch):
     monkeypatch.setattr(assistant,'local_ollama_request',lambda _:pytest.fail('unexpected request'))
     monkeypatch.setattr(web,'ASSISTANT_ENABLED',False,raising=False)

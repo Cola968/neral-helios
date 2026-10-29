@@ -12,6 +12,9 @@ test('only same Qwen model and genuine completed local turns enter context',()=>
    {mode:'trained-generation'},{imported:true},{interrupted:true},{base_model:undefined}])
    assert.equal(history([user,{...assistant,...change}]).history.length,0);
  assert.equal(history([{...user,imported:true},assistant]).history.length,0);
+ const smaller={...assistant,base_model:'qwen3.5:4b'};
+ assert.equal(core.assistantContext([user,smaller],'Weiter','qwen3.5:4b').history.length,2);
+ assert.match(core.sourceLabel(smaller),/Qwen3\.5 4B/);
 });
 test('Qwen origins are explicit and imported claims are unverified',()=>{
  assert.match(core.sourceLabel(assistant),/Qwen3\.5/);
