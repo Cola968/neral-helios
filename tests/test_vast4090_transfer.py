@@ -115,7 +115,10 @@ def test_package_does_not_overwrite_existing_output_or_source(tmp_path):
 def test_tampering_and_extraneous_files_fail_verification(tmp_path):
     pack(tmp_path)
     out = tmp_path/"transfer"
-    (out/"inputs"/"data"/"train"/"train_00000.bin").write_bytes(b"tampered")
+    victim = out/"inputs"/"data"/"train"/"train_00000.bin"
+    data = bytearray(victim.read_bytes())
+    data[0] ^= 1  # same file size, only the cryptographic content check detects it
+    victim.write_bytes(data)
     with pytest.raises(ValueError,match="SHA256"):
         verify_bundle(out, test_tokenizer_sha256=sha256_file(out/"inputs"/"tokenizer.json"))
 
