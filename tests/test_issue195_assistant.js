@@ -28,3 +28,14 @@ test('Qwen import is marked unverified and not recycled into the active model co
   assert.deepEqual(history(imported.messages),[]);
   assert.match(core.sourceLabel(imported.messages[1]),/nicht verifiziert/);
 });
+
+test('deep Qwen mode safely retains more verified context without mixing sources',()=>{
+  const longUser={...user,content:'u'.repeat(2600)};
+  const longReply={...reply,content:'a'.repeat(2400)};
+  const standard=core.context([longUser,longReply],'Weiter',256,4096,qwen,null,'qwen3.5','assistant');
+  const deep=core.context([longUser,longReply],'Weiter',1024,8192,qwen,null,'qwen3.5','assistant');
+  assert.equal(standard.history.length,0);
+  assert.equal(deep.history.length,2);
+  assert.equal(deep.history[0].content.length,2600);
+  assert.deepEqual(core.context([longUser,{...longReply,source:'native-model'}],'Weiter',1024,8192,qwen,null,'qwen3.5','assistant').history,[]);
+});
