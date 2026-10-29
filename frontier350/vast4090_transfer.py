@@ -167,9 +167,10 @@ def build_bundle(*, checkpoint: Path, expected_checkpoint_sha256: str,
         raise FileExistsError("Output folder exists: no overwrite of private files")
     if not dest_root.parent.is_dir() or dest_root.parent.is_symlink():
         raise ValueError("Output parent must be an existing trusted directory")
-    for source in (ck, tok, manifest):
-        if dest_root.resolve().is_relative_to(source.parent.resolve()):
-            raise ValueError("Destination cannot be nested inside an input directory")
+    if dest_root.resolve().is_relative_to(manifest.parent.resolve()):
+        raise ValueError("Destination cannot be nested inside the source corpus")
+    if any(source.resolve().is_relative_to(dest_root.resolve()) for source in (ck, tok, manifest)):
+        raise ValueError("Destination cannot contain the original input files")
     _sha(expected_checkpoint_sha256, "original checkpoint")
     if sha256_file(ck) != expected_checkpoint_sha256:
         raise ValueError("Original Arctus checkpoint SHA256 mismatch")
