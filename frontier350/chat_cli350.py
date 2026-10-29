@@ -33,21 +33,33 @@ def sample_next(logits,generated,temperature,top_p,repetition_penalty):
     return int(torch.multinomial(probs,1))
 
 @torch.inference_mode()
-def generate(model,tok,history,*,max_new=160,max_context=1024,temperature=.7,top_p=.9,repetition_penalty=1.08,device=None):
+def generate(model,tok,history,*,max_new=160,max_context=1024,temperature=.7,top_p=.9,repetition_penalty=1.08,device=None,use_kv_cache=False):
     if max_new<=0 or max_new>=max_context:raise ValueError("invalid max_new/max_context")
     h=trim_history(tok,history,max_context-max_new)
     ids=prompt_ids(tok,h);generated=[]
     eos=int(tok.token_to_id("<|eos|>"));bos=int(tok.token_to_id("<|bos|>"));pad=int(tok.token_to_id("<|pad|>"));sep=int(tok.token_to_id("<|sep|>"))
     dev=device or next(model.parameters()).device
-    for _ in range(max_new):
-        x=torch.tensor([ids],device=dev,dtype=torch.long)
-        logits,_=model(x)
-        z=logits[0,-1].clone()
+    # Only opt-in with the native Arctus350 weights. No other/foreign model is loaded.
+    if use_kv_cache and not callable(getattr(model, "forward_cached", None)):
+        raise ValueError("model has no native KV-cache path")
+    cache = None
+    if use_kv_cache:
+        pending_logits,cache=model.forward_cached(torch.tensor([ids],device=dev,dtype=torch.long))
+    for step in range(max_new):
+        if use_kv_cache:
+            z=pending_logits[0,-1].clone()
+        else:
+            x=torch.tensor([ids],device=dev,dtype=torch.long)
+            logits,_=model(x)
+            z=logits[0,-1].clone()
         for bad in (bos,pad,sep):z[bad]=-float("inf")
         nxt=sample_next(z,generated,temperature,top_p,repetition_penalty)
         if nxt==eos:break
         generated.append(nxt);ids.append(nxt)
         if len(ids)>=max_context:break
+        if use_kv_cache and step+1<max_new:
+            pending_logits,cache=model.forward_cached(
+                torch.tensor([[nxt]],device=dev,dtype=torch.long),cache)
     return tok.decode(generated,skip_special_tokens=True).strip(),h
 
 def load_runtime(checkpoint,tokenizer):
@@ -59,7 +71,7 @@ def load_runtime(checkpoint,tokenizer):
     return m,tok,dev
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--checkpoint",required=True);ap.add_argument("--tokenizer",required=True);ap.add_argument("--prompt");ap.add_argument("--max-new",type=int,default=160);ap.add_argument("--max-context",type=int,default=1024);ap.add_argument("--temperature",type=float,default=.7);ap.add_argument("--top-p",type=float,default=.9);ap.add_argument("--repetition-penalty",type=float,default=1.08);ap.add_argument("--tool-mode",choices=["auto","off"],default="auto");ap.add_argument("--knowledge-dir");ap.add_argument("--knowledge-limit",type=int,default=2);a=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--checkpoint",required=True);ap.add_argument("--tokenizer",required=True);ap.add_argument("--prompt");ap.add_argument("--max-new",type=int,default=160);ap.add_argument("--max-context",type=int,default=1024);ap.add_argument("--temperature",type=float,default=.7);ap.add_argument("--top-p",type=float,default=.9);ap.add_argument("--repetition-penalty",type=float,default=1.08);ap.add_argument("--kv-cache",action="store_true",help="opt-in native grouped-query KV cache; requires GPU parity check before promotion");ap.add_argument("--tool-mode",choices=["auto","off"],default="auto");ap.add_argument("--knowledge-dir");ap.add_argument("--knowledge-limit",type=int,default=2);a=ap.parse_args()
     model,tok,dev=load_runtime(Path(a.checkpoint),Path(a.tokenizer));history=[]
     knowledge=KnowledgeIndex.from_directory(a.knowledge_dir) if a.knowledge_dir else None
     if knowledge is not None:
@@ -82,7 +94,7 @@ def main():
                 references=", ".join(f"{hit.source}:{hit.line}" for hit in hits)
                 history=trimmed+[("assistant",f"Lokale Quellen: {references}")]
                 return text,"local-knowledge"
-        text,trimmed=generate(model,tok,history,max_new=a.max_new,max_context=a.max_context,temperature=a.temperature,top_p=a.top_p,repetition_penalty=a.repetition_penalty,device=dev)
+        text,trimmed=generate(model,tok,history,max_new=a.max_new,max_context=a.max_context,temperature=a.temperature,top_p=a.top_p,repetition_penalty=a.repetition_penalty,device=dev,use_kv_cache=a.kv_cache)
         history=trimmed+[("assistant",text)]
         return text,"native-model"
     if a.prompt is not None:
