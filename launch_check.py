@@ -20,7 +20,7 @@ _EXTERNAL_NETWORK_JS = re.compile(
     r"""\b(?:fetch|WebSocket|EventSource|sendBeacon)\s*\(\s*["'`](?:https?:)?//""", re.I
 )
 _REPLAY = re.compile(
-    r"""(?i)(?:\brrweb\b|\bLogRocket\b|\bFullStory\b|(?:^|[^\w])hotjar(?:[^\w]|$)|\bclarity\.ms\b|\bsession[-_]?replay\b)"""
+    r"""(?i)(?:\brrweb\b|\bLogRocket\b|\bFullStory\b|(?:^|[^\w])hotjar(?:[^\w]|$)|\bclarity\.ms\b|\bclarity\s*\(|\bsession[-_]?replay\b)"""
 )
 
 # Checks are deliberately scoped to the current deployed HTML/CSS/JS surface.
