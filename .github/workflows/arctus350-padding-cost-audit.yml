@@ -1,0 +1,20 @@
+name: Arctus350 padding cost audit (CPU only)
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_padding_cost_audit.py'
+      - 'tests/test_arctus350_padding_cost_audit.py'
+      - '.github/workflows/arctus350-padding-cost-audit.yml'
+permissions:
+  contents: read
+jobs:
+  padding-cost-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Length-only theoretical sampler comparison (no datasets or GPU)
+        run: python -m unittest -v tests.test_arctus350_padding_cost_audit
