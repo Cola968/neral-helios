@@ -46,3 +46,4 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node tests/test_helios_chat_experience.cjs
       - run: node tests/test_arctus_browser.cjs
+      - run: node tests/test_issue195_assistant_browser.cjs
