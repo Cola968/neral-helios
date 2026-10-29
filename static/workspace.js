@@ -50,6 +50,30 @@ setInterval(()=>{if(document.visibilityState==='visible')syncChats();},30000);
 scheduleSync();
 $('openSettings').onclick=()=>{$('settingTheme').value=document.documentElement.dataset.theme||'dark';$('settingFont').value=settings.font;$('settingStream').checked=settings.stream;$('settingSync').checked=settings.sync;$('settingsDialog').showModal();};
 $('closeSettings').onclick=()=>$('settingsDialog').close();
+$('launchAudit').onclick=async()=>{
+  const button=$('launchAudit'),target=$('launchAuditResult');
+  button.disabled=true;
+  target.textContent='Prüfe lokale Quelldateien …';
+  try{
+    const report=await jsonRequest('/api/launch-readiness');
+    if(report.schema_version!==1||!Array.isArray(report.checks)||report.checks.length!==6)throw Error('Unbekanntes Prüfergebnis.');
+    target.replaceChildren();
+    const headline=document.createElement('p');
+    headline.textContent='6 Bereiche · '+report.blocker_count+' technische Warnungen · '+report.manual_review_count+' offene Fachprüfungen. Öffentlicher Launch ist nicht freigegeben.';
+    target.append(headline);
+    for(const check of report.checks){
+      const detail=document.createElement('details'),summary=document.createElement('summary');
+      const state={pass:'Code-Scan unauffällig',review:'Manuelle Prüfung offen',blocker:'Technischer Blocker',unverified:'Nicht vollständig prüfbar'}[check.status]||'Unbekannt';
+      summary.textContent=check.title+' · '+state;
+      const info=document.createElement('p'),next=document.createElement('p');
+      info.textContent=check.summary;next.textContent='Vor dem Launch: '+check.next_step;
+      detail.append(summary,info,next);target.append(detail);
+    }
+    const note=document.createElement('p');
+    note.textContent=report.notice;target.append(note);
+  }catch(error){target.textContent='Launch-Check nicht verfügbar: '+error.message;}
+  finally{button.disabled=false;}
+};
 $('settingTheme').onchange=()=>{document.documentElement.dataset.theme=$('settingTheme').value;try{localStorage.setItem('neral.theme',$('settingTheme').value);}catch{}};
 $('settingFont').onchange=()=>{settings.font=$('settingFont').value;document.documentElement.dataset.font=settings.font;persistSettings();};
 $('settingStream').onchange=()=>{settings.stream=$('settingStream').checked;persistSettings();};
