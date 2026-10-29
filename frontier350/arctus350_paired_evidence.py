@@ -19,6 +19,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from .arctus350_paired_stats import exact_paired_gain
+
 EXPECTED_TOKENIZER_SHA256 = "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd"
 SCHEMA = "arctus350-native-case-observations-v1"
 _TOP_LEVEL = frozenset({
@@ -165,6 +167,7 @@ def compare_native_runs(baseline, candidate):
             c["candidate_eos"] += int(new["eos"])
             c["gained"] += int(not old["correct"] and new["correct"])
             c["lost"] += int(old["correct"] and not new["correct"])
+    stats = exact_paired_gain(int(overall["gained"]),int(overall["lost"]),len(prior))
     regression = any(c["candidate_correct"] < c["baseline_correct"]
                      for c in by_category.values())
     eos_regression = any(c["candidate_eos"] < c["baseline_eos"]
@@ -175,6 +178,8 @@ def compare_native_runs(baseline, candidate):
         decision = "REJECT_EOS_REGRESSION"
     elif overall["candidate_correct"] <= overall["baseline_correct"]:
         decision = "NO_MEASURED_GAIN"
+    elif not stats["supports_gain"]:
+        decision = "INSUFFICIENT_STATISTICAL_EVIDENCE"
     else:
         decision = "REVIEW_CANDIDATE"
     def summary(counter):
@@ -195,6 +200,7 @@ def compare_native_runs(baseline, candidate):
         "overall": summary(overall),
         "categories": {k: summary(v) for k, v in sorted(by_category.items())},
         "decision": decision,
+        "statistics": stats,
         "provenance_verified": False,
         "release_authorization": "none",
         "limitations": (
