@@ -31,8 +31,11 @@ has its own SHA-256, dataset revision, source ID, language, domain, license,
 and split. FineWeb-family data have ODC-By terms and Common Crawl
 upstream obligations: audit licenses and attribution before publication.
 
-Large-scale near-duplicate detection and cross-campaign B2/B3 exclusion
-**are not yet complete**. This is why the emitted manifest deliberately
+Large-scale near-duplicate detection and complete cross-campaign B2/B3 exclusion
+**are not yet automatic**. Optional `--exclude-documents` flags accept the
+existing `documents.jsonl` files from earlier B2/B3 corpora and will reject
+matching normalized content hashes. They do not cover earlier corpora whose
+indexes were not provided. This is why the emitted manifest deliberately
 contains `data_is_training_ready=false`. No training step consumes it
 automatically. Exact normalized duplicates are rejected with SQLite
 on disk; embedded frozen benchmark literals are rejected via the existing
@@ -54,6 +57,8 @@ This prints quotas. It does NOT touch files or network. The target is a
 python -m pip install -r requirements-data.txt
 python -m pip install tokenizers
 python arctus_billion_data.py --execute --allow-download --target-train-tokens 1000000000 --tokenizer "C:\\path\\to\\your\\verified\\tokenizer.json" --out ".data\\arctus350-1b"
+# For each available prior B2/B3 index, append an exclusion:
+# --exclude-documents "pretrain50_b2_data\\documents.jsonl" --exclude-documents "pretrain50_b3_data\\documents.jsonl"
 ```
 
 This can involve downloading multiple GB, substantial disk usage,
