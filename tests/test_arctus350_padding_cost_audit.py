@@ -97,5 +97,29 @@ class PaddingCostAuditTests(unittest.TestCase):
             self.assertEqual(json.loads(out.read_text()), report)
 
 
+    def test_paired_seed_risk_cannot_be_hidden_by_median(self):
+        report = compare_padding_costs([4] * 32 + [128] * 32,
+                                       batch_size=4, bucket_size=64, seeds=8)
+        summary = report["summary"]
+        for metric in ("padded_tokens", "attention_proxy"):
+            outcomes = summary[metric + "_paired_seed_outcomes"]
+            self.assertEqual(sum(outcomes.values()), 8)
+            self.assertEqual(set(outcomes), {"compact_better", "equal", "compact_worse"})
+            self.assertEqual(outcomes["compact_worse"], 0)
+            self.assertGreater(outcomes["compact_better"], 0)
+        self.assertTrue(summary["compact_nonregressing_in_all_seeds"])
+        self.assertGreater(summary["attention_proxy_reduction_range_pct"][0], 0)
+
+    def test_paired_seed_risk_reports_all_ties_without_false_gain(self):
+        report = compare_padding_costs([32] * 32,
+                                       batch_size=4, bucket_size=16, seeds=4)
+        summary = report["summary"]
+        for metric in ("padded_tokens", "attention_proxy"):
+            self.assertEqual(summary[metric + "_paired_seed_outcomes"],
+                             {"compact_better": 0, "equal": 4, "compact_worse": 0})
+        self.assertEqual(summary["attention_proxy_reduction_range_pct"], [0.0, 0.0])
+        self.assertTrue(summary["compact_nonregressing_in_all_seeds"])
+
+
 if __name__ == "__main__":
     unittest.main()
