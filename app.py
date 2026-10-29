@@ -343,7 +343,7 @@ def generate():
         if arctus is not None:ids=arctus.encode(history,prompt,params['max_new_tokens'])
         else:
             # Reject explicitly foreign context; legacy byte-only clients remain compatible.
-            if any(h.get('imported') is True or h.get('interrupted') is True or h.get('base_model') is not None or (h['role']=='assistant' and h.get('source') not in (None,'native-model')) or h.get('model_family','neral-byte')!='neral-byte' or (h.get('runtime_id') is not None and h['runtime_id']!=identity) for h in history):
+            if any(h.get('imported') is True or h.get('interrupted') is True or h.get('base_model') is not None or (h['role']=='assistant' and (h.get('source') not in (None,'native-model') or (h.get('checkpoint') is not None and h['checkpoint']!=active_checkpoint))) or h.get('model_family','neral-byte')!='neral-byte' or (h.get('runtime_id') is not None and h['runtime_id']!=identity) for h in history):
                 _generation_lock.release()
                 return jsonify(error='Der Verlauf gehört zu einem anderen Modell.'),409
             formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'

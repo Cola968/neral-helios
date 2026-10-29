@@ -16,7 +16,7 @@ def status():
         if data.get('name')!='Neral / Helios' or data.get('parameters') not in {20587008,40051200,50012976,349825152}:return False
         if os.environ.get('NERAL_ASSISTANT_ENABLED')=='1':
             assistant=data.get('assistant',{})
-            if not isinstance(assistant,dict) or assistant.get('enabled') is not True or assistant.get('base_model')!=os.environ.get('NERAL_ASSISTANT_MODEL','qwen3.5:9b'):return False
+            if data.get('native_arctus350_integrated') is not True or not isinstance(assistant,dict) or assistant.get('enabled') is not True or assistant.get('base_model')!=os.environ.get('NERAL_ASSISTANT_MODEL','qwen3.5:9b'):return False
         if os.environ.get('HELIOS_ENABLE_ARCTUS350')=='1' and not data.get('arctus350_enabled'):return False
         desired=os.environ.get('HELIOS_CHECKPOINT')
         if desired and data.get('active_checkpoint')!=desired:return False

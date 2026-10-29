@@ -15,7 +15,7 @@ class FakeOpener:
 
 
 def test_launcher_accepts_arctus_and_configured_qwen(monkeypatch):
-    data={'name':'Neral / Helios','parameters':349825152,'arctus350_enabled':True,
+    data={'name':'Neral / Helios','parameters':349825152,'arctus350_enabled':True,'native_arctus350_integrated':True,
           'assistant':{'enabled':True,'base_model':'qwen3.5:9b'}}
     monkeypatch.setattr(launcher.urllib.request,'build_opener',lambda *a:FakeOpener(data))
     monkeypatch.setenv('NERAL_ASSISTANT_ENABLED','1')
@@ -23,6 +23,9 @@ def test_launcher_accepts_arctus_and_configured_qwen(monkeypatch):
     monkeypatch.setenv('HELIOS_ENABLE_ARCTUS350','1')
     monkeypatch.delenv('HELIOS_CHECKPOINT',raising=False)
     assert launcher.status()
+    data['native_arctus350_integrated']=False
+    assert not launcher.status()
+    data['native_arctus350_integrated']=True
     data['assistant']['enabled']=False
     assert not launcher.status()
 

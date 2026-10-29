@@ -1,7 +1,7 @@
 // Browser -> real Flask -> simulated loopback Ollama. No real weights or GPU.
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict'),http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const {spawn}=require('node:child_process');
+const {spawn,execFileSync}=require('node:child_process');
 (async()=>{
  const calls=[];
  const ollama=http.createServer((req,res)=>{
@@ -34,7 +34,13 @@ const {spawn}=require('node:child_process');
    if(server.exitCode!==null)throw Error(log);
    await new Promise(r=>setTimeout(r,250));
   }
-  assert(ready,log);browser=await chromium.launch({headless:true,args:['--disable-gpu']});
+  assert(ready,log);
+  // The ordinary Windows starter delegates to this readiness check.
+  execFileSync(process.env.HELIOS_TEST_PYTHON||'python',['-c',
+   'import launcher; launcher.URL='+JSON.stringify(url)+'; assert launcher.status()'],
+   {cwd:root,timeout:10000,env:{...process.env,NERAL_ASSISTANT_ENABLED:'1',
+     NERAL_ASSISTANT_MODEL:'qwen3.5:9b',HELIOS_ENABLE_ARCTUS350:'1',HELIOS_CHECKPOINT:''}});
+  browser=await chromium.launch({headless:true,args:['--disable-gpu']});
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));await page.goto(url);
   await page.locator('#assistantMode').waitFor({state:'visible'});

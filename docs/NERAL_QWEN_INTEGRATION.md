@@ -19,7 +19,7 @@ $env:HELIOS_DEVICE = 'cpu'
 
 Ollama muss lokal laufen und das ausgewählte Modell installiert haben. Die App installiert oder lädt keine Modelle nach. Alternativ startet der aus #129 übernommene `Start-NERAL-Assistant.cmd` den vorhandenen 9B-Assistenten explizit. Wenn bereits ein Dienst an Port 9680 läuft, der die gewählte Konfiguration nicht erfüllt, bittet der normale Starter darum, die alte App zu beenden; er startet keinen zweiten Server. Für die zusätzliche Arctus-Auswahl siehe `docs/ARCTUS350_FLASK.md` und dessen lokale Prüfsummen-/Tokenizeranforderungen.
 
-Das Statusfeld prüft ausschließlich Ollamas lokale Modellliste. „Modell installiert“ besagt nicht, dass es bereits im Speicher liegt oder eine Antwort erfolgreich erzeugen wird. Bei fehlendem Ollama oder Modell erscheint eine Fehlermeldung. Qwen-Antworten sind momentan nicht gestreamt und besitzen keinen Stoppknopf; ein Ollama-Aufruf ist zeitlich begrenzt. Der Browser wartet bis zu 270 Sekunden, da der bestehende Assistent höchstens zwei Aufrufe für eine Antwort mit Rechnerwerkzeug zulässt.
+Das Statusfeld prüft ausschließlich Ollamas lokale Modellliste. „Modell installiert“ besagt nicht, dass es bereits im Speicher liegt oder eine Antwort erfolgreich erzeugen wird. Bei fehlendem Ollama oder Modell erscheint eine Fehlermeldung. Qwen-Antworten sind momentan nicht gestreamt und besitzen keinen Stoppknopf. Pro Ollama-Aufruf gilt ein Socket-Timeout von 125 Sekunden; es ist keine harte Gesamtlaufzeitgrenze für eine kontinuierlich Daten liefernde Verbindung. Der Browser wartet bis zu 270 Sekunden, da der bestehende Assistent höchstens zwei Aufrufe für eine Antwort mit Rechnerwerkzeug zulässt.
 
 ## Herkunft und Kontext
 

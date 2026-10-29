@@ -66,6 +66,7 @@ def assistant_ready(fetch_json) -> bool:
     return (
         isinstance(data, dict)
         and data.get("name") == "Neral / Helios"
+        and data.get("native_arctus350_integrated") is True
         and isinstance(data.get("assistant"), dict)
         and data["assistant"].get("enabled") is True
         and data["assistant"].get("base_model") == MODEL

@@ -23,7 +23,9 @@ class LauncherTests(unittest.TestCase):
     def test_old_neral_port_does_not_count_as_assistant(self):
         fetch=lambda _:{"name":"Neral / Helios","assistant":{"enabled":False,"base_model":"qwen3.5:9b","local_only":True}}
         self.assertFalse(assistant_ready(fetch))
-        fetch=lambda _:{"name":"Neral / Helios","assistant":{"enabled":True,"base_model":"qwen3.5:9b","local_only":True}}
+        old=lambda _:{"name":"Neral / Helios","assistant":{"enabled":True,"base_model":"qwen3.5:9b","local_only":True}}
+        self.assertFalse(assistant_ready(old))
+        fetch=lambda _:{"name":"Neral / Helios","native_arctus350_integrated":True,"assistant":{"enabled":True,"base_model":"qwen3.5:9b","local_only":True}}
         self.assertTrue(assistant_ready(fetch))
         self.assertFalse(assistant_ready(lambda _:{"name":"some app","assistant":{"enabled":True,"base_model":"qwen3.5:9b"}}))
 

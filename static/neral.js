@@ -60,7 +60,7 @@ function setBusy(b){
  const qwenStatus={unknown:'Ollama-Status noch ungeprüft.',ready:'Ollama erreichbar · Modell installiert.',missing:'Ollama erreichbar · Modell nicht installiert.',offline:'Ollama ist nicht erreichbar.',invalid:'Ollama-Status konnte nicht geprüft werden.'};
  $('runtimeNotice').hidden=mode!=='assistant'&&modelReady&&ready;
  $('runtimeNotice').textContent=!ready?'Keine Verbindung. Entwürfe bleiben auf diesem Gerät.':mode==='assistant'?
-  (assistantEnabled?'NERAL Assistant · '+assistantModel+' · externes Open-Weight-Modell. '+(qwenStatus[assistantAvailability]||qwenStatus.unknown):'NERAL Assistant ist nicht aktiviert.'):
+  (assistantEnabled?'NERAL Assistant · '+assistantModel+' · externes Open-Weight-Modell für den Übergang. '+(qwenStatus[assistantAvailability]||qwenStatus.unknown):'NERAL Assistant ist nicht aktiviert.'):
   'Kein natives Sprachmodell geladen. Rechnen und Codeprüfung funktionieren lokal; freie Sprachantworten sind nicht verfügbar.';
  if(ready){$('connection').textContent=mode==='assistant'?(assistantAvailability==='ready'?'Qwen lokal verfügbar':'Qwen · '+(qwenStatus[assistantAvailability]||qwenStatus.unknown)):(modelReady?'Lokal verbunden · CPU':'Werkzeuge bereit · Modell fehlt');$('connectionDot').classList.toggle('ready',mode==='assistant'?assistantAvailability==='ready':modelReady);}
  list();

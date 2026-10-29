@@ -161,6 +161,16 @@ def test_byte_runtime_rejects_qwen_context(client,monkeypatch):
     assert r.status_code==409 and not web._generation_lock.locked()
 
 
+def test_byte_runtime_rejects_explicit_other_byte_checkpoint(client,monkeypatch):
+    monkeypatch.setattr(web,'checkpoint_loaded',True)
+    monkeypatch.setattr(web,'active_checkpoint','original')
+    row={'role':'assistant','content':'Antwort','source':'native-model',
+         'model_family':'neral-byte','checkpoint':'neral50m','imported':False,'interrupted':False}
+    r=post(client,'/api/generate',{'mode':'chat','prompt':'Weiter',
+        'history':[{'role':'user','content':'Frage','imported':False},row]})
+    assert r.status_code==409 and not web._generation_lock.locked()
+
+
 def test_arctus_runtime_rejects_qwen_context(client,monkeypatch):
     import arctus_runtime as ar
     native=ar.ArctusRuntime(object(),object(),'b'*64)
