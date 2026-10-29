@@ -1,0 +1,22 @@
+name: Arctus350 assistant supervision audit (CPU-only)
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_supervision_audit.py'
+      - 'frontier350/chat350_sft_format.py'
+      - 'tests/test_arctus350_supervision_audit.py'
+      - 'frontier350/ARCTUS350_SUPERVISION_AUDIT_20261029.md'
+      - '.github/workflows/arctus350-supervision-audit.yml'
+permissions:
+  contents: read
+jobs:
+  audit-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_arctus350_supervision_audit -v
+      - run: python -m py_compile frontier350/arctus350_supervision_audit.py tests/test_arctus350_supervision_audit.py
