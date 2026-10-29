@@ -9,6 +9,10 @@ Only aggregate counts are emitted: no prompts, answers, IDs or hashes leak.
 from __future__ import annotations
 
 from fractions import Fraction
+import argparse
+import hashlib
+import json
+from pathlib import Path
 import re
 import unicodedata
 
@@ -18,7 +22,7 @@ NUMERIC_REPLY=re.compile(r"[+-]?\d{1,9}(?:[.,]\d{1,8})?(?:/\d{1,9})?\Z")
 BINARY=re.compile(
     rf"({NUMBER})\s*(\+|-|\*|/|plus|minus|mal|times|geteilt\s+durch|divided\s+by)\s*({NUMBER})\Z"
 )
-PREFIX=re.compile(r"(?:berechne|calculate|compute|wie\s+viel\s+ist|wieviel\s+ist|what\s+is)\s+",re.I)
+PREFIX=re.compile(r"\A(?:berechne|calculate|compute|wie\s+viel\s+ist|wieviel\s+ist|what\s+is)\s+",re.I)
 DE_ADD=re.compile(rf"addiere\s+({NUMBER})\s+und\s+({NUMBER})\Z",re.I)
 EN_ADD=re.compile(rf"add\s+({NUMBER})\s+and\s+({NUMBER})\Z",re.I)
 SUFFIX=re.compile(
@@ -134,9 +138,10 @@ def audit_numeric_supervision(splits):
                     context="\u241e".join(
                         ("u" if m["role"]=="user" else "a")+":"+_canon(m["content"])
                         for m in messages[:answer_idx])
-                    previous=seen_numeric_context.setdefault(context,numeric)
+                    fingerprint=hashlib.sha256(context.encode("utf-8")).digest()
+                    previous=seen_numeric_context.setdefault(fingerprint,numeric)
                     if previous!=numeric:
-                        contradictory.add(context)
+                        contradictory.add(fingerprint)
                 expected=_arithmetic(prompt)
                 if expected is None or numeric is None:
                     continue
@@ -167,3 +172,52 @@ def require_clean_numeric_supervision(splits):
     if not report["pass"]:
         raise LabelIntegrityError("invalid numeric supervision or conflicting math labels")
     return report
+
+
+def _sha256_file(path):
+    digest=hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda:stream.read(1024*1024),b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def audit_directory(root, out):
+    """Read existing NeralTalk train/VAL only; never inspect TEST data.
+
+    Writes a *new* local aggregate record exclusively. This audit does not
+    verify that the corpora are licensed, uncontaminated or safe in all respects.
+    """
+    from .chat350_data import read_jsonl
+    root,out=Path(root),Path(out)
+    if out.exists():
+        raise FileExistsError("do not overwrite any previous research evidence")
+    train_path,val_path=root/"train.jsonl",root/"val.jsonl"
+    # No reference to root/'test.jsonl' and no test-set iteration.
+    records={"train":read_jsonl(train_path),"val":read_jsonl(val_path),"test":None}
+    report=audit_numeric_supervision(records)
+    report["train_sha256"]=_sha256_file(train_path)
+    report["val_sha256"]=_sha256_file(val_path)
+    report["source"]="existing local NeralTalk350 train/val only, original bytes SHA-256"
+    out.parent.mkdir(parents=True,exist_ok=True)
+    with out.open("x",encoding="utf-8") as dest:
+        json.dump(report,dest,indent=2,sort_keys=True,ensure_ascii=False,allow_nan=False)
+        dest.write("\n")
+    return report
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data",type=Path,required=True,help="local NeralTalk350 dataset directory")
+    parser.add_argument("--out",type=Path,required=True,help="NEW local privacy-safe aggregate JSON path")
+    args=parser.parse_args()
+    report=audit_directory(args.data,args.out)
+    print(f"Arctus350 label integrity: {report['decision']}; "
+          f"train verified={report['train']['verified_direct_arithmetic']}; "
+          f"VAL verified={report['val']['verified_direct_arithmetic']}; "
+          "TEST=SEALED_NOT_INSPECTED",flush=True)
+    raise SystemExit(0 if report["pass"] else 2)
+
+
+if __name__=="__main__":
+    main()
