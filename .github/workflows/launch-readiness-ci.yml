@@ -1,0 +1,23 @@
+name: Launch readiness static audit (offline CPU)
+on:
+  pull_request:
+    paths:
+      - launch_check.py
+      - templates/**
+      - static/**
+      - tests/test_launch_check.py
+      - .github/workflows/launch-readiness-ci.yml
+permissions:
+  contents: read
+jobs:
+  static-launch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check pytest
+      - run: python -m pytest -q tests/test_launch_check.py
+      - run: python launch_check.py --fail-on-blocker
