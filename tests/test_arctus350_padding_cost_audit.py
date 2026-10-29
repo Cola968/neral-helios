@@ -50,8 +50,9 @@ class PaddingCostAuditTests(unittest.TestCase):
                        {"seeds": 0}, {"seeds": 100}, {"batch_size": 0}):
             with self.subTest(params=params):
                 with self.assertRaises(PaddingCostError):
-                    compare_padding_costs([4] * 16, batch_size=4,
-                                          bucket_size=8, seeds=2, **params)
+                    options = {"batch_size": 4, "bucket_size": 8, "seeds": 2}
+                    options.update(params)
+                    compare_padding_costs([4] * 16, **options)
 
     def test_strict_input_json_rejects_extras_duplicates_and_nan(self):
         for payload in ('{"lengths":[4,4,4,4],"source":"private"}',
