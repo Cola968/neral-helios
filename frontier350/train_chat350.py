@@ -23,6 +23,7 @@ from model350 import FRONTIER_350, Neral350M
 from sft_batching350 import length_bucket_batches, compact_length_batches, padding_stats
 from sft_loss350 import assistant_loss_from_logits
 from sft_stratified350 import stratified_batches, cohort_summary
+from sft_rng350 import training_rngs
 
 def sha256_file(path: Path) -> str:
     h=hashlib.sha256()
@@ -129,6 +130,8 @@ def main():
     ap.add_argument("--warmup-fraction",type=float,default=.05); ap.add_argument("--eval-every",type=int,default=50)
     ap.add_argument("--save-every",type=int,default=50); ap.add_argument("--eval-replay-batches",type=int,default=8)
     ap.add_argument("--seed",type=int,default=350_726); ap.add_argument("--gradient-checkpointing",action="store_true"); ap.add_argument("--length-bucket-size",type=int,default=64)
+    ap.add_argument("--rng-streams",choices=["legacy","independent"],default="legacy",
+                    help="independent isolates replay draws from SFT sampler; opt-in for controlled comparisons")
     ap.add_argument("--sampling-mode",choices=["bucketed","human-balanced","compact"],default="bucketed",
                     help="compact reduces pad waste using equal-length groups; opt-in, benchmark before GPU use")
     ap.add_argument("--human-per-batch",type=int,default=2)
@@ -181,7 +184,7 @@ def main():
     baseline_sft=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
     baseline_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
     opt=torch.optim.AdamW(model.parameters(),lr=args.peak_lr,betas=(.9,.95),eps=1e-8,weight_decay=.03,fused=True)
-    rng=random.Random(args.seed+1)
+    rng,replay_rng=training_rngs(args.seed,args.rng_streams)
     if args.sampling_mode=="human-balanced":
         batches=stratified_batches(train,train_is_human,args.batch_size,rng,
                                   human_per_batch=args.human_per_batch,
@@ -200,14 +203,14 @@ def main():
          "gpu":torch.cuda.get_device_name(0),"torch":str(torch.__version__),
          "precision_mode":args.precision_mode,
          "loss_aggregation":args.loss_aggregation,
-         "sampling":{**mixture,"mode":args.sampling_mode,"human_per_batch":args.human_per_batch}}
+          "sampling":{**mixture,"mode":args.sampling_mode,"human_per_batch":args.human_per_batch,"rng_streams":args.rng_streams}}
     (out/"run.json").write_text(json.dumps(run,indent=2,ensure_ascii=False),encoding="utf8")
 
     def model_payload(step, val_report=None, *, resume=False):
         return {"model":checkpoint_model_state(model,args.precision_mode,resume=resume),"config":FRONTIER_350.to_dict(),"tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,
                 "source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
                 "chat_step":step,"data_manifest_sha256":manifest["manifest_sha256"],
-                "precision_mode":args.precision_mode,"validation":val_report}
+                "precision_mode":args.precision_mode,"rng_streams":args.rng_streams,"validation":val_report}
 
     best=baseline_sft["answer_nll"]; best_eos=baseline_sft["terminal_eos_top1_pct"]; best_step=None
     start=time.perf_counter(); measured_tokens=0; update_seconds=0.0; total_sft_real=0; total_sft_padded=0; sampled_human=0; sampled_verified=0; torch.cuda.reset_peak_memory_stats()
@@ -225,7 +228,7 @@ def main():
         (sft*(args.sft_weight if do_replay else 1.0)).backward()
         replay_loss=None; compute_tokens=x.numel()
         if do_replay:
-            rx,ry=replay_batch(replay,args.replay_batch,args.replay_seq,device,rng,model.cfg.vocab_size)
+            rx,ry=replay_batch(replay,args.replay_batch,args.replay_seq,device,replay_rng,model.cfg.vocab_size)
             _,rl=forward_with_amp(model,rx,ry); replay_loss=rl
             (rl*(1.0-args.sft_weight)).backward(); compute_tokens+=rx.numel()
         gn=torch.nn.utils.clip_grad_norm_(model.parameters(),1.0,error_if_nonfinite=True)
@@ -235,7 +238,7 @@ def main():
              "lr":lr,"grad_norm":float(gn),"seconds":dt,"compute_tokens":compute_tokens,"tokens_per_second":compute_tokens/max(dt,1e-9),
              "sft_batch_width":pad["batch_width"],"sft_real_tokens":pad["real_tokens"],"sft_padded_tokens":pad["padded_tokens"],
              "sft_padding_tokens":pad["padding_tokens"],"sft_padding_fraction":pad["padding_fraction"],
-             "sampling_mode":args.sampling_mode,"loss_aggregation":args.loss_aggregation}
+             "sampling_mode":args.sampling_mode,"loss_aggregation":args.loss_aggregation,"rng_streams":args.rng_streams}
         if step%args.eval_every==0 or step==args.steps:
             vr=eval_sft(model,val,args.batch_size,pad_id,eos_id,device)
             rr=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
@@ -246,8 +249,10 @@ def main():
                 best=vr["answer_nll"]; best_eos=vr["terminal_eos_top1_pct"]; best_step=step
                 atomic_save(model_payload(step,vr),out/"best_chat.pt")
         if step%args.save_every==0 or step==args.steps:
+            rng_state={"rng_state":rng.getstate()}
+            if args.rng_streams=="independent":rng_state["replay_rng_state"]=replay_rng.getstate()
             atomic_save({**model_payload(step,row.get("validation"),resume=True),"optimizer":opt.state_dict(),
-                         "rng_state":rng.getstate(),"torch_rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},
+                         **rng_state,"torch_rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},
                         out/"latest_resume.pt")
         with metrics.open("a",encoding="utf8") as f:f.write(json.dumps(row,ensure_ascii=False)+"\n")
         if step%10==0 or step==args.steps: print(json.dumps(row,ensure_ascii=False),flush=True)
@@ -285,7 +290,7 @@ def main():
              "mean_optimizer_tokens_per_second":measured_tokens/max(update_seconds,1e-9),
              "sft_real_tokens":total_sft_real,"sft_padded_tokens":total_sft_padded,"sft_padding_fraction":1.0-total_sft_real/max(1,total_sft_padded),
              "sampled_human_rows":sampled_human,"sampled_verified_rows":sampled_verified,"sampling_mode":args.sampling_mode,
-             "loss_aggregation":args.loss_aggregation,
+             "loss_aggregation":args.loss_aggregation,"rng_streams":args.rng_streams,
              "precision_mode":args.precision_mode,
              "elapsed_seconds":time.perf_counter()-start,"peak_allocated_gib":torch.cuda.max_memory_allocated()/2**30,
              "peak_reserved_gib":torch.cuda.max_memory_reserved()/2**30,"best_checkpoint_exists":selected is not None}
