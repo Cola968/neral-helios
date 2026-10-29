@@ -80,3 +80,35 @@ def test_assistant_results_remain_separate_in_chat_sync(client):
     assert saved["mode"] == "assistant"
     assert saved["messages"][1]["base_model"] == "qwen3.5:9b"
     assert saved["messages"][1]["source"] == "external-model"
+
+
+def test_complete_flask_to_provider_contract_with_fake_local_ollama(client, monkeypatch):
+    """Real provider + Flask, with the HTTP boundary simulated; no native Qwen inference."""
+    import neral_assistant as provider
+    seen = []
+    def fake_ollama(payload):
+        seen.append(payload)
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Qwen-Testantwort"},
+                "eval_count": 3, "eval_duration": 1000000000}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    r = post(client, {"mode": "assistant", "prompt": "Was ist NERAL?",
+                      "history": [{"role": "user", "content": "Hallo"},
+                                  {"role": "assistant", "content": "Guten Tag"}]})
+    assert r.status_code == 200
+    assert r.json["text"] == "Qwen-Testantwort"
+    assert r.json["mode"] == "neral-assistant"
+    assert r.json["source"] == "external-model"
+    assert r.json["model_family"] == "qwen3.5"
+    assert len(seen) == 1 and seen[0]["model"] == "qwen3.5:9b"
+    assert [row["role"] for row in seen[0]["messages"]][-3:] == ["user", "assistant", "user"]
+    assert seen[0]["stream"] is False
+
+
+def test_busy_native_runtime_blocks_qwen_and_preserves_lock(client, monkeypatch):
+    monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: pytest.fail("busy model must not run"))
+    with web._generation_lock:
+        result = post(client, {"mode": "assistant", "prompt": "Hallo"})
+        assert result.status_code == 429
+        assert web._generation_lock.locked()
+    assert not web._generation_lock.locked()
