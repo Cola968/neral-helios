@@ -117,7 +117,24 @@ def compare_padding_costs(lengths: list[int], *, batch_size: int,
             raise PaddingCostError("nonfinite aggregate")
         return round(value, 4)
 
+    def paired_outcomes(baseline_index: int, candidate_index: int) -> dict:
+        # Compare within each seed: median improvements can hide regressions.
+        return {
+            "compact_better": sum(x[candidate_index] < x[baseline_index] for x in results),
+            "equal": sum(x[candidate_index] == x[baseline_index] for x in results),
+            "compact_worse": sum(x[candidate_index] > x[baseline_index] for x in results),
+        }
+
     summary = {
+        "padded_tokens_paired_seed_outcomes": paired_outcomes(0, 1),
+        "attention_proxy_paired_seed_outcomes": paired_outcomes(2, 3),
+        "compact_nonregressing_in_all_seeds": all(
+            x[1] <= x[0] and x[3] <= x[2] for x in results
+        ),
+        "attention_proxy_reduction_range_pct": [
+            rounded(min(100 * (x[2] - x[3]) / x[2] for x in results)),
+            rounded(max(100 * (x[2] - x[3]) / x[2] for x in results)),
+        ],
         "real_tokens": real,
         "bucketed_padded_tokens_median": median(x[0] for x in results),
         "compact_padded_tokens_median": median(x[1] for x in results),
