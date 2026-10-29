@@ -154,7 +154,7 @@ class ShardWriter:
 
 def build_from_streams(*, sources, output: Path, target_train_tokens: int,
                        tokenizer, stream_factory, contamination_phrases=(),
-                       max_shard_bytes=DEFAULT_SHARD_BYTES):
+                       max_shard_bytes=DEFAULT_SHARD_BYTES, historical_indexes=()):
     """Run an already-resolved source stream; inject fake streams for offline tests.
 
     Writes to a never-before-used output directory. Incomplete runs have no manifest
@@ -170,6 +170,7 @@ def build_from_streams(*, sources, output: Path, target_train_tokens: int,
     rejected = collections.Counter()
     counts = collections.Counter()
     source_reports = []
+    historical_receipts = []
     normalized_phrases = tuple(x for x in (
         normalize_for_dedup(s) for s in contamination_phrases
     ) if len(x) >= 10)
@@ -177,6 +178,35 @@ def build_from_streams(*, sources, output: Path, target_train_tokens: int,
     try:
         with sqlite3.connect(db_path) as db:
             db.execute("CREATE TABLE seen (digest TEXT PRIMARY KEY, source_row TEXT UNIQUE)")
+            db.execute("CREATE TABLE historical (digest TEXT PRIMARY KEY)")
+            for index in historical_indexes:
+                historic_path = Path(index)
+                if not historic_path.is_file():
+                    raise ValueError("Historical document index not found")
+                kept = 0
+                with historic_path.open("r", encoding="utf8") as handle:
+                    for line_number, line in enumerate(handle, 1):
+                        if not line.strip():
+                            continue
+                        if len(line) > 32768:
+                            raise ValueError("Historical index line is oversized")
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError as exc:
+                            raise ValueError("Malformed historical document index") from exc
+                        digest = entry.get("normalized_sha256") if isinstance(entry, dict) else None
+                        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+                            raise ValueError("Historical index contains missing/invalid normalized SHA256")
+                        db.execute("INSERT OR IGNORE INTO historical(digest) VALUES (?)", (digest,))
+                        kept += 1
+                if kept == 0:
+                    raise ValueError("Historical document index is empty")
+                historical_receipts.append({
+                    "file_name": historic_path.name,
+                    "sha256": sha256_file(historic_path),
+                    "rows_scanned": kept,
+                })
+            db.commit()
             for spec, quota in zip(sources, quotas):
                 accepted = 0
                 documents = 0
@@ -211,6 +241,9 @@ def build_from_streams(*, sources, output: Path, target_train_tokens: int,
                         rejected["frozen_benchmark_contamination"] += 1
                         continue
                     digest = hashlib.sha256(normalized.encode("utf8")).hexdigest()
+                    if db.execute("SELECT 1 FROM historical WHERE digest=?", (digest,)).fetchone():
+                        rejected["historical_overlap"] += 1
+                        continue
                     rid = original.get("id")
                     rid = str(rid) if isinstance(rid, (str, int)) and str(rid).strip() else digest
                     if len(rid) > 256:
@@ -241,6 +274,8 @@ def build_from_streams(*, sources, output: Path, target_train_tokens: int,
                     writer.write(split, record)
                     counts[split] += tokens
                     documents += 1
+                    if documents % 1000 == 0:
+                        db.commit()  # no multi-million-row in-memory transaction
                     if split == "train":
                         accepted += tokens
                         if accepted >= quota:
@@ -270,6 +305,7 @@ def build_from_streams(*, sources, output: Path, target_train_tokens: int,
             "dedup": "disk-backed exact normalized-text SHA256",
             "contamination": "frozen literal phrases only; not a full semantic audit",
             "sources": source_reports,
+            "historical_exclusion_indexes": historical_receipts,
             "rejected": dict(rejected),
             "shards": shards,
         }
@@ -322,6 +358,8 @@ def main(argv=None):
     ap.add_argument("--allow-download", action="store_true", help="second explicit network consent")
     ap.add_argument("--tokenizer", type=Path, help="local original NERAL-16K BPE tokenizer.json")
     ap.add_argument("--out", type=Path, help="new, empty corpus destination")
+    ap.add_argument("--exclude-documents", type=Path, action="append", default=[],
+                    help="existing B2/B3 documents.jsonl index to exclude; may be repeated")
     ap.add_argument("--max-shard-mib", type=int, default=64)
     args = ap.parse_args(argv)
     report = plan(args.target_train_tokens)
@@ -338,7 +376,8 @@ def main(argv=None):
     output = build_from_streams(
         sources=specs, output=args.out, target_train_tokens=args.target_train_tokens,
         tokenizer=tokenizer, stream_factory=streams,
-        contamination_phrases=frozen, max_shard_bytes=args.max_shard_mib * 1024 * 1024)
+        contamination_phrases=frozen, max_shard_bytes=args.max_shard_mib * 1024 * 1024,
+        historical_indexes=args.exclude_documents)
     # Keep benchmark provenance explicit; never claim universal leakage detection.
     path = args.out / "contamination_sources.json"
     path.write_text(json.dumps(frozen_file_hashes, indent=2), encoding="utf8")
