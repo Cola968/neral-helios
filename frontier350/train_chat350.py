@@ -20,7 +20,7 @@ from chat350_sft_format import encode_messages
 from chat350_checkpoint_selection import evaluate_selected_checkpoint
 from train_precision350 import validate_precision_mode, forward_with_amp, checkpoint_model_state
 from model350 import FRONTIER_350, Neral350M
-from sft_batching350 import length_bucket_batches, padding_stats
+from sft_batching350 import length_bucket_batches, compact_length_batches, padding_stats
 from sft_stratified350 import stratified_batches, cohort_summary
 
 def sha256_file(path: Path) -> str:
@@ -132,7 +132,8 @@ def main():
     ap.add_argument("--warmup-fraction",type=float,default=.05); ap.add_argument("--eval-every",type=int,default=50)
     ap.add_argument("--save-every",type=int,default=50); ap.add_argument("--eval-replay-batches",type=int,default=8)
     ap.add_argument("--seed",type=int,default=350_726); ap.add_argument("--gradient-checkpointing",action="store_true"); ap.add_argument("--length-bucket-size",type=int,default=64)
-    ap.add_argument("--sampling-mode",choices=["bucketed","human-balanced"],default="bucketed")
+    ap.add_argument("--sampling-mode",choices=["bucketed","human-balanced","compact"],default="bucketed",
+                    help="compact reduces pad waste using equal-length groups; opt-in, benchmark before GPU use")
     ap.add_argument("--human-per-batch",type=int,default=2)
     ap.add_argument("--precision-mode",choices=["legacy-bf16","fp32-master"],default="legacy-bf16",
                     help="Opt-in FP32 master weights and AdamW with BF16 autocast; legacy is unchanged")
@@ -178,10 +179,15 @@ def main():
     baseline_replay=eval_replay(model,replay,args.replay_batch,args.replay_seq,args.eval_replay_batches,device,args.seed+91)
     opt=torch.optim.AdamW(model.parameters(),lr=args.peak_lr,betas=(.9,.95),eps=1e-8,weight_decay=.03,fused=True)
     rng=random.Random(args.seed+1)
-    batches=(stratified_batches(train,train_is_human,args.batch_size,rng,
-              human_per_batch=args.human_per_batch,bucket_size=args.length_bucket_size)
-              if args.sampling_mode=="human-balanced"
-              else length_bucket_batches(train,args.batch_size,rng,bucket_size=args.length_bucket_size))
+    if args.sampling_mode=="human-balanced":
+        batches=stratified_batches(train,train_is_human,args.batch_size,rng,
+                                  human_per_batch=args.human_per_batch,
+                                  bucket_size=args.length_bucket_size)
+    elif args.sampling_mode=="compact":
+        batches=compact_length_batches(train,args.batch_size,rng)
+    else:
+        batches=length_bucket_batches(train,args.batch_size,rng,
+                                      bucket_size=args.length_bucket_size)
     out=Path(args.out)
     if out.exists() and any(out.iterdir()): raise FileExistsError("chat output directory must be fresh")
     out.mkdir(parents=True,exist_ok=True)
