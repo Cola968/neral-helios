@@ -3,8 +3,10 @@ on:
   pull_request:
     paths:
       - 'frontier350/sft_loss350.py'
+      - 'frontier350/sft_rng350.py'
       - 'frontier350/train_chat350.py'
       - 'tests/test_arctus350_sft_loss_objective.py'
+      - 'tests/test_arctus350_sft_rng_streams.py'
       - '.github/workflows/arctus350-example-loss-ci.yml'
 permissions:
   contents: read
@@ -17,9 +19,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: CPU torch only (no model weights)
-        run: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: CPU torch and numpy only (no model weights)
+        run: |
+          pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy==2.2.6
       - name: Opt-in native SFT loss numerical and gradient tests
         run: python -m unittest tests.test_arctus350_sft_loss_objective -v
+      - name: Native SFT sampler and replay RNG isolation
+        run: python -m unittest tests.test_arctus350_sft_rng_streams -v
       - name: Syntax regression
         run: python -m compileall -q frontier350/sft_loss350.py tests/test_arctus350_sft_loss_objective.py

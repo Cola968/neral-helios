@@ -50,5 +50,17 @@ class IntegratedGroundingQualityTests(unittest.TestCase):
         self.assertEqual(score["guessed_missing_mass"],1)
         self.assertEqual(score["correct"],len(self.rows)-1)
 
+
+
+class IntegratedReplayCoverageTests(unittest.TestCase):
+    def test_shared_cpu_integration_runs_real_sampler_replay_regressions(self):
+        # PR #202's sampler/replay isolation changes the same native trainer as
+        # the integrated Arctus350 stack. A green integration gate must run its
+        # existing behavioral tests, not only compile the trainer.
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" /
+                    "arctus350-integrated-research.yml").read_text(encoding="utf8")
+        self.assertIn("tests.test_arctus350_sft_rng_streams", workflow)
+
 if __name__=="__main__":
     unittest.main()
