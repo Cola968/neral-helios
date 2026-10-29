@@ -14,7 +14,8 @@ def checkpoint_meta(processed=2_073_161_216,target=10_000_000_000):
     return {"config":EXPECTED_CONFIG, "tokenizer_sha256":TOK,
             "checkpoint_schema":2, "processed_tokens":processed,
             "target_tokens":target, "step":126534,
-            "model":{"stub":True},"optimizer":{"stub":True}}
+            "model":{"stub":True},"optimizer":{"stub":True},
+            "torch_rng":True,"python_rng":True,"numpy_rng":True}
 
 
 def small_data(tmp_path):
