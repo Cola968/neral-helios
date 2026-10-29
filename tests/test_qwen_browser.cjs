@@ -75,7 +75,7 @@ const {spawn,execFileSync}=require('node:child_process');
   assert.equal(await page.locator('#prompt').inputValue(),'Neuer Modellstand');
   await send('Neuer Modellstand');
   assert.deepEqual(calls.at(-1).messages.map(m=>m.role),['system','user']);
-  await page.locator('#status').filter({hasText:'anderem oder unbekanntem Modellstand'}).waitFor();
+  await page.locator('#status').filter({hasText:'anderen oder unbekannten Modellstand'}).waitFor();
   assert.match(await page.locator('#log .message-label').last().textContent(),/bbbbbbbb/);
   await page.waitForFunction(async()=>{
    const response=await fetch('/api/chats');if(!response.ok)return false;
