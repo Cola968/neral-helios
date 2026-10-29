@@ -25,7 +25,11 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest
       - name: Syntax check (trainer imports not executed)
         run: python -m py_compile frontier350/vast4090_guard.py frontier350/train350.py frontier350/train350_compiled.py
-      - name: Test planning, checkpoint continuity and the no-rental guard
+      - name: Install restricted checkpoint CPU test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy
+          python -m pip install --disable-pip-version-check torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Test planning, checkpoint continuity and restricted legacy RNG checkpoint
         run: python -m pytest -q tests/test_vast4090_guard.py
       - name: Default read-only plan; no device, dataset or payment
         run: python -m frontier350.vast4090_guard
