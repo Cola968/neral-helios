@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id), storageKey='neral.helios.chats.v1';
 let chats=[],current=null,mode='chat',busy=false,ready=false,modelReady=false,activeModel=null,job=null,pending=null,maxContext=4096,preparationMode=false,modelLabels={},runtimeId=null,modelFamily="neral-byte";
-let assistantEnabled=false,assistantModel=null,assistantAvailability='unknown',initialNewChat=false,firstInfo=true;
+let assistantEnabled=false,assistantModel=null,assistantDigest=null,assistantAvailability='unknown',assistantStatusSeq=0,initialNewChat=false,firstInfo=true;
 try{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');if(Array.isArray(saved))chats=saved.map(HeliosCore.normalizeStoredChat).filter(Boolean);document.documentElement.dataset.theme=localStorage.getItem('neral.theme')||'dark';}catch{chats=[];}
 function notify(text){$('status').textContent=text;$('status').hidden=!text;}
 function persist(){if(current&&!current.temporary){current._dirty=true;current._syncBlocked=false;}try{localStorage.setItem(storageKey,JSON.stringify(chats));window.dispatchEvent(new Event('neral:changed'));}catch{notify('Der lokale Speicher ist voll. Exportiere wichtige Chats, bevor du ältere löschst.');}}
@@ -57,7 +57,7 @@ function setBusy(b){
  $('assistantMode').disabled=b||!ready||!assistantEnabled||preparationMode;
  $('log').setAttribute('aria-busy',String(b));
  $('activity').textContent=b?'Anfrage wird verarbeitet …':!ready?'Verbindung wird geprüft …':mode==='assistant'?'NERAL Assistant · Qwen':modelReady?'Eigener Checkpoint aktiv':'Bereit · lokal';
- const qwenStatus={unknown:'Ollama-Status noch ungeprüft.',ready:'Ollama erreichbar · Modell installiert.',missing:'Ollama erreichbar · Modell nicht installiert.',offline:'Ollama ist nicht erreichbar.',invalid:'Ollama-Status konnte nicht geprüft werden.'};
+ const qwenStatus={unknown:'Ollama-Status noch ungeprüft.',ready:'Ollama erreichbar · Modell installiert · Stand '+(assistantDigest?.slice(0,8)||'unbekannt')+'.',missing:'Ollama erreichbar · Modell nicht installiert.',offline:'Ollama ist nicht erreichbar.',invalid:'Ollama-Modellstand konnte nicht geprüft werden.'};
  $('runtimeNotice').hidden=mode!=='assistant'&&modelReady&&ready;
  $('runtimeNotice').textContent=!ready?'Keine Verbindung. Entwürfe bleiben auf diesem Gerät.':mode==='assistant'?
   (assistantEnabled?'NERAL Assistant · '+assistantModel+' · externes Open-Weight-Modell für den Übergang. '+(qwenStatus[assistantAvailability]||qwenStatus.unknown):'NERAL Assistant ist nicht aktiviert.'):
@@ -69,7 +69,7 @@ async function jsonRequest(path,payload){let response;try{response=await fetch(p
 function stats(info){
  runtimeId=info.runtime_id||null;modelFamily=info.model_family;modelLabels=info.model_labels||{};
  preparationMode=info.preparation_mode===true;maxContext=info.max_seq_len;
- assistantEnabled=info.assistant?.enabled===true;assistantModel=info.assistant?.base_model||null;assistantAvailability='unknown';
+ assistantEnabled=info.assistant?.enabled===true;assistantModel=info.assistant?.base_model||null;assistantAvailability='unknown';assistantDigest=null;assistantStatusSeq++;
  $('assistantMode').hidden=!assistantEnabled;
  $('assistantModelLabel').textContent='NERAL Assistant · '+(assistantModel||'Qwen3.5')+' · lokal';
  $('modelStats').replaceChildren();
@@ -92,19 +92,27 @@ function stats(info){
  if(assistantEnabled)refreshAssistantAvailability();
 }
 async function refreshAssistantAvailability(){
- const model=assistantModel;
- try{const status=await jsonRequest('/api/assistant/status');if(assistantEnabled&&assistantModel===model&&status.base_model===model)assistantAvailability=status.availability;}
- catch{if(assistantModel===model)assistantAvailability='unknown';}
- if(assistantModel===model)setBusy(busy);
+ const model=assistantModel,sequence=++assistantStatusSeq;
+ try{
+  const status=await jsonRequest('/api/assistant/status');
+  if(assistantEnabled&&assistantModel===model&&sequence===assistantStatusSeq&&status.base_model===model){
+   assistantAvailability=status.availability;
+   assistantDigest=status.availability==='ready'&&/^[a-f0-9]{64}$/.test(status.model_digest||'')?status.model_digest:null;
+   if(status.availability==='ready'&&!assistantDigest)assistantAvailability='invalid';
+  }
+ }catch{if(assistantModel===model&&sequence===assistantStatusSeq){assistantAvailability='unknown';assistantDigest=null;}}
+ if(assistantModel===model&&sequence===assistantStatusSeq)setBusy(busy);
 }
 $('composer').onsubmit=async event=>{
  event.preventDefault();if(busy||!ready)return;
  const prompt=$('prompt').value.trim();if(!prompt)return;notify('');
  if(new TextEncoder().encode(prompt).length>4096){notify('Die Eingabe ist länger als 4096 UTF-8-Bytes.');return;}
- const ctx=mode==='assistant'?HeliosCore.assistantContext(current.messages,prompt,assistantModel):HeliosCore.context(mode==='chat'?current.messages:[],prompt,Number($('tokens').value),maxContext,activeModel,runtimeId,modelFamily);
+ if(mode==='assistant'&&assistantEnabled&&!assistantDigest){notify('Ollama oder der Qwen-Modellstand ist nicht bestätigt. Status wird geprüft.');refreshAssistantAvailability();return;}
+ const ctx=mode==='assistant'?HeliosCore.assistantContext(current.messages,prompt,assistantModel,assistantDigest):HeliosCore.context(mode==='chat'?current.messages:[],prompt,Number($('tokens').value),maxContext,activeModel,runtimeId,modelFamily);
  const history=mode==='assistant'&&assistantEnabled||mode==='chat'&&modelReady?ctx.history:[];
  if((mode==='assistant'&&assistantEnabled||mode==='chat'&&modelReady)&&!ctx.fits){notify('Eingabe und Verlauf sind zu lang. Kürze die Eingabe oder beginne einen neuen Chat.');return;}
  if(ctx.omitted&&(modelReady||mode==='assistant'&&assistantEnabled))notify(ctx.omitted+' ältere Nachrichtenpaare wurden aus dem Modellkontext ausgelassen. Der gespeicherte Verlauf bleibt vollständig.');
+ if(mode==='assistant'&&ctx.incompatible)notify(ctx.incompatible+' ältere Qwen-Nachrichtenpaare stammen von einem anderen oder unbekannten Modellstand und bleiben außerhalb des Kontexts.');
  current.messages.push({role:'user',content:prompt,mode,imported:false});
  if(current.messages.length===1){if(current.title==='Neuer Chat')current.title=prompt.slice(0,38);if(!current.temporary&&!chats.some(c=>c.id===current.id))chats.unshift(current);}
  job=crypto.randomUUID();render(true);setBusy(true);
@@ -113,16 +121,16 @@ $('composer').onsubmit=async event=>{
  const p=document.createElement('div');p.className='content';p.textContent='Anfrage wird geprüft …';pending.append(label,p);$('log').append(pending);$('log').scrollTop=$('log').scrollHeight;
  $('prompt').value='';$('prompt').dispatchEvent(new Event('input'));
  try{
-  const r=await generateRequest({prompt,history,mode,max_new_tokens:Number($('tokens').value),temperature:Number($('temperature').value),top_k:40,request_id:job,...(mode==='assistant'?{base_model:assistantModel}:{runtime_id:runtimeId})},update=>{
+  const r=await generateRequest({prompt,history,mode,max_new_tokens:Number($('tokens').value),temperature:Number($('temperature').value),top_k:40,request_id:job,...(mode==='assistant'?{base_model:assistantModel,model_digest:assistantDigest}:{runtime_id:runtimeId})},update=>{
    label.textContent='Eigene Modellgenerierung · unvollständig';
    if(update.text){p.textContent=update.text;pending.dataset.partial=update.text;}else p.textContent='Modell berechnet die Antwort …';
   });
-  if(mode==='assistant'&&r.mode==='neral-assistant')assistantAvailability='ready';
-  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,base_model:r.base_model,tool_assisted:r.tool_assisted===true,interrupted:!!r.cancelled||!!r.incomplete,
+  if(mode==='assistant'&&r.mode==='neral-assistant'){assistantAvailability='ready';assistantDigest=r.model_digest;assistantStatusSeq++;}
+  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,base_model:r.base_model,model_digest:r.model_digest,tool_assisted:r.tool_assisted===true,interrupted:!!r.cancelled||!!r.incomplete,
    meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':r.incomplete?'Antwortbudget erreicht · unvollständig · ':'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
   persist();
  }catch(error){
-  if(mode==='assistant'&&assistantEnabled&&error.status===503)refreshAssistantAvailability();
+  if(mode==='assistant'&&assistantEnabled&&(error.status===503||error.status===409)){assistantDigest=null;assistantAvailability='unknown';refreshAssistantAvailability();}
   const partial=pending?.dataset.partial;
   if(partial)current.messages.push({role:'assistant',imported:false,mode:'trained-generation',source:'native-model',content:partial,interrupted:true,meta:'Verbindung unterbrochen · unvollständig · nicht im Modellkontext'});
   else current.messages.push({role:'assistant',imported:false,mode:'error',source:'system-error',content:error.message,meta:'Keine vollständige Antwort · erneut versuchen'});

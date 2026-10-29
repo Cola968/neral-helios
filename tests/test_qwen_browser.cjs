@@ -3,10 +3,10 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict'),http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {spawn,execFileSync}=require('node:child_process');
 (async()=>{
- const calls=[];
+ const calls=[];let modelDigest='a'.repeat(64);
  const ollama=http.createServer((req,res)=>{
   if(req.method==='GET'&&req.url==='/api/tags'){
-   res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({models:[{name:'qwen3.5:9b'}]}));return;
+   res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({models:[{name:'qwen3.5:9b',digest:modelDigest}]}));return;
   }
   if(req.method!=='POST'||req.url!=='/api/chat'){res.writeHead(404);res.end();return;}
   let raw='';req.on('data',x=>raw+=x);req.on('end',()=>{
@@ -47,6 +47,7 @@ const {spawn,execFileSync}=require('node:child_process');
   assert.match(await page.locator('#assistantMode').textContent(),/Qwen/);
   await page.locator('#assistantMode').click();
   assert.equal(await page.locator('#assistantMode').getAttribute('aria-pressed'),'true');
+  await page.locator('#runtimeNotice').filter({hasText:'aaaaaaaa'}).waitFor();
   async function send(value){await page.locator('#prompt').fill(value);await page.locator('#send').click();
    await page.locator('#log .message.assistant .content').filter({hasText:'Testantwort: '+value}).waitFor();}
   await send('Hallo NERAL');
@@ -65,13 +66,25 @@ const {spawn,execFileSync}=require('node:child_process');
   await page.locator('#status').filter({hasText:'konfigurieren'}).waitFor();
   await page.locator('#assistantMode').click();await send('Zurück zu Qwen');
   assert.deepEqual(calls.at(-1).messages.slice(-3).map(m=>m.role),['user','assistant','user']);
+  // Simulate the same Ollama tag being replaced with a different model digest.
+  modelDigest='b'.repeat(64);const before=calls.length;
+  await page.locator('#prompt').fill('Neuer Modellstand');await page.locator('#send').click();
+  await page.locator('#status').filter({hasText:'Modellstand hat sich geändert'}).waitFor();
+  await page.locator('#runtimeNotice').filter({hasText:'bbbbbbbb'}).waitFor();
+  assert.equal(calls.length,before,'stale history must not reach the changed model');
+  assert.equal(await page.locator('#prompt').inputValue(),'Neuer Modellstand');
+  await send('Neuer Modellstand');
+  assert.deepEqual(calls.at(-1).messages.map(m=>m.role),['system','user']);
+  await page.locator('#status').filter({hasText:'anderen oder unbekannten Modellstand'}).waitFor();
+  assert.match(await page.locator('#log .message-label').last().textContent(),/bbbbbbbb/);
   await page.waitForFunction(async()=>{
    const response=await fetch('/api/chats');if(!response.ok)return false;
    const data=await response.json();
    return data.chats.some(row=>row.chat?.messages?.some(m=>m.mode==='neral-assistant'&&
-    m.base_model==='qwen3.5:9b'&&m.source==='assistant:ollama-qwen'));
+    m.base_model==='qwen3.5:9b'&&m.source==='assistant:ollama-qwen'&&m.model_digest==='b'.repeat(64)));
   },null,{timeout:15000,polling:500});
   await page.reload();await page.locator('#log .message-label').last().filter({hasText:'Qwen'}).waitFor();
+  await page.locator('#runtimeNotice').filter({hasText:'bbbbbbbb'}).waitFor();
   await new Promise(r=>ollama.close(r));
   await page.locator('#assistantMode').click();await page.locator('#prompt').fill('Offline-Test');await page.locator('#send').click();
   await page.locator('#status').filter({hasText:'Ollama'}).waitFor();
@@ -82,8 +95,8 @@ const {spawn,execFileSync}=require('node:child_process');
   await page.context().setOffline(true);await page.reload();
   assert.equal(await page.locator('#prompt').inputValue(),'Offline-Entwurf');
   await page.locator('#log .message-label').filter({hasText:'Qwen'}).first().waitFor();
-  assert((await page.evaluate(()=>caches.keys())).includes('neral-shell-v4'));
+  assert((await page.evaluate(()=>caches.keys())).includes('neral-shell-v5'));
   assert.deepEqual(errors,[]);
-  console.log('Flask + browser + simulated loopback Ollama: identity, context, Arctus selection, reload, offline and PWA passed.');
+  console.log('Flask + simulated Ollama: digest replacement, context, sync, Arctus, offline and PWA passed.');
  }finally{if(browser)await browser.close();server.kill();if(ollama.listening)await new Promise(r=>ollama.close(r));fs.rmSync(folder,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

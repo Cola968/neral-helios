@@ -10,6 +10,8 @@ Installation und Checkpoint-Pfade: [REPRODUCE.md](REPRODUCE.md). Danach `START_N
 
 [Qwen-Assistant lokal aktivieren und Modellherkunft](docs/NERAL_QWEN_INTEGRATION.md) · [Arctus350 konfigurieren](docs/ARCTUS350_FLASK.md). Beide Modellpfade sind optional und verwenden unterschiedliche Tokenizer und Gewichte. Die App lädt keine Modelle automatisch herunter.
 
+Für Qwen speichert der Chat zusätzlich den von Ollama gemeldeten Modell-Digest. Ändert sich der Modellstand unter demselben Namen, wird älterer Verlauf nicht unbemerkt weitergereicht.
+
 Ohne eigene installierte Gewichte laufen die lokalen Projektwerkzeuge, SOLVE und Codeprüfung. Chatgenerierung meldet fehlende Gewichte; sie wird nicht heimlich ersetzt. Eigene Modellartefakte gehören in die separat bereitgestellten Checkpoint-Pfade, nicht in normale Git-Dateien.
 
 ## Chat Experience & Stability Update

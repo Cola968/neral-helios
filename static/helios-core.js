@@ -23,27 +23,30 @@
     const history=pairs.flat();
     return {history,omitted:original-pairs.length,fits:fits(history)};
   }
-  function assistantContext(messages,prompt,model){
-    const pairs=[];
+  function assistantContext(messages,prompt,model,modelDigest){
+    const pairs=[];let incompatible=0;
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
       if(u.role==='user'&&u.mode==='assistant'&&a.role==='assistant'&&a.mode==='neral-assistant'&&
          qwenModels.has(model)&&a.base_model===model&&a.source==='assistant:ollama-qwen'&&
          !u.imported&&!a.imported&&!a.interrupted){
-        pairs.push([{role:'user',content:u.content,imported:false},{role:'assistant',content:a.content,
-          source:a.source,base_model:a.base_model,imported:false,interrupted:false}]);i++;
+        if(typeof modelDigest==='string'&&/^[a-f0-9]{64}$/.test(modelDigest)&&a.model_digest===modelDigest){
+          pairs.push([{role:'user',content:u.content,imported:false},{role:'assistant',content:a.content,
+            source:a.source,base_model:a.base_model,model_digest:a.model_digest,imported:false,interrupted:false}]);
+        }else incompatible++;
+        i++;
       }
     }
     const fits=rows=>bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096;
     const original=pairs.length;
     while(pairs.length&&(pairs.length>6||!fits(pairs.flat())))pairs.shift();
-    const history=pairs.flat();return {history,omitted:original-pairs.length,fits:fits(history)};
+    const history=pairs.flat();return {history,omitted:original-pairs.length,incompatible,fits:fits(history)};
   }
   function sourceLabel(message,labels={}){
     if(message.mode==='neral-assistant'&&qwenModels.has(message.base_model)){
       const name=message.base_model==='qwen3.5:9b'?'Qwen3.5 9B':'Qwen3.5 4B';
       if(message.imported)return 'Modellangabe (nicht verifiziert) · '+name;
-      if(message.source==='assistant:ollama-qwen')return 'NERAL Assistant · '+name+' · lokal'+(message.tool_assisted?' · Rechenwerkzeug genutzt':'');
+      if(message.source==='assistant:ollama-qwen')return 'NERAL Assistant · '+name+' · lokal'+(/^[a-f0-9]{64}$/.test(message.model_digest||'')?' · Stand '+message.model_digest.slice(0,8):' · Modellstand unbekannt')+(message.tool_assisted?' · Rechenwerkzeug genutzt':'');
       return 'Modellherkunft nicht verifiziert';
     }
     if(message.mode==='external-model'||String(message.source||'').startsWith('external'))return 'Externes Modell · nicht NERAL';
@@ -70,7 +73,7 @@
       if(result.active_checkpoint==='arctus350'&&(result.model_family!=='neral-arctus350'||
          !/^neral-arctus350:[a-f0-9]{64}$/.test(result.runtime_id||'')))throw Error('Die Arctus350-Herkunft ist nicht verifiziert.');
     }else if(result.mode==='neral-assistant'){
-      if(result.model_generated!==true||result.source!=='assistant:ollama-qwen'||!qwenModels.has(result.base_model)||result.active_checkpoint!=null)
+      if(result.model_generated!==true||result.source!=='assistant:ollama-qwen'||!qwenModels.has(result.base_model)||result.active_checkpoint!=null||!(/^[a-f0-9]{64}$/.test(result.model_digest||'')))
         throw Error('Die Qwen-Herkunft ist widersprüchlich.');
     }else if(!['solve-tool','code-tool','guarded-response'].includes(result.mode)||result.model_generated!==false){
       throw Error('Die Herkunft der Antwort ist nicht verifiziert.');
@@ -155,7 +158,7 @@
     const messages=data.messages.map(m=>{
       if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||bytes(m.content)>32768||!modes.has(m.mode))throw Error('Ungültige Nachricht im Import.');
       return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,
-        source:typeof m.source==='string'?m.source.slice(0,80):undefined,base_model:qwenModels.has(m.base_model)?m.base_model:undefined,tool_assisted:m.tool_assisted===true,imported:true,interrupted:m.interrupted===true,meta:'Importierter Verlauf · nicht neu berechnet'};
+        source:typeof m.source==='string'?m.source.slice(0,80):undefined,base_model:qwenModels.has(m.base_model)?m.base_model:undefined,model_digest:/^[a-f0-9]{64}$/.test(m.model_digest||'')?m.model_digest:undefined,tool_assisted:m.tool_assisted===true,imported:true,interrupted:m.interrupted===true,meta:'Importierter Verlauf · nicht neu berechnet'};
     });
     return {title:data.title.slice(0,80)||'Importierter Chat',messages,draft:'',temporary:false,imported:true};
   }

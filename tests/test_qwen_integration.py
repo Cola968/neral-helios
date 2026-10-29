@@ -5,6 +5,7 @@ import neral_assistant as assistant
 
 MODEL='qwen3.5:9b'
 SOURCE='assistant:ollama-qwen'
+DIGEST='a'*64
 
 
 def reply(text='Antwort aus Testmodell', **extra):
@@ -14,7 +15,7 @@ def reply(text='Antwort aus Testmodell', **extra):
 
 def turn():
     return {'role':'assistant','content':'Frühere Antwort',
-            'source':SOURCE,'base_model':MODEL,'imported':False,'interrupted':False}
+            'source':SOURCE,'base_model':MODEL,'model_digest':DIGEST,'imported':False,'interrupted':False}
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def client(monkeypatch,tmp_path):
     monkeypatch.setattr(web,'checkpoint_loaded',False)
     monkeypatch.setattr(web,'ASSETS',tmp_path)
     monkeypatch.setattr(web,'chat_store',web.ChatStore(tmp_path/'chats.sqlite3'))
+    monkeypatch.setattr(web,'local_ollama_identity',lambda _:{'availability':'ready','model_digest':DIGEST})
     c=web.app.test_client();c.get('/',base_url='http://localhost')
     return c
 
@@ -38,7 +40,7 @@ def post(c,path,data,headers=None):
 
 def generate(c,headers=None,**extra):
     return post(c,'/api/generate',{'mode':'assistant','prompt':'Hallo NERAL',
-                                   'base_model':MODEL,**extra},headers=headers)
+                                   'base_model':MODEL,'model_digest':DIGEST,**extra},headers=headers)
 
 
 def test_configuration_reports_opt_in_without_claiming_server_is_online(client):
@@ -161,11 +163,11 @@ def test_output_limited_by_ollama_is_excluded_from_future_context(client,monkeyp
 
 
 def test_status_reports_installed_not_loaded_and_never_probes_when_disabled(client,monkeypatch):
-    monkeypatch.setattr(web,'local_ollama_status',lambda model:'ready' if model==MODEL else 'missing')
+    monkeypatch.setattr(web,'local_ollama_identity',lambda model:{'availability':'ready','model_digest':DIGEST} if model==MODEL else {'availability':'missing','model_digest':None})
     r=client.get('/api/assistant/status',base_url='http://localhost')
-    assert r.status_code==200 and r.json=={'availability':'ready','base_model':MODEL}
+    assert r.status_code==200 and r.json=={'availability':'ready','base_model':MODEL,'model_digest':DIGEST}
     monkeypatch.setattr(web,'ASSISTANT_ENABLED',False,raising=False)
-    monkeypatch.setattr(web,'local_ollama_status',lambda _:pytest.fail('disabled mode probed'))
+    monkeypatch.setattr(web,'local_ollama_identity',lambda _:pytest.fail('disabled mode probed'))
     assert client.get('/api/assistant/status',base_url='http://localhost').status_code==503
 
 
@@ -216,7 +218,7 @@ def test_status_uses_fixed_loopback_without_proxy_or_redirect(monkeypatch):
     class FakeOpener:
         def open(self,url,timeout):
             urls.append((url,timeout))
-            return io.BytesIO(b'{"models":[{"name":"qwen3.5:9b"}]}')
+            return io.BytesIO(('{"models":[{"name":"qwen3.5:9b","digest":"'+'a'*64+'"}]}').encode())
     def make_opener(*handlers):
         proxy=next(h for h in handlers if isinstance(h,urllib.request.ProxyHandler))
         redirect=next(h for h in handlers if isinstance(h,assistant._NoRedirect))

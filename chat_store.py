@@ -56,6 +56,7 @@ class ChatStore:
 
                 clean.append({k:m[k] for k in ['role','content','mode','checkpoint','meta','interrupted','source','imported','model_family','runtime_id','tool_assisted'] if k in m and isinstance(m[k],(str,bool))})
                 if m.get('base_model') in ('qwen3.5:9b','qwen3.5:4b'):clean[-1]['base_model']=m['base_model']
+                if isinstance(m.get('model_digest'),str) and re.fullmatch(r'[a-f0-9]{64}',m['model_digest']):clean[-1]['model_digest']=m['model_digest']
 
             draft=chat.get('draft','')
 
