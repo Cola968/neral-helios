@@ -1,0 +1,31 @@
+name: Arctus350 Vast 4090 preparation (offline CPU)
+on:
+  pull_request:
+    paths:
+      - frontier350/vast4090_guard.py
+      - frontier350/train350.py
+      - frontier350/train350_compiled.py
+      - frontier350/secure_checkpoint350.py
+      - tests/test_vast4090_guard.py
+      - .github/workflows/arctus-vast4090-ci.yml
+permissions:
+  contents: read
+jobs:
+  safe-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline unit-test tools
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Syntax check (trainer imports not executed)
+        run: python -m py_compile frontier350/vast4090_guard.py frontier350/train350.py frontier350/train350_compiled.py
+      - name: Test planning, checkpoint continuity and the no-rental guard
+        run: python -m pytest -q tests/test_vast4090_guard.py
+      - name: Default read-only plan; no device, dataset or payment
+        run: python -m frontier350.vast4090_guard
