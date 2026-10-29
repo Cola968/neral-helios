@@ -62,3 +62,15 @@ better for Arctus350, a later separately authorized local experiment must
 compare (1) the actual SFT length distribution, (2) measured GPU time/VRAM,
 and (3) unchanged frozen native validation cases. No PC/GPU run or model
 weight change is authorized by this document. No TEST/NIS2 tuning.
+
+## Paired-seed risk evidence (14:00 follow-up, Draft PR #200)
+
+In addition to medians, the report now exports paired `compact_better`,
+`equal`, and `compact_worse` seed counts separately for padded tokens and
+the theoretical attention proxy, an attention-proxy percentage range, and
+`compact_nonregressing_in_all_seeds`. These are **descriptive outcomes for
+the chosen deterministic seeds only**, not statistical confidence intervals
+or evidence of faster real training. An improvement in median alone does not
+justify switching samplers; negative seed outcomes must remain visible.
+The length-only input/privacy restrictions and no-training policy remain
+unchanged.
