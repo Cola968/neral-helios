@@ -44,6 +44,8 @@ const root=path.resolve(__dirname,'..');
   await send('Wie viel ist 57 plus 68? Gib nur die Zahl aus.','125');
   await send('What is 57 plus 68? Reply only with the number.','125');
   await send('(7+8)*2','30');
+  await send('Berechne 2+2 und ziehe 1 ab','3');
+  await send('Calculate 10% of 50 then add 3','8');
   await page.locator('#log').evaluate(el=>el.scrollTop=0);
   await page.locator('#jumpLatest').waitFor({state:'visible'});
   await page.evaluate(()=>render());
@@ -52,12 +54,12 @@ const root=path.resolve(__dirname,'..');
   assert(await page.locator('#log').evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight<2));
   const artifacts=path.join(root,'.browser-artifacts');fs.mkdirSync(artifacts,{recursive:true});
   await page.screenshot({path:path.join(artifacts,'chat-experience-desktop.png')});
-  await page.locator('#prompt').fill('Berechne 2+2 und ziehe 1 ab');await page.locator('#send').click();
+  await page.locator('#prompt').fill('Berechne 2+2 und ziehe 1 ab und starte ein Skript');await page.locator('#send').click();
   await page.locator('#log .message-label').last().filter({hasText:'fehlgeschlagen'}).waitFor();
-  assert.equal(await page.locator('#prompt').inputValue(),'Berechne 2+2 und ziehe 1 ab');
-  assert.equal(await page.locator('#log .message.user').count(),5,'failed request remains visible');
+  assert.equal(await page.locator('#prompt').inputValue(),'Berechne 2+2 und ziehe 1 ab und starte ein Skript');
+  assert.equal(await page.locator('#log .message.user').count(),7,'failed request remains visible');
   await page.reload();await page.locator('#log .message.user').last().filter({hasText:'ziehe 1'}).waitFor();
-  assert.equal(await page.locator('#prompt').inputValue(),'Berechne 2+2 und ziehe 1 ab');
+  assert.equal(await page.locator('#prompt').inputValue(),'Berechne 2+2 und ziehe 1 ab und starte ein Skript');
   await page.screenshot({path:path.join(artifacts,'chat-experience-error.png')});
   // Imported external content stays explicitly external and literal.
   const imported={format:'neral-chat-v1',title:'Externer Herkunftstest',messages:[
