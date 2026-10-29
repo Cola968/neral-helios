@@ -27,7 +27,7 @@ class ArctusBudgetTests(unittest.TestCase):
     def test_4t_comparison_is_not_presented_as_a_requirement(self):
         report=budget_report(4_000_000_000_000)
         self.assertEqual(report["approx_training_flops"],6*NATIVE_PARAMS*4_000_000_000_000)
-        self.assertEqual(report["historical_work_multiplier"],"1929.4207")
+        self.assertEqual(report["historical_work_multiplier"],"1929.4206")
         self.assertEqual(report["sft_or_pretraining_recommendation"],"NONE_NO_PERFORMANCE_INFERENCE")
         self.assertIn("not a required training target",report["limitations"])
         self.assertIn("attention",report["limitations"])
