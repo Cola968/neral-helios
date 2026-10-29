@@ -214,7 +214,7 @@ def prepare_run(*, source_checkpoint: Path, checkpoint_sha256: str,
     host = hardware_check()
     meta = checkpoint_loader(checkpoint)
     plan = make_plan(meta, extra_tokens=extra_tokens, price_usd=price_usd, cap_usd=cap_usd)
-    if not isinstance(meta.get("torch_rng"), object) or "torch_rng" not in meta:
+    if any(name not in meta or meta[name] is None for name in ("torch_rng", "python_rng", "numpy_rng")):
         raise ValueError("Source checkpoint lacks required RNG state")
     repo = Path(__file__).resolve().parents[1]
     trainer = repo / "frontier350" / "train350_compiled.py"
