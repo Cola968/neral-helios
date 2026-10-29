@@ -20,5 +20,19 @@ jobs:
           python-version: '3.12'
       - name: Verify deterministic corpus, immutability and independent answers
         run: python -m unittest tests.test_arctus350_grounding_curriculum_v1 -v
+      - name: Reproduce dataset JSONL and SHA-256 manifests without uploading rows
+        run: |
+          python -m frontier350.arctus350_grounding_curriculum_v1 --out "${RUNNER_TEMP}/grounding-v1" > "${RUNNER_TEMP}/grounding-summary.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          summary=json.loads((Path(os.environ["RUNNER_TEMP"])/"grounding-summary.json").read_text())
+          assert summary["total_rows"]==2160
+          assert summary["total_entities"]==360
+          assert summary["all_references_verified"] is True
+          assert summary["training_started"] is False
+          assert summary["native_intelligence_improved"] is False
+          print("Grounding curriculum metadata validated: 2160 rows / 360 entities / no training")
+          PY
       - name: Assert source compiles
         run: python -m py_compile frontier350/arctus350_grounding_curriculum_v1.py
