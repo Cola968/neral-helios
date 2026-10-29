@@ -129,3 +129,37 @@ def test_invalid_checkpoint_digest_prevents_copy(tmp_path):
                     checkpoint_loader=lambda p:checkpoint_meta(),hardware_check=lambda:None,
                     allow_test_tokenizer=True)
     assert not out.exists()
+
+
+
+def test_original_native_trainers_never_resume_with_unrestricted_pickle():
+    project=Path(__file__).resolve().parents[1]
+    for filename in ("train350.py", "train350_compiled.py"):
+        source=(project/"frontier350"/filename).read_text(encoding="utf8")
+        assert "from secure_checkpoint350 import load_checkpoint" in source
+        assert "ck = load_checkpoint(args.resume)" in source
+        assert "weights_only=False" not in source
+
+
+def test_allowlisted_legacy_rng_checkpoint_can_still_be_loaded(tmp_path):
+    torch = pytest.importorskip("torch")
+    np = pytest.importorskip("numpy")
+    from frontier350.secure_checkpoint350 import load_checkpoint
+    path=tmp_path/"trusted-resume.pt"
+    source={
+        **checkpoint_meta(),
+        "model":{"some_tensor":torch.ones((3,4))},
+        "optimizer":{"state":{},"param_groups":[{"params": []}]},
+        "torch_rng":torch.get_rng_state(),
+        "python_rng":__import__("random").getstate(),
+        "numpy_rng":np.random.get_state(),
+        "cuda_rng":[],
+    }
+    torch.save(source,path)
+    loaded=load_checkpoint(path)
+    assert loaded["processed_tokens"]==source["processed_tokens"]
+    assert loaded["target_tokens"]==source["target_tokens"]
+    assert torch.equal(loaded["model"]["some_tensor"],source["model"]["some_tensor"])
+    assert loaded["numpy_rng"][0]==source["numpy_rng"][0]
+    assert np.array_equal(loaded["numpy_rng"][1],source["numpy_rng"][1])
+    assert loaded["optimizer"]["param_groups"]==source["optimizer"]["param_groups"]
