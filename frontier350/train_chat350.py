@@ -152,6 +152,10 @@ def main():
     # different answers across train and evaluation splits.
     from chat350_data import validate_prompt_holdouts
     prompt_holdout_audit = validate_prompt_holdouts(splits)
+    # Fail before loading native tokenizer/checkpoint and before ANY GPU update.
+    # A small model should not be punished by provably false arithmetic targets.
+    from arctus350_label_integrity import require_clean_numeric_supervision
+    numeric_label_integrity = require_clean_numeric_supervision(splits)
     tok=load_tokenizer(Path(args.tokenizer))
     train=[encode_messages(tok,r["messages"],max_seq_len=args.seq) for r in splits["train"]]
     train_is_human=[r["source"].startswith("oasst2-human") for r in splits["train"]]
@@ -192,7 +196,7 @@ def main():
     if out.exists() and any(out.iterdir()): raise FileExistsError("chat output directory must be fresh")
     out.mkdir(parents=True,exist_ok=True)
     run={"stage":"Arctus 350M chat SFT pilot","source_checkpoint_sha256":source_sha,"source_processed_tokens":source_tokens,
-         "tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,"data_manifest":manifest,"baseline_sft":baseline_sft,
+         "tokenizer_sha256":EXPECTED_TOKENIZER_SHA256,"data_manifest":manifest,"numeric_label_integrity":numeric_label_integrity,"baseline_sft":baseline_sft,
          "baseline_replay_loss":baseline_replay,"fresh_optimizer":True,"assistant_only":True,"args":vars(args),
          "gpu":torch.cuda.get_device_name(0),"torch":str(torch.__version__),
          "precision_mode":args.precision_mode,
