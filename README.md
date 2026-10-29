@@ -2,11 +2,13 @@
 
 Eigenes lokales Sprachmodell mit CASCADE, RIPPLE, SOLVE und LIVING Answers.
 
-**Aktuell:** Neral-50M Sprachpilot mit **50.012.976 Parametern**. Ausschließlich eigene Neral-Gewichte, keine fremden Checkpoints und keine Cloud-Inferenz. Der Pilot besteht den freien Sprachtest noch nicht; **Neral-20M Preview 02 bleibt Standard**. Das ist ein Entwicklungsprojekt, kein zuverlässiger allgemeiner Chatbot.
+**Aktuell:** Eigene Neral-Byte-Modelle und ein experimenteller Arctus350-Pfad; Neral-20M Preview 02 bleibt, wenn installiert, die Standardauswahl. Optional lässt sich der NERAL Assistant ausdrücklich aktivieren: Er verwendet Qwen3.5 als fremdes Open-Weight-Modell über lokales Ollama. Der eigene Neral-50M-Sprachpilot mit **50.012.976 Parametern** besteht den freien Sprachtest noch nicht. Das Projekt ist experimentell; die tatsächliche Qwen-Anbindung über die NERAL-Oberfläche wurde noch nicht mit echten Gewichten bestätigt.
 
 ## Start
 
 Installation und Checkpoint-Pfade: [REPRODUCE.md](REPRODUCE.md). Danach `START_NERAL.bat` starten und http://127.0.0.1:9680 öffnen.
+
+[Qwen-Assistant lokal aktivieren und Modellherkunft](docs/NERAL_QWEN_INTEGRATION.md) · [Arctus350 konfigurieren](docs/ARCTUS350_FLASK.md). Beide Modellpfade sind optional und verwenden unterschiedliche Tokenizer und Gewichte. Die App lädt keine Modelle automatisch herunter.
 
 Ohne eigene installierte Gewichte laufen die lokalen Projektwerkzeuge, SOLVE und Codeprüfung. Chatgenerierung meldet fehlende Gewichte; sie wird nicht heimlich ersetzt. Eigene Modellartefakte gehören in die separat bereitgestellten Checkpoint-Pfade, nicht in normale Git-Dateien.
 
@@ -22,9 +24,9 @@ Die Oberfläche hat eine überarbeitete Desktop-/Mobilansicht, eine wachsende
 Eingabeleiste, sichtbare Zustände und Herkunftslabels. Fehlgeschlagene Nachrichten
 und Entwürfe bleiben erhalten; unvollständige oder importierte Antworten werden
 nicht als eigener Modellkontext verwendet. Streaming und lokale Synchronisierung
-bleiben integriert. Externe Modelle werden nicht aufgerufen; importierte externe
-Antworten werden als solche angezeigt. **Arctus350 ist ein separater Entwicklungszweig
-und wird von dieser Flask-App nicht als geladen ausgegeben.**
+bleiben integriert. Importierte externe Antworten werden als solche angezeigt.
+Arctus350 kann experimentell und Qwen als ausdrücklich aktivierter lokaler
+Assistant verwendet werden; ihre Antworten und Gesprächskontexte bleiben getrennt.
 
 [Architekturprüfung, Startanleitung, Tests und Screenshots](docs/CHAT_EXPERIENCE_UPDATE.md).
 
@@ -54,3 +56,4 @@ Historie: [Originalaudit und Pilot 01](ERGEBNISSE.md), [20M Preview 02](PREVIEW_
 Quellcode, Tests, Datenskripte, ausgewählte Messberichte und Herkunftsnachweise. Ausgeschlossen: virtuelle Umgebung, Rohtrainingsdaten, lokale Projekt-Datenbank, persönliche Chats und vollständige Optimizer-Checkpoints. Große eigene Inferenzgewichte werden getrennt von Git geführt.
 
 Dieses private Repository legt keine neue pauschale Open-Source-Lizenz für übergebenen Code oder Modellgewichte fest. Datenquellen und Softwareabhängigkeiten behalten ihre eigenen Lizenzbedingungen.
+
