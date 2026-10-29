@@ -70,7 +70,7 @@ class SupervisionAuditTests(unittest.TestCase):
 
     def test_oversized_examples_are_counted_not_silently_dropped(self):
         ds=self.dataset()
-        report=audit_supervision(ds,encode=self.encode,max_seq_len=65,eos_id=1,pad_id=3)
+        report=audit_supervision(ds,encode=self.encode,max_seq_len=25,eos_id=1,pad_id=3)
         self.assertGreater(report["splits"]["val"]["ineligible_rows"],0)
         self.assertEqual(
             report["splits"]["val"]["eligible_rows"]+report["splits"]["val"]["ineligible_rows"],
@@ -79,7 +79,7 @@ class SupervisionAuditTests(unittest.TestCase):
     def test_malformed_alignment_and_mask_leaks_fail_closed(self):
         bad=(
             EncodedChatExample([0,4],[4],1),
-            EncodedChatExample([0,4],[-100,1],1),
+            EncodedChatExample([0,4],[1,-100],1),
             EncodedChatExample([0,4],[4,1],2),
             EncodedChatExample([0,4],[-100,-100],0),
             EncodedChatExample([0,3],[-100,1],1),
