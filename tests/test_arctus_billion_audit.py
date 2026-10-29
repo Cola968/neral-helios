@@ -170,3 +170,29 @@ def test_row_content_source_contract_and_token_counts_checked(tmp_path):
     p.write_text(json.dumps(m))
     with pytest.raises(ValueError, match="source"):
         audit_corpus(root)
+
+
+def test_manifest_global_token_totals_must_match_all_shards(tmp_path):
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Astrometrie")])
+    manifest_path = root/"manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["tokens_by_split"]["train"] += 25
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="aggregate.*token"):
+        audit_corpus(root)
+
+
+def test_unexpected_training_shard_or_partial_shard_fails_closed(tmp_path):
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Astrometrie")])
+    (root/"train-000002.jsonl").write_text('{"text":"extra"}\\n')
+    with pytest.raises(ValueError, match="unexpected"):
+        audit_corpus(root)
+
+
+def test_lsh_saturation_reports_inconclusive_instead_of_false_clean(tmp_path):
+    repeated = long_doc()
+    root = write_staging(tmp_path, [repeated, repeated.replace("Sterne", "Mond", 1),
+                                    repeated.replace("Sterne", "Mond2", 1)],
+                         [long_doc("Quantenfelder")])
+    with pytest.raises(ValueError, match="saturated"):
+        audit_corpus(root, max_candidates_per_bucket=1)
