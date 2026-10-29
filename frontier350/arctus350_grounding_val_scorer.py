@@ -104,7 +104,12 @@ def score_val(observations:list, manifest:dict) -> dict:
             tally["correct"]+=int(match)
         if kind!="mass_missing" and output in ("nicht angegeben","not provided"):
             false_abstentions+=1
-        # An incorrect reply is not necessarily a fabricated measurement.\n        # Count only numeric mass guesses (with optional g/kg units).\n        if kind=="mass_missing" and not match and re.fullmatch(\n            r"[+-]?\d+(?:[.,]\d+)?(?:\s*(?:kg|g))?", output, re.I\n        ):\n            guessed_missing_mass+=1
+        # Not every wrong answer is a fabricated numerical measurement.
+        # Count only explicit number guesses, with optional units.
+        if kind=="mass_missing" and not match and re.fullmatch(
+            r"[+-]?\d+(?:[.,]\d+)?(?:\s*(?:kg|g))?", output, re.I
+        ):
+            guessed_missing_mass+=1
     total=len(rows)
     return {
         "schema":"arctus350-grounding-val-score-v1",
