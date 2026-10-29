@@ -42,10 +42,11 @@ function setMode(m){
  mode=['chat','assistant','solve','code'].includes(m)?m:'chat';
  $('modelPicker').hidden=mode==='assistant';
  $('assistantModelLabel').hidden=mode!=='assistant';
+ $('assistantDeepOption').hidden=mode!=='assistant';
  $('assistantModelLabel').textContent='Qwen3.5 '+assistantBaseModel.split(':')[1].toUpperCase()+' · externes Open-Weight-Modell · Ollama lokal';
  document.querySelectorAll('[data-set-mode]').forEach(b=>{b.classList.toggle('selected',b.dataset.setMode===mode);b.setAttribute('aria-pressed',String(b.dataset.setMode===mode));});
  $('prompt').placeholder=mode==='solve'?'Rechnung oder Gleichung, z. B. 2*x + 3 = 11':mode==='code'?'Python-Code hier einfügen …':mode==='assistant'?'NERAL Assistant mit Qwen3.5 fragen …':'Nachricht oder Rechnung eingeben …';
- $('modeHint').textContent=mode==='solve'?'Exakte Rechnung · lokales Werkzeug':mode==='code'?'Statische Prüfung · keine Codeausführung':mode==='assistant'?'Qwen3.5 · externe Gewichte, lokal über Ollama · kein Streaming/Stoppen':'Enter senden · Umschalt + Enter neue Zeile';setBusy(busy);
+ $('modeHint').textContent=mode==='solve'?'Exakte Rechnung · lokales Werkzeug':mode==='code'?'Statische Prüfung · keine Codeausführung':mode==='assistant'?($('assistantDeep').checked?'Qwen3.5 · Thinking aktiv · 8192 Byte Kontext · bis 1024 Antwort-Token · langsamer':'Qwen3.5 · schneller Modus · kein Streaming/Stoppen'):'Enter senden · Umschalt + Enter neue Zeile';setBusy(busy);
 }
 function setBusy(b){
  busy=b;const hasText=$('prompt').value.trim().length>0;
@@ -53,7 +54,7 @@ function setBusy(b){
  $('newChat').disabled=b;$('checkpoint').disabled=b||!ready;
  document.querySelectorAll('#modelOptions button').forEach(e=>e.disabled=b||!ready||preparationMode);
  if(b)$('modelPicker').open=false;
- $('temporary').disabled=b;$('prompt').disabled=false;
+ $('temporary').disabled=b;$('assistantDeep').disabled=b||!ready||!assistantAvailable;$('prompt').disabled=false;
  document.querySelectorAll('[data-set-mode],[data-mode]').forEach(e=>e.disabled=b||(e.dataset.setMode==='assistant'&&!assistantAvailable));
  $('log').setAttribute('aria-busy',String(b));
  $('activity').textContent=b?'Anfrage wird verarbeitet …':!ready?'Verbindung wird geprüft …':mode==='assistant'?'Qwen über Ollama konfiguriert · Verfügbarkeit nicht geprüft':modelReady?'Eigener Checkpoint aktiv':'Bereit · lokal';
@@ -68,7 +69,8 @@ $('composer').onsubmit=async event=>{
  event.preventDefault();if(busy||!ready)return;
  const prompt=$('prompt').value.trim();if(!prompt)return;notify('');
  if(new TextEncoder().encode(prompt).length>4096){notify('Die Eingabe ist länger als 4096 UTF-8-Bytes.');return;}
- const ctx=HeliosCore.context(['chat','assistant'].includes(mode)?current.messages:[],prompt,Number($('tokens').value),mode==='assistant'?4096:maxContext,mode==='assistant'?assistantBaseModel:activeModel,mode==='assistant'?null:runtimeId,mode==='assistant'?'qwen3.5':modelFamily,mode);
+ const deep=mode==='assistant'&&$('assistantDeep').checked;
+ const ctx=HeliosCore.context(['chat','assistant'].includes(mode)?current.messages:[],prompt,deep?1024:Number($('tokens').value),mode==='assistant'?(deep?8192:4096):maxContext,mode==='assistant'?assistantBaseModel:activeModel,mode==='assistant'?null:runtimeId,mode==='assistant'?'qwen3.5':modelFamily,mode);
  const history=mode==='assistant'&&assistantAvailable?ctx.history:mode==='chat'&&modelReady?ctx.history:[];
  if(((mode==='chat'&&modelReady)||(mode==='assistant'&&assistantAvailable))&&!ctx.fits){notify('Eingabe und Antwortbudget sind zu lang. Kürze die Eingabe oder reduziere das Antwortbudget.');return;}
  if(ctx.omitted&&(modelReady||assistantAvailable))notify(ctx.omitted+' ältere Nachrichtenpaare wurden aus dem Modellkontext ausgelassen. Der gespeicherte Verlauf bleibt vollständig.');
@@ -80,12 +82,12 @@ $('composer').onsubmit=async event=>{
  const p=document.createElement('div');p.className='content';p.textContent='Anfrage wird geprüft …';pending.append(label,p);$('log').append(pending);$('log').scrollTop=$('log').scrollHeight;
  $('prompt').value='';$('prompt').dispatchEvent(new Event('input'));
  try{
-  const r=await generateRequest({prompt,history,mode,max_new_tokens:Number($('tokens').value),temperature:Number($('temperature').value),top_k:40,request_id:job,runtime_id:runtimeId},update=>{
+  const r=await generateRequest({prompt,history,mode,quality:deep?'deep':'standard',max_new_tokens:deep?1024:Number($('tokens').value),temperature:Number($('temperature').value),top_k:40,request_id:job,runtime_id:runtimeId},update=>{
    label.textContent='Eigene Modellgenerierung · unvollständig';
    if(update.text){p.textContent=update.text;pending.dataset.partial=update.text;}else p.textContent='Modell berechnet die Antwort …';
   });
   current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.mode==='neral-assistant'?undefined:r.active_checkpoint,base_model:r.base_model,model_family:r.model_family,runtime_id:r.runtime_id,interrupted:!!r.cancelled||!!r.incomplete,
-   meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':r.incomplete?'Antwortbudget erreicht · unvollständig · ':'')+(r.mode==='neral-assistant'?'Qwen3.5 · ':'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
+   meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':r.incomplete?'Antwortbudget erreicht · unvollständig · ':'')+(r.mode==='neral-assistant'?(r.reasoning_enabled?'Qwen3.5 · Denkmodus · ':'Qwen3.5 · '):'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
   persist();
  }catch(error){
   const partial=pending?.dataset.partial;
@@ -113,7 +115,8 @@ $('newChat').onclick=fresh;$('search').oninput=list;$('menu').onclick=()=>{const
 $('temporary').onchange=()=>{fresh();notify($('temporary').checked?'Temporärer Chat: Dieser Verlauf wird nicht gespeichert.':'Neue Chats werden auf diesem Gerät gespeichert.');};
 $('theme').onclick=()=>{const theme=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=theme;try{localStorage.setItem('neral.theme',theme);}catch{}};
 $('inspect').onclick=()=>{$('inspector').hidden=!$('inspector').hidden;$('inspect').setAttribute('aria-expanded',String(!$('inspector').hidden));};$('closeInspect').onclick=()=>{$('inspector').hidden=true;$('inspect').setAttribute('aria-expanded','false');};
-document.querySelectorAll('[data-set-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.setMode));document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dataset.mode);$('prompt').value=b.dataset.prompt;$('prompt').dispatchEvent(new Event('input'));$('prompt').focus();});
+$('assistantDeep').onchange=()=>{setMode(mode);};
+ document.querySelectorAll('[data-set-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.setMode));document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dataset.mode);$('prompt').value=b.dataset.prompt;$('prompt').dispatchEvent(new Event('input'));$('prompt').focus();});
 $('checkpoint').onchange=async()=>{if(busy)return;setBusy(true);try{stats(await jsonRequest('/api/model',{checkpoint:$('checkpoint').value}));notify($('checkpoint').value==='neral40m'?'Experimenteller 40M-Trainingsstand: Validierung schlechter als 20M.':'Eigener Neral-Checkpoint gewechselt. Details zeigen die gemessene Parameterzahl.');}catch(e){$('checkpoint').value=activeModel;notify(e.message);}finally{syncModelPicker();setBusy(false);}};
 $('clear').onclick=()=>{if(busy||!confirm('Alle Chats löschen? Bei aktivierter Synchronisierung gilt dies auch für verbundene Geräte.'))return;chats.forEach(queueChatDelete);chats=[];current=null;try{localStorage.removeItem(storageKey);localStorage.removeItem('neral.helios.active');}catch{}fresh();};
 $('importChat').onclick=()=>{if(!busy)$('chatFile').click();};
