@@ -17,7 +17,16 @@ Die **vor der Auswertung festgelegte Projektpolicy** (kein wissenschaftlich gara
 1. **Mindestens 32** eindeutige, auf denselben Fragen gepaarte DEV-Fälle.
 2. Mehr gewonnene als verlorene Fälle und **exakter zweiseitiger p-Wert ≤ 0,05**.
 3. Unverändert **keinen Kategorien- oder EOS-Rückschritt** in `arctus350_paired_evidence.py`.
-4. Selbst wenn die Bedingungen erfüllt sind: Das Ergebnis bleibt **nur ein Review-Kandidat**, kein PROMOTE oder Release, denn das Modul verifiziert **weder Modellgewichte noch Prompt-Identität oder Original-Inferenz**.
+4. **Temperatur 0:** Das derzeitige Eingabeformat erfasst nur einen Lauf je Fall, aber keinen Seed und keine Wiederholungen für zufälliges Decoding. Ein scheinbar statistisch unterstützter Gewinn bei Temperatur > 0 bleibt daher `STOCHASTIC_EXPLORATORY_ONLY`.
+5. Selbst wenn die Bedingungen erfüllt sind: Das Ergebnis bleibt **nur ein Review-Kandidat**, kein PROMOTE oder Release, denn das Modul verifiziert **weder Modellgewichte noch Prompt-Identität oder Original-Inferenz**.
+
+Die Grenze bei Temperatur > 0 ist eine bewusst konservative Projektregel, auch
+wenn bestimmte Decoding-Einstellungen wie Top-k = 1 effektiv deterministisch
+sein können. Die Statistik und der p-Wert bleiben im Bericht erhalten; sie
+verifizieren jedoch nicht, dass ein einmaliger Unterschied durch veränderte
+Modellgewichte verursacht wurde. Ein Seed allein genügt nicht als Nachweis.
+Temperatur 0 macht einen Lauf nicht automatisch hardwareübergreifend
+deterministisch und ersetzt keine kontrollierte Wiederholung.
 
 ### Rechenbeispiele – ausdrücklich synthetische Test-Fixtures
 
@@ -25,7 +34,7 @@ Die **vor der Auswertung festgelegte Projektpolicy** (kein wissenschaftlich gara
 | --- | ---: | ---: | --- |
 | 1 gewonnen, 0 verloren | 8 | 1,0 | `INSUFFICIENT_STATISTICAL_EVIDENCE` |
 | 5 gewonnen, 0 verloren | 32 | 0,0625 | `INSUFFICIENT_STATISTICAL_EVIDENCE` |
-| 6 gewonnen, 0 verloren | 32 | 0,03125 | `REVIEW_CANDIDATE`, falls alle anderen Gates bestehen |
+| 6 gewonnen, 0 verloren | 32 | 0,03125 | `REVIEW_CANDIDATE` bei Temperatur 0 und bestandenen anderen Gates; sonst explorativ |
 | 8 gewonnen, 0 verloren | 8 | 0,0078125 | **Trotzdem zu wenige Cases** |
 | 8 gewonnen, 2 verloren | 40 | 0,109375 | `INSUFFICIENT_STATISTICAL_EVIDENCE` |
 

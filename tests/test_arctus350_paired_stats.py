@@ -57,6 +57,46 @@ class ExactPairedStatisticsTests(unittest.TestCase):
         self.assertFalse(result["provenance_verified"])
         self.assertEqual(result["release_authorization"],"none")
 
+    def test_stochastic_decoding_cannot_turn_one_draw_into_a_review_candidate(self):
+        # Synthetic six-of-32 gain: without repetitions/decoding provenance,
+        # a single positive-temperature draw can differ because of sampling.
+        import hashlib,json
+        prior=fixture("a"*64)
+        candidate=fixture("b"*64)
+        additions=[{"id":f"heldout-extra-{i}","category":"math",
+                    "correct":False,"eos":True} for i in range(24)]
+        prior["cases"].extend(additions)
+        candidate["cases"].extend([dict(x) for x in additions])
+        for a in candidate["cases"][8:14]:
+            a["correct"]=True
+        fingerprint=hashlib.sha256(json.dumps(
+            [{"id":v["id"],"category":v["category"]}
+             for v in sorted(prior["cases"],key=lambda x:x["id"])],
+            sort_keys=True,separators=(",",":")
+        ).encode("utf-8")).hexdigest()
+        prior["benchmark_sha256"]=candidate["benchmark_sha256"]=fingerprint
+        for temperature in (0.7,0.0001,2):
+            with self.subTest(temperature=temperature):
+                prior["sampling"]["temperature"]=temperature
+                candidate["sampling"]["temperature"]=temperature
+                result=compare_native_runs(prior,candidate)
+                self.assertEqual(result["decision"],"STOCHASTIC_EXPLORATORY_ONLY")
+                self.assertTrue(result["statistics"]["supports_gain"])
+                self.assertEqual(result["statistics"]["p_value_two_sided"],0.03125)
+                self.assertFalse(result["provenance_verified"])
+                self.assertEqual(result["release_authorization"],"none")
+
+    def test_stochastic_sampling_does_not_hide_regression_or_small_sample(self):
+        prior=fixture("a"*64)
+        candidate=fixture("b"*64)
+        prior["sampling"]["temperature"]=candidate["sampling"]["temperature"]=0.7
+        candidate["cases"][0]["correct"]=False
+        self.assertEqual(compare_native_runs(prior,candidate)["decision"],"REJECT_CATEGORY_REGRESSION")
+        candidate=fixture("b"*64)
+        candidate["sampling"]["temperature"]=0.7
+        candidate["cases"][-1]["correct"]=True
+        self.assertEqual(compare_native_runs(prior,candidate)["decision"],"INSUFFICIENT_STATISTICAL_EVIDENCE")
+
     def test_small_but_perfect_synthetic_gain_still_needs_sufficient_cases(self):
         result=exact_paired_gain(8,0,8)
         self.assertEqual(result["p_value_two_sided"],0.0078125)
