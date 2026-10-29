@@ -47,10 +47,10 @@ def test_streamed_shards_are_hashed_and_not_reported_as_training(tmp_path):
     out = tmp_path / "arctus-bulk"
     specs = [source()]
     manifest = build_from_streams(
-        sources=specs, output=out, target_train_tokens=100,
+        sources=specs, output=out, target_train_tokens=350,
         tokenizer=ToyTokenizer(), stream_factory=lambda spec: rows(),
         contamination_phrases=(), max_shard_bytes=1800)
-    assert manifest["actual_train_tokens"] >= 100
+    assert manifest["actual_train_tokens"] >= 350
     assert manifest["trained_tokens"] == 0
     assert manifest["training_started"] is False
     assert manifest["tokenizer_kind"] == "NERAL-16K-BPE"
@@ -76,7 +76,7 @@ def test_rejected_duplicates_pii_and_benchmark_text(tmp_path):
         for i, row in enumerate(rows(18)):
             yield row
     report = build_from_streams(
-        sources=[source()], output=tmp_path / "out", target_train_tokens=55,
+        sources=[source()], output=tmp_path / "out", target_train_tokens=250,
         tokenizer=ToyTokenizer(), stream_factory=stream,
         contamination_phrases=("frozen-case-never-train",), max_shard_bytes=2000)
     rejected = report["rejected"]
