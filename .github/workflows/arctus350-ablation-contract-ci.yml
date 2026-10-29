@@ -1,0 +1,21 @@
+name: Arctus350 frozen ablation contract CPU
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_ablation_contract.py'
+      - 'tests/test_arctus350_ablation_contract.py'
+      - '.github/workflows/arctus350-ablation-contract-ci.yml'
+permissions:
+  contents: read
+jobs:
+  one-variable-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest -v tests.test_arctus350_ablation_contract
+      - run: python -m unittest -v tests.test_arctus350_paired_stats tests.test_arctus350_paired_evidence
+      - run: python -m py_compile frontier350/arctus350_ablation_contract.py
