@@ -15,6 +15,7 @@ from chat_math import tool_answer
 from code_check import check_code
 from architectures import expected_parameters
 from project_store import ProjectStore,ripple
+from launch_check import audit as audit_launch_readiness
 from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
@@ -204,6 +205,10 @@ def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',m
 def service_worker():return send_from_directory(BASE/'static','sw.js',mimetype='text/javascript')
 @app.get('/api/info')
 def info():return jsonify(info_payload())
+@app.get('/api/launch-readiness')
+def launch_readiness():
+    """Read-only static source audit, not approval to publish or a legal opinion."""
+    return jsonify(audit_launch_readiness(BASE))
 @app.get('/api/metrics')
 def metrics():
     path=BASE/'reports/comparison.json'
