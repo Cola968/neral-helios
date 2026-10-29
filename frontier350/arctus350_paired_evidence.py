@@ -180,6 +180,10 @@ def compare_native_runs(baseline, candidate):
         decision = "NO_MEASURED_GAIN"
     elif not stats["supports_gain"]:
         decision = "INSUFFICIENT_STATISTICAL_EVIDENCE"
+    elif baseline["sampling"]["temperature"] > 0:
+        # This schema records one observation per case and no decoding seed or
+        # repetitions. Do not attribute a sampled difference to the weights.
+        decision = "STOCHASTIC_EXPLORATORY_ONLY"
     else:
         decision = "REVIEW_CANDIDATE"
     def summary(counter):
@@ -207,6 +211,8 @@ def compare_native_runs(baseline, candidate):
             "Reported observations and checkpoint ownership are not independently verified. "
             "Case fingerprint proves ID/category consistency only, not prompt identity, sealed "
             "holdout status, contamination freedom or actual GPU inference. "
+            "Positive-temperature comparisons are exploratory in this single-draw schema; "
+            "temperature zero alone does not guarantee deterministic execution. "
             "A review recommendation is never permission to promote, train or publish."
         ),
     }
