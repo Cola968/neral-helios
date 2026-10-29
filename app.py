@@ -160,7 +160,7 @@ def text_key(value):
     if not isinstance(value,str) or not re.fullmatch(r'[a-zA-Z0-9_\-]{1,64}',value):raise ValueError('Ungültiger Schlüssel.')
     return value
 def info_payload():
-    payload={'app_version':'2.0','name':'Neral / Helios','model_family':model_family(),'runtime_id':runtime_identity(),'external_inference':ASSISTANT_ENABLED and not PREPARATION_MODE,'native_arctus350_integrated':True,'arctus350_enabled':arctus_runtime.enabled(),'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths())+([arctus_runtime.MODEL_ID] if arctus_runtime.enabled() else [])+['none'],'model_labels':{**{k:v['label'] for k,v in imported_models().items()},'arctus350':arctus_runtime.LABEL,'none':'Modell entladen · nur Werkzeuge'},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check'],'assistant':{'enabled':ASSISTANT_ENABLED and not PREPARATION_MODE,'name':'NERAL Assistant','base_model':ASSISTANT_MODEL if ASSISTANT_ENABLED else None,'origin':'Qwen3.5 / Apache-2.0 (external Open-Weight-Modell, nicht Arctus)','local_only':True,'read_only_inference':True,'streaming':False,'cancellation':False}}
+    payload={'app_version':'2.0','name':'Neral / Helios','model_family':model_family(),'runtime_id':runtime_identity(),'external_inference':ASSISTANT_ENABLED and not PREPARATION_MODE,'native_arctus350_integrated':True,'arctus350_enabled':arctus_runtime.enabled(),'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths())+([arctus_runtime.MODEL_ID] if arctus_runtime.enabled() else [])+['none'],'model_labels':{**{k:v['label'] for k,v in imported_models().items()},'arctus350':arctus_runtime.LABEL,'none':'Modell entladen · nur Werkzeuge'},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check'],'assistant':{'enabled':ASSISTANT_ENABLED and not PREPARATION_MODE,'name':'NERAL Assistant','base_model':ASSISTANT_MODEL if ASSISTANT_ENABLED else None,'origin':'Qwen3.5 / Apache-2.0 (external Open-Weight-Modell, nicht Arctus)','local_only':True,'read_only_inference':True,'streaming':False,'cancellation':False,'quality_modes':['standard','deep'],'deep_max_response_tokens':1024,'deep_max_context_bytes':8192}}
     if arctus is not None:
         c=arctus_runtime.EXPECTED_CONFIG
         payload.update(parameters=arctus_runtime.EXPECTED_PARAMS,layers=c['n_layers'],d_model=c['d_model'],heads=c['n_heads'],ffn_hidden=c['ffn_hidden'],vocab_size=c['vocab_size'],max_seq_len=arctus_runtime.APP_CONTEXT,tokenizer='NERAL-16K-BPE',device='cpu',gpu=None)
@@ -261,8 +261,14 @@ def generate():
     if prompt_bytes>MAX_PROMPT_BYTES:return jsonify(error='Prompt überschreitet 4096 UTF-8-Bytes.'),413
     mode=data.get('mode','chat')
     if not isinstance(mode,str) or mode not in {'chat','solve','code','assistant'}:return jsonify(error='Unbekannter Modus.'),400
-    params={'max_new_tokens':data.get('max_new_tokens',192),'temperature':data.get('temperature',0.0),'top_k':data.get('top_k',40)}
-    if type(params['max_new_tokens']) is not int or not 1<=params['max_new_tokens']<=MAX_NEW_TOKENS:return jsonify(error='Antwortlänge muss zwischen 1 und 512 Byte-Token liegen.'),400
+    quality=data.get('quality','standard')
+    if type(quality) is not str or quality not in {'standard','deep'} or (mode!='assistant' and quality!='standard'):
+        return jsonify(error='Ungültiges Qualitätsprofil für den gewählten Modus.'),400
+    assistant_deep=mode=='assistant' and quality=='deep'
+    limit=1024 if assistant_deep else MAX_NEW_TOKENS
+    params={'max_new_tokens':data.get('max_new_tokens',1024 if assistant_deep else 192),'temperature':data.get('temperature',0.0),'top_k':data.get('top_k',40)}
+    if type(params['max_new_tokens']) is not int or not 1<=params['max_new_tokens']<=limit:
+        return jsonify(error='Antwortbudget überschreitet das Limit des gewählten Modus.'),400
     if type(params['top_k']) is not int or not 0<=params['top_k']<=260:return jsonify(error='Top-k ist ungültig.'),400
     if type(params['temperature']) not in (int,float) or not math.isfinite(params['temperature']) or not 0<=params['temperature']<=1.5:return jsonify(error='Temperatur muss zwischen 0 und 1,5 liegen.'),400
     history=data.get('history',[])
@@ -273,7 +279,8 @@ def generate():
         if h['role']!=('user' if index%2==0 else 'assistant'):return jsonify(error='Ungültige Reihenfolge im Chatverlauf.'),400
     try:history_bytes=sum(len(h['content'].encode()) for h in history)
     except UnicodeEncodeError:return jsonify(error='Ungültiger Unicode-Text im Verlauf.'),400
-    if history_bytes+prompt_bytes>MAX_PROMPT_BYTES:return jsonify(error='Chatkontext zu lang. Beginne einen neuen Chat.'),413
+    context_limit=8192 if assistant_deep else MAX_PROMPT_BYTES
+    if history_bytes+prompt_bytes>context_limit:return jsonify(error='Chatkontext zu lang. Beginne einen neuen Chat.'),413
     for text in [h['content'] for h in history if h['role']=='user']+[prompt]:
         guard=check_prompt(text)
         if not guard.allowed:return jsonify(mode='guarded-response',source='local-rule:security',text=guard.response,security_category=guard.category,model_generated=False)
@@ -290,8 +297,8 @@ def generate():
             return jsonify(error='Eine Modellantwort wird bereits berechnet.'),429
         try:
             result=assistant_turn(prompt,history,model=ASSISTANT_MODEL,
-                                  think=ASSISTANT_THINK,max_new=params['max_new_tokens'],
-                                  temperature=params['temperature'])
+                                  think=ASSISTANT_THINK or assistant_deep,max_new=params['max_new_tokens'],
+                                  temperature=params['temperature'],quality=quality)
             # A checked local open-weight provider must never masquerade as native Arctus.
             result.update(mode='neral-assistant',source='external-model',
                           model_family='qwen3.5',base_model=ASSISTANT_MODEL,model_generated=True)
