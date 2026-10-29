@@ -1,0 +1,68 @@
+name: Arctus350 consolidated research integration CPU
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_*'
+      - 'frontier350/sft_batching350.py'
+      - 'frontier350/train_chat350.py'
+      - 'tests/test_arctus350_*'
+      - 'tests/test_sft_batching350.py'
+      - '.github/workflows/arctus350-integrated-research.yml'
+permissions:
+  contents: read
+jobs:
+  integrated-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cross-feature regressions + original CPU tests (NO GPU / weights)
+        run: |
+          python -m unittest -v \
+            tests.test_arctus350_paired_evidence \
+            tests.test_arctus350_paired_evidence_bridge \
+            tests.test_arctus350_carry_baseline_audit \
+            tests.test_sft_batching350 \
+            tests.test_arctus350_compact_sft_batches \
+            tests.test_arctus350_math_semantic_audit \
+            tests.test_arctus350_math_sanitization \
+            tests.test_arctus350_sanitized_export \
+            tests.test_arctus350_supervision_audit \
+            tests.test_arctus350_grounding_curriculum_v1 \
+            tests.test_arctus350_grounding_val_scorer \
+            tests.test_arctus350_integrated_scoring_regression
+      - name: Reproduce full closed-world dataset locally only (do not upload)
+        run: |
+          python -m frontier350.arctus350_grounding_curriculum_v1 --out "$RUNNER_TEMP/grounding-integration" > "$RUNNER_TEMP/grounding-summary.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads((Path(os.environ["RUNNER_TEMP"])/"grounding-summary.json").read_text())
+          assert d["total_rows"]==2160 and d["total_entities"]==360
+          assert d["entity_holdouts_disjoint"] is True
+          assert d["training_started"] is False and d["release_allowed"] is False
+          print("PASS: 2160 synthetic rows, disjoint entities, no training")
+          PY
+      - name: Audit real integrated arithmetic curricula (no model calls)
+        run: |
+          python -m frontier350.arctus350_math_semantic_audit --generated-audit --out "$RUNNER_TEMP/math-summary.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads((Path(os.environ["RUNNER_TEMP"])/"math-summary.json").read_text())
+          assert d["v1"]["overlap"]["unique_unordered_pairs_any_split"]>0
+          assert all(d[v]["overlap"]["unique_unordered_pairs_any_split"]==0 for v in ("v2","v3"))
+          assert all(d[v]["gate"]["ready_for_release"] is False for v in ("v1","v2","v3"))
+          print("PASS: legacy split collisions detected, v2/v3 disjoint")
+          PY
+      - name: No downloaded checkpoints or GPU actions; syntax integrity
+        run: |
+          python -m py_compile frontier350/arctus350_paired_evidence.py \
+            frontier350/arctus350_math_semantic_audit.py \
+            frontier350/arctus350_grounding_curriculum_v1.py \
+            frontier350/arctus350_grounding_val_scorer.py \
+            frontier350/arctus350_supervision_audit.py \
+            frontier350/sft_batching350.py frontier350/train_chat350.py
