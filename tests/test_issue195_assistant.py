@@ -112,3 +112,56 @@ def test_busy_native_runtime_blocks_qwen_and_preserves_lock(client, monkeypatch)
         assert result.status_code == 429
         assert web._generation_lock.locked()
     assert not web._generation_lock.locked()
+
+
+def test_deep_quality_actually_enables_thinking_and_enough_tokens(client, monkeypatch):
+    """An explicit deep request must reach Ollama as thinking, not as a UI-only label."""
+    import neral_assistant as provider
+    payloads = []
+    def fake_ollama(payload):
+        payloads.append(payload)
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Begründete Antwort"},
+                "eval_count": 128, "eval_duration": 1000000000}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    response = post(client, {"mode": "assistant", "quality": "deep", "prompt": "Prüfe das Argument.",
+                             "max_new_tokens": 1024, "stream": False})
+    assert response.status_code == 200
+    assert response.json["source"] == "external-model"
+    assert response.json["reasoning_enabled"] is True
+    assert response.json["quality_mode"] == "deep"
+    assert payloads[0]["think"] is True
+    assert payloads[0]["options"]["num_predict"] == 1024
+    assert payloads[0]["options"]["num_ctx"] == 8192
+
+
+def test_deep_quality_can_retain_longer_but_bounded_same_model_history(client, monkeypatch):
+    import neral_assistant as provider
+    calls = []
+    def fake_ollama(payload):
+        calls.append(payload)
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Langkontext verarbeitet."}}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    history = [{"role": "user", "content": "u" * 2600},
+               {"role": "assistant", "content": "a" * 2400}]
+    assert post(client, {"mode": "assistant", "prompt": "Weiter", "history": history}).status_code == 413
+    response = post(client, {"mode": "assistant", "quality": "deep", "prompt": "Weiter",
+                             "history": history, "max_new_tokens": 1024})
+    assert response.status_code == 200
+    assert calls[0]["messages"][1]["content"] == "u" * 2600
+    assert calls[0]["messages"][2]["content"] == "a" * 2400
+    too_long = [{"role": "user", "content": "u" * 4400},
+                {"role": "assistant", "content": "a" * 4400}]
+    assert post(client, {"mode": "assistant", "quality": "deep",
+                         "prompt": "Weiter", "history": too_long}).status_code == 413
+
+
+def test_invalid_quality_or_native_deep_fails_before_inference(client, monkeypatch):
+    monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: pytest.fail("invalid profile must not run"))
+    for row in [
+        {"mode": "assistant", "quality": "ultra", "prompt": "Hallo"},
+        {"mode": "assistant", "quality": True, "prompt": "Hallo"},
+        {"mode": "chat", "quality": "deep", "prompt": "Hallo"},
+    ]:
+        assert post(client, row).status_code == 400
