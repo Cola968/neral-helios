@@ -53,23 +53,37 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def local_ollama_status(model: str) -> str:
-    """Read only the fixed loopback model list; 'ready' means installed, not loaded."""
+def local_ollama_identity(model: str) -> dict:
+    """Read Ollama's reported model digest; do not claim independent attestation."""
+    def result(status, digest=None):
+        return {'availability':status,'model_digest':digest}
     if model not in ALLOWED_MODELS:
-        return 'invalid'
+        return result('invalid')
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
     try:
         with opener.open(LOOPBACK_STATUS_ENDPOINT, timeout=2) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
-        if len(raw) > MAX_RESPONSE_BYTES:
-            return 'invalid'
+    except (OSError, TimeoutError, urllib.error.URLError):
+        return result('offline')
+    if len(raw) > MAX_RESPONSE_BYTES:
+        return result('invalid')
+    try:
         data = json.loads(raw)
-        if not isinstance(data, dict) or not isinstance(data.get('models'), list):
-            return 'invalid'
-        names = [row.get('name') for row in data['models'] if isinstance(row,dict)]
-        return 'ready' if model in names else 'missing'
-    except (OSError, TimeoutError, urllib.error.URLError, ValueError, UnicodeError):
-        return 'offline'
+    except (ValueError, UnicodeError):
+        return result('invalid')
+    if not isinstance(data, dict) or not isinstance(data.get('models'), list):
+        return result('invalid')
+    matches = [row for row in data['models'] if isinstance(row,dict) and row.get('name')==model]
+    if not matches:
+        return result('missing')
+    if len(matches)!=1 or not isinstance(matches[0].get('digest'),str) or not re.fullmatch(r'[a-fA-F0-9]{64}',matches[0]['digest']):
+        return result('invalid')
+    return result('ready',matches[0]['digest'].lower())
+
+
+def local_ollama_status(model: str) -> str:
+    """Compatibility helper; 'ready' means installed, not loaded or attested."""
+    return local_ollama_identity(model)['availability']
 
 
 def local_ollama_request(payload: dict) -> dict:

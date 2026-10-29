@@ -19,7 +19,7 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
-from neral_assistant import assistant_turn, AssistantError, AssistantUnavailable, ALLOWED_MODELS, local_ollama_status
+from neral_assistant import assistant_turn, AssistantError, AssistantUnavailable, ALLOWED_MODELS, local_ollama_status, local_ollama_identity
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -207,7 +207,7 @@ def info():return jsonify(info_payload())
 @app.get('/api/assistant/status')
 def assistant_status():
     if PREPARATION_MODE or not ASSISTANT_ENABLED:return jsonify(availability='disabled',base_model=None),503
-    return jsonify(availability=local_ollama_status(ASSISTANT_MODEL),base_model=ASSISTANT_MODEL)
+    return jsonify(**local_ollama_identity(ASSISTANT_MODEL),base_model=ASSISTANT_MODEL)
 @app.get('/api/metrics')
 def metrics():
     path=BASE/'reports/comparison.json'
@@ -285,6 +285,10 @@ def generate():
         if PREPARATION_MODE or not ASSISTANT_ENABLED:return jsonify(error='NERAL Assistant ist nicht aktiviert. Ollama-Modus ausdrücklich freischalten.',code='assistant_disabled'),503
         if data.get('stream',False):return jsonify(error='Qwen unterstützt in diesem Modus kein Streaming.'),400
         if data.get('base_model')!=ASSISTANT_MODEL:return jsonify(error='Das konfigurierte Qwen-Modell hat sich geändert. Status aktualisieren.'),409
+        expected_digest=data.get('model_digest')
+        if expected_digest is not None and (not isinstance(expected_digest,str) or not re.fullmatch(r'[a-f0-9]{64}',expected_digest)):
+            return jsonify(error='Ungültiger Qwen-Modellstand.'),400
+        if history and expected_digest is None:return jsonify(error='Qwen-Modellstand unbekannt. Status aktualisieren.',code='assistant_model_changed'),409
         # Qwen receives only its own complete, non-imported pairs. Strip metadata
         # before passing the existing #129 provider its strict role/content schema.
         for h in history:
@@ -292,12 +296,25 @@ def generate():
                 return jsonify(error='Importierte oder unvollständige Nachrichten dürfen nicht in den Modellkontext.'),400
             if h['role']=='assistant' and (h.get('source')!='assistant:ollama-qwen' or h.get('base_model')!=ASSISTANT_MODEL):
                 return jsonify(error='Der Verlauf gehört nicht zu diesem Qwen-Modell.'),400
+            if h['role']=='assistant' and h.get('model_digest')!=expected_digest:
+                return jsonify(error='Der Verlauf gehört zu einem anderen oder unbekannten Qwen-Modellstand.',code='assistant_model_changed'),409
         if not _generation_lock.acquire(blocking=False):return jsonify(error='Eine Modellantwort wird bereits berechnet.'),429
         try:
+            before=local_ollama_identity(ASSISTANT_MODEL)
+            digest=before.get('model_digest')
+            if before.get('availability')!='ready' or not isinstance(digest,str) or not re.fullmatch(r'[a-f0-9]{64}',digest):
+                return jsonify(error='Ollama oder der Qwen-Modellstand ist lokal nicht sicher feststellbar.',code='assistant_unavailable'),503
+            if expected_digest is not None and expected_digest!=digest:
+                return jsonify(error='Der Qwen-Modellstand hat sich geändert. Status aktualisieren und erneut senden.',code='assistant_model_changed'),409
             clean_history=[{'role':h['role'],'content':h['content']} for h in history]
             result=assistant_turn(prompt,clean_history,model=ASSISTANT_MODEL,think=ASSISTANT_THINK,max_new=params['max_new_tokens'],temperature=params['temperature'])
+            after=local_ollama_identity(ASSISTANT_MODEL)
+            if after.get('availability')!='ready' or not isinstance(after.get('model_digest'),str) or not re.fullmatch(r'[a-f0-9]{64}',after['model_digest']):
+                return jsonify(error='Der Qwen-Modellstand konnte nach der Antwort nicht geprüft werden.',code='assistant_unavailable'),503
+            if after['model_digest']!=digest:
+                return jsonify(error='Der Qwen-Modellstand hat sich während der Antwort geändert. Bitte erneut senden.',code='assistant_model_changed'),409
             result.pop('active_checkpoint',None)
-            result.update(source='assistant:ollama-qwen',model_family='qwen3.5',token_unit='Modell-Token',tool_assisted=bool(result['tools_used']))
+            result.update(source='assistant:ollama-qwen',model_family='qwen3.5',model_digest=digest,token_unit='Modell-Token',tool_assisted=bool(result['tools_used']))
             return jsonify(result)
         except AssistantUnavailable:return jsonify(error='Ollama oder das konfigurierte Qwen-Modell ist lokal nicht erreichbar.',code='assistant_unavailable'),503
         except AssistantError:return jsonify(error='Die lokale Qwen-Antwort hat die Format- oder Sicherheitsprüfung nicht bestanden.',code='assistant_invalid'),400
