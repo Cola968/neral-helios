@@ -120,3 +120,37 @@ def test_finalized_output_cannot_be_overwritten(tmp_path):
         build_from_streams(sources=[source()], output=out,target_train_tokens=30,
                            tokenizer=ToyTokenizer(),stream_factory=lambda spec: rows(),
                            contamination_phrases=())
+
+
+def test_historical_b2_b3_document_hashes_are_excluded(tmp_path):
+    from arctus_billion_data import sha256_file
+    from prepare_pretrain50_b2 import clean_text, normalize_for_dedup
+    import hashlib
+
+    first = next(rows(1))
+    cleaned, reason = clean_text(first["text"], "general")
+    assert reason is None
+    digest = hashlib.sha256(normalize_for_dedup(cleaned).encode("utf8")).hexdigest()
+    old = tmp_path / "historic-documents.jsonl"
+    old.write_text(json.dumps({"source_id": "legacy50", "id": "old-1",
+                               "normalized_sha256": digest}) + "\n", encoding="utf8")
+    out = tmp_path / "new"
+    manifest = build_from_streams(
+        sources=[source()], output=out, target_train_tokens=200,
+        tokenizer=ToyTokenizer(), stream_factory=lambda spec: rows(30),
+        historical_indexes=[old], contamination_phrases=())
+    assert manifest["rejected"].get("historical_overlap", 0) == 1
+    assert manifest["historical_exclusion_indexes"][0]["sha256"] == sha256_file(old)
+    assert not any(digest in (out / s["file"]).read_text(encoding="utf8")
+                   for s in manifest["shards"])
+
+
+def test_invalid_historical_index_does_not_create_final_manifest(tmp_path):
+    old = tmp_path / "bad.jsonl"
+    old.write_text('{"normalized_sha256": "nope"}\n', encoding="utf8")
+    with pytest.raises(ValueError):
+        build_from_streams(sources=[source()], output=tmp_path / "out",
+                           target_train_tokens=10, tokenizer=ToyTokenizer(),
+                           stream_factory=lambda spec: rows(),
+                           historical_indexes=[old], contamination_phrases=())
+    assert not (tmp_path / "out" / "manifest.json").exists()
