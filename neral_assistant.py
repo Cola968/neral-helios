@@ -18,6 +18,7 @@ from solve import arithmetic
 ALLOWED_MODELS = frozenset({"qwen3.5:9b", "qwen3.5:4b"})
 DEFAULT_MODEL = "qwen3.5:9b"
 LOOPBACK_ENDPOINT = "http://127.0.0.1:11434/api/chat"
+LOOPBACK_STATUS_ENDPOINT = "http://127.0.0.1:11434/api/tags"
 MAX_INPUT_BYTES = 4096
 MAX_RESPONSE_BYTES = 256 * 1024
 from neral_assistant_persona import PERSONA_VERSION, SYSTEM_PROMPT
@@ -50,6 +51,25 @@ class AssistantUnavailable(AssistantError):
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
+
+
+def local_ollama_status(model: str) -> str:
+    """Read only the fixed loopback model list; 'ready' means installed, not loaded."""
+    if model not in ALLOWED_MODELS:
+        return 'invalid'
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+    try:
+        with opener.open(LOOPBACK_STATUS_ENDPOINT, timeout=2) as response:
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_RESPONSE_BYTES:
+            return 'invalid'
+        data = json.loads(raw)
+        if not isinstance(data, dict) or not isinstance(data.get('models'), list):
+            return 'invalid'
+        names = [row.get('name') for row in data['models'] if isinstance(row,dict)]
+        return 'ready' if model in names else 'missing'
+    except (OSError, TimeoutError, urllib.error.URLError, ValueError, UnicodeError):
+        return 'offline'
 
 
 def local_ollama_request(payload: dict) -> dict:
@@ -165,6 +185,8 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         if not isinstance(calls, list) or len(calls) > 1:
             raise AssistantError("Unzulässige Anzahl Werkzeugaufrufe.")
         if calls:
+            if data.get('done_reason') == 'length':
+                raise AssistantError('Unvollständiger Werkzeugaufruf.')
             if not enable_tools:
                 raise AssistantError('Nicht freigegebener Werkzeugaufruf im Modell-Benchmark.')
             if iteration or tools_used:
@@ -200,6 +222,8 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
             "generated_tokens": count,
             "tokens_per_second": speed,
             "seconds": round(eval_duration / 1e9, 3) if type(eval_duration) is int and eval_duration >= 0 else 0,
+            "finish_reason": data.get('done_reason') if isinstance(data.get('done_reason'),str) else None,
+            "incomplete": data.get('done_reason') == 'length',
             "active_checkpoint": "Qwen3.5 (Ollama local); not Arctus",
             "reasoning_enabled": think,
         }

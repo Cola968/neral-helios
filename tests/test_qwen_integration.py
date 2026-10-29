@@ -143,3 +143,61 @@ def test_output_limited_by_ollama_is_excluded_from_future_context(client,monkeyp
     monkeypatch.setattr(assistant,'local_ollama_request',lambda _:partial)
     r=generate(client)
     assert r.status_code==200 and r.json['incomplete'] is True
+
+
+def test_status_reports_installed_not_loaded_and_never_probes_when_disabled(client,monkeypatch):
+    monkeypatch.setattr(web,'local_ollama_status',lambda model:'ready' if model==MODEL else 'missing')
+    r=client.get('/api/assistant/status',base_url='http://localhost')
+    assert r.status_code==200 and r.json=={'availability':'ready','base_model':MODEL}
+    monkeypatch.setattr(web,'ASSISTANT_ENABLED',False,raising=False)
+    monkeypatch.setattr(web,'local_ollama_status',lambda _:pytest.fail('disabled mode probed'))
+    assert client.get('/api/assistant/status',base_url='http://localhost').status_code==503
+
+
+def test_byte_runtime_rejects_qwen_context(client,monkeypatch):
+    monkeypatch.setattr(web,'checkpoint_loaded',True)
+    r=post(client,'/api/generate',{'mode':'chat','prompt':'Weiter','history':[
+        {'role':'user','content':'Frage','imported':False},turn()]})
+    assert r.status_code==409 and not web._generation_lock.locked()
+
+
+def test_arctus_runtime_rejects_qwen_context(client,monkeypatch):
+    import arctus_runtime as ar
+    native=ar.ArctusRuntime(object(),object(),'b'*64)
+    monkeypatch.setattr(web,'arctus',native);monkeypatch.setattr(web,'checkpoint_loaded',True)
+    r=post(client,'/api/generate',{'mode':'chat','prompt':'Weiter','runtime_id':native.identity,
+        'history':[{'role':'user','content':'Frage','imported':False},turn()]})
+    assert r.status_code==400 and not web._generation_lock.locked()
+
+
+def test_qwen_calculator_use_is_explicit(client,monkeypatch):
+    calls=[]
+    def fake(payload):
+        calls.append(payload)
+        if len(calls)==1:
+            return {'model':MODEL,'done':True,'message':{'role':'assistant','content':'',
+                    'tool_calls':[{'function':{'name':'calculator','arguments':{'expression':'12*14'}}}]}}
+        return reply('12 × 14 = 168')
+    monkeypatch.setattr(assistant,'local_ollama_request',fake)
+    r=generate(client)
+    assert r.status_code==200 and r.json['tool_assisted'] is True
+    assert r.json['tools_used']==['calculator'] and r.json['source']==SOURCE
+    assert calls[-1]['messages'][-1]['role']=='tool'
+
+
+def test_status_uses_fixed_loopback_without_proxy_or_redirect(monkeypatch):
+    import io, urllib.request
+    urls=[]
+    class FakeOpener:
+        def open(self,url,timeout):
+            urls.append((url,timeout))
+            return io.BytesIO(b'{"models":[{"name":"qwen3.5:9b"}]}')
+    def make_opener(*handlers):
+        proxy=next(h for h in handlers if isinstance(h,urllib.request.ProxyHandler))
+        redirect=next(h for h in handlers if isinstance(h,assistant._NoRedirect))
+        assert proxy.proxies=={} and redirect.redirect_request(None,None,None,None,None) is None
+        return FakeOpener()
+    monkeypatch.setattr(urllib.request,'build_opener',make_opener)
+    assert assistant.local_ollama_status(MODEL)=='ready'
+    assert urls==[('http://127.0.0.1:11434/api/tags',2)]
+    assert assistant.local_ollama_status('arbitrary-model')=='invalid'

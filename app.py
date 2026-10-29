@@ -19,6 +19,7 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
+from neral_assistant import assistant_turn, AssistantError, AssistantUnavailable, ALLOWED_MODELS, local_ollama_status
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -45,6 +46,10 @@ torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precisi
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
 assert report['trainable']==EXPECTED_PARAMS
 PREPARATION_MODE=os.environ.get('HELIOS_PREPARATION_MODE','0')=='1'
+ASSISTANT_ENABLED=os.environ.get('NERAL_ASSISTANT_ENABLED','0')=='1'
+ASSISTANT_MODEL=os.environ.get('NERAL_ASSISTANT_MODEL','qwen3.5:9b')
+ASSISTANT_THINK=os.environ.get('NERAL_ASSISTANT_THINK','0')=='1'
+if ASSISTANT_ENABLED and ASSISTANT_MODEL not in ALLOWED_MODELS:raise ValueError('NERAL_ASSISTANT_MODEL muss qwen3.5:9b oder qwen3.5:4b sein.')
 device_name='cpu' if PREPARATION_MODE else os.environ.get('HELIOS_DEVICE','cpu')
 if device_name!='cpu':raise ValueError('This Helios app release is CPU-only.')
 device=torch.device(device_name)
@@ -155,6 +160,7 @@ def text_key(value):
     return value
 def info_payload():
     payload={'app_version':'2.0','name':'Neral / Helios','model_family':model_family(),'runtime_id':runtime_identity(),'external_inference':False,'native_arctus350_integrated':True,'arctus350_enabled':arctus_runtime.enabled(),'parameters':report['trainable'],'layers':cfg.n_layers,'d_model':cfg.d_model,'heads':cfg.n_heads,'ffn_hidden':cfg.ffn_hidden,'vocab_size':cfg.vocab_size,'max_seq_len':cfg.max_seq_len,'tokenizer':'ByteTokenizer-260','device':str(device),'gpu':torch.cuda.get_device_name() if device.type=='cuda' else None,'checkpoint_loaded':checkpoint_loaded,'checkpoint_sha256':checkpoint_sha256,'checkpoint_meta':checkpoint_meta,'active_checkpoint':active_checkpoint,'checkpoints':list(checkpoint_paths())+([arctus_runtime.MODEL_ID] if arctus_runtime.enabled() else [])+['none'],'model_labels':{**{k:v['label'] for k,v in imported_models().items()},'arctus350':arctus_runtime.LABEL,'none':'Modell entladen · nur Werkzeuge'},'experimental':True,'runtime_status':'ready' if checkpoint_loaded else 'unavailable','runtime_message':runtime_error,'inference_only':True,'preparation_mode':PREPARATION_MODE,'i1_export_available':'neral50m_i1' in checkpoint_paths(),'security':{'localhost_only':True,'input_limit_bytes':MAX_PROMPT_BYTES,'generation_limit_tokens':MAX_NEW_TOKENS,'rate_limit_per_minute':RATE_LIMIT,'safe_checkpoint_loading':True,'checkpoint_integrity_sha256':True,'secret_redaction':True,'prompt_guard':True,'host_origin_validation':True},'tools':['solve','code_check']}
+    payload['assistant']={'enabled':ASSISTANT_ENABLED and not PREPARATION_MODE,'base_model':ASSISTANT_MODEL if ASSISTANT_ENABLED else None,'availability':'unknown','local_only':True,'origin':'Qwen3.5 · externes Open-Weight-Modell · Apache-2.0'}
     if arctus is not None:
         c=arctus_runtime.EXPECTED_CONFIG
         payload.update(parameters=arctus_runtime.EXPECTED_PARAMS,layers=c['n_layers'],d_model=c['d_model'],heads=c['n_heads'],ffn_hidden=c['ffn_hidden'],vocab_size=c['vocab_size'],max_seq_len=arctus_runtime.APP_CONTEXT,tokenizer='NERAL-16K-BPE',device='cpu',gpu=None)
@@ -198,6 +204,10 @@ def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',m
 def service_worker():return send_from_directory(BASE/'static','sw.js',mimetype='text/javascript')
 @app.get('/api/info')
 def info():return jsonify(info_payload())
+@app.get('/api/assistant/status')
+def assistant_status():
+    if PREPARATION_MODE or not ASSISTANT_ENABLED:return jsonify(availability='disabled',base_model=None),503
+    return jsonify(availability=local_ollama_status(ASSISTANT_MODEL),base_model=ASSISTANT_MODEL)
 @app.get('/api/metrics')
 def metrics():
     path=BASE/'reports/comparison.json'
@@ -254,7 +264,7 @@ def generate():
     except UnicodeEncodeError:return jsonify(error='Ungültiger Unicode-Text.'),400
     if prompt_bytes>MAX_PROMPT_BYTES:return jsonify(error='Prompt überschreitet 4096 UTF-8-Bytes.'),413
     mode=data.get('mode','chat')
-    if not isinstance(mode,str) or mode not in {'chat','solve','code'}:return jsonify(error='Unbekannter Modus.'),400
+    if not isinstance(mode,str) or mode not in {'chat','assistant','solve','code'}:return jsonify(error='Unbekannter Modus.'),400
     params={'max_new_tokens':data.get('max_new_tokens',192),'temperature':data.get('temperature',0.0),'top_k':data.get('top_k',40)}
     if type(params['max_new_tokens']) is not int or not 1<=params['max_new_tokens']<=MAX_NEW_TOKENS:return jsonify(error='Antwortlänge muss zwischen 1 und 512 Byte-Token liegen.'),400
     if type(params['top_k']) is not int or not 0<=params['top_k']<=260:return jsonify(error='Top-k ist ungültig.'),400
@@ -271,6 +281,27 @@ def generate():
     for text in [h['content'] for h in history if h['role']=='user']+[prompt]:
         guard=check_prompt(text)
         if not guard.allowed:return jsonify(mode='guarded-response',source='local-rule:security',text=guard.response,security_category=guard.category,model_generated=False)
+    if mode=='assistant':
+        if PREPARATION_MODE or not ASSISTANT_ENABLED:return jsonify(error='NERAL Assistant ist nicht aktiviert. Ollama-Modus ausdrücklich freischalten.',code='assistant_disabled'),503
+        if data.get('stream',False):return jsonify(error='Qwen unterstützt in diesem Modus kein Streaming.'),400
+        if data.get('base_model')!=ASSISTANT_MODEL:return jsonify(error='Das konfigurierte Qwen-Modell hat sich geändert. Status aktualisieren.'),409
+        # Qwen receives only its own complete, non-imported pairs. Strip metadata
+        # before passing the existing #129 provider its strict role/content schema.
+        for h in history:
+            if h.get('imported') is not False or h.get('interrupted',False) is not False:
+                return jsonify(error='Importierte oder unvollständige Nachrichten dürfen nicht in den Modellkontext.'),400
+            if h['role']=='assistant' and (h.get('source')!='assistant:ollama-qwen' or h.get('base_model')!=ASSISTANT_MODEL):
+                return jsonify(error='Der Verlauf gehört nicht zu diesem Qwen-Modell.'),400
+        if not _generation_lock.acquire(blocking=False):return jsonify(error='Eine Modellantwort wird bereits berechnet.'),429
+        try:
+            clean_history=[{'role':h['role'],'content':h['content']} for h in history]
+            result=assistant_turn(prompt,clean_history,model=ASSISTANT_MODEL,think=ASSISTANT_THINK,max_new=params['max_new_tokens'],temperature=params['temperature'])
+            result.pop('active_checkpoint',None)
+            result.update(source='assistant:ollama-qwen',model_family='qwen3.5',token_unit='Modell-Token',tool_assisted=bool(result['tools_used']))
+            return jsonify(result)
+        except AssistantUnavailable:return jsonify(error='Ollama oder das konfigurierte Qwen-Modell ist lokal nicht erreichbar.',code='assistant_unavailable'),503
+        except AssistantError:return jsonify(error='Die lokale Qwen-Antwort hat die Format- oder Sicherheitsprüfung nicht bestanden.',code='assistant_invalid'),400
+        finally:_generation_lock.release()
     if mode=='code':
         try:
             result=check_code(prompt)
@@ -312,7 +343,7 @@ def generate():
         if arctus is not None:ids=arctus.encode(history,prompt,params['max_new_tokens'])
         else:
             # Reject explicitly foreign context; legacy byte-only clients remain compatible.
-            if any(h.get('model_family','neral-byte')!='neral-byte' or (h.get('runtime_id') is not None and h['runtime_id']!=identity) for h in history):
+            if any(h.get('imported') is True or h.get('interrupted') is True or h.get('base_model') is not None or (h['role']=='assistant' and h.get('source') not in (None,'native-model')) or h.get('model_family','neral-byte')!='neral-byte' or (h.get('runtime_id') is not None and h['runtime_id']!=identity) for h in history):
                 _generation_lock.release()
                 return jsonify(error='Der Verlauf gehört zu einem anderen Modell.'),409
             formatted=''.join(('User' if h['role']=='user' else 'Assistant')+': '+h['content'].strip()+'\n' for h in history)+'User: '+prompt.strip()+'\nAssistant:'

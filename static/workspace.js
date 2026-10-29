@@ -5,7 +5,7 @@ document.documentElement.dataset.font=settings.font;
 function persistSettings(){try{localStorage.setItem('neral.settings',JSON.stringify(settings));}catch{notify('Einstellungen konnten nicht gespeichert werden.');}}
 async function generateRequest(payload,onProgress){
  try{
-  const response=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,stream:settings.stream&&payload.mode==='chat'}),signal:AbortSignal.timeout(150000)});
+  const response=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,stream:settings.stream&&payload.mode==='chat'}),signal:AbortSignal.timeout(payload.mode==='assistant'?270000:150000)});
   if(!response.ok){let data={};try{data=await response.json();}catch{}const error=Error(data.error||'Anfrage fehlgeschlagen. Bitte erneut versuchen.');error.status=response.status;throw error;}
   return await HeliosCore.readGenerationResponse(response,onProgress);
  }catch(error){
@@ -62,3 +62,4 @@ const launch=new URLSearchParams(location.search);if(launch.get('quick')==='solv
 function reportCrash(){crashCount++;notify('Ein App-Fehler ist aufgetreten. Entwurf bleibt lokal. Über Einstellungen → App neu verbinden fortsetzen.');}
 window.addEventListener('error',reportCrash);window.addEventListener('unhandledrejection',reportCrash);
 $('diagnostics').onclick=()=>{const data={app:'Neral workspace v2',online:navigator.onLine,model:activeModel,modelReady,preparationMode,streaming:settings.stream,sync:settings.sync,crashCount};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='neral-diagnose.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+

@@ -1,12 +1,13 @@
 'use strict';
 const $=id=>document.getElementById(id), storageKey='neral.helios.chats.v1';
 let chats=[],current=null,mode='chat',busy=false,ready=false,modelReady=false,activeModel=null,job=null,pending=null,maxContext=4096,preparationMode=false,modelLabels={},runtimeId=null,modelFamily="neral-byte";
+let assistantEnabled=false,assistantModel=null,assistantAvailability='unknown',initialNewChat=false,firstInfo=true;
 try{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');if(Array.isArray(saved))chats=saved.map(HeliosCore.normalizeStoredChat).filter(Boolean);document.documentElement.dataset.theme=localStorage.getItem('neral.theme')||'dark';}catch{chats=[];}
 function notify(text){$('status').textContent=text;$('status').hidden=!text;}
 function persist(){if(current&&!current.temporary){current._dirty=true;current._syncBlocked=false;}try{localStorage.setItem(storageKey,JSON.stringify(chats));window.dispatchEvent(new Event('neral:changed'));}catch{notify('Der lokale Speicher ist voll. Exportiere wichtige Chats, bevor du ältere löschst.');}}
 function saveDraft(){if(!current)return;current.draft=$('prompt').value;current.mode=mode;if(!current.temporary){if((current.messages.length||current.draft)&&!chats.some(c=>c.id===current.id))chats.unshift(current);persist();try{localStorage.setItem('neral.helios.active',current.id);}catch{}}}
 function openChat(c){if(busy)return;saveDraft();current=c;$('temporary').checked=!!c.temporary;$('prompt').value=c.draft||'';setMode(c.mode||'chat');render(true);closeSidebar();$('prompt').dispatchEvent(new Event('input'));}
-function fresh(){if(busy)return;saveDraft();notify('');current={id:crypto.randomUUID(),title:'Neuer Chat',messages:[],draft:'',temporary:$('temporary').checked};$('prompt').value='';setMode('chat');render();closeSidebar();$('prompt').focus();}
+function fresh(){if(busy)return;saveDraft();notify('');current={id:crypto.randomUUID(),title:'Neuer Chat',messages:[],draft:'',temporary:$('temporary').checked};$('prompt').value='';setMode(HeliosCore.defaultChatMode(assistantEnabled));render();closeSidebar();$('prompt').focus();}
 function list(){const nav=$('chats');nav.replaceChildren();const query=$('search').value.toLowerCase();for(const c of chats.filter(c=>(c.title+' '+c.messages.map(m=>m.content).join(' ')).toLowerCase().includes(query))){const row=document.createElement('div');row.className='chat-item'+(c.id===current?.id?' active':'');const b=document.createElement('button');b.textContent=c.title;b.disabled=busy;b.onclick=()=>{openChat(c);};const del=document.createElement('button');del.textContent='×';del.className='remove';del.setAttribute('aria-label',c.title+' löschen');del.disabled=busy;del.onclick=()=>{if(!confirm('Diesen Chat löschen? Bei aktivierter Synchronisierung gilt dies auch für verbundene Geräte.'))return;queueChatDelete(c);chats=chats.filter(x=>x.id!==c.id);persist();if(current.id===c.id){current=null;fresh();}list();};row.append(b,del);nav.append(row);}}
 function render(follow=false){
  list();$('chatTitle').textContent=current.title;$('welcome').hidden=current.messages.length>0;$('log').hidden=current.messages.length===0;
@@ -39,36 +40,71 @@ function render(follow=false){
 }
 function updateScrollButton(){const log=$('log');$('jumpLatest').hidden=log.hidden||log.scrollHeight-log.scrollTop-log.clientHeight<80;}
 function setMode(m){
- mode=['chat','solve','code'].includes(m)?m:'chat';
+ mode=['chat','assistant','solve','code'].includes(m)?m:'chat';
  document.querySelectorAll('[data-set-mode]').forEach(b=>{b.classList.toggle('selected',b.dataset.setMode===mode);b.setAttribute('aria-pressed',String(b.dataset.setMode===mode));});
  $('prompt').placeholder=mode==='solve'?'Rechnung oder Gleichung, z. B. 2*x + 3 = 11':mode==='code'?'Python-Code hier einfügen …':'Nachricht oder Rechnung eingeben …';
- $('modeHint').textContent=mode==='solve'?'Exakte Rechnung · lokales Werkzeug':mode==='code'?'Statische Prüfung · keine Codeausführung':'Enter senden · Umschalt + Enter neue Zeile';setBusy(busy);
+ $('modeHint').textContent=mode==='solve'?'Exakte Rechnung · lokales Werkzeug':mode==='code'?'Statische Prüfung · keine Codeausführung':mode==='assistant'?'Qwen über Ollama · ohne Streaming oder Stopp':'Enter senden · Umschalt + Enter neue Zeile';
+ $('modelPicker').hidden=mode==='assistant';$('assistantModelLabel').hidden=mode!=='assistant';setBusy(busy);
 }
 function setBusy(b){
  busy=b;const hasText=$('prompt').value.trim().length>0;
- $('send').disabled=b||!ready||!hasText||new TextEncoder().encode($('prompt').value).length>4096;$('stop').hidden=!b||!job;$('stop').disabled=false;$('stop').textContent='Stoppen';
+ $('send').disabled=b||!ready||!hasText||new TextEncoder().encode($('prompt').value).length>4096;$('stop').hidden=!b||!job||mode==='assistant';$('stop').disabled=false;$('stop').textContent='Stoppen';
  $('newChat').disabled=b;$('checkpoint').disabled=b||!ready;
  document.querySelectorAll('#modelOptions button').forEach(e=>e.disabled=b||!ready||preparationMode);
  if(b)$('modelPicker').open=false;
  $('temporary').disabled=b;$('prompt').disabled=false;
  document.querySelectorAll('[data-set-mode],[data-mode]').forEach(e=>e.disabled=b);
+ $('assistantMode').disabled=b||!ready||!assistantEnabled||preparationMode;
  $('log').setAttribute('aria-busy',String(b));
- $('activity').textContent=b?'Anfrage wird verarbeitet …':!ready?'Verbindung wird geprüft …':modelReady?'Eigener Checkpoint aktiv':'Bereit · lokal';
- $('runtimeNotice').hidden=modelReady&&ready;
- $('runtimeNotice').textContent=!ready?'Keine Verbindung. Entwürfe bleiben auf diesem Gerät.':
+ $('activity').textContent=b?'Anfrage wird verarbeitet …':!ready?'Verbindung wird geprüft …':mode==='assistant'?'NERAL Assistant · Qwen':modelReady?'Eigener Checkpoint aktiv':'Bereit · lokal';
+ const qwenStatus={unknown:'Ollama-Status noch ungeprüft.',ready:'Ollama erreichbar · Modell installiert.',missing:'Ollama erreichbar · Modell nicht installiert.',offline:'Ollama ist nicht erreichbar.',invalid:'Ollama-Status konnte nicht geprüft werden.'};
+ $('runtimeNotice').hidden=mode!=='assistant'&&modelReady&&ready;
+ $('runtimeNotice').textContent=!ready?'Keine Verbindung. Entwürfe bleiben auf diesem Gerät.':mode==='assistant'?
+  (assistantEnabled?'NERAL Assistant · '+assistantModel+' · externes Open-Weight-Modell. '+(qwenStatus[assistantAvailability]||qwenStatus.unknown):'NERAL Assistant ist nicht aktiviert.'):
   'Kein natives Sprachmodell geladen. Rechnen und Codeprüfung funktionieren lokal; freie Sprachantworten sind nicht verfügbar.';
+ if(ready){$('connection').textContent=mode==='assistant'?(assistantAvailability==='ready'?'Qwen lokal verfügbar':'Qwen · '+(qwenStatus[assistantAvailability]||qwenStatus.unknown)):(modelReady?'Lokal verbunden · CPU':'Werkzeuge bereit · Modell fehlt');$('connectionDot').classList.toggle('ready',mode==='assistant'?assistantAvailability==='ready':modelReady);}
  list();
 }
 async function jsonRequest(path,payload){let response;try{response=await fetch(path,payload===undefined?{signal:AbortSignal.timeout(8000)}:{signal:AbortSignal.timeout(path==='/api/model'?180000:8000),method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}catch{throw Error('Der lokale Server ist nicht erreichbar. Prüfe, ob Helios läuft, und verbinde erneut.');}let result;try{result=await response.json();}catch{throw Error('Der lokale Server hat keine gültige Antwort gesendet.');}if(!response.ok){const error=Error(result.error||'Anfrage fehlgeschlagen.');error.status=response.status;throw error;}return result;}
-function stats(info){runtimeId=info.runtime_id||null;modelFamily=info.model_family;modelLabels=info.model_labels||{};preparationMode=info.preparation_mode===true;maxContext=info.max_seq_len;$('modelStats').replaceChildren();for(const [k,v] of [['Parameter',info.parameters.toLocaleString('de-DE')],['Architektur',info.layers+' Layer · '+info.heads+' Heads'],['Tokenizer',info.vocab_size+(modelFamily==='neral-arctus350'?' BPE-Token':' Byte-Token')],['Kontext',info.max_seq_len+' Token'],['Berechnung',info.gpu||info.device],['Schritt',info.checkpoint_meta.step??'unbekannt']]){const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=String(v);row.append(dt,dd);$('modelStats').append(row);}document.querySelector('.breadcrumb').textContent='/ Neral '+(info.parameters/1e6).toFixed(1)+'M';$('hash').textContent=info.checkpoint_sha256||'Kein Checkpoint geladen';$('runtimeStatus').textContent=(info.runtime_message||'Eigener Checkpoint geprüft · '+info.device)+' · I1: '+(info.i1_export_available?'Export vorhanden, manuell wählbar':'noch kein Export installiert');const select=$('checkpoint');select.replaceChildren();for(const id of info.checkpoints){const o=document.createElement('option');o.value=id;o.textContent=modelLabels[id]|| (id==='neral50m_i1'?'Neral 50M I1 · manueller Export':id==='neral50m'?'Neral 50M · Sprachpilot, kein fertiger Chatbot':id==='neral40m'?'Neral 40M · Trainingsversuch (Loss schlechter)':id==='original'?'Neral 20M · Original':id==='pilot_02'?'Neral 20M · Preview 02':'Neral 20M · Pilot 01');select.append(o);}select.value=info.active_checkpoint;activeModel=info.active_checkpoint;modelReady=info.checkpoint_loaded===true;$('connection').textContent=modelReady?'Lokal verbunden · '+info.device:'Werkzeuge bereit · Modell fehlt';$('connectionDot').classList.toggle('ready',modelReady);$('reconnect').hidden=false;$('reconnect').textContent='Status aktualisieren';ready=true;syncModelPicker();setBusy(busy);$('runtimeNotice').title=info.runtime_message||'';if($('modelArchitectureNote'))$('modelArchitectureNote').textContent=modelFamily==='neral-arctus350'?'Arctus350 ist experimentell aktiv: eigener 16K-BPE-Tokenizer, lokale CPU-Inferenz. Rechenergebnisse aus Werkzeugen sind keine Modellleistung.':info.arctus350_enabled?'Eigene NERAL-Byte-Modelle; Arctus350 ist optional experimentell wählbar. Keine externe Inferenz.':'Eigene NERAL-Byte-Modelle. Arctus350 ist nicht aktiviert. Keine externe Inferenz.';}
+function stats(info){
+ runtimeId=info.runtime_id||null;modelFamily=info.model_family;modelLabels=info.model_labels||{};
+ preparationMode=info.preparation_mode===true;maxContext=info.max_seq_len;
+ assistantEnabled=info.assistant?.enabled===true;assistantModel=info.assistant?.base_model||null;assistantAvailability='unknown';
+ $('assistantMode').hidden=!assistantEnabled;
+ $('assistantModelLabel').textContent='NERAL Assistant · '+(assistantModel||'Qwen3.5')+' · lokal';
+ $('modelStats').replaceChildren();
+ for(const [k,v] of [['Parameter',info.parameters.toLocaleString('de-DE')],['Architektur',info.layers+' Layer · '+info.heads+' Heads'],['Tokenizer',info.vocab_size+(modelFamily==='neral-arctus350'?' BPE-Token':' Byte-Token')],['Kontext',info.max_seq_len+' Token'],['Berechnung',info.gpu||info.device],['Schritt',info.checkpoint_meta.step??'unbekannt']]){
+  const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=String(v);row.append(dt,dd);$('modelStats').append(row);
+ }
+ document.querySelector('.breadcrumb').textContent='/ Neral '+(info.parameters/1e6).toFixed(1)+'M';
+ $('hash').textContent=info.checkpoint_sha256||'Kein Checkpoint geladen';
+ $('runtimeStatus').textContent=(info.runtime_message||'Eigener Checkpoint geprüft · '+info.device)+' · I1: '+(info.i1_export_available?'Export vorhanden, manuell wählbar':'noch kein Export installiert');
+ const select=$('checkpoint');select.replaceChildren();
+ for(const id of info.checkpoints){const o=document.createElement('option');o.value=id;o.textContent=modelLabels[id]|| (id==='neral50m_i1'?'Neral 50M I1 · manueller Export':id==='neral50m'?'Neral 50M · Sprachpilot, kein fertiger Chatbot':id==='neral40m'?'Neral 40M · Trainingsversuch (Loss schlechter)':id==='original'?'Neral 20M · Original':id==='pilot_02'?'Neral 20M · Preview 02':'Neral 20M · Pilot 01');select.append(o);}
+ select.value=info.active_checkpoint;activeModel=info.active_checkpoint;modelReady=info.checkpoint_loaded===true;
+ $('nativeMode').textContent=modelReady&&activeModel==='arctus350'?'Arctus350 · eigen':'Eigene Modelle';
+ $('reconnect').hidden=false;$('reconnect').textContent='Status aktualisieren';ready=true;
+ $('runtimeNotice').title=info.runtime_message||'';
+ if($('modelArchitectureNote'))$('modelArchitectureNote').textContent=assistantEnabled?'NERAL Assistant nutzt Qwen3.5 lokal über Ollama. Arctus350 und die Byte-Modelle sind eigene, getrennte Modellpfade. Keine Cloud-Inferenz.':modelFamily==='neral-arctus350'?'Arctus350 ist experimentell aktiv: eigener 16K-BPE-Tokenizer, lokale CPU-Inferenz.':info.arctus350_enabled?'Eigene NERAL-Byte-Modelle; Arctus350 ist optional experimentell wählbar.':'Eigene NERAL-Byte-Modelle. Arctus350 ist nicht aktiviert.';
+ syncModelPicker();
+ if(firstInfo&&initialNewChat&&assistantEnabled&&mode==='chat')setMode('assistant');else setBusy(busy);
+ firstInfo=false;
+ if(assistantEnabled)refreshAssistantAvailability();
+}
+async function refreshAssistantAvailability(){
+ const model=assistantModel;
+ try{const status=await jsonRequest('/api/assistant/status');if(assistantEnabled&&assistantModel===model&&status.base_model===model)assistantAvailability=status.availability;}
+ catch{if(assistantModel===model)assistantAvailability='unknown';}
+ if(assistantModel===model)setBusy(busy);
+}
 $('composer').onsubmit=async event=>{
  event.preventDefault();if(busy||!ready)return;
  const prompt=$('prompt').value.trim();if(!prompt)return;notify('');
  if(new TextEncoder().encode(prompt).length>4096){notify('Die Eingabe ist länger als 4096 UTF-8-Bytes.');return;}
- const ctx=HeliosCore.context(mode==='chat'?current.messages:[],prompt,Number($('tokens').value),maxContext,activeModel,runtimeId,modelFamily);
- const history=mode==='chat'&&modelReady?ctx.history:[];
- if(mode==='chat'&&modelReady&&!ctx.fits){notify('Eingabe und Antwortbudget sind zu lang. Kürze die Eingabe oder reduziere das Antwortbudget.');return;}
- if(ctx.omitted&&modelReady)notify(ctx.omitted+' ältere Nachrichtenpaare wurden aus dem Modellkontext ausgelassen. Der gespeicherte Verlauf bleibt vollständig.');
+ const ctx=mode==='assistant'?HeliosCore.assistantContext(current.messages,prompt,assistantModel):HeliosCore.context(mode==='chat'?current.messages:[],prompt,Number($('tokens').value),maxContext,activeModel,runtimeId,modelFamily);
+ const history=mode==='assistant'&&assistantEnabled||mode==='chat'&&modelReady?ctx.history:[];
+ if((mode==='assistant'&&assistantEnabled||mode==='chat'&&modelReady)&&!ctx.fits){notify('Eingabe und Verlauf sind zu lang. Kürze die Eingabe oder beginne einen neuen Chat.');return;}
+ if(ctx.omitted&&(modelReady||mode==='assistant'&&assistantEnabled))notify(ctx.omitted+' ältere Nachrichtenpaare wurden aus dem Modellkontext ausgelassen. Der gespeicherte Verlauf bleibt vollständig.');
  current.messages.push({role:'user',content:prompt,mode,imported:false});
  if(current.messages.length===1){if(current.title==='Neuer Chat')current.title=prompt.slice(0,38);if(!current.temporary&&!chats.some(c=>c.id===current.id))chats.unshift(current);}
  job=crypto.randomUUID();render(true);setBusy(true);
@@ -77,11 +113,11 @@ $('composer').onsubmit=async event=>{
  const p=document.createElement('div');p.className='content';p.textContent='Anfrage wird geprüft …';pending.append(label,p);$('log').append(pending);$('log').scrollTop=$('log').scrollHeight;
  $('prompt').value='';$('prompt').dispatchEvent(new Event('input'));
  try{
-  const r=await generateRequest({prompt,history,mode,max_new_tokens:Number($('tokens').value),temperature:Number($('temperature').value),top_k:40,request_id:job,runtime_id:runtimeId},update=>{
+  const r=await generateRequest({prompt,history,mode,max_new_tokens:Number($('tokens').value),temperature:Number($('temperature').value),top_k:40,request_id:job,...(mode==='assistant'?{base_model:assistantModel}:{runtime_id:runtimeId})},update=>{
    label.textContent='Eigene Modellgenerierung · unvollständig';
    if(update.text){p.textContent=update.text;pending.dataset.partial=update.text;}else p.textContent='Modell berechnet die Antwort …';
   });
-  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,interrupted:!!r.cancelled||!!r.incomplete,
+  current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,base_model:r.base_model,tool_assisted:r.tool_assisted===true,interrupted:!!r.cancelled||!!r.incomplete,
    meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':r.incomplete?'Antwortbudget erreicht · unvollständig · ':'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
   persist();
  }catch(error){
@@ -125,7 +161,7 @@ async function reconnect(){
   finally{$('reconnect').disabled=false;}
 }
 $('reconnect').onclick=reconnect;
-let restored=null;try{restored=chats.find(c=>c.id===localStorage.getItem('neral.helios.active'));}catch{}if(restored)openChat(restored);else fresh();reconnect();loadMetrics().catch(()=>{});
+let restored=null;try{restored=chats.find(c=>c.id===localStorage.getItem('neral.helios.active'));}catch{}initialNewChat=!restored;if(restored)openChat(restored);else fresh();reconnect();loadMetrics().catch(()=>{});
 function closeSidebar(){$('sidebar').classList.remove('open');$('sidebarBackdrop').hidden=true;$('menu').setAttribute('aria-expanded','false');}
 $('sidebarBackdrop').onclick=closeSidebar;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('chatActions').open=false;closeSidebar();$('inspector').hidden=true;projectView(false);$('inspect').setAttribute('aria-expanded','false');$('prompt').focus();}});
