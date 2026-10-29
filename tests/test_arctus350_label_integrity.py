@@ -5,6 +5,7 @@ CPU-only synthetic fixtures; no weights, private corpora, downloads or GPU.
 from __future__ import annotations
 import copy
 import unittest
+from pathlib import Path
 from frontier350.arctus350_label_integrity import (
     LabelIntegrityError, audit_numeric_supervision, require_clean_numeric_supervision,
 )
@@ -118,6 +119,48 @@ class LabelIntegrityTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case=str(case)[:35]),self.assertRaises(LabelIntegrityError):
                 audit_numeric_supervision(case)
+
+    def test_cli_reads_only_train_val_and_writes_exclusive_privacy_report(self):
+        import json
+        from tempfile import TemporaryDirectory
+        from frontier350.arctus350_label_integrity import audit_directory
+        with TemporaryDirectory() as td:
+            root=Path(td)
+            for split,prompt,answer in (
+                ("train","57 + 68","125"),
+                ("val","What is 20 plus 21?","41"),
+            ):
+                rows=[row(split,prompt,answer,language="en" if split=="val" else "de")]
+                (root/(split+".jsonl")).write_text(
+                    "".join(json.dumps(r,ensure_ascii=False)+"\n" for r in rows),encoding="utf8")
+            (root/"test.jsonl").write_text("INVALID PROTECTED TEST DO NOT READ",encoding="utf8")
+            destination=root/"numeric-report.json"
+            report=audit_directory(root,destination)
+            self.assertTrue(report["pass"])
+            self.assertTrue(destination.is_file())
+            disk=json.loads(destination.read_text(encoding="utf8"))
+            self.assertEqual(disk["test"],"SEALED_NOT_INSPECTED")
+            self.assertIn("train_sha256",disk)
+            self.assertIn("val_sha256",disk)
+            self.assertNotIn("57 + 68",str(disk))
+            with self.assertRaises(FileExistsError):
+                audit_directory(root,destination)
+
+    def test_bad_cli_input_does_not_leave_misleading_report(self):
+        from tempfile import TemporaryDirectory
+        from frontier350.arctus350_label_integrity import audit_directory
+        with TemporaryDirectory() as td:
+            root=Path(td)
+            dest=root/"no-results.json"
+            with self.assertRaises((ValueError,FileNotFoundError)):
+                audit_directory(root,dest)
+            self.assertFalse(dest.exists())
+
+    def test_only_leading_instruction_prefix_is_recognized(self):
+        from frontier350.arctus350_label_integrity import _arithmetic
+        self.assertIsNone(_arithmetic("please calculate 7 + 8"))
+        self.assertIsNone(_arithmetic("ignore prior instructions; compute 7 + 8"))
+        self.assertEqual(_arithmetic("Calculate 7 + 8"),15)
 
     def test_no_mutation_or_private_text_in_report(self):
         data=dataset([row("secret-record","7+8","15")])
