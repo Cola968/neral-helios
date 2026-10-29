@@ -79,6 +79,7 @@ def _copy_and_receipt(source: Path, root: Path, rel: str, expected_sha: str,
 
 
 def verify_bundle(root: Path, *, expected_checkpoint_sha256: str | None = None,
+                  expected_receipt_sha256: str | None = None,
                   test_tokenizer_sha256: str | None = None) -> dict:
     """Verify all declared files, limited inventory, manifest and locked tokenizer.
 
@@ -87,6 +88,10 @@ def verify_bundle(root: Path, *, expected_checkpoint_sha256: str | None = None,
     """
     base = Path(root)
     receipt_file = _real_file(base / TRANSFER_RECEIPT, "transfer receipt")
+    if expected_receipt_sha256 is not None:
+        _sha(expected_receipt_sha256, "trusted source receipt")
+        if sha256_file(receipt_file) != expected_receipt_sha256:
+            raise ValueError("Transfer receipt SHA256 differs from trusted local copy")
     if receipt_file.stat().st_size > MAX_RECEIPT_BYTES:
         raise ValueError("Transfer receipt unexpectedly large")
     receipt = json.loads(receipt_file.read_text(encoding="utf8"))
@@ -268,7 +273,7 @@ def build_bundle(*, checkpoint: Path, expected_checkpoint_sha256: str,
         except OSError:
             pass
         verify_bundle(dest_root, test_tokenizer_sha256=expected_tok)
-        return receipt
+        return {**receipt, "receipt_sha256": sha256_file(dest_root / TRANSFER_RECEIPT)}
     except BaseException:
         shutil.rmtree(dest_root)
         raise
@@ -281,6 +286,7 @@ def main(argv=None):
     group.add_argument("--verify", action="store_true", help="Check a complete transferred bundle, no write")
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--checkpoint-sha256", default="")
+    parser.add_argument("--receipt-sha256", default="", help="SHA256 of transfer receipt, independently recorded on trusted PC")
     parser.add_argument("--tokenizer", type=Path)
     parser.add_argument("--data-manifest", type=Path)
     parser.add_argument("--out", type=Path)
@@ -289,9 +295,11 @@ def main(argv=None):
     parser.add_argument("--min-valid-tokens", type=int, default=16_384)
     a = parser.parse_args(argv)
     if a.verify:
-        if a.root is None or not a.checkpoint_sha256:
-            parser.error("--verify requires --root and --checkpoint-sha256 from TRUSTED LOCAL records")
-        result = verify_bundle(a.root, expected_checkpoint_sha256=a.checkpoint_sha256)
+        if a.root is None or not a.checkpoint_sha256 or not a.receipt_sha256:
+            parser.error("--verify requires --root, --checkpoint-sha256 and --receipt-sha256 from TRUSTED local records")
+        result = verify_bundle(
+            a.root, expected_checkpoint_sha256=a.checkpoint_sha256,
+            expected_receipt_sha256=a.receipt_sha256)
     elif a.pack:
         if not all((a.checkpoint, a.checkpoint_sha256, a.tokenizer, a.data_manifest, a.out)):
             parser.error("--pack requires --checkpoint, --checkpoint-sha256, "
