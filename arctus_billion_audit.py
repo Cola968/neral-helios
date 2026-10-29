@@ -2,8 +2,8 @@
 
 For PR #205's staged JSONL data, NOT for model weights or tokenized .bin
 shards. No downloading, cloud jobs, training, modifying the source corpus, or
-automatic certification. Uses four 16-bit SimHash LSH bands: a Hamming distance
-of <=3 is guaranteed to share a band, although SimHash itself is a heuristic.
+automatic certification. Uses five 13/13/13/13/12-bit SimHash LSH bands: a Hamming distance
+of <=4 is guaranteed to share a band, although SimHash itself is a heuristic.
 Higher-distance near duplicates and benchmark *semantic* contamination are NOT
 excluded by this test and require separate manual review.
 """
@@ -200,8 +200,9 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     continue
                 sim = simhash64(text)
                 nearby = set()
-                for band in range(4):
-                    key = (band << 16) | ((sim >> (band * 16)) & 0xFFFF)
+                for band in range(5):
+                    width = 12 if band == 4 else 13
+                    key = (band << 13) | ((sim >> (band * 13)) & ((1 << width) - 1))
                     candidates = db.execute(
                         "SELECT d.id, d.hash64, d.split FROM bands b "
                         "JOIN docs d ON d.id=b.doc_id WHERE b.bucket=? "
@@ -211,7 +212,7 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                         raise ValueError("Near-duplicate LSH bucket saturated; audit incomplete")
                     nearby.update(tuple(x) for x in candidates)
                 for _id, other_hash, other_split in nearby:
-                    if hamming64(sim, int(other_hash, 16)) <= 3:
+                    if hamming64(sim, int(other_hash, 16)) <= 4:
                         if split != other_split:
                             counters["cross_split_near_duplicate_pairs"] += 1
                         else:
@@ -222,8 +223,8 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                 row_id = cursor.lastrowid
                 db.executemany(
                     "INSERT INTO bands(bucket,doc_id) VALUES (?,?)",
-                    (((band << 16) | ((sim >> (band * 16)) & 0xFFFF), row_id)
-                     for band in range(4))
+                    (((band << 13) | ((sim >> (band * 13)) & ((1 << (12 if band == 4 else 13)) - 1)), row_id)
+                     for band in range(5))
                 )
                 if counters["documents_checked"] % 1000 == 0:
                     db.commit()
@@ -237,7 +238,7 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
         "cross_split_exact_duplicate_pairs": counters["cross_split_exact_duplicate_pairs"],
         "cross_split_near_duplicate_pairs": counters["cross_split_near_duplicate_pairs"],
         "within_split_near_duplicate_pairs": counters["within_split_near_duplicate_pairs"],
-        "near_duplicate_method": "64-bit word-trigram SimHash <=3 bits, four 16-bit LSH bands",
+        "near_duplicate_method": "64-bit word-trigram SimHash <=4 bits, five 13/13/13/13/12-bit LSH bands",
         "near_duplicate_coverage": "conservative heuristic; no semantic or historical near-duplicate guarantee",
         "held_out_contamination_eliminated": False,
         "needs_manual_license_and_holdout_review": True,
