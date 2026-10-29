@@ -67,6 +67,27 @@ class NativeArctusKVCacheTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.model.forward_cached(torch.randint(0,96,(1,32)),state)
 
+
+    def test_opt_in_cli_greedy_matches_uncached_chat_response(self):
+        from types import SimpleNamespace
+        from frontier350.chat_cli350 import generate
+        class TinyTokenizer:
+            def token_to_id(self,name):
+                return {"<|bos|>":1,"<|eos|>":2,"<|pad|>":3,"<|sep|>":4}.get(name)
+            def encode(self,text):
+                return SimpleNamespace(ids=[5+ord(c)%91 for c in text])
+            def decode(self,ids,skip_special_tokens=True):
+                return ".".join(map(str,ids))
+        tok=TinyTokenizer()
+        history=[("user","Hallo Arctus")]
+        with torch.inference_mode():
+            old,old_h=generate(self.model,tok,history,max_new=10,max_context=32,
+                               temperature=0,top_p=1,repetition_penalty=1.08,use_kv_cache=False)
+            new,new_h=generate(self.model,tok,history,max_new=10,max_context=32,
+                               temperature=0,top_p=1,repetition_penalty=1.08,use_kv_cache=True)
+        self.assertEqual(old,new)
+        self.assertEqual(old_h,new_h)
+
     def test_repeated_greedy_next_token_matches_full_recompute(self):
         seed=torch.randint(0,96,(1,8))
         with torch.inference_mode():
