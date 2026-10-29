@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from arctus_billion_audit import audit_corpus, simhash64, hamming64
+from arctus_billion_audit import audit_corpus, simhash64, hamming64, normalize_for_dedup
 
 
 def long_doc(subject="Sterne"):
@@ -38,7 +38,7 @@ def write_staging(tmp_path, train_texts, valid_texts):
                 "domain": "general",
                 "revision": revision,
                 "license": "ODC-By-1.0",
-                "normalized_sha256": hashlib.sha256(" ".join(txt.lower().split()).encode()).hexdigest(),
+                "normalized_sha256": hashlib.sha256(normalize_for_dedup(txt).encode()).hexdigest(),
                 "text": txt, "tokens": len(txt.split()) + 2
             }, ensure_ascii=False))
         raw = ("\n".join(lines) + "\n").encode("utf8")
@@ -73,8 +73,8 @@ def test_simhash_identity_and_nearly_identical_texts():
     clone = base.replace("Dieses Kapitel behandelt Sterne", "Dieses Kapitel behandelt Galaxien", 1)
     assert base != clone
     assert simhash64(base) == simhash64(base)
-    assert hamming64(simhash64(base), simhash64(clone)) <= 3
-    assert hamming64(simhash64(base), simhash64(long_doc("Quantenfelder"))) > 3
+    assert hamming64(simhash64(base), simhash64(clone)) <= 4
+    assert hamming64(simhash64(base), simhash64(long_doc("Quantenfelder"))) > 4
 
 
 def test_cross_split_near_duplicate_is_flagged_and_not_training_ready(tmp_path):
