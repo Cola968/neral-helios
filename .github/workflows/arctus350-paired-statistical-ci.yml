@@ -1,0 +1,23 @@
+name: Arctus350 paired statistical gate CPU
+on:
+  pull_request:
+    paths:
+      - 'frontier350/arctus350_paired_evidence.py'
+      - 'frontier350/arctus350_paired_stats.py'
+      - 'tests/test_arctus350_paired_stats.py'
+      - 'tests/test_arctus350_paired_evidence.py'
+      - '.github/workflows/arctus350-paired-statistical-ci.yml'
+permissions:
+  contents: read
+jobs:
+  statistical-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Paired evidence, exact statistics, and source bridge unit tests
+        run: python -m unittest tests.test_arctus350_paired_stats tests.test_arctus350_paired_evidence tests.test_arctus350_paired_evidence_bridge -v
+      - run: python -m py_compile frontier350/arctus350_paired_evidence.py frontier350/arctus350_paired_stats.py
