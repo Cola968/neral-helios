@@ -1,0 +1,27 @@
+name: Arctus350 billion-scale data contracts (offline CPU)
+on:
+  pull_request:
+    paths:
+      - 'arctus_billion_data.py'
+      - 'tests/test_arctus_billion_data.py'
+      - 'hf_source_policy50.py'
+      - 'prepare_pretrain50_b2.py'
+      - '.github/workflows/arctus-billion-data-ci.yml'
+permissions:
+  contents: read
+jobs:
+  offline-data-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check pytest numpy
+      - run: python -m py_compile arctus_billion_data.py tests/test_arctus_billion_data.py
+      - run: python -m pytest -q tests/test_arctus_billion_data.py tests/test_hf_data_policy50.py tests/test_b2_data.py
+      - name: Default command is read-only and never downloads
+        run: python arctus_billion_data.py --target-train-tokens 1000000000
