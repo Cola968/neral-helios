@@ -94,7 +94,7 @@ def check_dependencies():
         raise LauncherError(
             "NERAL-Python-Abhängigkeiten fehlen: " + ", ".join(missing) +
             ". Im richtigen Python-Environment requirements.txt und CPU-PyTorch installieren; "
-            "Anleitung: NERAL_ASSISTANT_LOCAL.md."
+            "Anleitung: docs/NERAL_QWEN_INTEGRATION.md."
         )
 
 

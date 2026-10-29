@@ -13,7 +13,7 @@ if not exist ".venv\Scripts\python.exe" if exist "local_state\python\Scripts\pyt
 if errorlevel 1 (
   echo.
   echo NERAL konnte noch nicht gestartet werden. Siehe Meldung oben.
-  echo Lese NERAL_ASSISTANT_LOCAL.md fuer die Einrichtung.
+  echo Lese docs\NERAL_QWEN_INTEGRATION.md fuer die Einrichtung.
   pause
   exit /b 1
 )

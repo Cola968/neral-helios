@@ -117,10 +117,12 @@ $('composer').onsubmit=async event=>{
    label.textContent='Eigene Modellgenerierung · unvollständig';
    if(update.text){p.textContent=update.text;pending.dataset.partial=update.text;}else p.textContent='Modell berechnet die Antwort …';
   });
+  if(mode==='assistant'&&r.mode==='neral-assistant')assistantAvailability='ready';
   current.messages.push({role:'assistant',imported:false,content:r.text||(r.cancelled?'Generierung gestoppt.':'Das Modell hat keine lesbare Antwort erzeugt.'),mode:r.mode,source:r.source||(r.model_generated?'native-model':undefined),checkpoint:r.active_checkpoint,model_family:r.model_family,runtime_id:r.runtime_id,base_model:r.base_model,tool_assisted:r.tool_assisted===true,interrupted:!!r.cancelled||!!r.incomplete,
    meta:r.model_generated?(r.cancelled?'Gestoppt · unvollständig · ':r.incomplete?'Antwortbudget erreicht · unvollständig · ':'')+r.generated_tokens+' '+(r.token_unit||'Byte-Token')+' · '+r.seconds+' s · '+r.tokens_per_second+' Token/s':'Lokal berechnet · nicht vom Sprachmodell erzeugt'});
   persist();
  }catch(error){
+  if(mode==='assistant'&&assistantEnabled&&error.status===503)refreshAssistantAvailability();
   const partial=pending?.dataset.partial;
   if(partial)current.messages.push({role:'assistant',imported:false,mode:'trained-generation',source:'native-model',content:partial,interrupted:true,meta:'Verbindung unterbrochen · unvollständig · nicht im Modellkontext'});
   else current.messages.push({role:'assistant',imported:false,mode:'error',source:'system-error',content:error.message,meta:'Keine vollständige Antwort · erneut versuchen'});
