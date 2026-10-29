@@ -51,7 +51,10 @@ html[data-theme=light] #send {color:#fff;}
 #byteCount.over-limit {color:var(--error);}
 .runtime-notice {border-left:2px solid var(--line); padding:0 0 0 12px; margin:0 0 14px; font-size:12px; line-height:1.65; color:var(--muted);}
 .composer-tools {border:0; margin:4px 0 0; padding:4px 0; flex-wrap:wrap;}
+.mode-row {flex-wrap:wrap;}
 .mode-row button {border-radius:6px; padding:7px 10px;}
+#assistantMode {white-space:normal; text-align:left;}
+#assistantModelLabel {display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px;}
 .mode-row button.selected {background:var(--soft); font-weight:550;}
 .temporary {font-size:11px;}
 .footnote {font-size:11px; margin-top:9px; text-align:left; line-height:1.5;}
