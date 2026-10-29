@@ -154,7 +154,7 @@ def main():
     prompt_holdout_audit = validate_prompt_holdouts(splits)
     # Fail before loading native tokenizer/checkpoint and before ANY GPU update.
     # A small model should not be punished by provably false arithmetic targets.
-    from frontier350.arctus350_label_integrity import require_clean_numeric_supervision
+    from arctus350_label_integrity import require_clean_numeric_supervision
     numeric_label_integrity = require_clean_numeric_supervision(splits)
     tok=load_tokenizer(Path(args.tokenizer))
     train=[encode_messages(tok,r["messages"],max_seq_len=args.seq) for r in splits["train"]]
