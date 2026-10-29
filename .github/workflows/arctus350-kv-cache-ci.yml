@@ -1,0 +1,22 @@
+name: Arctus350 native GQA KV cache CPU parity
+on:
+  pull_request:
+    paths:
+      - 'frontier350/model350.py'
+      - 'frontier350/chat_cli350.py'
+      - 'tests/test_arctus350_kv_cache.py'
+      - '.github/workflows/arctus350-kv-cache-ci.yml'
+permissions:
+  contents: read
+jobs:
+  tiny-native-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m unittest -v tests.test_arctus350_kv_cache tests.test_rope_cache350
+      - run: python -m py_compile frontier350/model350.py frontier350/chat_cli350.py
