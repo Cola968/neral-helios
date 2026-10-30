@@ -242,3 +242,26 @@ def test_invalid_audit_example_limit_rejected(tmp_path, limit):
     root = write_staging(tmp_path, [long_doc()], [long_doc("Quantenfelder")])
     with pytest.raises(ValueError, match="example"):
         audit_corpus(root, max_example_pairs=limit)
+
+
+def test_manifest_rejects_duplicate_source_ids_after_unicode_normalization(tmp_path):
+    """Different spelling of the same source ID must not bypass provenance validation."""
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Astrometrie")])
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    duplicate = dict(manifest["sources"][0])
+    duplicate["source_id"] = "fineweb2-de-general "
+    manifest["sources"].append(duplicate)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="source"):
+        audit_corpus(root)
+
+
+def test_manifest_rejects_empty_source_identifier(tmp_path):
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Astrometrie")])
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["sources"][0]["source_id"] = ""
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="source"):
+        audit_corpus(root)
