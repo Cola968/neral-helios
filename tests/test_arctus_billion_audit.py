@@ -196,3 +196,49 @@ def test_lsh_saturation_reports_inconclusive_instead_of_false_clean(tmp_path):
                          [long_doc("Quantenfelder")])
     with pytest.raises(ValueError, match="saturated"):
         audit_corpus(root, max_candidates_per_bucket=1)
+
+
+def test_report_identifies_exact_and_cross_split_near_duplicate_locations(tmp_path):
+    base = long_doc()
+    near = base.replace("Dieses Kapitel behandelt Sterne", "Dieses Kapitel behandelt Pulsare", 1)
+    root = write_staging(tmp_path, [base, base], [near])
+    report = audit_corpus(root)
+    examples = report["example_pairs"]
+    assert isinstance(examples, list)
+    assert any(
+        pair["kind"] == "exact" and
+        pair["original"] == {"shard": "train-000000.jsonl", "line": 1} and
+        pair["duplicate"] == {"shard": "train-000000.jsonl", "line": 2}
+        for pair in examples
+    )
+    assert any(
+        pair["kind"] == "cross_split_near" and
+        pair["original"] == {"shard": "train-000000.jsonl", "line": 1} and
+        pair["duplicate"] == {"shard": "valid-000000.jsonl", "line": 1}
+        for pair in examples
+    )
+    serialized = json.dumps(examples, ensure_ascii=False)
+    assert "Dieses Kapitel" not in serialized
+    assert "Pulsare" not in serialized
+    assert "text" not in serialized
+    assert report["example_pairs_are_exhaustive"] is True
+
+
+def test_example_report_is_bounded_and_deterministic_without_raw_text(tmp_path):
+    base = long_doc()
+    root = write_staging(tmp_path, [base, base, base, base], [base])
+    r1 = audit_corpus(root, max_example_pairs=2)
+    r2 = audit_corpus(root, max_example_pairs=2)
+    assert r1 == r2
+    assert len(r1["example_pairs"]) == 2
+    assert r1["exact_duplicate_pairs"] == 4
+    assert r1["example_pairs_are_exhaustive"] is False
+    assert r1["example_pairs_limit"] == 2
+    assert all(set(row) == {"kind", "original", "duplicate"} for row in r1["example_pairs"])
+
+
+@pytest.mark.parametrize("limit", [0, -1, 1001, True, 1.5])
+def test_invalid_audit_example_limit_rejected(tmp_path, limit):
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Quantenfelder")])
+    with pytest.raises(ValueError, match="example"):
+        audit_corpus(root, max_example_pairs=limit)
