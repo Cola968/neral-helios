@@ -44,7 +44,19 @@ python arctus_billion_audit.py \
 The report includes manifest SHA-256, total examined documents,
 duplicate statistics (exact, within split, across training/validation),
 and an explicit `training_ready: false` result even if no duplicates
-are found. A pass means **only** that this particular audit found no
+are found. It now also includes **up to 20 actionable `example_pairs`**
+with the original and duplicate `train-*.jsonl` / `valid-*.jsonl`
+filename and 1-based row number. No raw document text, URLs or
+source row IDs are copied into the report. Set `--sample-limit 100` to
+inspect more cases (hard maximum 1,000, to bound output).
+
+Each example has `kind` (`exact`, `within_split_near` or
+`cross_split_near`), `original:{shard,line}` and
+`duplicate:{shard,line}`. `example_pairs_are_exhaustive=false`
+means the bounded examples are *not* a complete quarantine list:
+the aggregate counts still cover all checked pairs. The sample
+locations enable a manual review/exclusion procedure before a new
+manifest is prepared, **without modifying the staged source data**. A pass means **only** that this particular audit found no
 violations. The report is derived entirely from actual inspected data,
 not an estimate of future corpus size.
 
