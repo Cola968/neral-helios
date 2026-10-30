@@ -86,7 +86,8 @@ def _validated_manifest(root: Path) -> tuple[dict, list, dict]:
         if not isinstance(s, dict):
             raise ValueError("Invalid source record")
         sid = s.get("source_id")
-        if (not isinstance(sid, str) or sid in sources or
+        if (not isinstance(sid, str) or not sid or sid != sid.strip() or
+                unicodedata.normalize("NFKC", sid) != sid or sid in sources or
                 s.get("license") != "ODC-By-1.0" or
                 s.get("language") not in ("en", "de") or
                 s.get("domain") not in ("general", "education") or
