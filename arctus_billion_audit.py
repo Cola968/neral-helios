@@ -174,20 +174,35 @@ def _rows(root: Path, entries, sources):
                     raise ValueError("Staged normalized document digest mismatch")
                 total_docs += 1
                 total_tokens += tok
-                yield split, digest, text
+                yield split, digest, text, shard["file"], number
         if total_docs != shard["documents"] or total_tokens != shard["tokens"]:
             raise ValueError("Shard document/token accounting mismatch")
 
 
-def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_PER_BUCKET) -> dict:
+def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_PER_BUCKET,
+                 max_example_pairs: int = 20) -> dict:
     """Audit source data in read-only mode; temp SQLite database is discarded."""
     source = Path(root)
     if not source.is_dir() or source.is_symlink():
         raise ValueError("Staged corpus directory missing or symlinked")
     if type(max_candidates_per_bucket) is not int or not 1 <= max_candidates_per_bucket <= 100_000:
         raise ValueError("Invalid candidate bucket limit")
+    if type(max_example_pairs) is not int or not 1 <= max_example_pairs <= 1000:
+        raise ValueError("Invalid example pair limit (must be 1..1000)")
     manifest, entries, sources = _validated_manifest(source)
     counters = collections.Counter()
+    example_pairs = []
+
+    def record_example(kind: str, original_shard: str, original_line: int,
+                       duplicate_shard: str, duplicate_line: int):
+        if len(example_pairs) < max_example_pairs:
+            # Only trusted manifest filenames and 1-based line numbers are
+            # exposed. No raw web text, URL, sample IDs or user secrets.
+            example_pairs.append({
+                "kind": kind,
+                "original": {"shard": original_shard, "line": original_line},
+                "duplicate": {"shard": duplicate_shard, "line": duplicate_line},
+            })
     with tempfile.TemporaryDirectory(prefix="arctus-audit-") as scratch:
         with sqlite3.connect(Path(scratch) / "audit.sqlite3") as db:
             db.executescript("""
@@ -195,21 +210,24 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     id INTEGER PRIMARY KEY,
                     digest TEXT NOT NULL,
                     hash64 TEXT NOT NULL,
-                    split TEXT NOT NULL
+                    split TEXT NOT NULL,
+                    shard TEXT NOT NULL,
+                    line INTEGER NOT NULL
                 );
                 CREATE INDEX docs_digest ON docs(digest);
                 CREATE TABLE bands(bucket INTEGER NOT NULL, doc_id INTEGER NOT NULL);
                 CREATE INDEX bands_bucket ON bands(bucket);
             """)
-            for split, digest, text in _rows(source, entries, sources):
+            for split, digest, text, shard_name, line_number in _rows(source, entries, sources):
                 counters["documents_checked"] += 1
                 old = db.execute(
-                    "SELECT split FROM docs WHERE digest=? LIMIT 1", (digest,)
+                    "SELECT split, shard, line FROM docs WHERE digest=? LIMIT 1", (digest,)
                 ).fetchone()
                 if old is not None:
                     counters["exact_duplicate_pairs"] += 1
                     if split != old[0]:
                         counters["cross_split_exact_duplicate_pairs"] += 1
+                    record_example("exact", old[1], old[2], shard_name, line_number)
                     continue
                 sim = simhash64(text)
                 nearby = set()
@@ -217,22 +235,25 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     width = 12 if band == 4 else 13
                     key = (band << 13) | ((sim >> (band * 13)) & ((1 << width) - 1))
                     candidates = db.execute(
-                        "SELECT d.id, d.hash64, d.split FROM bands b "
+                        "SELECT d.id, d.hash64, d.split, d.shard, d.line FROM bands b "
                         "JOIN docs d ON d.id=b.doc_id WHERE b.bucket=? "
                         "LIMIT ?", (key, max_candidates_per_bucket + 1)
                     ).fetchall()
                     if len(candidates) > max_candidates_per_bucket:
                         raise ValueError("Near-duplicate LSH bucket saturated; audit incomplete")
                     nearby.update(tuple(x) for x in candidates)
-                for _id, other_hash, other_split in nearby:
+                for _id, other_hash, other_split, other_shard, other_line in sorted(nearby):
                     if hamming64(sim, int(other_hash, 16)) <= 4:
                         if split != other_split:
                             counters["cross_split_near_duplicate_pairs"] += 1
+                            kind = "cross_split_near"
                         else:
                             counters["within_split_near_duplicate_pairs"] += 1
+                            kind = "within_split_near"
+                        record_example(kind, other_shard, other_line, shard_name, line_number)
                 cursor = db.execute(
-                    "INSERT INTO docs(digest,hash64,split) VALUES (?,?,?)",
-                    (digest, f"{sim:016x}", split))
+                    "INSERT INTO docs(digest,hash64,split,shard,line) VALUES (?,?,?,?,?)",
+                    (digest, f"{sim:016x}", split, shard_name, line_number))
                 row_id = cursor.lastrowid
                 db.executemany(
                     "INSERT INTO bands(bucket,doc_id) VALUES (?,?)",
@@ -251,6 +272,13 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
         "cross_split_exact_duplicate_pairs": counters["cross_split_exact_duplicate_pairs"],
         "cross_split_near_duplicate_pairs": counters["cross_split_near_duplicate_pairs"],
         "within_split_near_duplicate_pairs": counters["within_split_near_duplicate_pairs"],
+        "example_pairs": example_pairs,
+        "example_pairs_limit": max_example_pairs,
+        "example_pairs_are_exhaustive": len(example_pairs) == (
+            counters["exact_duplicate_pairs"] +
+            counters["cross_split_near_duplicate_pairs"] +
+            counters["within_split_near_duplicate_pairs"]),
+        "example_pairs_semantics": "bounded read-only shard/line references for manual exclusion review; no raw text",
         "near_duplicate_method": "64-bit word-trigram SimHash <=4 bits, five 13/13/13/13/12-bit LSH bands",
         "near_duplicate_coverage": "conservative heuristic; no semantic or historical near-duplicate guarantee",
         "held_out_contamination_eliminated": False,
@@ -267,6 +295,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, help="existing staged JSONL directory; read only")
     parser.add_argument("--report", type=Path, help="optional NEW report path, never overwrites")
+    parser.add_argument("--sample-limit", type=int, default=20,
+                        help="bounded number of shard/line duplicate examples (1..1000)")
     args = parser.parse_args(argv)
     if args.corpus is None:
         print(json.dumps({
@@ -277,7 +307,7 @@ def main(argv=None):
             "download_performed": False,
         }, indent=2))
         return 0
-    result = audit_corpus(args.corpus)
+    result = audit_corpus(args.corpus, max_example_pairs=args.sample_limit)
     if args.report is not None:
         with args.report.open("x", encoding="utf8") as dest:
             json.dump(result, dest, ensure_ascii=False, indent=2)
