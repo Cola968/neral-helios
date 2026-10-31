@@ -310,3 +310,60 @@ def test_cli_rejects_report_inside_corpus_before_expensive_scan(tmp_path, monkey
     with pytest.raises(ValueError, match="outside.*corpus"):
         main(["--corpus", str(root), "--report", str(root / "scan.json")])
     assert not (root / "scan.json").exists()
+
+
+
+def test_real_staging_splits_train_val_test_holdout_are_auditable(tmp_path):
+    """PR #205 writes val/test/holdout, not only the auditor's old 'valid'."""
+    base = long_doc()
+    root = write_staging(tmp_path, [base], [long_doc("Quantenfelder")])
+    valid = root / "valid-000000.jsonl"
+    val = root / "val-000000.jsonl"
+    valid.rename(val)
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for item in manifest["shards"]:
+        if item["split"] == "valid":
+            item["split"] = "val"
+            item["file"] = val.name
+    manifest["tokens_by_split"]["val"] = manifest["tokens_by_split"].pop("valid")
+    template = json.loads((root / "train-000000.jsonl").read_text().splitlines()[0])
+    for split, text in [("test", base), ("holdout", long_doc("Photonen"))]:
+        row = dict(template)
+        row["id"] = f"{split}-row-1"
+        row["text"] = text
+        row["normalized_sha256"] = hashlib.sha256(normalize_for_dedup(text).encode()).hexdigest()
+        row["tokens"] = len(text.split()) + 2
+        file = root / f"{split}-000000.jsonl"
+        file.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf8")
+        raw = file.read_bytes()
+        manifest["shards"].append({
+            "file": file.name, "split": split,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw), "documents": 1, "tokens": row["tokens"]})
+        manifest["tokens_by_split"][split] = row["tokens"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf8")
+    report = audit_corpus(root)
+    assert report["integrity_verified"] is True
+    assert report["documents_checked"] == 4
+    assert report["cross_split_exact_duplicate_pairs"] >= 1
+    assert report["training_ready"] is False
+    assert report["held_out_contamination_eliminated"] is False
+
+
+def test_unknown_split_is_rejected_even_with_consistent_hash_and_counts(tmp_path):
+    """Do not silently trust arbitrary extra partitions as training data."""
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Photonen")])
+    original = root / "valid-000000.jsonl"
+    target = root / "untrusted-000000.jsonl"
+    original.rename(target)
+    path = root / "manifest.json"
+    manifest = json.loads(path.read_text())
+    for shard in manifest["shards"]:
+        if shard["split"] == "valid":
+            shard["split"] = "untrusted"
+            shard["file"] = target.name
+    manifest["tokens_by_split"]["untrusted"] = manifest["tokens_by_split"].pop("valid")
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="shard|split"):
+        audit_corpus(root)
