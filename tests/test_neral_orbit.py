@@ -156,6 +156,25 @@ class OrbitFlaskTests(unittest.TestCase):
                               json={"action":"cancel","revision":2})
         self.assertEqual(cancelled.json["task"]["status"],"CANCELLED")
 
+
+    def test_flask_archive_cancelled_task_with_revision_and_deny_unsafe_status(self):
+        payload={"kind":"coding","title":"Orbit sicher pflegen",
+                 "goal":"Archive a cancelled task without starting executors."}
+        created=self.client.post("/api/orbit/tasks",json=payload)
+        self.assertEqual(created.status_code,201)
+        task=created.json["task"]
+        archive=f'/api/orbit/tasks/{task["id"]}/transition'
+        self.assertEqual(self.client.post(archive,json={"action":"archive","revision":1}).status_code,400)
+        cancel=self.client.post(archive,json={"action":"cancel","revision":1})
+        self.assertEqual(cancel.status_code,200)
+        self.assertEqual(self.client.post(archive,json={"action":"archive","revision":1}).status_code,409)
+        done=self.client.post(archive,json={"action":"archive","revision":2})
+        self.assertEqual(done.status_code,200)
+        self.assertEqual(done.json["task"]["status"],"ARCHIVED")
+        self.assertFalse(done.json["task"]["execution_enabled"])
+        self.assertEqual(self.client.get("/api/orbit/tasks").json["tasks"],[])
+        self.assertEqual(self.client.post(archive,json={"action":"approve","revision":3}).status_code,400)
+
     def test_no_execution_endpoint_and_disabled_feature_404(self):
         self.assertEqual(self.client.get("/orbit").status_code,200)
         self.assertIn(b"NERAL Orbit",self.client.get("/orbit").data)
