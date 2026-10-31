@@ -138,6 +138,10 @@ class OrbitStore:
             raise OrbitError("Unbekannter Auftragstyp")
         title=_content(title,3,120,"Titel")
         goal=_content(goal,8,_MAX_GOAL,"Auftrag")
+        # The current public research worker accepts only 200 characters.
+        # Fail at creation, not after the user has approved the task.
+        if kind=="research" and len(goal)>200:
+            raise OrbitError("Wikipedia-Rechercheauftrag: maximal 200 Zeichen")
         ident=uuid.uuid4().hex
         at=_now()
         with self._lock,self._open() as conn:
