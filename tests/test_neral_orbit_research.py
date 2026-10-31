@@ -225,3 +225,20 @@ class ResearchFlaskTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+
+
+class ManualCloudDispatchContractTests(unittest.TestCase):
+    def test_pc_free_workflow_is_manual_only_requires_explicit_confirmation(self):
+        workflow=(Path(__file__).resolve().parents[1] / ".github/workflows/neral-orbit-manual-research.yml")
+        data=workflow.read_text(encoding="utf8")
+        self.assertIn("workflow_dispatch:",data)
+        self.assertIn("confirm_public_query",data)
+        self.assertIn("NERAL_ORBIT_CONFIRM",data)
+        self.assertIn("NERAL_ORBIT_QUERY",data)
+        self.assertNotIn("schedule:",data)
+        self.assertNotIn("push:",data)
+        self.assertNotIn("pull_request:",data)
+        self.assertNotIn("secrets.",data)
+        self.assertNotIn("workflow_run:",data)
+        self.assertNotIn("contents: write",data)
