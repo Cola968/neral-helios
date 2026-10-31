@@ -38,3 +38,5 @@ jobs:
           $env:HELIOS_STATE_ROOT = Join-Path $env:RUNNER_TEMP ('orbit-cpu-'+$env:GITHUB_RUN_ID)
           & $p -m unittest tests.test_neral_orbit tests.test_neral_orbit_research -v
           if ($LASTEXITCODE -ne 0) { throw 'Orbit regression tests failed' }
+
+# Final one-shot recheck after closing raw SQLite connections in regression tests.
