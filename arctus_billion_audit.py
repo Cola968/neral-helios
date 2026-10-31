@@ -22,7 +22,7 @@ from pathlib import Path
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_ROW_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATES_PER_BUCKET = 4096
-SHARD = re.compile(r"(train|valid)-[0-9]{6}\.jsonl")
+SHARD = re.compile(r"(train|val|valid|test|holdout)-[0-9]{6}\.jsonl")
 DIGEST = re.compile(r"[0-9a-f]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
 WORDS = re.compile(r"\w+", re.UNICODE)
@@ -121,15 +121,21 @@ def _validated_manifest(root: Path) -> tuple[dict, list, dict]:
             raise ValueError("Shard byte count differs from manifest")
         if sha256_file(file) != s["sha256"]:
             raise ValueError("Shard SHA256 mismatch")
-    present = {p.name for p in root.glob("train-*.jsonl")} | {
-        p.name for p in root.glob("valid-*.jsonl")}
+    # The underlying PR #205 builder writes train/val/test/holdout.
+    # The historic 'valid' spelling remains accepted for old audit fixtures.
+    present = {p.name for p in root.glob("*.jsonl")}
     if seen != present:
-        raise ValueError("Missing or unexpected train/valid JSONL shard")
+        raise ValueError("Missing or unexpected staged JSONL shard")
     expected_counts = dict(collections.Counter({
         split: sum(row["tokens"] for row in entries if row["split"] == split)
-        for split in ("train", "valid")
+        for split in ("train", "val", "valid", "test", "holdout")
         if any(row["split"] == split for row in entries)
     }))
+    if "train" not in expected_counts or not any(
+            name in expected_counts for name in ("val", "valid", "test", "holdout")):
+        raise ValueError("Staging requires train and held-out evaluation splits")
+    if "val" in expected_counts and "valid" in expected_counts:
+        raise ValueError("Mixed val/valid aliases are not allowed in one corpus")
     if manifest.get("tokens_by_split") != expected_counts:
         raise ValueError("Staged manifest aggregate token counts differ from shards")
     if ("actual_train_tokens" in manifest and
@@ -281,7 +287,7 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
             counters["within_split_near_duplicate_pairs"]),
         "example_pairs_semantics": "bounded read-only shard/line references for manual exclusion review; no raw text",
         "near_duplicate_method": "64-bit word-trigram SimHash <=4 bits, five 13/13/13/13/12-bit LSH bands",
-        "near_duplicate_coverage": "conservative heuristic; no semantic or historical near-duplicate guarantee",
+        "near_duplicate_coverage": "conservative heuristic across train, val, test and holdout; no semantic or historical near-duplicate guarantee",
         "held_out_contamination_eliminated": False,
         "needs_manual_license_and_holdout_review": True,
         "training_ready": False,
