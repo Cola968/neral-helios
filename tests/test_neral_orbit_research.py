@@ -453,6 +453,7 @@ class StandaloneMobileResearchTests(unittest.TestCase):
             external.assert_not_called()
         result=json.loads(capture.getvalue())
         self.assertEqual(result["state"],"PASS_OFFLINE")
+        self.assertGreaterEqual(result["checks_passed"],3)
         self.assertEqual(result["source_count"],1)
         self.assertFalse(result["network_used"])
         self.assertFalse(result["gpu_used"])
