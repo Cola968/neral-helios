@@ -262,6 +262,34 @@ the instance in the Vast control panel. **STOP alone may still incur
 storage charges.** No automatic Vast API or background rental is
 called from this kit.
 
+## Sicherere spätere Checkpoint-Auswahl (V6 Bilingual Recovery)
+
+Der V6-Auswahlmechanismus wurde im **gleichen Draft**, ohne GPU,
+gehärtet. Unveränderte Holdout-Fälle reichen nicht: Beide
+Sprachrichtungen müssen **je 200 Fälle** haben und die exakten Treffer
+`correct`/`total` mit den gemeldeten Prozentwerten übereinstimmen.
+Das gilt für Baseline **und** Kandidaten. `NaN`, `Infinity`, fehlende
+Daten und negative Validierungsverluste werden nicht akzeptiert.
+
+Der Entwicklungs-/Validierungs-Gate bewahrt den verifizierten
+`checkpoint_sha256` für jeden Kandidaten auf; die unabhängige
+Holdout-Auswertung muss genau diesen Checkpoint bewertet haben.
+Unterschiedliche Hashes führen zu
+`checkpoint_identity_mismatch`, nie zu einem stillen Merge oder
+einer Modellbeförderung. Alle drei V6-GPU-Evaluatoren laden zudem
+Checkpoints mit dem schon existierenden eingeschränkten
+`secure_checkpoint350.load_checkpoint`, statt mit unrestricted Pickle.
+
+Die zugehörigen CPU-Tests:
+```bash
+python -m pytest -q tests/test_select_bilingual_recovery_v6_safety.py
+```
+
+**Wichtige Grenze:** Nur die Regeln sind implementiert; ohne lokalen
+Modellcheckpoint sind weder neue Gewichte noch bessere Arctus-Ergebnisse
+nachgewiesen. CI-Jobs des Repositories starten aktuell teilweise mit
+**null Schritten** und können deshalb nicht als bestandene Tests gelten.
+
 ## CPU-only verification
 
 ```bash
