@@ -165,6 +165,51 @@ class ResearchPersistenceTests(unittest.TestCase):
         self.assertEqual(self.store.get(task["id"])["status"],"RESEARCH_RUNNING")
 
 
+
+
+    def test_interrupted_research_is_recovered_after_grace_period_not_restarted(self):
+        from datetime import datetime, timedelta, timezone
+        import sqlite3
+        t=self.store.create(kind="research",title="Wiederherstellung",
+                            goal="Flughafen Berlin Brandenburg")
+        self.store.transition(t["id"],"approve",revision=1)
+        running=self.store.begin_research(t["id"],revision=2)
+        self.assertEqual(running["status"],"RESEARCH_RUNNING")
+        self.assertEqual(self.store.reconcile_stale_research(min_age_seconds=60),0)
+        old=(datetime.now(timezone.utc)-timedelta(minutes=3)).isoformat(timespec="seconds")
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE orbit_tasks SET updated_at=? WHERE id=?",(old,t["id"]))
+        restarted=OrbitStore(self.path)
+        self.assertEqual(restarted.reconcile_stale_research(min_age_seconds=60),1)
+        failed=restarted.get(t["id"])
+        self.assertEqual(failed["status"],"RESEARCH_FAILED")
+        self.assertEqual(failed["revision"],4)
+        self.assertFalse(failed["execution_enabled"])
+        self.assertIsNone(failed["report"])
+        self.assertIn("unterbrochen",failed["error"])
+        self.assertEqual(restarted.reconcile_stale_research(min_age_seconds=60),0)
+        with self.assertRaises(OrbitError):
+            restarted.begin_research(t["id"],revision=4)
+
+    def test_recovery_never_changes_fresh_or_completed_research(self):
+        from datetime import datetime, timedelta, timezone
+        import sqlite3
+        t=self.store.create(kind="research",title="Frischer Lauf",
+                            goal="Flughafen Berlin Brandenburg")
+        self.store.transition(t["id"],"approve",revision=1)
+        running=self.store.begin_research(t["id"],revision=2)
+        self.assertEqual(self.store.reconcile_stale_research(min_age_seconds=120),0)
+        self.assertEqual(self.store.get(t["id"])["status"],"RESEARCH_RUNNING")
+        report=run_public_research(t["goal"],transport=lambda _:example_api())
+        completed=self.store.finish_research(t["id"],revision=running["revision"],report=report)
+        old=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat(timespec="seconds")
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE orbit_tasks SET updated_at=? WHERE id=?",(old,t["id"]))
+        self.assertEqual(self.store.reconcile_stale_research(min_age_seconds=60),0)
+        self.assertEqual(self.store.get(t["id"])["status"],"REVIEW_READY")
+        self.assertEqual(self.store.get(t["id"])["report"],completed["report"])
+
+
 class ResearchFlaskTests(unittest.TestCase):
     def setUp(self):
         import app
