@@ -290,6 +290,38 @@ Modellcheckpoint sind weder neue Gewichte noch bessere Arctus-Ergebnisse
 nachgewiesen. CI-Jobs des Repositories starten aktuell teilweise mit
 **null Schritten** und können deshalb nicht als bestandene Tests gelten.
 
+## GitHub-Actions-unabhängiger Checkpoint-Selector-Test
+
+Der echte V6-Selector lässt sich mit **rein synthetischen
+Bewertungsberichten** und **ausschließlich Python-Standardbibliothek**
+prüfen. Das funktioniert auf einem Rechner mit Python, auch wenn
+GitHub-Actions keine Runner bereitstellt:
+
+```bash
+python frontier350/offline_selector_selftest.py
+```
+
+Der Befehl umfasst sieben Szenarien: reguläre Auswahl,
+falscher Gate-Kandidat, falsche Checkpoint-SHA, NaN, gefälschte
+Prozentzahlen, eine Holdout-Ranglisten-Manipulation sowie
+falsche Baseline-Trefferzahlen. Erwartet wird
+`state=PASS_OFFLINE` mit `tests_passed=7`.
+Es werden weder Gewichte noch Daten eingelesen, keine GPU
+gemietet und keine Netzwerkanfragen ausgeführt.
+
+**Trennung:** Der Sprach-Holdout ist ein striktes
+*Nicht-Regressions-Veto*, kein Tie-Breaker oder Ranking-Signal.
+Bei gleicher Validierungsloss entscheidet der
+Entwicklungswert, nicht der höhere Holdout-Wert. Der Holdout
+ist **kein** unabhängiges finales Benchmark-Zeugnis, weil er
+zur Kandidatenfreigabe benutzt wird. Das abschließende
+Benchmark-Set muss gesondert eingefroren bleiben.
+
+Ein solcher Selbsttest ersetzt nicht die vollständige
+GitHub-CI, reale 350M-Checkpoint-Evaluationen und GPU-Tests.
+Die Offline-Probe wurde mit einer separaten lokalen Kopie des
+Selectors und synthetischen Daten am 31.10.2026 durchgeführt.
+
 ## CPU-only verification
 
 ```bash
