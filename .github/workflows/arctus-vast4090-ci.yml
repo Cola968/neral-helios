@@ -6,6 +6,8 @@ on:
       - frontier350/train350.py
       - frontier350/train350_compiled.py
       - frontier350/select_bilingual_recovery_v6.py
+      - frontier350/offline_selector_selftest.py
+      - tests/test_arctus_selector_stdlib_selftest.py
       - frontier350/select_recovery_lr_pilot.py
       - frontier350/eval_bilingual_holdout_v1.py
       - frontier350/eval_recovery_dev_v2.py
@@ -33,12 +35,14 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest
       - name: Syntax check (trainer imports not executed)
         run: python -m py_compile frontier350/vast4090_guard.py frontier350/vast4090_transfer.py frontier350/train350.py frontier350/train350_compiled.py frontier350/select_bilingual_recovery_v6.py frontier350/select_recovery_lr_pilot.py frontier350/eval_bilingual_holdout_v1.py frontier350/eval_recovery_dev_v2.py frontier350/eval_validation_loss350.py
+      - name: Independently verify selector without torch, network or paid services
+        run: python frontier350/offline_selector_selftest.py
       - name: Install restricted checkpoint CPU test dependencies
         run: |
           python -m pip install --disable-pip-version-check numpy
           python -m pip install --disable-pip-version-check torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
       - name: Test planning, checkpoint continuity and restricted legacy RNG checkpoint
-        run: python -m pytest -q tests/test_vast4090_guard.py tests/test_vast4090_transfer.py tests/test_select_bilingual_recovery_v6_safety.py
+        run: python -m pytest -q tests/test_vast4090_guard.py tests/test_vast4090_transfer.py tests/test_select_bilingual_recovery_v6_safety.py tests/test_arctus_selector_stdlib_selftest.py
       - name: Default read-only plan; no device, dataset or payment
         run: |
           python -m frontier350.vast4090_guard
