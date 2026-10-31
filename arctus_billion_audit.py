@@ -198,6 +198,7 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
         raise ValueError("Invalid example pair limit (must be 1..1000)")
     manifest, entries, sources = _validated_manifest(source)
     counters = collections.Counter()
+    leakage_by_split = collections.defaultdict(collections.Counter)
     example_pairs = []
 
     def record_example(kind: str, original_shard: str, original_line: int,
@@ -250,6 +251,8 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                             counters["cross_split_exact_duplicate_pairs"] += n
                         if (split == "train") != (prior_split == "train"):
                             counters["train_evaluation_exact_pairs"] += n
+                            evaluation_split=prior_split if split=="train" else split
+                            leakage_by_split[evaluation_split]["exact_pairs"] += n
                     db.execute(
                         """INSERT INTO exact_split_counts(digest,split,documents)
                            VALUES(?,?,1) ON CONFLICT(digest,split)
@@ -276,6 +279,8 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                             counters["cross_split_near_duplicate_pairs"] += 1
                             if (split == "train") != (other_split == "train"):
                                 counters["train_evaluation_near_pairs"] += 1
+                                evaluation_split=other_split if split=="train" else split
+                                leakage_by_split[evaluation_split]["near_pairs"] += 1
                             kind = "cross_split_near"
                         else:
                             counters["within_split_near_duplicate_pairs"] += 1
@@ -296,6 +301,13 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                 if counters["documents_checked"] % 1000 == 0:
                     db.commit()
             db.commit()
+    per_split={
+        name:{
+            "exact_pairs": leakage_by_split[name]["exact_pairs"],
+            "near_pairs": leakage_by_split[name]["near_pairs"],
+        }
+        for name in ("val","valid","test","holdout")
+    }
     return {
         "audit_schema": 1,
         "staged_manifest_sha256": sha256_file(source / "manifest.json"),
@@ -309,6 +321,9 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
         "train_evaluation_leak_detected": bool(
             counters["train_evaluation_exact_pairs"] or
             counters["train_evaluation_near_pairs"]),
+        "leakage_by_evaluation_split": per_split,
+        "holdout_contamination_detected": bool(
+            per_split["holdout"]["exact_pairs"] or per_split["holdout"]["near_pairs"]),
         "cross_split_near_duplicate_pairs": counters["cross_split_near_duplicate_pairs"],
         "within_split_near_duplicate_pairs": counters["within_split_near_duplicate_pairs"],
         "example_pairs": example_pairs,
