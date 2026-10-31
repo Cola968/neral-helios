@@ -222,6 +222,12 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     line INTEGER NOT NULL
                 );
                 CREATE INDEX docs_digest ON docs(digest);
+                CREATE TABLE exact_split_counts(
+                    digest TEXT NOT NULL,
+                    split TEXT NOT NULL,
+                    documents INTEGER NOT NULL,
+                    PRIMARY KEY(digest,split)
+                );
                 CREATE TABLE bands(bucket INTEGER NOT NULL, doc_id INTEGER NOT NULL);
                 CREATE INDEX bands_bucket ON bands(bucket);
             """)
@@ -231,9 +237,24 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     "SELECT split, shard, line FROM docs WHERE digest=? LIMIT 1", (digest,)
                 ).fetchone()
                 if old is not None:
+                    # Counting only the first representative's split misses
+                    # later duplicates in already contaminated held-out sets.
+                    # Aggregate exact pair counts by split without O(n^2) RAM.
+                    prior=db.execute(
+                        "SELECT split,documents FROM exact_split_counts WHERE digest=?",
+                        (digest,)).fetchall()
                     counters["exact_duplicate_pairs"] += 1
-                    if split != old[0]:
-                        counters["cross_split_exact_duplicate_pairs"] += 1
+                    counters["exact_pair_combinations_total"] += sum(n for _,n in prior)
+                    for prior_split,n in prior:
+                        if split != prior_split:
+                            counters["cross_split_exact_duplicate_pairs"] += n
+                        if (split == "train") != (prior_split == "train"):
+                            counters["train_evaluation_exact_pairs"] += n
+                    db.execute(
+                        """INSERT INTO exact_split_counts(digest,split,documents)
+                           VALUES(?,?,1) ON CONFLICT(digest,split)
+                           DO UPDATE SET documents=documents+1""",
+                        (digest,split))
                     record_example("exact", old[1], old[2], shard_name, line_number)
                     continue
                 sim = simhash64(text)
@@ -253,6 +274,8 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     if hamming64(sim, int(other_hash, 16)) <= 4:
                         if split != other_split:
                             counters["cross_split_near_duplicate_pairs"] += 1
+                            if (split == "train") != (other_split == "train"):
+                                counters["train_evaluation_near_pairs"] += 1
                             kind = "cross_split_near"
                         else:
                             counters["within_split_near_duplicate_pairs"] += 1
@@ -262,6 +285,9 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                     "INSERT INTO docs(digest,hash64,split,shard,line) VALUES (?,?,?,?,?)",
                     (digest, f"{sim:016x}", split, shard_name, line_number))
                 row_id = cursor.lastrowid
+                db.execute(
+                    "INSERT INTO exact_split_counts(digest,split,documents) VALUES(?,?,1)",
+                    (digest,split))
                 db.executemany(
                     "INSERT INTO bands(bucket,doc_id) VALUES (?,?)",
                     (((band << 13) | ((sim >> (band * 13)) & ((1 << (12 if band == 4 else 13)) - 1)), row_id)
@@ -276,13 +302,16 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
         "integrity_verified": True,
         "documents_checked": counters["documents_checked"],
         "exact_duplicate_pairs": counters["exact_duplicate_pairs"],
+        "exact_pair_combinations_total": counters["exact_pair_combinations_total"],
         "cross_split_exact_duplicate_pairs": counters["cross_split_exact_duplicate_pairs"],
+        "train_evaluation_exact_pairs": counters["train_evaluation_exact_pairs"],
+        "train_evaluation_near_pairs": counters["train_evaluation_near_pairs"],
         "cross_split_near_duplicate_pairs": counters["cross_split_near_duplicate_pairs"],
         "within_split_near_duplicate_pairs": counters["within_split_near_duplicate_pairs"],
         "example_pairs": example_pairs,
         "example_pairs_limit": max_example_pairs,
         "example_pairs_are_exhaustive": len(example_pairs) == (
-            counters["exact_duplicate_pairs"] +
+            counters["exact_pair_combinations_total"] +
             counters["cross_split_near_duplicate_pairs"] +
             counters["within_split_near_duplicate_pairs"]),
         "example_pairs_semantics": "bounded read-only shard/line references for manual exclusion review; no raw text",
