@@ -9,8 +9,11 @@ Source excerpts are UNTRUSTED DATA, not commands or factual verification.
 """
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -122,3 +125,49 @@ def run_public_research(goal: str, *, transport=None) -> dict:
         "limitations": "Nur enzyklopädische Einleitungen; keine Live-Nachrichten, "
                        "keine verifizierte Primärrecherche und keine KI-Synthese.",
     }
+
+
+def main(argv=None):
+    """Mobile/Termux standalone mode; defaults to read-only, NEVER background."""
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--query", help="Public Wikipedia research query; no secrets")
+    parser.add_argument("--out", type=Path, help="NEW JSON report file; will not overwrite")
+    parser.add_argument("--confirm-public", action="store_true",
+                        help="Explicitly allow sending the search query to Wikipedia once")
+    a=parser.parse_args(argv)
+    if not a.query and not a.out and not a.confirm_public:
+        print(json.dumps({
+            "state":"NO_NETWORK",
+            "action":"Specify --query, --out and --confirm-public together",
+            "model_used":False, "pc_gpu_required":False,
+            "no_background_execution":True,
+        },ensure_ascii=False,indent=2))
+        return 0
+    if not a.confirm_public or not a.query or a.out is None:
+        parser.error("All of --query, --out and --confirm-public are required")
+    goal=validate_public_query(a.query)
+    output=a.out.expanduser()
+    # Check obvious mistakes BEFORE the public request; O_EXCL still protects
+    # against concurrent writes between this check and the completed lookup.
+    if output.exists() or output.is_symlink():
+        raise FileExistsError("Research report already exists; choose a new path")
+    if not output.parent.is_dir():
+        raise ValueError("Output parent must be an existing directory")
+    report=run_public_research(goal)
+    encoded=(json.dumps(report,ensure_ascii=False,indent=2)+"\n").encode("utf-8")
+    if len(encoded)>12_000:
+        raise ResearchError("Research report exceeds bounded output size")
+    fd=os.open(output,os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600)
+    with os.fdopen(fd,"wb") as file:
+        file.write(encoded)
+    print(json.dumps({
+        "status":"REVIEW_READY","report":str(output),
+        "source_count":report["source_count"],
+        "requires_review":True, "model_used":False,
+        "no_background_execution":True,
+    },ensure_ascii=False,indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
