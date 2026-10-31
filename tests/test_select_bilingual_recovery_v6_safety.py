@@ -39,7 +39,7 @@ def fixtures(tmp_path, *, baseline_overall=45.0, holdout_overall=47.0,
             "en_to_de": {"accuracy_pct": 50.0, "correct":100, "total":200}},
     }
     candidate = {
-        "name": "candidate-A",
+        "name": "candidate-A", "pass": True,
         "overall_accuracy_pct": 60.0,
         "checkpoint_sha256": CHECKPOINT_SHA,
         "categories": {"bilingual": 55.0},
