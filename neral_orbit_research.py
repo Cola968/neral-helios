@@ -25,8 +25,8 @@ _MAX_SOURCES = 3
 _PRIVATE_QUERY_RE = re.compile(
     r"(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_-]{16,}|"
     r"gh[pousr]_[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9_-]{16,}|"
-    r"-----BEGIN[^\\r\\n]{0,60}PRIVATE KEY|"
-    r"[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,})", re.IGNORECASE)
+    r"-----BEGIN[^\r\n]{0,60}PRIVATE KEY|"
+    r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,})", re.IGNORECASE)
 
 
 class ResearchError(ValueError):
