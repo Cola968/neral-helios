@@ -168,6 +168,42 @@ class ResearchPersistenceTests(unittest.TestCase):
             self.store.finish_research(task["id"],revision=running["revision"],report=forged)
         self.assertEqual(self.store.get(task["id"])["status"],"RESEARCH_RUNNING")
 
+
+    def test_research_plan_follows_real_lifecycle_without_faking_fact_check(self):
+        task=self.store.create(kind="research",title="Status der Forschung",
+                               goal="Flughafen Berlin Brandenburg")
+        assert [row["status"] for row in task["plan"]]==["NOT_STARTED"]*4
+        approved=self.store.transition(task["id"],"approve",revision=1)
+        assert approved["plan"][0]["status"]=="APPROVED"
+        assert all(x["status"]=="NOT_STARTED" for x in approved["plan"][1:])
+        started=self.store.begin_research(task["id"],revision=2)
+        assert started["plan"][1]["status"]=="IN_PROGRESS"
+        assert started["plan"][2]["status"]=="NOT_STARTED"
+        completed=self.store.finish_research(task["id"],revision=3,
+            report=run_public_research(task["goal"],transport=lambda _:example_api()))
+        assert completed["plan"][1]["status"]=="COMPLETED"
+        assert completed["plan"][2]["status"]=="NEEDS_REVIEW"
+        assert completed["plan"][3]["status"]=="COMPLETED"
+        reviewed=self.store.transition(task["id"],"review",revision=completed["revision"])
+        assert reviewed["plan"][2]["status"]=="NEEDS_REVIEW"
+        archived=self.store.transition(task["id"],"archive",revision=reviewed["revision"])
+        assert archived["plan"][2]["status"]=="NEEDS_REVIEW"
+        assert archived["plan"][3]["status"]=="COMPLETED"
+
+    def test_failed_research_plan_does_not_claim_sources_collected(self):
+        task=self.store.create(kind="research",title="Fehlerbericht",
+                               goal="Flughafen Berlin Brandenburg")
+        self.store.transition(task["id"],"approve",revision=1)
+        started=self.store.begin_research(task["id"],revision=2)
+        failed=self.store.finish_research(task["id"],revision=started["revision"],
+                                         error="Recherchequelle nicht erreichbar.")
+        assert failed["plan"][1]["status"]=="FAILED"
+        assert failed["plan"][2]["status"]=="NOT_STARTED"
+        assert failed["plan"][3]["status"]=="NOT_STARTED"
+        self.store.transition(task["id"],"archive",revision=failed["revision"])
+        archived=self.store.get(task["id"])
+        assert archived["plan"][1]["status"]=="FAILED"
+
     def test_second_worker_cannot_steal_existing_job_and_optimistic_finish(self):
         task=self.store.create(kind="research",title="Staatsbibliothek",
                                goal="Recherchiere die Staatsbibliothek in Berlin.")
