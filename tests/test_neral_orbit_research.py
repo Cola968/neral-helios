@@ -359,6 +359,29 @@ class StandaloneMobileResearchTests(unittest.TestCase):
                          "Flughafen Berlin Brandenburg","--out",str(output)])
                 lookup.assert_not_called()
 
+
+    def test_mobile_selftest_uses_synthetic_sources_without_network(self):
+        from neral_orbit_research import main as cli
+        from contextlib import redirect_stdout
+        from io import StringIO
+        capture=StringIO()
+        with patch("neral_orbit_research._fetch_wikipedia") as external:
+            with redirect_stdout(capture):
+                self.assertEqual(cli(["--self-test"]),0)
+            external.assert_not_called()
+        result=json.loads(capture.getvalue())
+        self.assertEqual(result["state"],"PASS_OFFLINE")
+        self.assertEqual(result["source_count"],1)
+        self.assertFalse(result["network_used"])
+        self.assertFalse(result["gpu_used"])
+
+    def test_selftest_cannot_hide_a_public_research_request(self):
+        from neral_orbit_research import main as cli
+        with patch("neral_orbit_research._fetch_wikipedia") as external:
+            with self.assertRaises(SystemExit):
+                cli(["--self-test","--query","Flughafen Berlin Brandenburg"])
+            external.assert_not_called()
+
     def test_mobile_cli_rejects_sensitive_query_before_remote_lookup(self):
         from neral_orbit_research import main as cli
         with TemporaryDirectory() as folder:
