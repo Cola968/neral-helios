@@ -83,10 +83,13 @@ class OrbitStore:
         conn.row_factory=sqlite3.Row
         return conn
 
-    def list(self):
+    def list(self, *, archived=False):
+        if type(archived) is not bool:
+            raise OrbitError("Ungültiger Archiv-Filter")
+        clause="status = 'ARCHIVED'" if archived else "status != 'ARCHIVED'"
         with self._lock,self._open() as conn:
             return [_render(row) for row in conn.execute(
-                "SELECT * FROM orbit_tasks WHERE status != 'ARCHIVED' ORDER BY created_at DESC,id DESC LIMIT ?",(LIMIT,))]
+                f"SELECT * FROM orbit_tasks WHERE {clause} ORDER BY created_at DESC,id DESC LIMIT ?",(LIMIT,))]
 
     def get(self,task_id):
         if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
