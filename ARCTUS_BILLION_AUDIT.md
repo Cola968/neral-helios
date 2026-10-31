@@ -60,6 +60,39 @@ manifest is prepared, **without modifying the staged source data**. A pass means
 violations. The report is derived entirely from actual inspected data,
 not an estimate of future corpus size.
 
+### Neue Train/Evaluation-Leakage-Metriken
+
+Das Audit zählt jetzt explizit alle **paarweisen** exakten Treffer
+über die tatsächlichen Builder-Partitionen `train`, `val`, `test`
+und `holdout` (historisches `valid` separat unterstützt).
+Das ist wichtig, weil drei identische Dokumente bereits
+`3 × 2 / 2 = 3` mögliche Kopie-Paare ergeben; nur den ersten
+Duplikat-Datensatz zu zählen, unterschätzt die Überlappung.
+
+- `exact_duplicate_pairs`: **historische** Kennzahl der zusätzlichen
+  exakt wiederholten Dokumente (über die erste Vorkommnis hinaus).
+- `exact_pair_combinations_total`: **alle** exakten Kopie-Paare,
+  unabhängig von Splitzugehörigkeit.
+- `cross_split_exact_duplicate_pairs`: Kopie-Paare, deren Dokumente
+  in unterschiedlichen Partitionen liegen.
+- `train_evaluation_exact_pairs` und `train_evaluation_near_pairs`:
+  getrennte Zähler für Paare mit **einem Trainingsdokument und einem
+  Dokument aus einer anderen Partition**.
+- `train_evaluation_leak_detected`: `true`, wenn eines dieser
+  Train/Evaluation-Paare erkannt wurde. Das ist ein **Alarm**, keine
+  automatische Lösch- oder Freigabeaktion.
+
+Die Zahlen werden durch eine SQLite-basierte Zählung pro Digest und
+Partition berechnet und benötigen keine vollständige Paarliste im RAM.
+Die bisherige begrenzte `example_pairs`-Liste kann deshalb weniger
+Beispiele enthalten als existierende Kopie-Kombinationen;
+`example_pairs_are_exhaustive` zeigt dann **false** an.
+
+Trotz `train_evaluation_leak_detected: false` bleibt
+`training_ready: false`, denn SimHash kann semantische Paraphrasen
+übersehen und auch Rechte, historische Kontamination und die
+Qualität des eigenen Arctus350-Modells sind separat zu prüfen.
+
 ### Invariants
 
 - The existing staged `manifest.json` must be schema version 1,
