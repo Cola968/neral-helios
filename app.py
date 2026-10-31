@@ -235,6 +235,22 @@ def orbit_transition(task_id):
     except OrbitConflict as exc:return jsonify(error=str(exc)),409
     except OrbitError as exc:return jsonify(error=str(exc)),400
 
+@app.get('/api/orbit/tasks/<task_id>/report')
+def orbit_download_report(task_id):
+    # Only previously completed source evidence, no new network requests.
+    # Session/host protection is the same as for other Orbit endpoints.
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit ist nicht aktiviert.'),404
+    try:
+        task=orbit_store.get(task_id)
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+    report=task.get('report')
+    if task['status'] not in ('REVIEW_READY','REVIEWED','ARCHIVED') or not report:
+        return jsonify(error='Kein abgeschlossener Quellenbericht vorhanden.'),409
+    result=jsonify(report)
+    result.headers['Content-Disposition']=f'attachment; filename="neral-orbit-{task_id}.json"'
+    result.headers['Cache-Control']='no-store'
+    return result
+
 @app.post('/api/orbit/tasks/<task_id>/run-research')
 def orbit_run_research(task_id):
     # One deliberate manual request. No timers, auto-jobs, remote shells,
