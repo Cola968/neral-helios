@@ -39,13 +39,15 @@ def fixtures(tmp_path, *, baseline_overall=45.0, holdout_overall=47.0,
             "en_to_de": {"accuracy_pct": 50.0, "correct":100, "total":200}},
     }
     candidate = {
+        "name": "candidate-A",
         "overall_accuracy_pct": 60.0,
         "checkpoint_sha256": CHECKPOINT_SHA,
         "categories": {"bilingual": 55.0},
     }
     if include_loss:
         candidate["validation_loss"] = validation_loss
-    gate = {"selection_allowed": True, "candidates": [candidate]}
+    gate = {"selection_allowed": True, "selected": "candidate-A",
+            "candidates": [candidate]}
     for name, value in (("baseline", baseline), ("holdout", holdout), ("gate", gate)):
         (tmp_path / f"{name}.json").write_text(json.dumps(value), encoding="utf8")
     return tmp_path / "result.json"
@@ -247,3 +249,33 @@ def test_lr_selector_publishes_verified_checkpoint_digest_for_holdout_binding():
     source=(Path(__file__).resolve().parents[1] /
             "frontier350"/"select_recovery_lr_pilot.py").read_text(encoding="utf8")
     assert '"checkpoint_sha256": dev["checkpoint_sha256"]' in source
+
+
+@pytest.mark.parametrize("selected", [None, "candidate-B", "baseline"])
+def test_gate_selection_must_be_this_named_candidate(tmp_path, selected):
+    out=fixtures(tmp_path)
+    file=tmp_path/"gate.json"
+    gate=json.loads(file.read_text(encoding="utf8"))
+    gate["selected"]=selected
+    file.write_text(json.dumps(gate),encoding="utf8")
+    result=choose(tmp_path,out)
+    assert result["selected"] is None
+    assert "gate_candidate_identity_mismatch" in result["candidates"][0]["failures"]
+
+
+def test_gate_cannot_relabel_other_candidate_or_bundle_multiple_candidates(tmp_path):
+    for mutation in ("rename","two"):
+        root=tmp_path/mutation
+        root.mkdir()
+        out=fixtures(root)
+        file=root/"gate.json"
+        gate=json.loads(file.read_text(encoding="utf8"))
+        if mutation=="rename":
+            gate["candidates"][0]["name"]="candidate-B"
+        else:
+            gate["candidates"].append(dict(gate["candidates"][0],name="candidate-B"))
+        file.write_text(json.dumps(gate),encoding="utf8")
+        result=choose(root,out)
+        assert result["selected"] is None
+        assert "gate_candidate_identity_mismatch" in result["candidates"][0]["failures"]
+
