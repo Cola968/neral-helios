@@ -1,5 +1,7 @@
 """Real, bounded Orbit research worker: RED tests, no live network or GPU."""
 import json
+import sqlite3
+from contextlib import closing
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -231,8 +233,6 @@ class ResearchPersistenceTests(unittest.TestCase):
 
     def test_interrupted_research_is_recovered_after_grace_period_not_restarted(self):
         from datetime import datetime, timedelta, timezone
-        from contextlib import closing
-import sqlite3
         t=self.store.create(kind="research",title="Wiederherstellung",
                             goal="Flughafen Berlin Brandenburg")
         self.store.transition(t["id"],"approve",revision=1)
@@ -256,7 +256,6 @@ import sqlite3
 
     def test_recovery_never_changes_fresh_or_completed_research(self):
         from datetime import datetime, timedelta, timezone
-        import sqlite3
         t=self.store.create(kind="research",title="Frischer Lauf",
                             goal="Flughafen Berlin Brandenburg")
         self.store.transition(t["id"],"approve",revision=1)
