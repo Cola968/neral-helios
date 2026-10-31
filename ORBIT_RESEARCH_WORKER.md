@@ -147,6 +147,34 @@ nicht gestartet.
 Ein einmaliger GitHub-Job schreibt **nicht** in die lokale SQLite-Datenbank
 des Orbit-Servers. Der JSON-Bericht ist ein separat prüfbarer Artefaktweg.
 
+## GitHub-Actions-unabhängige Offline-Prüfung
+
+```bash
+python neral_orbit_research.py --self-test
+```
+
+Diese eingebaute Prüfung benötigt **keine externen Pakete**.
+Sie testet mit synthetischer Wikipedia-Antwort, ob Artikel-IDs
+korrekt verlinkt werden, ob erkennbare Geheimnisse vor jeder
+öffentlichen Anfrage abgelehnt werden und ob dieselbe
+Wikipedia-Seite nicht zweimal als unabhängige Quelle zählt.
+Erwartet wird `state=PASS_OFFLINE` und
+`checks_passed=3`. Weder Netzwerk noch Modellgewichte oder
+GPU werden dazu benötigt.
+
+Der Orbit-CI-Workflow enthielt zuvor fälschlicherweise
+**wörtliche `\\n`-Sequenzen** in den Dateifiltern. Dieser
+Syntaxfehler wurde in Draft #176 korrigiert; GitHub listet den
+Workflow danach wieder. Seine Runner-Jobs enden aber weiterhin
+vor dem ersten Schritt. Der Offline-Selbsttest wird nun auch
+als erster schneller CI-Schritt aufgerufen, sobald die
+Runner-Zuteilung wieder funktioniert.
+
+Am 31.10.2026 wurden die begrenzte Wikipedia-Worker-Logik und
+der Arctus-Selector in einer unabhängigen Python-Umgebung mit
+27 gezielten synthetischen Tests geprüft. Dies ist ausdrücklich
+kein Nachweis eines vollständigen Helios-E2E-Tests.
+
 ## Tests und verbleibende Risiken
 
 ```bash
