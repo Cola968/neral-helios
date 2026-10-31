@@ -190,7 +190,7 @@ class OrbitStore:
             for item in report["sources"]:
                 if (not isinstance(item,dict) or
                         not isinstance(item.get("url"),str) or
-                        not re.fullmatch(r"https://de\\.wikipedia\\.org/\\?curid=[1-9][0-9]{0,15}",item["url"]) or
+                        not re.fullmatch(r"https://de\.wikipedia\.org/\?curid=[1-9][0-9]{0,15}",item["url"]) or
                         not isinstance(item.get("title"),str) or
                         not 1<=len(item["title"])<=180 or
                         not isinstance(item.get("excerpt"),str) or
