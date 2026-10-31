@@ -101,7 +101,7 @@ def run_public_research(goal: str, *, transport=None) -> dict:
         results.append({
             "title": title,
             "url": f"https://de.wikipedia.org/?curid={page_id}",
-            "excerpt": re.sub(r"\\s+", " ", excerpt).strip()[:700],
+            "excerpt": re.sub(r"\s+", " ", excerpt).strip()[:700],
         })
     return {
         "provider": "Wikipedia (de)",
