@@ -294,3 +294,19 @@ def test_cli_refuses_symlinked_parent_into_source_corpus(tmp_path):
     with pytest.raises(ValueError, match="outside|corpus"):
         main(["--corpus", str(root), "--report", str(destination)])
     assert not (root / "audit.json").exists()
+
+
+
+def test_cli_rejects_report_inside_corpus_before_expensive_scan(tmp_path, monkeypatch):
+    """Fail before opening/reading a potentially billion-token corpus."""
+    from arctus_billion_audit import main
+    root = tmp_path / "staged"
+    root.mkdir()
+
+    def should_not_scan(*args, **kwargs):
+        raise AssertionError("Invalid report output must be rejected before scan")
+
+    monkeypatch.setattr("arctus_billion_audit.audit_corpus", should_not_scan)
+    with pytest.raises(ValueError, match="outside.*corpus"):
+        main(["--corpus", str(root), "--report", str(root / "scan.json")])
+    assert not (root / "scan.json").exists()
