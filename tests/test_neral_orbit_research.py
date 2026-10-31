@@ -322,6 +322,43 @@ class ResearchFlaskTests(unittest.TestCase):
         self.assertEqual(current["status"],"APPROVED_NO_EXECUTOR")
         self.assertIsNone(current["report"])
 
+
+    def test_report_export_requires_completed_work_and_preserves_sources(self):
+        task=self._task()
+        endpoint=f'/api/orbit/tasks/{task["id"]}/report'
+        self.assertEqual(self.client.get(endpoint).status_code,409)
+        self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                         json={"action":"approve","revision":1})
+        with patch.object(self.app,"run_public_research",
+            return_value=run_public_research(task["goal"],transport=lambda _:example_api())):
+            self.assertEqual(self.client.post(
+                f'/api/orbit/tasks/{task["id"]}/run-research',
+                json={"revision":2,"confirm":True}).status_code,200)
+        result=self.client.get(endpoint)
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json["source_count"],2)
+        self.assertEqual(result.json["sources"][0]["url"],"https://de.wikipedia.org/?curid=373")
+        self.assertIn("attachment;",result.headers["Content-Disposition"])
+        self.assertIn(task["id"],result.headers["Content-Disposition"])
+        self.assertEqual(result.headers["Cache-Control"],"no-store")
+        self.assertEqual(self.app.app.test_client().get(endpoint).status_code,401)
+        self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                         json={"action":"review","revision":4})
+        self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                         json={"action":"archive","revision":5})
+        self.assertEqual(self.client.get(endpoint).json["source_count"],2)
+
+    def test_report_export_rejects_invalid_task_and_failed_runs(self):
+        self.assertEqual(self.client.get("/api/orbit/tasks/not-valid/report").status_code,400)
+        task=self._task()
+        self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                         json={"action":"approve","revision":1})
+        with patch.object(self.app,"run_public_research",side_effect=ResearchError("Keine Quellen.")):
+            self.client.post(f'/api/orbit/tasks/{task["id"]}/run-research',
+                             json={"revision":2,"confirm":True})
+        self.assertEqual(self.client.get(
+            f'/api/orbit/tasks/{task["id"]}/report').status_code,409)
+
     def test_network_failure_records_status_and_denies_unauthenticated_requests(self):
         task=self._task()
         self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
