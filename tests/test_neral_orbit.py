@@ -32,6 +32,14 @@ class OrbitStorageTests(unittest.TestCase):
         self.assertIsNone(unchanged["report"])
         self.assertEqual(unchanged["revision"],running["revision"])
 
+    def test_sqlite_scope_closes_file_handle_on_windows(self):
+        # A SQLite transaction context alone does NOT close the connection.
+        # Windows then refuses to remove a temporary test database.
+        with self.store._open() as conn:
+            self.assertEqual(conn.execute("SELECT 1").fetchone()[0], 1)
+        with self.assertRaises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
     def test_draft_is_persistent_and_has_a_readable_4_stage_plan(self):
         t=self.store.create(kind="coding",title="NERAL verbessern",
                             goal="Behebe den Fehler und erstelle einen Draft-PR.")
