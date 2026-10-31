@@ -478,3 +478,16 @@ class StandaloneMobileResearchTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
 
+
+
+
+class OrbitWorkflowPathSyntaxTests(unittest.TestCase):
+    def test_workflow_path_filters_are_real_yaml_lines_not_literal_slash_n(self):
+        source=(Path(__file__).resolve().parents[1] /
+                ".github/workflows/neral-orbit-ci.yml").read_text(encoding="utf8")
+        self.assertNotIn("\\n", source)
+        for name in ("neral_orbit.py", "neral_orbit_research.py",
+                     "tests/test_neral_orbit.py", "tests/test_neral_orbit_research.py"):
+            with self.subTest(name=name):
+                self.assertIn(f"      - '{name}'\n",source)
+
