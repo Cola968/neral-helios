@@ -207,7 +207,11 @@ def orbit_index():
 def orbit_tasks():
     if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit v0 ist nicht aktiviert.'),404
     if request.method=='GET':
-        return jsonify(tasks=orbit_store.list(),executor_active=False,cloud_scheduled=False)
+        view=request.args.get('view','active')
+        if view not in ('active','archived'):
+            return jsonify(error='Unbekannte Aufgabenansicht.'),400
+        return jsonify(tasks=orbit_store.list(archived=view=='archived'),
+                       executor_active=False,cloud_scheduled=False)
     data,error=body()
     if error:return error
     try:
