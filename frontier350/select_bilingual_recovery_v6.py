@@ -121,8 +121,18 @@ def main() -> None:
                 failures.append(f"{direction}:{value}<{floor}")
 
         candidates=gate.get("candidates")
-        candidate_info=(candidates[0] if isinstance(candidates,list) and candidates
-                        and isinstance(candidates[0],dict) else {})
+        if (not isinstance(candidates,list) or len(candidates)!=1 or
+                not isinstance(candidates[0],dict)):
+            candidate_info={}
+        else:
+            candidate_info=candidates[0]
+        # The independently evaluated holdout must belong to the exact
+        # candidate admitted by the preceding dev/validation gate.
+        if (gate.get("selected") != name or
+                candidate_info.get("name") != name or
+                not isinstance(candidates,list) or len(candidates)!=1 or
+                candidate_info.get("pass") is not True):
+            failures.append("gate_candidate_identity_mismatch")
         # All accuracy numbers are meaningless if separate checkpoints
         # were measured. The earlier gate already checks dev/validation
         # identity; bind its verified SHA to the independent holdout too.
