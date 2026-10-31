@@ -91,6 +91,10 @@ class OrbitStorageTests(unittest.TestCase):
         self.assertEqual(archived["revision"],3)
         self.assertEqual(archived["execution_enabled"],False)
         self.assertEqual(self.store.get(first["id"])["status"],"ARCHIVED")
+        archived_view=self.store.list(archived=True)
+        self.assertEqual(len(archived_view),1)
+        self.assertEqual(archived_view[0]["id"],first["id"])
+        self.assertFalse(archived_view[0]["execution_enabled"])
         self.assertEqual(len(self.store.list()),39)
         new=self.store.create(kind="monitor",title="Neue Aufgabe",goal="Review the next safety event.")
         self.assertEqual(new["status"],"DRAFT")
@@ -173,6 +177,12 @@ class OrbitFlaskTests(unittest.TestCase):
         self.assertEqual(done.json["task"]["status"],"ARCHIVED")
         self.assertFalse(done.json["task"]["execution_enabled"])
         self.assertEqual(self.client.get("/api/orbit/tasks").json["tasks"],[])
+        archived_view=self.client.get("/api/orbit/tasks?view=archived")
+        self.assertEqual(archived_view.status_code,200)
+        self.assertEqual(len(archived_view.json["tasks"]),1)
+        self.assertEqual(archived_view.json["tasks"][0]["status"],"ARCHIVED")
+        self.assertFalse(archived_view.json["executor_active"])
+        self.assertEqual(self.client.get("/api/orbit/tasks?view=all").status_code,400)
         self.assertEqual(self.client.post(archive,json={"action":"approve","revision":3}).status_code,400)
 
     def test_no_execution_endpoint_and_disabled_feature_404(self):
