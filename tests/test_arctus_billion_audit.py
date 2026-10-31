@@ -111,6 +111,7 @@ def test_unrelated_corpus_flags_no_near_duplicates_but_requires_manual_audit(tmp
     assert report["exact_duplicate_pairs"] == 0
     assert report["cross_split_near_duplicate_pairs"] == 0
     assert report["within_split_near_duplicate_pairs"] == 0
+    assert report["train_evaluation_leak_detected"] is False
     assert report["training_ready"] is False  # conservative audit only
     assert report["needs_manual_license_and_holdout_review"] is True
 
@@ -375,6 +376,7 @@ def test_cross_split_exact_pairs_count_every_occurrence_and_train_holdout_leak(t
     assert report["cross_split_exact_duplicate_pairs"]==2
     assert report["train_evaluation_exact_pairs"]==2
     assert report["train_evaluation_near_pairs"]==0
+    assert report["train_evaluation_leak_detected"] is True
     assert report["example_pairs_are_exhaustive"] is False
     assert report["training_ready"] is False
     assert report["held_out_contamination_eliminated"] is False
@@ -386,6 +388,7 @@ def test_train_validation_near_pair_has_separate_leak_metric(tmp_path):
     root=write_staging(tmp_path,[base],[near])
     report=audit_corpus(root)
     assert report["train_evaluation_near_pairs"]>=1
+    assert report["train_evaluation_leak_detected"] is True
     assert report["cross_split_near_duplicate_pairs"]>=1
     assert report["train_evaluation_exact_pairs"]==0
 
