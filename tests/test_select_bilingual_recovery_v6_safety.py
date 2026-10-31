@@ -196,3 +196,16 @@ def test_baseline_must_reconcile_case_counts(tmp_path):
     with pytest.raises(RuntimeError,match="baseline"):
         choose(tmp_path,out)
     assert not out.exists()
+
+
+@pytest.mark.parametrize("name", [
+    "eval_bilingual_holdout_v1.py",
+    "eval_recovery_dev_v2.py",
+    "eval_validation_loss350.py",
+])
+def test_all_v6_evaluators_use_allowlisted_checkpoint_deserialization(name):
+    source=(Path(__file__).resolve().parents[1] / "frontier350" / name).read_text(encoding="utf8")
+    assert "from secure_checkpoint350 import load_checkpoint" in source
+    assert "ck = load_checkpoint(args.checkpoint)" in source
+    assert "weights_only=False" not in source
+
