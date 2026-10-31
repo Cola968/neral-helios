@@ -78,6 +78,14 @@ Duplikat-Datensatz zu zählen, unterschätzt die Überlappung.
 - `train_evaluation_exact_pairs` und `train_evaluation_near_pairs`:
   getrennte Zähler für Paare mit **einem Trainingsdokument und einem
   Dokument aus einer anderen Partition**.
+- `leakage_by_evaluation_split`: getrennte `exact_pairs`- und
+  `near_pairs`-Zähler für `val`, `valid`, `test` und `holdout`.
+  Dadurch werden kritische Holdout-Überschneidungen nicht in einer
+  Gesamtsumme versteckt. Near-Pairs bezeichnen die im SimHash-Index
+  beobachteten eindeutigen Fingerabdruck-Paare, **nicht** eine garantierte
+  vollständige Erfassung aller Dokumentvorkommnisse.
+- `holdout_contamination_detected`: `true`, sobald Train/Holdout-
+  Überschneidungen im aktuellen Verfahren nachgewiesen wurden.
 - `train_evaluation_leak_detected`: `true`, wenn eines dieser
   Train/Evaluation-Paare erkannt wurde. Das ist ein **Alarm**, keine
   automatische Lösch- oder Freigabeaktion.
