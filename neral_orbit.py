@@ -153,3 +153,67 @@ class OrbitStore:
             conn.execute("UPDATE orbit_tasks SET status=?, revision=revision+1, updated_at=? WHERE id=?",
                          (status,_now(),task_id))
         return self.get(task_id)
+
+    def begin_research(self,task_id,*,revision):
+        """Atomically reserve ONE approved research task; never start by approval alone."""
+        if type(revision) is not int or revision<1:
+            raise OrbitError("Revision muss eine positive ganze Zahl sein")
+        if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
+            raise OrbitError("Unbekannter Auftrag")
+        with self._lock,self._open() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row=conn.execute("SELECT kind,status,revision FROM orbit_tasks WHERE id=?",(task_id,)).fetchone()
+            if row is None:raise OrbitError("Unbekannter Auftrag")
+            if row["revision"]!=revision:raise OrbitConflict("Auftrag wurde bereits geändert. Bitte neu laden.")
+            if row["kind"]!="research" or row["status"]!="APPROVED_NO_EXECUTOR":
+                raise OrbitError("Nur einmalig freigegebene Rechercheaufträge dürfen gestartet werden")
+            conn.execute("""UPDATE orbit_tasks
+                         SET status='RESEARCH_RUNNING',revision=revision+1,updated_at=?
+                         WHERE id=?""",(_now(),task_id))
+        return self.get(task_id)
+
+    def finish_research(self,task_id,*,revision,report=None,error=None):
+        """Save sourced results or bounded failure, only for a reserved run."""
+        if type(revision) is not int or revision<1:
+            raise OrbitError("Revision muss eine positive ganze Zahl sein")
+        if (report is None)==(error is None):
+            raise OrbitError("Genau ein Recherchebericht oder Fehler ist erforderlich")
+        if report is not None:
+            if (not isinstance(report,dict) or
+                    report.get("provider")!="Wikipedia (de)" or
+                    report.get("model_used") is not False or
+                    report.get("requires_review") is not True or
+                    not isinstance(report.get("sources"),list) or
+                    not 1<=len(report["sources"])<=3 or
+                    report.get("source_count")!=len(report["sources"])):
+                raise OrbitError("Recherchebericht verletzt Quellen- und Größenvertrag")
+            for item in report["sources"]:
+                if (not isinstance(item,dict) or
+                        not isinstance(item.get("url"),str) or
+                        not re.fullmatch(r"https://de\\.wikipedia\\.org/\\?curid=[1-9][0-9]{0,15}",item["url"]) or
+                        not isinstance(item.get("title"),str) or
+                        not 1<=len(item["title"])<=180 or
+                        not isinstance(item.get("excerpt"),str) or
+                        not 1<=len(item["excerpt"])<=700):
+                    raise OrbitError("Unsichere oder unvollständige Recherchequelle")
+            report_json=json.dumps(report,ensure_ascii=False)
+            if len(report_json.encode("utf8"))>10000:
+                raise OrbitError("Recherchebericht überschreitet das Speicherlimit")
+            state="REVIEW_READY"
+        else:
+            error=_content(error,3,160,"Recherchefehler")
+            report_json=None
+            state="RESEARCH_FAILED"
+        if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
+            raise OrbitError("Unbekannter Auftrag")
+        with self._lock,self._open() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row=conn.execute("SELECT status,revision FROM orbit_tasks WHERE id=?",(task_id,)).fetchone()
+            if row is None:raise OrbitError("Unbekannter Auftrag")
+            if row["revision"]!=revision:raise OrbitConflict("Auftrag wurde bereits geändert. Bitte neu laden.")
+            if row["status"]!="RESEARCH_RUNNING":raise OrbitError("Kein laufender Rechercheauftrag")
+            conn.execute("INSERT INTO orbit_research_reports(task_id,report_json,error_text) VALUES (?,?,?)",
+                         (task_id,report_json,error))
+            conn.execute("UPDATE orbit_tasks SET status=?,revision=revision+1,updated_at=? WHERE id=?",
+                         (state,_now(),task_id))
+        return self.get(task_id)
