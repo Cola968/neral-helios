@@ -21,7 +21,15 @@ function taskCard(t){
   const root=el('article',undefined,'task');
   root.append(el('div',t.kind+' · '+t.status,'pill'),el('h3',t.title),el('p',t.goal));
   const list=el('ul');
-  for(const step of t.plan){list.append(el('li',step.description));}
+  const stageLabels={NOT_STARTED:'Nicht begonnen',APPROVED:'Freigegeben',
+    IN_PROGRESS:'Läuft',COMPLETED:'Abgeschlossen',
+    NEEDS_REVIEW:'Unabhängige Prüfung offen',FAILED:'Fehlgeschlagen'};
+  for(const step of t.plan){
+    const label=stageLabels[step.status]||'Unbekannt';
+    const item=el('li');
+    item.append(el('span',step.description),el('small',' · '+label,'stage-status'));
+    list.append(item);
+  }
   root.append(list);
   const row=el('div',undefined,'task-controls');
   async function act(action){
