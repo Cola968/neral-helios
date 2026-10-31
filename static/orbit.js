@@ -16,6 +16,7 @@ function el(tag,text,cls){
   return e;
 }
 function status(text){$('status').textContent=text;}
+let showingArchived=false;
 function taskCard(t){
   const root=el('article',undefined,'task');
   root.append(el('div',t.kind+' · '+t.status,'pill'),el('h3',t.title),el('p',t.goal));
@@ -47,9 +48,12 @@ function taskCard(t){
 async function reload(){
   const list=$('tasks');
   try{
-    const data=await call('/api/orbit/tasks');
+    const data=await call('/api/orbit/tasks?view='+(showingArchived?'archived':'active'));
+    $('showArchived').textContent=showingArchived?'Aktive Aufträge':'Archiv anzeigen';
+    $('showArchived').setAttribute('aria-pressed',String(showingArchived));
+    $('taskListHeading').textContent=showingArchived?'Archivierte Aufträge':'Deine Aufträge';
     list.replaceChildren();
-    if(!Array.isArray(data.tasks)||!data.tasks.length)list.append(el('p','Noch keine Aufträge erstellt.','empty'));
+    if(!Array.isArray(data.tasks)||!data.tasks.length)list.append(el('p',showingArchived?'Keine archivierten Aufträge.':'Noch keine Aufträge erstellt.','empty'));
     else for(const task of data.tasks)list.append(taskCard(task));
   }catch(err){list.replaceChildren(el('p',err.message+' Aktiviere den lokalen Prototyp mit HELIOS_ORBIT_ENABLED=1.','empty'));}
 }
@@ -65,4 +69,5 @@ $('taskForm').addEventListener('submit',async e=>{
   finally{$('create').disabled=false;}
 });
 $('refresh').addEventListener('click',reload);
+$('showArchived').addEventListener('click',()=>{showingArchived=!showingArchived;reload();});
 reload();
