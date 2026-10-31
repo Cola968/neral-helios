@@ -50,11 +50,14 @@ const root=path.resolve(__dirname,'..');
   await page.locator('#tasks .pill').filter({hasText:'APPROVED_NO_EXECUTOR'}).waitFor();
   await page.locator('#tasks button').filter({hasText:'Abbrechen'}).click();
   await page.locator('#tasks .pill').filter({hasText:'CANCELLED'}).waitFor();
-  assert.equal(await page.locator('#tasks button').count(),0);
+  assert.equal(await page.locator('#tasks button').count(),1);
+  await page.locator('#tasks button').filter({hasText:'Archivieren'}).click();
+  await page.locator('#tasks .empty').filter({hasText:'Noch keine Aufträge'}).waitFor();
+  assert.equal(await page.locator('#tasks .task').count(),0);
   await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'Orbit mobile overflow');
   assert.deepEqual(errors,[]);
-  console.log('PASS Orbit real Flask browser: create, persistence, approval without worker, cancel, XSS, mobile');
+  console.log('PASS Orbit real Flask browser: create, persistence, approval without worker, cancel, archive with history, XSS, mobile');
  }finally{
   if(browser)await browser.close();
   server.kill();
