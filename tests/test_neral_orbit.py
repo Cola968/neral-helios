@@ -1,4 +1,5 @@
 """NERAL Orbit v0 real persistent task drafts; NO unattended executor."""
+from contextlib import closing
 import sqlite3
 import unittest
 from tempfile import TemporaryDirectory
@@ -150,7 +151,7 @@ class OrbitStorageTests(unittest.TestCase):
         self.assertEqual(self.store.get(t["id"])["status"],"APPROVED_NO_EXECUTOR")
 
     def test_no_new_tables_are_exec_or_scheduler_credentials(self):
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             ddl="\n".join(row[0] for row in conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table'"))
         self.assertNotIn("access_token",ddl)
