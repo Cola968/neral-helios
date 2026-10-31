@@ -1,4 +1,4 @@
-name: NERAL Orbit — one-shot trusted PC CPU verification 2026-10-31
+# Recheck after Windows SQLite deterministic close fix (no cleanup, no GPU)\nname: NERAL Orbit — one-shot trusted PC CPU verification 2026-10-31
 on:
   push:
     paths:
