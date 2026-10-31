@@ -6,6 +6,7 @@ on:
       - frontier350/train350.py
       - frontier350/train350_compiled.py
       - frontier350/select_bilingual_recovery_v6.py
+      - frontier350/select_recovery_lr_pilot.py
       - frontier350/eval_bilingual_holdout_v1.py
       - frontier350/eval_recovery_dev_v2.py
       - frontier350/eval_validation_loss350.py
@@ -31,7 +32,7 @@ jobs:
       - name: Install offline unit-test tools
         run: python -m pip install --disable-pip-version-check pytest
       - name: Syntax check (trainer imports not executed)
-        run: python -m py_compile frontier350/vast4090_guard.py frontier350/vast4090_transfer.py frontier350/train350.py frontier350/train350_compiled.py frontier350/select_bilingual_recovery_v6.py frontier350/eval_bilingual_holdout_v1.py frontier350/eval_recovery_dev_v2.py frontier350/eval_validation_loss350.py
+        run: python -m py_compile frontier350/vast4090_guard.py frontier350/vast4090_transfer.py frontier350/train350.py frontier350/train350_compiled.py frontier350/select_bilingual_recovery_v6.py frontier350/select_recovery_lr_pilot.py frontier350/eval_bilingual_holdout_v1.py frontier350/eval_recovery_dev_v2.py frontier350/eval_validation_loss350.py
       - name: Install restricted checkpoint CPU test dependencies
         run: |
           python -m pip install --disable-pip-version-check numpy
