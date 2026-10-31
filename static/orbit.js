@@ -87,6 +87,10 @@ function taskCard(t){
       references.append(item);
     }
     root.append(references);
+    const download=el('a','Quellenbericht als JSON speichern','report-download');
+    download.href='/api/orbit/tasks/'+encodeURIComponent(t.id)+'/report';
+    download.download='neral-orbit-'+t.id+'.json';
+    root.append(download);
     root.append(el('p',t.report.limitations||'Quellen sind nicht unabhängig überprüft.','report-limitations'));
   }
   return root;
