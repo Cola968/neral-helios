@@ -27,7 +27,7 @@ function taskCard(t){
     try{await call('/api/orbit/tasks/'+encodeURIComponent(t.id)+'/transition',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action,revision:t.revision})});
-      status(action==='approve'?'Freigabe gespeichert. Kein Worker wurde gestartet.':'Auftrag abgebrochen.');
+      status(action==='approve'?'Freigabe gespeichert. Kein Worker wurde gestartet.':action==='archive'?'Abgebrochener Auftrag archiviert; Verlauf bleibt lokal gespeichert.':'Auftrag abgebrochen.');
       await reload();
     }catch(err){status(err.message);await reload();}
   }
@@ -36,6 +36,9 @@ function taskCard(t){
   }
   if(t.status==='DRAFT'||t.status==='APPROVED_NO_EXECUTOR'){
     const cancel=el('button','Abbrechen','danger');cancel.addEventListener('click',()=>act('cancel'));row.append(cancel);
+  }
+  if(t.status==='CANCELLED'){
+    const archive=el('button','Archivieren');archive.addEventListener('click',()=>act('archive'));row.append(archive);
   }
   root.append(row);
   if(t.status==='APPROVED_NO_EXECUTOR')root.append(el('p','Freigegeben, aber nicht ausgeführt. Noch kein Cloud-Worker aktiv.'));
