@@ -20,7 +20,7 @@ from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
 from neral_orbit import OrbitStore, OrbitError, OrbitConflict
-from neral_orbit_research import run_public_research, ResearchError
+from neral_orbit_research import run_public_research, validate_public_query, ResearchError
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -245,9 +245,13 @@ def orbit_run_research(task_id):
     if data.get('confirm') is not True:
         return jsonify(error='Ausdrückliche Bestätigung für die einmalige öffentliche Recherche fehlt.'),400
     try:
+        # Check the immutable task goal BEFORE reserving execution or
+        # sending a possibly private query to the public provider.
+        candidate=orbit_store.get(task_id)
+        validate_public_query(candidate['goal'])
         task=orbit_store.begin_research(task_id,revision=data.get('revision'))
     except OrbitConflict as exc:return jsonify(error=str(exc)),409
-    except OrbitError as exc:return jsonify(error=str(exc)),400
+    except (OrbitError,ResearchError) as exc:return jsonify(error=str(exc)),400
     try:
         report=run_public_research(task['goal'])
     except ResearchError as exc:
