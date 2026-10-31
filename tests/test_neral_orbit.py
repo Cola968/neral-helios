@@ -33,7 +33,7 @@ class OrbitStorageTests(unittest.TestCase):
         self.assertEqual(approved["status"],"APPROVED_NO_EXECUTOR")
         self.assertEqual(approved["execution_enabled"],False)
         self.assertEqual(approved["executor"],"none")
-        self.assertEqual(approved["plan"][0]["status"],"NOT_STARTED")
+        self.assertEqual(approved["plan"][0]["status"],"APPROVED")
         self.assertEqual(approved["revision"],2)
         with self.assertRaises(OrbitError):
             self.store.transition(t["id"],"approve",revision=2)
@@ -41,6 +41,17 @@ class OrbitStorageTests(unittest.TestCase):
         self.assertEqual(cancelled["status"],"CANCELLED")
         with self.assertRaises(OrbitError):
             self.store.transition(t["id"],"approve",revision=3)
+
+
+    def test_research_query_limit_matches_actual_wikipedia_worker(self):
+        with self.assertRaisesRegex(OrbitError,"200"):
+            self.store.create(kind="research",title="Viel zu lang",
+                goal="Luftverkehr " + "B" * 240)
+        # This is a local draft for a future code agent, not a public search.
+        task=self.store.create(kind="coding",title="Ausführliches Projekt",
+            goal="Verbessere die App und schreibe Tests. " + "A" * 240)
+        self.assertEqual(task["kind"],"coding")
+        self.assertEqual(len(self.store.list()),1)
 
     def test_fail_closed_revision_validation_and_no_external_execution(self):
         t=self.store.create(kind="monitor",title="Flüge beobachten",
