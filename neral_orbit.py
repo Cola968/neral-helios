@@ -1,8 +1,8 @@
 """NERAL Orbit v0 – local-only, human-controlled drafts for future agent work.
 
-No timers, network, model inference, code execution, auto PRs or cloud workers.
-Cancelled tasks can be explicitly archived without destroying their history.
-Approval records the operator's intent but NEVER starts execution.
+No timers, model inference, shell execution, auto PRs or cloud workers.
+One bounded Wikipedia lookup can be manually started for an approved research task.
+Approval alone NEVER launches the worker.
 """
 from __future__ import annotations
 import json
@@ -53,15 +53,20 @@ def _now():
 
 
 def _render(row):
+    state=row["status"]
+    report=json.loads(row["report_json"]) if "report_json" in row.keys() and row["report_json"] else None
+    error=row["error_text"] if "error_text" in row.keys() else None
+    once=row["kind"]=="research" and state in ("RESEARCH_RUNNING","REVIEW_READY","RESEARCH_FAILED","REVIEWED")
     return {
         "id":row["id"],"kind":row["kind"],"title":row["title"],
-        "goal":row["goal"],"status":row["status"],"revision":row["revision"],
+        "goal":row["goal"],"status":state,"revision":row["revision"],
         "created_at":row["created_at"],"updated_at":row["updated_at"],
-        "plan":_plan(row["kind"]),
-        "execution_enabled":False,
-        "executor":"none",
+        "plan":_plan(row["kind"]), "report":report, "error":error,
+        "execution_enabled":state=="RESEARCH_RUNNING",
+        "executor":"wikipedia_research_once" if once else "none",
         "budget_eur":0,
-        "message":"Dies ist ein geplanter Auftrag. Noch kein Cloud-Worker, keine automatische Ausführung.",
+        "message":("Manuell gestartete einmalige Recherche; keine Hintergrundüberwachung."
+                   if once else "Freigabe allein startet keinen Worker."),
     }
 
 
@@ -77,6 +82,10 @@ class OrbitStore:
                 goal TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER NOT NULL,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS orbit_research_reports (
+                task_id TEXT PRIMARY KEY, report_json TEXT, error_text TEXT,
+                FOREIGN KEY(task_id) REFERENCES orbit_tasks(id)
+            )""")
 
     def _open(self):
         conn=sqlite3.connect(self.path,timeout=8)
@@ -89,13 +98,17 @@ class OrbitStore:
         clause="status = 'ARCHIVED'" if archived else "status != 'ARCHIVED'"
         with self._lock,self._open() as conn:
             return [_render(row) for row in conn.execute(
-                f"SELECT * FROM orbit_tasks WHERE {clause} ORDER BY created_at DESC,id DESC LIMIT ?",(LIMIT,))]
+                f"""SELECT t.*,r.report_json,r.error_text FROM orbit_tasks t
+                    LEFT JOIN orbit_research_reports r ON r.task_id=t.id
+                    WHERE t.{clause} ORDER BY t.created_at DESC,t.id DESC LIMIT ?""",(LIMIT,))]
 
     def get(self,task_id):
         if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
             raise OrbitError("Unbekannter Auftrag")
         with self._lock,self._open() as conn:
-            row=conn.execute("SELECT * FROM orbit_tasks WHERE id=?",(task_id,)).fetchone()
+            row=conn.execute("""SELECT t.*,r.report_json,r.error_text FROM orbit_tasks t
+                                 LEFT JOIN orbit_research_reports r ON r.task_id=t.id
+                                 WHERE t.id=?""",(task_id,)).fetchone()
         if row is None:raise OrbitError("Unbekannter Auftrag")
         return _render(row)
 
@@ -117,8 +130,8 @@ class OrbitStore:
     def transition(self,task_id,action,*,revision):
         if type(revision) is not int or revision<1:
             raise OrbitError("Revision muss eine positive ganze Zahl sein")
-        if action not in ("approve","cancel","archive"):
-            raise OrbitError("Nur explizites Freigeben, Abbrechen und Archivieren sind erlaubt")
+        if action not in ("approve","cancel","archive","review"):
+            raise OrbitError("Nur explizites Freigeben, Abbrechen, Prüfen und Archivieren sind erlaubt")
         if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
             raise OrbitError("Unbekannter Auftrag")
         with self._lock,self._open() as conn:
@@ -130,8 +143,11 @@ class OrbitStore:
                 status="APPROVED_NO_EXECUTOR"
             elif action=="cancel" and row["status"] in ("DRAFT","APPROVED_NO_EXECUTOR"):
                 status="CANCELLED"
-            elif action=="archive" and row["status"]=="CANCELLED":
-                # Preserve history; never silently remove any DB row.
+            elif action=="review" and row["status"]=="REVIEW_READY":
+                # Seen by operator, not independently fact checked.
+                status="REVIEWED"
+            elif action=="archive" and row["status"] in ("CANCELLED","REVIEWED","RESEARCH_FAILED"):
+                # Preserve findings, never remove SQLite task history.
                 status="ARCHIVED"
             else:raise OrbitError("Unzulässiger Statuswechsel")
             conn.execute("UPDATE orbit_tasks SET status=?, revision=revision+1, updated_at=? WHERE id=?",
