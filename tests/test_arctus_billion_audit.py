@@ -265,3 +265,32 @@ def test_manifest_rejects_empty_source_identifier(tmp_path):
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="source"):
         audit_corpus(root)
+
+
+
+def test_cli_refuses_to_write_report_inside_audited_corpus(tmp_path):
+    """The audit must never change its own source corpus, even for --report."""
+    from arctus_billion_audit import main
+
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Quantenfelder")])
+    destination = root / "new-report.json"
+    assert not destination.exists()
+    with pytest.raises(ValueError, match="outside|corpus"):
+        main(["--corpus", str(root), "--report", str(destination)])
+    assert not destination.exists()
+
+
+def test_cli_refuses_symlinked_parent_into_source_corpus(tmp_path):
+    """An apparently external path may resolve through a symlink into the corpus."""
+    from arctus_billion_audit import main
+
+    root = write_staging(tmp_path, [long_doc()], [long_doc("Astrometrie")])
+    redirect = tmp_path / "redirect"
+    try:
+        redirect.symlink_to(root, target_is_directory=True)
+    except (NotImplementedError, OSError):
+        pytest.skip("Creating directory symlinks is unsupported")
+    destination = redirect / "audit.json"
+    with pytest.raises(ValueError, match="outside|corpus"):
+        main(["--corpus", str(root), "--report", str(destination)])
+    assert not (root / "audit.json").exists()
