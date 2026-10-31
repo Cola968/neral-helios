@@ -165,8 +165,10 @@ def main() -> None:
         })
 
     passing=[row for row in rows if row["pass"]]
+    # Holdout scores are only a NON-REGRESSION VETO, never a ranking or
+    # tie-break signal: optimizing on held-out answers leaks test information.
     passing.sort(key=lambda row:(
-        row["validation_loss"],-row["holdout_overall_accuracy_pct"],row["name"]))
+        row["validation_loss"],-row["old_dev_overall_accuracy_pct"],row["name"]))
     selected=passing[0]["name"] if passing else None
     result={
         "schema":1,
@@ -179,7 +181,8 @@ def main() -> None:
         "policy":(
             "Fail closed: finite valid scores, immutable holdout digest, "
             "dev/validation gate and both independent language directions "
-            "must not regress. Never promote based on NaN/Infinity."
+            "must not regress. Holdout is a veto, never a ranking signal. "
+            "Never promote based on NaN/Infinity."
         ),
     }
     Path(args.out).write_text(json.dumps(result,indent=2,ensure_ascii=False,
