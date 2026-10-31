@@ -212,6 +212,7 @@ class OrbitStore:
                     not 1<=len(report["sources"])<=3 or
                     report.get("source_count")!=len(report["sources"])):
                 raise OrbitError("Recherchebericht verletzt Quellen- und Größenvertrag")
+            seen_source_urls=set()
             for item in report["sources"]:
                 if (not isinstance(item,dict) or
                         not isinstance(item.get("url"),str) or
@@ -221,6 +222,9 @@ class OrbitStore:
                         not isinstance(item.get("excerpt"),str) or
                         not 1<=len(item["excerpt"])<=700):
                     raise OrbitError("Unsichere oder unvollständige Recherchequelle")
+                if item["url"] in seen_source_urls:
+                    raise OrbitError("Wikipedia-Quelle doppelt im Recherchebericht")
+                seen_source_urls.add(item["url"])
             report_json=json.dumps(report,ensure_ascii=False)
             if len(report_json.encode("utf8"))>10000:
                 raise OrbitError("Recherchebericht überschreitet das Speicherlimit")
