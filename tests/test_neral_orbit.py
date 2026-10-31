@@ -73,6 +73,41 @@ class OrbitStorageTests(unittest.TestCase):
             self.store.create(kind="coding",title="Extra",goal="Cannot create unlimited tasks.")
         self.assertEqual(len(self.store.list()),40)
 
+
+    def test_cancelled_tasks_can_be_explicitly_archived_to_reclaim_capacity(self):
+        for i in range(40):
+            self.store.create(kind="coding",title=f"Task {i:02d}",goal="Create a safe reviewable draft.")
+        self.assertEqual(len(self.store.list()),40)
+        with self.assertRaises(OrbitError):
+            self.store.create(kind="coding",title="Task 41",goal="Create a new task after archive.")
+        first=self.store.list()[0]
+        with self.assertRaises(OrbitError):
+            self.store.transition(first["id"],"archive",revision=1)
+        cancelled=self.store.transition(first["id"],"cancel",revision=1)
+        with self.assertRaises(OrbitError):
+            self.store.transition(first["id"],"archive",revision=1)
+        archived=self.store.transition(first["id"],"archive",revision=cancelled["revision"])
+        self.assertEqual(archived["status"],"ARCHIVED")
+        self.assertEqual(archived["revision"],3)
+        self.assertEqual(archived["execution_enabled"],False)
+        self.assertEqual(self.store.get(first["id"])["status"],"ARCHIVED")
+        self.assertEqual(len(self.store.list()),39)
+        new=self.store.create(kind="monitor",title="Neue Aufgabe",goal="Review the next safety event.")
+        self.assertEqual(new["status"],"DRAFT")
+        self.assertEqual(len(self.store.list()),40)
+        with self.assertRaises(OrbitError):
+            self.store.transition(first["id"],"approve",revision=3)
+        self.assertEqual(OrbitStore(self.db).get(first["id"])["status"],"ARCHIVED")
+
+    def test_archiving_cannot_touch_approved_or_unknown_records(self):
+        t=self.store.create(kind="research",title="Read only",goal="Inspect sources without execution.")
+        self.store.transition(t["id"],"approve",revision=1)
+        with self.assertRaises(OrbitError):
+            self.store.transition(t["id"],"archive",revision=2)
+        with self.assertRaises(OrbitError):
+            self.store.transition("0"*32,"archive",revision=1)
+        self.assertEqual(self.store.get(t["id"])["status"],"APPROVED_NO_EXECUTOR")
+
     def test_no_new_tables_are_exec_or_scheduler_credentials(self):
         with sqlite3.connect(self.db) as conn:
             ddl="\n".join(row[0] for row in conn.execute(
