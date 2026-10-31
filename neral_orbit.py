@@ -1,6 +1,7 @@
 """NERAL Orbit v0 – local-only, human-controlled drafts for future agent work.
 
 No timers, network, model inference, code execution, auto PRs or cloud workers.
+Cancelled tasks can be explicitly archived without destroying their history.
 Approval records the operator's intent but NEVER starts execution.
 """
 from __future__ import annotations
@@ -85,7 +86,7 @@ class OrbitStore:
     def list(self):
         with self._lock,self._open() as conn:
             return [_render(row) for row in conn.execute(
-                "SELECT * FROM orbit_tasks ORDER BY created_at DESC,id DESC LIMIT ?",(LIMIT,))]
+                "SELECT * FROM orbit_tasks WHERE status != 'ARCHIVED' ORDER BY created_at DESC,id DESC LIMIT ?",(LIMIT,))]
 
     def get(self,task_id):
         if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
@@ -104,7 +105,7 @@ class OrbitStore:
         at=_now()
         with self._lock,self._open() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            if conn.execute("SELECT count(*) FROM orbit_tasks").fetchone()[0]>=LIMIT:
+            if conn.execute("SELECT count(*) FROM orbit_tasks WHERE status != 'ARCHIVED'").fetchone()[0]>=LIMIT:
                 raise OrbitError("Maximal 40 Aufträge; alte Aufgaben zuerst löschen (in v0 kein Löschen verfügbar)")
             conn.execute("INSERT INTO orbit_tasks VALUES (?,?,?,?,?,?,?,?)",
                          (ident,kind,title,goal,"DRAFT",1,at,at))
@@ -113,8 +114,8 @@ class OrbitStore:
     def transition(self,task_id,action,*,revision):
         if type(revision) is not int or revision<1:
             raise OrbitError("Revision muss eine positive ganze Zahl sein")
-        if action not in ("approve","cancel"):
-            raise OrbitError("Nur explizites Freigeben und Abbrechen sind erlaubt")
+        if action not in ("approve","cancel","archive"):
+            raise OrbitError("Nur explizites Freigeben, Abbrechen und Archivieren sind erlaubt")
         if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
             raise OrbitError("Unbekannter Auftrag")
         with self._lock,self._open() as conn:
@@ -126,6 +127,9 @@ class OrbitStore:
                 status="APPROVED_NO_EXECUTOR"
             elif action=="cancel" and row["status"] in ("DRAFT","APPROVED_NO_EXECUTOR"):
                 status="CANCELLED"
+            elif action=="archive" and row["status"]=="CANCELLED":
+                # Preserve history; never silently remove any DB row.
+                status="ARCHIVED"
             else:raise OrbitError("Unzulässiger Statuswechsel")
             conn.execute("UPDATE orbit_tasks SET status=?, revision=revision+1, updated_at=? WHERE id=?",
                          (status,_now(),task_id))
