@@ -42,6 +42,29 @@ personenbezogene Informationen. API-Nutzung und Wikipedia-Inhalte
 unterliegen den Regeln/Lizenzen von Wikimedia. Der HTTP-Client identifiziert
 sich ausdrücklich als OrbitBot mit Repo-URL als Kontakt.
 
+## Reale Agentenfortschritte und Berichtsexport
+
+Die vier Schritte des lokalen `research`-Auftrags zeigen nun
+`NOT_STARTED`, `APPROVED`, `IN_PROGRESS`, `COMPLETED`,
+`FAILED` oder `NEEDS_REVIEW` entsprechend dem gespeicherten
+SQLite-Zustand. Auch nach `Bericht gelesen` bleibt die unabhängige
+Quellenprüfung als `NEEDS_REVIEW` sichtbar. Das ist bewusst keine
+Behauptung, dass Wikipedia-Aussagen durch die KI verifiziert wurden.
+
+Ein erfolgreich gespeicherter Quellenbericht ist im lokalen
+Orbit-Aufgabenfenster als **JSON herunterladbar**.
+`GET /api/orbit/tasks/<id>/report` verlangt dieselbe lokale Sitzung
+wie der Rest der App, löst **keinen neuen Abruf** aus, setzt
+`Cache-Control: no-store` und steht auch für später archivierte
+Rechercheberichte zur Verfügung. Fehlerhafte oder noch nicht
+ausgeführte Aufträge besitzen keinen herunterladbaren Quellenbericht.
+
+Schon beim **Erstellen** eines `research`-Auftrags begrenzt Orbit die
+Recherchefrage auf **200 Zeichen**, passend zum einzigen realen
+Wikipedia-Worker. `coding` und `monitor` bleiben unverändert
+Prototypen ohne aktiven Executor; ihre Pläne sind ausdrücklich
+nicht als ausgeführt gekennzeichnet.
+
 ## Lokal nach einer späteren Code-Freigabe
 
 Bei einer lokal gestarteten Helios-App, aus dem *reviewten*
