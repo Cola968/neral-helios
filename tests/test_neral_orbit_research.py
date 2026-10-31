@@ -119,6 +119,12 @@ class ResearchPersistenceTests(unittest.TestCase):
             self.store.begin_research(task["id"],revision=completed["revision"])
         with self.assertRaises(OrbitError):
             self.store.transition(task["id"],"archive",revision=completed["revision"])
+        reviewed=self.store.transition(task["id"],"review",revision=completed["revision"])
+        self.assertEqual(reviewed["status"],"REVIEWED")
+        self.assertEqual(len(reviewed["report"]["sources"]),2)
+        archived=self.store.transition(task["id"],"archive",revision=reviewed["revision"])
+        self.assertEqual(archived["status"],"ARCHIVED")
+        self.assertEqual(len(OrbitStore(self.path).list(archived=True)[0]["report"]["sources"]),2)
 
     def test_network_failure_is_saved_for_review_not_fake_completed(self):
         task=self.store.create(kind="research",title="Sterne recherchieren",
@@ -132,6 +138,18 @@ class ResearchPersistenceTests(unittest.TestCase):
         self.assertFalse(failed["execution_enabled"])
         self.assertEqual(failed["error"],"Öffentliche Quelle nicht erreichbar.")
         self.assertEqual(OrbitStore(self.path).get(task["id"])["error"],failed["error"])
+
+    
+    def test_untrusted_results_cannot_persist_external_links(self):
+        task=self.store.create(kind="research",title="External guard",
+                               goal="Berlin Wikipedia research")
+        self.store.transition(task["id"],"approve",revision=1)
+        running=self.store.begin_research(task["id"],revision=2)
+        forged=run_public_research("Berlin",transport=lambda _:example_api())
+        forged["sources"][0]["url"]="http://127.0.0.1:8080/private"
+        with self.assertRaises(OrbitError):
+            self.store.finish_research(task["id"],revision=running["revision"],report=forged)
+        self.assertEqual(self.store.get(task["id"])["status"],"RESEARCH_RUNNING")
 
     def test_second_worker_cannot_steal_existing_job_and_optimistic_finish(self):
         task=self.store.create(kind="research",title="Staatsbibliothek",
