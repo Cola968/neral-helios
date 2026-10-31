@@ -12,7 +12,7 @@
 <section class="hero"><div class="eyebrow">DEIN PROJEKTRAUM</div>
 <h1>Orbit<span class="mark">.</span></h1>
 <p>Behalte Coding-Aufgaben, Recherchen und Beobachtungswünsche an einem Ort. Erstelle einen Plan, bevor du etwas ausführst.</p>
-<div class="notice"><strong>Lokaler Prototyp.</strong> Orbit speichert heute nur Entwürfe, Freigaben, Abbrüche und archivierte Aufträge. Es gibt noch keine automatische Ausführung, keinen Cloud-Computer und keine laufenden Hintergrundaufgaben.</div>
+<div class="notice"><strong>Lokaler Prototyp.</strong> Orbit führt ausschließlich einzeln bestätigte Wikipedia-Recherchen aus. Andere Agenten-Aufträge bleiben Entwürfe. Keine KI-Zusammenfassung, keine automatischen Hintergrundläufe und keine Cloud-Ausführung. Es gibt noch keine automatische Ausführung, keinen Cloud-Computer und keine laufenden Hintergrundaufgaben.</div>
 </section>
 <section class="columns">
 <div class="panel"><h2>Neuer Auftrag</h2>
@@ -20,7 +20,7 @@
 <label for="kind">Art des Auftrags</label>
 <select id="kind" name="kind"><option value="coding">Programmieren</option><option value="research">Recherche</option><option value="monitor">Beobachten</option></select>
 <label for="title">Titel</label><input id="title" name="title" required minlength="3" maxlength="120" placeholder="Zum Beispiel: NERAL verbessern">
-<label for="goal">Was möchtest du erreichen?</label><textarea id="goal" name="goal" required minlength="8" maxlength="1200" rows="5" placeholder="Beschreibe Ziel und gewünschtes Ergebnis."></textarea>
+<label for="goal">Was möchtest du erreichen?</label><textarea id="goal" name="goal" required minlength="8" maxlength="1200" rows="5" placeholder="Für Recherche: kurze Suchfrage, höchstens 200 Zeichen."></textarea>
 <button type="submit" id="create">Entwurf erstellen</button>
 </form>
 <p id="status" class="status" role="status" aria-live="polite"></p>
