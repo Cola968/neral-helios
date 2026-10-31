@@ -109,7 +109,7 @@ class OrbitStore:
         with self._lock,self._open() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("SELECT count(*) FROM orbit_tasks WHERE status != 'ARCHIVED'").fetchone()[0]>=LIMIT:
-                raise OrbitError("Maximal 40 Aufträge; alte Aufgaben zuerst löschen (in v0 kein Löschen verfügbar)")
+                raise OrbitError("Maximal 40 aktive Aufträge; abgebrochene Aufgaben zuerst archivieren.")
             conn.execute("INSERT INTO orbit_tasks VALUES (?,?,?,?,?,?,?,?)",
                          (ident,kind,title,goal,"DRAFT",1,at,at))
         return self.get(ident)
