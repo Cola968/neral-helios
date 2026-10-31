@@ -1,0 +1,57 @@
+# A PC-free, explicitly approved ONE-SHOT research test. This file stays Draft
+# and cannot be run from the Actions UI until reviewed and present on default.
+name: NERAL Orbit – manual encyclopedia research
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Public Wikipedia search question (3–200 characters; never enter secrets)'
+        required: true
+        type: string
+      confirm_public_query:
+        description: 'I explicitly allow sending this public query to Wikipedia'
+        required: true
+        type: choice
+        options:
+          - 'NO'
+          - 'YES'
+        default: 'NO'
+permissions:
+  contents: read
+concurrency:
+  group: orbit-manual-research-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  research:
+    if: ${{ inputs.confirm_public_query == 'YES' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      NERAL_ORBIT_CONFIRM: ${{ inputs.confirm_public_query }}
+      NERAL_ORBIT_QUERY: ${{ inputs.query }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run one approved bounded Wikipedia query and save evidence
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from neral_orbit_research import run_public_research
+          if os.environ.get("NERAL_ORBIT_CONFIRM") != "YES":
+              raise SystemExit("Explicit research confirmation missing")
+          result = run_public_research(os.environ["NERAL_ORBIT_QUERY"])
+          Path("orbit-research-report.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2),
+              encoding="utf8")
+          print("One bounded public research result saved for human review.")
+          PY
+      - name: Preserve result for 1 day (contains the explicitly public query)
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-orbit-research-report
+          path: orbit-research-report.json
+          retention-days: 1
+          if-no-files-found: error
