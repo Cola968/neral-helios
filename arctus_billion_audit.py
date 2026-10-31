@@ -306,6 +306,9 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
         "cross_split_exact_duplicate_pairs": counters["cross_split_exact_duplicate_pairs"],
         "train_evaluation_exact_pairs": counters["train_evaluation_exact_pairs"],
         "train_evaluation_near_pairs": counters["train_evaluation_near_pairs"],
+        "train_evaluation_leak_detected": bool(
+            counters["train_evaluation_exact_pairs"] or
+            counters["train_evaluation_near_pairs"]),
         "cross_split_near_duplicate_pairs": counters["cross_split_near_duplicate_pairs"],
         "within_split_near_duplicate_pairs": counters["within_split_near_duplicate_pairs"],
         "example_pairs": example_pairs,
