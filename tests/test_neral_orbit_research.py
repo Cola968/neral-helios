@@ -87,6 +87,15 @@ class ResearchWorkerTests(unittest.TestCase):
         with self.assertRaises(ResearchError):
             run_public_research("x"*260,transport=lambda _:example_api())
 
+
+    def test_duplicate_page_ids_cannot_inflate_independent_source_count(self):
+        duplicated={"query":{"pages":[
+            {"pageid":44,"title":"Berliner Flughafen","extract":"Erste Quelle."},
+            {"pageid":44,"title":"Berliner Flughafen","extract":"Derselbe Artikel."},
+        ]}}
+        with self.assertRaisesRegex(ResearchError,"doppelt|Quelle"):
+            run_public_research("Flughafen Berlin",transport=lambda _:duplicated)
+
     def test_network_failure_does_not_claim_success(self):
         def transport(_):
             raise TimeoutError("network unavailable")
