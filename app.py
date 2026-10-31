@@ -20,6 +20,7 @@ from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
 from neral_orbit import OrbitStore, OrbitError, OrbitConflict
+from neral_orbit_research import run_public_research, ResearchError
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -41,7 +42,7 @@ try:os.chmod(STATE/'gateway-token',0o600)
 except OSError:pass
 project_store=ProjectStore(STATE/'projects.sqlite3')
 chat_store=ChatStore(STATE/'chats.sqlite3')
-# Orbit only stores local task drafts, never schedules or executes any work.
+# Orbit stores local task drafts; research execution requires separate explicit approval+launch.
 orbit_store=OrbitStore(STATE/'orbit.sqlite3')
 ORBIT_ENABLED=os.environ.get('HELIOS_ORBIT_ENABLED')=='1'
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
@@ -229,6 +230,32 @@ def orbit_transition(task_id):
         return jsonify(task=updated)
     except OrbitConflict as exc:return jsonify(error=str(exc)),409
     except OrbitError as exc:return jsonify(error=str(exc)),400
+
+@app.post('/api/orbit/tasks/<task_id>/run-research')
+def orbit_run_research(task_id):
+    # One deliberate manual request. No timers, auto-jobs, remote shells,
+    # arbitrary URLs, AI model calls, payments, or unattended execution.
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit ist nicht aktiviert.'),404
+    data,error=body()
+    if error:return error
+    if data.get('confirm') is not True:
+        return jsonify(error='Ausdrückliche Bestätigung für die einmalige öffentliche Recherche fehlt.'),400
+    try:
+        task=orbit_store.begin_research(task_id,revision=data.get('revision'))
+    except OrbitConflict as exc:return jsonify(error=str(exc)),409
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+    try:
+        report=run_public_research(task['goal'])
+    except ResearchError as exc:
+        failed=orbit_store.finish_research(task_id,revision=task['revision'],error=str(exc)[:160])
+        return jsonify(error=str(exc),task=failed),502
+    except Exception:
+        failed=orbit_store.finish_research(
+            task_id,revision=task['revision'],
+            error='Unbekannter Recherchefehler. Kein Ergebnis wurde erfunden.')
+        return jsonify(error=failed['error'],task=failed),502
+    result=orbit_store.finish_research(task_id,revision=task['revision'],report=report)
+    return jsonify(task=result,source_review_required=True)
 
 @app.get('/manifest.webmanifest')
 def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',mimetype='application/manifest+json')
