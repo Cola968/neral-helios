@@ -22,6 +22,11 @@ _USER_AGENT = "NERALOrbitResearchBot/0.1 (https://github.com/Cola968) Python-url
 _MAX_RESPONSE_BYTES = 96 * 1024
 _MAX_QUERY_CHARS = 200
 _MAX_SOURCES = 3
+_PRIVATE_QUERY_RE = re.compile(
+    r"(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_-]{16,}|"
+    r"gh[pousr]_[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9_-]{16,}|"
+    r"-----BEGIN[^\\r\\n]{0,60}PRIVATE KEY|"
+    r"[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,})", re.IGNORECASE)
 
 
 class ResearchError(ValueError):
@@ -60,15 +65,20 @@ def _fetch_wikipedia(url: str) -> dict:
         raise ResearchError("Wikipedia ist nicht erreichbar oder lieferte ungültige Daten.") from exc
 
 
-def run_public_research(goal: str, *, transport=None) -> dict:
-    """Look up a *bounded* encyclopedic query and persistable source excerpts.
-
-    transport is test-injectable, so CI never calls real external services.
-    """
+def validate_public_query(goal: str) -> str:
+    """Fail closed before disclosure of private/credential-like search terms."""
     if (not isinstance(goal, str) or not 3 <= len(goal.strip()) <= _MAX_QUERY_CHARS
             or any(ord(ch) < 32 or ord(ch) == 127 for ch in goal)):
         raise ResearchError("Recherchefrage muss 3 bis 200 Zeichen ohne Steuerzeichen haben.")
     query = goal.strip()
+    if _PRIVATE_QUERY_RE.search(query):
+        raise ResearchError("Recherchefrage enthält mögliche Zugangsdaten oder private Kontaktinformationen.")
+    return query
+
+
+def run_public_research(goal: str, *, transport=None) -> dict:
+    """Look up bounded encyclopedic text; never send secrets or credentials."""
+    query = validate_public_query(goal)
     options = {
         "action": "query", "generator": "search",
         "gsrsearch": query, "gsrnamespace": "0", "gsrlimit": str(_MAX_SOURCES),
