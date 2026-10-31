@@ -310,6 +310,10 @@ def main(argv=None):
         return 0
     result = audit_corpus(args.corpus, max_example_pairs=args.sample_limit)
     if args.report is not None:
+        # The audit must not modify its source corpus, even through a
+        # symlinked path that looks external to the input directory.
+        if args.report.resolve().is_relative_to(args.corpus.resolve()):
+            raise ValueError("Audit report must be stored outside the source corpus")
         with args.report.open("x", encoding="utf8") as dest:
             json.dump(result, dest, ensure_ascii=False, indent=2)
     print(json.dumps(result, ensure_ascii=False, indent=2))
