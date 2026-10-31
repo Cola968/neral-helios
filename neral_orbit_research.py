@@ -134,7 +134,29 @@ def main(argv=None):
     parser.add_argument("--out", type=Path, help="NEW JSON report file; will not overwrite")
     parser.add_argument("--confirm-public", action="store_true",
                         help="Explicitly allow sending the search query to Wikipedia once")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Offline synthetic worker test: no network, file or GPU")
     a=parser.parse_args(argv)
+    if a.self_test:
+        if a.query is not None or a.out is not None or a.confirm_public:
+            parser.error("--self-test cannot be combined with public queries or output paths")
+        example={"query":{"pages":[
+            {"pageid":42,"title":"NERAL offline probe",
+             "extract":"Synthetischer Text für die Offline-Funktionsprüfung."}
+        ]}}
+        report=run_public_research(
+            "NERAL offline probe",transport=lambda url: example)
+        if (report.get("source_count")!=1 or
+                report["sources"][0]["url"]!="https://de.wikipedia.org/?curid=42" or
+                report["model_used"] is not False):
+            raise ResearchError("Offline-Quellenvertrag fehlgeschlagen")
+        print(json.dumps({
+            "state":"PASS_OFFLINE",
+            "source_count":report["source_count"],
+            "network_used":False, "gpu_used":False,
+            "model_used":False, "filesystem_written":False,
+        },ensure_ascii=False,indent=2))
+        return 0
     if not a.query and not a.out and not a.confirm_public:
         print(json.dumps({
             "state":"NO_NETWORK",
