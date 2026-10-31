@@ -58,6 +58,42 @@ lokale Session/Origin-Schutzmaßnahmen, JSON `{"revision":2,"confirm":true}`
 und eine vorherige Freigabe. Dieser Befehl setzt keine PC-GPU voraus,
 braucht für den lokalen HTTP-Server jedoch einen laufenden Rechner.
 
+## Schon als Code nutzbar: eigenständiger Android-/Termux-Modus
+
+Der reine Python-Worker benötigt **keine Helios-App, kein PyTorch,
+keine Modellgewichte und keine GPU**. Auf einem Android-Gerät mit einer
+selbst gewählten Python-Umgebung (beispielsweise Termux) kann die Datei
+`neral_orbit_research.py` aus **diesem Draft-Branch** eigenständig
+ausgeführt werden, nachdem sie auf das Gerät kopiert wurde.
+
+```bash
+python neral_orbit_research.py
+# read-only Plan, kein Netzwerk
+python neral_orbit_research.py --query "Flughafen Berlin Brandenburg" \
+  --out ./orbit-ber-report.json --confirm-public
+```
+
+Dabei wird **einmalig** eine öffentliche Suchfrage an Wikimedia
+gesendet. Die Ausgabe ist eine neue, bereits lokal vorhandene
+Verzeichnisdatei im JSON-Format mit bis zu drei verlinkten
+Quellenauszügen. Vorhandene Ausgaben werden niemals überschrieben.
+Unterstützt die Android-Python-Umgebung HTTPS und Dateizugriff,
+kann das unabhängig von einem eingeschalteten PC funktionieren.
+
+**Keine Freigabe zum Teilen privater Daten:** Suche nie nach
+Passwörtern, Zugangstokens, privaten E-Mail-Adressen oder
+Dokumentinhalten. Ein zusätzlicher Filter blockiert typische
+Token- und E-Mail-Muster bereits vor jeder Anfrage. Er ist
+nicht vollständig und ersetzt keine bewusste Eingabeprüfung.
+
+Der mobile Kommandozeilenmodus ist **separat** vom lokalen
+Flask-/SQLite-Agenten-Board. Sein Bericht wird nur auf dem
+Telefon gespeichert; er synchronisiert **nicht** automatisch in Orbit
+oder GitHub. Eine getestete Android-Installation bzw. ein realer
+Wikipedia-Netzwerkabruf liegt noch **nicht** vor.
+
+---
+
 ## Später vom Handy ohne eingeschalteten PC
 
 `.github/workflows/neral-orbit-manual-research.yml` implementiert
