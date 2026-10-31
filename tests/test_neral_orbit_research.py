@@ -320,3 +320,55 @@ class ManualCloudDispatchContractTests(unittest.TestCase):
         self.assertNotIn("secrets.",data)
         self.assertNotIn("workflow_run:",data)
         self.assertNotIn("contents: write",data)
+
+
+class StandaloneMobileResearchTests(unittest.TestCase):
+    """The one-shot client must be callable without Flask, torch or a PC."""
+
+    def test_cli_does_nothing_without_explicit_confirmation(self):
+        from neral_orbit_research import main as cli
+        from contextlib import redirect_stdout
+        from io import StringIO
+        output=StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(cli([]),0)
+        self.assertIn("NO_NETWORK",output.getvalue())
+        with self.assertRaises(SystemExit):
+            cli(["--query","Flughafen Berlin Brandenburg","--out","report.json"])
+
+    def test_cli_writes_attributed_report_once_without_network_in_unit_test(self):
+        from neral_orbit_research import main as cli
+        from contextlib import redirect_stdout
+        from io import StringIO
+        with TemporaryDirectory() as folder:
+            output=Path(folder)/"review.json"
+            fake=run_public_research("Flughafen Berlin Brandenburg",
+                                     transport=lambda _:example_api())
+            with patch("neral_orbit_research.run_public_research",return_value=fake) as lookup:
+                with redirect_stdout(StringIO()):
+                    self.assertEqual(cli(["--confirm-public","--query",
+                        "Flughafen Berlin Brandenburg","--out",str(output)]),0)
+                lookup.assert_called_once_with("Flughafen Berlin Brandenburg")
+            self.assertTrue(output.is_file())
+            data=json.loads(output.read_text(encoding="utf8"))
+            self.assertEqual(data["source_count"],2)
+            self.assertEqual(data["sources"][0]["url"],"https://de.wikipedia.org/?curid=373")
+            with patch("neral_orbit_research.run_public_research") as lookup:
+                with self.assertRaises(FileExistsError):
+                    cli(["--confirm-public","--query",
+                         "Flughafen Berlin Brandenburg","--out",str(output)])
+                lookup.assert_not_called()
+
+    def test_mobile_cli_rejects_sensitive_query_before_remote_lookup(self):
+        from neral_orbit_research import main as cli
+        with TemporaryDirectory() as folder:
+            output=Path(folder)/"review.json"
+            with patch("neral_orbit_research.run_public_research") as lookup:
+                with self.assertRaises(ResearchError):
+                    cli(["--confirm-public",
+                         "--query","Suche sk-abcdefghijklmnopqrstuv1234567890 bitte",
+                         "--out",str(output)])
+                lookup.assert_not_called()
+                self.assertFalse(output.exists())
+
+
