@@ -154,8 +154,25 @@ def main(argv=None):
                 report["sources"][0]["url"]!="https://de.wikipedia.org/?curid=42" or
                 report["model_used"] is not False):
             raise ResearchError("Offline-Quellenvertrag fehlgeschlagen")
+        checks_passed=1
+        # Check the privacy barrier without contacting any provider.
+        try:
+            validate_public_query("sk-"+"x"*25)
+        except ResearchError:
+            checks_passed+=1
+        else:
+            raise ResearchError("Offline-Test: Datenschutzprüfung versagte")
+        # A repeated encyclopedia page is one source, never two.
+        duplicate={"query":{"pages":[example["query"]["pages"][0]]*2}}
+        try:
+            run_public_research("NERAL offline probe",transport=lambda _:duplicate)
+        except ResearchError:
+            checks_passed+=1
+        else:
+            raise ResearchError("Offline-Test: doppelte Quelle akzeptiert")
         print(json.dumps({
             "state":"PASS_OFFLINE",
+            "checks_passed":checks_passed,
             "source_count":report["source_count"],
             "network_used":False, "gpu_used":False,
             "model_used":False, "filesystem_written":False,
