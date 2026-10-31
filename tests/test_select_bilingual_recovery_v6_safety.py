@@ -23,16 +23,18 @@ def fixtures(tmp_path, *, baseline_overall=45.0, holdout_overall=47.0,
              include_loss=True, sha=SHA):
     baseline = {
         "suite": SUITE, "cases_sha256": SHA,
+        "cases": 400,
         "overall_accuracy_pct": baseline_overall,
-        "directions": {"de_to_en": {"accuracy_pct": 40.0},
-                       "en_to_de": {"accuracy_pct": 50.0}},
+        "directions": {"de_to_en": {"accuracy_pct": 40.0, "correct":80, "total":200},
+                       "en_to_de": {"accuracy_pct": 50.0, "correct":100, "total":200}},
     }
     holdout = {
         "suite": SUITE, "cases_sha256": sha,
+        "cases":400,
         "overall_accuracy_pct": holdout_overall,
         "directions": holdout_directions or {
-            "de_to_en": {"accuracy_pct": 41.0},
-            "en_to_de": {"accuracy_pct": 51.0}},
+            "de_to_en": {"accuracy_pct": 44.0, "correct":88, "total":200},
+            "en_to_de": {"accuracy_pct": 50.0, "correct":100, "total":200}},
     }
     candidate = {
         "overall_accuracy_pct": 60.0,
@@ -141,3 +143,56 @@ def test_bilingual_gpu_evaluator_uses_existing_safe_checkpoint_loader():
     assert "from secure_checkpoint350 import load_checkpoint" in source
     assert "ck = load_checkpoint(args.checkpoint)" in source
     assert "weights_only=False" not in source
+
+
+
+def test_forged_holdout_percentage_without_matching_correct_counts_rejected(tmp_path):
+    out=fixtures(tmp_path,holdout_overall=90.0)
+    result=choose(tmp_path,out)
+    assert result["selected"] is None
+    assert result["selection_allowed"] is False
+    assert "invalid_holdout_metric" in result["candidates"][0]["failures"]
+
+
+def test_corrupt_direction_counts_rejected_even_with_finite_percentages(tmp_path):
+    out=fixtures(tmp_path)
+    path=tmp_path/"holdout.json"
+    report=json.loads(path.read_text())
+    report["directions"]["de_to_en"]["correct"]=201
+    path.write_text(json.dumps(report))
+    result=choose(tmp_path,out)
+    assert result["selected"] is None
+    assert "invalid_holdout_metric" in result["candidates"][0]["failures"]
+
+
+def test_missing_case_counts_on_candidate_fail_closed(tmp_path):
+    out=fixtures(tmp_path)
+    path=tmp_path/"holdout.json"
+    report=json.loads(path.read_text())
+    report.pop("cases")
+    path.write_text(json.dumps(report))
+    result=choose(tmp_path,out)
+    assert result["selected"] is None
+    assert "invalid_holdout_metric" in result["candidates"][0]["failures"]
+
+
+def test_wrong_total_holdout_cases_or_unbalanced_directions_rejected(tmp_path):
+    out=fixtures(tmp_path)
+    path=tmp_path/"holdout.json"
+    report=json.loads(path.read_text())
+    report["directions"]["de_to_en"]["total"]=201
+    path.write_text(json.dumps(report))
+    result=choose(tmp_path,out)
+    assert result["selected"] is None
+    assert "invalid_holdout_metric" in result["candidates"][0]["failures"]
+
+
+def test_baseline_must_reconcile_case_counts(tmp_path):
+    out=fixtures(tmp_path)
+    path=tmp_path/"baseline.json"
+    report=json.loads(path.read_text())
+    report["directions"]["de_to_en"]["correct"]=199
+    path.write_text(json.dumps(report))
+    with pytest.raises(RuntimeError,match="baseline"):
+        choose(tmp_path,out)
+    assert not out.exists()
