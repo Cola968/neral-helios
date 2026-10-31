@@ -101,6 +101,7 @@ def run_public_research(goal: str, *, transport=None) -> dict:
     if not isinstance(pages, list) or not 1 <= len(pages) <= _MAX_SOURCES:
         raise ResearchError("Keine auswertbaren öffentlichen Treffer gefunden.")
     results = []
+    seen_page_ids = set()
     for row in pages:
         if not isinstance(row, dict):
             raise ResearchError("Ungültiger Quellen-Eintrag.")
@@ -110,6 +111,9 @@ def run_public_research(goal: str, *, transport=None) -> dict:
                 or not isinstance(excerpt, str) or not excerpt.strip()
                 or any(ord(ch) < 32 or ord(ch) == 127 for ch in title)):
             raise ResearchError("Ungültiger Quellen-Eintrag.")
+        if page_id in seen_page_ids:
+            raise ResearchError("Wikipedia lieferte eine Quelle doppelt.")
+        seen_page_ids.add(page_id)
         # No user-supplied destination. Page ID links are built on a pinned host.
         results.append({
             "title": title,
