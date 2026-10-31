@@ -44,3 +44,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Offline selector contract failed' }
           & $p -m pytest -q tests/test_vast4090_guard.py tests/test_vast4090_transfer.py tests/test_select_bilingual_recovery_v6_safety.py tests/test_arctus_selector_stdlib_selftest.py
           if ($LASTEXITCODE -ne 0) { throw 'Native Arctus CPU safety tests failed' }
+
+# Follow-up: rerun the 56-case offline Arctus safety suite after Windows fixture fixes.
