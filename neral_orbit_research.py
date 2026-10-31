@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 _HOST = "de.wikipedia.org"
 _API = "https://de.wikipedia.org/w/api.php"
-_USER_AGENT = "NERALOrbitResearchBot/0.1 (https://github.com/Cola968/neral-helios) Python-urllib"
+_USER_AGENT = "NERALOrbitResearchBot/0.1 (https://github.com/Cola968) Python-urllib"
 _MAX_RESPONSE_BYTES = 96 * 1024
 _MAX_QUERY_CHARS = 200
 _MAX_SOURCES = 3
