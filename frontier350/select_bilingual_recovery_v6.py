@@ -125,7 +125,7 @@ def main() -> None:
         row["validation_loss"],-row["holdout_overall_accuracy_pct"],row["name"]))
     selected=passing[0]["name"] if passing else None
     result={
-        "schema":2,
+        "schema":1,
         "purpose":"development-only V6 cross-lingual recovery selection",
         "baseline_holdout_overall_accuracy_pct":base_overall,
         "baseline_holdout_directions":base_dirs,
