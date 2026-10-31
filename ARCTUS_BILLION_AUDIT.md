@@ -42,11 +42,11 @@ python arctus_billion_audit.py \
 ```
 
 The report includes manifest SHA-256, total examined documents,
-duplicate statistics (exact, within split, across training/validation),
+duplicate statistics (exact, within split, across train/val/test/holdout),
 and an explicit `training_ready: false` result even if no duplicates
 are found. It now also includes **up to 20 actionable `example_pairs`**
-with the original and duplicate `train-*.jsonl` / `valid-*.jsonl`
-filename and 1-based row number. No raw document text, URLs or
+with the original and duplicate shard names (`train-*.jsonl`, `val-*.jsonl`,
+`test-*.jsonl` or `holdout-*.jsonl`) and 1-based row numbers. No raw document text, URLs or
 source row IDs are copied into the report. Set `--sample-limit 100` to
 inspect more cases (hard maximum 1,000, to bound output).
 
@@ -65,9 +65,12 @@ not an estimate of future corpus size.
 - The existing staged `manifest.json` must be schema version 1,
   `NERAL-16K-BPE`, `trained_tokens=0`, `training_started=false`,
   `data_is_training_ready=false`.
-- Every `train-*.jsonl` and `valid-*.jsonl` shard must be listed
+- Every `train-*.jsonl`, `val-*.jsonl`, `test-*.jsonl` and
+  `holdout-*.jsonl` shard produced by the existing builder must be listed
   exactly once with a valid path, SHA-256 and byte/token/document counts.
-  Global train/valid token totals must also reconcile with the manifest.
+  Legacy `valid-*.jsonl` shards remain supported for compatibility, but
+  `val` and `valid` may not coexist in one corpus. Every partition's token
+  totals must reconcile with the original manifest.
 - Source license, revision, language and domain must match the pinned
   manifest entries; normalized text SHA-256 must match the actual row.
 - Disk-backed SQLite stores the digest + 64-bit word-trigram SimHash;
