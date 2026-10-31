@@ -131,3 +131,13 @@ def test_missing_baseline_direction_set_is_invalid(tmp_path):
     with pytest.raises(RuntimeError,match="baseline"):
         choose(tmp_path,out)
     assert not out.exists()
+
+
+
+def test_bilingual_gpu_evaluator_uses_existing_safe_checkpoint_loader():
+    """Future GPU runs must not deserialize pickle with weights_only=False."""
+    source=(Path(__file__).resolve().parents[1] /
+            "frontier350" / "eval_bilingual_holdout_v1.py").read_text(encoding="utf8")
+    assert "from secure_checkpoint350 import load_checkpoint" in source
+    assert "ck = load_checkpoint(args.checkpoint)" in source
+    assert "weights_only=False" not in source
