@@ -45,6 +45,10 @@ chat_store=ChatStore(STATE/'chats.sqlite3')
 # Orbit stores local task drafts; research execution requires separate explicit approval+launch.
 orbit_store=OrbitStore(STATE/'orbit.sqlite3')
 ORBIT_ENABLED=os.environ.get('HELIOS_ORBIT_ENABLED')=='1'
+if ORBIT_ENABLED:
+    # Crash recovery only changes old local RUNNING records to FAILED.
+    # It never retries a network request or schedules a worker.
+    orbit_store.reconcile_stale_research(min_age_seconds=60)
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
 torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
