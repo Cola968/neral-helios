@@ -18,9 +18,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          clean: true
+          clean: false
       - name: Read-only Python syntax and synthetic research self-test
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
@@ -31,7 +31,7 @@ jobs:
           & $p neral_orbit_research.py --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Self-test failed' }
       - name: Actual Orbit SQLite, Flask and security regression tests
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
