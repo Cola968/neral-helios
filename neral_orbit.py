@@ -10,7 +10,7 @@ import re
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 CATEGORIES=("coding","research","monitor")
@@ -217,3 +217,33 @@ class OrbitStore:
             conn.execute("UPDATE orbit_tasks SET status=?,revision=revision+1,updated_at=? WHERE id=?",
                          (state,_now(),task_id))
         return self.get(task_id)
+
+    def reconcile_stale_research(self, *, min_age_seconds=60):
+        """Mark orphaned one-shot searches as failed; never retry or fabricate.
+
+        A lookup has a strict six-second network timeout. Use a generous
+        grace period to avoid interfering with a concurrently active request.
+        Intended for app startup; does not contact Wikimedia or schedule jobs.
+        """
+        if type(min_age_seconds) is not int or not 30 <= min_age_seconds <= 3600:
+            raise OrbitError("Ungültige Wiederherstellungsfrist")
+        cutoff=(datetime.now(timezone.utc)-timedelta(
+            seconds=min_age_seconds)).isoformat(timespec="seconds")
+        with self._lock,self._open() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows=conn.execute(
+                """SELECT id FROM orbit_tasks
+                   WHERE kind='research' AND status='RESEARCH_RUNNING'
+                     AND updated_at<?""",(cutoff,)).fetchall()
+            for row in rows:
+                conn.execute(
+                    """INSERT INTO orbit_research_reports(task_id,report_json,error_text)
+                       VALUES(?,NULL,?)
+                       ON CONFLICT(task_id) DO UPDATE SET
+                           report_json=NULL, error_text=excluded.error_text""",
+                    (row["id"],"Recherche unterbrochen. Kein Ergebnis; neuer Auftrag nötig."))
+                conn.execute(
+                    """UPDATE orbit_tasks SET status='RESEARCH_FAILED',
+                       revision=revision+1,updated_at=? WHERE id=?""",
+                    (_now(),row["id"]))
+        return len(rows)
