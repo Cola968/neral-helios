@@ -14,6 +14,7 @@ from tokenizers import Tokenizer
 from eval500m_diagnostic import conditional_mean_nll
 from model350 import FRONTIER_350, Neral350M
 from recovery_identity import file_sha
+from secure_checkpoint350 import load_checkpoint
 
 
 def main() -> None:
@@ -42,7 +43,7 @@ def main() -> None:
     if len(cases) != 400:
         raise RuntimeError(f"expected exactly 400 holdout cases, got {len(cases)}")
 
-    ck = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    ck = load_checkpoint(args.checkpoint)
     if ck.get("config") != FRONTIER_350.to_dict():
         raise RuntimeError("checkpoint architecture mismatch")
     processed = int(ck.get("processed_tokens", 0))
