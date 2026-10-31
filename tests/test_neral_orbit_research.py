@@ -52,6 +52,23 @@ class ResearchWorkerTests(unittest.TestCase):
         self.assertEqual(len(received),1)
         self.assertEqual(urlsplit(received[0]).netloc, "de.wikipedia.org")
 
+
+    def test_secret_and_private_email_queries_are_rejected_before_any_network(self):
+        for query in (
+            "Suche sk-abcdefghijklmnopqrstuv1234567890 bitte",
+            "Was steht bei github_pat_abcdefghijklmnop123456?",
+            "Personenbezogene Anfrage zu test.person@example.org",
+            "-----BEGIN PRIVATE KEY----- test",
+        ):
+            with self.subTest(query=query[:18]):
+                calls=[]
+                def transport(url):
+                    calls.append(url)
+                    return example_api()
+                with self.assertRaises(ResearchError):
+                    run_public_research(query,transport=transport)
+                self.assertEqual(calls,[])
+
     def test_untrusted_result_is_only_source_text_never_shell_or_llm_instructions(self):
         result=run_public_research("Aviation",transport=lambda _: {"query":{"pages":[
             {"pageid":1,"title":"<img src=x onerror=alert(1)>",
@@ -252,6 +269,22 @@ class ResearchFlaskTests(unittest.TestCase):
             self.assertEqual(len(response.json["task"]["report"]["sources"]),2)
             worker.assert_called_once_with(task["goal"])
             self.assertEqual(self.client.post(endpoint,json={"revision":4,"confirm":True}).status_code,400)
+
+
+    def test_flask_does_not_transmit_credential_like_approved_goal(self):
+        task=self.client.post("/api/orbit/tasks",json={
+            "kind":"research","title":"Vertraulichkeit",
+            "goal":"Suche sk-abcdefghijklmnopqrstuv1234567890 bitte"}).json["task"]
+        self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                         json={"action":"approve","revision":1})
+        endpoint=f'/api/orbit/tasks/{task["id"]}/run-research'
+        with patch.object(self.app,"run_public_research") as research:
+            response=self.client.post(endpoint,json={"revision":2,"confirm":True})
+            self.assertEqual(response.status_code,400)
+            research.assert_not_called()
+        current=self.app.orbit_store.get(task["id"])
+        self.assertEqual(current["status"],"APPROVED_NO_EXECUTOR")
+        self.assertIsNone(current["report"])
 
     def test_network_failure_records_status_and_denies_unauthenticated_requests(self):
         task=self._task()
