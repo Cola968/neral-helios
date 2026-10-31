@@ -14,6 +14,24 @@ class OrbitStorageTests(unittest.TestCase):
         self.db=Path(self.dir.name)/"orbit.sqlite3"
         self.store=OrbitStore(self.db)
 
+    def test_duplicate_wikipedia_source_urls_rejected_at_storage_boundary(self):
+        """A caller must not bypass worker deduplication by submitting a forged report."""
+        task=self.store.create(kind="research",title="Wikipedia-Quellen",
+                               goal="Untersuche die Geschichte des Berliner Flughafens.")
+        approved=self.store.transition(task["id"],"approve",revision=1)
+        running=self.store.begin_research(task["id"],revision=approved["revision"])
+        source={"url":"https://de.wikipedia.org/?curid=42",
+                "title":"Flughafen Berlin","excerpt":"Öffentlicher Text."}
+        report={"provider":"Wikipedia (de)","model_used":False,
+                "requires_review":True,"sources":[source,dict(source)],
+                "source_count":2}
+        with self.assertRaisesRegex(OrbitError,"doppelt|Quelle"):
+            self.store.finish_research(task["id"],revision=running["revision"],report=report)
+        unchanged=self.store.get(task["id"])
+        self.assertEqual(unchanged["status"],"RESEARCH_RUNNING")
+        self.assertIsNone(unchanged["report"])
+        self.assertEqual(unchanged["revision"],running["revision"])
+
     def test_draft_is_persistent_and_has_a_readable_4_stage_plan(self):
         t=self.store.create(kind="coding",title="NERAL verbessern",
                             goal="Behebe den Fehler und erstelle einen Draft-PR.")
