@@ -28,7 +28,7 @@ function taskCard(t){
     try{await call('/api/orbit/tasks/'+encodeURIComponent(t.id)+'/transition',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action,revision:t.revision})});
-      status(action==='approve'?'Freigabe gespeichert. Kein Worker wurde gestartet.':action==='archive'?'Abgebrochener Auftrag archiviert; Verlauf bleibt lokal gespeichert.':'Auftrag abgebrochen.');
+      status(action==='approve'?'Freigabe gespeichert. Noch keine Recherche gestartet.':action==='archive'?'Auftrag archiviert; Verlauf bleibt lokal gespeichert.':action==='review'?'Bericht als gelesen markiert.':'Auftrag abgebrochen.');
       await reload();
     }catch(err){status(err.message);await reload();}
   }
@@ -38,11 +38,49 @@ function taskCard(t){
   if(t.status==='DRAFT'||t.status==='APPROVED_NO_EXECUTOR'){
     const cancel=el('button','Abbrechen','danger');cancel.addEventListener('click',()=>act('cancel'));row.append(cancel);
   }
-  if(t.status==='CANCELLED'){
+  if(t.status==='APPROVED_NO_EXECUTOR'&&t.kind==='research'){
+    const run=el('button','Wikipedia-Recherche jetzt starten');
+    run.addEventListener('click',async ()=>{
+      if(!window.confirm('Öffentliche Recherchefrage einmalig an die Wikipedia senden? Noch kein KI-Modell oder Hintergrundagent.'))return;
+      run.disabled=true;
+      try{
+        const data=await call('/api/orbit/tasks/'+encodeURIComponent(t.id)+'/run-research',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({revision:t.revision,confirm:true})
+        });
+        status('Öffentliche Quellen abgerufen und für deine Prüfung gespeichert.');
+        await reload();
+      }catch(err){status(err.message);await reload();}
+      finally{run.disabled=false;}
+    });
+    row.append(run);
+  }
+  if(t.status==='REVIEW_READY'){
+    const reviewed=el('button','Bericht gelesen');reviewed.addEventListener('click',()=>act('review'));row.append(reviewed);
+  }
+  if(t.status==='CANCELLED'||t.status==='REVIEWED'||t.status==='RESEARCH_FAILED'){
     const archive=el('button','Archivieren');archive.addEventListener('click',()=>act('archive'));row.append(archive);
   }
   root.append(row);
-  if(t.status==='APPROVED_NO_EXECUTOR')root.append(el('p','Freigegeben, aber nicht ausgeführt. Noch kein Cloud-Worker aktiv.'));
+  if(t.status==='APPROVED_NO_EXECUTOR')root.append(el('p','Freigegeben, aber noch nicht ausgeführt. Eine Recherche startet erst durch den gesonderten Klick.'));
+  if(t.status==='RESEARCH_RUNNING')root.append(el('p','Einmalige Recherche läuft; keine Hintergrundüberwachung.'));
+  if(t.error)root.append(el('p',t.error,'task-error'));
+  if(t.report&&Array.isArray(t.report.sources)){
+    const header=el('p','Wikipedia-Auszüge — bitte selbst prüfen; keine KI-Zusammenfassung.','report-heading');
+    root.append(header);
+    const references=el('ol',undefined,'source-list');
+    for(const source of t.report.sources){
+      const item=el('li');
+      const title=el('a',source.title);
+      if(/^https:\/\/de\.wikipedia\.org\/\?curid=[1-9]\d{0,15}$/.test(source.url)){
+        title.href=source.url;title.target='_blank';title.rel='noopener noreferrer';
+      }
+      item.append(title,el('p',source.excerpt));
+      references.append(item);
+    }
+    root.append(references);
+    root.append(el('p',t.report.limitations||'Quellen sind nicht unabhängig überprüft.','report-limitations'));
+  }
   return root;
 }
 async function reload(){
