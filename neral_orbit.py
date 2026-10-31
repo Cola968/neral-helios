@@ -36,16 +36,36 @@ def _content(value,minimum,maximum,field):
     return value
 
 
-def _plan(kind):
+def _plan(kind, state="DRAFT", *, has_report=False, has_error=False):
     plans={
         "coding":("Scope und Erfolgskriterien klären","Fehler mit echtem Test reproduzieren",
                   "Nur im isolierten Branch korrigieren und CI prüfen","Draft-PR zur menschlichen Review vorlegen"),
-        "research":("Frage und vertrauenswürdige Quellen festlegen","Quellen prüfen und Belege sammeln",
-                    "Behauptungen und Aktualität unabhängig prüfen","Bericht zur Review vorbereiten"),
+        "research":("Recherchefrage und öffentliche Quelle freigeben",
+                    "Enzyklopädische Quellen abrufen",
+                    "Inhalte und Aktualität unabhängig überprüfen",
+                    "Quellenbericht zur Prüfung bereitstellen"),
         "monitor":("Beobachtetes Ereignis und Zeitfenster definieren","Erlaubte Datenquellen festlegen",
                    "Änderungserkennung mit Fehlalarmen testen","Manuelle Freigabe für laufenden Worker einholen"),
     }
-    return [{"description":x,"status":"NOT_STARTED"} for x in plans[kind]]
+    stages=["NOT_STARTED"]*4
+    if kind=="research":
+        if state=="ARCHIVED":
+            # Preserve truthful history; archiving never silently passes review.
+            state=("REVIEWED" if has_report else
+                   "RESEARCH_FAILED" if has_error else "CANCELLED")
+        if state in {"APPROVED_NO_EXECUTOR","RESEARCH_RUNNING",
+                     "REVIEW_READY","REVIEWED","RESEARCH_FAILED"}:
+            stages[0]="APPROVED"
+        if state=="RESEARCH_RUNNING":
+            stages[1]="IN_PROGRESS"
+        elif state in {"REVIEW_READY","REVIEWED"}:
+            stages[1]="COMPLETED"
+            stages[2]="NEEDS_REVIEW"  # Reading is not independent fact-checking.
+            stages[3]="COMPLETED"
+        elif state=="RESEARCH_FAILED":
+            stages[1]="FAILED"
+    return [{"description":description,"status":stage}
+            for description,stage in zip(plans[kind],stages)]
 
 
 def _now():
@@ -61,7 +81,8 @@ def _render(row):
         "id":row["id"],"kind":row["kind"],"title":row["title"],
         "goal":row["goal"],"status":state,"revision":row["revision"],
         "created_at":row["created_at"],"updated_at":row["updated_at"],
-        "plan":_plan(row["kind"]), "report":report, "error":error,
+        "plan":_plan(row["kind"],state,has_report=report is not None,
+                     has_error=error is not None), "report":report, "error":error,
         "execution_enabled":state=="RESEARCH_RUNNING",
         "executor":"wikipedia_research_once" if once else "none",
         "budget_eur":0,
