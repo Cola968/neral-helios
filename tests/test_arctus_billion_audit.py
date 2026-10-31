@@ -351,6 +351,45 @@ def test_real_staging_splits_train_val_test_holdout_are_auditable(tmp_path):
     assert report["held_out_contamination_eliminated"] is False
 
 
+
+
+def test_cross_split_exact_pairs_count_every_occurrence_and_train_holdout_leak(tmp_path):
+    """Two identical holdout docs and one train doc form TWO exact leak pairs."""
+    base=long_doc()
+    root=write_staging(tmp_path,[base],[base,base])
+    before=root/"valid-000000.jsonl"
+    after=root/"holdout-000000.jsonl"
+    before.rename(after)
+    manifest_path=root/"manifest.json"
+    m=json.loads(manifest_path.read_text())
+    for row in m["shards"]:
+        if row["split"]=="valid":
+            row["split"]="holdout"
+            row["file"]=after.name
+    m["tokens_by_split"]["holdout"]=m["tokens_by_split"].pop("valid")
+    manifest_path.write_text(json.dumps(m))
+    report=audit_corpus(root)
+    assert report["documents_checked"]==3
+    assert report["exact_duplicate_pairs"]==2
+    assert report["exact_pair_combinations_total"]==3
+    assert report["cross_split_exact_duplicate_pairs"]==2
+    assert report["train_evaluation_exact_pairs"]==2
+    assert report["train_evaluation_near_pairs"]==0
+    assert report["example_pairs_are_exhaustive"] is False
+    assert report["training_ready"] is False
+    assert report["held_out_contamination_eliminated"] is False
+
+
+def test_train_validation_near_pair_has_separate_leak_metric(tmp_path):
+    base=long_doc()
+    near=base.replace("Dieses Kapitel behandelt Sterne","Dieses Kapitel behandelt Pulsare",1)
+    root=write_staging(tmp_path,[base],[near])
+    report=audit_corpus(root)
+    assert report["train_evaluation_near_pairs"]>=1
+    assert report["cross_split_near_duplicate_pairs"]>=1
+    assert report["train_evaluation_exact_pairs"]==0
+
+
 def test_unknown_split_is_rejected_even_with_consistent_hash_and_counts(tmp_path):
     """Do not silently trust arbitrary extra partitions as training data."""
     root = write_staging(tmp_path, [long_doc()], [long_doc("Photonen")])
