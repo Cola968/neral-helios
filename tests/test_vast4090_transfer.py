@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -148,16 +149,38 @@ def test_out_of_schedule_or_incomplete_checkpoint_fails_before_copy(tmp_path):
     assert not (tmp_path/"transfer").exists()
 
 
-def test_symlink_or_bad_source_manifest_rejected(tmp_path):
+def test_symlink_source_manifest_rejected_without_windows_symlink_privileges(tmp_path):
+    # On Windows a standard runner cannot create symlinks without privilege.
+    # Simulate only the Path.is_symlink classification of the source shard,
+    # keeping the real file and all other integrity checks intact.
     root = corpus(tmp_path)
     ck, tok = files(tmp_path)
-    (root/"train"/"train_00000.bin").unlink()
-    (root/"train"/"train_00000.bin").symlink_to(root/"train"/"train_00001.bin")
-    with pytest.raises(ValueError):
+    shard = root/"train"/"train_00000.bin"
+    original = Path.is_symlink
+    def fake_is_symlink(path):
+        return path == shard or original(path)
+    with patch.object(Path, "is_symlink", fake_is_symlink):
+        with pytest.raises(ValueError,match="symlink"):
+            build_bundle(checkpoint=ck,expected_checkpoint_sha256=sha256_file(ck),
+                tokenizer=tok, corpus_manifest=root/"manifest.json",
+                output=tmp_path/"transfer", min_train_tokens=4000,min_valid_tokens=4000,
+                checkpoint_loader=lambda p:fake_checkpoint(),test_tokenizer_sha256=sha256_file(tok))
+    assert not (tmp_path/"transfer").exists()
+
+
+def test_corrupt_original_bpe_shard_rejected_on_windows_and_linux(tmp_path):
+    root = corpus(tmp_path)
+    ck, tok = files(tmp_path)
+    shard = root/"train"/"train_00000.bin"
+    damaged = bytearray(shard.read_bytes())
+    damaged[0] ^= 1  # Same size: only the hash verifies the contents.
+    shard.write_bytes(damaged)
+    with pytest.raises(ValueError,match="SHA256"):
         build_bundle(checkpoint=ck,expected_checkpoint_sha256=sha256_file(ck),
             tokenizer=tok, corpus_manifest=root/"manifest.json",
             output=tmp_path/"transfer", min_train_tokens=4000,min_valid_tokens=4000,
             checkpoint_loader=lambda p:fake_checkpoint(),test_tokenizer_sha256=sha256_file(tok))
+    assert not (tmp_path/"transfer").exists()
 
 
 def test_invalid_bundle_receipt_file_path_is_rejected(tmp_path):
