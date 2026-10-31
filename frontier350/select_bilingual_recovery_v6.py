@@ -38,19 +38,43 @@ def loss(value):
     return number if math.isfinite(number) and number >= 0 else None
 
 
-def read_directions(data):
+def read_holdout_metrics(report):
+    """Validate a full independently evaluated, balanced 400-case holdout.
+
+    The source evaluator produces exactly 200 directional cases each.
+    Percentages alone are unauditable: compare them with raw counts so
+    neither forged/non-finite scores nor truncated suites can be promoted.
+    """
+    if not isinstance(report, dict) or type(report.get("cases")) is not int:
+        return None
+    if report["cases"] != 400:
+        return None
+    data=report.get("directions")
     if not isinstance(data, dict) or set(data) != DIRECTIONS:
         return None
+    overall=pct(report.get("overall_accuracy_pct"))
+    if overall is None:
+        return None
     result={}
+    total_correct=0
+    total_cases=0
     for name in sorted(DIRECTIONS):
         row=data[name]
         if not isinstance(row, dict):
             return None
-        value=pct(row.get("accuracy_pct"))
-        if value is None:
+        correct,total=row.get("correct"),row.get("total")
+        if (type(correct) is not int or type(total) is not int or
+                total != 200 or not 0 <= correct <= total):
             return None
-        result[name]=value
-    return result
+        score=pct(row.get("accuracy_pct"))
+        if score is None or abs(score-100.0*correct/total) > 1e-6:
+            return None
+        result[name]=score
+        total_correct+=correct
+        total_cases+=total
+    if total_cases != report["cases"] or abs(overall-100.0*total_correct/total_cases) > 1e-6:
+        return None
+    return overall,result
 
 
 def main() -> None:
@@ -66,10 +90,10 @@ def main() -> None:
     if (baseline.get("suite") != SUITE or
             not isinstance(digest, str) or not SHA.fullmatch(digest)):
         raise RuntimeError("invalid baseline suite or case digest")
-    base_overall=pct(baseline.get("overall_accuracy_pct"))
-    base_dirs=read_directions(baseline.get("directions"))
-    if base_overall is None or base_dirs is None:
-        raise RuntimeError("invalid baseline holdout metrics/directions")
+    baseline_metrics=read_holdout_metrics(baseline)
+    if baseline_metrics is None:
+        raise RuntimeError("invalid baseline holdout metrics/directions/counts")
+    base_overall,base_dirs=baseline_metrics
 
     rows=[]
     for name, gate_path, holdout_path, out_dir in args.candidate or []:
@@ -82,8 +106,9 @@ def main() -> None:
                 holdout.get("cases_sha256") != digest):
             failures.append("holdout_identity_mismatch")
 
-        actual_overall=pct(holdout.get("overall_accuracy_pct"))
-        raw_dirs=read_directions(holdout.get("directions"))
+        candidate_metrics=read_holdout_metrics(holdout)
+        actual_overall,raw_dirs=(candidate_metrics if candidate_metrics is not None
+                                 else (None,None))
         if actual_overall is None or raw_dirs is None:
             failures.append("invalid_holdout_metric")
         overall=actual_overall if actual_overall is not None else -1.0
