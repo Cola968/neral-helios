@@ -279,3 +279,40 @@ def test_gate_cannot_relabel_other_candidate_or_bundle_multiple_candidates(tmp_p
         assert result["selected"] is None
         assert "gate_candidate_identity_mismatch" in result["candidates"][0]["failures"]
 
+
+
+
+def test_holdout_is_a_veto_not_a_ranking_signal(tmp_path):
+    """Equal validation loss: prefer stronger development score, not higher holdout."""
+    out=fixtures(tmp_path)
+    gate_a=tmp_path/"gate.json"
+    h_a=tmp_path/"holdout.json"
+    ga=json.loads(gate_a.read_text())
+    ga["candidates"][0]["overall_accuracy_pct"]=65.0
+    gate_a.write_text(json.dumps(ga))
+    h_b=tmp_path/"holdout-B.json"
+    hb=json.loads(h_a.read_text())
+    hb["checkpoint_sha256"]="c"*64
+    hb["overall_accuracy_pct"]=52.0
+    hb["directions"]["de_to_en"]={"accuracy_pct":52.0,"correct":104,"total":200}
+    hb["directions"]["en_to_de"]={"accuracy_pct":52.0,"correct":104,"total":200}
+    h_b.write_text(json.dumps(hb))
+    gate_b=tmp_path/"gate-B.json"
+    gb=json.loads(ga)
+    gb["selected"]="candidate-B"
+    gb["candidates"][0]["name"]="candidate-B"
+    gb["candidates"][0]["checkpoint_sha256"]="c"*64
+    gb["candidates"][0]["overall_accuracy_pct"]=55.0
+    gate_b.write_text(json.dumps(gb))
+    args=[
+        "selector","--baseline-holdout",str(tmp_path/"baseline.json"),
+        "--candidate","candidate-A",str(gate_a),str(h_a),str(tmp_path/"out-a"),
+        "--candidate","candidate-B",str(gate_b),str(h_b),str(tmp_path/"out-b"),
+        "--out",str(out)
+    ]
+    with patch.object(sys,"argv",args):
+        main()
+    result=json.loads(out.read_text())
+    assert result["selection_allowed"] is True
+    assert result["selected"]=="candidate-A"
+    assert all(row["pass"] for row in result["candidates"])
