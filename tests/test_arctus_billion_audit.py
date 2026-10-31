@@ -348,6 +348,10 @@ def test_real_staging_splits_train_val_test_holdout_are_auditable(tmp_path):
     assert report["integrity_verified"] is True
     assert report["documents_checked"] == 4
     assert report["cross_split_exact_duplicate_pairs"] >= 1
+    assert report["leakage_by_evaluation_split"]["test"]["exact_pairs"]>=1
+    assert report["holdout_contamination_detected"] == (
+        report["leakage_by_evaluation_split"]["holdout"]["exact_pairs"]>0 or
+        report["leakage_by_evaluation_split"]["holdout"]["near_pairs"]>0)
     assert report["training_ready"] is False
     assert report["held_out_contamination_eliminated"] is False
 
@@ -376,6 +380,8 @@ def test_cross_split_exact_pairs_count_every_occurrence_and_train_holdout_leak(t
     assert report["cross_split_exact_duplicate_pairs"]==2
     assert report["train_evaluation_exact_pairs"]==2
     assert report["train_evaluation_near_pairs"]==0
+    assert report["leakage_by_evaluation_split"]["holdout"]["exact_pairs"]==2
+    assert report["holdout_contamination_detected"] is True
     assert report["train_evaluation_leak_detected"] is True
     assert report["example_pairs_are_exhaustive"] is False
     assert report["training_ready"] is False
@@ -388,6 +394,7 @@ def test_train_validation_near_pair_has_separate_leak_metric(tmp_path):
     root=write_staging(tmp_path,[base],[near])
     report=audit_corpus(root)
     assert report["train_evaluation_near_pairs"]>=1
+    assert report["leakage_by_evaluation_split"]["valid"]["near_pairs"]>=1
     assert report["train_evaluation_leak_detected"] is True
     assert report["cross_split_near_duplicate_pairs"]>=1
     assert report["train_evaluation_exact_pairs"]==0
