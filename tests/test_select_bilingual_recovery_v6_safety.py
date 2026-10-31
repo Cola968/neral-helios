@@ -298,7 +298,9 @@ def test_holdout_is_a_veto_not_a_ranking_signal(tmp_path):
     hb["directions"]["en_to_de"]={"accuracy_pct":52.0,"correct":104,"total":200}
     h_b.write_text(json.dumps(hb))
     gate_b=tmp_path/"gate-B.json"
-    gb=json.loads(ga)
+    # ga is already a parsed dict. Clone the fixture rather than calling
+    # json.loads on a dict (which TypeError'd before testing selection).
+    gb=json.loads(json.dumps(ga))
     gb["selected"]="candidate-B"
     gb["candidates"][0]["name"]="candidate-B"
     gb["candidates"][0]["checkpoint_sha256"]="c"*64
