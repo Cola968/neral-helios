@@ -110,6 +110,7 @@ def main() -> None:
             "name": name,
             "lr": lr,
             "checkpoint_processed_tokens": int(dev["checkpoint_processed_tokens"]),
+            "checkpoint_sha256": dev["checkpoint_sha256"],
             "overall_accuracy_pct": overall,
             "categories": category_scores,
             "validation_loss": validation_loss,
