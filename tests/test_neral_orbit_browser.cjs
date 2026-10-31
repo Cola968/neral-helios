@@ -45,7 +45,7 @@ const root=path.resolve(__dirname,'..');
   assert.match(await page.locator('#tasks').textContent(),/DRAFT/);
   await page.locator('#tasks button').filter({hasText:'Freigabe notieren'}).click();
   await page.locator('#tasks .pill').filter({hasText:'APPROVED_NO_EXECUTOR'}).waitFor();
-  assert.match(await page.locator('#tasks').textContent(),/Noch kein Cloud-Worker aktiv/);
+  assert.match(await page.locator('#tasks').textContent(),/noch nicht ausgeführt/);
   await page.reload();
   await page.locator('#tasks .pill').filter({hasText:'APPROVED_NO_EXECUTOR'}).waitFor();
   await page.locator('#tasks button').filter({hasText:'Abbrechen'}).click();
@@ -61,10 +61,22 @@ const root=path.resolve(__dirname,'..');
   assert.equal(await page.locator('#showArchived').getAttribute('aria-pressed'),'true');
   await page.locator('#showArchived').click();
   await page.locator('#tasks .empty').filter({hasText:'Noch keine Aufträge'}).waitFor();
+  // An approved research task must NOT fetch without a second explicit click.
+  await page.locator('#kind').selectOption('research');
+  await page.locator('#title').fill('BER recherchieren');
+  await page.locator('#goal').fill('Flughafen Berlin Brandenburg');
+  await page.locator('#create').click();
+  await page.locator('#tasks .task h3').filter({hasText:'BER recherchieren'}).waitFor();
+  await page.locator('#tasks .task').filter({hasText:'BER recherchieren'})
+    .locator('button').filter({hasText:'Freigabe notieren'}).click();
+  const researchCard=page.locator('#tasks .task').filter({hasText:'BER recherchieren'});
+  await researchCard.locator('button').filter({hasText:'Wikipedia-Recherche jetzt starten'}).waitFor();
+  assert.match(await researchCard.locator('.pill').textContent(),/APPROVED_NO_EXECUTOR/);
+  assert.equal(await researchCard.locator('.source-list').count(),0);
   await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'Orbit mobile overflow');
   assert.deepEqual(errors,[]);
-  console.log('PASS Orbit real Flask browser: create, persistence, approval without worker, cancel, archive with history, XSS, mobile');
+  console.log('PASS Orbit real Flask browser: create, persistence, approval without automatic worker, research launch gating, cancel, archive, XSS, mobile');
  }finally{
   if(browser)await browser.close();
   server.kill();
