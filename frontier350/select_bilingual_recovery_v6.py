@@ -123,6 +123,15 @@ def main() -> None:
         candidates=gate.get("candidates")
         candidate_info=(candidates[0] if isinstance(candidates,list) and candidates
                         and isinstance(candidates[0],dict) else {})
+        # All accuracy numbers are meaningless if separate checkpoints
+        # were measured. The earlier gate already checks dev/validation
+        # identity; bind its verified SHA to the independent holdout too.
+        gate_ck=candidate_info.get("checkpoint_sha256")
+        holdout_ck=holdout.get("checkpoint_sha256")
+        if (not isinstance(gate_ck,str) or not SHA.fullmatch(gate_ck) or
+                not isinstance(holdout_ck,str) or not SHA.fullmatch(holdout_ck) or
+                gate_ck != holdout_ck):
+            failures.append("checkpoint_identity_mismatch")
         actual_loss=loss(candidate_info.get("validation_loss"))
         if actual_loss is None:
             failures.append("invalid_validation_loss")
