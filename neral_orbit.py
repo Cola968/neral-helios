@@ -7,6 +7,7 @@ Approval alone NEVER launches the worker.
 from __future__ import annotations
 import json
 import re
+from contextlib import contextmanager
 import sqlite3
 import threading
 import uuid
@@ -108,10 +109,18 @@ class OrbitStore:
                 FOREIGN KEY(task_id) REFERENCES orbit_tasks(id)
             )""")
 
+    @contextmanager
     def _open(self):
+        # sqlite3.Connection.__exit__ commits/rolls back but does not close.
+        # On Windows a leaked connection locks orbit.sqlite3 and prevents
+        # test cleanup, backup and future directory rotation.
         conn=sqlite3.connect(self.path,timeout=8)
         conn.row_factory=sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def list(self, *, archived=False):
         if type(archived) is not bool:
