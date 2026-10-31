@@ -15,6 +15,7 @@ from frontier350.select_bilingual_recovery_v6 import main
 
 
 SHA = "a" * 64
+CHECKPOINT_SHA = "b" * 64
 SUITE = "arctus-bilingual-holdout-v1"
 
 
@@ -30,6 +31,7 @@ def fixtures(tmp_path, *, baseline_overall=45.0, holdout_overall=47.0,
     }
     holdout = {
         "suite": SUITE, "cases_sha256": sha,
+        "checkpoint_sha256": CHECKPOINT_SHA,
         "cases":400,
         "overall_accuracy_pct": holdout_overall,
         "directions": holdout_directions or {
@@ -38,6 +40,7 @@ def fixtures(tmp_path, *, baseline_overall=45.0, holdout_overall=47.0,
     }
     candidate = {
         "overall_accuracy_pct": 60.0,
+        "checkpoint_sha256": CHECKPOINT_SHA,
         "categories": {"bilingual": 55.0},
     }
     if include_loss:
@@ -209,3 +212,38 @@ def test_all_v6_evaluators_use_allowlisted_checkpoint_deserialization(name):
     assert "ck = load_checkpoint(args.checkpoint)" in source
     assert "weights_only=False" not in source
 
+
+
+
+def test_holdout_must_measure_same_weights_as_dev_and_validation_gate(tmp_path):
+    out=fixtures(tmp_path)
+    path=tmp_path/"holdout.json"
+    report=json.loads(path.read_text())
+    report["checkpoint_sha256"]="c"*64
+    path.write_text(json.dumps(report))
+    result=choose(tmp_path,out)
+    assert result["selected"] is None
+    assert "checkpoint_identity_mismatch" in result["candidates"][0]["failures"]
+
+
+def test_missing_dev_or_holdout_checkpoint_digest_rejected(tmp_path):
+    for filename in ("gate.json","holdout.json"):
+        root=tmp_path/filename.replace(".json","")
+        root.mkdir()
+        out=fixtures(root)
+        path=root/filename
+        payload=json.loads(path.read_text())
+        if filename=="gate.json":
+            payload["candidates"][0].pop("checkpoint_sha256")
+        else:
+            payload.pop("checkpoint_sha256")
+        path.write_text(json.dumps(payload))
+        result=choose(root,out)
+        assert result["selected"] is None
+        assert "checkpoint_identity_mismatch" in result["candidates"][0]["failures"]
+
+
+def test_lr_selector_publishes_verified_checkpoint_digest_for_holdout_binding():
+    source=(Path(__file__).resolve().parents[1] /
+            "frontier350"/"select_recovery_lr_pilot.py").read_text(encoding="utf8")
+    assert '"checkpoint_sha256": dev["checkpoint_sha256"]' in source
