@@ -40,3 +40,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Orbit regression tests failed' }
 
 # Final one-shot recheck after closing raw SQLite connections in regression tests.
+
+# Confirm tests after correcting the Windows cleanup fixture imports.
