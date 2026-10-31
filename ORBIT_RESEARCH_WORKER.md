@@ -69,6 +69,8 @@ ausgeführt werden, nachdem sie auf das Gerät kopiert wurde.
 ```bash
 python neral_orbit_research.py
 # read-only Plan, kein Netzwerk
+python neral_orbit_research.py --self-test
+# reine Offline-Prüfung mit synthetischen Quellen, ohne Netzwerk
 python neral_orbit_research.py --query "Flughafen Berlin Brandenburg" \
   --out ./orbit-ber-report.json --confirm-public
 ```
