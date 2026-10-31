@@ -1,0 +1,133 @@
+"""Arctus350 V6 checkpoint admission: RED tests for invalid benchmark values.
+
+CPU-only, synthetic reports. Never rents GPU, loads model weights or promotes PRs.
+"""
+from __future__ import annotations
+
+import json
+import math
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from frontier350.select_bilingual_recovery_v6 import main
+
+
+SHA = "a" * 64
+SUITE = "arctus-bilingual-holdout-v1"
+
+
+def fixtures(tmp_path, *, baseline_overall=45.0, holdout_overall=47.0,
+             holdout_directions=None, validation_loss=1.25,
+             include_loss=True, sha=SHA):
+    baseline = {
+        "suite": SUITE, "cases_sha256": SHA,
+        "overall_accuracy_pct": baseline_overall,
+        "directions": {"de_to_en": {"accuracy_pct": 40.0},
+                       "en_to_de": {"accuracy_pct": 50.0}},
+    }
+    holdout = {
+        "suite": SUITE, "cases_sha256": sha,
+        "overall_accuracy_pct": holdout_overall,
+        "directions": holdout_directions or {
+            "de_to_en": {"accuracy_pct": 41.0},
+            "en_to_de": {"accuracy_pct": 51.0}},
+    }
+    candidate = {
+        "overall_accuracy_pct": 60.0,
+        "categories": {"bilingual": 55.0},
+    }
+    if include_loss:
+        candidate["validation_loss"] = validation_loss
+    gate = {"selection_allowed": True, "candidates": [candidate]}
+    for name, value in (("baseline", baseline), ("holdout", holdout), ("gate", gate)):
+        (tmp_path / f"{name}.json").write_text(json.dumps(value), encoding="utf8")
+    return tmp_path / "result.json"
+
+
+def choose(tmp_path, out):
+    arguments = [
+        "selector", "--baseline-holdout", str(tmp_path / "baseline.json"),
+        "--candidate", "candidate-A", str(tmp_path / "gate.json"),
+        str(tmp_path / "holdout.json"), str(tmp_path / "checkpoint-out"),
+        "--out", str(out),
+    ]
+    with patch.object(sys, "argv", arguments):
+        main()
+    return json.loads(out.read_text(encoding="utf8"))
+
+
+def test_valid_numeric_candidate_is_selected_without_gpu(tmp_path):
+    out=fixtures(tmp_path)
+    report=choose(tmp_path,out)
+    assert report["selected"]=="candidate-A"
+    assert report["selection_allowed"] is True
+    assert report["candidates"][0]["pass"] is True
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, 105.0])
+def test_invalid_holdout_accuracy_never_passes(tmp_path,bad):
+    out=fixtures(tmp_path,holdout_overall=bad)
+    report=choose(tmp_path,out)
+    assert report["selected"] is None
+    assert report["selection_allowed"] is False
+    assert report["candidates"][0]["pass"] is False
+    assert math.isfinite(report["candidates"][0]["holdout_overall_accuracy_pct"])
+    assert "invalid_holdout_metric" in report["candidates"][0]["failures"]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -2.0])
+def test_invalid_validation_loss_disqualifies_candidate(tmp_path,bad):
+    out=fixtures(tmp_path,validation_loss=bad)
+    report=choose(tmp_path,out)
+    assert report["selected"] is None
+    assert "invalid_validation_loss" in report["candidates"][0]["failures"]
+
+
+def test_missing_validation_loss_does_not_silently_default_to_1e9(tmp_path):
+    out=fixtures(tmp_path,include_loss=False)
+    report=choose(tmp_path,out)
+    assert report["selected"] is None
+    assert "invalid_validation_loss" in report["candidates"][0]["failures"]
+
+
+def test_nan_direction_cannot_bypass_nonregression(tmp_path):
+    out=fixtures(tmp_path,holdout_directions={
+        "de_to_en":{"accuracy_pct":float("nan")},
+        "en_to_de":{"accuracy_pct":51.0},
+    })
+    report=choose(tmp_path,out)
+    assert report["selected"] is None
+    assert "invalid_holdout_metric" in report["candidates"][0]["failures"]
+
+
+@pytest.mark.parametrize("baseline_overall", [float("nan"),float("inf"),-1.0,101.0])
+def test_invalid_baseline_fails_closed_without_creating_decision(tmp_path,baseline_overall):
+    out=fixtures(tmp_path,baseline_overall=baseline_overall)
+    with pytest.raises(RuntimeError,match="baseline"):
+        choose(tmp_path,out)
+    assert not out.exists()
+
+
+def test_missing_holdout_identity_on_both_sides_fails_closed(tmp_path):
+    out=fixtures(tmp_path)
+    for name in ("baseline","holdout"):
+        path=tmp_path/f"{name}.json"
+        data=json.loads(path.read_text())
+        data.pop("cases_sha256")
+        path.write_text(json.dumps(data))
+    with pytest.raises(RuntimeError,match="baseline"):
+        choose(tmp_path,out)
+    assert not out.exists()
+
+
+def test_missing_baseline_direction_set_is_invalid(tmp_path):
+    out=fixtures(tmp_path)
+    path=tmp_path/"baseline.json"
+    report=json.loads(path.read_text())
+    report["directions"]={}
+    path.write_text(json.dumps(report))
+    with pytest.raises(RuntimeError,match="baseline"):
+        choose(tmp_path,out)
+    assert not out.exists()
