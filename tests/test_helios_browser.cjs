@@ -7,7 +7,8 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{
-  const file=req.url==='/'?'templates/index.html':req.url==='/manifest.webmanifest'?'static/manifest.webmanifest':req.url==='/sw.js'?'static/sw.js':req.url.slice(1);
+  const pathname=new URL(req.url,'http://localhost').pathname;
+  const file=pathname==='/'?'templates/index.html':pathname==='/manifest.webmanifest'?'static/manifest.webmanifest':pathname==='/sw.js'?'static/sw.js':pathname.slice(1);
   if(!['templates/index.html','static/neral.css','static/chat-experience.css','static/neral.js','static/helios-core.js','static/projects.js','static/install.js','static/workspace.js','static/manifest.webmanifest','static/sw.js','static/icon.svg','static/icon-192.png','static/icon-512.png'].includes(file)){res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webmanifest')?'application/manifest+json':file.endsWith('.png')?'image/png':file.endsWith('.svg')?'image/svg+xml':'text/html');
   res.end(fs.readFileSync(path.join(root,file)));
@@ -44,6 +45,14 @@ const root=path.resolve(__dirname,'..');
     try{await fetch('/api/info');return 'unexpected-network-response';}catch{return 'offline-api-unavailable';}
   }),'offline-api-unavailable','API must never be cached as an offline response');
   await offlineContext.setOffline(false);
+  // Repeated query variants must not grow the shell cache or expose URL variants.
+  for(let i=0;i<4;i++)assert.equal((await offlinePage.evaluate(i=>fetch('/?quick='+i).then(r=>r.status),i)),200);
+  await offlinePage.waitForTimeout(250);
+  const queryCacheKeys=await offlinePage.evaluate(async()=>{
+    const cache=await caches.open('neral-shell-v3');
+    return (await cache.keys()).map(req=>new URL(req.url)).filter(url=>url.search&&url.pathname==='/').length;
+  });
+  assert.equal(queryCacheKeys,0,'different query parameters must not create duplicate offline shell entries');
   await offlineContext.close();
   await page.locator('#checkpoint option[value=pilot_02]').waitFor({state:'attached'});
   await page.locator('#modelPicker summary').click();
