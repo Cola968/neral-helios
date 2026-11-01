@@ -49,3 +49,18 @@ Abnahme: konkrete neue native Gewichte, identische gepaarte Baseline, unabhängi
 **Datum:** Ein internes Alpha-Ziel **15.11.2026** und mögliches Closed-Beta-Ziel **13.12.2026** bleiben ausschließlich konditional; bei fehlenden Abnahmebelegen ist **31.01.2027** die konservative Planmarke, keine Garantie. Keine Veröffentlichung nur wegen Kalenderdatum.
 
 **Produktziel:** zuerst ein wirklich benutzbares, lokales NERAL+Qwen; danach ein qualitativ eigenständiger Arctus. Der Nutzer muss keine teuren externen Modelle abonnieren, solange die vorhandene Qwen-Integration für eine lokale Beta genügt.
+
+
+## Erledigte PWA-Reparaturen: echte Offline-Neustart- und Cache-Duplikat-Tests
+
+**Fehlernachweis 1 (RED):** Der echte Chromium-Browser übernahm die erste neu installierte PWA-Seite nicht mit dem aktiven Service Worker. [CI #41334056636](https://github.com/Cola968/neral-helios/actions/runs/41334056636) scheiterte reproduzierbar an `navigator.serviceWorker.controller === null`, obwohl `navigator.serviceWorker.ready` bereits erfüllt war.
+
+**Fix 1:** Aktivierungsphase des `static/sw.js` wartet auf Cache-Aufräumen und ruft danach `self.clients.claim()` auf. Kein `skipWaiting` bei laufenden Tabs, um keine laufenden Nutzersitzungen mitten in der Nutzung umzuschalten. [Zwischenprüfung #41334329522](https://github.com/Cola968/neral-helios/actions/runs/41334329522) grün, inklusive echter Offline-Reload und lokal erhaltenem Entwurf.
+
+**Fehlernachweis 2 (RED):** Shell-Responses für `/?quick=0` bis `/?quick=3` erzeugten vier zusätzliche, unnötige Cache-Keys (4 statt 0). [CI #41334624157](https://github.com/Cola968/neral-helios/actions/runs/41334624157) bestätigte echte Cache-Vermehrung. API-Antworten sollen weiterhin unter keinen Umständen offline aus dem Shell-Cache geliefert werden.
+
+**Fix 2:** Für bekannte feste App-Shell-Ressourcen wird ausschließlich `u.pathname` als Cache-Schlüssel zum Schreiben/Lesen verwendet. Der Cache-Namensraum `neral-shell-v4` trennt die neue App von Altversion v3; die bestehende `activate`-Bereinigung löscht alte `neral-shell-*`-Caches. Ausgeschlossen bleiben API-Routen, fremde Origins und Nicht-GET-Requests.
+
+**Finales GREEN:** [Helios App CI #41334867455](https://github.com/Cola968/neral-helios/actions/runs/41334867455), [Arctus350 Flask CPU #41334867491](https://github.com/Cola968/neral-helios/actions/runs/41334867491), [Launch-Check #41334867452](https://github.com/Cola968/neral-helios/actions/runs/41334867452), [Offline-Gate #41334867451](https://github.com/Cola968/neral-helios/actions/runs/41334867451), [Syntax #41334867458](https://github.com/Cola968/neral-helios/actions/runs/41334867458) **alle SUCCESS** auf Code-Head `564b313479d5e1c3e53703e798c221b7e92fa8b6`. Helios-App-Workflow: 113 Python-Tests plus 108 Regressionen (2 bewusst abgewählt), 1 Zusatzt​​est, Chromium-Browser und Windows-Launcher bestanden.
+
+**Grenzen:** Der reale Chromium-Lauf ist eine localhost-Fixture mit isolierten, synthetischen Inhalten; echte Android-PWA-Installations-, Netzwerkwechsel-, Telefon-Gateway-, Nutzer-/PC-Neustart- und Daten-Wiederherstellungs-Abnahmen bleiben notwendig. Kein tatsächliches externes Modelltraining und keine Cloud-Produktfreigabe.
