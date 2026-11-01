@@ -33,6 +33,35 @@ erfolgreich. Kein Training, keine Gewichtsänderungen und kein Upload privater T
 | Gemessene Generierungszeit | 7,640 s | 7,812 s |
 | Geschwindigkeit | 23,168 Token/s | 21,633 Token/s |
 
+## Fehlerdiagnose ohne Modelltext-Upload
+
+Zusätzlicher, erfolgreicher, echter GPU-Test:
+[Windows-Run 41308804780](https://github.com/Cola968/neral-helios/actions/runs/41308804780).
+Acht aggregierte Regressionstests für diesen Auswerter bestanden.
+Die gleiche feste Fallliste wurde erneut mit beiden Formaten
+bei maximal 24 neuen Tokens durchlaufen.
+
+| Indikator | Bare | Chat |
+|---|---:|---:|
+| Exakte Ausgabe | 0/8 | 0/8 |
+| Erwartete Antwort als eigenes Wort irgendwo enthalten | 2/8 | 2/8 |
+| Antwort nicht leer | 8/8 | 8/8 |
+| 24-Token-Budget ausgeschöpft | 7/8 | 6/8 |
+| Problematische BOS/PAD/SEP-Tokens | 0/8 | 0/8 |
+| EOS beendet die Ausgabe | 1/8 | 2/8 |
+
+Damit sind unpassende Antwortformate und fehlende Terminierung
+plausible Ursachen. Die beiden eingebetteten Worttreffer sind
+**kein** Nachweis korrekt gelöster Aufgaben: Sie könnten auch
+zufällig oder in negiertem Kontext vorkommen.
+Die 24-Token-Begrenzung kann ihrerseits Antworten abschneiden.
+Ein kleiner synthetischer Smoke-Test ist kein aussagekräftiger
+Blind-Benchmark der generellen Modellintelligenz.
+
+Es wurden weder private Modellantworten noch Roh-Tokens
+in GitHub-Protokollen ausgegeben. Der Checkpoint und der
+Tokenizer wurden vor jedem GPU-Lauf kryptografisch verifiziert.
+
 ## Interpretation ohne Schönfärberei
 
 Das korrekte Chat-Rollenformat allein beseitigt den
