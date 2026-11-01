@@ -99,6 +99,14 @@ class TeacherCandidateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             prepare_teacher_candidate(self.input, self.test, self.dest)
 
+    def test_rejects_generator_train_row_disguised_as_frozen_test(self):
+        from frontier350.arctus350_grounding_curriculum_v1 import make_splits
+        self.heldout = [make_splits()["train"][0]]
+        self.write_inputs()
+        with self.assertRaises(ValueError):
+            prepare_teacher_candidate(self.input, self.test, self.dest)
+        self.assertFalse(self.dest.exists())
+
     def test_rejects_mixed_teacher_artifacts_and_symlinked_inputs(self):
         self.rows = [self.train, {**self.val, "teacher_artifact_sha256": "b" * 64}]
         self.write_inputs()
