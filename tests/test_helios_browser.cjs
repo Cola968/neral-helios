@@ -26,6 +26,25 @@ const root=path.resolve(__dirname,'..');
    await route.fulfill({json:data});
   });
   await page.goto('http://127.0.0.1:'+server.address().port);
+  // Independent, genuine Chromium offline-PWA test without mocked API routes.
+  // A freshly installed worker must control its first tab before a second reload,
+  // otherwise an immediate offline restart can fail despite a cached app shell.
+  const offlineContext=await browser.newContext({serviceWorkers:'allow'});
+  const offlinePage=await offlineContext.newPage();
+  await offlinePage.goto('http://127.0.0.1:'+server.address().port);
+  await offlinePage.evaluate(()=>navigator.serviceWorker.ready);
+  await offlinePage.waitForFunction(()=>navigator.serviceWorker.controller!==null,{timeout:5000});
+  await offlinePage.locator('#prompt').fill('Saved before going offline');
+  assert(await offlinePage.evaluate(()=>localStorage.getItem(storageKey).includes('Saved before going offline')));
+  await offlineContext.setOffline(true);
+  await offlinePage.reload({waitUntil:'domcontentloaded'});
+  assert.equal(await offlinePage.locator('#prompt').inputValue(),'Saved before going offline');
+  assert.equal(await offlinePage.locator('h1').first().isVisible(),true);
+  assert.equal(await offlinePage.evaluate(async()=>{
+    try{await fetch('/api/info');return 'unexpected-network-response';}catch{return 'offline-api-unavailable';}
+  }),'offline-api-unavailable','API must never be cached as an offline response');
+  await offlineContext.setOffline(false);
+  await offlineContext.close();
   await page.locator('#checkpoint option[value=pilot_02]').waitFor({state:'attached'});
   await page.locator('#modelPicker summary').click();
   assert.equal(await page.locator('#modelOptions button').count(),2);
