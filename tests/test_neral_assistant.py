@@ -73,7 +73,7 @@ class AssistantTests(unittest.TestCase):
             self.assertIn("168", payload["messages"][-1]["content"])
             return answer("12 × 14 = 168.")
         result=assistant_turn("Wie viel sind 12 mal 14?",transport=fake)
-        self.assertEqual(result["tools_used"],["calculator"])
+        self.assertEqual(result["tools_used"],["calculator", "code_check"])
         self.assertIn("168", result["text"])
         self.assertEqual(len(calls), 2)
 
