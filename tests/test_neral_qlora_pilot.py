@@ -58,3 +58,82 @@ def test_training_output_rejects_repository(pilot):
     repo = Path(__file__).resolve().parents[1]
     with pytest.raises(ValueError):
         pilot.ensure_output_dir(repo / "weights")
+
+
+def test_review_rejects_changed_dataset(pilot, tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    review = root / 'datasets/neral_qlora_pilot.review.json'
+    dataset = root / 'datasets/neral_qlora_pilot.jsonl'
+    pilot.verify_review(dataset, review)
+    changed = tmp_path / 'changed.jsonl'
+    changed.write_bytes(dataset.read_bytes() + b'\n')
+    with pytest.raises(ValueError, match='reviewed corpus'):
+        pilot.verify_review(changed, review)
+
+
+class BoundaryTokenizer:
+    def apply_chat_template(self, messages, **kwargs):
+        if len(messages) == 2:
+            return [1, 2, 3]
+        return [1, 2, 3, 4, 5]
+
+
+def test_tokenization_masks_prompt_and_keeps_whole_completion(pilot):
+    result = pilot.tokenize_examples([{'prompt': [{}, {}], 'completion': [{}]}], BoundaryTokenizer(), 5)
+    assert result == [{'input_ids': [1, 2, 3, 4, 5], 'completion_mask': [0, 0, 0, 1, 1]}]
+
+
+def test_tokenization_rejects_truncation(pilot):
+    with pytest.raises(ValueError, match='no silent truncation'):
+        pilot.tokenize_examples([{'prompt': [{}, {}], 'completion': [{}]}], BoundaryTokenizer(), 4)
+
+
+def test_tokenization_rejects_wrong_template_boundary(pilot):
+    class BadTokenizer(BoundaryTokenizer):
+        def apply_chat_template(self, messages, **kwargs):
+            return [7, 8] if len(messages) == 2 else [8, 7, 1]
+    with pytest.raises(ValueError, match='boundary'):
+        pilot.tokenize_examples([{'prompt': [{}, {}], 'completion': [{}]}], BadTokenizer(), 5)
+
+
+def test_training_output_rejects_nonempty_and_file(pilot, tmp_path):
+    existing = tmp_path / 'occupied'
+    existing.write_text('retain me')
+    with pytest.raises(ValueError):
+        pilot.ensure_output_dir(existing)
+    with pytest.raises(ValueError):
+        pilot.ensure_output_dir(tmp_path)
+
+
+def test_failed_gpu_stage_records_error_and_memory_without_training(pilot, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import model_catalog
+    root = Path(__file__).resolve().parents[1]
+    base = tmp_path / 'base'
+    base.mkdir()
+    output = tmp_path / 'new-adapter'
+    monkeypatch.setattr(model_catalog, 'validate_hf_snapshot', lambda *a, **k: {
+        'folder': base, 'base_model': pilot.MODEL_ID, 'revision': 'a'*40, 'sha256': 'b'*64})
+    cuda = SimpleNamespace(is_available=lambda: True, is_bf16_supported=lambda: True,
+        get_device_name=lambda _: 'mock device, not real GPU evidence',
+        mem_get_info=lambda _: (100, 200), reset_peak_memory_stats=lambda _: None,
+        max_memory_allocated=lambda _: 70, max_memory_reserved=lambda _: 90)
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(cuda=cuda, version=SimpleNamespace(cuda='mock')))
+    tokenizer = BoundaryTokenizer()
+    tokenizer.pad_token = 'PAD'
+    monkeypatch.setitem(sys.modules, 'transformers', SimpleNamespace(
+        Qwen2TokenizerFast=SimpleNamespace(from_pretrained=lambda *a, **k: tokenizer), TrainerCallback=object))
+    monkeypatch.setitem(sys.modules, 'neral_training_preflight', SimpleNamespace(check_stack=lambda **k: {'mock': True}))
+    monkeypatch.setattr(pilot, 'version', lambda _: 'mock')
+    def fail(*args):
+        raise RuntimeError('simulated load failure; no training executed')
+    monkeypatch.setattr(pilot, '_train', fail)
+    args = SimpleNamespace(model_dir=str(base), output_dir=str(output),
+        dataset=str(root/'datasets/neral_qlora_pilot.jsonl'),
+        review_manifest=str(root/'datasets/neral_qlora_pilot.review.json'), steps=3, max_length=512)
+    with pytest.raises(RuntimeError, match='simulated'):
+        pilot.run_training(args, [{'prompt': [{}, {}], 'completion': [{}]}])
+    report = json.loads((output/'training-report.json').read_text())
+    assert report['status'] == 'failed' and report['error_type'] == 'RuntimeError'
+    assert report['peak_allocated_bytes'] == 70 and report['peak_reserved_bytes'] == 90
+    assert not (output/'neral-adapter.json').exists()

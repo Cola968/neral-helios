@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "reviewed_on": "2026-11-01",
+  "reviewer": "Codex source audit (not independent human approval)",
+  "baseline_commit": "a27ff73a154535ed93e2cbe0bb373e04d7916e86",
+  "dataset_sha256": "fa8b817bc956c04af0da475b4f45d2f1343aa58d49b9a676335748e57f8e2537",
+  "sources": {
+    "app.py": "3994d3fda2bc8ebccb8789a4822dd7669365c4f2b1f34739b8ffa00067f4d88d",
+    "chat_store.py": "9bb1713e26d8650982fbf888ba7696df00469b428a543657731455b5123cbd96",
+    "code_check.py": "5c23a4f70d615ae6cf1d52d5b4104cfaad1101c42d3b76819348fb96ef172bff",
+    "qwen_local_runtime.py": "af3273084eb09876aa2404497d916479ac62a5153221428ce336e0a18bb9f84e",
+    "model_catalog.py": "9a943ddb0d6787afc56fcf287e961d784eb10c836d3eff5e87d80b5d4fdcba13",
+    "docs/NERAL_QLORA_PILOT.md": "97c9dba74d595256392ce4263e5b61e5a54c2d9fda58bf7081b57bf63db2f9cf"
+  },
+  "rows": [
+    {
+      "line": 1,
+      "kind": "implementation",
+      "evidence": [
+        "app.py:18,44"
+      ],
+      "finding": "ChatStore import and STATE/chats.sqlite3 initialization verified."
+    },
+    {
+      "line": 2,
+      "kind": "implementation",
+      "evidence": [
+        "chat_store.py:73-79"
+      ],
+      "finding": "BEGIN IMMEDIATE and revision mismatch raising Conflict verified."
+    },
+    {
+      "line": 3,
+      "kind": "implementation",
+      "evidence": [
+        "app.py:349-357",
+        "code_check.py:1,36"
+      ],
+      "finding": "Static AST check, no execution, syntax != functionality."
+    },
+    {
+      "line": 4,
+      "kind": "implementation",
+      "evidence": [
+        "app.py:358-360"
+      ],
+      "finding": "SOLVE calls deterministic solver, returns tool:solve; arithmetic checked: 57."
+    },
+    {
+      "line": 5,
+      "kind": "identity",
+      "evidence": [
+        "model_catalog.py:6",
+        "qwen_local_runtime.py:1,12"
+      ],
+      "finding": "Qwen is external disclosed base; NERAL is product identity, no own pretraining claim."
+    },
+    {
+      "line": 6,
+      "kind": "response policy",
+      "evidence": [
+        "docs/NERAL_QLORA_PILOT.md"
+      ],
+      "finding": "No unseen-file diagnosis, fabricated file access or execution; no implementation capability asserted."
+    },
+    {
+      "line": 7,
+      "kind": "implementation",
+      "evidence": [
+        "app.py:383-385",
+        "qwen_local_runtime.py:22,28-32"
+      ],
+      "finding": "Runtime identity guard rejects stale model context."
+    },
+    {
+      "line": 8,
+      "kind": "implementation",
+      "evidence": [
+        "model_catalog.py:26-66",
+        "qwen_local_runtime.py:1,94"
+      ],
+      "finding": "Current product rejects adapters; staged candidate is not wired into app.py."
+    },
+    {
+      "line": 9,
+      "kind": "implementation and general definition",
+      "evidence": [
+        "app.py:349-357",
+        "code_check.py:1,36"
+      ],
+      "finding": "Static check vs functional test distinction, no unsupported execution claim."
+    },
+    {
+      "line": 10,
+      "kind": "evaluation policy",
+      "evidence": [
+        "docs/NERAL_QLORA_PILOT.md"
+      ],
+      "finding": "Separate held-out comparison required; no claimed improvement or completed evaluation."
+    }
+  ],
+  "limits": "All ten answers reviewed for current source facts or explicit response policy. Hashes detect drift, not truth. Review again on source/data changes; ten rows only support smoke testing."
+}
