@@ -182,6 +182,85 @@ class TeacherCandidateTests(unittest.TestCase):
             prepare_teacher_candidate(self.input, self.test, self.dest)
         self.assertFalse(self.dest.exists())
 
+
+    def test_accepts_independently_verifiable_instruction_selection_and_sorting(self):
+        self.rows = [
+            {**self.train, "id": "pick-second", "domain": "instruction",
+             "task_type": "select_second", "language": "de",
+             "prompt": "Gib nur das zweite Wort zurück: FALKE | MOND | BIRKE.",
+             "answer": "MOND", "independent_reference": "MOND"},
+            {**self.val, "id": "sort-numbers", "domain": "instruction",
+             "task_type": "sort_three", "language": "en",
+             "prompt": "Sort these three numbers in ascending order: 31, 4, 12.",
+             "answer": "4,12,31", "independent_reference": "4,12,31"},
+        ]
+        self.write_inputs()
+        report = prepare_teacher_candidate(self.input, self.test, self.dest)
+        self.assertEqual(report["split_counts"]["train"], 1)
+        self.assertEqual(report["split_counts"]["val"], 1)
+        from frontier350.chat350_data import validate_dataset_root
+        _, splits = validate_dataset_root(self.dest)
+        self.assertEqual(splits["train"][0]["messages"][1]["content"], "MOND")
+        self.assertEqual(splits["val"][0]["messages"][1]["content"], "4,12,31")
+
+    def test_rejects_wrong_instruction_reference_and_malformed_inputs(self):
+        checks = [
+            {"task_type": "select_second", "domain": "instruction",
+             "prompt": "Gib nur das zweite Wort zurück: FALKE | MOND | BIRKE.",
+             "answer": "FALKE", "independent_reference": "FALKE"},
+            {"task_type": "select_second", "domain": "instruction",
+             "prompt": "Gib nur das zweite Wort zurück: MOND | MOND | BIRKE.",
+             "answer": "MOND", "independent_reference": "MOND"},
+            {"task_type": "select_second", "domain": "instruction",
+             "prompt": "Gib nur das zweite Wort zurück: FALKE | BIRKE.",
+             "answer": "BIRKE", "independent_reference": "BIRKE"},
+            {"task_type": "sort_three", "domain": "instruction",
+             "prompt": "Sortiere diese drei Zahlen aufsteigend: 31, 4, 12.",
+             "answer": "31,12,4", "independent_reference": "31,12,4"},
+            {"task_type": "sort_three", "domain": "instruction",
+             "prompt": "Sortiere diese drei Zahlen aufsteigend: 31, 4, 4.",
+             "answer": "4,4,31", "independent_reference": "4,4,31"},
+            {"task_type": "sort_three", "domain": "instruction",
+             "prompt": "Sortiere diese drei Zahlen aufsteigend: 031, 4, 12.",
+             "answer": "4,12,31", "independent_reference": "4,12,31"},
+        ]
+        for item in checks:
+            with self.subTest(task=item):
+                self.rows = [{**self.train, **item}, self.val]
+                self.write_inputs()
+                with self.assertRaises(ValueError):
+                    prepare_teacher_candidate(self.input, self.test, self.dest)
+                self.assertFalse(self.dest.exists())
+
+    def test_rejects_cross_language_instruction_semantic_duplicates(self):
+        duplicates = [
+            (
+                {**self.train, "domain": "instruction", "task_type": "select_second",
+                 "prompt": "Gib nur das zweite Wort zurück: FALKE | MOND | BIRKE.",
+                 "answer": "MOND", "independent_reference": "MOND"},
+                {**self.val, "domain": "instruction", "task_type": "select_second",
+                 "language": "en",
+                 "prompt": "Return only the second word: FALKE | MOND | BIRKE.",
+                 "answer": "MOND", "independent_reference": "MOND"},
+            ),
+            (
+                {**self.train, "domain": "instruction", "task_type": "sort_three",
+                 "prompt": "Sortiere diese drei Zahlen aufsteigend: 31, 4, 12.",
+                 "answer": "4,12,31", "independent_reference": "4,12,31"},
+                {**self.val, "domain": "instruction", "task_type": "sort_three",
+                 "language": "en",
+                 "prompt": "Sort these three numbers in ascending order: 12, 31, 4.",
+                 "answer": "4,12,31", "independent_reference": "4,12,31"},
+            ),
+        ]
+        for train, val in duplicates:
+            with self.subTest(task=train["task_type"]):
+                self.rows = [train, val]
+                self.write_inputs()
+                with self.assertRaises(ValueError):
+                    prepare_teacher_candidate(self.input, self.test, self.dest)
+                self.assertFalse(self.dest.exists())
+
     def test_rejects_mixed_teacher_artifacts_and_symlinked_inputs(self):
         self.rows = [self.train, {**self.val, "teacher_artifact_sha256": "b" * 64}]
         self.write_inputs()
