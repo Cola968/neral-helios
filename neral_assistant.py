@@ -19,6 +19,8 @@ ALLOWED_MODELS = frozenset({"qwen3.5:9b", "qwen3.5:4b"})
 DEFAULT_MODEL = "qwen3.5:9b"
 LOOPBACK_ENDPOINT = "http://127.0.0.1:11434/api/chat"
 MAX_INPUT_BYTES = 4096
+DEEP_INPUT_BYTES = 8192
+DEEP_MAX_NEW_TOKENS = 1024
 MAX_RESPONSE_BYTES = 256 * 1024
 from neral_assistant_persona import PERSONA_VERSION, SYSTEM_PROMPT
 
@@ -80,13 +82,16 @@ def local_ollama_request(payload: dict) -> dict:
 
 
 def _validate(prompt: str, history: list[dict], model: str, max_new: int,
-              temperature: float, think: bool) -> None:
+              temperature: float, think: bool, quality: str) -> None:
     if not isinstance(prompt, str) or not prompt.strip():
         raise AssistantError("Bitte eine Nachricht eingeben.")
     if not isinstance(model, str) or model not in ALLOWED_MODELS:
         raise AssistantError("Unzulässige oder nicht zugelassene Modellbasis.")
-    if type(max_new) is not int or not 1 <= max_new <= 512:
-        raise AssistantError("Ungültiges Antwortbudget (1–512 Token).")
+    if type(quality) is not str or quality not in {"standard", "deep"}:
+        raise AssistantError("Unbekanntes Assistant-Qualitätsprofil.")
+    budget_limit = DEEP_MAX_NEW_TOKENS if quality == "deep" else 512
+    if type(max_new) is not int or not 1 <= max_new <= budget_limit:
+        raise AssistantError("Ungültiges Assistant-Antwortbudget.")
     if type(temperature) not in (float, int) or not math.isfinite(temperature) or not 0 <= temperature <= 1.5:
         raise AssistantError("Ungültige Temperatur.")
     if type(think) is not bool:
@@ -102,8 +107,9 @@ def _validate(prompt: str, history: list[dict], model: str, max_new: int,
         if not isinstance(row["content"], str) or not row["content"].strip():
             raise AssistantError("Leere oder ungültige Nachricht im Verlauf.")
         size += len(row["content"].encode("utf-8"))
-    if size > MAX_INPUT_BYTES:
-        raise AssistantError("Chatverlauf überschreitet 4096 UTF-8-Bytes.")
+    input_limit = DEEP_INPUT_BYTES if quality == "deep" else MAX_INPUT_BYTES
+    if size > input_limit:
+        raise AssistantError("Chatverlauf überschreitet das konfigurierte UTF-8-Bytelimit.")
 
 
 def _message(data: dict, model: str) -> dict:
@@ -137,13 +143,14 @@ def _calculate(call: dict) -> str:
 def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                    transport=None, model: str = DEFAULT_MODEL, think: bool = False,
                    max_new: int = 256, temperature: float = 0.0,
-                   enable_tools: bool = True) -> dict:
+                   enable_tools: bool = True, quality: str = "standard") -> dict:
     """One NERAL turn: at most one allowlisted arithmetic call and one final answer."""
     history = [] if history is None else history
-    _validate(prompt, history, model, max_new, temperature, think)
+    _validate(prompt, history, model, max_new, temperature, think, quality)
     if type(enable_tools) is not bool:
         raise AssistantError('Ungültige Tool-Konfiguration.')
     transport = local_ollama_request if transport is None else transport
+    actual_think = think or quality == "deep"
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": row["role"], "content": row["content"].strip()} for row in history)
     messages.append({"role": "user", "content": prompt.strip()})
@@ -155,9 +162,10 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
             "messages": messages,
             "tools": [CALCULATOR_SCHEMA] if enable_tools else [],
             "stream": False,
-            "think": think,
+            "think": actual_think,
             "keep_alive": "5m",
-            "options": {"num_ctx": 4096, "num_predict": max_new, "temperature": float(temperature)},
+            "options": {"num_ctx": 8192 if quality == "deep" else 4096,
+                        "num_predict": max_new, "temperature": float(temperature)},
         }
         data = transport(payload)
         response = _message(data, model)
@@ -204,6 +212,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
             "tokens_per_second": speed,
             "seconds": round(eval_duration / 1e9, 3) if type(eval_duration) is int and eval_duration >= 0 else 0,
             "active_checkpoint": "Qwen3.5 (Ollama local); not Arctus",
-            "reasoning_enabled": think,
+            "reasoning_enabled": actual_think,
+            "quality_mode": quality,
         }
     raise AssistantError("Das Modell hat keine endgültige Antwort geliefert.")

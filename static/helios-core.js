@@ -20,7 +20,7 @@
     const format=rows=>rows.map(m=>(m.role==='user'?'User':'Assistant')+': '+m.content.trim()+'\n').join('')+'User: '+prompt.trim()+'\nAssistant:';
     const original=pairs.length;
     // BPE length is checked by the actual tokenizer on the server, never treated as bytes.
-    const fits=rows=>mode==='assistant'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:family==='neral-arctus350'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:bytes(format(rows))+1+budget<=maxContext;
+    const fits=rows=>mode==='assistant'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=maxContext:family==='neral-arctus350'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:bytes(format(rows))+1+budget<=maxContext;
     while(pairs.length&&(pairs.length>6||!fits(pairs.flat())))pairs.shift();
     const history=pairs.flat();
     return {history,omitted:original-pairs.length,fits:fits(history)};
