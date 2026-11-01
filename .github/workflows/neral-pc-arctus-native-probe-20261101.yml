@@ -41,7 +41,7 @@ jobs:
           & $p -c "from tokenizers import Tokenizer; print('TEMP_TOKENIZER_READY=True')"
           if ($LASTEXITCODE -ne 0) { throw 'Isolated tokenizers unusable' }
           "ARCTUS_TOKENIZER_TEMP_PATH=$deps" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Measure only 8 short prompts with original 350M BF16 weights
+      - name: Baseline with 8 bare prefixes (no tokenizer roles)
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
@@ -53,3 +53,14 @@ jobs:
           $env:PYTHONPATH = $env:ARCTUS_TOKENIZER_TEMP_PATH
           & $p frontier350/readonly_eval_probe350.py --checkpoint $ck --tokenizer $tok --expected-checkpoint-sha256 f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7
           if ($LASTEXITCODE -ne 0) { throw 'Native Arctus benchmark probe failed; no model changed' }
+      - name: Compare exact same 8 prompts using native User-Assistant chat framing
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $ck = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tok = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\frontier350_assets\tokenizer.json'
+          $env:PYTHONPATH = $env:ARCTUS_TOKENIZER_TEMP_PATH
+          & $p frontier350/readonly_eval_probe350.py --checkpoint $ck --tokenizer $tok --expected-checkpoint-sha256 f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7 --prompt-format chat
+          if ($LASTEXITCODE -ne 0) { throw 'Native chat-template Arctus probe failed; no model changed' }
+
