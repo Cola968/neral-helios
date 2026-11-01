@@ -1,0 +1,23 @@
+name: NERAL Qwen one-shot probe contracts (offline)
+on:
+  pull_request:
+    paths:
+      - 'neral_qwen_live_probe.py'
+      - 'tests/test_neral_qwen_live_probe.py'
+      - '.github/workflows/neral-qwen-live-probe-contracts.yml'
+      - '.github/workflows/neral-qwen-one-shot-20261101.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Local-probe safety and identity contracts (no Ollama)
+        run: python -m unittest -v tests.test_neral_qwen_live_probe
