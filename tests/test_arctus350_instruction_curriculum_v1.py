@@ -28,7 +28,7 @@ class NativeInstructionCurriculumTests(unittest.TestCase):
                 self.assertNotIn(row["id"], ids)
                 ids.add(row["id"])
                 parts = row["id"].split("-")
-                group = (parts[1], parts[2])
+                group = (parts[1], parts[3])
                 self.assertEqual(owners.setdefault(group, split), split)
                 language, kind = row["language"], row["task_type"]
                 per_task[language, kind] += 1
