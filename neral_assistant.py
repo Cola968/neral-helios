@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 
 from solve import arithmetic
+from code_check import check_code, MAX_CODE_BYTES
 
 ALLOWED_MODELS = frozenset({"qwen3.5:9b", "qwen3.5:4b"})
 DEFAULT_MODEL = "qwen3.5:9b"
@@ -38,6 +39,27 @@ CALCULATOR_SCHEMA = {
             "additionalProperties": False
         }
     }
+}
+
+
+CODE_CHECK_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "code_check",
+        "description": (
+            "Statically inspect Python source for syntax and selected security or "
+            "reliability findings. Never runs, imports or tests submitted code; "
+            "this is not a proof of functional correctness."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python source code, at most 4096 UTF-8 bytes"}
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+    },
 }
 
 
@@ -140,11 +162,35 @@ def _calculate(call: dict) -> str:
     return json.dumps({"result": result["result"], "engine": "NERAL SOLVE", "model_generated": False})
 
 
+def _code_check(call: dict) -> str:
+    """Use existing bounded AST checker, never run untrusted Python source."""
+    if not isinstance(call, dict) or set(call) != {"function"}:
+        raise AssistantError("Ungültiger Python-Prüfaufruf.")
+    fn = call["function"]
+    if not isinstance(fn, dict) or fn.get("name") != "code_check":
+        raise AssistantError("Nicht freigegebenes Codewerkzeug.")
+    args = fn.get("arguments")
+    if not isinstance(args, dict) or set(args) != {"code"}:
+        raise AssistantError("Ungültige Codeprüfparameter.")
+    code = args["code"]
+    if not isinstance(code, str) or not code.strip():
+        raise AssistantError("Der Codeprüfer erwartet nichtleeren Python-Quelltext.")
+    try:
+        if len(code.encode("utf-8")) > MAX_CODE_BYTES:
+            raise AssistantError("Python-Code überschreitet das 4096-Byte-Limit.")
+        result = check_code(code)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise AssistantError("Python-Code kann nicht statisch geprüft werden.") from exc
+    if result.get("executed") is not False:
+        raise AssistantError("Nur rein statische Codeprüfung ist erlaubt.")
+    return json.dumps(result, ensure_ascii=False)
+
+
 def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                    transport=None, model: str = DEFAULT_MODEL, think: bool = False,
                    max_new: int = 256, temperature: float = 0.0,
                    enable_tools: bool = True, quality: str = "standard") -> dict:
-    """One NERAL turn: at most one allowlisted arithmetic call and one final answer."""
+    """One NERAL turn: at most one allowlisted static or arithmetic tool call."""
     history = [] if history is None else history
     _validate(prompt, history, model, max_new, temperature, think, quality)
     if type(enable_tools) is not bool:
@@ -160,7 +206,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         payload = {
             "model": model,
             "messages": messages,
-            "tools": [CALCULATOR_SCHEMA] if enable_tools else [],
+            "tools": [CALCULATOR_SCHEMA, CODE_CHECK_SCHEMA] if enable_tools else [],
             "stream": False,
             "think": actual_think,
             "keep_alive": "5m",
@@ -177,11 +223,20 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                 raise AssistantError('Nicht freigegebener Werkzeugaufruf im Modell-Benchmark.')
             if iteration or tools_used:
                 raise AssistantError("Werkzeugaufrufe überschreiten das Limit.")
-            tool_output = _calculate(calls[0])
+            call = calls[0]
+            if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
+                raise AssistantError("Ungültiger Werkzeugaufruf.")
+            tool_name = call["function"].get("name")
+            if tool_name == "calculator":
+                tool_output = _calculate(call)
+            elif tool_name == "code_check":
+                tool_output = _code_check(call)
+            else:
+                raise AssistantError("Nicht freigegebenes Werkzeug.")
             messages.append({"role": "assistant", "content": str(response.get("content") or ""),
                              "tool_calls": calls})
-            messages.append({"role": "tool", "tool_name": "calculator", "content": tool_output})
-            tools_used.append("calculator")
+            messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
+            tools_used.append(tool_name)
             continue
         text = response.get("content")
         if not isinstance(text, str) or not text.strip() or len(text) > 24000:
