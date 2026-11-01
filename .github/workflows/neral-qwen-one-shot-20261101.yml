@@ -16,7 +16,10 @@ concurrency:
 
 jobs:
   live-qwen-readonly:
-    if: "github.event.head_commit.message == 'request approved one-off Qwen E2E synthetic read-only'"
+    # Successful live verification: https://github.com/Cola968/neral-helios/actions/runs/41329964479
+    # One-shot permission has been consumed. Future local GPU jobs need new
+    # explicit authorization and a separately reviewed workflow change.
+    if: "false"
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 12
     defaults:
