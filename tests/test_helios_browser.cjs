@@ -33,7 +33,7 @@ const root=path.resolve(__dirname,'..');
   const offlinePage=await offlineContext.newPage();
   await offlinePage.goto('http://127.0.0.1:'+server.address().port);
   await offlinePage.evaluate(()=>navigator.serviceWorker.ready);
-  await offlinePage.waitForFunction(()=>navigator.serviceWorker.controller!==null,{timeout:5000});
+  await offlinePage.waitForFunction(()=>navigator.serviceWorker.controller!==null,null,{timeout:5000});
   await offlinePage.locator('#prompt').fill('Saved before going offline');
   assert(await offlinePage.evaluate(()=>localStorage.getItem(storageKey).includes('Saved before going offline')));
   await offlineContext.setOffline(true);
