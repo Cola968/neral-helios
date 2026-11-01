@@ -59,6 +59,7 @@ const root=path.resolve(__dirname,'..');
   assert.equal(await page.locator('#tasks .task').count(),1);
   assert.equal(await page.locator('#tasks .task button').count(),0);
   assert.equal(await page.locator('#showArchived').getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#archiveMore').isHidden(),true);
   await page.locator('#showArchived').click();
   await page.locator('#tasks .empty').filter({hasText:'Noch keine Aufträge'}).waitFor();
   // An approved research task must NOT fetch without a second explicit click.
