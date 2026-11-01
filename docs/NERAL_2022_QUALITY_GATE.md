@@ -53,7 +53,7 @@ Upstream Qwen3.5-9B: https://huggingface.co/Qwen/Qwen3.5-9B (Apache-2.0).
 
 Der bisherige `code_check.py` war schon vorhanden, konnte aber im Qwen-Assistant nicht aufgerufen werden. Über den vorhandenen Ollama-Tool-Call-Vertrag kann Qwen bei der Besprechung von Python-Code nun zusätzlich zu `calculator` das freigegebene Werkzeug `code_check` aufrufen.
 
-- Maximal **ein** Tool-Aufruf pro Nutzereingabe und ein anschließender Modellantwortversuch; kein autonomer Agenten- oder Shell-Zugriff.
+- Maximal **zwei unterschiedliche** freigegebene Werkzeuge (`code_check` und `calculator`) nacheinander pro Nutzereingabe und ein abschließender Modellantwortversuch; wiederholte, dritte, parallele oder fremde Werkzeugaufrufe werden abgewiesen. Längere Laufzeiten sind möglich; kein autonomer Agenten- oder Shell-Zugriff.
 - Der Prüfer nutzt ausschließlich `ast.parse` und eine begrenzte Liste statischer Sicherheits-/Robustheitsmuster. Eingegebener Python-Code wird **niemals ausgeführt oder importiert**; es werden auch keine Tests ausgeführt.
 - Alle Eingaben sind auf 4096 UTF-8-Bytes begrenzt. Unbekannte Tool-Namen, zusätzliche Parameter oder überlange Eingaben werden abgewiesen.
 - Die Antwort wird weiter mit `source=external-model` / `base_model=qwen3.5:9b` gekennzeichnet. Die Metadaten nennen `tools_used=["code_check"]`; die Entwicklungssuite zählt Codeprüfungen **nicht** als Rechneraufrufe.

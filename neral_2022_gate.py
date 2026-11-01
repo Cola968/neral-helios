@@ -179,7 +179,8 @@ def _verified_response(output, *, model, quality, enable_tools):
     used = output.get("tools_used")
     if (not isinstance(used, list)
         or any(item not in {"calculator", "code_check"} for item in used)
-        or len(used) > 1
+        or len(used) > 2
+        or len(set(used)) != len(used)
         or (not enable_tools and used)):
         raise GateError("tool attribution must match evaluation layer")
     if not _str(output.get("text"), 24000):

@@ -82,7 +82,7 @@ def evaluate_cases(cases: list[dict], *, model: str, enable_tools: bool,
             raise ValueError("model diagnostic output identity mismatch")
         used = output.get("tools_used")
         text = output.get("text")
-        if not isinstance(text, str) or not isinstance(used, list) or any(x not in {"calculator", "code_check"} for x in used):
+        if not isinstance(text, str) or not isinstance(used, list) or any(x not in {"calculator", "code_check"} for x in used) or len(used) > 2 or len(set(used)) != len(used):
             raise ValueError("invalid diagnostic result")
         if not enable_tools and used:
             raise ValueError("native mode returned tool-assisted result")

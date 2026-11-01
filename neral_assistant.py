@@ -23,6 +23,7 @@ MAX_INPUT_BYTES = 4096
 DEEP_INPUT_BYTES = 8192
 DEEP_MAX_NEW_TOKENS = 1024
 MAX_RESPONSE_BYTES = 256 * 1024
+MAX_CODE_CHECK_RESULT_BYTES = 4096
 from neral_assistant_persona import PERSONA_VERSION, SYSTEM_PROMPT
 
 CALCULATOR_SCHEMA = {
@@ -188,14 +189,44 @@ def _code_check(call: dict) -> str:
         raise AssistantError("Python-Code kann nicht statisch geprüft werden.") from exc
     if result.get("executed") is not False:
         raise AssistantError("Nur rein statische Codeprüfung ist erlaubt.")
-    return json.dumps(result, ensure_ascii=False)
+    serialized = json.dumps(result, ensure_ascii=False)
+    if len(serialized.encode("utf-8")) <= MAX_CODE_CHECK_RESULT_BYTES:
+        return serialized
+
+    # The AST checker may produce hundreds of repetitive findings for 4 KiB of
+    # source. Preserve exact totals, prioritize high severity, and tell Qwen
+    # explicitly that the transmitted findings are incomplete. Never silently
+    # turn a partial list into a claim of comprehensive safety.
+    findings = result["findings"]
+    report = dict(result)
+    report["findings"] = []
+    report["truncated"] = True
+    report["omitted_findings"] = len(findings)
+    report["note"] = (
+        "Gekürzte statische Analyse: priorisierte Beispiele statt aller Befunde; "
+        "finding_count und severity_counts gelten weiterhin für ALLE Befunde. "
+        "Kein ausgeführter Code, keine vollständige Sicherheitsprüfung."
+    )
+    severity = {"high": 0, "medium": 1, "low": 2}
+    for finding in sorted(findings, key=lambda item: severity.get(item.get("severity"), 3)):
+        report["findings"].append(finding)
+        report["omitted_findings"] = len(findings) - len(report["findings"])
+        candidate = json.dumps(report, ensure_ascii=False)
+        if len(candidate.encode("utf-8")) > MAX_CODE_CHECK_RESULT_BYTES:
+            report["findings"].pop()
+            report["omitted_findings"] += 1
+            break
+    serialized = json.dumps(report, ensure_ascii=False)
+    if len(serialized.encode("utf-8")) > MAX_CODE_CHECK_RESULT_BYTES:
+        raise AssistantError("Codeprüfung überschreitet das sichere Ergebnislimit.")
+    return serialized
 
 
 def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                    transport=None, model: str = DEFAULT_MODEL, think: bool = False,
                    max_new: int = 256, temperature: float = 0.0,
                    enable_tools: bool = True, quality: str = "standard") -> dict:
-    """One NERAL turn: at most one allowlisted static or arithmetic tool call."""
+    """One NERAL turn: at most two distinct allowlisted tools and one final answer."""
     history = [] if history is None else history
     _validate(prompt, history, model, max_new, temperature, think, quality)
     if type(enable_tools) is not bool:
@@ -207,7 +238,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
     messages.append({"role": "user", "content": prompt.strip()})
     tools_used: list[str] = []
     data = None
-    for iteration in range(2):
+    for iteration in range(3):
         payload = {
             "model": model,
             "messages": messages,
@@ -230,12 +261,12 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                 raise AssistantError("Unvollständiger Werkzeugaufruf am Antwortlimit.")
             if not enable_tools:
                 raise AssistantError('Nicht freigegebener Werkzeugaufruf im Modell-Benchmark.')
-            if iteration or tools_used:
-                raise AssistantError("Werkzeugaufrufe überschreiten das Limit.")
             call = calls[0]
             if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
                 raise AssistantError("Ungültiger Werkzeugaufruf.")
             tool_name = call["function"].get("name")
+            if len(tools_used) >= 2 or tool_name in tools_used:
+                raise AssistantError("Werkzeugaufrufe überschreiten das Limit.")
             if tool_name == "calculator":
                 tool_output = _calculate(call)
             elif tool_name == "code_check":
