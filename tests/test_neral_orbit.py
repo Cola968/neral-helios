@@ -150,6 +150,34 @@ class OrbitStorageTests(unittest.TestCase):
             self.store.transition("0"*32,"archive",revision=1)
         self.assertEqual(self.store.get(t["id"])["status"],"APPROVED_NO_EXECUTOR")
 
+
+    def test_archived_history_paginates_past_40_without_deleting_records(self):
+        ids=[]
+        for i in range(45):
+            t=self.store.create(kind="coding",title=f"Archiv {i:02d}",
+                                goal="Bewahre alte Projektentscheidungen dauerhaft auf.")
+            cancelled=self.store.transition(t["id"],"cancel",revision=1)
+            self.store.transition(t["id"],"archive",revision=cancelled["revision"])
+            ids.append(t["id"])
+        assert self.store.list()==[]
+        assert len(self.store.list(archived=True))==40
+        page1=self.store.list(archived=True,offset=0,limit=41)
+        page2=self.store.list(archived=True,offset=40,limit=41)
+        assert len(page1)==41
+        assert len(page2)==5
+        assert {x["id"] for x in page1[:40]}.isdisjoint({x["id"] for x in page2})
+        assert {x["id"] for x in page1[:40]+page2}==set(ids)
+        assert all(x["execution_enabled"] is False for x in page2)
+        assert all(self.store.get(i)["status"]=="ARCHIVED" for i in ids)
+
+    def test_archive_offsets_and_page_limits_fail_closed(self):
+        for offset in (-1,True,"40",100001,None):
+            with self.subTest(offset=offset), self.assertRaises(OrbitError):
+                self.store.list(archived=True,offset=offset)
+        for limit in (0,True,42,-1,"41",None):
+            with self.subTest(limit=limit), self.assertRaises(OrbitError):
+                self.store.list(archived=True,limit=limit)
+
     def test_no_new_tables_are_exec_or_scheduler_credentials(self):
         with closing(sqlite3.connect(self.db)) as conn, conn:
             ddl="\n".join(row[0] for row in conn.execute(
@@ -222,6 +250,30 @@ class OrbitFlaskTests(unittest.TestCase):
         self.assertFalse(archived_view.json["executor_active"])
         self.assertEqual(self.client.get("/api/orbit/tasks?view=all").status_code,400)
         self.assertEqual(self.client.post(archive,json={"action":"approve","revision":3}).status_code,400)
+
+
+    def test_archive_api_pages_older_records_and_rejects_bad_offsets(self):
+        for i in range(45):
+            task=self.app.orbit_store.create(kind="coding",title=f"Archived {i:02d}",
+                   goal="Review source evidence without starting an executor.")
+            cancelled=self.app.orbit_store.transition(task["id"],"cancel",revision=1)
+            self.app.orbit_store.transition(task["id"],"archive",revision=cancelled["revision"])
+        first=self.client.get("/api/orbit/tasks?view=archived")
+        assert first.status_code==200
+        assert len(first.json["tasks"])==40
+        assert first.json["has_more"] is True
+        assert first.json["next_offset"]==40
+        next_page=self.client.get("/api/orbit/tasks?view=archived&offset=40")
+        assert next_page.status_code==200
+        assert len(next_page.json["tasks"])==5
+        assert next_page.json["has_more"] is False
+        assert next_page.json["next_offset"] is None
+        assert {t["id"] for t in first.json["tasks"]}.isdisjoint(
+               {t["id"] for t in next_page.json["tasks"]})
+        for bad in ("-1","1.5","Infinity","true","999999999",""):
+            assert self.client.get("/api/orbit/tasks?view=archived&offset="+bad).status_code==400
+        assert self.client.get("/api/orbit/tasks?view=active&offset=40").status_code==400
+        assert self.app.app.test_client().get("/api/orbit/tasks?view=archived&offset=40").status_code==401
 
     def test_no_execution_endpoint_and_disabled_feature_404(self):
         self.assertEqual(self.client.get("/orbit").status_code,200)
