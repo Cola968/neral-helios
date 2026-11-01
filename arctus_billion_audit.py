@@ -15,6 +15,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 import tempfile
 import unicodedata
 from pathlib import Path
@@ -212,7 +213,9 @@ def audit_corpus(root: Path, *, max_candidates_per_bucket: int = MAX_CANDIDATES_
                 "duplicate": {"shard": duplicate_shard, "line": duplicate_line},
             })
     with tempfile.TemporaryDirectory(prefix="arctus-audit-") as scratch:
-        with sqlite3.connect(Path(scratch) / "audit.sqlite3") as db:
+        # sqlite3's context manager finalizes transactions but does NOT close
+        # connections. Close before deleting temp files (Windows WinError 32).
+        with closing(sqlite3.connect(Path(scratch) / "audit.sqlite3")) as db, db:
             db.executescript("""
                 CREATE TABLE docs(
                     id INTEGER PRIMARY KEY,
