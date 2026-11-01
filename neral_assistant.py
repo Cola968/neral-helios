@@ -149,8 +149,33 @@ def _message(data: dict, model: str) -> dict:
     return message
 
 
+def _valid_tool_envelope(call: object) -> bool:
+    """Accept only inert Ollama tool-call metadata, never extra tool actions.
+
+    Real Ollama responses may attach an opaque call ID, call type or zero-based
+    index alongside the function. Validate them with small hard bounds while
+    keeping the executable function and its parameters strictly allowlisted.
+    """
+    if not isinstance(call, dict) or "function" not in call:
+        return False
+    if set(call) - {"function", "id", "type", "index"}:
+        return False
+    if not isinstance(call["function"], dict):
+        return False
+    if "type" in call and call["type"] != "function":
+        return False
+    if "index" in call and (type(call["index"]) is not int or call["index"] != 0):
+        return False
+    if "id" in call and (
+        type(call["id"]) is not str
+        or re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", call["id"]) is None
+    ):
+        return False
+    return True
+
+
 def _calculate(call: dict) -> str:
-    if not isinstance(call, dict) or set(call) != {"function"}:
+    if not _valid_tool_envelope(call):
         raise AssistantError("Ungültiger Werkzeugaufruf.")
     fn = call["function"]
     if not isinstance(fn, dict) or fn.get("name") != "calculator":
@@ -170,7 +195,7 @@ def _calculate(call: dict) -> str:
 
 def _code_check(call: dict) -> str:
     """Use existing bounded AST checker, never run untrusted Python source."""
-    if not isinstance(call, dict) or set(call) != {"function"}:
+    if not _valid_tool_envelope(call):
         raise AssistantError("Ungültiger Python-Prüfaufruf.")
     fn = call["function"]
     if not isinstance(fn, dict) or fn.get("name") != "code_check":
