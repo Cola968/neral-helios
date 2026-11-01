@@ -4,6 +4,8 @@ on:
     paths:
       - 'cloud/neral-coordinator/**'
       - '.github/workflows/neral-cloud-coordinator-ci.yml'
+      - 'scripts/codex_cloud_check.py'
+      - 'AGENTS.md'
 permissions:
   contents: read
 jobs:
@@ -15,4 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/codex_cloud_check.py
       - run: node --test cloud/neral-coordinator/worker.test.mjs
