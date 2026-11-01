@@ -30,7 +30,8 @@ class PersonalityIntegrationTests(unittest.TestCase):
     def test_local_tool_access_is_not_misrepresented(self):
         from neral_assistant_persona import SYSTEM_PROMPT
         self.assertIn("calculator",SYSTEM_PROMPT)
-        self.assertIn("keine dauerhafte",SYSTEM_PROMPT)
+        self.assertIn("keine Hintergrundausführung",SYSTEM_PROMPT)
+        self.assertIn("code_check",SYSTEM_PROMPT)
 
 
 class AssistantTests(unittest.TestCase):
@@ -91,6 +92,19 @@ class AssistantTests(unittest.TestCase):
             with self.subTest(name=name,args=args),self.assertRaises(AssistantError):
                 assistant_turn("Test",transport=fake)
 
+    def test_tool_call_rejects_non_text_assistant_content_before_second_request(self):
+        for invalid in ({"unexpected":"object"}, ["unexpected"], 7, True):
+            requests = []
+            def fake(payload):
+                requests.append(payload)
+                return {"model":"qwen3.5:9b","done":True,
+                        "message":{"role":"assistant","content":invalid,
+                                   "tool_calls":[{"function":{"name":"calculator",
+                                                               "arguments":{"expression":"2+2"}}}]}}
+            with self.subTest(invalid=invalid), self.assertRaises(AssistantError):
+                assistant_turn("2+2?",transport=fake)
+            self.assertEqual(len(requests),1)
+
     def test_repeated_tool_call_is_rejected(self):
         def fake(payload):
             return {"model":"qwen3.5:9b","done":True,
@@ -136,7 +150,7 @@ class AssistantTests(unittest.TestCase):
         def fake(payload):
             self.assertEqual(set(payload["options"]), {"num_ctx","num_predict","temperature"})
             self.assertEqual([tool["function"]["name"] for tool in payload["tools"]],
-                             ["calculator"])
+                             ["calculator", "code_check"])
             return answer("Antwort")
         assistant_turn("Hallo",transport=fake)
 
