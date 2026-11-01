@@ -36,6 +36,19 @@ ORDER_DE = re.compile(
     r"([A-ZÄÖÜ][a-zäöüß]{2,15}) ist schneller als ([A-ZÄÖÜ][a-zäöüß]{2,15})\. "
     r"Wer ist am (schnellsten|langsamsten)\?\Z"
 )
+SELECT_SECOND_DE = re.compile(
+    r"Gib nur das zweite Wort zurück: ([A-Z]{3,12}) \| ([A-Z]{3,12}) \| ([A-Z]{3,12})\.\Z"
+)
+SELECT_SECOND_EN = re.compile(
+    r"Return only the second word: ([A-Z]{3,12}) \| ([A-Z]{3,12}) \| ([A-Z]{3,12})\.\Z"
+)
+SORT_THREE_DE = re.compile(
+    r"Sortiere diese drei Zahlen aufsteigend: (0|[1-9]\d{0,3}), (0|[1-9]\d{0,3}), (0|[1-9]\d{0,3})\.\Z"
+)
+SORT_THREE_EN = re.compile(
+    r"Sort these three numbers in ascending order: (0|[1-9]\d{0,3}), (0|[1-9]\d{0,3}), (0|[1-9]\d{0,3})\.\Z"
+)
+
 TEACHER_KEYS = frozenset({
     "id", "split", "language", "domain", "task_type", "prompt", "answer",
     "independent_reference", "human_reviewed", "teacher_model",
@@ -130,6 +143,23 @@ def _independent_task(task_type: str, prompt: str, language: str):
         asks_fastest = question in {"fastest", "schnellsten"}
         ordered = (fastest[0], middle[0], slowest[0])
         return ordered[0 if asks_fastest else 2], ("ordered_logic", ordered, asks_fastest)
+    if task_type == "select_second":
+        match = (SELECT_SECOND_DE if language == "de" else SELECT_SECOND_EN).fullmatch(prompt.strip())
+        if match is None:
+            raise ValueError("unsupported exact second-word selection grammar")
+        words = match.groups()
+        if len(set(words)) != 3:
+            raise ValueError("second-word selection requires distinct tokens")
+        return words[1], ("select_second", *words)
+    if task_type == "sort_three":
+        match = (SORT_THREE_DE if language == "de" else SORT_THREE_EN).fullmatch(prompt.strip())
+        if match is None:
+            raise ValueError("unsupported exact numerical ordering grammar")
+        numbers = tuple(int(v) for v in match.groups())
+        if len(set(numbers)) != 3:
+            raise ValueError("sorting task requires distinct numbers")
+        ordered = tuple(sorted(numbers))
+        return ",".join(str(v) for v in ordered), ("sort_three", *ordered)
     if task_type == "exact":
         # Arbitrary text is NOT independently verifiable: explicit human review required.
         return None, None
@@ -153,8 +183,10 @@ def _read_teacher(path: Path):
             raise ValueError("teacher examples only permitted in train/val, DE/EN")
         if row["domain"] not in {"math", "instruction", "grounding", "general", "reasoning"}:
             raise ValueError("unsupported teacher task domain")
-        if row["task_type"] not in {"addition", "two_step", "ordered_logic", "exact"}:
+        if row["task_type"] not in {"addition", "two_step", "ordered_logic", "select_second", "sort_three", "exact"}:
             raise ValueError("only independently exact-verifiable task types in pilot")
+        if row["task_type"] in {"select_second", "sort_three"} and row["domain"] != "instruction":
+            raise ValueError("instruction tasks require instruction domain")
         if row["teacher_model"] != TEACHER or row["teacher_license"] != TEACHER_LICENSE:
             raise ValueError("teacher identity or upstream model license not allowed")
         digest = row["teacher_artifact_sha256"]
