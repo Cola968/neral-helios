@@ -82,7 +82,7 @@ def aggregate_results(cases, rows, eos_id, special_ids=None):
         target=case["expected_exact"].strip().casefold()
         exact=int(content==target)
         # Answer present inside a verbose response is NOT an exact success.
-        embedded=int(bool(re.search(r"(?<!\\w)"+re.escape(target)+r"(?!\\w)",content)))
+        embedded=int(bool(re.search(r"(?<!\w)"+re.escape(target)+r"(?!\w)",content)))
         totals["embedded"]+=embedded
         totals["nonempty"]+=int(bool(content))
         totals["cap"]+=int(len(row["generated_ids"])>=case["max_new_tokens"])
