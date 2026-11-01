@@ -105,6 +105,36 @@ def test_complete_flask_to_provider_contract_with_fake_local_ollama(client, monk
     assert seen[0]["stream"] is False
 
 
+def test_complete_flask_to_static_python_checker_uses_qwen_and_no_execution(client, monkeypatch):
+    """Full Flask/provider boundary with fake Ollama; submitted Python is AST-only."""
+    import json
+    import neral_assistant as provider
+    observed = []
+    def fake_ollama(payload):
+        observed.append(payload)
+        if len(observed) == 1:
+            assert [x["function"]["name"] for x in payload["tools"]] == ["calculator", "code_check"]
+            return {"model": "qwen3.5:9b", "done": True,
+                    "message": {"role": "assistant", "content": "", "tool_calls": [
+                        {"function": {"name": "code_check",
+                                      "arguments": {"code": "def broken(:\\n  pass"}}}]}}
+        assert payload["messages"][-1]["role"] == "tool"
+        assert payload["messages"][-1]["tool_name"] == "code_check"
+        audit = json.loads(payload["messages"][-1]["content"])
+        assert audit["syntax_ok"] is False
+        assert audit["executed"] is False
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Der Code hat einen Syntaxfehler."}}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    response = post(client, {"mode": "assistant", "prompt": "Prüfe den Python-Code.",
+                             "stream": False, "history": []})
+    assert response.status_code == 200
+    assert response.json["tools_used"] == ["code_check"]
+    assert response.json["source"] == "external-model"
+    assert response.json["base_model"] == "qwen3.5:9b"
+    assert len(observed) == 2
+
+
 def test_busy_native_runtime_blocks_qwen_and_preserves_lock(client, monkeypatch):
     monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: pytest.fail("busy model must not run"))
     with web._generation_lock:
