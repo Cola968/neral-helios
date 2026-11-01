@@ -4,7 +4,7 @@ No live Ollama, GPU, model downloads or user data in this test module.
 """
 import unittest
 
-from neral_qwen_live_probe import verify_installed_model, assess, CASES
+from neral_qwen_live_probe import verify_installed_model, assess, CASES, classify_assistant_error, sanitized_protocol_event
 
 
 class LiveProbeContracts(unittest.TestCase):
@@ -55,6 +55,27 @@ class LiveProbeContracts(unittest.TestCase):
         self.assertTrue(all(0 < c["max_new_tokens"] <= 128 for c in CASES))
         self.assertTrue(all(c["quality"] == "standard" for c in CASES))
         self.assertEqual(len({c["id"] for c in CASES}), len(CASES))
+
+
+    def test_known_provider_exception_is_classified_without_echoing_arbitrary_text(self):
+        self.assertEqual(classify_assistant_error("Ungültige Codeprüfparameter."), "invalid_code_check_arguments")
+        self.assertEqual(classify_assistant_error("Codeprüfung überschreitet das sichere Ergebnislimit."), "code_check_result_limit")
+        self.assertEqual(classify_assistant_error("Werkzeugaufrufe überschreiten das Limit."), "tool_budget")
+        self.assertEqual(classify_assistant_error("SECRET prompt with private username"), "other_assistant_error")
+        self.assertNotIn("SECRET", repr(classify_assistant_error("SECRET private data")))
+
+    def test_raw_model_tool_arguments_are_never_logged(self):
+        data = {"done_reason": "stop",
+                "message": {"role": "assistant", "content": "SECRET_GENERATION_CONTENT",
+                            "tool_calls": [{"function": {
+                                "name": "tool-name-with-SECRET",
+                                "arguments": {"code": "SECRET_USER_SOURCE_CODE"}}}]}}
+        sanitized = sanitized_protocol_event(data)
+        self.assertEqual(sanitized["tool_count"], 1)
+        self.assertEqual(sanitized["tool_names"], ["other"])
+        self.assertEqual(sanitized["argument_types"], ["dict"])
+        self.assertNotIn("SECRET", repr(sanitized))
+        self.assertNotIn("code", repr(sanitized))
 
 
 if __name__ == "__main__":
