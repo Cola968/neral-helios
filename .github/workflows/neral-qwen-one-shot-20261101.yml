@@ -1,0 +1,66 @@
+name: NERAL real Qwen loopback E2E (one-shot, authorized 2026-11-01)
+# Exactly one opt-in push. Not cron, pull_request or workflow_dispatch.
+on:
+  push:
+    branches:
+      - probe/neral-qwen-local-e2e-once-20261101
+    paths:
+      - gpu_requests/qwen_e2e_readonly_20261101.trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen-e2e-readonly-once-20261101
+  cancel-in-progress: false
+
+jobs:
+  live-qwen-readonly:
+    if: github.event.head_commit.message == 'request: approved one-off Qwen E2E, synthetic read-only'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout immutable approved probe branch without deleting local assets
+        uses: actions/checkout@v4
+        with:
+          clean: false
+          persist-credentials: false
+      - name: Locate existing local NERAL Python (do not install software)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @()
+          if ($env:NERAL_PYTHON) { $candidates += $env:NERAL_PYTHON }
+          if ($env:NERAL_ASSETS_ROOT) { $candidates += (Join-Path $env:NERAL_ASSETS_ROOT '.venv\Scripts\python.exe') }
+          $candidates += (Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe')
+          $py = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+          if (-not $py) { throw 'Existing NERAL virtualenv Python is unavailable; nothing installed' }
+          & $py -c "import flask, torch; assert torch.__version__; print('PREFLIGHT_EXISTING_DEPENDENCIES_OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Existing dependencies missing; downloads forbidden' }
+          "NERAL_PROBE_PYTHON=$py" >> $env:GITHUB_ENV
+      - name: Read-only GPU availability status (no model modification)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gpu = & nvidia-smi --query-gpu=memory.total,memory.free,utilization.gpu --format=csv,noheader,nounits 2>$null
+          if ($LASTEXITCODE -ne 0 -or -not $gpu) { throw 'GPU unavailable; no test attempted' }
+          $parts = ($gpu | Select-Object -First 1) -split ','
+          if ($parts.Count -lt 3) { throw 'Invalid GPU status' }
+          $free = [int]($parts[1].Trim())
+          $busy = [int]($parts[2].Trim())
+          if ($free -lt 2048 -or $busy -gt 35) { throw 'GPU appears busy or low on free VRAM; no model inference attempted' }
+          Write-Host 'GPU_PREFLIGHT_OK (memory and utilization checked, no private paths)'
+      - name: Offline dry-run (must perform no inference)
+        shell: powershell
+        run: |
+          & "$env:NERAL_PROBE_PYTHON" -X utf8 neral_qwen_live_probe.py --plan
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Real Flask-to-local-Qwen inference (three synthetic requests only)
+        shell: powershell
+        timeout-minutes: 9
+        run: |
+          & "$env:NERAL_PROBE_PYTHON" -X utf8 neral_qwen_live_probe.py --execute-local-qwen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
