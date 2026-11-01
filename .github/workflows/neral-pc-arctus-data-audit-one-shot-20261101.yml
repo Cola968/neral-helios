@@ -1,0 +1,38 @@
+# Explicit RED-to-GREEN regression recheck for deterministic SQLite close.
+name: Arctus350 data-leakage audit — one-shot Windows CPU 2026-11-01
+on:
+  push:
+    paths:
+      - '.github/workflows/neral-pc-arctus-data-audit-one-shot-20261101.yml'
+permissions:
+  contents: read
+jobs:
+  data-audit-windows:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 7
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HELIOS_DEVICE: cpu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+          persist-credentials: false
+      - name: Syntax and no-network default contract
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Existing approved NERAL Python environment missing' }
+          & $python -c "import ast,pathlib; ast.parse(pathlib.Path('arctus_billion_audit.py').read_text(encoding='utf8')); ast.parse(pathlib.Path('tests/test_arctus_billion_audit.py').read_text(encoding='utf8')); print('PYTHON_SYNTAX_OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Syntax failed' }
+          & $python arctus_billion_audit.py
+          if ($LASTEXITCODE -ne 0) { throw 'No-network audit plan failed' }
+      - name: Synthetic corruption, train-evaluation leakage and Windows cleanup tests
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          & $python -m pytest -q -p no:cacheprovider tests/test_arctus_billion_audit.py
+          if ($LASTEXITCODE -ne 0) { throw 'Arctus350 data-leakage audit regression failure' }
