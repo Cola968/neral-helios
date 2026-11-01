@@ -133,14 +133,22 @@ def _read_teacher(path: Path):
 
 def _verified_frozen_test(path: Path):
     """Admit only independently re-derived, project-original test labels."""
-    from .arctus350_grounding_curriculum_v1 import SOURCE as GROUNDING_SOURCE, verify_row
-    from .arctus350_exact_math_curriculum import independently_verify_row
+    from .arctus350_grounding_curriculum_v1 import (
+        SOURCE as GROUNDING_SOURCE, verify_row, make_splits as grounding_splits
+    )
+    from .arctus350_exact_math_curriculum import (
+        independently_verify_row, make_splits as exact_math_splits
+    )
+    # A valid reference does NOT prove membership in the frozen TEST partition:
+    # a TRAIN row could otherwise be relabeled as a heldout case.
+    grounding_test_ids = {r["id"] for r in grounding_splits()["test"]}
+    exact_math_test_ids = {r["id"] for r in exact_math_splits()["test"]}
     rows = []
     for row in _read_jsonl(path):
         if row.get("source") == GROUNDING_SOURCE:
-            valid = verify_row(row)
+            valid = verify_row(row) and row.get("id") in grounding_test_ids
         elif row.get("source") in {"neral-generated-exact-v1", "neral-generated-small-add-v1"}:
-            valid = independently_verify_row(row)
+            valid = independently_verify_row(row) and row.get("id") in exact_math_test_ids
         else:
             valid = False
         if not valid:
