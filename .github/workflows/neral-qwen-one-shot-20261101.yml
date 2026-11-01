@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 12
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - name: Checkout immutable approved probe branch without deleting local assets
         uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
           clean: false
           persist-credentials: false
       - name: Locate existing local NERAL Python (do not install software)
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $candidates = @()
@@ -42,7 +42,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Existing dependencies missing; downloads forbidden' }
           "NERAL_PROBE_PYTHON=$py" >> $env:GITHUB_ENV
       - name: Read-only GPU availability status (no model modification)
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $gpu = & nvidia-smi --query-gpu=memory.total,memory.free,utilization.gpu --format=csv,noheader,nounits 2>$null
@@ -54,12 +54,12 @@ jobs:
           if ($free -lt 2048 -or $busy -gt 35) { throw 'GPU appears busy or low on free VRAM; no model inference attempted' }
           Write-Host 'GPU_PREFLIGHT_OK (memory and utilization checked, no private paths)'
       - name: Offline dry-run (must perform no inference)
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           & "$env:NERAL_PROBE_PYTHON" -X utf8 neral_qwen_live_probe.py --plan
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real Flask-to-local-Qwen inference (three synthetic requests only)
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         timeout-minutes: 9
         run: |
           & "$env:NERAL_PROBE_PYTHON" -X utf8 neral_qwen_live_probe.py --execute-local-qwen
