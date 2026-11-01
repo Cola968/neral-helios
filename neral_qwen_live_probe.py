@@ -43,6 +43,57 @@ CASES = (
 )
 
 
+def classify_assistant_error(message: object) -> str:
+    """An allowlisted diagnostic label, never the raw exception or input."""
+    known = {
+        "Ungültige Codeprüfparameter.": "invalid_code_check_arguments",
+        "Codeprüfung überschreitet das sichere Ergebnislimit.": "code_check_result_limit",
+        "Werkzeugaufrufe überschreiten das Limit.": "tool_budget",
+        "Unzulässige Anzahl Werkzeugaufrufe.": "too_many_calls_in_one_message",
+        "Ungültiger Werkzeugaufruf.": "malformed_tool_call",
+        "Ungültiger Python-Prüfaufruf.": "malformed_code_tool",
+        "Nicht freigegebenes Codewerkzeug.": "wrong_code_tool",
+        "Nicht freigegebenes Werkzeug.": "unknown_tool",
+        "Das Modell hat ein nicht freigegebenes Werkzeug angefordert.": "wrong_calculator_tool",
+        "Python-Code überschreitet das 4096-Byte-Limit.": "code_input_limit",
+        "Python-Code kann nicht statisch geprüft werden.": "static_checker_error",
+        "Der Codeprüfer erwartet nichtleeren Python-Quelltext.": "empty_code",
+        "Das lokale Modell hat keine verwendbare Textantwort erzeugt.": "missing_text",
+        "Nach Sicherheitsprüfung blieb keine Antwort übrig.": "sanitized_to_empty",
+        "Das Modell hat keine endgültige Antwort geliefert.": "no_final_answer",
+        "Unvollständiger Werkzeugaufruf am Antwortlimit.": "incomplete_tool_call",
+        "Unerwartete oder unvollständige Modellantwort.": "model_identity_or_done",
+        "Unbekannter Abschlussgrund aus Ollama.": "unknown_finish_reason",
+        "Ungültiger Nachrichten-Typ aus Ollama.": "wrong_message_role",
+        "Ungültiger Textinhalt im Werkzeugaufruf.": "malformed_tool_content",
+    }
+    return known.get(message, "other_assistant_error") if isinstance(message, str) else "other_assistant_error"
+
+
+def sanitized_protocol_event(raw: object) -> dict:
+    """Inspect transport *shapes* only, never copy actual code, content or names."""
+    data = raw if isinstance(raw, dict) else {}
+    msg = data.get("message")
+    msg = msg if isinstance(msg, dict) else {}
+    calls = msg.get("tool_calls")
+    calls = calls if isinstance(calls, list) else []
+    names, arg_types = [], []
+    for call in calls[:3]:
+        fn = call.get("function") if isinstance(call, dict) else None
+        fn = fn if isinstance(fn, dict) else {}
+        name = fn.get("name")
+        names.append(name if type(name) is str and name in ("calculator", "code_check") else "other")
+        arg_types.append(type(fn.get("arguments")).__name__)
+    reason = data.get("done_reason")
+    return {
+        "done_reason": reason if reason in ("stop", "length") else "unknown_or_missing",
+        "tool_count": len(calls),
+        "tool_names": names,
+        "argument_types": arg_types,
+        "assistant_content_type": type(msg.get("content")).__name__,
+    }
+
+
 def verify_installed_model(payload: object) -> bool:
     """Require the exact preinstalled tag; no fallback, download or alias."""
     if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
@@ -134,6 +185,29 @@ def run_live() -> int:
         os.environ["NERAL_ASSISTANT_ENABLED"] = "0"
         os.environ["NERAL_ASSISTANT_MODEL"] = MODEL
         import app as web
+        import neral_assistant as provider
+        # Capture only protocol shape and a known exception category, never
+        # tool arguments, user prompts, full model output or private paths.
+        protocol_events = []
+        provider_original = provider.local_ollama_request
+
+        def tracked_transport(payload):
+            response = provider_original(payload)
+            protocol_events.append(sanitized_protocol_event(response))
+            return response
+
+        provider.local_ollama_request = tracked_transport
+        errors = []
+        original_assistant = web.assistant_turn
+
+        def traced_assistant(*args, **kwargs):
+            try:
+                return original_assistant(*args, **kwargs)
+            except web.AssistantError as exc:
+                errors.append(classify_assistant_error(str(exc)))
+                raise
+
+        web.assistant_turn = traced_assistant
         # Restrict the opt-in to the current Flask test client. Runtime loading
         # was disabled during import; no native model weights have been opened.
         web.PREPARATION_MODE = False
@@ -147,6 +221,7 @@ def run_live() -> int:
         client.get("/", base_url="http://localhost")
         summaries = []
         for case in CASES:
+            event_start, error_start = len(protocol_events), len(errors)
             started = time.monotonic()
             response = client.post(
                 "/api/generate",
@@ -156,8 +231,10 @@ def run_live() -> int:
                 base_url="http://localhost",
             )
             payload = response.get_json(silent=True)
-            summaries.append(assess(response.status_code, payload, case,
-                                    time.monotonic() - started))
+            summary = assess(response.status_code, payload, case, time.monotonic() - started)
+            summary["provider_protocol"] = protocol_events[event_start:]
+            summary["assistant_error_code"] = errors[error_start] if len(errors) > error_start else None
+            summaries.append(summary)
     vram = None
     try:
         ps = _localhost_json("/api/ps")
