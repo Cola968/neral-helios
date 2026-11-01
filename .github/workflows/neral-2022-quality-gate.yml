@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - 'neral_2022_gate.py'
+      - 'neral_assistant.py'
+      - 'neral_assistant_persona.py'
+      - 'neral_reasoning_eval.py'
+      - 'tests/test_neral_assistant_code_tool.py'
       - 'neral_2022_cases_v1.json'
       - 'tests/test_neral_2022_gate.py'
       - 'docs/NERAL_2022_QUALITY_GATE.md'
@@ -19,8 +23,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Offline contracts (no Ollama and no weights)
-        run: python -m unittest -v tests.test_neral_2022_gate
+        run: python -m unittest -v tests.test_neral_2022_gate tests.test_neral_assistant_code_tool
       - name: Plan never starts inference
         run: python -m neral_2022_gate --plan --cases neral_2022_cases_v1.json
       - name: Syntax
-        run: python -m py_compile neral_2022_gate.py tests/test_neral_2022_gate.py
+        run: python -m py_compile neral_2022_gate.py neral_assistant.py tests/test_neral_2022_gate.py tests/test_neral_assistant_code_tool.py
