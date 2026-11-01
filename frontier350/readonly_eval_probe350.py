@@ -1,0 +1,206 @@
+"""Arctus350 first native, bounded, GREEDY model-quality smoke benchmark.
+
+Uses 8 original synthetic prompts, no tools/retrieval, no training and no
+weight writing. Never prints model generations, input prompts, private file
+paths or checkpoint tensors. This is a *baseline probe*, not a blinded
+independent benchmark or proof of improved native intelligence.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import re
+import time
+from pathlib import Path
+
+CASES = [
+    {"id":"arith-a","category":"arithmetic","prefix":"Rechne 37 + 48. Antworte nur mit der Zahl.\nAntwort:","expected_exact":"85","max_new_tokens":24},
+    {"id":"arith-b","category":"arithmetic","prefix":"Was ist 12 mal 9? Nur die Zahl.\nAntwort:","expected_exact":"108","max_new_tokens":24},
+    {"id":"arith-c","category":"arithmetic","prefix":"Berechne 144 - 29. Nur die Zahl.\nAntwort:","expected_exact":"115","max_new_tokens":24},
+    {"id":"instr-a","category":"instruction","prefix":"Schreibe exakt das Wort Komet.\nAntwort:","expected_exact":"Komet","max_new_tokens":24},
+    {"id":"instr-b","category":"instruction","prefix":"Antworte ausschließlich mit dem Wort Regen.\nAntwort:","expected_exact":"Regen","max_new_tokens":24},
+    {"id":"engl-a","category":"english","prefix":"Translate the German word Haus to English. One word only.\nAnswer:","expected_exact":"house","max_new_tokens":24},
+    {"id":"engl-b","category":"english","prefix":"Fill the blank with one English word: The Sun is a ____.\nAnswer:","expected_exact":"star","max_new_tokens":24},
+    {"id":"germ-a","category":"german","prefix":"Welche Farbe hat eine reife Zitrone? Antworte mit nur einem Wort.\nAntwort:","expected_exact":"gelb","max_new_tokens":24},
+]
+
+
+def build_input_ids(tok, prompt, style):
+    """Compare raw BPE prefix with exact tokenized User:/Assistant: SFT framing."""
+    if style not in ("bare","chat"):
+        raise ValueError("Unknown prompt format")
+    bos=tok.token_to_id("<|bos|>")
+    if bos is None:
+        raise ValueError("Tokenizer missing BOS")
+    segment=prompt if style=="bare" else f"User: {prompt.strip()}\nAssistant:"
+    return [int(bos)]+list(tok.encode(segment).ids)
+
+
+def validate_cases(cases):
+    if not isinstance(cases,list) or not 1<=len(cases)<=12:
+        raise ValueError("Invalid synthetic smoke case count")
+    seen=set()
+    for row in cases:
+        if (not isinstance(row,dict) or
+            not isinstance(row.get("id"),str) or not row["id"] or row["id"] in seen or
+            not isinstance(row.get("prefix"),str) or not 5<=len(row["prefix"])<=240 or
+            not isinstance(row.get("category"),str) or not row["category"] or
+            not isinstance(row.get("expected_exact"),str) or not row["expected_exact"] or
+            type(row.get("max_new_tokens")) is not int or not 1<=row["max_new_tokens"]<=24):
+            raise ValueError("Invalid bounded synthetic generation case")
+        seen.add(row["id"])
+
+
+def aggregate_results(cases, rows, eos_id, special_ids=None):
+    validate_cases(cases)
+    if type(eos_id) is not int:
+        raise ValueError("EOS token must be integer")
+    if len(cases)!=len(rows):
+        raise ValueError("Missing model generation result")
+    expected={x["id"]:x for x in cases}
+    seen=set();counts={};totals={"exact":0,"tokens":0,"seconds":0.0,"eos":0,
+                                 "embedded":0,"nonempty":0,"cap":0,"bad_special":0}
+    specials=set() if special_ids is None else set(special_ids)
+    for row in rows:
+        if not isinstance(row,dict) or row.get("id") not in expected or row["id"] in seen:
+            raise ValueError("Invalid or duplicate result row")
+        seen.add(row["id"])
+        if (not isinstance(row.get("text"),str) or
+            not isinstance(row.get("generated_ids"),list) or
+            not all(type(n) is int and n>=0 for n in row["generated_ids"]) or
+            type(row.get("elapsed_seconds")) not in (int,float) or
+            not math.isfinite(row["elapsed_seconds"]) or row["elapsed_seconds"]<=0):
+            raise ValueError("Invalid or non-finite generation result")
+        if row.get("category") != expected[row["id"]]["category"]:
+            raise ValueError("Mismatched result category")
+        case=expected[row["id"]]
+        if len(row["generated_ids"]) > case["max_new_tokens"]:
+            raise ValueError("Unbounded generation")
+        content=row["text"].strip().casefold()
+        target=case["expected_exact"].strip().casefold()
+        exact=int(content==target)
+        # Answer present inside a verbose response is NOT an exact success.
+        embedded=int(bool(re.search(r"(?<!\w)"+re.escape(target)+r"(?!\w)",content)))
+        totals["embedded"]+=embedded
+        totals["nonempty"]+=int(bool(content))
+        totals["cap"]+=int(len(row["generated_ids"])>=case["max_new_tokens"])
+        totals["bad_special"]+=int(any(token in specials for token in row["generated_ids"]))
+        cat=counts.setdefault(case["category"],{"cases":0,"exact":0})
+        cat["cases"]+=1;cat["exact"]+=exact
+        totals["exact"]+=exact
+        totals["tokens"]+=len(row["generated_ids"])
+        totals["seconds"]+=row["elapsed_seconds"]
+        totals["eos"]+=int(eos_id in row["generated_ids"])
+    if seen != set(expected):
+        raise ValueError("Cases and results differ")
+    return {
+        "schema":1, "kind":"native_arctus350_greedy_smoke_not_final_holdout",
+        "cases":len(cases),
+        "exact_match_pct":round(100*totals["exact"]/len(cases),2),
+        "expected_answer_embedded_pct":round(100*totals["embedded"]/len(cases),2),
+        "nonempty_output_pct":round(100*totals["nonempty"]/len(cases),2),
+        "generation_cap_hit_pct":round(100*totals["cap"]/len(cases),2),
+        "bad_special_token_case_pct":round(100*totals["bad_special"]/len(cases),2),
+        "categories":{k:{"cases":v["cases"],"exact_match_pct":round(100*v["exact"]/v["cases"],2)}
+                      for k,v in sorted(counts.items())},
+        "eos_fraction":round(totals["eos"]/len(cases),4),
+        "generated_tokens":totals["tokens"],
+        "seconds":round(totals["seconds"],3),
+        "tokens_per_second":round(totals["tokens"]/totals["seconds"],3),
+        "weights_modified":False,
+        "private_data_uploaded":False,
+        "tools_enabled":False,
+        "model_outputs_logged":False,
+        "ready_for_training":False,
+    }
+
+
+def generate_probe(model,tok,prompt,max_new,device,style):
+    """Single identical greedy decoding procedure for both prompt encodings."""
+    import torch
+    from model350 import FRONTIER_350
+    if type(max_new) is not int or not 1<=max_new<=24:
+        raise ValueError("Generation budget exceeded")
+    eos=tok.token_to_id("<|eos|>")
+    if eos is None:
+        raise ValueError("Tokenizer missing EOS")
+    ids=build_input_ids(tok,prompt,style)
+    generated=[]
+    with torch.inference_mode():
+        for _ in range(max_new):
+            if len(ids)>=FRONTIER_350.max_seq_len:
+                break
+            x=torch.tensor([ids],device=device,dtype=torch.long)
+            logits,_=model(x)
+            nxt=int(logits[0,-1].argmax())
+            generated.append(nxt)
+            ids.append(nxt)
+            if nxt==int(eos):
+                break
+    output=generated[:-1] if generated and generated[-1]==int(eos) else generated
+    return generated,tok.decode(output,skip_special_tokens=True)
+
+
+def main(argv=None):
+    ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--checkpoint",type=Path,required=True)
+    ap.add_argument("--tokenizer",type=Path,required=True)
+    ap.add_argument("--expected-checkpoint-sha256",required=True)
+    ap.add_argument("--prompt-format",choices=["bare","chat"],default="bare")
+    args=ap.parse_args(argv)
+    import torch
+    from tokenizers import Tokenizer
+    from chat350_contract import EXPECTED_TOKENIZER_SHA256
+    from secure_checkpoint350 import load_checkpoint
+    from model350 import FRONTIER_350,Neral350M
+    from eval_chat350 import sha256_file
+
+    validate_cases(CASES)
+    if not isinstance(args.expected_checkpoint_sha256,str) or len(args.expected_checkpoint_sha256)!=64:
+        raise ValueError("Expected SHA256 is required")
+    if args.checkpoint.is_symlink() or args.tokenizer.is_symlink():
+        raise ValueError("Original files must not be symlinks")
+    if sha256_file(args.checkpoint)!=args.expected_checkpoint_sha256:
+        raise ValueError("Original checkpoint SHA mismatch")
+    if sha256_file(args.tokenizer)!=EXPECTED_TOKENIZER_SHA256:
+        raise ValueError("Tokenizer SHA mismatch")
+    if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+        raise RuntimeError("CUDA BF16 hardware not ready")
+
+    tok=Tokenizer.from_file(str(args.tokenizer))
+    ck=load_checkpoint(args.checkpoint)
+    if ck.get("config")!=FRONTIER_350.to_dict() or ck.get("tokenizer_sha256")!=EXPECTED_TOKENIZER_SHA256:
+        raise ValueError("Model/tokenizer identity mismatch")
+    if not isinstance(ck.get("model"),dict):
+        raise ValueError("Model tensors missing")
+    device=torch.device("cuda")
+    model=Neral350M().to(device=device,dtype=torch.bfloat16)
+    model.load_state_dict(ck["model"],strict=True)
+    model.eval()
+    eos=int(tok.token_to_id("<|eos|>"))
+    rows=[]
+    for case in CASES:
+        start=time.monotonic()
+        ids,response=generate_probe(model,tok,case["prefix"],case["max_new_tokens"],device,args.prompt_format)
+        torch.cuda.synchronize()
+        rows.append({"id":case["id"],"category":case["category"],
+                    "generated_ids":ids,"text":response,
+                    "elapsed_seconds":max(time.monotonic()-start,0.000001)})
+        # No source, private output text, or raw generation is printed or saved.
+    special_ids={tok.token_to_id(s) for s in ("<|bos|>","<|pad|>","<|sep|>")}
+    special_ids.discard(None)
+    summary=aggregate_results(CASES,rows,eos,special_ids=special_ids)
+    summary["case_sha256"]=hashlib.sha256(
+        json.dumps(CASES,sort_keys=True,ensure_ascii=False).encode("utf-8")).hexdigest()
+    summary["checkpoint_sha256_verified"]=True
+    summary["tokenizer_sha256_verified"]=True
+    summary["device_kind"]="cuda_bf16"
+    summary["prompt_format"]=args.prompt_format
+    print(json.dumps(summary,ensure_ascii=False,allow_nan=False,sort_keys=True))
+    return 0
+
+
+if __name__=="__main__":
+    raise SystemExit(main())

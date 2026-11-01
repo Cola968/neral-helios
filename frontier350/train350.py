@@ -27,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from secure_checkpoint350 import load_checkpoint
 
 from model350 import Neral350M, FRONTIER_350
 
@@ -201,7 +202,7 @@ def main():
     best = float("inf")
 
     if args.resume:
-        ck = torch.load(args.resume, map_location="cpu", weights_only=False)
+        ck = load_checkpoint(args.resume)
         if ck.get("config") != FRONTIER_350.to_dict():
             raise RuntimeError("resume architecture differs from locked Frontier 350M config")
         if int(ck.get("target_tokens", -1)) != args.target_tokens:

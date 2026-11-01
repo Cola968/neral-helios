@@ -15,6 +15,7 @@ from model350 import FRONTIER_350, Neral350M
 from eval500m_diagnostic import conditional_mean_nll
 from eval_recovery_dev import CASES, SUITE_VERSION
 from recovery_identity import file_sha, object_sha
+from secure_checkpoint350 import load_checkpoint
 
 
 def main() -> None:
@@ -35,7 +36,7 @@ def main() -> None:
     if bos_id is None:
         raise RuntimeError("missing Neral <|bos|> token")
 
-    ck = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    ck = load_checkpoint(args.checkpoint)
     if ck.get("config") != FRONTIER_350.to_dict():
         raise RuntimeError("checkpoint architecture mismatch")
     processed = int(ck.get("processed_tokens", 0))
