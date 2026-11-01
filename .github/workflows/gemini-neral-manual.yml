@@ -1,0 +1,92 @@
+name: Gemini NERAL development (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Small, concrete code task for Gemini (no training or weights)'
+        type: string
+        required: true
+        default: 'Audit frontier350 chat inference and tests; implement one small CPU-testable reliability improvement.'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-neral-manual
+  cancel-in-progress: false
+
+jobs:
+  gemini-candidate:
+    if: github.repository == 'Cola968/neral-helios' && github.actor == 'Cola968'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require Google API key
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo '::error::Add a GEMINI_API_KEY repository secret before manually running Gemini.'
+            exit 1
+          fi
+
+      - name: Checkout without push credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - name: Run Gemini on NERAL code
+        id: gemini
+        uses: google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489 # v0.1.22
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          gemini_debug: 'false'
+          upload_artifacts: 'false'
+          prompt: |
+            You are improving the private NERAL/HELIOS codebase.
+            User-approved, manually-triggered task: ${{ inputs.task }}
+
+            Inspect the existing code before touching it. Focus on small, high-value,
+            CPU-testable improvements. Check for related open work in files you can see.
+            You may edit source and test files in the checkout. Write regression tests
+            and run relevant fast CPU tests where feasible.
+
+            HARD BOUNDARIES:
+            - Do not train models or modify/download any checkpoints or weights.
+            - Do not purchase services, call paid GPU services, or provision resources.
+            - Do not touch secrets, credentials, GitHub Actions, or deployment settings.
+            - Do not use git push, create PRs, merge, or modify remote resources.
+            - Do not expose private data, environment variables, or API keys.
+            - Avoid running untrusted executables or downloading scripts from URLs.
+            - Avoid duplicate work; leave unrelated files unchanged.
+
+            Leave modifications in the working tree for review. Summarize precisely
+            which files changed, what tests ran, and what remains unverified.
+
+      - name: Package proposed changes for manual review
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gemini-review
+          git status --short > gemini-review/status.txt
+          # Stage newly created source files as intent-to-add so they appear in the patch.
+          git add -N -- . ':!gemini-review' ':!gemini-artifacts' ':!.gemini' || true
+          git diff --binary -- . ':(exclude)gemini-review' ':(exclude)gemini-artifacts' ':(exclude).gemini' > gemini-review/candidate.patch
+          git diff --stat -- . ':(exclude)gemini-review' ':(exclude)gemini-artifacts' ':(exclude).gemini' > gemini-review/diff-stat.txt
+          if [ "$(wc -c < gemini-review/candidate.patch)" -gt 2097152 ]; then
+            echo '::warning::Candidate patch exceeds 2 MiB. Artifact may need manual review.'
+          fi
+          printf '%s\n' 'Candidate patch created; nothing has been pushed or merged.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload review artifacts only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-neral-proposed-changes
+          path: gemini-review/
+          retention-days: 7
+          if-no-files-found: warn
