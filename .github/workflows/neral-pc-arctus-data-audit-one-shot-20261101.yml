@@ -1,3 +1,4 @@
+# Explicit RED-to-GREEN regression recheck for deterministic SQLite close.
 name: Arctus350 data-leakage audit — one-shot Windows CPU 2026-11-01
 on:
   push:
