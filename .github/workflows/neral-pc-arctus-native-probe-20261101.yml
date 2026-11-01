@@ -1,0 +1,41 @@
+name: Arctus350 native frozen probe — one-shot RTX4070 no training 2026-11-01
+on:
+  push:
+    paths:
+      - '.github/workflows/neral-pc-arctus-native-probe-20261101.yml'
+permissions:
+  contents: read
+jobs:
+  native-bf16-probe:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 15
+    env:
+      CUDA_VISIBLE_DEVICES: '0'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HELIOS_DEVICE: cuda
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+          persist-credentials: false
+      - name: Verify synthetic metric collector before accessing private model
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          if (-not(Test-Path -LiteralPath $p -PathType Leaf)) { throw 'Existing NERAL Python missing' }
+          & $p -m unittest tests.test_arctus_readonly_eval_probe350 -v
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic native probe gate failed' }
+      - name: Measure only 8 short prompts with original 350M BF16 weights
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $ck = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tok = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\frontier350_assets\tokenizer.json'
+          if (-not(Test-Path -LiteralPath $ck -PathType Leaf)) { throw 'Pinned checkpoint not found' }
+          if (-not(Test-Path -LiteralPath $tok -PathType Leaf)) { throw 'Pinned tokenizer not found' }
+          & $p frontier350/readonly_eval_probe350.py --checkpoint $ck --tokenizer $tok --expected-checkpoint-sha256 f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7
+          if ($LASTEXITCODE -ne 0) { throw 'Native Arctus benchmark probe failed; no model changed' }
