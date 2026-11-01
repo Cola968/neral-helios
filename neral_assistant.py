@@ -195,7 +195,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                    transport=None, model: str = DEFAULT_MODEL, think: bool = False,
                    max_new: int = 256, temperature: float = 0.0,
                    enable_tools: bool = True, quality: str = "standard") -> dict:
-    """One NERAL turn: at most one allowlisted static or arithmetic tool call."""
+    """One NERAL turn: at most two distinct allowlisted tools and one final answer."""
     history = [] if history is None else history
     _validate(prompt, history, model, max_new, temperature, think, quality)
     if type(enable_tools) is not bool:
@@ -207,7 +207,7 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
     messages.append({"role": "user", "content": prompt.strip()})
     tools_used: list[str] = []
     data = None
-    for iteration in range(2):
+    for iteration in range(3):
         payload = {
             "model": model,
             "messages": messages,
@@ -230,12 +230,12 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                 raise AssistantError("Unvollständiger Werkzeugaufruf am Antwortlimit.")
             if not enable_tools:
                 raise AssistantError('Nicht freigegebener Werkzeugaufruf im Modell-Benchmark.')
-            if iteration or tools_used:
-                raise AssistantError("Werkzeugaufrufe überschreiten das Limit.")
             call = calls[0]
             if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
                 raise AssistantError("Ungültiger Werkzeugaufruf.")
             tool_name = call["function"].get("name")
+            if len(tools_used) >= 2 or tool_name in tools_used:
+                raise AssistantError("Werkzeugaufrufe überschreiten das Limit.")
             if tool_name == "calculator":
                 tool_output = _calculate(call)
             elif tool_name == "code_check":
