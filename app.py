@@ -19,7 +19,7 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
-from neral_orbit import OrbitStore, OrbitError, OrbitConflict
+from neral_orbit import OrbitStore, OrbitError, OrbitConflict, LIMIT as ORBIT_PAGE_SIZE
 from neral_orbit_research import run_public_research, validate_public_query, ResearchError
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
@@ -215,7 +215,19 @@ def orbit_tasks():
         view=request.args.get('view','active')
         if view not in ('active','archived'):
             return jsonify(error='Unbekannte Aufgabenansicht.'),400
-        return jsonify(tasks=orbit_store.list(archived=view=='archived'),
+        offset_text=request.args.get('offset','0')
+        if (not isinstance(offset_text,str) or
+                not re.fullmatch(r"[0-9]{1,6}",offset_text)):
+            return jsonify(error='Ungültiger Archiv-Offset.'),400
+        offset=int(offset_text)
+        if offset>100000 or (view=='active' and offset):
+            return jsonify(error='Ungültiger Archiv-Offset.'),400
+        archived=view=='archived'
+        entries=orbit_store.list(archived=archived,offset=offset,
+                                 limit=ORBIT_PAGE_SIZE+1 if archived else ORBIT_PAGE_SIZE)
+        has_more=archived and len(entries)>ORBIT_PAGE_SIZE
+        return jsonify(tasks=entries[:ORBIT_PAGE_SIZE],has_more=bool(has_more),
+                       next_offset=offset+ORBIT_PAGE_SIZE if has_more else None,
                        executor_active=False,cloud_scheduled=False)
     data,error=body()
     if error:return error
