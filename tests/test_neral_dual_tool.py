@@ -1,4 +1,5 @@
 """Bounded sequential Qwen tools: two *different* tools and a final answer, never shell."""
+import json
 import unittest
 
 from neral_assistant import assistant_turn, AssistantError
@@ -101,6 +102,51 @@ class DualToolTests(unittest.TestCase):
         with self.assertRaises(AssistantError):
             assistant_turn("Prüfe beides.", transport=fake)
         self.assertEqual(len(requests), 2)
+
+
+    def test_static_code_tool_result_is_bounded_without_hiding_omissions(self):
+        # Valid Python code with hundreds of reported unsafe calls.
+        source = "eval('x')\\n".replace("\\\\n", "\\n") * 360
+        self.assertLessEqual(len(source.encode("utf-8")), 4096)
+        requests = []
+
+        def fake(payload):
+            requests.append(payload)
+            if len(requests) == 1:
+                return result("", calls=tool("code_check", {"code": source}))
+            raw = payload["messages"][-1]["content"]
+            self.assertLessEqual(len(raw.encode("utf-8")), 4096)
+            audit = json.loads(raw)
+            self.assertEqual(audit["finding_count"], 360)
+            self.assertEqual(audit["severity_counts"]["high"], 360)
+            self.assertFalse(audit["executed"])
+            self.assertTrue(audit["truncated"])
+            self.assertGreater(audit["omitted_findings"], 0)
+            self.assertEqual(audit["omitted_findings"] + len(audit["findings"]), 360)
+            return result("Die statische Prüfung meldet viele riskante eval-Aufrufe.")
+
+        assistant_turn("Analysiere den Code.", transport=fake)
+        self.assertEqual(len(requests), 2)
+
+    def test_static_code_tool_prioritizes_high_risk_findings_when_shortened(self):
+        # Hundreds of low-severity 'bare except' findings precede the high-risk eval.
+        source = ("try:\\n  pass\\nexcept:\\n  pass\\n" * 115) + "eval('x')\\n"
+        self.assertLessEqual(len(source.encode("utf-8")), 4096)
+
+        def fake(payload):
+            if payload["messages"][-1]["role"] == "tool":
+                raw = payload["messages"][-1]["content"]
+                self.assertLessEqual(len(raw.encode("utf-8")), 4096)
+                audit = json.loads(raw)
+                self.assertEqual(audit["severity_counts"]["high"], 1)
+                self.assertGreater(audit["omitted_findings"], 0)
+                self.assertIn("dynamic-code-execution",
+                              [x["code"] for x in audit["findings"]])
+                return result("eval birgt ein hohes Risiko.")
+            return result("", calls=tool("code_check", {"code": source}))
+
+        output = assistant_turn("Prüfe die Fehler.", transport=fake)
+        self.assertEqual(output["tools_used"], ["code_check"])
 
 
 if __name__ == "__main__":
