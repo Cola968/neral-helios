@@ -66,3 +66,5 @@ jobs:
 
 
 # 2026-11-01: recheck after correcting exact chat template newline test expectation.
+
+# 2026-11-01: rerun aggregate-only native correctness/format diagnostic without output text.
