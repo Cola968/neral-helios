@@ -99,3 +99,29 @@ def test_model_selection_preserves_on_error(backend):
     app,c=backend;before=app.checkpoint_sha256;r=c.post('/api/model',json={'checkpoint':'../../x'},base_url='http://127.0.0.1:9680');assert r.status_code==400;assert app.checkpoint_sha256==before
 @pytest.mark.parametrize('payload',[{'prompt':'Hi','mode':[]},{'prompt':'Hi','history':[{'role':[],'content':'x'}]},{'prompt':'\ud800'},{'prompt':'Hi','history':[{'role':'user','content':'\ud800'}]}])
 def test_api_malformed_nested_values(backend,payload):assert post(backend[1],payload).status_code==400
+
+
+@pytest.mark.parametrize('expression',[
+    '1000000000000000000000000*x=-1000000000000000000000000*x',
+    '2*x+1000000000000000000000000=-1000000000000000000000000',
+    'x/1000000000003=x/1000000000001',
+    'x/1000000000003+1/1000000000003=1/1000000000001',
+])
+def test_solve_linear_cross_side_intermediates_obey_existing_bound(expression):
+    # The branch's AST arithmetic already bounds each side to 10**24.
+    # Combining independently safe sides must obey the same bound.
+    with pytest.raises(ValueError, match='Zahlenbereich überschritten'):
+        solve(expression)
+
+
+@pytest.mark.parametrize('expression,expected',[
+    ('999999999999999999999999*x=-x', 'x = 0'),
+    ('2*x+999999999999999999999999=-1', 'x = -500000000000000000000000'),
+    ('x/1000000000000000000000000=0', 'x = 0'),
+    ('2*x+3=11', 'x = 4'),
+    ('x+1=x+1', 'Unendlich viele Lösungen'),
+])
+def test_solve_linear_boundary_compatible_with_valid_equations(expression, expected):
+    result=solve(expression)
+    assert result['result']==expected
+    assert result['model_generated'] is False
