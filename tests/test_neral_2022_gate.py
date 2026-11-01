@@ -127,6 +127,26 @@ class GateTests(unittest.TestCase):
             evaluate([base], model="qwen3.5:9b", quality="ultra",
                      enable_tools=False, turn=lambda *a,**k: self.fail("must not run"))
 
+    def test_static_code_tool_is_attributed_separately_from_calculator(self):
+        case = [{"id": "code_01", "category": "coding", "language": "de",
+                 "kind": "manual", "prompt": "Prüfe diesen Python-Code.",
+                 "history": [], "grading": {"type": "manual"},
+                 "review": "Prüfe die statischen Findings und ihre Grenzen."}]
+        def fake(*args, **kwargs):
+            return {"mode": "neral-assistant", "source": "external-model",
+                    "base_model": "qwen3.5:9b", "model_generated": True,
+                    "text": "Dieser Code hat ein Syntaxproblem.",
+                    "quality_mode": "standard", "reasoning_enabled": False,
+                    "tools_used": ["code_check"]}
+        result = evaluate(case, model="qwen3.5:9b", quality="standard",
+                          enable_tools=True, turn=fake)
+        self.assertEqual(result["manual_pending"], 1)
+        self.assertEqual(result["calculator_calls"], 0)
+        self.assertEqual(result["code_check_calls"], 1)
+        self.assertEqual(result["rows"][0]["calculator_calls"], 0)
+        self.assertEqual(result["rows"][0]["code_check_calls"], 1)
+        self.assertFalse(result["gpt35_parity_proven"])
+
     def test_report_written_only_to_new_local_path_and_never_contains_raw_prompts(self):
         cases = [{"id":"n01","category":"math","language":"de","kind":"auto",
                   "prompt":"Nur die Geheimzahl 12","history":[],
