@@ -48,3 +48,16 @@ Für eine echte **App-Freigabe** ist zusätzlich Browser → Flask → lokales O
 
 OpenAI-Beschreibung des Originalprodukts: https://openai.com/index/chatgpt/ (30.11.2022).
 Upstream Qwen3.5-9B: https://huggingface.co/Qwen/Qwen3.5-9B (Apache-2.0).
+
+## Qwen nutzt den vorhandenen sicheren Python-Codeprüfer
+
+Der bisherige `code_check.py` war schon vorhanden, konnte aber im Qwen-Assistant nicht aufgerufen werden. Über den vorhandenen Ollama-Tool-Call-Vertrag kann Qwen bei der Besprechung von Python-Code nun zusätzlich zu `calculator` das freigegebene Werkzeug `code_check` aufrufen.
+
+- Maximal **ein** Tool-Aufruf pro Nutzereingabe und ein anschließender Modellantwortversuch; kein autonomer Agenten- oder Shell-Zugriff.
+- Der Prüfer nutzt ausschließlich `ast.parse` und eine begrenzte Liste statischer Sicherheits-/Robustheitsmuster. Eingegebener Python-Code wird **niemals ausgeführt oder importiert**; es werden auch keine Tests ausgeführt.
+- Alle Eingaben sind auf 4096 UTF-8-Bytes begrenzt. Unbekannte Tool-Namen, zusätzliche Parameter oder überlange Eingaben werden abgewiesen.
+- Die Antwort wird weiter mit `source=external-model` / `base_model=qwen3.5:9b` gekennzeichnet. Die Metadaten nennen `tools_used=["code_check"]`; die Entwicklungssuite zählt Codeprüfungen **nicht** als Rechneraufrufe.
+- Der ursprüngliche native Arctus-Chat und das NERAL-`code`-Werkzeug bleiben unverändert. Keine Erweiterung um Netzwerk, Shell oder Codeausführung.
+- Der Codeprüfer erkennt Syntaxfehler und einige verdächtige Muster. Er beweist weder die Korrektheit des Programms noch, dass ein Programm fehlerfrei oder sicher läuft.
+
+**Wirkung:** Der vorhandene Qwen-Assistent kann bei Coding-Fragen zusätzliche lokale, überprüfbare statische Hinweise nutzen. Das ist eine *Produktfunktion*, keine nachgewiesene Steigerung der Gewichte von Qwen oder Arctus350. Ein echter Durchlauf Browser → Flask → lokale Qwen-Inferenz bleibt separat freizugeben und zu prüfen.
