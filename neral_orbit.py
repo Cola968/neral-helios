@@ -122,15 +122,24 @@ class OrbitStore:
         finally:
             conn.close()
 
-    def list(self, *, archived=False):
+    def list(self, *, archived=False, offset=0, limit=LIMIT):
         if type(archived) is not bool:
             raise OrbitError("Ungültiger Archiv-Filter")
+        # Offset pagination is a read-only view. Values are always bound SQL
+        # parameters; no arbitrary clauses or unbounded result windows.
+        if type(offset) is not int or not 0 <= offset <= 100000:
+            raise OrbitError("Ungültiger Archiv-Offset")
+        if type(limit) is not int or not 1 <= limit <= LIMIT+1:
+            raise OrbitError("Ungültige Seitengröße")
+        if not archived and offset:
+            raise OrbitError("Aktive Aufgaben erlauben keine Seitennavigation")
         clause="status = 'ARCHIVED'" if archived else "status != 'ARCHIVED'"
         with self._lock,self._open() as conn:
             return [_render(row) for row in conn.execute(
                 f"""SELECT t.*,r.report_json,r.error_text FROM orbit_tasks t
                     LEFT JOIN orbit_research_reports r ON r.task_id=t.id
-                    WHERE t.{clause} ORDER BY t.created_at DESC,t.id DESC LIMIT ?""",(LIMIT,))]
+                    WHERE t.{clause} ORDER BY t.created_at DESC,t.id DESC LIMIT ? OFFSET ?""",
+                (limit,offset))]
 
     def get(self,task_id):
         if not isinstance(task_id,str) or not re.fullmatch(r"[0-9a-f]{32}",task_id):
