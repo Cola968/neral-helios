@@ -214,7 +214,8 @@ def _verified_frozen_test(path: Path):
         if row.get("source") == GROUNDING_SOURCE:
             valid = verify_row(row) and row.get("id") in grounding_test_ids
         elif row.get("source") in {"neral-generated-exact-v1", "neral-generated-small-add-v1"}:
-            valid = (independently_verify_row(row) and\n                     row == exact_math_test_rows.get(row.get("id")))
+            valid = (independently_verify_row(row) and
+                     row == exact_math_test_rows.get(row.get("id")))
         else:
             valid = False
         if not valid:
