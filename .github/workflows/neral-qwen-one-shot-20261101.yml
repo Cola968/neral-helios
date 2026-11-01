@@ -45,16 +45,23 @@ jobs:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
-          $gpu = & nvidia-smi --query-gpu=memory.total,memory.free,utilization.gpu --format=csv,noheader,nounits 2>$null
-          if ($LASTEXITCODE -ne 0 -or -not $gpu) { throw 'GPU unavailable; no test attempted' }
-          $parts = ($gpu | Select-Object -First 1) -split ','
-          if ($parts.Count -lt 3) { throw 'Invalid GPU status' }
-          $free = [int]($parts[1].Trim())
-          $busy = [int]($parts[2].Trim())
-          Write-Host ("GPU_PREFLIGHT_READING free_vram_mb={0} utilization_pct={1}" -f $free,$busy)
-          if ($free -lt 2048) { throw 'GPU_PRECHECK_BLOCKED_LOW_VRAM (model inference not attempted)' }
-          if ($busy -gt 35) { throw 'GPU_PRECHECK_BLOCKED_BUSY (model inference not attempted)' }
-          Write-Host 'GPU_PREFLIGHT_OK (memory and utilization checked, no private paths)'
+          & "$env:NERAL_PROBE_PYTHON" -c "from neral_qwen_live_probe import _localhost_json,verify_installed_model; assert verify_installed_model(_localhost_json('/api/tags')); print('LOCAL_QWEN_PREINSTALLED_AND_OLLAMA_AVAILABLE')"
+          if ($LASTEXITCODE -ne 0) { throw 'Ollama not running or exact model not installed; no downloads attempted' }
+          $idleReadings = 0
+          for ($attempt = 0; $attempt -lt 12; $attempt++) {
+            $gpu = & nvidia-smi --query-gpu=memory.total,memory.free,utilization.gpu --format=csv,noheader,nounits 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $gpu) { throw 'GPU unavailable; no inference attempted' }
+            $parts = ($gpu | Select-Object -First 1) -split ','
+            if ($parts.Count -lt 3) { throw 'Invalid GPU status; no inference attempted' }
+            $free = [int]($parts[1].Trim())
+            $busy = [int]($parts[2].Trim())
+            Write-Host ("GPU_PREFLIGHT_READING free_vram_mb={0} utilization_pct={1}" -f $free,$busy)
+            if ($free -ge 8192 -and $busy -le 35) { $idleReadings += 1 } else { $idleReadings = 0 }
+            if ($idleReadings -ge 2) { break }
+            if ($attempt -lt 11) { Start-Sleep -Seconds 15 }
+          }
+          if ($idleReadings -lt 2) { throw 'GPU remains active after bounded wait; no model inference attempted' }
+          Write-Host 'GPU_PREFLIGHT_OK (two consecutive low-utilization samples and >=8 GiB free)'
       - name: Offline dry-run (must perform no inference)
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
