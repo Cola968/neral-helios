@@ -26,7 +26,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
           if (-not(Test-Path -LiteralPath $p -PathType Leaf)) { throw 'Existing trusted Python unavailable' }
-          & $p -m unittest tests.test_neral_agent_plan tests.test_neral_agent_plan_api tests.test_neral_qwen_plan_probe tests.test_neral_assistant -v
+          & $p -m unittest tests.test_neral_agent_plan tests.test_neral_agent_plan_api tests.test_neral_qwen_plan_probe tests.test_neral_orbit_agent_loop tests.test_neral_assistant -v
           if ($LASTEXITCODE -ne 0) { throw 'Local agent planning contract failures' }
       - name: Optional one-time live LOCAL Qwen planning probe (no model pull, safe metadata only)
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
@@ -35,3 +35,17 @@ jobs:
           $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
           & $p neral_qwen_plan_probe.py
           if ($LASTEXITCODE -ne 0) { throw 'Local Qwen model capability probe failed' }
+      - name: Checkout existing Orbit Draft #176 WITHOUT merging into Qwen branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/neral-orbit-proactive-tasks-v0-20261028
+          path: orbit-dependency
+          clean: false
+          persist-credentials: false
+      - name: One explicitly confirmed Qwen plan, one public Wikipedia query and temporary local SQLite report
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          & $p neral_orbit_agent_smoke.py --orbit-source-dir orbit-dependency --confirm-model --confirm-public
+          if ($LASTEXITCODE -ne 0) { throw 'Bounded Orbit-Qwen cross-PR integration failed safely' }
