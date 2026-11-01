@@ -118,5 +118,69 @@ class QwenStaticCodeToolTests(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
 
 
+    def test_ollama_metadata_on_code_check_envelope_is_accepted(self):
+        # The real Qwen loopback reported code_check with dict arguments,
+        # but our strict envelope rejected additional protocol metadata.
+        calls = []
+        def fake(payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                return {"model": "qwen3.5:9b", "done": True, "done_reason": "stop",
+                        "message": {"role": "assistant", "content": "",
+                                    "tool_calls": [{"id": "call_0-ABC", "type": "function",
+                                                    "index": 0, "function": {
+                                                        "name": "code_check",
+                                                        "arguments": {"code": "def unsafe(x): return eval(x)"}}}]}}
+            self.assertEqual(payload["messages"][-1]["tool_name"], "code_check")
+            findings = json.loads(payload["messages"][-1]["content"])
+            self.assertFalse(findings["executed"])
+            self.assertIn("dynamic-code-execution", [f["code"] for f in findings["findings"]])
+            return _reply("eval ist unsicher.")
+
+        result = assistant_turn("Prüfe Python-Code", transport=fake)
+        self.assertEqual(result["tools_used"], ["code_check"])
+        self.assertEqual(len(calls), 2)
+
+    def test_ollama_metadata_also_supported_for_calculator(self):
+        calls = []
+        def fake(payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                return {"model": "qwen3.5:9b", "done": True, "done_reason": "stop",
+                        "message": {"role": "assistant", "content": "",
+                                    "tool_calls": [{"id": "call_calculator_1", "type": "function",
+                                                    "index": 0, "function": {
+                                                        "name": "calculator",
+                                                        "arguments": {"expression": "17*23"}}}]}}
+            self.assertEqual(payload["messages"][-1]["tool_name"], "calculator")
+            self.assertIn("391", payload["messages"][-1]["content"])
+            return _reply("391")
+
+        result = assistant_turn("Berechne 17 mal 23", transport=fake)
+        self.assertEqual(result["tools_used"], ["calculator"])
+
+    def test_tool_metadata_is_strictly_bounded(self):
+        malicious_metadata = [
+            {"unexpected": "shell"},
+            {"id": "x" * 129},
+            {"id": ""},
+            {"id": "../outside"},
+            {"type": "shell"},
+            {"type": True},
+            {"index": -1},
+            {"index": True},
+            {"index": 2},
+        ]
+        for extra in malicious_metadata:
+            with self.subTest(extra=str(extra)[:60]):
+                def fake(payload):
+                    return {"model": "qwen3.5:9b", "done": True, "done_reason": "stop",
+                            "message": {"role": "assistant", "tool_calls": [{
+                                **extra, "function": {"name": "code_check",
+                                                     "arguments": {"code": "print(1)"}}}]}}
+                with self.assertRaises(AssistantError):
+                    assistant_turn("Prüfe Python-Code", transport=fake)
+
+
 if __name__ == "__main__":
     unittest.main()
