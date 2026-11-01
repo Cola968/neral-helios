@@ -416,3 +416,22 @@ def test_unknown_split_is_rejected_even_with_consistent_hash_and_counts(tmp_path
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="shard|split"):
         audit_corpus(root)
+
+
+def test_sqlite_index_connection_closed_on_success_and_windows_cleanup(tmp_path, monkeypatch):
+    """Temporary SQLite files must release handles before TemporaryDirectory cleanup."""
+    import sqlite3
+    import arctus_billion_audit
+    real_connect=sqlite3.connect
+    connections=[]
+    def tracked_connect(*args, **kwargs):
+        db=real_connect(*args, **kwargs)
+        connections.append(db)
+        return db
+    monkeypatch.setattr(arctus_billion_audit.sqlite3, "connect", tracked_connect)
+    root=write_staging(tmp_path,[long_doc()],[long_doc("Photometrie")])
+    result=audit_corpus(root)
+    assert result["integrity_verified"] is True
+    assert len(connections)==1
+    with pytest.raises(sqlite3.ProgrammingError,match="closed"):
+        connections[0].execute("SELECT 1")
