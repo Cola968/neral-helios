@@ -23,6 +23,7 @@ MAX_INPUT_BYTES = 4096
 DEEP_INPUT_BYTES = 8192
 DEEP_MAX_NEW_TOKENS = 1024
 MAX_RESPONSE_BYTES = 256 * 1024
+MAX_CODE_CHECK_RESULT_BYTES = 4096
 from neral_assistant_persona import PERSONA_VERSION, SYSTEM_PROMPT
 
 CALCULATOR_SCHEMA = {
@@ -188,7 +189,37 @@ def _code_check(call: dict) -> str:
         raise AssistantError("Python-Code kann nicht statisch geprüft werden.") from exc
     if result.get("executed") is not False:
         raise AssistantError("Nur rein statische Codeprüfung ist erlaubt.")
-    return json.dumps(result, ensure_ascii=False)
+    serialized = json.dumps(result, ensure_ascii=False)
+    if len(serialized.encode("utf-8")) <= MAX_CODE_CHECK_RESULT_BYTES:
+        return serialized
+
+    # The AST checker may produce hundreds of repetitive findings for 4 KiB of
+    # source. Preserve exact totals, prioritize high severity, and tell Qwen
+    # explicitly that the transmitted findings are incomplete. Never silently
+    # turn a partial list into a claim of comprehensive safety.
+    findings = result["findings"]
+    report = dict(result)
+    report["findings"] = []
+    report["truncated"] = True
+    report["omitted_findings"] = len(findings)
+    report["note"] = (
+        "Gekürzte statische Analyse: priorisierte Beispiele statt aller Befunde; "
+        "finding_count und severity_counts gelten weiterhin für ALLE Befunde. "
+        "Kein ausgeführter Code, keine vollständige Sicherheitsprüfung."
+    )
+    severity = {"high": 0, "medium": 1, "low": 2}
+    for finding in sorted(findings, key=lambda item: severity.get(item.get("severity"), 3)):
+        report["findings"].append(finding)
+        report["omitted_findings"] = len(findings) - len(report["findings"])
+        candidate = json.dumps(report, ensure_ascii=False)
+        if len(candidate.encode("utf-8")) > MAX_CODE_CHECK_RESULT_BYTES:
+            report["findings"].pop()
+            report["omitted_findings"] += 1
+            break
+    serialized = json.dumps(report, ensure_ascii=False)
+    if len(serialized.encode("utf-8")) > MAX_CODE_CHECK_RESULT_BYTES:
+        raise AssistantError("Codeprüfung überschreitet das sichere Ergebnislimit.")
+    return serialized
 
 
 def assistant_turn(prompt: str, history: list[dict] | None = None, *,
