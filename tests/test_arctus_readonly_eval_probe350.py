@@ -73,6 +73,29 @@ class ReadonlyEvalProbeTests(unittest.TestCase):
                 "generated_ids":[1], "elapsed_seconds":float("nan")
             } for x in CASES],eos_id=2)
 
+    def test_diagnostic_distinguishes_verbose_correct_answer_from_wrong_content(self):
+        rows=[]
+        for i,x in enumerate(CASES):
+            response=("Antwort: "+x["expected_exact"]+".") if i==0 else "keine Antwort gefunden"
+            rows.append({"id":x["id"],"category":x["category"],"text":response,
+                         "generated_ids":[1,2],"elapsed_seconds":0.1})
+        result=aggregate_results(CASES,rows,eos_id=99)
+        self.assertEqual(result["exact_match_pct"],0.0)
+        self.assertEqual(result["expected_answer_embedded_pct"],12.5)
+        self.assertEqual(result["nonempty_output_pct"],100.0)
+        self.assertNotIn("keine Antwort gefunden",str(result))
+        self.assertNotIn("Antwort:",str(result))
+
+    def test_generation_cap_and_bad_special_tokens_are_counted_without_contents(self):
+        rows=[]
+        for x in CASES:
+            rows.append({"id":x["id"],"category":x["category"],"text":"wrong",
+                         "generated_ids":[99]*x["max_new_tokens"],"elapsed_seconds":0.1})
+        result=aggregate_results(CASES,rows,eos_id=4,special_ids={99})
+        self.assertEqual(result["generation_cap_hit_pct"],100.0)
+        self.assertEqual(result["bad_special_token_case_pct"],100.0)
+        self.assertFalse(result["model_outputs_logged"])
+
     def test_no_artifacts_or_remote_upload_in_pure_aggregation(self):
         rows=[{"id":x["id"],"category":x["category"],
                "text":"", "generated_ids":[], "elapsed_seconds":0.01} for x in CASES]
