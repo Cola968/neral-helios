@@ -92,6 +92,19 @@ class AssistantTests(unittest.TestCase):
             with self.subTest(name=name,args=args),self.assertRaises(AssistantError):
                 assistant_turn("Test",transport=fake)
 
+    def test_tool_call_rejects_non_text_assistant_content_before_second_request(self):
+        for invalid in ({"unexpected":"object"}, ["unexpected"], 7, True):
+            requests = []
+            def fake(payload):
+                requests.append(payload)
+                return {"model":"qwen3.5:9b","done":True,
+                        "message":{"role":"assistant","content":invalid,
+                                   "tool_calls":[{"function":{"name":"calculator",
+                                                               "arguments":{"expression":"2+2"}}}]}}
+            with self.subTest(invalid=invalid), self.assertRaises(AssistantError):
+                assistant_turn("2+2?",transport=fake)
+            self.assertEqual(len(requests),1)
+
     def test_repeated_tool_call_is_rejected(self):
         def fake(payload):
             return {"model":"qwen3.5:9b","done":True,
