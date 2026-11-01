@@ -106,7 +106,7 @@ class DualToolTests(unittest.TestCase):
 
     def test_static_code_tool_result_is_bounded_without_hiding_omissions(self):
         # Valid Python code with hundreds of reported unsafe calls.
-        source = "eval('x')\\n".replace("\\\\n", "\\n") * 360
+        source = "eval('x')\n" * 360
         self.assertLessEqual(len(source.encode("utf-8")), 4096)
         requests = []
 
@@ -130,7 +130,7 @@ class DualToolTests(unittest.TestCase):
 
     def test_static_code_tool_prioritizes_high_risk_findings_when_shortened(self):
         # Hundreds of low-severity 'bare except' findings precede the high-risk eval.
-        source = ("try:\\n  pass\\nexcept:\\n  pass\\n" * 115) + "eval('x')\\n"
+        source = ("try:\n  pass\nexcept:\n  pass\n" * 115) + "eval('x')\n"
         self.assertLessEqual(len(source.encode("utf-8")), 4096)
 
         def fake(payload):
