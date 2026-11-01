@@ -42,9 +42,9 @@ class GateTests(unittest.TestCase):
 
     def test_no_real_inference_for_plan_and_automatic_vs_manual_split(self):
         cases = [
-            {"id":"n1","category":"math","language":"de","kind":"auto",
+            {"id":"n01","category":"math","language":"de","kind":"auto",
              "prompt":"Nur 12","history":[],"grading":{"type":"integer_only","value":12}},
-            {"id":"h1","category":"coding","language":"en","kind":"manual",
+            {"id":"h01","category":"coding","language":"en","kind":"manual",
              "prompt":"Write code","history":[],"grading":{"type":"manual"},
              "review":"Review correctness and errors."},
         ]
@@ -75,7 +75,7 @@ class GateTests(unittest.TestCase):
         self.assertFalse(result["released"])
 
     def test_external_model_identity_cannot_be_forged_or_reclassified(self):
-        case = [{"id":"n1","category":"math","language":"de","kind":"auto",
+        case = [{"id":"n01","category":"math","language":"de","kind":"auto",
                  "prompt":"Nur 12","history":[],"grading":{"type":"integer_only","value":12}}]
         original = {"mode":"neral-assistant", "source":"external-model", "base_model":"qwen3.5:9b",
                     "model_generated": True, "text":"12", "quality_mode":"standard",
@@ -94,7 +94,7 @@ class GateTests(unittest.TestCase):
                              enable_tools=False, turn=fake)
 
     def test_tools_are_a_separate_explicit_quality_layer(self):
-        case = [{"id":"n1","category":"math","language":"de","kind":"auto",
+        case = [{"id":"n01","category":"math","language":"de","kind":"auto",
                  "prompt":"Nur 12","history":[],"grading":{"type":"integer_only","value":12}}]
         def fake(*args,**kwargs):
             return {"mode":"neral-assistant", "source":"external-model",
@@ -107,7 +107,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(result["automatic"]["passed"],1)
 
     def test_invalid_case_or_history_blocks_before_model_call(self):
-        base = {"id":"n1","category":"logic","language":"de","kind":"auto",
+        base = {"id":"n01","category":"logic","language":"de","kind":"auto",
                 "prompt":"Nur JA","history":[],"grading":{"type":"exact","value":"JA"}}
         for variant in (
             [base, base], [{**base, "id":"../escape"}],
@@ -128,7 +128,7 @@ class GateTests(unittest.TestCase):
                      enable_tools=False, turn=lambda *a,**k: self.fail("must not run"))
 
     def test_report_written_only_to_new_local_path_and_never_contains_raw_prompts(self):
-        cases = [{"id":"n1","category":"math","language":"de","kind":"auto",
+        cases = [{"id":"n01","category":"math","language":"de","kind":"auto",
                   "prompt":"Nur die Geheimzahl 12","history":[],
                   "grading":{"type":"integer_only","value":12}}]
         def fake(*args,**kwargs):
