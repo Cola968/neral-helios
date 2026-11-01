@@ -208,13 +208,13 @@ def _verified_frozen_test(path: Path):
     # A valid reference does NOT prove membership in the frozen TEST partition:
     # a TRAIN row could otherwise be relabeled as a heldout case.
     grounding_test_ids = {r["id"] for r in grounding_splits()["test"]}
-    exact_math_test_ids = {r["id"] for r in exact_math_splits()["test"]}
+    exact_math_test_rows = {r["id"]: r for r in exact_math_splits()["test"]}
     rows = []
     for row in _read_jsonl(path):
         if row.get("source") == GROUNDING_SOURCE:
             valid = verify_row(row) and row.get("id") in grounding_test_ids
         elif row.get("source") in {"neral-generated-exact-v1", "neral-generated-small-add-v1"}:
-            valid = independently_verify_row(row) and row.get("id") in exact_math_test_ids
+            valid = (independently_verify_row(row) and\n                     row == exact_math_test_rows.get(row.get("id")))
         else:
             valid = False
         if not valid:
