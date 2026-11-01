@@ -51,7 +51,9 @@ jobs:
           if ($parts.Count -lt 3) { throw 'Invalid GPU status' }
           $free = [int]($parts[1].Trim())
           $busy = [int]($parts[2].Trim())
-          if ($free -lt 2048 -or $busy -gt 35) { throw 'GPU appears busy or low on free VRAM; no model inference attempted' }
+          Write-Host ("GPU_PREFLIGHT_READING free_vram_mb={0} utilization_pct={1}" -f $free,$busy)
+          if ($free -lt 2048) { throw 'GPU_PRECHECK_BLOCKED_LOW_VRAM (model inference not attempted)' }
+          if ($busy -gt 35) { throw 'GPU_PRECHECK_BLOCKED_BUSY (model inference not attempted)' }
           Write-Host 'GPU_PREFLIGHT_OK (memory and utilization checked, no private paths)'
       - name: Offline dry-run (must perform no inference)
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
