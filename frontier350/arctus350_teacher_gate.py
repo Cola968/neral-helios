@@ -25,6 +25,17 @@ MAX_ROWS = 2_000
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,90}\Z")
 ADDITION = re.compile(r"(?:Berechne|Calculate|Add)\s+(\d{1,4})\s*\+\s*(\d{1,4})\.?\Z")
+TWO_STEP = re.compile(r"(?:Berechne|Calculate)\s+\((\d{1,4})\s*\+\s*(\d{1,4})\)\s*-\s*(\d{1,4})\.?\Z")
+ORDER_EN = re.compile(
+    r"([A-Z][a-z]{2,15}) is faster than ([A-Z][a-z]{2,15})\. "
+    r"([A-Z][a-z]{2,15}) is faster than ([A-Z][a-z]{2,15})\. "
+    r"Who is (fastest|slowest)\?\Z"
+)
+ORDER_DE = re.compile(
+    r"([A-ZÄÖÜ][a-zäöüß]{2,15}) ist schneller als ([A-ZÄÖÜ][a-zäöüß]{2,15})\. "
+    r"([A-ZÄÖÜ][a-zäöüß]{2,15}) ist schneller als ([A-ZÄÖÜ][a-zäöüß]{2,15})\. "
+    r"Wer ist am (schnellsten|langsamsten)\?\Z"
+)
 TEACHER_KEYS = frozenset({
     "id", "split", "language", "domain", "task_type", "prompt", "answer",
     "independent_reference", "human_reviewed", "teacher_model",
@@ -76,10 +87,60 @@ def _text(value, *, limit=4096):
     )
 
 
+def _independent_task(task_type: str, prompt: str, language: str):
+    """Compute reference and semantic fingerprint; no arbitrary expression evaluation."""
+    if task_type == "addition":
+        match = ADDITION.fullmatch(prompt.strip())
+        prefix = "Berechne" if language == "de" else ("Calculate", "Add")
+        if match is None or not prompt.strip().startswith(prefix):
+            raise ValueError("unsupported exact addition grammar")
+        a, b = (int(n) for n in match.groups())
+        return str(a + b), ("addition", *sorted((a, b)))
+    if task_type == "two_step":
+        match = TWO_STEP.fullmatch(prompt.strip())
+        if match is None or not prompt.strip().startswith(
+            "Berechne" if language == "de" else "Calculate"
+        ):
+            raise ValueError("unsupported two-step arithmetic grammar")
+        a, b, c = (int(n) for n in match.groups())
+        return str(a + b - c), ("two_step", *sorted((a, b)), c)
+    if task_type == "ordered_logic":
+        match = (ORDER_DE if language == "de" else ORDER_EN).fullmatch(prompt.strip())
+        if match is None:
+            raise ValueError("unsupported strict transitive reasoning grammar")
+        first, second, third, fourth, question = match.groups()
+        names = {first, second, third, fourth}
+        if len(names) != 3 or first == second or third == fourth:
+            raise ValueError("need exactly three distinct ordered entities")
+        edges = {(first, second), (third, fourth)}
+        if len(edges) != 2:
+            raise ValueError("repeated or cyclic order fact")
+        incoming = {name: 0 for name in names}
+        outgoing = {name: 0 for name in names}
+        for faster, slower in edges:
+            incoming[slower] += 1
+            outgoing[faster] += 1
+        fastest = [n for n in names if incoming[n] == 0]
+        slowest = [n for n in names if outgoing[n] == 0]
+        middle = [n for n in names if incoming[n] == 1 and outgoing[n] == 1]
+        if len(fastest) != 1 or len(slowest) != 1 or len(middle) != 1:
+            raise ValueError("not a complete, unambiguous three-node chain")
+        if not (outgoing[fastest[0]] == 1 and incoming[slowest[0]] == 1):
+            raise ValueError("incomplete reasoning chain")
+        asks_fastest = question in {"fastest", "schnellsten"}
+        ordered = (fastest[0], middle[0], slowest[0])
+        return ordered[0 if asks_fastest else 2], ("ordered_logic", ordered, asks_fastest)
+    if task_type == "exact":
+        # Arbitrary text is NOT independently verifiable: explicit human review required.
+        return None, None
+    raise ValueError("unsupported independently verifiable task type")
+
+
 def _read_teacher(path: Path):
     output = {"train": [], "val": []}
     seen_ids = set()
     seen_prompts = set()
+    seen_semantics = set()
     artifact = None
     for row in _read_jsonl(path):
         if row.keys() != TEACHER_KEYS:
@@ -90,9 +151,9 @@ def _read_teacher(path: Path):
         seen_ids.add(identity)
         if row["split"] not in output or row["language"] not in {"de", "en"}:
             raise ValueError("teacher examples only permitted in train/val, DE/EN")
-        if row["domain"] not in {"math", "instruction", "grounding", "general"}:
+        if row["domain"] not in {"math", "instruction", "grounding", "general", "reasoning"}:
             raise ValueError("unsupported teacher task domain")
-        if row["task_type"] not in {"addition", "exact"}:
+        if row["task_type"] not in {"addition", "two_step", "ordered_logic", "exact"}:
             raise ValueError("only independently exact-verifiable task types in pilot")
         if row["teacher_model"] != TEACHER or row["teacher_license"] != TEACHER_LICENSE:
             raise ValueError("teacher identity or upstream model license not allowed")
@@ -111,10 +172,15 @@ def _read_teacher(path: Path):
             raise ValueError("empty, oversized or unsafe teacher text")
         if answer.strip() != reference.strip():
             raise ValueError("teacher answer disagrees with independent reference")
-        if row["task_type"] == "addition":
-            match = ADDITION.fullmatch(prompt.strip())
-            if match is None or answer.strip() != str(sum(int(x) for x in match.groups())):
-                raise ValueError("addition must match an independently computed exact sum")
+        calculated, semantic_key = _independent_task(
+            row["task_type"], prompt, row["language"]
+        )
+        if calculated is not None and reference.strip() != calculated:
+            raise ValueError("teacher answer contradicts independently computed reference")
+        if semantic_key is not None:
+            if semantic_key in seen_semantics:
+                raise ValueError("duplicate semantic reasoning task across splits")
+            seen_semantics.add(semantic_key)
         key = _prompt_key(prompt)
         if key in seen_prompts:
             raise ValueError("duplicate normalized teacher prompt")
