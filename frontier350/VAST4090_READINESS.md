@@ -285,10 +285,13 @@ Die zugehörigen CPU-Tests:
 python -m pytest -q tests/test_select_bilingual_recovery_v6_safety.py
 ```
 
-**Wichtige Grenze:** Nur die Regeln sind implementiert; ohne lokalen
-Modellcheckpoint sind weder neue Gewichte noch bessere Arctus-Ergebnisse
-nachgewiesen. CI-Jobs des Repositories starten aktuell teilweise mit
-**null Schritten** und können deshalb nicht als bestandene Tests gelten.
+**Stand 1. November 2026:** Der ursprüngliche lokale 2,073-Mrd.-Token-
+Checkpoint wurde auf dem eigenen Windows-Runner per SHA-256 und
+schreibgeschütztem Metadaten-Preflight geprüft (Model, Optimizer, RNG,
+Lernratenplan). Das ist weiterhin **kein** neuer Trainingslauf und
+**kein** Nachweis besserer Arctus-Ergebnisse. Die Windows-Sicherheits-
+tests für Draft #207 bestanden zuletzt mit **60/60**.
+Neue Prüfergebnisse sind stets dem jeweiligen Commit zuzuordnen.
 
 ## GitHub-Actions-unabhängiger Checkpoint-Selector-Test
 
@@ -321,6 +324,39 @@ Ein solcher Selbsttest ersetzt nicht die vollständige
 GitHub-CI, reale 350M-Checkpoint-Evaluationen und GPU-Tests.
 Die Offline-Probe wurde mit einer separaten lokalen Kopie des
 Selectors und synthetischen Daten am 31.10.2026 durchgeführt.
+
+## Originale BPE-Trainingsdaten: reale Windows-Prüfung am 1. November 2026
+
+Der schreibgeschützte Metadaten-Prüfer
+`frontier350/readonly_corpus_inventory.py` wurde hinzugefügt und
+auf dem eigenen Windows-Runner mit **drei bereits vorhandenen lokalen
+BPE-Korpora** ausgeführt. Es wurden keine privaten Dateipfade,
+Rohtexte oder Tokens in den Ergebnisbericht übernommen.
+
+| Korpus | Train-Tokens laut Manifest | Valid-Tokens laut Manifest | Dateien Train/Valid | Metadaten | SHA-256-Dateiintegrität |
+|---|---:|---:|---:|---|---|
+| Recovery-Pilot | 20.000.000 | 200.000 | 2 / 1 | kompatibel | bestanden |
+| Continuation | 500.000.000 | 100.000 | 10 / 1 | kompatibel | bestanden |
+| Foundation | 1.050.000.000 | 50.000.000 | 21 / 1 | kompatibel | bestanden |
+
+Die SHA-256-Prüfung erfolgte durch die **bestehende**
+`validate_data_manifest`-Routine gegen die originalen lokalen
+Shard-Manifeste. GitHub-PC-Run:
+[41302805510](https://github.com/Cola968/neral-helios/actions/runs/41302805510).
+Synthetische Windows-Metadaten-Prüftests: **11 bestanden, 1 übersprungen**.
+
+Die Summe von **1,57 Milliarden deklarierten Train-Tokens** ist
+ausdrücklich **kein** Hinweis auf 1,57 Milliarden neue oder zusätzliche
+Lern-Tokens; die Datensätze können sich untereinander und mit früher
+trainierten Quellen überlappen. SHA-256 sichert nur lokale Integrität,
+nicht Provenienz, Nutzungsrechte, historische Deduplizierung,
+Train-vs-Holdout-Leakage, die korrekte Fortsetzung des bestehenden
+2,073-Milliarden-Token-Korpus oder Trainingsfreigabe.
+
+Die Ausgabe setzt deshalb immer
+`training_ready=false`, `corpus_provenance_verified=false`
+und `training_started=false`. Kein Training, Upload, Cloud-GPU-Job
+oder Merge wurde ausgelöst.
 
 ## CPU-only verification
 
