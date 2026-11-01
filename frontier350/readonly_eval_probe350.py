@@ -26,6 +26,17 @@ CASES = [
 ]
 
 
+def build_input_ids(tok, prompt, style):
+    """Compare raw BPE prefix with exact tokenized User:/Assistant: SFT framing."""
+    if style not in ("bare","chat"):
+        raise ValueError("Unknown prompt format")
+    bos=tok.token_to_id("<|bos|>")
+    if bos is None:
+        raise ValueError("Tokenizer missing BOS")
+    segment=prompt if style=="bare" else f"User: {prompt.strip()}\nAssistant:"
+    return [int(bos)]+list(tok.encode(segment).ids)
+
+
 def validate_cases(cases):
     if not isinstance(cases,list) or not 1<=len(cases)<=12:
         raise ValueError("Invalid synthetic smoke case count")
@@ -91,18 +102,45 @@ def aggregate_results(cases, rows, eos_id):
     }
 
 
+def generate_probe(model,tok,prompt,max_new,device,style):
+    """Single identical greedy decoding procedure for both prompt encodings."""
+    import torch
+    from model350 import FRONTIER_350
+    if type(max_new) is not int or not 1<=max_new<=24:
+        raise ValueError("Generation budget exceeded")
+    eos=tok.token_to_id("<|eos|>")
+    if eos is None:
+        raise ValueError("Tokenizer missing EOS")
+    ids=build_input_ids(tok,prompt,style)
+    generated=[]
+    with torch.inference_mode():
+        for _ in range(max_new):
+            if len(ids)>=FRONTIER_350.max_seq_len:
+                break
+            x=torch.tensor([ids],device=device,dtype=torch.long)
+            logits,_=model(x)
+            nxt=int(logits[0,-1].argmax())
+            generated.append(nxt)
+            ids.append(nxt)
+            if nxt==int(eos):
+                break
+    output=generated[:-1] if generated and generated[-1]==int(eos) else generated
+    return generated,tok.decode(output,skip_special_tokens=True)
+
+
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--checkpoint",type=Path,required=True)
     ap.add_argument("--tokenizer",type=Path,required=True)
     ap.add_argument("--expected-checkpoint-sha256",required=True)
+    ap.add_argument("--prompt-format",choices=["bare","chat"],default="bare")
     args=ap.parse_args(argv)
     import torch
     from tokenizers import Tokenizer
     from chat350_contract import EXPECTED_TOKENIZER_SHA256
     from secure_checkpoint350 import load_checkpoint
     from model350 import FRONTIER_350,Neral350M
-    from eval_chat350 import generate, sha256_file
+    from eval_chat350 import sha256_file
 
     validate_cases(CASES)
     if not isinstance(args.expected_checkpoint_sha256,str) or len(args.expected_checkpoint_sha256)!=64:
@@ -130,7 +168,7 @@ def main(argv=None):
     rows=[]
     for case in CASES:
         start=time.monotonic()
-        ids,response=generate(model,tok,case["prefix"],case["max_new_tokens"],device)
+        ids,response=generate_probe(model,tok,case["prefix"],case["max_new_tokens"],device,args.prompt_format)
         torch.cuda.synchronize()
         rows.append({"id":case["id"],"category":case["category"],
                     "generated_ids":ids,"text":response,
@@ -142,6 +180,7 @@ def main(argv=None):
     summary["checkpoint_sha256_verified"]=True
     summary["tokenizer_sha256_verified"]=True
     summary["device_kind"]="cuda_bf16"
+    summary["prompt_format"]=args.prompt_format
     print(json.dumps(summary,ensure_ascii=False,allow_nan=False,sort_keys=True))
     return 0
 
