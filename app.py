@@ -13,6 +13,7 @@ from security_guard import check_prompt,sanitize_output
 from solve import solve
 from chat_math import tool_answer
 from code_check import check_code
+from launch_check import audit as audit_launch_readiness
 from architectures import expected_parameters
 from project_store import ProjectStore,ripple
 from chat_store import ChatStore,Conflict
@@ -204,6 +205,10 @@ def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',m
 def service_worker():return send_from_directory(BASE/'static','sw.js',mimetype='text/javascript')
 @app.get('/api/info')
 def info():return jsonify(info_payload())
+@app.get('/api/launch-readiness')
+def launch_readiness():
+    """Read-only source scan; not permission to publish or legal certification."""
+    return jsonify(audit_launch_readiness(BASE))
 @app.get('/api/metrics')
 def metrics():
     path=BASE/'reports/comparison.json'
