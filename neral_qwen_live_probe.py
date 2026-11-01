@@ -37,7 +37,8 @@ CASES = (
         "id": "code_de",
         "prompt": "Pruefe folgenden Python-Code auf Sicherheitsprobleme und erklaere kurz: def unsafe(x): return eval(x)",
         "needle": "eval",
-        "max_new_tokens": 128,
+        "max_new_tokens": 320,
+        "required_tool": "code_check",
         "quality": "standard",
     },
 )
@@ -124,6 +125,7 @@ def assess(http_status: int, payload: object, case: dict, elapsed: float) -> dic
         and isinstance(raw, str)
         and bool(raw.strip())
         and valid_tools
+        and (not case.get("required_tool") or case["required_tool"] in tools)
     )
     clean = raw if isinstance(raw, str) else ""
     count = data.get("generated_tokens")
