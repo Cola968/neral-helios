@@ -52,9 +52,25 @@ class LiveProbeContracts(unittest.TestCase):
 
     def test_cases_are_bounded_synthetic_and_deterministic(self):
         self.assertEqual([c["id"] for c in CASES], ["fact_de", "math_de", "code_de"])
-        self.assertTrue(all(0 < c["max_new_tokens"] <= 128 for c in CASES))
+        self.assertTrue(all(0 < c["max_new_tokens"] <= 384 for c in CASES))
+        self.assertEqual(CASES[2]["max_new_tokens"], 320)
+        self.assertEqual(CASES[2]["required_tool"], "code_check")
         self.assertTrue(all(c["quality"] == "standard" for c in CASES))
         self.assertEqual(len({c["id"] for c in CASES}), len(CASES))
+
+
+    def test_code_review_requires_real_static_checker_not_only_a_plausible_answer(self):
+        payload = {
+            "mode": "neral-assistant", "source": "external-model",
+            "base_model": "qwen3.5:9b", "model_generated": True,
+            "text": "eval kann beliebigen Code ausführen.", "tools_used": [],
+            "incomplete": False, "finish_reason": "stop",
+        }
+        self.assertFalse(assess(200, payload, CASES[2], 1.5)["valid_provider"])
+        with_checker = {**payload, "tools_used": ["code_check"]}
+        result = assess(200, with_checker, CASES[2], 1.5)
+        self.assertTrue(result["valid_provider"])
+        self.assertTrue(result["answer_match"])
 
 
     def test_known_provider_exception_is_classified_without_echoing_arbitrary_text(self):
