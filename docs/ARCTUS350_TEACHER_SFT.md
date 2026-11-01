@@ -12,7 +12,7 @@ Giotto wird ausdrücklich **nicht** für Arctus-Distillation verwendet: Die [Gio
 
 ## Eingabe
 
-Eine JSONL-Zeile pro geprüfter Antwort. Nur train/val, nur Modell-native Ausgabe ohne Rechner. Für den ersten Pilot ausschließlich exakte Antworten oder unabhängig nachgerechnete Addition, keine offenen ungeprüften Lehrtexte:
+Eine JSONL-Zeile pro geprüfter Antwort. Nur train/val, nur Modell-native Ausgabe ohne Rechner. Für den ersten Pilot nur nachvollziehbar geprüfte Ausgaben: exakte Antworten (zusätzliche menschliche Inhaltsprüfung nötig), Addition, zweistufige Arithmetik sowie dreigliedrige Ordnungslogik. Noch keine offenen, ungeprüften Lehrtexte:
 
 ~~~json
 {"id":"addition-de-001","split":"train","language":"de","domain":"math","task_type":"addition","prompt":"Berechne 59 + 77.","answer":"136","independent_reference":"136","human_reviewed":true,"teacher_model":"Qwen/Qwen3.5-9B","teacher_artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","teacher_license":"Apache-2.0","generation_mode":"model-native","tools_used":[]}
@@ -40,3 +40,26 @@ Der neue Ausgabeordner wird nicht überschrieben. Er enthält train/val/test JSO
 4. Vorher/nachher ausschließlich echte native Arctus-Checkpoint-Antworten auf unveränderten unabhängigen Entwicklungs- und Testaufgaben vergleichen. Keine Giotto- oder Qwen-Antworten als Arctus-Score ausweisen. Kein automatisches Merge/Release.
 
 **Ergebnis:** Datensatz-Vorprüfung statt tatsächlicher Distillation. Der Train/VAL-Pilot ist kein öffentlicher Benchmark, und ein grüner Test beweist keine Steigerung der Intelligenz.
+
+
+## Schnellerer Lernzyklus statt blinder SFT-Runden
+
+Dieser Importer prüft ab sofort auch unabhängig berechenbare zusammengesetzte Aufgaben:
+
+- DE \`Berechne (59 + 77) - 14.\` → \`122\`, als \`two_step\`.
+- EN \`Mara is faster than Lena. Lena is faster than Theo. Who is slowest?\` → \`Theo\`, als \`ordered_logic\`.
+- Spiegelung \`Calculate 77 + 59.\` und \`Berechne 59 + 77.\` gilt als **dieselbe** mathematische Aufgabe und ist splitübergreifend verboten.
+- Bei dreigliedriger Ordnungslogik werden auch vertauschte Faktensätze mit identischem logischen Gehalt und derselben Frage als Doppelung erkannt.
+
+Das sind streng definierte **Mikroaufgaben**, keine Evaluierung realen Alltagsreasonings. Für die genannten Beispiele braucht man keinen Teacher, weil Referenzantworten lokal vollständig ermittelt werden können: Qwen bringt hier **kein zusätzliches Wissen** ein. Für spätere echte Knowledge Distillation brauchen wir zusätzlich qualitativ überprüfte, lizenzrechtlich zulässige *offene* Lehrerantworten und faire Kontrollgruppen.
+
+Der schnellste glaubwürdige Forschungszyklus bleibt:
+
+1. **Echte lokale Baseline:** Unveränderte 1B-/2B-/SFT-Gewichte auf denselben bisher ungesehenen DEV-Prompts aus Issue #141/#179 messen (EOS, DE/EN, Rechnen, Instruktionsbefolgung, einfache Wissensfragen).
+2. **Daten vor Training prüfen:** Vorher vorhandene menschliche SFT- und eigene Curriculumsdaten, Tokenizer-SHA, Assistant-only Targets, EOS und Split-Leaks auditieren; auf Grundlage von #186, #190–#202 und #208, nicht neue konkurrierende Auditoren erfinden.
+3. **Nur einen Trainingsfaktor ändern:** Bei separater Freigabe und fixem Budget vergleichender SFT-Pilot (z. B. kompakte Batches vs. bisheriger Sampler, oder ein geprüftes neues Curriculum; nicht gleichzeitig). Baseline/VAL-Quoten und Replay konstant halten.
+4. **Entscheidung mit echten Modelloutputs:** Nach dem Pilot dieselben zuvor eingefrorenen Fälle prüfen; bei fehlendem oder instabilem Gewinn **nicht** die Gewichte austauschen. Separate ungezeigte TEST-Aufgaben erst am Ende.
+
+Leistungsziel auf kurze Sicht: eine nachweisbare native Verbesserung gegenüber den eigenen bisherigen Checkpoints; mittelfristig faire Vergleiche zu vergleichbar großen kleinen Open-Weight-Modellen. »GPT-3 erreicht« ist kein Resultat dieses Skripts. Vollständiges GPT-3-175B-Niveau mit 350M Parametern ist kein planbarer, garantierter Trainingsausgang.
+
+**Betrieb:** Keine Ausführung auf dem Nutzer-PC, keine GPU, keine Modelle geladen, keine automatischen Downloads, kein Training und keine kostenpflichtigen Jobs. GitHub-hosted CPU CI testet nur den Import und die Referenzlogik.
