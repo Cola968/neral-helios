@@ -17,6 +17,7 @@ function el(tag,text,cls){
 }
 function status(text){$('status').textContent=text;}
 let showingArchived=false;
+let archiveOffset=0;
 function taskCard(t){
   const root=el('article',undefined,'task');
   root.append(el('div',t.kind+' · '+t.status,'pill'),el('h3',t.title),el('p',t.goal));
@@ -96,16 +97,21 @@ function taskCard(t){
   return root;
 }
 async function reload(){
+  archiveOffset=0;
   const list=$('tasks');
   try{
     const data=await call('/api/orbit/tasks?view='+(showingArchived?'archived':'active'));
+    $('archiveMore').hidden=!showingArchived||!data.has_more;
     $('showArchived').textContent=showingArchived?'Aktive Aufträge':'Archiv anzeigen';
     $('showArchived').setAttribute('aria-pressed',String(showingArchived));
     $('taskListHeading').textContent=showingArchived?'Archivierte Aufträge':'Deine Aufträge';
     list.replaceChildren();
     if(!Array.isArray(data.tasks)||!data.tasks.length)list.append(el('p',showingArchived?'Keine archivierten Aufträge.':'Noch keine Aufträge erstellt.','empty'));
     else for(const task of data.tasks)list.append(taskCard(task));
-  }catch(err){list.replaceChildren(el('p',err.message+' Aktiviere den lokalen Prototyp mit HELIOS_ORBIT_ENABLED=1.','empty'));}
+  }catch(err){
+    $('archiveMore').hidden=true;
+    list.replaceChildren(el('p',err.message+' Aktiviere den lokalen Prototyp mit HELIOS_ORBIT_ENABLED=1.','empty'));
+  }
 }
 $('taskForm').addEventListener('submit',async e=>{
   e.preventDefault();
@@ -120,4 +126,19 @@ $('taskForm').addEventListener('submit',async e=>{
 });
 $('refresh').addEventListener('click',reload);
 $('showArchived').addEventListener('click',()=>{showingArchived=!showingArchived;reload();});
+$('archiveMore').addEventListener('click',async ()=>{
+  if(!showingArchived)return;
+  const button=$('archiveMore'),next=archiveOffset+40;
+  if(next>100000){status('Archivgrenze erreicht.');return;}
+  button.disabled=true;
+  try{
+    const data=await call('/api/orbit/tasks?view=archived&offset='+next);
+    if(!showingArchived)return; // Do not display stale results after switching views.
+    if(!Array.isArray(data.tasks))throw Error('Ungültige Archivantwort.');
+    for(const task of data.tasks)$('tasks').append(taskCard(task));
+    archiveOffset=next;
+    button.hidden=!data.has_more;
+  }catch(err){status(err.message);}
+  finally{button.disabled=false;}
+});
 reload();
