@@ -42,3 +42,5 @@ jobs:
 # Final one-shot recheck after closing raw SQLite connections in regression tests.
 
 # Confirm tests after correcting the Windows cleanup fixture imports.
+
+# 2026-11-01: run 40+ archived-history pagination regression on the trusted Windows CPU runner.
