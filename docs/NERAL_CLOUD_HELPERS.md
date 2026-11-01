@@ -24,3 +24,19 @@ Die Datei `.github/dependabot.yml` bereitet **wöchentliche** automatische Prüf
 - GitHub Actions und stündliche Automation sind unabhängige Schichten, keine Endlosschleife und keine Garantie für stündliche Codeänderungen.
 
 Quellen: https://docs.github.com/en/code-security/concepts/supply-chain-security/about-the-dependabot-yml-file und https://docs.github.com/en/actions/concepts/billing-and-usage.
+
+## Cloudflare Cloud-Koordinator (01.11.2026)
+
+**Tatsächlich bereitgestellt** im verbundenen Cloudflare-Konto:
+
+- Workers-Script `neral-cloud-coordinator`, Cloudflare Worker-Subdomain aktiviert.
+- Zeitsteuerung `*/15 * * * *` (**alle 15 Minuten**, Cloudflare-Zeitzone UTC). Cloudflare bestätigt die gespeicherte Trigger-Konfiguration; die zeitversetzte Ausführung des ersten Cron-Events wurde noch nicht separat nachgewiesen.
+- Eigener Cloudflare-KV-Namespace mit EU-Jurisdiktion für einen einzigen Schlüssel `last_tick`, ausschließlich ISO-Zeitstempel, keine Nutzernachrichten, Tokens, GitHub-Quellen oder Modellgewichte.
+- Öffentliche, **schreibgeschützte** Diagnoseadresse: `https://neral-cloud-coordinator.a-stad.workers.dev/health`. Eine externe HTTP-Abfrage ließ sich aus der aktuellen Arbeitsumgebung nicht abschließend bestätigen. Worker-Upload, Cron-Eintrag und `workers.dev`-Freigabe sind über die Cloudflare-API bestätigt.
+- Der Status sagt bewusst `ai_code_agent_running=false`, `private_github_connected=false`, `gpu_training=false`. Dies ist ein **24/7 terminierter Koordinator/Heartbeat**, **kein zusätzlicher autonomer KI-Programmierer**. Der stündliche ChatGPT-Autopilot führt die echte GitHub-Codearbeit separat durch.
+
+**Sicherheit:** Keine privaten GitHub- oder KI-API-Zugangsdaten wurden hinterlegt. Der Worker kann per HTTP keine Schreib- oder Programmausführungsaufträge annehmen. Nur `GET /health` ist erreichbar; andere Pfade werden abgewiesen. Fünf lokale `node --test`-Kontrakttests und GitHub-Hosted-CI wurden für die geprüfte Quellversion erfolgreich durchgeführt. Quellcode: `cloud/neral-coordinator/worker.mjs` und `worker.test.mjs`.
+
+**Kosten:** Keine GPU-, KI-API- oder Hosting-Zahlung wurde ausgelöst. Der sehr geringe geplante Cron-/KV-Verbrauch ist auf die veröffentlichten Workers-Free-/KV-Free-Limits ausgelegt. **Der tatsächliche Cloudflare-Vertrag und Rechnungsstatus konnten wegen fehlender Billing-Read-Berechtigung nicht abgerufen werden.** Der Nutzer muss deshalb im Cloudflare-Dashboard unter Workers & Pages / Billing das Kontomodell und mögliche Warnlimits prüfen. Dies ist keine Garantie, dass jede künftige Nutzung kostenlos bleibt.
+
+**Offen für echten Cloud-KI-Agenten:** sicherer privater GitHub-Zugriff über ein gezielt eingerichtetes GitHub-App-Berechtigungsmodell, gesondert genehmigter KI-Dienst mit harter Budgetkontrolle oder bereits inkludiertem zulässigem Agenten-Kontingent sowie eine isolierte Sandbox für Tests und Review. Vorher darf dieser Worker ausdrücklich keine Pull Requests erstellen, keine externen AI-Modelle ansprechen und keine Trainingsprozesse starten. Die bestehende stündliche ChatGPT-Automation bleibt der einzige aktivierte KI-Codeentwicklungsagent.
