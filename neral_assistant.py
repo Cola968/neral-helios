@@ -137,6 +137,11 @@ def _validate(prompt: str, history: list[dict], model: str, max_new: int,
 def _message(data: dict, model: str) -> dict:
     if not isinstance(data, dict) or data.get("model") != model or data.get("done") is not True:
         raise AssistantError("Unerwartete oder unvollständige Modellantwort.")
+    # done=True ends the HTTP generation, including when num_predict was exhausted.
+    # The API may omit done_reason; retain that legacy contract, validate explicit values.
+    if "done_reason" in data and (not isinstance(data["done_reason"], str)
+                                  or data["done_reason"] not in {"stop", "length"}):
+        raise AssistantError("Unbekannter Abschlussgrund aus Ollama.")
     message = data.get("message")
     if not isinstance(message, dict) or message.get("role") != "assistant":
         raise AssistantError("Ungültiger Nachrichten-Typ aus Ollama.")
@@ -221,6 +226,8 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         if not isinstance(calls, list) or len(calls) > 1:
             raise AssistantError("Unzulässige Anzahl Werkzeugaufrufe.")
         if calls:
+            if data.get("done_reason") == "length":
+                raise AssistantError("Unvollständiger Werkzeugaufruf am Antwortlimit.")
             if not enable_tools:
                 raise AssistantError('Nicht freigegebener Werkzeugaufruf im Modell-Benchmark.')
             if iteration or tools_used:
@@ -266,6 +273,8 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
             "base_model": model,
             "model_origin": "Qwen3.5 · Apache-2.0 · separate open-weight foundation",
             "text": safe,
+            "finish_reason": data.get("done_reason"),
+            "incomplete": data.get("done_reason") == "length",
             "output_secret_redacted": redacted,
             "tools_used": tools_used,
             "generated_tokens": count,

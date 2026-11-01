@@ -13,6 +13,28 @@ from neral_2022_gate import (
 
 
 class GateTests(unittest.TestCase):
+    def test_truncated_correct_prefix_never_passes_or_stops_other_cases(self):
+        cases = [
+            {"id": "auto_01", "category": "instruction", "language": "de", "kind": "auto",
+             "prompt": "Nur JA", "history": [], "grading": {"type": "exact", "value": "JA"}},
+            {"id": "human_01", "category": "coding", "language": "en", "kind": "manual",
+             "prompt": "Write code", "history": [], "grading": {"type": "manual"},
+             "review": "Check correctness."},
+            {"id": "auto_02", "category": "instruction", "language": "de", "kind": "auto",
+             "prompt": "Nur JA erneut", "history": [], "grading": {"type": "exact", "value": "JA"}},
+        ]
+        def fake(prompt, history, **kwargs):
+            truncated = prompt != "Nur JA erneut"
+            return {"mode": "neral-assistant", "source": "external-model", "base_model": "qwen3.5:9b",
+                    "model_generated": True, "text": "JA", "quality_mode": "standard",
+                    "reasoning_enabled": False, "tools_used": [], "incomplete": truncated,
+                    "finish_reason": "length" if truncated else "stop"}
+        report = evaluate(cases, model="qwen3.5:9b", quality="standard", enable_tools=False, turn=fake)
+        self.assertEqual(report["automatic"], {"total": 2, "passed": 1, "failed": 1})
+        self.assertEqual([row["result"] for row in report["rows"]], ["incomplete", "incomplete", "passed"])
+        self.assertEqual(report["manual_pending"], 1)
+        self.assertFalse(report["gpt35_parity_proven"])
+
     @classmethod
     def setUpClass(cls):
         cls.cases = read_suite(DEFAULT_SUITE)

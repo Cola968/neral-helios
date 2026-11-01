@@ -16,16 +16,20 @@ const root=path.resolve(__dirname,'..');
    let payload;try{payload=JSON.parse(body);}catch{res.writeHead(400);res.end();return;}
    requests.push(payload);
    const prompt=payload.messages.at(-1).content;
-   const answer={model:payload.model,done:true,message:{role:'assistant',content:'Qwen-Fixture: '+prompt},
+   const answer={model:payload.model,done:true,done_reason:prompt==='Limit-Test'?'length':'stop',message:{role:'assistant',content:'Qwen-Fixture: '+prompt},
                  eval_count:5,eval_duration:1000000000};
    res.writeHead(200,{'Content-Type':'application/json'});
    setTimeout(()=>res.end(JSON.stringify(answer)),prompt==='Warte'?350:0);
   });
  });
- await new Promise((resolve,reject)=>ollama.once('error',reject).listen(11434,'127.0.0.1',resolve));
+ await new Promise((resolve,reject)=>ollama.once('error',reject).listen(0,'127.0.0.1',resolve));
+ const ollamaPort=ollama.address().port;
  const probe=http.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));
  const port=probe.address().port;await new Promise(r=>probe.close(r));
- const server=spawn(process.env.HELIOS_TEST_PYTHON||'python',['-u','app.py'],{
+ // Patch only this test subprocess; never bind to or call a user's real Ollama.
+ const testEntry='import neral_assistant, runpy; neral_assistant.LOOPBACK_ENDPOINT='+
+   JSON.stringify('http://127.0.0.1:'+ollamaPort+'/api/chat')+'; runpy.run_path("app.py", run_name="__main__")';
+ const server=spawn(process.env.HELIOS_TEST_PYTHON||'python',['-u','-c',testEntry],{
   cwd:root,windowsHide:true,
   env:{...process.env,HELIOS_PORT:String(port),HELIOS_STATE_ROOT:path.join(folder,'state'),
        HELIOS_ASSETS_ROOT:path.join(folder,'empty-assets'),HELIOS_PREPARATION_MODE:'0',
@@ -43,7 +47,7 @@ const root=path.resolve(__dirname,'..');
    await new Promise(r=>setTimeout(r,250));
   }
   assert(started,'Flask did not start: '+serverLog);
-  browser=await chromium.launch({headless:true,args:['--disable-gpu','--disable-software-rasterizer']});
+  browser=await chromium.launch({headless:true,...(process.env.HELIOS_TEST_BROWSER?{executablePath:process.env.HELIOS_TEST_BROWSER}:{}),args:['--disable-gpu','--disable-software-rasterizer']});
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.goto(url);
@@ -92,6 +96,14 @@ const root=path.resolve(__dirname,'..');
   assert.equal(deepRequest.options.num_ctx,8192);
   assert.equal(deepRequest.options.num_predict,1024);
   assert.match(await page.locator('#log .message.assistant').last().locator('.meta').textContent(),/Denkmodus/);
+  await ask('Limit-Test');
+  assert.match(await page.locator('#log .message.assistant').last().locator('.meta').textContent(),/unvollständig/);
+  await page.reload();
+  await page.locator('#log .message.assistant').last().locator('.meta').filter({hasText:'unvollständig'}).waitFor();
+  await page.locator('#assistantMode').click();
+  await ask('Nach Limit');
+  assert(requests.at(-1).messages.every(m=>!String(m.content||'').includes('Limit-Test')),
+         'truncated response and its user turn must stay out of subsequent model context after reload');
   await new Promise(r=>ollama.close(r));ollama=null;
   await page.locator('#prompt').fill('Offline');
   await page.locator('#send').click();
