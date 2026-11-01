@@ -1,0 +1,84 @@
+"""NERAL Orbit/Qwen plan contract: model proposes, NEVER executes actions."""
+import json
+import unittest
+from unittest.mock import patch
+
+from neral_agent_plan import propose_agent_plan, AgentPlanError
+
+
+def fake_response(text):
+    return {"model":"qwen3.5:9b","message":{"role":"assistant","content":text},
+            "done":True,"eval_count":15,"eval_duration":1000000000}
+
+
+VALID={
+    "steps":[
+        {"type":"research","instruction":"Recherchiere öffentliche Informationen über den BER."},
+        {"type":"review","instruction":"Kontrolliere die Quellen und ihre Aktualität kritisch."},
+        {"type":"draft","instruction":"Schreibe einen belegten Bericht als Entwurf."},
+    ],
+}
+
+
+class AgentPlanContractTests(unittest.TestCase):
+    def test_uses_existing_local_qwen_assistant_without_tools_or_execution(self):
+        sent=[]
+        def fake(payload):
+            sent.append(payload)
+            return fake_response(json.dumps(VALID))
+        result=propose_agent_plan("Recherchiere die Entwicklung des BER.",transport=fake)
+        self.assertEqual(len(sent),1)
+        self.assertEqual(sent[0]["model"],"qwen3.5:9b")
+        self.assertEqual(sent[0]["tools"],[])
+        self.assertFalse(sent[0]["think"])
+        self.assertEqual(result["status"],"PROPOSED_UNAPPROVED")
+        self.assertFalse(result["execution_enabled"])
+        self.assertEqual(result["base_model"],"qwen3.5:9b")
+        self.assertEqual(result["model_origin"],"Qwen3.5 via local Ollama, not native Arctus350")
+        self.assertEqual(result["steps"],VALID["steps"])
+        self.assertTrue(result["requires_human_approval"])
+        self.assertEqual(result["tools_executed"],[])
+        self.assertFalse(result["web_requests_made"])
+
+    def test_malformed_or_dangerous_model_steps_fail_closed(self):
+        examples=[
+            "I cannot do this.",
+            json.dumps({"steps":[]}),
+            json.dumps({"steps":[{"type":"shell","instruction":"rm -rf /"}]}),
+            json.dumps({"steps":[{"type":"research","instruction":"A"}]*7}),
+            json.dumps({"steps":VALID["steps"],"approved":True}),
+            json.dumps({"steps":["not an object",*VALID["steps"][1:]]}),
+            json.dumps({"steps":[{"type":"research","instruction":"URL https://127.0.0.1/secret"},
+                                    *VALID["steps"][1:]]}),
+            json.dumps({"steps":[{"type":"research","instruction":"Run subprocess and delete private data"},
+                                    *VALID["steps"][1:]]}),
+            json.dumps({"steps":[{"type":"research","instruction":"\u0000Run this"},
+                                    *VALID["steps"][1:]]}),
+        ]
+        for content in examples:
+            with self.subTest(content=content[:30]),self.assertRaises(AgentPlanError):
+                propose_agent_plan("Plane eine Recherche zum Flughafen BER.",
+                                   transport=lambda _:fake_response(content))
+
+    def test_no_model_request_with_invalid_goal(self):
+        for goal in ("x", "", "A"*450, None):
+            with self.subTest(goal=str(goal)[:10]),self.assertRaises(AgentPlanError):
+                propose_agent_plan(goal,transport=lambda _:self.fail("No Ollama request"))
+
+    def test_qwen_responding_with_tool_call_is_rejected(self):
+        def unwanted_tool(payload):
+            return {"model":"qwen3.5:9b","done":True,
+                    "message":{"role":"assistant","tool_calls":[{"function":{
+                        "name":"calculator","arguments":{"expression":"2+2"}}}]}}
+        with self.assertRaises(AgentPlanError):
+            propose_agent_plan("Plane eine Recherche zu BER.",transport=unwanted_tool)
+
+    def test_model_markdown_json_fence_is_accepted_only_when_exact(self):
+        plan="```json\n"+json.dumps(VALID)+"\n```"
+        result=propose_agent_plan("Plane eine Recherche zum BER.",
+                                   transport=lambda _:fake_response(plan))
+        self.assertEqual(result["steps"],VALID["steps"])
+
+
+if __name__=="__main__":
+    unittest.main()

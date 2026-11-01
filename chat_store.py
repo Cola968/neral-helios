@@ -55,12 +55,14 @@ class ChatStore:
                 if not isinstance(m,dict) or m.get('role') not in ['user','assistant'] or not isinstance(m.get('content'),str) or len(m['content'])>32768:raise ValueError('Ungültige Nachricht.')
 
                 clean.append({k:m[k] for k in ['role','content','mode','checkpoint','meta','interrupted','source','imported','model_family','runtime_id'] if k in m and isinstance(m[k],(str,bool))})
+                if m.get('base_model') in ('qwen3.5:9b','qwen3.5:4b'):
+                    clean[-1]['base_model']=m['base_model']
 
             draft=chat.get('draft','')
 
             if not isinstance(draft,str) or len(draft)>8192:raise ValueError('Entwurf zu lang.')
 
-            chat={'id':key,'title':chat['title'],'messages':clean,'draft':draft,'mode':chat.get('mode','chat') if chat.get('mode') in ['chat','solve','code'] else 'chat','imported':bool(chat.get('imported')),'temporary':False}
+            chat={'id':key,'title':chat['title'],'messages':clean,'draft':draft,'mode':chat.get('mode','chat') if chat.get('mode') in ['chat','assistant','solve','code'] else 'chat','imported':bool(chat.get('imported')),'temporary':False}
 
         body=json.dumps(chat or {},ensure_ascii=True)
 
