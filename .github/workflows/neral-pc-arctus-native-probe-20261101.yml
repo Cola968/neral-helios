@@ -64,3 +64,5 @@ jobs:
           & $p frontier350/readonly_eval_probe350.py --checkpoint $ck --tokenizer $tok --expected-checkpoint-sha256 f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7 --prompt-format chat
           if ($LASTEXITCODE -ne 0) { throw 'Native chat-template Arctus probe failed; no model changed' }
 
+
+# 2026-11-01: recheck after correcting exact chat template newline test expectation.
