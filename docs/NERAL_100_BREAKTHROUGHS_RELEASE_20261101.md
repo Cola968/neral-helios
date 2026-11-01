@@ -185,3 +185,14 @@ PR #213 erweitert aufbauend auf #212 den bereits vorhandenen lokalen Qwen-Assist
 
 ---
 **Gesamt:** 100 Ideen, 1 tatsächlicher Implementierungsschritt in diesem Draft, viele bereits vorhandene Vorarbeiten müssen integriert werden. Externe Quellen und vorgeschlagene Features sind keine automatisch erlaubten Trainingsdaten.
+
+
+## Fortschritt am 01.11.2026: begrenzter Codeprüfer-Kontext
+
+Beim Test des neuen Zweifach-Werkzeugpfads wurde ein reproduzierbarer Produktengpass festgestellt: 360 riskante `eval`-Vorkommen in einem zulässigen ca. 3,6-KB-Python-Snippet erzeugten ca. **63,9 KB** zurückgesendete statische Prüfbefunde. Das ist für den begrenzten Qwen-Kontext übermäßig groß.
+
+Der bestehende `code_check` bleibt unverändert; ausschließlich die Ausgabe an das Qwen-Werkzeug `_code_check` ist nun auf **4096 UTF-8-Bytes** beschränkt. Bei gekürzter Ausgabe werden alle ursprünglichen `finding_count`- und `severity_counts`-Werte beibehalten, `omitted_findings` sowie `truncated=true` explizit mitgeliefert und schwere Befunde vor leichteren angezeigt. Kein Code wird ausgeführt, es gibt keine Aussage über vollständige Code-Sicherheit. Kleine normale Resultate werden unverändert übertragen.
+
+**TDD:** Der RED-Test belegte unzulässige Ausgaben von **63.880** beziehungsweise **17.093** Bytes (GitHub-Run 41325727101). GREEN wurde mit einer kleinen isolierten Änderung implementiert und muss mit allen vorhandenen CPU-/Browser-Regressionen verifiziert bleiben. Diese Änderung verbessert die Zuverlässigkeit der Werkzeugnutzung; sie trainiert **keine** Modellgewichte.
+
+**Integrationsgrenze:** Die Closed-Beta-Termine setzen weiterhin den echten Windows-/GPU-/Browser-End-to-End-Test auf einem abgestimmten Release-Commit und vollständige unabhängige Nutzerabnahme voraus. Auch 100 geplante Features ersetzen diesen Schritt nicht.
