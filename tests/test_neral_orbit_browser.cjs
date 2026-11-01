@@ -74,10 +74,40 @@ const root=path.resolve(__dirname,'..');
   await researchCard.locator('button').filter({hasText:'Wikipedia-Recherche jetzt starten'}).waitFor();
   assert.match(await researchCard.locator('.pill').textContent(),/APPROVED_NO_EXECUTOR/);
   assert.equal(await researchCard.locator('.source-list').count(),0);
+  // Real Flask+SQLite pagination: 46 archived records (one existing + 45 new).
+  // Use same-origin browser requests; never mock the application API.
+  await page.evaluate(async()=>{
+    const post=async(url,payload)=>{
+      const res=await fetch(url,{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      if(!res.ok)throw Error('Archive fixture failed: '+res.status);
+      return await res.json();
+    };
+    for(let i=0;i<45;i++){
+      const created=await post('/api/orbit/tasks',{kind:'coding',
+        title:'Historischer Auftrag '+i,
+        goal:'Bewahre diese abgeschlossene lokale Aufgabenhistorie auf.'});
+      const id=created.task.id;
+      await post('/api/orbit/tasks/'+id+'/transition',{action:'cancel',revision:1});
+      await post('/api/orbit/tasks/'+id+'/transition',{action:'archive',revision:2});
+    }
+  });
+  await page.locator('#showArchived').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#tasks .task').length===40);
+  assert.equal(await page.locator('#archiveMore').isVisible(),true);
+  await page.locator('#archiveMore').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#tasks .task').length===46);
+  assert.equal(await page.locator('#archiveMore').isHidden(),true);
+  const titles=await page.locator('#tasks .task h3').allTextContents();
+  assert.equal(new Set(titles).size,46);
+  assert(titles.includes('Historischer Auftrag 0'));
+  assert(titles.includes('Historischer Auftrag 44'));
+  await page.locator('#showArchived').click();
+  await page.locator('#tasks .task h3').filter({hasText:'BER recherchieren'}).waitFor();
   await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'Orbit mobile overflow');
   assert.deepEqual(errors,[]);
-  console.log('PASS Orbit real Flask browser: create, persistence, approval without automatic worker, research launch gating, cancel, archive, XSS, mobile');
+  console.log('PASS Orbit real Flask browser: create, persistence, approval without automatic worker, research launch gating, cancel, 46-entry archive pagination, XSS, mobile');
  }finally{
   if(browser)await browser.close();
   server.kill();
