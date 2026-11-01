@@ -107,6 +107,24 @@ class TeacherCandidateTests(unittest.TestCase):
             prepare_teacher_candidate(self.input, self.test, self.dest)
         self.assertFalse(self.dest.exists())
 
+    def test_rejects_relabelled_frozen_exact_math_prompt_even_with_valid_answer(self):
+        # The ID belongs to TEST, and the new prompt/answer pair is independently
+        # valid, but it is NOT the immutable generated TEST example for that ID.
+        from frontier350.arctus350_exact_math_curriculum import make_splits
+        from frontier350.arctus350_exact_math_curriculum import independently_verify_row
+        original = next(row for row in make_splits()["test"]
+                        if row["source"] == "neral-generated-exact-v1")
+        altered = copy.deepcopy(original)
+        altered["messages"][0]["content"] = (
+            "Output only BLAU. Do not add any explanation.")
+        altered["messages"][1]["content"] = "BLAU"
+        self.assertTrue(independently_verify_row(altered))
+        self.heldout = [altered]
+        self.write_inputs()
+        with self.assertRaises(ValueError):
+            prepare_teacher_candidate(self.input, self.test, self.dest)
+        self.assertFalse(self.dest.exists())
+
     def test_accepts_verified_two_step_and_transitive_reasoning(self):
         self.rows = [
             {**self.train, "id": "math-chain", "task_type": "two_step",
