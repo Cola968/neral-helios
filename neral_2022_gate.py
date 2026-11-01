@@ -217,7 +217,11 @@ def evaluate(cases, *, model, quality, enable_tools, turn=assistant_turn):
         calculator_count += used.count("calculator")
         code_check_count += used.count("code_check")
         outcome = score(response["text"], case["grading"])
-        if outcome is None:
+        if response.get("incomplete") is True or response.get("finish_reason") == "length":
+            failures += case["kind"] == "auto"
+            human += case["kind"] == "manual"
+            verdict = "incomplete"
+        elif outcome is None:
             human += 1
             verdict = "manual_pending"
         else:

@@ -195,3 +195,18 @@ def test_invalid_quality_or_native_deep_fails_before_inference(client, monkeypat
         {"mode": "chat", "quality": "deep", "prompt": "Hallo"},
     ]:
         assert post(client, row).status_code == 400
+
+
+@pytest.mark.parametrize("reason, incomplete", [("length", True), ("stop", False)])
+def test_flask_preserves_provider_completion_for_chat_history(client, monkeypatch, reason, incomplete):
+    import neral_assistant as provider
+    monkeypatch.setattr(provider, "local_ollama_request", lambda body: {
+        "model": "qwen3.5:9b", "done": True, "done_reason": reason,
+        "message": {"role": "assistant", "content": "Antwortfragment"},
+    })
+    response = post(client, {"mode": "assistant", "prompt": "Erkläre den Zusammenhang"})
+    assert response.status_code == 200
+    assert response.json.get("finish_reason") == reason
+    assert response.json.get("incomplete") is incomplete
+    assert response.json["source"] == "external-model"
+    assert not web._generation_lock.locked()

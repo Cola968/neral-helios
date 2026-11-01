@@ -35,6 +35,55 @@ class PersonalityIntegrationTests(unittest.TestCase):
 
 
 class AssistantTests(unittest.TestCase):
+    def test_token_limit_preserves_partial_text_but_marks_it_incomplete(self):
+        for quality in ("standard", "deep"):
+            with self.subTest(quality=quality):
+                result = assistant_turn("Erkläre weiter", quality=quality,
+                    transport=lambda body: {**answer("Die Lösung beginnt mit"),
+                                            "done_reason": "length"})
+                self.assertEqual(result["text"], "Die Lösung beginnt mit")
+                self.assertIs(result.get("incomplete"), True)
+                self.assertEqual(result.get("finish_reason"), "length")
+                self.assertEqual(result["source"], "external-model")
+
+    def test_normal_stop_and_legacy_missing_reason_remain_usable(self):
+        for extra, reason in (({"done_reason": "stop"}, "stop"), ({}, None)):
+            with self.subTest(extra=extra):
+                result = assistant_turn("Hallo", transport=lambda body: {**answer("Hallo"), **extra})
+                self.assertIs(result.get("incomplete"), False)
+                self.assertEqual(result.get("finish_reason"), reason)
+
+    def test_invalid_explicit_finish_reason_is_rejected(self):
+        for reason in (None, "", "load", "unknown", False, [], {}):
+            with self.subTest(reason=reason), self.assertRaises(AssistantError):
+                assistant_turn("Hallo", transport=lambda body: {**answer("Hallo"), "done_reason": reason})
+
+    def test_truncated_tool_request_is_not_executed(self):
+        from unittest.mock import patch
+        for name, args, target in (("calculator", {"expression": "7+8"}, "_calculate"),
+                                   ("code_check", {"code": "print(1)"}, "_code_check")):
+            response = {**answer(""), "done_reason": "length"}
+            response["message"]["tool_calls"] = [{"function": {"name": name, "arguments": args}}]
+            with self.subTest(tool=name), patch("neral_assistant." + target) as execute:
+                with self.assertRaises(AssistantError):
+                    assistant_turn("Prüfe", transport=lambda body: response)
+                execute.assert_not_called()
+
+    def test_truncated_final_answer_after_tool_is_incomplete_without_retry(self):
+        calls = []
+        def fake(body):
+            calls.append(body)
+            if len(calls) == 1:
+                return {"model": "qwen3.5:9b", "done": True, "done_reason": "stop",
+                        "message": {"role": "assistant", "content": "", "tool_calls": [
+                            {"function": {"name": "calculator", "arguments": {"expression": "7+8"}}}]}}
+            return {**answer("Das Ergebnis ist 15 und"), "done_reason": "length"}
+        result = assistant_turn("Was ist 7+8?", transport=fake)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(result["tools_used"], ["calculator"])
+        self.assertIs(result.get("incomplete"), True)
+        self.assertEqual(result.get("finish_reason"), "length")
+
     def test_local_model_and_branding_are_explicit(self):
         sent = []
         def fake(payload):
