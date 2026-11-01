@@ -21,8 +21,8 @@ class AgentPlanError(ValueError):
 
 _ALLOWED = frozenset({"research","review","draft"})
 _BAD = re.compile(
-    r"https?://|file://|\\b(?:subprocess|powershell|cmd\\.exe|bash -c|"
-    r"os\\.system|rm -rf|eval\\(|exec\\()",
+    r"https?://|file://|\b(?:subprocess|powershell|cmd\.exe|bash -c|"
+    r"os\.system|rm -rf|eval\(|exec\()",
     re.IGNORECASE,
 )
 _PROMPT = (
@@ -53,6 +53,8 @@ def _parse(raw):
     steps=plan["steps"]
     if not isinstance(steps,list) or not 3<=len(steps)<=4:
         raise AgentPlanError("Ein Agentenplan muss 3 bis 4 Schritte enthalten.")
+    if not all(isinstance(step,dict) for step in steps):
+        raise AgentPlanError("Ungültige Modellschritte.")
     if steps[0].get("type")!="research" or steps[-1].get("type")!="draft":
         raise AgentPlanError("Agentenplan hat unzulässige Abfolge.")
     if not any(row.get("type")=="review" for row in steps):
