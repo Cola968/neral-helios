@@ -107,6 +107,63 @@ class TeacherCandidateTests(unittest.TestCase):
             prepare_teacher_candidate(self.input, self.test, self.dest)
         self.assertFalse(self.dest.exists())
 
+    def test_accepts_verified_two_step_and_transitive_reasoning(self):
+        self.rows = [
+            {**self.train, "id": "math-chain", "task_type": "two_step",
+             "prompt": "Berechne (59 + 77) - 14.", "answer": "122",
+             "independent_reference": "122"},
+            {**self.val, "id": "logic-chain", "task_type": "ordered_logic",
+             "domain": "reasoning", "language": "en",
+             "prompt": "Mara is faster than Lena. Lena is faster than Theo. Who is slowest?",
+             "answer": "Theo", "independent_reference": "Theo"},
+        ]
+        self.write_inputs()
+        report = prepare_teacher_candidate(self.input, self.test, self.dest)
+        self.assertEqual(report["split_counts"]["train"], 1)
+        self.assertEqual(report["split_counts"]["val"], 1)
+
+    def test_rejects_invalid_multistep_and_cyclic_logic(self):
+        variants = [
+            {"task_type": "two_step", "prompt": "Berechne (59 + 77) - 14.",
+             "answer": "123", "independent_reference": "123"},
+            {"task_type": "ordered_logic", "domain": "reasoning",
+             "prompt": "Mara ist schneller als Lena. Lena ist schneller als Theo. Wer ist am schnellsten?",
+             "answer": "Lena", "independent_reference": "Lena"},
+            {"task_type": "ordered_logic", "domain": "reasoning",
+             "prompt": "Mara ist schneller als Lena. Lena ist schneller als Mara. Wer ist am schnellsten?",
+             "answer": "Mara", "independent_reference": "Mara"},
+        ]
+        for item in variants:
+            with self.subTest(item=item):
+                self.rows = [{**self.train, **item}, self.val]
+                self.write_inputs()
+                with self.assertRaises(ValueError):
+                    prepare_teacher_candidate(self.input, self.test, self.dest)
+                self.assertFalse(self.dest.exists())
+
+    def test_disallows_commutative_math_train_val_leakage(self):
+        self.rows = [self.train, {**self.val, "prompt": "Calculate 77 + 59.",
+                                  "answer": "136", "independent_reference": "136",
+                                  "language": "en"}]
+        self.write_inputs()
+        with self.assertRaises(ValueError):
+            prepare_teacher_candidate(self.input, self.test, self.dest)
+        self.assertFalse(self.dest.exists())
+
+    def test_disallows_order_logic_train_val_leakage(self):
+        prompt = "Mara is faster than Lena. Lena is faster than Theo. Who is fastest?"
+        reversed_prompt = "Lena is faster than Theo. Mara is faster than Lena. Who is fastest?"
+        self.rows = [
+            {**self.train, "task_type": "ordered_logic", "domain": "reasoning",
+             "prompt": prompt, "answer": "Mara", "independent_reference": "Mara"},
+            {**self.val, "task_type": "ordered_logic", "domain": "reasoning",
+             "prompt": reversed_prompt, "answer": "Mara", "independent_reference": "Mara"},
+        ]
+        self.write_inputs()
+        with self.assertRaises(ValueError):
+            prepare_teacher_candidate(self.input, self.test, self.dest)
+        self.assertFalse(self.dest.exists())
+
     def test_rejects_mixed_teacher_artifacts_and_symlinked_inputs(self):
         self.rows = [self.train, {**self.val, "teacher_artifact_sha256": "b" * 64}]
         self.write_inputs()
