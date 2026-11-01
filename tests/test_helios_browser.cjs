@@ -49,7 +49,7 @@ const root=path.resolve(__dirname,'..');
   for(let i=0;i<4;i++)assert.equal((await offlinePage.evaluate(i=>fetch('/?quick='+i).then(r=>r.status),i)),200);
   await offlinePage.waitForTimeout(250);
   const queryCacheKeys=await offlinePage.evaluate(async()=>{
-    const cache=await caches.open('neral-shell-v3');
+    const cache=await caches.open('neral-shell-v4');
     return (await cache.keys()).map(req=>new URL(req.url)).filter(url=>url.search&&url.pathname==='/').length;
   });
   assert.equal(queryCacheKeys,0,'different query parameters must not create duplicate offline shell entries');
