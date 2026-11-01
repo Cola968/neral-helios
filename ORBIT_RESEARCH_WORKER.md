@@ -196,8 +196,11 @@ in SQLite blieben. Das Archiv kann jetzt durch
 Der echte Windows-Testlauf
 [41303157012](https://github.com/Cola968/neral-helios/actions/runs/41303157012)
 hat **44/44 Flask-/SQLite-/Worker-Tests** bestanden. Dies umfasst
-die Archivseiten mit mehr als 40 Aufgaben. Die vollständige
-Browser-E2E-Abnahme ist davon gesondert zu beurteilen.
+die Archivseiten mit mehr als 40 Aufgaben. Der zusätzliche [Chromium-Playwright-E2E-Lauf 41303601800](https://github.com/Cola968/neral-helios/actions/runs/41303601800)
+erstellte **46 echte archivierte SQLite-Datensätze** über die lokale
+Flask-API, prüfte die ersten 40, das Nachladen weiterer sechs und
+die Vermeidung doppelter Einträge. Alle Schritte bestanden; zusätzlich
+44 Python-Tests und 46 Helios-Runtime-Tests.
 
 ## Tests und verbleibende Risiken
 
