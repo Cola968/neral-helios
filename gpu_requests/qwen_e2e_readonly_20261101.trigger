@@ -5,3 +5,5 @@ Last bounded attempt: only proceed if local Ollama already running and GPU under
 Follow-up diagnosis authorized under same read-only troubleshooting request: identify exact static AssistantError category for observed HTTP400, no full generated code or answer logging, no training/downloads, fixed bounded GPU idle guard.
 
 2026-11-01 follow-up authorization: rerun synthetic read-only Qwen/Flask diagnostic to classify previous HTTP400. Respect 8 GiB free and two <=35% utilization samples, no model installs, shell commands beyond existing verified probe, weight or training changes.
+
+2026-11-01 explicitly authorized verification of strict metadata compatibility fix commit 79fe4d7523c4d51bdac3b51d814f936d75dc0f85. Synthetic Flask-to-preinstalled-Qwen test only; stop if GPU guard is not met, no other action.
