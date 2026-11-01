@@ -215,7 +215,9 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
         }
         data = transport(payload)
         response = _message(data, model)
-        calls = response.get("tool_calls") or []
+        calls = response.get("tool_calls", None)
+        if calls is None:
+            calls = []
         if not isinstance(calls, list) or len(calls) > 1:
             raise AssistantError("Unzulässige Anzahl Werkzeugaufrufe.")
         if calls:
