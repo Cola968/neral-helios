@@ -95,6 +95,17 @@ class QwenStaticCodeToolTests(unittest.TestCase):
                 with self.assertRaises(AssistantError):
                     assistant_turn("Review", transport=fake)
 
+    def test_malformed_falsy_tool_calls_are_rejected_not_treated_as_no_tools(self):
+        # Ollama protocol: absent/null means no calls; present must be an array.
+        for malformed in ("", 0, False, {}):
+            with self.subTest(value=repr(malformed)):
+                def fake(payload):
+                    return {"model": "qwen3.5:9b", "done": True,
+                            "message": {"role": "assistant", "content": "OK",
+                                        "tool_calls": malformed}}
+                with self.assertRaises(AssistantError):
+                    assistant_turn("Prüfe Protokoll", transport=fake)
+
     def test_second_tool_call_cannot_escape_one_tool_budget(self):
         attempts = []
         def fake(payload):
