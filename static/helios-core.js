@@ -2,30 +2,40 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
+  const qwen25Base='Qwen/Qwen2.5-Coder-7B-Instruct';
+  const isQwen25=m=>m.source==='external-model'&&m.model_family==='qwen2.5-coder'&&
+    m.base_model===qwen25Base&&/^qwen2\.5-coder:[a-f0-9]{64}$/.test(m.runtime_id||'')&&
+    (m.active_checkpoint||m.checkpoint)==='hf-qwen25-coder-7b';
   function context(messages,prompt,budget,maxContext,checkpoint,runtimeId=null,family='neral-byte',mode='chat'){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
       const complete=u.role==='user'&&a.role==='assistant'&&!a.interrupted&&!a.imported&&!u.imported;
-      const native=mode==='chat'&&u.mode==='chat'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint&&
+      const native=family!=='qwen2.5-coder'&&mode==='chat'&&u.mode==='chat'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint&&
         (!a.source||a.source==='native-model')&&(!runtimeId||(a.runtime_id===runtimeId&&a.model_family===family));
       const external=mode==='assistant'&&u.mode==='assistant'&&a.mode==='neral-assistant'&&
         a.source==='external-model'&&a.model_family==='qwen3.5'&&a.base_model===checkpoint&&
         ['qwen3.5:9b','qwen3.5:4b'].includes(checkpoint);
-      if(complete&&(native||external)){
-        pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content,
+      const localQwen=mode==='chat'&&u.mode==='chat'&&a.mode==='trained-generation'&&
+        family==='qwen2.5-coder'&&checkpoint==='hf-qwen25-coder-7b'&&isQwen25(a)&&a.runtime_id===runtimeId;
+      if(complete&&(native||external||localQwen)){
+        const provenance=localQwen?{runtime_id:runtimeId,model_family:family,checkpoint,
+          source:'external-model',base_model:qwen25Base,imported:false,interrupted:false}:{};
+        pairs.push([{role:'user',content:u.content,...provenance},{role:'assistant',content:a.content,...provenance,
           ...(native&&runtimeId?{runtime_id:runtimeId,model_family:family,checkpoint,source:'native-model',imported:false,interrupted:false}:{})}]);i++;
       }
     }
     const format=rows=>rows.map(m=>(m.role==='user'?'User':'Assistant')+': '+m.content.trim()+'\n').join('')+'User: '+prompt.trim()+'\nAssistant:';
     const original=pairs.length;
     // BPE length is checked by the actual tokenizer on the server, never treated as bytes.
-    const fits=rows=>mode==='assistant'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=maxContext:family==='neral-arctus350'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:bytes(format(rows))+1+budget<=maxContext;
+    const fits=rows=>mode==='assistant'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=maxContext:['neral-arctus350','qwen2.5-coder'].includes(family)?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:bytes(format(rows))+1+budget<=maxContext;
     while(pairs.length&&(pairs.length>6||!fits(pairs.flat())))pairs.shift();
     const history=pairs.flat();
     return {history,omitted:original-pairs.length,fits:fits(history)};
   }
   function sourceLabel(message,labels={}){
+    if(message.model_family==='qwen2.5-coder'&&message.base_model===qwen25Base&&message.source==='external-model')
+      return (message.imported?'Modellangabe (nicht verifiziert) · ':'NERAL · ')+'Qwen2.5-Coder 7B · externe Gewichte';
     if(message.mode==='neral-assistant'){
       const known=['qwen3.5:9b','qwen3.5:4b'].includes(message.base_model)&&message.source==='external-model'&&message.model_family==='qwen3.5';
       return known?(message.imported?'Modellangabe (nicht verifiziert) · ':'NERAL Assistant · ')+'Qwen3.5 '+message.base_model.split(':')[1].toUpperCase()+' · externes Open-Weight-Modell':'Modellherkunft nicht verifiziert';
@@ -49,8 +59,11 @@
   function generationResult(result){
     if(!result||typeof result.text!=='string')throw Error('Der Server hat keine gültige Antwort gesendet.');
     if(result.mode==='trained-generation'){
+      const localQwen=isQwen25(result);
+      if((result.active_checkpoint==='hf-qwen25-coder-7b'||result.model_family==='qwen2.5-coder')&&!localQwen)
+        throw Error('Die Qwen2.5-Herkunft ist nicht verifiziert.');
       if(result.model_generated!==true||typeof result.active_checkpoint!=='string'||!result.active_checkpoint||
-         (result.source&&result.source!=='native-model'))throw Error('Die Herkunft der Modellantwort ist widersprüchlich.');
+         (result.source&&result.source!=='native-model'&&!localQwen))throw Error('Die Herkunft der Modellantwort ist widersprüchlich.');
       if(result.active_checkpoint==='arctus350'&&(result.model_family!=='neral-arctus350'||
          !/^neral-arctus350:[a-f0-9]{64}$/.test(result.runtime_id||'')))throw Error('Die Arctus350-Herkunft ist nicht verifiziert.');
     }else if(result.mode==='neral-assistant'){
@@ -140,7 +153,7 @@
     const messages=data.messages.map(m=>{
       if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||bytes(m.content)>32768||!modes.has(m.mode))throw Error('Ungültige Nachricht im Import.');
       return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,
-        source:typeof m.source==='string'?m.source.slice(0,80):undefined,base_model:['qwen3.5:9b','qwen3.5:4b'].includes(m.base_model)?m.base_model:undefined,
+        source:typeof m.source==='string'?m.source.slice(0,80):undefined,base_model:['qwen3.5:9b','qwen3.5:4b',qwen25Base].includes(m.base_model)?m.base_model:undefined,
         model_family:typeof m.model_family==='string'?m.model_family.slice(0,64):undefined,
         imported:true,interrupted:m.interrupted===true,meta:'Importierter Verlauf · nicht neu berechnet'};
     });

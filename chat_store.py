@@ -55,7 +55,7 @@ class ChatStore:
                 if not isinstance(m,dict) or m.get('role') not in ['user','assistant'] or not isinstance(m.get('content'),str) or len(m['content'])>32768:raise ValueError('Ungültige Nachricht.')
 
                 clean.append({k:m[k] for k in ['role','content','mode','checkpoint','meta','interrupted','source','imported','model_family','runtime_id'] if k in m and isinstance(m[k],(str,bool))})
-                if m.get('base_model') in ('qwen3.5:9b','qwen3.5:4b'):
+                if m.get('base_model') in ('qwen3.5:9b','qwen3.5:4b','Qwen/Qwen2.5-Coder-7B-Instruct'):
                     clean[-1]['base_model']=m['base_model']
 
             draft=chat.get('draft','')

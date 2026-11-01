@@ -19,6 +19,7 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
+import qwen_local_runtime
 from neral_assistant import assistant_turn, AssistantError, AssistantUnavailable, ALLOWED_MODELS
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
@@ -47,6 +48,7 @@ cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.par
 assert report['trainable']==EXPECTED_PARAMS
 PREPARATION_MODE=os.environ.get('HELIOS_PREPARATION_MODE','0')=='1'
 ASSISTANT_ENABLED=os.environ.get('NERAL_ASSISTANT_ENABLED','0')=='1'
+QWEN25_ENABLED=os.environ.get('NERAL_QWEN25_ENABLED','0')=='1'
 ASSISTANT_MODEL=os.environ.get('NERAL_ASSISTANT_MODEL','qwen3.5:9b')
 ASSISTANT_THINK=os.environ.get('NERAL_ASSISTANT_THINK','0')=='1'
 if ASSISTANT_ENABLED and ASSISTANT_MODEL not in ALLOWED_MODELS:
@@ -57,9 +59,11 @@ device=torch.device(device_name)
 runtime_error=None
 checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='original'
 arctus=None
+qwen25=None
 def runtime_identity():
+    if qwen25 is not None:return qwen25.identity
     return arctus.identity if arctus is not None else ('neral-byte:'+checkpoint_sha256 if checkpoint_loaded and checkpoint_sha256 else None)
-def model_family():return arctus_runtime.FAMILY if arctus is not None else 'neral-byte'
+def model_family():return qwen_local_runtime.FAMILY if qwen25 is not None else arctus_runtime.FAMILY if arctus is not None else 'neral-byte'
 def imported_models():
     try:return catalog(ASSETS)
     except (ValueError,OSError,KeyError):return {}
@@ -71,17 +75,35 @@ def checkpoint_paths():
     if (ASSETS/'export/neral50m/neral50m.pt').exists():paths['neral50m']=(ASSETS/'export/neral50m/neral50m.pt',ASSETS/'export/neral50m/neral50m.sha256')
     i1=ASSETS/'export/neral50m_i1/neral50m.pt';digest=i1.with_suffix('.sha256')
     if i1.is_file() and digest.is_file():paths['neral50m_i1']=(i1,digest)
-    paths.update({key:row["paths"] for key,row in imported_models().items()})
+    paths.update({key:row["paths"] for key,row in imported_models().items() if 'paths' in row})
     return paths
+def external_models():
+    return {key:row for key,row in imported_models().items() if row.get('backend')=='transformers-nf4'} if QWEN25_ENABLED else {}
+
+def unload_qwen25():
+    global qwen25
+    if qwen25 is not None:qwen25.close();qwen25=None
+
 def load_runtime(name):
-    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error,arctus
+    global checkpoint_loaded,checkpoint_meta,checkpoint_sha256,active_checkpoint,model,cfg,report,runtime_error,arctus,qwen25
     if PREPARATION_MODE:raise ValueError('Vorbereitungsmodus: Modellladen ist deaktiviert.')
+    if name in external_models():
+        if qwen25 is not None:
+            if name==active_checkpoint:return
+            raise ValueError('GPU-Modell zuerst explizit entladen.')
+        candidate=qwen_local_runtime.load(external_models()[name]['folder'])
+        qwen25=candidate;arctus=None;model=None;checkpoint_loaded=True
+        checkpoint_sha256=candidate.sha256;active_checkpoint=name;runtime_error=None
+        checkpoint_meta={'origin':'external-model','base_model':qwen_local_runtime.HF_BASE,'quantization':'NF4','trained_by_neral':False}
+        return
     if name=='none':
+        unload_qwen25()
         arctus=None;model=None;checkpoint_loaded=False;checkpoint_meta={};checkpoint_sha256=None;active_checkpoint='none'
         runtime_error='Kein natives Modell geladen. Lokale Werkzeuge sind bereit.'
         return
     if name==arctus_runtime.MODEL_ID:
         candidate=arctus_runtime.load()
+        unload_qwen25()
         # Commit only after the entire candidate has been verified and loaded.
         arctus=candidate;model=None;checkpoint_loaded=True;checkpoint_meta={};checkpoint_sha256=candidate.sha256
         active_checkpoint=name;runtime_error=None
@@ -103,7 +125,7 @@ def load_runtime(name):
     else:candidate=Neral20M(candidate_cfg)
     candidate.load_state_dict(state,strict=True)
     if candidate.parameter_report()['total']!=expected:raise ValueError('Parameterzahl stimmt nicht.')
-    candidate.to(device);candidate.eval();model=candidate;cfg=candidate_cfg;report=model.parameter_report()
+    candidate.to(device);candidate.eval();unload_qwen25();model=candidate;cfg=candidate_cfg;report=model.parameter_report()
     checkpoint_meta={k:v for k,v in payload.items() if isinstance(v,(str,int,float,bool))}
     checkpoint_sha256=actual;checkpoint_loaded=True;active_checkpoint=name;runtime_error=None
     arctus=None
@@ -113,9 +135,9 @@ def initialize_runtime():
         runtime_error='Vorbereitungsmodus: keine Modellinferenz. SOLVE, Codeprüfung und Projekte sind bereit.'
         return
     name=os.environ.get('HELIOS_CHECKPOINT') or ('pilot_02' if (ASSETS/'export/pilot_02/neral20m.pt').is_file() else 'original')
-    if name==arctus_runtime.MODEL_ID:
+    if name==arctus_runtime.MODEL_ID or name in external_models() or name=='none':
         try:load_runtime(name)
-        except arctus_runtime.ArctusError as exc:runtime_error=str(exc)
+        except Exception:runtime_error='Modell konnte nicht sicher geladen werden. Lokale Werkzeuge sind bereit.'
         return
     if name not in checkpoint_paths():
         runtime_error='Der ausgewählte eigene Checkpoint ist nicht installiert.'
@@ -164,6 +186,13 @@ def info_payload():
     if arctus is not None:
         c=arctus_runtime.EXPECTED_CONFIG
         payload.update(parameters=arctus_runtime.EXPECTED_PARAMS,layers=c['n_layers'],d_model=c['d_model'],heads=c['n_heads'],ffn_hidden=c['ffn_hidden'],vocab_size=c['vocab_size'],max_seq_len=arctus_runtime.APP_CONTEXT,tokenizer='NERAL-16K-BPE',device='cpu',gpu=None)
+    payload['checkpoints']+=list(external_models())
+    payload['qwen25']={'enabled':QWEN25_ENABLED and not PREPARATION_MODE,'base_model':qwen_local_runtime.HF_BASE,'context_tokens':qwen_local_runtime.CONTEXT,'allocator_limit_gib':7.5,'vram_peak_verified':False,'training_enabled':False}
+    if qwen25 is not None:
+        payload.update(parameters=7_615_616_512,layers=28,d_model=3584,heads=28,ffn_hidden=18944,
+                       vocab_size=152064,max_seq_len=qwen_local_runtime.CONTEXT,tokenizer='Qwen2-BPE',
+                       device='cuda:0',gpu=torch.cuda.get_device_name(0),external_inference=True,
+                       runtime_message='Qwen2.5-Coder-7B · externe Gewichte · lokale NF4-Inferenz · kein Training')
     return payload
 @app.before_request
 def local_and_rate_guard():
@@ -232,6 +261,7 @@ def cancel():
     return jsonify(cancelled=event is not None)
 @torch.inference_mode()
 def generate_tokens(ids,max_new,temperature,top_k,event,on_tokens=None):
+    if qwen25 is not None:return qwen25.generate(ids,max_new,temperature,top_k,event,on_tokens)
     if arctus is not None:return arctus.generate(ids,max_new,temperature,top_k,event,on_tokens)
     x=torch.tensor([ids],device=device,dtype=torch.long);output=[];deadline=time.monotonic()+120
     for _ in range(max_new):
@@ -285,6 +315,8 @@ def generate():
         guard=check_prompt(text)
         if not guard.allowed:return jsonify(mode='guarded-response',source='local-rule:security',text=guard.response,security_category=guard.category,model_generated=False)
     if mode=='assistant':
+        if qwen25 is not None:
+            return jsonify(error='Qwen2.5-Coder ist geladen. Chat-Modus verwenden; vor Ollama-Inferenz entladen.'),409
         if data.get('stream',False):
             return jsonify(error='NERAL Assistant unterstützt noch kein Streaming und keinen Stop-Button.'),400
         if PREPARATION_MODE or not ASSISTANT_ENABLED:
@@ -296,6 +328,8 @@ def generate():
         if not _generation_lock.acquire(blocking=False):
             return jsonify(error='Eine Modellantwort wird bereits berechnet.'),429
         try:
+            if qwen25 is not None:
+                return jsonify(error='Qwen2.5-Coder zuerst entladen; danach Ollama verwenden.'),409
             result=assistant_turn(prompt,history,model=ASSISTANT_MODEL,
                                   think=ASSISTANT_THINK or assistant_deep,max_new=params['max_new_tokens'],
                                   temperature=params['temperature'],quality=quality)
@@ -347,10 +381,11 @@ def generate():
             _generation_lock.release()
             return jsonify(error='Kein eigenes Sprachmodell geladen. Rechenwerkzeuge, Codeprüfung und Projekte sind bereit.',code='native_unavailable',source='no-model',model_generated=False),503
         identity=runtime_identity()
-        if (arctus is not None and data.get('runtime_id')!=identity) or ('runtime_id' in data and data['runtime_id']!=identity):
+        if ((arctus is not None or qwen25 is not None) and data.get('runtime_id')!=identity) or ('runtime_id' in data and data['runtime_id']!=identity):
             _generation_lock.release()
             return jsonify(error='Das aktive Modell wurde gewechselt. Status aktualisieren und erneut senden.'),409
-        if arctus is not None:ids=arctus.encode(history,prompt,params['max_new_tokens'])
+        if qwen25 is not None:ids=qwen25.encode(history,prompt,params['max_new_tokens'])
+        elif arctus is not None:ids=arctus.encode(history,prompt,params['max_new_tokens'])
         else:
             # Reject explicitly foreign context; legacy byte-only clients remain compatible.
             if any(h.get('model_family','neral-byte')!='neral-byte' or (h.get('runtime_id') is not None and h['runtime_id']!=identity) for h in history):
@@ -361,7 +396,7 @@ def generate():
             if len(ids)+params['max_new_tokens']>cfg.max_seq_len:
                 _generation_lock.release()
                 return jsonify(error='Kontext und Antwort überschreiten gemeinsam das Modelllimit.'),413
-    except arctus_runtime.ArctusError as exc:
+    except (arctus_runtime.ArctusError,qwen_local_runtime.LocalQwenError) as exc:
         _generation_lock.release()
         return jsonify(error=str(exc)),400
     except Exception:
@@ -376,9 +411,10 @@ def generate():
         start=time.perf_counter()
         args=(ids,params['max_new_tokens'],params['temperature'],params['top_k'],event)
         continuation=generate_tokens(*args,on_tokens=callback) if callback else generate_tokens(*args)
-        decoded=arctus.decode(continuation) if arctus is not None else tokenizer.decode(continuation)
+        decoded=qwen25.decode(continuation) if qwen25 is not None else arctus.decode(continuation) if arctus is not None else tokenizer.decode(continuation)
         elapsed=time.perf_counter()-start;text,redacted=sanitize_output(decoded)
-        return dict(mode='trained-generation',source='native-model',model_family=model_family(),runtime_id=identity,token_unit='BPE-Token' if arctus is not None else 'Byte-Token',finish_reason=arctus.finish_reason if arctus is not None else None,incomplete=arctus is not None and arctus.finish_reason!='eos',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
+        backend=qwen25 if qwen25 is not None else arctus
+        return dict(mode='trained-generation',source='external-model' if qwen25 is not None else 'native-model',base_model=qwen_local_runtime.HF_BASE if qwen25 is not None else None,model_family=model_family(),runtime_id=identity,token_unit='BPE-Token' if backend is not None else 'Byte-Token',finish_reason=backend.finish_reason if backend is not None else None,incomplete=backend is not None and backend.finish_reason!='eos',model_generated=True,text=text,generated_tokens=len(continuation),seconds=round(elapsed,4),tokens_per_second=round(len(continuation)/max(elapsed,1e-9),2),output_secret_redacted=redacted,cancelled=event.is_set(),active_checkpoint=active_checkpoint,request_id=job)
     if data.get('stream'):
         response=Response(response_stream(run,event,finish),mimetype='application/x-ndjson')
         response.headers['X-Accel-Buffering']='no'
@@ -399,7 +435,7 @@ def save_chat(key):
     except Conflict:return jsonify(error='Versionskonflikt. Lokale Kopie behalten und neu synchronisieren.',code='revision_conflict'),409
     except ValueError as e:return jsonify(error=str(e)),400
 @app.get('/api/health')
-def health():return jsonify(status='ready' if checkpoint_loaded else 'tools-only',device='cpu',busy=_generation_lock.locked(),streaming=True,sync=True)
+def health():return jsonify(status='ready' if checkpoint_loaded else 'tools-only',device='cuda:0' if qwen25 is not None else 'cpu',busy=_generation_lock.locked(),streaming=True,sync=True)
 @app.errorhandler(Exception)
 def unexpected_error(error):
     incident=secrets.token_hex(6)
