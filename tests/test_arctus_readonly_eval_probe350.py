@@ -28,7 +28,7 @@ class ReadonlyEvalProbeTests(unittest.TestCase):
         tok=FakeTokenizer()
         chat=build_input_ids(tok,"Rechne 37 + 48.","chat")
         self.assertEqual(chat,[1,6,7])
-        self.assertEqual(tok.last,"User: Rechne 37 + 48.\\nAssistant:")
+        self.assertEqual(tok.last,"User: Rechne 37 + 48.\nAssistant:")
         bare=build_input_ids(tok,"Rechne 37 + 48.","bare")
         self.assertEqual(bare,[1,6,7])
         self.assertEqual(tok.last,"Rechne 37 + 48.")
