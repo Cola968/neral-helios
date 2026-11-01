@@ -49,3 +49,16 @@ jobs:
           $env:NERAL_PILOT_MANIFEST = Join-Path $root 'frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2\manifest.json'
           & $python -c "import os,json; from pathlib import Path; from frontier350.vast4090_guard import validate_data_manifest; v=validate_data_manifest(Path(os.environ['NERAL_PILOT_MANIFEST'])); print(json.dumps({'pilot_shard_sha256_verified':True,'train_shards':v['train_shards'],'valid_shards':v['valid_shards'],'original_data_modified':False,'private_data_uploaded':False,'training_ready':False}))"
           if ($LASTEXITCODE -ne 0) { throw 'Pilot BPE shard SHA-256 verification failed' }
+
+      - name: Verify original 500M and 1.05B token BPE shards by SHA-256 (read-only)
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $root = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $env:NERAL_CONTINUATION_MANIFEST = Join-Path $root 'frontier350_bpe_continuation_1b_arctus1b-focus-20260910-v2\manifest.json'
+          $env:NERAL_FOUNDATION_MANIFEST = Join-Path $root 'frontier350_bpe_foundation_1b_arctus1b-20260910-v1\manifest.json'
+          & $python -c "import os,json; from pathlib import Path; from frontier350.vast4090_guard import validate_data_manifest; v=validate_data_manifest(Path(os.environ['NERAL_CONTINUATION_MANIFEST'])); print(json.dumps({'continuation_shard_sha256_verified':True,'train_shards':v['train_shards'],'valid_shards':v['valid_shards'],'training_started':False,'training_ready':False}))"
+          if ($LASTEXITCODE -ne 0) { throw 'Continuation BPE SHA-256 verification failed' }
+          & $python -c "import os,json; from pathlib import Path; from frontier350.vast4090_guard import validate_data_manifest; v=validate_data_manifest(Path(os.environ['NERAL_FOUNDATION_MANIFEST'])); print(json.dumps({'foundation_shard_sha256_verified':True,'train_shards':v['train_shards'],'valid_shards':v['valid_shards'],'training_started':False,'training_ready':False}))"
+          if ($LASTEXITCODE -ne 0) { throw 'Foundation BPE SHA-256 verification failed' }
