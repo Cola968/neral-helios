@@ -4,6 +4,8 @@ on:
     paths:
       - 'frontier350/arctus350_teacher_gate.py'
       - 'tests/test_arctus350_teacher_gate.py'
+      - 'tests/test_arctus350_instruction_curriculum_v1.py'
+      - 'frontier350/arctus350_instruction_curriculum_v1.py'
       - 'docs/ARCTUS350_TEACHER_SFT.md'
       - '.github/workflows/arctus350-teacher-ci.yml'
 permissions:
@@ -19,5 +21,7 @@ jobs:
           python-version: '3.12'
       - name: CPU-only offline importer tests
         run: python -m unittest -v tests.test_arctus350_teacher_gate
+      - name: Original Arctus instruction curriculum CPU-only tests
+        run: python -m unittest -v tests.test_arctus350_instruction_curriculum_v1
       - name: Syntax
-        run: python -m py_compile frontier350/arctus350_teacher_gate.py tests/test_arctus350_teacher_gate.py
+        run: python -m py_compile frontier350/arctus350_teacher_gate.py tests/test_arctus350_teacher_gate.py frontier350/arctus350_instruction_curriculum_v1.py tests/test_arctus350_instruction_curriculum_v1.py
