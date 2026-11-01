@@ -1,0 +1,289 @@
+"""NERAL Orbit v0 real persistent task drafts; NO unattended executor."""
+from contextlib import closing
+import sqlite3
+import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
+
+from neral_orbit import OrbitStore, OrbitError
+
+
+class OrbitStorageTests(unittest.TestCase):
+    def setUp(self):
+        self.dir=TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.db=Path(self.dir.name)/"orbit.sqlite3"
+        self.store=OrbitStore(self.db)
+
+    def test_duplicate_wikipedia_source_urls_rejected_at_storage_boundary(self):
+        """A caller must not bypass worker deduplication by submitting a forged report."""
+        task=self.store.create(kind="research",title="Wikipedia-Quellen",
+                               goal="Untersuche die Geschichte des Berliner Flughafens.")
+        approved=self.store.transition(task["id"],"approve",revision=1)
+        running=self.store.begin_research(task["id"],revision=approved["revision"])
+        source={"url":"https://de.wikipedia.org/?curid=42",
+                "title":"Flughafen Berlin","excerpt":"Öffentlicher Text."}
+        report={"provider":"Wikipedia (de)","model_used":False,
+                "requires_review":True,"sources":[source,dict(source)],
+                "source_count":2}
+        with self.assertRaisesRegex(OrbitError,"doppelt|Quelle"):
+            self.store.finish_research(task["id"],revision=running["revision"],report=report)
+        unchanged=self.store.get(task["id"])
+        self.assertEqual(unchanged["status"],"RESEARCH_RUNNING")
+        self.assertIsNone(unchanged["report"])
+        self.assertEqual(unchanged["revision"],running["revision"])
+
+    def test_sqlite_scope_closes_file_handle_on_windows(self):
+        # A SQLite transaction context alone does NOT close the connection.
+        # Windows then refuses to remove a temporary test database.
+        with self.store._open() as conn:
+            self.assertEqual(conn.execute("SELECT 1").fetchone()[0], 1)
+        with self.assertRaises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
+    def test_draft_is_persistent_and_has_a_readable_4_stage_plan(self):
+        t=self.store.create(kind="coding",title="NERAL verbessern",
+                            goal="Behebe den Fehler und erstelle einen Draft-PR.")
+        self.assertEqual(t["status"],"DRAFT")
+        self.assertEqual(t["revision"],1)
+        self.assertEqual(t["execution_enabled"],False)
+        self.assertEqual(len(t["plan"]),4)
+        self.assertEqual(t["plan"][0]["status"],"NOT_STARTED")
+        self.assertEqual(t["executor"],"none")
+        self.assertEqual(OrbitStore(self.db).list(),[t])
+        self.assertNotIn("model_reply",str(t))
+
+    def test_approval_is_recorded_but_never_starts_a_worker(self):
+        t=self.store.create(kind="research",title="BER recherchieren",
+                            goal="Prüfe jede Woche neue Langstreckenverbindungen.")
+        approved=self.store.transition(t["id"],"approve",revision=1)
+        self.assertEqual(approved["status"],"APPROVED_NO_EXECUTOR")
+        self.assertEqual(approved["execution_enabled"],False)
+        self.assertEqual(approved["executor"],"none")
+        self.assertEqual(approved["plan"][0]["status"],"APPROVED")
+        self.assertEqual(approved["revision"],2)
+        with self.assertRaises(OrbitError):
+            self.store.transition(t["id"],"approve",revision=2)
+        cancelled=self.store.transition(t["id"],"cancel",revision=2)
+        self.assertEqual(cancelled["status"],"CANCELLED")
+        with self.assertRaises(OrbitError):
+            self.store.transition(t["id"],"approve",revision=3)
+
+
+    def test_research_query_limit_matches_actual_wikipedia_worker(self):
+        with self.assertRaisesRegex(OrbitError,"200"):
+            self.store.create(kind="research",title="Viel zu lang",
+                goal="Luftverkehr " + "B" * 240)
+        # This is a local draft for a future code agent, not a public search.
+        task=self.store.create(kind="coding",title="Ausführliches Projekt",
+            goal="Verbessere die App und schreibe Tests. " + "A" * 240)
+        self.assertEqual(task["kind"],"coding")
+        self.assertEqual(len(self.store.list()),1)
+
+    def test_fail_closed_revision_validation_and_no_external_execution(self):
+        t=self.store.create(kind="monitor",title="Flüge beobachten",
+                            goal="Überwache neue Strecken am Berliner Flughafen.")
+        for action in ("run","execute","complete","merge","deploy","schedule"):
+            with self.subTest(action=action),self.assertRaises(OrbitError):
+                self.store.transition(t["id"],action,revision=1)
+        for revision in (True,0,"1",2,None):
+            with self.subTest(revision=revision),self.assertRaises(OrbitError):
+                self.store.transition(t["id"],"approve",revision=revision)
+        self.assertEqual(self.store.get(t["id"])["status"],"DRAFT")
+        with self.assertRaises(OrbitError):
+            self.store.transition("not-a-uuid","approve",revision=1)
+
+    def test_constrained_untrusted_titles_types_and_count(self):
+        for kind,title,goal in (
+            ("terminal","Build","Do anything."),
+            ("coding"," ","Fix this bug."),
+            ("coding","OK","\x00rm -rf"),
+            ("coding","X"*125,"Improve."),
+            ("coding","Task","a"*1201),
+        ):
+            with self.subTest(kind=kind,title=title[:10]),self.assertRaises(OrbitError):
+                self.store.create(kind=kind,title=title,goal=goal)
+        with self.assertRaises(OrbitError):
+            self.store.create(kind="coding",title="A",goal="Do a real task")
+        for i in range(40):
+            self.store.create(kind="coding",title=f"Task {i:02d}",goal="Analyse, test and create a reviewed PR.")
+        with self.assertRaises(OrbitError):
+            self.store.create(kind="coding",title="Extra",goal="Cannot create unlimited tasks.")
+        self.assertEqual(len(self.store.list()),40)
+
+
+    def test_cancelled_tasks_can_be_explicitly_archived_to_reclaim_capacity(self):
+        for i in range(40):
+            self.store.create(kind="coding",title=f"Task {i:02d}",goal="Create a safe reviewable draft.")
+        self.assertEqual(len(self.store.list()),40)
+        with self.assertRaises(OrbitError):
+            self.store.create(kind="coding",title="Task 41",goal="Create a new task after archive.")
+        first=self.store.list()[0]
+        with self.assertRaises(OrbitError):
+            self.store.transition(first["id"],"archive",revision=1)
+        cancelled=self.store.transition(first["id"],"cancel",revision=1)
+        with self.assertRaises(OrbitError):
+            self.store.transition(first["id"],"archive",revision=1)
+        archived=self.store.transition(first["id"],"archive",revision=cancelled["revision"])
+        self.assertEqual(archived["status"],"ARCHIVED")
+        self.assertEqual(archived["revision"],3)
+        self.assertEqual(archived["execution_enabled"],False)
+        self.assertEqual(self.store.get(first["id"])["status"],"ARCHIVED")
+        archived_view=self.store.list(archived=True)
+        self.assertEqual(len(archived_view),1)
+        self.assertEqual(archived_view[0]["id"],first["id"])
+        self.assertFalse(archived_view[0]["execution_enabled"])
+        self.assertEqual(len(self.store.list()),39)
+        new=self.store.create(kind="monitor",title="Neue Aufgabe",goal="Review the next safety event.")
+        self.assertEqual(new["status"],"DRAFT")
+        self.assertEqual(len(self.store.list()),40)
+        with self.assertRaises(OrbitError):
+            self.store.transition(first["id"],"approve",revision=3)
+        self.assertEqual(OrbitStore(self.db).get(first["id"])["status"],"ARCHIVED")
+
+    def test_archiving_cannot_touch_approved_or_unknown_records(self):
+        t=self.store.create(kind="research",title="Read only",goal="Inspect sources without execution.")
+        self.store.transition(t["id"],"approve",revision=1)
+        with self.assertRaises(OrbitError):
+            self.store.transition(t["id"],"archive",revision=2)
+        with self.assertRaises(OrbitError):
+            self.store.transition("0"*32,"archive",revision=1)
+        self.assertEqual(self.store.get(t["id"])["status"],"APPROVED_NO_EXECUTOR")
+
+
+    def test_archived_history_paginates_past_40_without_deleting_records(self):
+        ids=[]
+        for i in range(45):
+            t=self.store.create(kind="coding",title=f"Archiv {i:02d}",
+                                goal="Bewahre alte Projektentscheidungen dauerhaft auf.")
+            cancelled=self.store.transition(t["id"],"cancel",revision=1)
+            self.store.transition(t["id"],"archive",revision=cancelled["revision"])
+            ids.append(t["id"])
+        assert self.store.list()==[]
+        assert len(self.store.list(archived=True))==40
+        page1=self.store.list(archived=True,offset=0,limit=41)
+        page2=self.store.list(archived=True,offset=40,limit=41)
+        assert len(page1)==41
+        assert len(page2)==5
+        assert {x["id"] for x in page1[:40]}.isdisjoint({x["id"] for x in page2})
+        assert {x["id"] for x in page1[:40]+page2}==set(ids)
+        assert all(x["execution_enabled"] is False for x in page2)
+        assert all(self.store.get(i)["status"]=="ARCHIVED" for i in ids)
+
+    def test_archive_offsets_and_page_limits_fail_closed(self):
+        for offset in (-1,True,"40",100001,None):
+            with self.subTest(offset=offset), self.assertRaises(OrbitError):
+                self.store.list(archived=True,offset=offset)
+        for limit in (0,True,42,-1,"41",None):
+            with self.subTest(limit=limit), self.assertRaises(OrbitError):
+                self.store.list(archived=True,limit=limit)
+
+    def test_no_new_tables_are_exec_or_scheduler_credentials(self):
+        with closing(sqlite3.connect(self.db)) as conn, conn:
+            ddl="\n".join(row[0] for row in conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table'"))
+        self.assertNotIn("access_token",ddl)
+        self.assertNotIn("cron",ddl)
+        self.assertNotIn("exec_command",ddl)
+
+
+class OrbitFlaskTests(unittest.TestCase):
+    def setUp(self):
+        import app
+        self.app=app
+        self.dir=TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.original=(app.orbit_store,app.ORBIT_ENABLED)
+        self.addCleanup(self.restore)
+        app.orbit_store=OrbitStore(Path(self.dir.name)/"orbit.sqlite3")
+        app.ORBIT_ENABLED=True
+        app._hits.clear()
+        self.client=app.app.test_client()
+        self.assertEqual(self.client.get("/").status_code,200)
+
+    def restore(self):
+        self.app.orbit_store,self.app.ORBIT_ENABLED=self.original
+
+    def test_real_cookie_guard_create_list_approve_cancel(self):
+        payload={"kind":"coding","title":"Neues NERAL Feature",
+                 "goal":"Erstelle zuerst einen Test, dann eine sichere Änderung."}
+        raw=self.app.app.test_client().post("/api/orbit/tasks",json=payload)
+        self.assertEqual(raw.status_code,401)
+        created=self.client.post("/api/orbit/tasks",json=payload)
+        self.assertEqual(created.status_code,201)
+        task=created.json["task"]
+        self.assertEqual(task["status"],"DRAFT")
+        self.assertEqual(self.client.get("/api/orbit/tasks").json["tasks"],[task])
+        done=self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                              json={"action":"approve","revision":1})
+        self.assertEqual(done.status_code,200)
+        self.assertEqual(done.json["task"]["status"],"APPROVED_NO_EXECUTOR")
+        self.assertFalse(done.json["task"]["execution_enabled"])
+        self.assertEqual(self.client.post(
+            f'/api/orbit/tasks/{task["id"]}/transition',
+            json={"action":"approve","revision":1}).status_code,409)
+        cancelled=self.client.post(f'/api/orbit/tasks/{task["id"]}/transition',
+                              json={"action":"cancel","revision":2})
+        self.assertEqual(cancelled.json["task"]["status"],"CANCELLED")
+
+
+    def test_flask_archive_cancelled_task_with_revision_and_deny_unsafe_status(self):
+        payload={"kind":"coding","title":"Orbit sicher pflegen",
+                 "goal":"Archive a cancelled task without starting executors."}
+        created=self.client.post("/api/orbit/tasks",json=payload)
+        self.assertEqual(created.status_code,201)
+        task=created.json["task"]
+        archive=f'/api/orbit/tasks/{task["id"]}/transition'
+        self.assertEqual(self.client.post(archive,json={"action":"archive","revision":1}).status_code,400)
+        cancel=self.client.post(archive,json={"action":"cancel","revision":1})
+        self.assertEqual(cancel.status_code,200)
+        self.assertEqual(self.client.post(archive,json={"action":"archive","revision":1}).status_code,409)
+        done=self.client.post(archive,json={"action":"archive","revision":2})
+        self.assertEqual(done.status_code,200)
+        self.assertEqual(done.json["task"]["status"],"ARCHIVED")
+        self.assertFalse(done.json["task"]["execution_enabled"])
+        self.assertEqual(self.client.get("/api/orbit/tasks").json["tasks"],[])
+        archived_view=self.client.get("/api/orbit/tasks?view=archived")
+        self.assertEqual(archived_view.status_code,200)
+        self.assertEqual(len(archived_view.json["tasks"]),1)
+        self.assertEqual(archived_view.json["tasks"][0]["status"],"ARCHIVED")
+        self.assertFalse(archived_view.json["executor_active"])
+        self.assertEqual(self.client.get("/api/orbit/tasks?view=all").status_code,400)
+        self.assertEqual(self.client.post(archive,json={"action":"approve","revision":3}).status_code,400)
+
+
+    def test_archive_api_pages_older_records_and_rejects_bad_offsets(self):
+        for i in range(45):
+            task=self.app.orbit_store.create(kind="coding",title=f"Archived {i:02d}",
+                   goal="Review source evidence without starting an executor.")
+            cancelled=self.app.orbit_store.transition(task["id"],"cancel",revision=1)
+            self.app.orbit_store.transition(task["id"],"archive",revision=cancelled["revision"])
+        first=self.client.get("/api/orbit/tasks?view=archived")
+        assert first.status_code==200
+        assert len(first.json["tasks"])==40
+        assert first.json["has_more"] is True
+        assert first.json["next_offset"]==40
+        next_page=self.client.get("/api/orbit/tasks?view=archived&offset=40")
+        assert next_page.status_code==200
+        assert len(next_page.json["tasks"])==5
+        assert next_page.json["has_more"] is False
+        assert next_page.json["next_offset"] is None
+        assert {t["id"] for t in first.json["tasks"]}.isdisjoint(
+               {t["id"] for t in next_page.json["tasks"]})
+        for bad in ("-1","1.5","Infinity","true","999999999",""):
+            assert self.client.get("/api/orbit/tasks?view=archived&offset="+bad).status_code==400
+        assert self.client.get("/api/orbit/tasks?view=active&offset=40").status_code==400
+        assert self.app.app.test_client().get("/api/orbit/tasks?view=archived&offset=40").status_code==401
+
+    def test_no_execution_endpoint_and_disabled_feature_404(self):
+        self.assertEqual(self.client.get("/orbit").status_code,200)
+        self.assertIn(b"NERAL Orbit",self.client.get("/orbit").data)
+        self.assertEqual(self.client.post("/api/orbit/execute",json={}).status_code,404)
+        self.app.ORBIT_ENABLED=False
+        self.assertEqual(self.client.get("/api/orbit/tasks").status_code,404)
+        self.assertEqual(self.client.post("/api/orbit/tasks",json={}).status_code,404)
+        self.assertEqual(self.client.get("/orbit").status_code,200)
+
+
+if __name__=="__main__":
+    unittest.main()

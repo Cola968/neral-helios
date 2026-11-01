@@ -19,6 +19,8 @@ from chat_store import ChatStore,Conflict
 from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
+from neral_orbit import OrbitStore, OrbitError, OrbitConflict, LIMIT as ORBIT_PAGE_SIZE
+from neral_orbit_research import run_public_research, validate_public_query, ResearchError
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -40,6 +42,13 @@ try:os.chmod(STATE/'gateway-token',0o600)
 except OSError:pass
 project_store=ProjectStore(STATE/'projects.sqlite3')
 chat_store=ChatStore(STATE/'chats.sqlite3')
+# Orbit stores local task drafts; research execution requires separate explicit approval+launch.
+orbit_store=OrbitStore(STATE/'orbit.sqlite3')
+ORBIT_ENABLED=os.environ.get('HELIOS_ORBIT_ENABLED')=='1'
+if ORBIT_ENABLED:
+    # Crash recovery only changes old local RUNNING records to FAILED.
+    # It never retries a network request or schedules a worker.
+    orbit_store.reconcile_stale_research(min_age_seconds=60)
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
 torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
@@ -192,6 +201,98 @@ def index():
     response=app.make_response(render_template('index.html'))
     response.set_cookie('neral_local',SESSION_TOKEN,httponly=True,samesite='Strict',max_age=28800,secure=False)
     return response
+@app.get('/orbit')
+def orbit_index():
+    # The prototype page can explain opt-in even when the feature is disabled.
+    response=app.make_response(render_template('orbit.html'))
+    response.set_cookie('neral_local',SESSION_TOKEN,httponly=True,samesite='Strict',max_age=28800,secure=False)
+    return response
+
+@app.route('/api/orbit/tasks',methods=['GET','POST'])
+def orbit_tasks():
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit v0 ist nicht aktiviert.'),404
+    if request.method=='GET':
+        view=request.args.get('view','active')
+        if view not in ('active','archived'):
+            return jsonify(error='Unbekannte Aufgabenansicht.'),400
+        offset_text=request.args.get('offset','0')
+        if (not isinstance(offset_text,str) or
+                not re.fullmatch(r"[0-9]{1,6}",offset_text)):
+            return jsonify(error='Ungültiger Archiv-Offset.'),400
+        offset=int(offset_text)
+        if offset>100000 or (view=='active' and offset):
+            return jsonify(error='Ungültiger Archiv-Offset.'),400
+        archived=view=='archived'
+        entries=orbit_store.list(archived=archived,offset=offset,
+                                 limit=ORBIT_PAGE_SIZE+1 if archived else ORBIT_PAGE_SIZE)
+        has_more=archived and len(entries)>ORBIT_PAGE_SIZE
+        return jsonify(tasks=entries[:ORBIT_PAGE_SIZE],has_more=bool(has_more),
+                       next_offset=offset+ORBIT_PAGE_SIZE if has_more else None,
+                       executor_active=False,cloud_scheduled=False)
+    data,error=body()
+    if error:return error
+    try:
+        task=orbit_store.create(kind=data.get('kind'),title=data.get('title'),goal=data.get('goal'))
+        return jsonify(task=task),201
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+
+@app.post('/api/orbit/tasks/<task_id>/transition')
+def orbit_transition(task_id):
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit v0 ist nicht aktiviert.'),404
+    data,error=body()
+    if error:return error
+    try:
+        updated=orbit_store.transition(task_id,data.get('action'),revision=data.get('revision'))
+        return jsonify(task=updated)
+    except OrbitConflict as exc:return jsonify(error=str(exc)),409
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+
+@app.get('/api/orbit/tasks/<task_id>/report')
+def orbit_download_report(task_id):
+    # Only previously completed source evidence, no new network requests.
+    # Session/host protection is the same as for other Orbit endpoints.
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit ist nicht aktiviert.'),404
+    try:
+        task=orbit_store.get(task_id)
+    except OrbitError as exc:return jsonify(error=str(exc)),400
+    report=task.get('report')
+    if task['status'] not in ('REVIEW_READY','REVIEWED','ARCHIVED') or not report:
+        return jsonify(error='Kein abgeschlossener Quellenbericht vorhanden.'),409
+    result=jsonify(report)
+    result.headers['Content-Disposition']=f'attachment; filename="neral-orbit-{task_id}.json"'
+    result.headers['Cache-Control']='no-store'
+    return result
+
+@app.post('/api/orbit/tasks/<task_id>/run-research')
+def orbit_run_research(task_id):
+    # One deliberate manual request. No timers, auto-jobs, remote shells,
+    # arbitrary URLs, AI model calls, payments, or unattended execution.
+    if not ORBIT_ENABLED:return jsonify(error='NERAL Orbit ist nicht aktiviert.'),404
+    data,error=body()
+    if error:return error
+    if data.get('confirm') is not True:
+        return jsonify(error='Ausdrückliche Bestätigung für die einmalige öffentliche Recherche fehlt.'),400
+    try:
+        # Check the immutable task goal BEFORE reserving execution or
+        # sending a possibly private query to the public provider.
+        candidate=orbit_store.get(task_id)
+        validate_public_query(candidate['goal'])
+        task=orbit_store.begin_research(task_id,revision=data.get('revision'))
+    except OrbitConflict as exc:return jsonify(error=str(exc)),409
+    except (OrbitError,ResearchError) as exc:return jsonify(error=str(exc)),400
+    try:
+        report=run_public_research(task['goal'])
+    except ResearchError as exc:
+        failed=orbit_store.finish_research(task_id,revision=task['revision'],error=str(exc)[:160])
+        return jsonify(error=str(exc),task=failed),502
+    except Exception:
+        failed=orbit_store.finish_research(
+            task_id,revision=task['revision'],
+            error='Unbekannter Recherchefehler. Kein Ergebnis wurde erfunden.')
+        return jsonify(error=failed['error'],task=failed),502
+    result=orbit_store.finish_research(task_id,revision=task['revision'],report=report)
+    return jsonify(task=result,source_review_required=True)
+
 @app.get('/manifest.webmanifest')
 def manifest():return send_from_directory(BASE/'static','manifest.webmanifest',mimetype='application/manifest+json')
 @app.get('/sw.js')

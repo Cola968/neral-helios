@@ -116,3 +116,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible {outline:2px solid va
   .runtime-notice {margin-bottom:8px;}
   .composer-wrap {padding-bottom:max(8px,env(safe-area-inset-bottom));}
 }
+
+.orbit-link{display:block;text-decoration:none;border:1px solid var(--line);background:var(--surface);border-radius:10px;min-height:42px;padding:11px 13px;font-size:13px;color:var(--text)}
+.orbit-link:hover{border-color:var(--accent)}
