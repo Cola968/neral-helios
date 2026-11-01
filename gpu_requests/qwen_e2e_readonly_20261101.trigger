@@ -7,3 +7,5 @@ Follow-up diagnosis authorized under same read-only troubleshooting request: ide
 2026-11-01 follow-up authorization: rerun synthetic read-only Qwen/Flask diagnostic to classify previous HTTP400. Respect 8 GiB free and two <=35% utilization samples, no model installs, shell commands beyond existing verified probe, weight or training changes.
 
 2026-11-01 explicitly authorized verification of strict metadata compatibility fix commit 79fe4d7523c4d51bdac3b51d814f936d75dc0f85. Synthetic Flask-to-preinstalled-Qwen test only; stop if GPU guard is not met, no other action.
+
+2026-11-01 final user-authorized verification: after valid real code_check call and truncated 128-token final answer, validate bounded 320-token code case with exact tool provenance. Respect existing GPU idle guard, no new downloads, weights, training or payments.
