@@ -134,15 +134,14 @@ die denselben begrenzten Wikimedia-Client verwendet:
 - prüfbarer JSON-Bericht als GitHub-Artifact mit **1 Tag**
   Aufbewahrung; keine automatische Wiederholung.
 
-**Gegenwärtiger Blocker:** Dieser Workflow befindet sich **nur im Draft**.
-GitHub zeigt den manuellen Startbutton erst, wenn die Workflow-Datei
-auf dem *Default-Branch* vorhanden ist. Wir mergen nichts ohne
-Nutzerfreigabe. Zudem haben aktuelle GitHub-Actions-Jobs des privaten
-Repositories teilweise `failure` mit **0 gestarteten Schritten** gezeigt;
-die Funktionsfähigkeit der manuellen Cloud-Ausführung ist daher
-**nicht bestätigt**. GitHub-Actions-Minuten könnten je nach
-Kontotarif/Kontingent abrechnungsrelevant sein; der Workflow wurde
-nicht gestartet.
+**Stand 1. November 2026:** Dieser manuelle Cloud-Workflow befindet
+sich weiterhin **nur im Draft**. Der Start über die GitHub-Oberfläche
+setzt eine Workflow-Datei auf dem *Default-Branch* voraus; kein Merge
+wurde autorisiert oder durchgeführt. Die Funktionen des manuellen
+Cloud-Workflows wurden **nicht** durch einen realen Cloud-Dispatch
+verifiziert. GitHub-Actions-Minuten können je nach Tarif/Kontingent
+abrechnungsrelevant sein. Der Windows-PC-Runner hat dagegen
+die begrenzten lokalen Tests erfolgreich ausgeführt.
 
 Ein einmaliger GitHub-Job schreibt **nicht** in die lokale SQLite-Datenbank
 des Orbit-Servers. Der JSON-Bericht ist ein separat prüfbarer Artefaktweg.
@@ -175,6 +174,31 @@ der Arctus-Selector in einer unabhängigen Python-Umgebung mit
 27 gezielten synthetischen Tests geprüft. Dies ist ausdrücklich
 kein Nachweis eines vollständigen Helios-E2E-Tests.
 
+## Archiv-Verlauf über 40 Einträge
+
+Ein ursprünglich bestehender Fehler begrenzte die Anzeige auf
+die **40 neuesten archivierten Aufgaben** – obwohl ältere Datensätze
+in SQLite blieben. Das Archiv kann jetzt durch
+`GET /api/orbit/tasks?view=archived&offset=0` und
+`offset=40`, `offset=80` usw. seitenweise abgerufen werden.
+
+- 40 Datensätze pro Seite; `has_more`/`next_offset` stehen
+  in der API-Antwort.
+- Ein zusätzlicher 41. Datensatz wird nur zur Erkennung einer
+  Folgeseite abgefragt, nicht angezeigt.
+- Offsets sind ganze Zahlen von **0 bis 100.000**; für aktive
+  Aufgaben bleibt die Seitennavigation deaktiviert.
+- Die Schaltfläche **„Weitere archivierte Aufträge laden“**
+  erscheint nur, wenn tatsächlich noch ältere Einträge existieren.
+- Alle API-Aufrufe bleiben an die lokale Sitzung gebunden;
+  es gibt keine zusätzliche Ausführungs- oder Exportfreigabe.
+
+Der echte Windows-Testlauf
+[41303157012](https://github.com/Cola968/neral-helios/actions/runs/41303157012)
+hat **44/44 Flask-/SQLite-/Worker-Tests** bestanden. Dies umfasst
+die Archivseiten mit mehr als 40 Aufgaben. Die vollständige
+Browser-E2E-Abnahme ist davon gesondert zu beurteilen.
+
 ## Tests und verbleibende Risiken
 
 ```bash
@@ -186,13 +210,17 @@ Worker-Tests nutzen synthetische Wikipedia-JSON-Antworten und patchen
 die Flask-Integration; CI muss dabei **keinen** Drittanbieter kontaktieren.
 Im vorhandenen Browser-Test bleibt die Freigabe noch ohne Netzwerkaufruf.
 
-Nach einem Prozessabsturz während `RESEARCH_RUNNING` kann ein Task
-als laufend stehenbleiben; Wiederaufnahme und Timeout-Reconciliation
-sind noch nicht implementiert. Das ist ein bekannter Pilot-Blocker für
-unbeaufsichtigte Einsätze. Ein produktiver Multi-Agenten-Dienst mit
+Die lokale SQLite-Wiederherstellung `reconcile_stale_research` markiert
+beim Neustart eines aktivierten Orbit-Servers zuvor abgebrochene
+Rechercheläufe nach **mindestens 60 Sekunden** als `RESEARCH_FAILED`.
+Sie führt keine Anfrage erneut aus und erfindet keinen Bericht.
+Unbeaufsichtigte Ausführung, ein autonomer Scheduler und produktive
+Worker-Überwachung bleiben ausdrücklich **nicht implementiert**. Ein produktiver Multi-Agenten-Dienst mit
 erweiterbarem Tool-Register, regelmäßigem Monitoring, ausgefeilter
 Agentenplanung, Budgetkontrolle und menschlicher Review-GUI ist
 ein **separater nächster Entwicklungsschritt**.
 
-Keine echten Nutzerrecherchen, Modellexekutionen, Cloud-Jobs, Uploads,
-Merges, PC-Zugriffe oder Kosten wurden durch dieses PR ausgelöst.
+Im Zuge der Entwicklung wurden **lokale CPU-Tests** auf dem
+verbundenen Windows-PC ausgeführt. Dabei wurde kein Nutzer-
+Rechercheauftrag gestartet, keine KI-Modellinferenz ausgeführt,
+kein bezahlter Cloud-Job ausgelöst und nichts gemergt.
