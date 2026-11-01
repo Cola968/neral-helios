@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import time
 from pathlib import Path
 
@@ -52,14 +53,16 @@ def validate_cases(cases):
         seen.add(row["id"])
 
 
-def aggregate_results(cases, rows, eos_id):
+def aggregate_results(cases, rows, eos_id, special_ids=None):
     validate_cases(cases)
     if type(eos_id) is not int:
         raise ValueError("EOS token must be integer")
     if len(cases)!=len(rows):
         raise ValueError("Missing model generation result")
     expected={x["id"]:x for x in cases}
-    seen=set();counts={};totals={"exact":0,"tokens":0,"seconds":0.0,"eos":0,"repeat":0.0}
+    seen=set();counts={};totals={"exact":0,"tokens":0,"seconds":0.0,"eos":0,
+                                 "embedded":0,"nonempty":0,"cap":0,"bad_special":0}
+    specials=set() if special_ids is None else set(special_ids)
     for row in rows:
         if not isinstance(row,dict) or row.get("id") not in expected or row["id"] in seen:
             raise ValueError("Invalid or duplicate result row")
@@ -75,7 +78,15 @@ def aggregate_results(cases, rows, eos_id):
         case=expected[row["id"]]
         if len(row["generated_ids"]) > case["max_new_tokens"]:
             raise ValueError("Unbounded generation")
-        exact = int(row["text"].strip().casefold() == case["expected_exact"].strip().casefold())
+        content=row["text"].strip().casefold()
+        target=case["expected_exact"].strip().casefold()
+        exact=int(content==target)
+        # Answer present inside a verbose response is NOT an exact success.
+        embedded=int(bool(re.search(r"(?<!\\w)"+re.escape(target)+r"(?!\\w)",content)))
+        totals["embedded"]+=embedded
+        totals["nonempty"]+=int(bool(content))
+        totals["cap"]+=int(len(row["generated_ids"])>=case["max_new_tokens"])
+        totals["bad_special"]+=int(any(token in specials for token in row["generated_ids"]))
         cat=counts.setdefault(case["category"],{"cases":0,"exact":0})
         cat["cases"]+=1;cat["exact"]+=exact
         totals["exact"]+=exact
@@ -88,6 +99,10 @@ def aggregate_results(cases, rows, eos_id):
         "schema":1, "kind":"native_arctus350_greedy_smoke_not_final_holdout",
         "cases":len(cases),
         "exact_match_pct":round(100*totals["exact"]/len(cases),2),
+        "expected_answer_embedded_pct":round(100*totals["embedded"]/len(cases),2),
+        "nonempty_output_pct":round(100*totals["nonempty"]/len(cases),2),
+        "generation_cap_hit_pct":round(100*totals["cap"]/len(cases),2),
+        "bad_special_token_case_pct":round(100*totals["bad_special"]/len(cases),2),
         "categories":{k:{"cases":v["cases"],"exact_match_pct":round(100*v["exact"]/v["cases"],2)}
                       for k,v in sorted(counts.items())},
         "eos_fraction":round(totals["eos"]/len(cases),4),
@@ -174,7 +189,9 @@ def main(argv=None):
                     "generated_ids":ids,"text":response,
                     "elapsed_seconds":max(time.monotonic()-start,0.000001)})
         # No source, private output text, or raw generation is printed or saved.
-    summary=aggregate_results(CASES,rows,eos)
+    special_ids={tok.token_to_id(s) for s in ("<|bos|>","<|pad|>","<|sep|>")}
+    special_ids.discard(None)
+    summary=aggregate_results(CASES,rows,eos,special_ids=special_ids)
     summary["case_sha256"]=hashlib.sha256(
         json.dumps(CASES,sort_keys=True,ensure_ascii=False).encode("utf-8")).hexdigest()
     summary["checkpoint_sha256_verified"]=True
