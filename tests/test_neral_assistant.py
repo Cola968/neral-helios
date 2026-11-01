@@ -30,7 +30,8 @@ class PersonalityIntegrationTests(unittest.TestCase):
     def test_local_tool_access_is_not_misrepresented(self):
         from neral_assistant_persona import SYSTEM_PROMPT
         self.assertIn("calculator",SYSTEM_PROMPT)
-        self.assertIn("keine dauerhafte",SYSTEM_PROMPT)
+        self.assertIn("keine Hintergrundausführung",SYSTEM_PROMPT)
+        self.assertIn("code_check",SYSTEM_PROMPT)
 
 
 class AssistantTests(unittest.TestCase):
@@ -73,7 +74,7 @@ class AssistantTests(unittest.TestCase):
             self.assertIn("168", payload["messages"][-1]["content"])
             return answer("12 × 14 = 168.")
         result=assistant_turn("Wie viel sind 12 mal 14?",transport=fake)
-        self.assertEqual(result["tools_used"],["calculator", "code_check"])
+        self.assertEqual(result["tools_used"],["calculator"])
         self.assertIn("168", result["text"])
         self.assertEqual(len(calls), 2)
 
@@ -136,7 +137,7 @@ class AssistantTests(unittest.TestCase):
         def fake(payload):
             self.assertEqual(set(payload["options"]), {"num_ctx","num_predict","temperature"})
             self.assertEqual([tool["function"]["name"] for tool in payload["tools"]],
-                             ["calculator"])
+                             ["calculator", "code_check"])
             return answer("Antwort")
         assistant_turn("Hallo",transport=fake)
 
