@@ -20,6 +20,7 @@ from stream_runtime import response_stream
 from model_catalog import catalog
 import arctus_runtime
 from neral_assistant import assistant_turn, AssistantError, AssistantUnavailable, ALLOWED_MODELS
+from neral_agent_plan import propose_agent_plan, AgentPlanError
 BASE=Path(__file__).resolve().parent
 # Deployment configuration only; HTTP clients cannot choose filesystem paths.
 ASSETS=Path(os.environ.get("HELIOS_ASSETS_ROOT",str(BASE))).resolve()
@@ -249,6 +250,36 @@ def generate_tokens(ids,max_new,temperature,top_k,event,on_tokens=None):
         if on_tokens and (len(output)%4==0 or token==tokenizer.eos_id):on_tokens(tokenizer.decode(output),len(output))
         if token==tokenizer.eos_id:break
     return output
+@app.post('/api/assistant/agent-plan')
+def assistant_agent_plan():
+    # Plan proposal is not Orbit execution. The existing Qwen Assistant is
+    # never allowed to call tools, fetch URLs or run shell from this route.
+    data,error=body()
+    if error:return error
+    if not ASSISTANT_ENABLED or PREPARATION_MODE:
+        return jsonify(error='Lokale Qwen-Aufgabenplanung ist nicht aktiviert.'),503
+    if data.get('confirm') is not True:
+        return jsonify(error='Separate Bestätigung für die lokale Qwen-Planung fehlt.'),400
+    goal=data.get('goal')
+    if not isinstance(goal,str) or not 12<=len(goal.strip())<=400:
+        return jsonify(error='Auftrag muss 12–400 Zeichen enthalten.'),400
+    guard=check_prompt(goal)
+    if not guard.allowed:return jsonify(error='Auftrag wurde aus Sicherheitsgründen abgelehnt.'),400
+    if not _generation_lock.acquire(blocking=False):
+        return jsonify(error='Ein lokales Modell ist gerade beschäftigt.'),429
+    try:
+        result=propose_agent_plan(goal,model=ASSISTANT_MODEL)
+        return jsonify(result)
+    except AssistantUnavailable:
+        return jsonify(error='Ollama oder die lokale Qwen-Modellbasis ist nicht erreichbar.'),503
+    except (AgentPlanError,AssistantError):
+        return jsonify(error='Qwen-Plan wurde wegen fehlender Struktur oder Sicherheit abgelehnt.'),400
+    except Exception:
+        app.logger.exception('Lokale Agentenplanung fehlgeschlagen')
+        return jsonify(error='Qwen-Aufgabenplanung fehlgeschlagen.'),502
+    finally:
+        _generation_lock.release()
+
 @app.post('/api/generate')
 def generate():
     data,error=body()
