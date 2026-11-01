@@ -235,7 +235,10 @@ def assistant_turn(prompt: str, history: list[dict] | None = None, *,
                 tool_output = _code_check(call)
             else:
                 raise AssistantError("Nicht freigegebenes Werkzeug.")
-            messages.append({"role": "assistant", "content": str(response.get("content") or ""),
+            tool_content = response.get("content")
+            if tool_content is not None and not isinstance(tool_content, str):
+                raise AssistantError("Ungültiger Textinhalt im Werkzeugaufruf.")
+            messages.append({"role": "assistant", "content": tool_content or "",
                              "tool_calls": calls})
             messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
             tools_used.append(tool_name)
