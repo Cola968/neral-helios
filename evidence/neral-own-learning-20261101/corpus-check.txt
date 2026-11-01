@@ -1,0 +1,3 @@
+NERAL examples format-checked: 16; model=Qwen/Qwen2.5-Coder-7B-Instruct; steps=3; max_length=512
+Reviewed corpus/source integrity: passed (semantic review recorded in manifest).
+PLAN ONLY: no imports of GPU libraries, no model load, no training, no adapter files.

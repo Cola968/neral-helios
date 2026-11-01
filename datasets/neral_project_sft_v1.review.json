@@ -1,0 +1,272 @@
+{
+  "schema": 1,
+  "reviewed_on": "2026-11-01",
+  "reviewer": "Codex source audit; requires human review before release",
+  "baseline_commit": "0ad2041a650132aaff58f4920bee05903499b4a4",
+  "dataset_sha256": "c6912479ad136ea83b413ac99ccf4d0ae224392ea0fbf5da755c01107dfa17d2",
+  "sources": {
+    "chat_math.py": "7f594cd49b556abc4b2995e39c20edba6257f9b74bd6f7f22837f9c350efb349",
+    "project_store.py": "1206535fbe83c2eb96569d4fb9d54f9469fb0da23c1589bbae3e43ad49398939",
+    "storage_codec.py": "32fa542531deaef2ef47d5bf6ee409f328f73ca4a59c68883983178214d7d4b4",
+    "stream_runtime.py": "c391ab9a2e28384dbf813d7d9fd7224c185eaac1c83b03599ced207869540bb1"
+  },
+  "rows": [
+    {
+      "line": 1,
+      "id": "preview-isolation",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "af2dcab8e255b0e2113eee8fd66c32a67b7d3e3727e076b93f28ae0e45591519",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.preview",
+          "start": 100,
+          "end": 111,
+          "excerpt_sha256": "08501db1cf1e70e248bdea715e946cfce33f3baa4ba5d2b4fc6464bbd9959aea"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 2,
+      "id": "stale-preview",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "08356472f85d1ece2e02fc1761249fe002e6d0775066d76ed46777c3b688f846",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.apply",
+          "start": 112,
+          "end": 121,
+          "excerpt_sha256": "e92062185a2fc426ee5f89e597e83429ee1ac549eed11e25015b3277e6212841"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 3,
+      "id": "one-shot-preview",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "13085e1cf989173be0336bc2f9a2fb27fa8bc3b261011ab7804231ebca295389",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.apply",
+          "start": 112,
+          "end": 121,
+          "excerpt_sha256": "e92062185a2fc426ee5f89e597e83429ee1ac549eed11e25015b3277e6212841"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 4,
+      "id": "undo-revision",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "634db26c8b85af6c1039669408cf525ff99e012801517117e14a0a4fd274e9c7",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.undo",
+          "start": 122,
+          "end": 129,
+          "excerpt_sha256": "3641a5e2e5c8708534e2bf6fbe20a85986e7c2fa793a354192de3c4039b90d7f"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 5,
+      "id": "undo-stale",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "7f2328e7cba7bc9f29bcd0d6c822279942139eacd8421195067adc701509ee6f",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.undo",
+          "start": 122,
+          "end": 129,
+          "excerpt_sha256": "3641a5e2e5c8708534e2bf6fbe20a85986e7c2fa793a354192de3c4039b90d7f"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 6,
+      "id": "ripple-path",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "70fc3432e531cac3b38b5c9b9039cd09afff6020c5c8fb14b89154fc7fdb535f",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ripple",
+          "start": 15,
+          "end": 22,
+          "excerpt_sha256": "c329b355847d7321d5f54aa99dc4788a9c3a611b9d4e9049158a36c560d54a35"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 7,
+      "id": "cycle-diagnosis",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "d603595c155173e6ed5023d73b5c2842838b44e48ceb81173c85a841bc2c133f",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "render",
+          "start": 23,
+          "end": 41,
+          "excerpt_sha256": "2a9984199dd12b624233e40235d61b745fb8708da28afe6b1c24da63b41e6842"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 8,
+      "id": "live-version",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "217c62096faf9301261dd337380fa90f0571917f631aa122ee16621db36700f8",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "version_live",
+          "start": 43,
+          "end": 50,
+          "excerpt_sha256": "43efde50426b3568bd898fea10e5793d276e0b89e3181853c41ac6be91d97030"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 9,
+      "id": "formula-input",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "d714ed7b382038d71000984779325d40f999317af5ae46a07cd75967b078ebd1",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.add",
+          "start": 77,
+          "end": 99,
+          "excerpt_sha256": "c53d7aa418566687e92325420b073c09fc41732dab7dcea6d774733a76aa5bea"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 10,
+      "id": "live-types",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "2531a1121c67815c3b85c68529fc5e809cbfdbdcdc00f42a3f513af222830bc3",
+      "evidence": [
+        {
+          "path": "project_store.py",
+          "symbol": "ProjectStore.add",
+          "start": 77,
+          "end": 99,
+          "excerpt_sha256": "c53d7aa418566687e92325420b073c09fc41732dab7dcea6d774733a76aa5bea"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 11,
+      "id": "dpapi-boundary",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "a7630ebcd7564891f7c5e1209989c10f05345dfa139613aebd8580484ed399e6",
+      "evidence": [
+        {
+          "path": "storage_codec.py",
+          "symbol": "dumps",
+          "start": 33,
+          "end": 37,
+          "excerpt_sha256": "803571e0c84392f7c2f66a8dc0d935d7f12bb8c2f8987360b1ef7972b9859a85"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 12,
+      "id": "dpapi-portability",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "e6da0b43ff361e4b6ea8704af393793a6af856bd88aa029e7794930bec20d72b",
+      "evidence": [
+        {
+          "path": "storage_codec.py",
+          "symbol": "loads",
+          "start": 39,
+          "end": 44,
+          "excerpt_sha256": "d84c10f52d0c1ebddcb067f9336770dd5b51316a07263631f14cdfd824940780"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 13,
+      "id": "stream-buffer",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "764e00dee86d735b1ea464861e8adeb15ff259411f05157a12c217ba4a6857d4",
+      "evidence": [
+        {
+          "path": "stream_runtime.py",
+          "symbol": "safe_prefix",
+          "start": 9,
+          "end": 19,
+          "excerpt_sha256": "265b601af136689102af8ca469aa729a2b3ccf6210853b1b55f93a1a8e6fb2a9"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 14,
+      "id": "stream-backpressure",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "b48d5bfcab5d291578dfe87785a2e3a2f8262921f9cb056d0d9f6bd0580d9a04",
+      "evidence": [
+        {
+          "path": "stream_runtime.py",
+          "symbol": "response_stream",
+          "start": 23,
+          "end": 79,
+          "excerpt_sha256": "4fbbbe4d1e7a517300cff24381bc7c4a8b640d474300ab885600620f290fb291"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 15,
+      "id": "whole-request",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "ec692311a2955a110cc9bfa122e8b65711dade5a706cb0a4ef66d29e192258b8",
+      "evidence": [
+        {
+          "path": "chat_math.py",
+          "symbol": "tool_answer",
+          "start": 128,
+          "end": 136,
+          "excerpt_sha256": "9693a41557e1fba932769a677bf01ef53a00af047c37eeeb145478f32b76e4fb"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    },
+    {
+      "line": 16,
+      "id": "exact-decimal",
+      "kind": "source-grounded behavior analysis",
+      "row_sha256": "482b144438ffd2e08da50d56e0a5e6904edfe49af0a436fc397120a90363171e",
+      "evidence": [
+        {
+          "path": "chat_math.py",
+          "symbol": "_arithmetic",
+          "start": 49,
+          "end": 72,
+          "excerpt_sha256": "94f7fe241a4a779929ebd080bba0d8fad24d584324aa5ea3ca47a62b7fc67277"
+        }
+      ],
+      "finding": "Answer checked against the named implementation; no model run or fabricated execution claimed."
+    }
+  ],
+  "limits": "16 new project-specific capability examples, no training or measured improvement. Not the held-out evaluation set. Token lengths require the real local Qwen tokenizer before training."
+}

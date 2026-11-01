@@ -137,3 +137,17 @@ def test_failed_gpu_stage_records_error_and_memory_without_training(pilot, tmp_p
     assert report['status'] == 'failed' and report['error_type'] == 'RuntimeError'
     assert report['peak_allocated_bytes'] == 70 and report['peak_reserved_bytes'] == 90
     assert not (output/'neral-adapter.json').exists()
+
+
+@pytest.mark.parametrize('mutation', ['empty_sources', 'unreviewed_row', 'duplicate_row', 'missing_row_hash'])
+def test_incomplete_factual_reviews_are_rejected(pilot, tmp_path, mutation):
+    root = Path(__file__).resolve().parents[1]
+    dataset = root/'datasets/neral_qlora_pilot.jsonl'
+    review = json.loads((root/'datasets/neral_qlora_pilot.review.json').read_text())
+    if mutation == 'empty_sources': review['sources'] = {}
+    elif mutation == 'unreviewed_row': review['rows'].pop()
+    elif mutation == 'duplicate_row': review['rows'][-1] = review['rows'][0]
+    elif mutation == 'missing_row_hash': review['rows'][0].pop('row_sha256')
+    path = tmp_path/'incomplete-review.json'
+    path.write_text(json.dumps(review))
+    with pytest.raises(ValueError): pilot.verify_review(dataset, path)

@@ -27,6 +27,10 @@ attached to this Linux session. PR #219's successful Windows inference runs do n
 prove training compatibility. Unsloth is not required, installed or certified;
 adding it would require a separate version/API/kernel check.
 
+See `NERAL_OWN_LEARNING.md` for the capability-development goal, 16 additional
+source-reviewed learning examples and identity-excluding comparison scoring.
+The original smoke corpus and held-out set remain unchanged.
+
 ## Audit and corrections
 
 The original pilot's seven offline tests passed. They did not exercise TRL or

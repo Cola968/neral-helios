@@ -10,7 +10,7 @@
     "code_check.py": "5c23a4f70d615ae6cf1d52d5b4104cfaad1101c42d3b76819348fb96ef172bff",
     "qwen_local_runtime.py": "af3273084eb09876aa2404497d916479ac62a5153221428ce336e0a18bb9f84e",
     "model_catalog.py": "9a943ddb0d6787afc56fcf287e961d784eb10c836d3eff5e87d80b5d4fdcba13",
-    "docs/NERAL_QLORA_PILOT.md": "97c9dba74d595256392ce4263e5b61e5a54c2d9fda58bf7081b57bf63db2f9cf"
+    "docs/NERAL_QLORA_PILOT.md": "72212ca1b3b9578b68cf54036f9b6c54522070687cb3ea0598648754956092ad"
   },
   "rows": [
     {
@@ -19,7 +19,8 @@
       "evidence": [
         "app.py:18,44"
       ],
-      "finding": "ChatStore import and STATE/chats.sqlite3 initialization verified."
+      "finding": "ChatStore import and STATE/chats.sqlite3 initialization verified.",
+      "row_sha256": "59b80ef38b1694e1626f4714fd23a412946f411e24b0503aad7ac2ab962c3008"
     },
     {
       "line": 2,
@@ -27,7 +28,8 @@
       "evidence": [
         "chat_store.py:73-79"
       ],
-      "finding": "BEGIN IMMEDIATE and revision mismatch raising Conflict verified."
+      "finding": "BEGIN IMMEDIATE and revision mismatch raising Conflict verified.",
+      "row_sha256": "b517fea47f6c37157a377bf5ce897ae737f5a295b96c5f6665e4bc30d8e674f3"
     },
     {
       "line": 3,
@@ -36,7 +38,8 @@
         "app.py:349-357",
         "code_check.py:1,36"
       ],
-      "finding": "Static AST check, no execution, syntax != functionality."
+      "finding": "Static AST check, no execution, syntax != functionality.",
+      "row_sha256": "f198ca6e9161c8d8f53c895d7c0c78980eba8aca9d8279916fa169c552e853ea"
     },
     {
       "line": 4,
@@ -44,7 +47,8 @@
       "evidence": [
         "app.py:358-360"
       ],
-      "finding": "SOLVE calls deterministic solver, returns tool:solve; arithmetic checked: 57."
+      "finding": "SOLVE calls deterministic solver, returns tool:solve; arithmetic checked: 57.",
+      "row_sha256": "54338eea16e2b2639ba9427d0282327bffb9ed0d716f1bdd9290be48cf6757bd"
     },
     {
       "line": 5,
@@ -53,7 +57,8 @@
         "model_catalog.py:6",
         "qwen_local_runtime.py:1,12"
       ],
-      "finding": "Qwen is external disclosed base; NERAL is product identity, no own pretraining claim."
+      "finding": "Qwen is external disclosed base; NERAL is product identity, no own pretraining claim.",
+      "row_sha256": "57d7a7ae00c527d823330e5a66bae89b22d91e3f3000209dda7bd3a870876b1c"
     },
     {
       "line": 6,
@@ -61,7 +66,8 @@
       "evidence": [
         "docs/NERAL_QLORA_PILOT.md"
       ],
-      "finding": "No unseen-file diagnosis, fabricated file access or execution; no implementation capability asserted."
+      "finding": "No unseen-file diagnosis, fabricated file access or execution; no implementation capability asserted.",
+      "row_sha256": "d9b6349617a67cf4d18d776970f3e5001bec63a145b8555b34665bfeafade2b9"
     },
     {
       "line": 7,
@@ -70,7 +76,8 @@
         "app.py:383-385",
         "qwen_local_runtime.py:22,28-32"
       ],
-      "finding": "Runtime identity guard rejects stale model context."
+      "finding": "Runtime identity guard rejects stale model context.",
+      "row_sha256": "77d24e6be14f4e771cf15beb1d53f8509fbe635ea4c0c75ad62a08fa4774200c"
     },
     {
       "line": 8,
@@ -79,7 +86,8 @@
         "model_catalog.py:26-66",
         "qwen_local_runtime.py:1,94"
       ],
-      "finding": "Current product rejects adapters; staged candidate is not wired into app.py."
+      "finding": "Current product rejects adapters; staged candidate is not wired into app.py.",
+      "row_sha256": "f1262c76a3b1c0b5d297c726e0e6056b291d50e64f7da472f2bbde9c601f64b2"
     },
     {
       "line": 9,
@@ -88,7 +96,8 @@
         "app.py:349-357",
         "code_check.py:1,36"
       ],
-      "finding": "Static check vs functional test distinction, no unsupported execution claim."
+      "finding": "Static check vs functional test distinction, no unsupported execution claim.",
+      "row_sha256": "e5c76b9d525097cfad3bb162578ec6fc4876afa9eae56acaac6a37abb64e7626"
     },
     {
       "line": 10,
@@ -96,7 +105,8 @@
       "evidence": [
         "docs/NERAL_QLORA_PILOT.md"
       ],
-      "finding": "Separate held-out comparison required; no claimed improvement or completed evaluation."
+      "finding": "Separate held-out comparison required; no claimed improvement or completed evaluation.",
+      "row_sha256": "58afef3ee73169529234c68be03ed0ab7947de7d4c92a7ce30514907817607a3"
     }
   ],
   "limits": "All ten answers reviewed for current source facts or explicit response policy. Hashes detect drift, not truth. Review again on source/data changes; ten rows only support smoke testing."

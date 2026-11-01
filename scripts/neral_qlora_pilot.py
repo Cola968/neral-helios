@@ -19,9 +19,26 @@ PRIVATE_DATA = re.compile(r"(?i)(?:sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|--
 
 def verify_review(dataset, manifest):
     """Integrity of a code-reviewed corpus; format checks alone cannot prove truth."""
+    manifest = Path(manifest)
+    if not manifest.is_file() or manifest.stat().st_size > 1024*1024:
+        raise ValueError("Review missing or too large.")
     review = json.loads(Path(manifest).read_text(encoding="utf-8"))
+    if (not isinstance(review, dict) or review.get("schema") != 1
+            or not isinstance(review.get("sources"), dict) or not review["sources"]
+            or not isinstance(review.get("rows"), list) or not review["rows"]):
+        raise ValueError("Review requires source evidence and complete row coverage.")
     if review["dataset_sha256"] != hashlib.sha256(Path(dataset).read_bytes()).hexdigest():
         raise ValueError("Dataset differs from reviewed corpus; review it before training.")
+    read_examples(dataset)
+    lines = Path(dataset).read_text(encoding="utf-8").splitlines()
+    if (len(review["rows"]) != len(lines)
+            or any(not isinstance(row, dict) or type(row.get("line")) is not int for row in review["rows"])
+            or {row["line"] for row in review["rows"]} != set(range(1, len(lines)+1))):
+        raise ValueError("Review must cover every example exactly once.")
+    for row in review["rows"]:
+        digest = hashlib.sha256(lines[row["line"]-1].encode()).hexdigest()
+        if row.get("row_sha256") != digest or not row.get("evidence") or not row.get("finding"):
+            raise ValueError("Reviewed row differs or lacks evidence.")
     root = Path(__file__).resolve().parents[1]
     for source, digest in review["sources"].items():
         path = (root / source).resolve()
@@ -223,6 +240,7 @@ def main(argv=None):
     parser.add_argument("--dataset", default=str(root / "datasets" / "neral_qlora_pilot.jsonl"))
     parser.add_argument("--model-dir", help="Previously verified, local Qwen HF snapshot directory")
     parser.add_argument("--review-manifest", default=str(root / "datasets" / "neral_qlora_pilot.review.json"))
+    parser.add_argument("--check-review", action="store_true", help="Check source review for a custom corpus without training")
     parser.add_argument("--adapter-version", default="0.1.0-pilot.1")
     parser.add_argument("--output-dir", default=str(Path.home() / "neral-qlora-adapter-pilot"))
     parser.add_argument("--steps", type=int, default=3)
@@ -235,7 +253,7 @@ def main(argv=None):
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-pilot\.\d+)?", args.adapter_version):
         parser.error("adapter-version must be x.y.z or x.y.z-pilot.n")
     print(f"NERAL examples format-checked: {len(rows)}; model={MODEL_ID}; steps={args.steps}; max_length={args.max_length}")
-    if Path(args.dataset).resolve() == (root / "datasets" / "neral_qlora_pilot.jsonl").resolve():
+    if args.check_review or Path(args.dataset).resolve() == (root / "datasets" / "neral_qlora_pilot.jsonl").resolve():
         verify_review(args.dataset, args.review_manifest)
         print("Reviewed corpus/source integrity: passed (semantic review recorded in manifest).")
     if not args.run_local_gpu:

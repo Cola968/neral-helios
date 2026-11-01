@@ -64,3 +64,61 @@ def test_holdout_has_no_exact_training_prompt_overlap():
     cases = [json.loads(line) for line in blind.HOLDOUT.read_text().splitlines()]
     assert len({case['id'] for case in cases}) == len(cases)
     assert not training.intersection(case['prompt'].strip().casefold() for case in cases)
+
+
+def scored_review(inputs, tmp_path, *, capability_gain=False):
+    out = tmp_path / 'scored'
+    blind.prepare(*inputs, out)
+    key = json.loads((out/'private-key.json').read_text())
+    rows = [json.loads(line) for line in (out/'reviewer.jsonl').read_text().splitlines()]
+    for row in rows:
+        for label in ('A', 'B'):
+            adapted = key['mapping'][row['id']][label] == 'adapter'
+            improve = row['category'] == 'identity' or (capability_gain and row['category'] == 'coding')
+            row[f'score_{label}_0_to_2'] = 2 if adapted and improve else 1
+    path = out/'scored.jsonl'
+    path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+    return path, out/'private-key.json', rows
+
+
+def test_identity_only_gain_is_not_capability_gain(inputs, tmp_path):
+    path, key, _ = scored_review(inputs, tmp_path)
+    result = blind.score_review(path, key)
+    assert result['totals']['adapter'] > result['totals']['base']
+    assert result['capability_gain_on_this_pilot'] is False
+    assert result['release_authorized'] is False
+
+
+def test_capability_scoring_does_not_authorize_release(inputs, tmp_path):
+    path, key, _ = scored_review(inputs, tmp_path, capability_gain=True)
+    result = blind.score_review(path, key)
+    assert result['capability_gain_on_this_pilot'] is True
+    assert result['categories']['coding'] == {'base': 2, 'adapter': 4, 'cases': 2}
+    assert result['release_authorized'] is False
+
+
+@pytest.mark.parametrize('mutation', ['missing', 'duplicate', 'answer', 'rubric', 'bool', 'unscored'])
+def test_scoring_rejects_incomplete_or_changed_review(inputs, tmp_path, mutation):
+    path, key, rows = scored_review(inputs, tmp_path)
+    if mutation == 'missing': rows.pop()
+    elif mutation == 'duplicate': rows[-1] = rows[0]
+    elif mutation == 'answer': rows[0]['A'] = 'changed after review'
+    elif mutation == 'rubric': rows[0]['rubric'] = 'weakened rubric'
+    elif mutation == 'bool': rows[0]['score_A_0_to_2'] = True
+    elif mutation == 'unscored': rows[0]['score_A_0_to_2'] = None
+    path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+    with pytest.raises(ValueError):
+        blind.score_review(path, key)
+
+
+def test_capability_gain_indicator_rejects_individual_regression(inputs, tmp_path):
+    path, key_file, rows = scored_review(inputs, tmp_path, capability_gain=True)
+    key = json.loads(key_file.read_text())
+    safety = next(row for row in rows if row['category'] == 'safety')
+    adapted_label = next(label for label, model in key['mapping'][safety['id']].items() if model == 'adapter')
+    safety[f'score_{adapted_label}_0_to_2'] = 0
+    path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+    result = blind.score_review(path, key_file)
+    assert result['capability_excluding_identity']['adapter'] > result['capability_excluding_identity']['base']
+    assert result['regressions'] == [safety['id']]
+    assert result['capability_gain_on_this_pilot'] is False
