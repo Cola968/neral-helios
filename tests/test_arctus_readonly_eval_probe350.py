@@ -14,6 +14,25 @@ class ReadonlyEvalProbeTests(unittest.TestCase):
         self.assertTrue({"arithmetic","english","german","instruction"}.issubset(
             {x["category"] for x in CASES}))
 
+    def test_chat_format_uses_trained_user_assistant_token_boundaries(self):
+        from frontier350.readonly_eval_probe350 import build_input_ids
+        class Tokenized:
+            def __init__(self, ids):
+                self.ids=ids
+        class FakeTokenizer:
+            def token_to_id(self,token):
+                return {"<|bos|>":1}[token]
+            def encode(self,content):
+                self.last=content
+                return Tokenized([6,7])
+        tok=FakeTokenizer()
+        chat=build_input_ids(tok,"Rechne 37 + 48.","chat")
+        self.assertEqual(chat,[1,6,7])
+        self.assertEqual(tok.last,"User: Rechne 37 + 48.\\nAssistant:")
+        bare=build_input_ids(tok,"Rechne 37 + 48.","bare")
+        self.assertEqual(bare,[1,6,7])
+        self.assertEqual(tok.last,"Rechne 37 + 48.")
+
     def test_metrics_do_not_leak_prompts_responses_or_weights(self):
         rows=[{"id":x["id"],"category":x["category"],
                "text":"PRIVATE_SYNTHETIC_RESPONSE", "generated_ids":[1,2,3],
