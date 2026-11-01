@@ -178,7 +178,7 @@ def _verified_response(output, *, model, quality, enable_tools):
         raise GateError("foreign, native, inconsistent or misidentified provider response")
     used = output.get("tools_used")
     if (not isinstance(used, list)
-        or any(item != "calculator" for item in used)
+        or any(item not in {"calculator", "code_check"} for item in used)
         or len(used) > 1
         or (not enable_tools and used)):
         raise GateError("tool attribution must match evaluation layer")
@@ -196,7 +196,8 @@ def evaluate(cases, *, model, quality, enable_tools, turn=assistant_turn):
     passed = 0
     failures = 0
     human = 0
-    tool_count = 0
+    calculator_count = 0
+    code_check_count = 0
     for case in cases:
         try:
             response = turn(
@@ -213,7 +214,8 @@ def evaluate(cases, *, model, quality, enable_tools, turn=assistant_turn):
             continue
         used = _verified_response(response, model=model, quality=quality,
                                   enable_tools=enable_tools)
-        tool_count += len(used)
+        calculator_count += used.count("calculator")
+        code_check_count += used.count("code_check")
         outcome = score(response["text"], case["grading"])
         if outcome is None:
             human += 1
@@ -226,7 +228,8 @@ def evaluate(cases, *, model, quality, enable_tools, turn=assistant_turn):
             "id": case["id"], "category": case["category"],
             "kind": case["kind"], "result": verdict,
             "response_sha256": hashlib.sha256(response["text"].encode("utf8")).hexdigest(),
-            "calculator_calls": len(used),
+            "calculator_calls": used.count("calculator"),
+            "code_check_calls": used.count("code_check"),
         })
     return {
         "schema": "neral-2022-development-results-v1",
@@ -237,7 +240,8 @@ def evaluate(cases, *, model, quality, enable_tools, turn=assistant_turn):
         "layer": "external-model+tools" if enable_tools else "external-model-native",
         "automatic": {"total": meta["automatic_cases"], "passed": passed, "failed": failures},
         "manual_pending": human,
-        "calculator_calls": tool_count,
+        "calculator_calls": calculator_count,
+        "code_check_calls": code_check_count,
         "rows": rows,
         "gpt35_parity_proven": False,
         "released": False,
