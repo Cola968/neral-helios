@@ -1,0 +1,41 @@
+name: Arctus350 read-only BPE corpus inventory — one-shot PC 2026-11-01
+on:
+  push:
+    paths:
+      - '.github/workflows/neral-pc-bpe-inventory-20261101.yml'
+permissions:
+  contents: read
+jobs:
+  local-corpus-metadata:
+    runs-on: [self-hosted, Windows, X64, neral-gpu]
+    timeout-minutes: 6
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      HELIOS_DEVICE: cpu
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+          persist-credentials: false
+      - name: Synthetic metadata contract and Python syntax
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Trusted NERAL Python environment missing' }
+          & $python -c "import ast,pathlib; ast.parse(pathlib.Path('frontier350/readonly_corpus_inventory.py').read_text(encoding='utf8')); ast.parse(pathlib.Path('tests/test_readonly_corpus_inventory.py').read_text(encoding='utf8')); print('METADATA_PROBE_SYNTAX_OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Syntax failed' }
+          & $python -m pytest -q -p no:cacheprovider tests/test_readonly_corpus_inventory.py
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic metadata inventory tests failed' }
+      - name: Check exact previously inventoried BPE directories (metadata and size only)
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
+          $root = 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $pilot = Join-Path $root 'frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2'
+          $continuation = Join-Path $root 'frontier350_bpe_continuation_1b_arctus1b-focus-20260910-v2'
+          $foundation = Join-Path $root 'frontier350_bpe_foundation_1b_arctus1b-20260910-v1'
+          & $python -m frontier350.readonly_corpus_inventory --candidate $pilot --candidate $continuation --candidate $foundation
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only corpus inventory failed' }
