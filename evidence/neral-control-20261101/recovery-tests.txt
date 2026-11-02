@@ -1,0 +1,59 @@
+import copy,importlib.util,sys,unittest
+sys.path.insert(0,'/tmp')
+spec=importlib.util.spec_from_file_location('queue214','/tmp/neral-task-queue.py');q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q);sys.modules['queue214']=q
+KEY='neral-shared-control-221-v1'
+class Store:
+ def __init__(self):self.state=q.empty_state();self.head=0
+ def load(self):return str(self.head),copy.deepcopy(self.state)
+ def compare_and_swap(self,head,state):
+  if head!=str(self.head):raise q.Conflict('stale')
+  q.validate(state);self.state=copy.deepcopy(state);self.head+=1
+
+def fixture():
+ s=Store();c=q.Queue(s,clock=lambda:1000)
+ c.enqueue(key=KEY,title='own integration',scope=['neral_control'],base_ref='feat/neral-qlora-pilot-20261101',base_sha='e'*40)
+ c.claim(owner='old-owner',seconds=60)
+ return s
+class Tests(unittest.TestCase):
+ def call(self,s,confirmed=True):
+  from neral_recovery import recover
+  return recover(s,key=KEY,old_owner='old-owner',new_owner='new-owner',base_sha='e'*40,expected_revision=s.state['revision'],confirmed_stopped=confirmed,clock=lambda:2000)
+ def test_reclaims_only_same_task_with_incremented_attempt(self):
+  s=fixture();r=self.call(s);self.assertEqual((r['key'],r['owner'],r['attempts']),(KEY,'new-owner',2))
+ def test_requires_actual_stopped_confirmation(self):
+  s=fixture();before=copy.deepcopy(s.state)
+  with self.assertRaises(q.QueueError):self.call(s,False)
+  self.assertEqual(s.state,before)
+ def test_foreign_ready_cannot_be_claimed_or_expired(self):
+  s=fixture();q.Queue(s,clock=lambda:1001).enqueue(key='foreign-ready',title='foreign',scope=['other.py'],base_ref='main',base_sha='a'*40)
+  before=copy.deepcopy(s.state)
+  with self.assertRaises(q.QueueError):self.call(s)
+  self.assertEqual(s.state,before)
+ def test_foreign_expired_running_is_not_modified(self):
+  s=fixture();c=q.Queue(s,clock=lambda:1001);c.enqueue(key='foreign-task',title='foreign',scope=['other.py'],base_ref='main',base_sha='a'*40);c.claim(owner='foreign-owner',seconds=60)
+  before=copy.deepcopy(s.state)
+  with self.assertRaises(q.QueueError):self.call(s)
+  self.assertEqual(s.state,before)
+ def test_unexpired_owner_is_not_recovered(self):
+  from neral_recovery import recover
+  s=fixture();before=copy.deepcopy(s.state)
+  with self.assertRaises(q.QueueError):recover(s,key=KEY,old_owner='old-owner',new_owner='new-owner',base_sha='e'*40,expected_revision=s.state['revision'],confirmed_stopped=True,clock=lambda:1010)
+  self.assertEqual(s.state,before)
+ def test_foreign_review_lock_preserved_exactly(self):
+  s=fixture();c=q.Queue(s,clock=lambda:1001);c.enqueue(key='foreign-review',title='foreign',scope=['other.py'],base_ref='main',base_sha='a'*40);t=c.claim(owner='review-owner',seconds=60);c.finish(t['key'],owner=t['owner'],token=t['lease_token'],pr=123,commit='a'*40)
+  before=copy.deepcopy(s.state['tasks']['foreign-review']);self.call(s);self.assertEqual(s.state['tasks']['foreign-review'],before)
+class RaceTests(Tests):
+ def test_concurrent_ready_task_aborts_cas_retry_without_claiming_it(self):
+  s=fixture();original=s.compare_and_swap;first=[True]
+  def racing(head,state):
+   if first[0]:
+    first[0]=False
+    q.Queue(s,clock=lambda:1001).enqueue(key='racing-ready',title='race',scope=['race.py'],base_ref='main',base_sha='b'*40)
+    raise q.Conflict('race')
+   return original(head,state)
+  s.compare_and_swap=racing
+  with self.assertRaises(q.Conflict):self.call(s)
+  self.assertEqual(s.state['tasks']['racing-ready']['state'],'READY')
+  self.assertEqual(s.state['tasks'][KEY]['state'],'RUNNING')
+
+if __name__=='__main__':unittest.main()

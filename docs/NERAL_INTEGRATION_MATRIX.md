@@ -1,0 +1,78 @@
+# NERAL source and integration matrix
+
+Snapshot: 2 November 2026. Main is `4e4dca3`; this work starts from PR #220
+head `ef65d9c`. The table records inspected Git objects at the current PR heads
+supplied for this review. A PR number is a source reference, not evidence that its
+code has merged. These PRs remain open drafts; no automatic merge is proposed.
+
+## Source/version matrix — establish this before integration
+
+| PR / inspected head | Concrete existing implementation | Present in #220? | Integration decision and conflict |
+| --- | --- | --- | --- |
+| [#173](https://github.com/Cola968/neral-helios/pull/173) `11a7f9c` | Chat experience, `app.py`, `chat_store.py`, core UI; preserves imported-conversation provenance. | Yes, ancestor. | Reuse the inherited persistence and provenance contracts. Do not replace the chat store or core UI. |
+| [#175](https://github.com/Cola968/neral-helios/pull/175) `2d0066f` | `arctus_runtime.py` and `frontier350/chat350_contract.py`; excludes truncated Arctus answers from later model context. | Yes, ancestor. | Preserve runtime-family isolation and incomplete-answer exclusion. |
+| [#203](https://github.com/Cola968/neral-helios/pull/203) `147d74c` | `neral_agent_plan.propose_agent_plan`, `neral_orbit_agent_loop.run_confirmed_research`, `draft_with_qwen`; confirmed public research and review handoff. | **Only older `01b234b`; current head is not an ancestor.** | Review its delta separately. Do not claim current Orbit/agent-loop integration from inherited assistant code. Its `app.py`/assistant changes overlap held paths. |
+| [#204](https://github.com/Cola968/neral-helios/pull/204) `61ac1e8` | `neral_assistant.assistant_turn`, versioned persona and quality profiles. | Yes, ancestor. | Wrap existing transport/persona contracts; distinguish standard/deep budgets from native thinking. |
+| [#208](https://github.com/Cola968/neral-helios/pull/208) `1be9070` | `arctus_billion_audit.audit_corpus`, exact/SimHash split-leak audits, bounded SQLite index and handle cleanup. | No. | Optional corpus preparation gate in its own change; this is not an inference or training implementation. |
+| [#209](https://github.com/Cola968/neral-helios/pull/209) `ba62ed3` | `frontier350/arctus350_teacher_gate.prepare_teacher_candidate`; independently checked references, frozen-test protection, semantic split checks. | No. | Keep native Arctus teacher/data work separate from Qwen wrapper integration; do not port the large branch wholesale. |
+| [#210](https://github.com/Cola968/neral-helios/pull/210) `9ba549d` | `neral_2022_gate.evaluate/score`; strict response/tool identity and fail-closed malformed Ollama calls. | Yes, ancestor. | Preserve native versus assisted scoring and strict tool envelopes. |
+| [#212](https://github.com/Cola968/neral-helios/pull/212) `0e05745` | Ollama finish-reason propagation through assistant/chat/gate. | Yes, ancestor. | Preserve incomplete/truncated status through every new adapter. |
+| [#213](https://github.com/Cola968/neral-helios/pull/213) `99e1ed5` | Two distinct sequential calculator/AST tools; bounded 4 KiB AST feedback with omissions and severity priority. | Yes, ancestor. | Registry calls existing `_calculate` / `_code_check`; no duplicated evaluator or code execution engine. |
+| [#214](https://github.com/Cola968/neral-helios/pull/214) `53ab7cf` | `cloud/neral-coordinator/task_queue.py`; Git CAS queue, fenced leases, task ownership. | No; used externally for coordination. | Obey the owned lease and path scopes. Existing `REVIEW_REQUIRED` tasks hold assistant/app/Qwen/store/core-UI paths. New extension paths avoid those holds. |
+| [#215](https://github.com/Cola968/neral-helios/pull/215) `345edb3` | Separate `integration/neral-core-beta-candidate-20261101` branch; `launch_check.audit`, readiness/PWA fixes plus assistant, solve and UI changes. | No. | Do not replace this runtime with #215 or copy the whole branch. Reconcile its held-path delta in an explicit later integration review. |
+| [#217](https://github.com/Cola968/neral-helios/pull/217) `dc08337` | `solve.py` rational-bound checks when combining equation sides. | Yes, ancestor. | Reuse through canonical calculator helpers; do not fork arithmetic semantics. |
+| [#219](https://github.com/Cola968/neral-helios/pull/219) `a27ff73` | `qwen_local_runtime.py`, `model_catalog.py`, NF4 loading and streaming provenance; real local GPU-smoke harness. | Yes, ancestor. | Thin provider over the existing runtime. Context remains **2048 tokens**, response maximum 512. No 4096/8192-context result is established. |
+| [#220](https://github.com/Cola968/neral-helios/pull/220) `ef65d9c` | Opt-in QLoRA runner/preflight, guarded versioned adapter candidates, reviewed project corpus, blind-comparison bookkeeping. | Base. | Reuse isolated training and candidate contracts. Twenty-six prepared examples and eight held-out cases are not a trained adapter or measured model improvement. |
+
+Ancestry was checked with `git merge-base --is-ancestor <head> ef65d9c`.
+Current source paths and function definitions were inspected with `git show` for
+non-ancestor heads. Recheck remote heads and the lease before publishing a later
+revision; this table is pinned evidence, not a promise that remote branches stay fixed.
+
+## Function, evidence, missing work and next integration step
+
+The `neral_control/` package is a new extension on #220. Its unit tests use
+fixtures/fakes unless stated otherwise. Their passing status demonstrates control
+contracts, not real model quality, GPU behavior, or autonomous research success.
+
+| Function | Existing code reused / extension | Actual test witnesses | Missing or limited behavior | Next integration step |
+| --- | --- | --- | --- | --- |
+| Calculator and code review | `neral_assistant._calculate`, `_code_check`; `chat_math.tool_answer`; `code_check.py`; new `registry.default_registry` calls those helpers. | `test_calculator_tool_is_executed_without_eval`; `test_untrusted_code_is_never_run`; `test_code_review_then_calculation_in_one_turn`; `test_static_code_tool_result_is_bounded_without_hiding_omissions`; new `test_builtin_reuses_existing_bounded_helpers_and_denies_without_permission`. | Static AST analysis does not run submitted code. Registry deadlines are cooperative and cannot kill an arbitrary blocked handler. | Use one explicit allowlist/schema/permission envelope; retain the old engines and attribution. |
+| Provider abstraction | Existing Ollama request/validation and local `QwenRuntime`; new `providers.OllamaProvider` / `LocalQwenProvider`. | `test_ollama_uses_existing_payload_and_preserves_native_reason`; `test_local_uses_existing_runtime_and_audited_template_without_protocol_progress`; `test_local_count_uses_identical_serialization_and_fixed_template`; `test_base_identity_separates_wrapper_from_weights`. | No new inference engine. Local tool protocol is whole-response JSON, buffered and strict. Ollama HTTP cancellation is checked before/after blocking transport; in-flight interruption is not guaranteed. | Route through existing runtime ownership/locking; keep wrapper identity separate from base/adapter weights. |
+| Tool completion and cancellation | Existing finish reasons from #212 and no-execution truncated calls; provider/registry cancellation and deadline checks. | `test_truncated_tool_request_is_not_executed`; `test_truncated_final_answer_after_tool_is_incomplete_without_retry`; `test_ollama_cancel_after_blocking_transport_never_returns_actionable_calls`; `test_local_deadline_signals_existing_runtime_event`. | A cancelled or truncated response is not a completed answer; generated internal protocol is not UI progress. | Carry structured terminal status to the controller/API and persist only eligible final turns. |
+| Project files and context | New `context.ProjectReader`, `select_context`; explicit approved root, bounded UTF-8 source retrieval and source hashes. | `test_reader_rejects_links_binary_and_oversize`; `test_denied_files_never_opened_by_search`; `test_context_preserves_prompt_filters_history_and_labels_actual_sources`; `test_provider_overhead_is_counted_and_invalid_counter_rejected`. | Per-turn retrieval is not an automatic memory store. Decisions are caller-supplied; nothing is automatically learned/persisted. POSIX no-follow descriptors and Windows pinned handles/final GUID paths are implemented. Native Windows/NTFS race acceptance is still a release blocker. | Supply an approved root and exact provider token counter; preserve the current prompt, omit whole old records, label retrieved text untrusted. |
+| Optional public search | New `search.WikipediaSearch`, registered only when configured; fixed English/German Wikipedia HTTPS API, article extracts and provenance. | `test_disabled_default_never_sends_query`; `test_search_fetches_article_extract_with_honest_provenance`; `test_unsafe_article_urls_never_become_sources`; `test_deadline_and_cancel_checked_before_network`. | This is a bounded reference provider, not general live-web research. Tests use injected transport. Socket waits/DNS cannot promise hard wall-clock cancellation. Disabled/unavailable search must stay visibly unavailable. | Enable explicitly and grant network permission per request; keep source content outside instruction authority. |
+| Shared controller and API/panel | New path-scoped extension; existing `assistant_turn`, app/chat store and runtime remain owned by their original branches. | `test_same_controller_uses_both_real_provider_adapters_and_same_tool`; `test_browser_real_tools_and_mobile_layout`: actual Helios/Chromium math, static check, keyboard, four widths and labelled cancellation fixture. | Opt-in controller/API/panel passed CPU and actual Chromium tests; real Windows and real language-model tool execution remain unverified. | Add separate controller/Blueprint/panel files under the lease scope, with explicit host registration instructions; do not silently patch held `app.py`, store or core UI. |
+| Quality and comparison accounting | Existing `neral_2022_gate`; new `evaluation.py` imports four-condition reports and measures gains on base-unsolved cases. | `test_truncated_correct_prefix_never_passes_or_stops_other_cases`; `test_external_model_identity_cannot_be_forged_or_reclassified`; `test_exact_twenty_percent_excludes_already_solved_base_cases`; `test_unfair_abc_settings_rejected`; `test_zero_denominator_undefined_and_no_unearned_full_credit`. | Synthetic report fixtures are not measured A/B/C/D inference. No model gain or 20% improvement has been demonstrated. Missing resource measurements remain unknown. | Collect real, matched-condition held-out reports only in a separately authorized inference run; keep model-only and tool-assisted results distinct. |
+| Current agent/Orbit work | #203 current head's `propose_agent_plan` and `run_confirmed_research` with reviewed store transitions. | At `147d74c`: `test_no_consent_means_zero_model_or_network_calls`; `test_approved_pipeline_calls_one_public_research_and_preserves_review`; `test_model_cannot_add_unapproved_execution_tools`. These are source witnesses, not rerun results here. | These newer functions are absent from #220. Its published proof reports 27 passing tests and a three-source local workflow; this is not general autonomy. | Review only the newer #203 delta against extension contracts, preserve its confirmations/review states, then resolve held-path overlaps separately. |
+| Corpus and adapter preparation | #220 `scripts/neral_qlora_pilot.py`, `neral_adapter_candidate.py`, corpus manifests and blind comparison. | `test_new_corpus_is_complete_reviewed_and_separate`; `test_preview_does_not_commit_and_apply_is_single_use`; `test_old_undo_cannot_overwrite_later_changes`; selected CPU evidence in `evidence/neral-own-learning-20261101/cpu-tests.txt`. | Ten smoke plus sixteen additional examples are prepared, untrained data. Eight held-out cases remain separate. No tokenizer-length result for the new corpus, trained candidate, learning gain, Windows/GPU compatibility or training resource result. | Keep training opt-in and isolated; require new measured candidate evidence before activation/promotion. No GPU inference or training is authorized in this integration task. |
+| Data readiness / teacher gates | #208 near-duplicate audit and #209 teacher candidate preparation, both outside this ancestry. | At `1be9070`: `test_cross_split_near_duplicate_is_flagged_and_not_training_ready`, `test_lsh_saturation_reports_inconclusive_instead_of_false_clean`; at `ba62ed3`: `test_rejects_test_contamination_and_modified_frozen_references`, `test_disallows_commutative_math_train_val_leakage`. Not rerun here. | Audit/candidate construction does not establish trained capability. These branches carry unrelated changes. | Integrate discrete data gates only if needed for a later native training task, with pinned sources and independent holdouts. |
+
+## Validation status and publication boundary
+
+- Published #220 evidence records **229 selected CPU tests passed**. That report
+  is historical evidence for `ef65d9c`, not a test result for the new extension.
+- During extension development, the parent run reported **149 new tests plus
+  34 existing tests: 183 passed**. The controller/API were still being added;
+  the final selected run must supersede this intermediate count.
+- An attempted broader environment run reported **742 passed, 1 skipped,
+  8 failed, 3 errors**, with missing assets/socket restrictions and concurrent
+  test interference under investigation. A fully clean repository suite is
+  **not** established by that run. See the final task handoff for rerun results.
+- Final selected integration/regression run: **448 passed, 1 skipped**; the skip is native Windows acceptance. Four Node contract suites, syntax and pip check pass. Actual Chromium ran the original Helios app in isolated preparation mode, real math/static checks and a labelled cooperative cancellation fixture. A free explicitly enabled Wikipedia query retrieved an actual source. No model inference, GPU run, training, real four-condition scoring, adapter promotion, merge or deployment occurred.
+
+Integration order: pin sources and queue ownership; add the scoped package and
+its tests; add the opt-in API/panel with explicit host registration; run the
+selected CPU regression suite without competing test runs; review the resulting
+diff and evidence. Reconciliation with #203's newer agent work and #215's broader
+integration branch remains a separate, explicit operation after path holds are
+resolved. Never infer merged status or tested behavior from the roadmap alone.
+
+
+Contract-v3 follow-up on the same PR #222: provenance adds explicit backend/base/
+revision/LoRA/integrity fields with artifact verification; context adds lstat/root
+allowlist/untrusted markers; profile ceilings are now FAST 1 model/1 tool,
+THINK 2/2 and DEEP 4/4 with canonical-call deduplication and one verified-error
+correction. ControllerRunResult and an inert public factory are exported from the
+package. Legacy held files remain unchanged. See contract-v3 evidence for fresh
+module/regression results; earlier 448 is historical, not this revision's count.

@@ -1,0 +1,40 @@
+"""Target-constrained operator wrapper around UNMODIFIED PR214 operations.
+No direct queue JSON edits, no global expiry helper, no force push.
+"""
+import copy,importlib.util,sys,time
+if 'queue214' in sys.modules:q=sys.modules['queue214']
+else:
+ spec=importlib.util.spec_from_file_location('queue214','/tmp/neral-task-queue.py');q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)
+
+def recover(store,*,key,old_owner,new_owner,base_sha,expected_revision,confirmed_stopped,clock=time.time):
+ if confirmed_stopped is not True:raise q.QueueError('Stopped executors must be technically confirmed first')
+ _,initial=store.load()
+ if initial['revision']!=expected_revision:raise q.Conflict('Authority changed; inspect first')
+ original=initial['tasks'].get(key)
+ if not original or original['base_sha']!=base_sha or original['owner']!=old_owner or original['state']!='RUNNING' or original['lease_until']>clock():raise q.QueueError('Target is not the approved expired lease')
+ foreign={k:v for k,v in initial['tasks'].items() if k!=key}
+ class Guard:
+  phase='expire'
+  def load(self):
+   head,state=store.load()
+   if {k:v for k,v in state['tasks'].items() if k!=key}!=foreign:raise q.Conflict('Foreign state changed; stop recovery')
+   target=state['tasks'][key]
+   if target['base_sha']!=base_sha or target['scope']!=original['scope']:raise q.Conflict('Scope or base changed')
+   for k,t in state['tasks'].items():
+    if k!=key and (t['state']=='READY' or (t['state']=='RUNNING' and t['lease_until']<=clock())):raise q.QueueError('Global claim would touch another task; refused')
+   expected={'expire':'RUNNING','resolve':'BLOCKED','claim':'READY'}[self.phase]
+   if target['state']!=expected:raise q.Conflict('Unexpected target state')
+   return head,state
+  def compare_and_swap(self,head,state):
+   if {k:v for k,v in state['tasks'].items() if k!=key}!=foreign:raise q.Conflict('Foreign mutation refused')
+   return store.compare_and_swap(head,state)
+ guard=Guard();queue=q.Queue(guard,clock=clock)
+ # Existing claim is safe ONLY behind the per-snapshot guard: no READY task
+ # and no other expired RUNNING task exists, including after CAS retries.
+ if queue.claim(owner=new_owner,seconds=900) is not None:raise q.Conflict('Unexpected claim')
+ guard.phase='resolve'
+ queue.resolve(key,decision='retry',confirmed_stopped=True)
+ guard.phase='claim'
+ task=queue.claim(owner=new_owner,seconds=900)
+ if not task or task['key']!=key or task['owner']!=new_owner:raise q.Conflict('Recovery ownership unconfirmed')
+ return task
