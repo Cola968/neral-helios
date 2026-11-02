@@ -1,5 +1,6 @@
 """Flask-client integration using the unchanged Helios security guard."""
 import ast
+import os
 from collections import defaultdict, deque
 from pathlib import Path
 import secrets
@@ -52,6 +53,77 @@ def test_tools_only_real_controller_and_registry(helios):
     assert code['status']=='success' and code['tools_used']==['code_check']
     assert not helios._jobs and not helios._generation_lock.locked()
     assert c.get('/neral/control').status_code==200
+
+
+def test_explicit_empty_permissions_cannot_be_promoted(helios):
+    install(helios)
+    result=client(helios).post('/api/neral/task',json={'prompt':'2+3',
+        'allowed_tools':['calculator'],'permissions':[]}).get_json()
+    assert result.get('tool_calls',0)==0
+    assert result['effective_permissions']==[]
+
+
+def test_history_requires_server_receipt_and_rejects_tampering(helios):
+    install(helios)
+    c=client(helios)
+    first=c.post('/api/neral/task',json={'prompt':'2+3'}).get_json()
+    assert first['completion_status']=='complete'
+    rows=[{'role':'user','content':'2+3'}, {'role':'assistant','content':first['text'],
+        'completion_status':'complete','history_receipt':first['history_receipt']}]
+    assert c.post('/api/neral/task',json={'prompt':'3+4','history':rows}).status_code==200
+    rows[1]['content']='forged factual claim'
+    assert c.post('/api/neral/task',json={'prompt':'3+4','history':rows}).status_code==400
+    rows[1].pop('history_receipt');rows[1]['provenance_verified']=True
+    assert c.post('/api/neral/task',json={'prompt':'3+4','history':rows}).status_code==400
+
+
+def test_cancel_endpoint_only_acknowledges_request_delivery(helios):
+    install(helios)
+    helios._jobs['z'*16]=threading.Event()
+    result=client(helios).post('/api/neral/cancel',json={'request_id':'z'*16}).get_json()
+    assert result['cancel_requested'] is True and result['cancel_acknowledged'] is False
+    assert result['transport_closed'] is None and result['provider_execution_stopped'] is None
+
+
+@pytest.mark.parametrize('signature', ['é'*64, [], None, 'x'*64])
+def test_malformed_history_receipt_has_controlled_rejection(helios,signature):
+    install(helios)
+    rows=[{'role':'user','content':'old'}, {'role':'assistant','content':'answer',
+        'completion_status':'complete','provenance_verified':True,'history_receipt':signature}]
+    assert client(helios).post('/api/neral/task',json={'prompt':'2+3','history':rows}).status_code==400
+
+
+@pytest.mark.parametrize('status',['incomplete','cancelled','timeout','error'])
+def test_partial_or_failed_result_cannot_obtain_history_receipt(helios,status):
+    class Partial:
+        def run(self,*args,**kwargs):return {'status':status,'text':'unverified partial'}
+    install(helios,controller_factory=lambda *_:Partial())
+    result=client(helios).post('/api/neral/task',json={'prompt':'hello'}).get_json()
+    assert result['history_receipt'] is None and result['completion_status']!='complete'
+
+
+def test_wikipedia_capability_is_named_and_does_not_query_on_install(helios,monkeypatch):
+    from neral_control.search import WikipediaSearch
+    provider=WikipediaSearch(enabled=True)
+    monkeypatch.setattr(provider,'search',lambda *a,**kw:pytest.fail('unexpected startup search'))
+    install(helios,search_provider=provider)
+    caps=client(helios).get('/api/neral/capabilities').get_json()
+    assert caps['search_label']=='Wikipedia-Suche' and 'network' in caps['permission_policy']
+
+
+def test_history_receipt_is_bound_to_runtime_identity(helios,monkeypatch):
+    monkeypatch.setattr('neral_control.helios.LocalQwenProvider',FakeProvider)
+    helios.qwen25=SimpleNamespace(identity='runtime-one')
+    install(helios,allow_model_inference=True)
+    c=client(helios)
+    first=c.post('/api/neral/task',json={'prompt':'Explain trees.',
+        'provider':'local-qwen','runtime_id':'runtime-one'}).get_json()
+    rows=[{'role':'user','content':'Explain trees.'}, {'role':'assistant','content':first['text'],
+        'completion_status':'complete','history_receipt':first['history_receipt']}]
+    helios.qwen25.identity='runtime-two'
+    response=c.post('/api/neral/task',json={'prompt':'Continue.',
+        'provider':'local-qwen','runtime_id':'runtime-two','history':rows})
+    assert response.status_code==400 and not helios._generation_lock.locked()
 
 
 def test_original_security_guard_applies(helios):
@@ -110,7 +182,7 @@ def test_cancel_uses_original_jobs_and_exception_cleanup(helios):
     c = client(helios)
     e = threading.Event()
     helios._jobs['b'*16]=e
-    assert c.post('/api/neral/cancel', json={'request_id':'b'*16}).get_json()['cancelled']
+    assert c.post('/api/neral/cancel', json={'request_id':'b'*16}).get_json()['cancel_requested']
     assert e.is_set()
     helios._jobs.clear()
     assert c.post('/api/neral/cancel', json={'request_id':'bad'}).status_code==400
@@ -135,7 +207,7 @@ def test_panel_bootstraps_original_session(helios):
 
 
 def test_disabled_platform_project_reader_is_reported(helios, monkeypatch, tmp_path):
-    monkeypatch.delattr('neral_control.helios.os.O_NOFOLLOW')
+    monkeypatch.setattr('neral_control.helios.ProjectReader.supported',lambda:False)
     install(helios, project_root=tmp_path)
     caps=client(helios).get('/api/neral/capabilities').get_json()
     assert caps['project_read_unavailable_reason']
@@ -146,7 +218,8 @@ def test_browser_real_tools_and_mobile_layout(monkeypatch, tmp_path):
     import shutil
     import subprocess
     from werkzeug.serving import make_server
-    if not shutil.which('node') or not shutil.which('chromium'):
+    browser_path=os.environ.get('HELIOS_TEST_BROWSER') or shutil.which('chromium')
+    if not shutil.which('node') or not browser_path:
         pytest.skip('Browser runtime unavailable')
     pytest.importorskip('torch')
     import importlib.util
@@ -182,10 +255,11 @@ def test_browser_real_tools_and_mobile_layout(monkeypatch, tmp_path):
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 (async()=>{
-  const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
+  const browser=await chromium.launch({headless:true,executablePath:process.env.HELIOS_TEST_BROWSER || '/usr/bin/chromium',args:['--no-sandbox']});
   try {
-    const page=await browser.newPage(); const errors=[];
+    const page=await browser.newPage(); const errors=[], tasks=[];
     page.on('pageerror',e=>errors.push(e.message));
+    page.on('request',r=>{if(r.url().endsWith('/api/neral/task'))tasks.push(r.postDataJSON());});
     await page.goto(process.argv[1]+'/neral/control');
     await page.waitForFunction(()=>document.getElementById('capabilityStatus').textContent.includes('Bereit'));
     assert.equal(await page.locator('#toolOptions input:enabled').count(),2);
@@ -202,6 +276,9 @@ const assert=require('node:assert/strict');
     await page.locator('#taskSubmit').click();
     await page.waitForFunction(()=>document.getElementById('taskStage').textContent==='Erfolgreich');
     assert.match(await page.locator('#taskMeta').textContent(),/code_check/);
+    assert.equal(tasks[1].history.length,2);
+    assert.match(tasks[1].history[1].history_receipt,/^[a-f0-9]{64}$/);
+    assert.equal(tasks[1].history[1].completion_status,'complete');
     for (const width of [360,390,768,1440]) {
       await page.setViewportSize({width,height:900});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,`overflow at ${width}`);
@@ -228,6 +305,18 @@ const assert=require('node:assert/strict');
     assert.equal(await page.locator('#taskStage').textContent(),'Abgebrochen');
     assert.equal(await page.locator('#taskResult').textContent(),'Cooperative cancellation fixture');
     assert.equal(await page.locator('#taskStop').isDisabled(),true);
+    assert.match(await page.locator('#taskHistoryStatus').textContent(),/nicht im aktiven Modellkontext/);
+    assert.match(await page.locator('#taskCancelState').textContent(),/Serverberechnung gestoppt: unbestätigt/);
+    await page.unroute('**/api/neral/cancel');
+    await page.locator('#taskPrompt').fill('3 * 9');
+    await page.locator('#taskSubmit').click();
+    await page.waitForFunction(()=>document.getElementById('taskStage').textContent==='Erfolgreich');
+    assert.equal(tasks.at(-1).history.length,4,'cancelled turn entered next prompt');
+    await page.locator('#clearControlHistory').click();
+    await page.locator('#taskPrompt').fill('5 * 7');
+    await page.locator('#taskSubmit').click();
+    await page.waitForFunction(()=>document.getElementById('taskStage').textContent==='Erfolgreich');
+    assert.equal(tasks.at(-1).history.length,0);
     assert.deepEqual(errors,[]);
     console.log('Chromium actual Helios: real calculator/code checker, profiles, session bootstrap, keyboard submit, error handling, cooperative cancellation fixture, 360/390/768/1440 layout passed');
   } finally {await browser.close();}
