@@ -1,0 +1,1809 @@
+{
+  "schema": 2,
+  "benchmark_version": "neral-dev-100-v1",
+  "split": "dev",
+  "external_unseen_assertion": false,
+  "independent_reviewer_assertion": false,
+  "tasks": [
+    {
+      "id": "neral_dev_coding_debugging_001",
+      "category": "coding_debugging",
+      "semantic_family": "loop-tail",
+      "prompt_sha256": "81ac033ace3dda390e22bd71b28326f51b309688f3c8e9b8d9c05ad742f7130e",
+      "rubric_sha256": "e8d33811b0d39c5acc5ba0abd19d13a08fa236361a71a69820fabe713caa2276",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_001",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_002",
+      "category": "coding_debugging",
+      "semantic_family": "mutation-during-iteration",
+      "prompt_sha256": "a3793556ac94ba3e6756eb9858025cbeedd80c1152f9e30e4cab07025026d3c6",
+      "rubric_sha256": "bee1e1b9764c3a7f82e423eb2d34f39c7dbfadf2d272c5a769c9dc201b6de879",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_002",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_003",
+      "category": "coding_debugging",
+      "semantic_family": "closure-binding",
+      "prompt_sha256": "a3123bacfc746436b8221c9e221a09985b8040eb624f58df9c18ebc0e548ece7",
+      "rubric_sha256": "d0e3e1adcfa0fae2a3c2f9b9cb5036c3e827ed2db03d00e7a0cf892cf4bb28b9",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_003",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_004",
+      "category": "coding_debugging",
+      "semantic_family": "zero-sentinel",
+      "prompt_sha256": "fdf77f0c572ea52e0306dbbec08aed69ae4dfe1f597729bee03cb4464f0acc4e",
+      "rubric_sha256": "0c3229b04a4368ee88d00f0400f6dd6d0d3bc26ee7293b98484d88ecae2b3b45",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_004",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_005",
+      "category": "coding_debugging",
+      "semantic_family": "cleanup-finally",
+      "prompt_sha256": "4aca5d1c9e3dab7943412c794755c3c73ea66eb182dec0ea246144255c76a2f0",
+      "rubric_sha256": "8356e36c44563d77d8e787ab25f61fd34ee9f3afb4cf0845434de01f9974c290",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_005",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_006",
+      "category": "coding_debugging",
+      "semantic_family": "cas-update",
+      "prompt_sha256": "9ee16e63b9c8f7a333c31663df129a53a963017863262572b5c6e67ec82d1a9a",
+      "rubric_sha256": "dfc7ab26f60b5ff5d93a5abfc97bd7dab56e82d3f2b61d151ff518105ea68c28",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_006",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_007",
+      "category": "coding_debugging",
+      "semantic_family": "idempotent-request",
+      "prompt_sha256": "f2e6aa2a95cfd9671b663dab2d2398b3d0ea0db318673cb1a7137dce471f923f",
+      "rubric_sha256": "fd5a93def2562edebd3dfb40b919abbe6e4ada711f82d8b9b03fb2168b5a797a",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_007",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_008",
+      "category": "coding_debugging",
+      "semantic_family": "utf8-limit",
+      "prompt_sha256": "77038f6c701aee06f146461aee248daf0174f7636de83e41a6bcb89084317334",
+      "rubric_sha256": "ab39104bef820ff8c847503a971d115540c097b77d3ffe28d2bc96d353c19f7b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_008",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_009",
+      "category": "coding_debugging",
+      "semantic_family": "ndjson-fragments",
+      "prompt_sha256": "3dccbfb8f1b8a0f402095a233b3b062bc7fea02d69f8e2f917f35f556473d455",
+      "rubric_sha256": "0d85a1f2a25ecde848f16255604f6c22501e692e2cfbdcabd875a3b597f74148",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_009",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_010",
+      "category": "coding_debugging",
+      "semantic_family": "terminal-once",
+      "prompt_sha256": "c92d225f1882cd6cd341ad2231cfb3b55aeebdb0e78b29ba2157d1f9500f31eb",
+      "rubric_sha256": "cb2a18c2e5503f6af8cae64b0cc9c80344f85edb2473c2c5d0bd7c19b1681ce7",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_010",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_011",
+      "category": "coding_debugging",
+      "semantic_family": "js-await-foreach",
+      "prompt_sha256": "3da8cb8ba5e29015054beabc5a189c30b45e32417b729fa311d22f22ad446eb0",
+      "rubric_sha256": "8e900fb20e3bf2fb4dac8361554a59cb1508c94a259001dd777fcfbe4184ca34",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_011",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_012",
+      "category": "coding_debugging",
+      "semantic_family": "js-numeric-sort",
+      "prompt_sha256": "e174f918463e36cbcf6e522fde03265cc590026dd93e75b643fcb3d76df89e72",
+      "rubric_sha256": "5d33cb434d9fd0f0a657d392b5907b308ae797c74e11d5f15aa7c4e5eb579bfa",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_012",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_013",
+      "category": "coding_debugging",
+      "semantic_family": "transaction-await",
+      "prompt_sha256": "41b54ca5a1bab341df657b93ccea91af01f24a9ef799774fe1c5e879d7cc4d3c",
+      "rubric_sha256": "2957067ea9559544b2408da37d9f7d16a385174ac1ff16035fb89c37f39369c5",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_013",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_014",
+      "category": "coding_debugging",
+      "semantic_family": "js-nullish-zero",
+      "prompt_sha256": "49a42d8a0ae494effe801886b220365f6f7354acb5ab8000969a52631df3929b",
+      "rubric_sha256": "1eb8ff3030423659118d6ae866c48ab5e4b7c2096daf4b8b64930932207ff64b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_014",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_015",
+      "category": "coding_debugging",
+      "semantic_family": "binary-search-boundary",
+      "prompt_sha256": "a9dec07dc88d393583d6b73d9ad1753b91ce490f6b34505e2184d22747884867",
+      "rubric_sha256": "64dc06c08b2b6dbd85d8da2206361890e36e26c018164b728caf8ccce256257c",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_015",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_016",
+      "category": "coding_debugging",
+      "semantic_family": "nested-alias",
+      "prompt_sha256": "e9ab66d2c0919ec6e2fcfc343ddc9f7a61ad3e08452188c7b0826798285cf0f3",
+      "rubric_sha256": "f3e8fbabb524fd39bb7fb651e1ce42a09c6e8e614c7e4147e6096ca403c5dd08",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_016",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_017",
+      "category": "coding_debugging",
+      "semantic_family": "monotonic-timeout",
+      "prompt_sha256": "a937349a5e63a847f603f3162c1b6f4b3addae4a02927036c04300d45138bd8a",
+      "rubric_sha256": "00e67670e03bdf4be064be258fca2ab586e62d288fc85a36ba051b73ec1b399b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_017",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_018",
+      "category": "coding_debugging",
+      "semantic_family": "cache-key-mutation",
+      "prompt_sha256": "412706ff2faeead2fdec742d9511274b57c351659243ecd64805c41fd2accadd",
+      "rubric_sha256": "10d6a3e87a4bd58d7fb323a7871ebdbcd9a5b9d699e5a2442399e42d09c3a4c4",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_018",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_019",
+      "category": "coding_debugging",
+      "semantic_family": "path-prefix-confusion",
+      "prompt_sha256": "dbf80336bd224c132343c9ac161f09b1a9c05da1cce5e336ffbcc7527fa98004",
+      "rubric_sha256": "889743a3c1d9a164249f88b1cacc412d6a4a5ae9a74e373f8c32a5de58ee1806",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_019",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_020",
+      "category": "coding_debugging",
+      "semantic_family": "finally-return",
+      "prompt_sha256": "55ad198356ab395d8c2caba6283bf3f45daae141ecc7f42e787d112bd3da7348",
+      "rubric_sha256": "c8bb338b99adac0ba54dfe6b40e13cbcbe81c9a9d1f36553ea26d49437cd124f",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_020",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_021",
+      "category": "coding_debugging",
+      "semantic_family": "timezone-ordering",
+      "prompt_sha256": "ef10ccd779e831bb499e3e937ea8946a54bf1f8b638d0c0ba0d3b2f99f84455e",
+      "rubric_sha256": "b6e324302613d6beb1853da5444545bf9c3e6e737b736116623d1abd9fe9869b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_021",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_022",
+      "category": "coding_debugging",
+      "semantic_family": "decimal-input-construction",
+      "prompt_sha256": "1feccb631452d9b06bc02936d8edd0c7f97ee4354749333d35e2513b5c960ec3",
+      "rubric_sha256": "408052f75f459cd3e44d1fd7cbb4c828c9ad7385f83e4555f2e16f1e51d5421e",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_022",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_023",
+      "category": "coding_debugging",
+      "semantic_family": "iterator-exhaustion",
+      "prompt_sha256": "bc7eff80f46d3579b4723abfef337c275da277fbaabe89f864ac1f3ff708f7c5",
+      "rubric_sha256": "c32c39590f5e8c9e09cf0aba7aab34d6c67f30005e57e7855914efa47cfa7572",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_023",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_024",
+      "category": "coding_debugging",
+      "semantic_family": "csv-quoted-fields",
+      "prompt_sha256": "026a6662507cba8dab012a04b06072bc9ebd37aaf0006cc9f50008166458c309",
+      "rubric_sha256": "2a672de47522bface60a9f686222de8d15f8020ac74dd452a978e53f84b91ebb",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_024",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_025",
+      "category": "coding_debugging",
+      "semantic_family": "boolean-number-schema",
+      "prompt_sha256": "f4b40f9b44c636e7808a583d8a99ccc5c276f01dc121e3d73e611344aceda70f",
+      "rubric_sha256": "2ae7443a0545f71292cff0cb35e1fdfcbd652da7e03eb7409c615b85dcb3f7da",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_025",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_026",
+      "category": "coding_debugging",
+      "semantic_family": "prototype-lookup",
+      "prompt_sha256": "0cda94ea68fea426aa1f4e2db46e6ac3edf3fbedfca24d2c2230c40606db0e7d",
+      "rubric_sha256": "6f2201542d6c0d968bff3adb0bb3aabdd737dff82191a523b51241cec209a7cf",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_026",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_027",
+      "category": "coding_debugging",
+      "semantic_family": "stale-ui-response",
+      "prompt_sha256": "f5730b96b382ffe7ac520d9690e842139bed2d05e4734d5436504223b60fb9ed",
+      "rubric_sha256": "cabf95f5b820292f2a507002177b50432bf9e8f97b8d5af48f5d614449d340ba",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_027",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_028",
+      "category": "coding_debugging",
+      "semantic_family": "http-lock-error",
+      "prompt_sha256": "d98c27859512332bbd8a6d51d382a87d08bb66ce037d35fabee7c82ee6b091d0",
+      "rubric_sha256": "a42f955888175865e6420aa03ebd399bef07a4e0e3dd205c7a782e04734d3f7c",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_028",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_029",
+      "category": "coding_debugging",
+      "semantic_family": "dom-output-injection",
+      "prompt_sha256": "1c5d0d4310d585e2080dc1cdb55a8a765e6f6dd9d6e35980f60e8c2b13ead8f2",
+      "rubric_sha256": "14ba564c9b4d44c2e39882f748d41b6e5d82769d1fd7deec5af6122c65266502",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_029",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_coding_debugging_030",
+      "category": "coding_debugging",
+      "semantic_family": "file-resource-lifetime",
+      "prompt_sha256": "ea1f49bca9851121faa503eb98c986ab387596c70e12ecdd4cc3e46973d5d3c1",
+      "rubric_sha256": "db7fcd50857cae904f638d87f7c24f964282ed1cada5b9162b9f3a07da8738c7",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_coding_debugging_030",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_001",
+      "category": "tools_math",
+      "semantic_family": "invoice-rounding",
+      "prompt_sha256": "896516392b3033831dcdfca841631e8bff83759bb7fb214664857b0a32a6c7cf",
+      "rubric_sha256": "7ff62c70da1d80dad9632ce708d89c4647d82caae477154f45f9514f5fa409da",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_001",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_002",
+      "category": "tools_math",
+      "semantic_family": "energy-units",
+      "prompt_sha256": "c56b0ad58b7fb2ab6bbb789e38e1a36e6d32e3792cfc012bb2a442f2dda9470c",
+      "rubric_sha256": "be73c451b8deb0734181249454b160e90d2c07f280ef04075eac491cd139601c",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_002",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_003",
+      "category": "tools_math",
+      "semantic_family": "inverse-rate",
+      "prompt_sha256": "c0488ba0d20256df1dcf2cee3be982dc2d6cd4f7613504b779212874bcddced6",
+      "rubric_sha256": "868ad5a5a2be088637ae5a322f6cd4f6775b690bbdeaed6657f4840a3a41e052",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_003",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_004",
+      "category": "tools_math",
+      "semantic_family": "density-volume",
+      "prompt_sha256": "212c4abfbe46cd14d87a8669d75b57b1060cf9e5dceeb339eca29ab329725cce",
+      "rubric_sha256": "f01c924427dd523939c9435eddf9bfbcf60d8307819c6c70a47d4fa8d9078b16",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_004",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_005",
+      "category": "tools_math",
+      "semantic_family": "weighted-rational",
+      "prompt_sha256": "0f415c15754835634774f706faea3493b9ce9733decd921eeee89160578a4b12",
+      "rubric_sha256": "dfac81708c474116471d9e88162f4159bee863519081f1f3a8dcf53400d51a59",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_005",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_006",
+      "category": "tools_math",
+      "semantic_family": "memory-accounting",
+      "prompt_sha256": "4bafc3c3cbe9cd74c441bb5e9cdb013bd76130a5765a7ec173f923ca874156d2",
+      "rubric_sha256": "663a7bbd953c39bc230fdd7dcced7ab19865f2447f0e6713f6442e1ed594a86e",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_006",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_007",
+      "category": "tools_math",
+      "semantic_family": "transfer-lower-bound",
+      "prompt_sha256": "5eba8db75937547edf2a4b1b64fbada651021af1f358f2d56f93b5ee3a8add32",
+      "rubric_sha256": "dc0e76e20d88aace3621a8c1343628fe20bb05d2aa4f241b57505797d3409c3c",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_007",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_008",
+      "category": "tools_math",
+      "semantic_family": "stream-byte-overrun",
+      "prompt_sha256": "9bae39b441c84dd8a3b5800abb0304c2c38cce94c3b92d949d3bca4524fa4197",
+      "rubric_sha256": "760f6c2ad3262815c41c9693370e7d5242a16a0b93bb4d06a64a08e3c28951d9",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_008",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_009",
+      "category": "tools_math",
+      "semantic_family": "absolute-lease-budget",
+      "prompt_sha256": "e9631a5c707cf3257f9f1293c24e6a0cfa9f3859d2aab4b0b11d772366325998",
+      "rubric_sha256": "9c0139d1757a1bd2c9d287b0b54df56df1879762d461fe53264dd0f6dd7bab53",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_009",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_010",
+      "category": "tools_math",
+      "semantic_family": "failure-rate-denominator",
+      "prompt_sha256": "02f7b24f0f04ab55f9a387540e61157b0718f1789590b93c8e6625adeca1a422",
+      "rubric_sha256": "b396ac013de6c681fdda447864ee4909f15c75ffe24717db2f3784fff054c6d6",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_010",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_011",
+      "category": "tools_math",
+      "semantic_family": "unordered-pairs",
+      "prompt_sha256": "67261d36f606dc3282a65a26409c7bda78726e112181cb284cd9ef142a651077",
+      "rubric_sha256": "c18e237f58b1e53f50ef81d61e798aff424198146b2d20855ee9c2708a9d8a6f",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_011",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_012",
+      "category": "tools_math",
+      "semantic_family": "compound-growth",
+      "prompt_sha256": "057957599159a59fe71097bd807d9d14770335cfe67f3a7241360b7fbce808cc",
+      "rubric_sha256": "37fb9471c36fe97467d04b960f6e2658a4f4885d2505c7fde9853fc05e6529c2",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_012",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_013",
+      "category": "tools_math",
+      "semantic_family": "overlap-counting",
+      "prompt_sha256": "4942f40bf041b4b6d311283717c7fd862e9995f051342463f3d4e4f55c0791a6",
+      "rubric_sha256": "c94d4f64b61551ff27335f3c8253dd192d2e3d8ddac11272e99b3725abb34541",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_013",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_014",
+      "category": "tools_math",
+      "semantic_family": "capacity-ceiling",
+      "prompt_sha256": "91b56072cb5f4b1889d5c1938b1182ab362bc1583172f101e0329e0979399a7e",
+      "rubric_sha256": "cf7b02cfcc42df0757ab6d9d53ad5423630491cd28293112144bdc4122996ccb",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_014",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_015",
+      "category": "tools_math",
+      "semantic_family": "linear-unknown",
+      "prompt_sha256": "88b896c260f815c44ed0147a32cea22b8626f0f554bf0686a54a0b02c5277fc3",
+      "rubric_sha256": "1d3269147ed2f6f51568247479caa2e59eeca7e08ba6c1f5252f44eef02e61ca",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_015",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_016",
+      "category": "tools_math",
+      "semantic_family": "fractional-discount",
+      "prompt_sha256": "a3d53ad60e2e67ded4eba387024ec1ee3e55654af6e4c4ce600c8d72451b1894",
+      "rubric_sha256": "cc65d9f4023f0dec1270ac5f0e3b74882e75075bce2e48439af3ee4e4d52af16",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_016",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_017",
+      "category": "tools_math",
+      "semantic_family": "speedup-not-percent",
+      "prompt_sha256": "7396f02158cea280d6a8b967d3898970c910ff860f983e627cc6347e0c025dca",
+      "rubric_sha256": "33c3836c418bea398351ea3f1051327466f066cb0915154344e1a9b0dd3d965e",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_017",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_018",
+      "category": "tools_math",
+      "semantic_family": "retry-geometric-cost",
+      "prompt_sha256": "8a61c041d13f17f29fd203770f5f26d2965e74c17e9f879a621caf04c26548b3",
+      "rubric_sha256": "ef1d593561ab03b3ddb5e69024155989633af86f9ceb64a0471a562f66de7f5b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_018",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_019",
+      "category": "tools_math",
+      "semantic_family": "syntax-diagnostic",
+      "prompt_sha256": "5f353e190c3378d2784328f3e42bbd75b228b2434c072d59772616d722c348b4",
+      "rubric_sha256": "c982633522b363d851453937bc97b7f87e6d29611633e16dfce911a5d157d88c",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_019",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_020",
+      "category": "tools_math",
+      "semantic_family": "unsafe-deserialize",
+      "prompt_sha256": "8165b50991c56a390c4abd1c9a8b20668fc88949b954f1464e728b1c3c75e673",
+      "rubric_sha256": "281b74d3171deabe50df4fc5f06e613392b6492d1420c9f20b99ea10706388af",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_020",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_021",
+      "category": "tools_math",
+      "semantic_family": "shell-literal-true",
+      "prompt_sha256": "0ce36cd657ddc74c3cdbb2e0c63ccbcb6156b8fc94247d1e2e24a571dae774e1",
+      "rubric_sha256": "6d406e01ed7478b410b6e33d79d6bf709ba5157a0f5c0b6e49db617fe2be71a9",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_021",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_022",
+      "category": "tools_math",
+      "semantic_family": "sql-fstring",
+      "prompt_sha256": "d6676b4d8fedada126ffb200edf5bf310fda36e8f7fa58f20b860fbb2bff4c5f",
+      "rubric_sha256": "08985a1bbe6fdfeec28467de962309e64fcbc2d0ea353d0c9e4f5854b4b59158",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_022",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_023",
+      "category": "tools_math",
+      "semantic_family": "bare-except-static",
+      "prompt_sha256": "d77118718375fd23618a5cc7ee924099a1dd37ddd8f511c84bab7838e60ad031",
+      "rubric_sha256": "a07a5eab71c4b988810b73a2d91393f6238dd17d73b9245a06cc436efc666825",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_023",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_024",
+      "category": "tools_math",
+      "semantic_family": "weak-hash-static",
+      "prompt_sha256": "269becd9c56a6546a3be0f19e932f1118cebc7c3be148a1a1537ade9d252fe88",
+      "rubric_sha256": "7bb8955c66ede28ad044cf8ec0a487f9a28233b8f1271917441d9dbf37ea1393",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_024",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_tools_math_025",
+      "category": "tools_math",
+      "semantic_family": "tls-static-contract",
+      "prompt_sha256": "6ce59ae77a6363e670bbfdd46ace770f6e25858b1b717be72c37ec3d69df28b1",
+      "rubric_sha256": "a3305f9e32df67e8d2d44c15755f84c6dc3e8e9799636c58685e42a6b3dd3998",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_tools_math_025",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_001",
+      "category": "project_files",
+      "semantic_family": "import-edge",
+      "prompt_sha256": "fb80d017d211ce48eb2e85cb4f83c9e1bbf14aef5443ce23bd51e3361bb993c6",
+      "rubric_sha256": "b5fbcb006ad7a4f6fbc023c745a2ad54e3aa118477edcbbe90da5ca1cd9a66e7",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_001",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_002",
+      "category": "project_files",
+      "semantic_family": "config-port",
+      "prompt_sha256": "8cd4589f67e4764ff54e197bcf57474eebf7e02d6b150f2be77cde5b627c9875",
+      "rubric_sha256": "c0e7d0b847ed989387cc3a1e5a95c91eb79a12b52a3501e524b131affb201f7c",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_002",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_003",
+      "category": "project_files",
+      "semantic_family": "stale-cache-proof",
+      "prompt_sha256": "21db41002a1bad006c5960d80143845c66527f692b0237b3f263a03e91262a96",
+      "rubric_sha256": "5aff9e3e99331d359951074c44d02ccec6a28025cf0078a29c54bc4d5e73eabb",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_003",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_004",
+      "category": "project_files",
+      "semantic_family": "dependency-edge",
+      "prompt_sha256": "3aa64c8bdc6a4e52f424581aa564cf3d3bbb9d3dbe2e77eb79347ea9c2ad7621",
+      "rubric_sha256": "0d80ac5e58566e7da96cb4494828168e35e9c9c4047342fc75b934ec4980b58d",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_004",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_005",
+      "category": "project_files",
+      "semantic_family": "cycle-witness",
+      "prompt_sha256": "e42455aaf48754f36bdeb516403b4439eb000dde38077c26e95bac8918b40b7b",
+      "rubric_sha256": "4e67686ffc0c57b0c3bb8ed6df54439e340ccb226ca0218712a4f6654fad411b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_005",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_006",
+      "category": "project_files",
+      "semantic_family": "missing-routing-file",
+      "prompt_sha256": "8fc42571422aada255faca9e4e42770cfa4161d906cefa4db0c30bff59fc25be",
+      "rubric_sha256": "afb46987742738b7a38e232aeddc87d468d99df96b1d9c22ada9956280e58bbe",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_006",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_007",
+      "category": "project_files",
+      "semantic_family": "function-doc-mismatch",
+      "prompt_sha256": "2f5a13299d554bd546dd3e95a89e8c9c36f8087f46dfc995a709d142a66d7116",
+      "rubric_sha256": "8bc50cb3e8024a9f9012de92787a91feac526e73d89e7958ce550af703657a99",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_007",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_008",
+      "category": "project_files",
+      "semantic_family": "explicit-allowlist",
+      "prompt_sha256": "c491ddaa9174a141d74bf9fc1901111223842f3c17490fb486b87b7b2729c4dc",
+      "rubric_sha256": "e8466da0c48850a7aa25df3442a13b6819b8b4e1eadfefe1393fb7645ceac6c6",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_008",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_009",
+      "category": "project_files",
+      "semantic_family": "readme-injection",
+      "prompt_sha256": "3f29fc78b0fcb1f6ea90ed6224d389183d703897d539a2cd9a4cd625419064b6",
+      "rubric_sha256": "94d6d2596a58e769eddbad20990e20f7e4bc756bd232c454fb72918105e905e9",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_009",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_010",
+      "category": "project_files",
+      "semantic_family": "sha-identity",
+      "prompt_sha256": "588af2bb39b9cde8fee4d812906f4db362ab5355144dd5ee772d0a17bf127aad",
+      "rubric_sha256": "0b7c4e2df21cc46ac1105a0e0d83a760d2f3552931f56e08d59005dfd60cfacf",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_010",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_011",
+      "category": "project_files",
+      "semantic_family": "feature-flag",
+      "prompt_sha256": "0eddaf6606053cc6c36eceef931108324eda8638b98913964891962beac34477",
+      "rubric_sha256": "dd0309254e82c4ed24e2cb3ccdc7b8e7ca960437d76d141155399ad0032eac45",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_011",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_012",
+      "category": "project_files",
+      "semantic_family": "test-count-evidence",
+      "prompt_sha256": "2f89a7dc2c564e516c90551ac43131403b5fba6f96795c479a9b7c3e70d25627",
+      "rubric_sha256": "4f88f9544eaa45938f5a0ee238e7ed4b11d97e1eb9c14251e035a636e8b1a821",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_012",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_013",
+      "category": "project_files",
+      "semantic_family": "revision-compare",
+      "prompt_sha256": "ea20fffa019a06c35cfee483f4352936df43f465513bf4818bf67e65f0911079",
+      "rubric_sha256": "c3b51d7a7045ffea392aa0fb0eeb646bf51b068b02f75a83eba66b0bc56cf03b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_013",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_014",
+      "category": "project_files",
+      "semantic_family": "imports-not-installs",
+      "prompt_sha256": "8026aa08bcdcd46ed33173589a33fe56f475c62fef3664e74f6a7182173130a0",
+      "rubric_sha256": "d926439282579cd835d149b354a47760fbc18e759e276dad3ae088239bd7344e",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_014",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_015",
+      "category": "project_files",
+      "semantic_family": "symbol-absent",
+      "prompt_sha256": "4505b203eb8666df4fc5d1466b46eb5fd43c80ed923c0dea31e04fea0ce7f9db",
+      "rubric_sha256": "f32480f7d72bda72f91cf115e708fbdfde0992bc197480a827ee8b74acfec4f3",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_015",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_016",
+      "category": "project_files",
+      "semantic_family": "units-configuration",
+      "prompt_sha256": "9636972deb0b816e7128884e0ea47eb3e43a44d045128d59946021169bf168dc",
+      "rubric_sha256": "e3f8f88ab9cc011f4c1b1ba6bab015db7bb510ab8531412922408168b5445b76",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_016",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_017",
+      "category": "project_files",
+      "semantic_family": "adapter-status-file",
+      "prompt_sha256": "03ce284c1b29aa4c91f2bfd0bab2c50dc2c7794cc0a0376c6164d6ad7d9800db",
+      "rubric_sha256": "a95ccf0ad7d86506b7928814ac86770581cf7bab7672ca9e8d947a152e341e4e",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_017",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_018",
+      "category": "project_files",
+      "semantic_family": "timeout-policy",
+      "prompt_sha256": "ffae89dd4b6ccfedd4d348b8faf7755126828c6e3ee4cc1661c9be9ef72bb0d8",
+      "rubric_sha256": "28b071771ad63a2dcd7c68877f8a161052c5b971cf23e102295359bec3298352",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_018",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_019",
+      "category": "project_files",
+      "semantic_family": "static-only-module",
+      "prompt_sha256": "d227e00067e2846b9244b5e29609772ad9d78c2e97514a86bfe0b12584b8d74d",
+      "rubric_sha256": "8f200f114bdf1489d2cc7172ffa47a439cea7493ac95ca845c1e7c6e7b6e4953",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_019",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_project_files_020",
+      "category": "project_files",
+      "semantic_family": "partial-doc-context",
+      "prompt_sha256": "dbb76d1157ab7562594a79d643351a234c6f2f9e5a904c62e4db886248cf587a",
+      "rubric_sha256": "4c678375ec9e576080d5b458dbe9243d6b33d2d778a0a92ba717e1edff3fbbc0",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_project_files_020",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_001",
+      "category": "logic_multistep",
+      "semantic_family": "constraint-order",
+      "prompt_sha256": "df2001e719622efdf2c24e05d28ce0d24cf23ddfa1f041be2df92304366064d4",
+      "rubric_sha256": "1cb896e93687aeaedcd1af61afcbaae787632f100ee265e629f3ba22c53f997d",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_001",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_002",
+      "category": "logic_multistep",
+      "semantic_family": "parallel-critical-path",
+      "prompt_sha256": "6c04e665757957481a4432adfdf0a01b4c1c4f1bc7d41acf3455f6c85949a9e0",
+      "rubric_sha256": "1c3e30567b8f16d1fb36d6615823063c60f30b6278647fea9797762fe82d138b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_002",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_003",
+      "category": "logic_multistep",
+      "semantic_family": "conditional-diagnosis",
+      "prompt_sha256": "5489953f3d53e2e2f9c09df860b7bba3cdaa7db07ffaf239c116da257070497c",
+      "rubric_sha256": "e4203a2e18713ba4039e1d6ec769020fe111b3b2393326f23513222ed804405a",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_003",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_004",
+      "category": "logic_multistep",
+      "semantic_family": "bounded-search",
+      "prompt_sha256": "06dc4e9739de7ecd95501fb738819e95e412be4962cdb3b7b583cca3253cf18f",
+      "rubric_sha256": "f98091a0f228da29c69cfcfcc10a24886e9527cc65e616d77c48957c088d3c46",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_004",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_005",
+      "category": "logic_multistep",
+      "semantic_family": "truth-table",
+      "prompt_sha256": "83641d640ef73fc9c4c206b209418332c3fd37209c1e3da8d939db768b7d67d7",
+      "rubric_sha256": "a1d0a8372668f999ebce445688261356af0c7e2f9844a48b5051fcec16e79302",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_005",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_006",
+      "category": "logic_multistep",
+      "semantic_family": "resource-choice",
+      "prompt_sha256": "f92380e54323e28b7a4c1693a81c01f05b657e2f7ab1893686c9518e4a44361d",
+      "rubric_sha256": "70778930a42b32f9724637eaacfb47cfe07f4cf6e751fd2f63ad8378a83e6d00",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_006",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_007",
+      "category": "logic_multistep",
+      "semantic_family": "evidence-ladder",
+      "prompt_sha256": "19484aac822ec08a4977d2ae1054a26df616f3ba9b908dfc79d1a77746f1460e",
+      "rubric_sha256": "a28dc86b8fca371ae7e21a2c9bbba2f70502ca0ed9f39abe7c30fdcd5331dbaa",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_007",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_008",
+      "category": "logic_multistep",
+      "semantic_family": "retry-bound",
+      "prompt_sha256": "527316ae05393ef61d2bb4f7e2599264d2d22869ec09c741b2648d77192e4623",
+      "rubric_sha256": "0d5773ed63923fb3ac847969ba175662d1205440a5ec8829fac1f0b75595153e",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_008",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_009",
+      "category": "logic_multistep",
+      "semantic_family": "overlap-lock",
+      "prompt_sha256": "8c5b70ee00d64796360d2fcdbca499dc7b48498e8255a1e32fb24a13d612c5a1",
+      "rubric_sha256": "01650b4bbc4c876eb140b2a74cf3a40b6ee6b8ea7605b2e60d8d678ccac4f307",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_009",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_010",
+      "category": "logic_multistep",
+      "semantic_family": "denominator-metric",
+      "prompt_sha256": "596ba86af125a5e7904745d98fa7e797eb9a66eb43814d78564e583326e00517",
+      "rubric_sha256": "54b3124e1c819dcbf5944c9d14bf181efd6b81356841cc049722cd8cadafb0fe",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_010",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_011",
+      "category": "logic_multistep",
+      "semantic_family": "zero-failures",
+      "prompt_sha256": "22ef04ebfcbbde724363f3e03969e9dd42cb9c27210afe9d271659f6eb1dbfb2",
+      "rubric_sha256": "34eabca598c627166672ff0f2db9b23095ad03428aef925ec87d7db4196cb502",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_011",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_012",
+      "category": "logic_multistep",
+      "semantic_family": "ambiguous-count",
+      "prompt_sha256": "e89db24ac36e325bcc9d40f6e50cf11c5268345a2064401b31f2f50b34c3310f",
+      "rubric_sha256": "1e2bd807b064ca31270ab1c38a3db50adc2b78906e252b038b216c7949917713",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_012",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_013",
+      "category": "logic_multistep",
+      "semantic_family": "stable-topological-tie",
+      "prompt_sha256": "f294476763403ed3041cc4fa3a259b01c7c04ac7a35acda43f765cefa28f6375",
+      "rubric_sha256": "25d0f2b9409797b8496080a7239a3fcd989f48bbc025b997d1db21513390360a",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_013",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_014",
+      "category": "logic_multistep",
+      "semantic_family": "information-sufficiency",
+      "prompt_sha256": "2baa11d2bedcdaefac36953a71ae713a1787893b24d92740e0a8dacd5602b3af",
+      "rubric_sha256": "554deec3ffeb4481368673e81086a4da74c458248ddd1380b83b12b100dbb383",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_014",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_logic_multistep_015",
+      "category": "logic_multistep",
+      "semantic_family": "counterexample-claim",
+      "prompt_sha256": "4317286331bd4211b6138955f335e92459600461c6dab568af410c32dbb5ceb9",
+      "rubric_sha256": "3f1227968c66655ed59587a3cdee06a4316ead6db94b3cb5274512aa984c3ebf",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_logic_multistep_015",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_001",
+      "category": "accuracy_contradiction",
+      "semantic_family": "gpu-detection-premise",
+      "prompt_sha256": "d798f7e06cba0aa20850efdf8c748d662d9c7af10a5efad04752919a26f62e4a",
+      "rubric_sha256": "3ef50147ff667377fc0f2086492e02b847abd8a6f8ca25c4ec00f245d6304fc4",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_001",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_002",
+      "category": "accuracy_contradiction",
+      "semantic_family": "identity-rebrand-premise",
+      "prompt_sha256": "81f60e13902fb6c41e2060ca787123e5f55578f1cf1e3433665e3785c4cad90a",
+      "rubric_sha256": "93717282a0ec44794975096114bd7edd16f9364f83e4d959fa9b3520dd509798",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_002",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_003",
+      "category": "accuracy_contradiction",
+      "semantic_family": "merge-status-premise",
+      "prompt_sha256": "d5a4d4d8e8dcdbeec5278ad4d6ec1f91ed8b2c37df5150f79c5eecd1ce8d00da",
+      "rubric_sha256": "8734256899b15fa398d639a1d9928bfeab1268192a277e0e078e18a653d118d9",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_003",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_004",
+      "category": "accuracy_contradiction",
+      "semantic_family": "socket-stop-premise",
+      "prompt_sha256": "a9648732e5b2cd56b3892624d1f448443a67cdb681f61165730fdd5719a8b6e1",
+      "rubric_sha256": "f2be7d043813d5f3db831c8b0bc3430b6c1b227021fc7416234b5cd712a32690",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_004",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_005",
+      "category": "accuracy_contradiction",
+      "semantic_family": "adapter-name-premise",
+      "prompt_sha256": "714ab3a1ef64e1b2616ead05061f6f57fe4fb0a7bf1c285bb72625c930b477a0",
+      "rubric_sha256": "dac55bbda8a28d0f5a3f9b86606e2e84d5574e82f9eb2069e909bd2a8d0e5dad",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_005",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_006",
+      "category": "accuracy_contradiction",
+      "semantic_family": "wiki-scope-premise",
+      "prompt_sha256": "34bde98c621cc47bdc03cda7a61656569b8f3a9769bebf0f71079a63dba85590",
+      "rubric_sha256": "2dd7c855285b9d7deab316302a9d6e2494a605372deca0d8373b1c5e106bd25a",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_006",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_007",
+      "category": "accuracy_contradiction",
+      "semantic_family": "bytes-gib-premise",
+      "prompt_sha256": "e67a68b7a37d8bd6de7ab666e7592ace47ccfe2d149bff49b3f9a919d19cd9af",
+      "rubric_sha256": "c0c9e5863c80c2d049e04cdc0b6000c399260839f46477db8a3d8d9c9cfd3c78",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_007",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_008",
+      "category": "accuracy_contradiction",
+      "semantic_family": "sft-size-premise",
+      "prompt_sha256": "d16d73a0ab4e516bc63022249fc0a334986808441cda53771cf912aa71076fe9",
+      "rubric_sha256": "c804282a61cb87654b30327f85f122e7651489b5f6fb388896dcf72f43a3664b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_008",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_009",
+      "category": "accuracy_contradiction",
+      "semantic_family": "context-estimate-premise",
+      "prompt_sha256": "debd3af713b6b2092efe0c9912cf949de6f65631ab8bbf4ca30179d313e6d4a0",
+      "rubric_sha256": "e7d88aaa87fb91b41ea62528c1f0ed072d179ef41453fdcdb206f167bed36c7b",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_009",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    },
+    {
+      "id": "neral_dev_accuracy_contradiction_010",
+      "category": "accuracy_contradiction",
+      "semantic_family": "holdout-independence-premise",
+      "prompt_sha256": "3d419b92b6cc89aec62515c0f591dbf25a509da1c4dc88a2e3dd012f6afe6084",
+      "rubric_sha256": "198980239c09286018a2575efd1eeab61a663c47fd26a55f2c1b70e1d1c844a5",
+      "task_version": "1.0.0",
+      "source": {
+        "kind": "original_authored_fixture",
+        "reference": "neral_dev_accuracy_contradiction_010",
+        "license": "Original repository-internal synthetic content; no external excerpts"
+      },
+      "review": {
+        "status": "reviewed",
+        "reviewer": "Codex author audit; not independent",
+        "method": "Explicit acceptance rubric, arithmetic/source inspection; pending independent review"
+      }
+    }
+  ]
+}

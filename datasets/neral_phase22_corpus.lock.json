@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "frozen": {
+    "neral_qlora_pilot.jsonl": "fa8b817bc956c04af0da475b4f45d2f1343aa58d49b9a676335748e57f8e2537",
+    "neral_project_sft_v1.jsonl": "c6912479ad136ea83b413ac99ccf4d0ae224392ea0fbf5da755c01107dfa17d2",
+    "neral_qlora_holdout.jsonl": "f337578daa812d2cca3d41acaa1501193476cd0fdf85d7c065b6ca3d9549c2a4"
+  },
+  "files": {
+    "neral_eval_benchmark_v1.jsonl": "50366c8a193199717dd05bde9dfc217df74cf8307aa7cbd105314521dd0fb010",
+    "neral_eval_benchmark_v1.manifest.json": "a59115e4e852ccd10c9947ab3bfddde770ab3177590eae9d8f7dd716488e2b12",
+    "neral_capabilities_sft_v1.jsonl": "044bf27604ef35a1309926cfe9d58aa59ca101b61a28dec14e84d3902068f8c4",
+    "neral_capabilities_sft_v1.review.json": "e367e04165cbaa5ceef2d02a953a3b6a1d010225a78ca1a1d6a8d3d1020a1dd5"
+  }
+}
