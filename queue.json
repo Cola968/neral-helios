@@ -1,5 +1,5 @@
 {
-  "revision": 160,
+  "revision": 161,
   "tasks": {
     "cloud-queue-214-review": {
       "attempts": 1,
@@ -366,14 +366,17 @@
       "base_ref": "feat/neral-qlora-pilot-20261101",
       "base_sha": "ef65d9c978144280754aee33e1fc101537550e31",
       "priority": 2,
-      "state": "RUNNING",
+      "state": "REVIEW_REQUIRED",
       "attempts": 1,
-      "owner": "chatgpt-weightspace-232-20261102",
-      "lease_token": "c2a3f498c302b78b3965b3ca87a922b5",
-      "lease_until": 1793654022,
-      "started": 1793653122,
+      "owner": null,
+      "lease_token": null,
+      "lease_until": null,
+      "started": null,
       "created": 1793653086,
-      "result": null,
+      "result": {
+        "pr": 233,
+        "commit": "c6088215c7561e5ab6c9247a9b76ede8c8f5a137"
+      },
       "error": null
     }
   },
