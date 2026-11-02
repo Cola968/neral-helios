@@ -1,5 +1,5 @@
 {
-  "revision": 161,
+  "revision": 162,
   "tasks": {
     "cloud-queue-214-review": {
       "attempts": 1,
@@ -377,6 +377,27 @@
         "pr": 233,
         "commit": "c6088215c7561e5ab6c9247a9b76ede8c8f5a137"
       },
+      "error": null
+    },
+    "neral-qlora-capability-pack-234-v1": {
+      "key": "neral-qlora-capability-pack-234-v1",
+      "title": "Compose 86 reviewed NERAL capability SFT examples for QLoRA",
+      "scope": [
+        "docs/NERAL_QLORA_CAPABILITY_PACK.md",
+        "scripts/neral_capability_train_pack.py",
+        "tests/test_neral_capability_train_pack.py"
+      ],
+      "base_ref": "codex/neral-phase22-sft-validation-20261102",
+      "base_sha": "6849b7f3fbf28f9af8be7a08b8301da0b4b46a56",
+      "priority": 1,
+      "state": "READY",
+      "attempts": 0,
+      "owner": null,
+      "lease_token": null,
+      "lease_until": null,
+      "started": null,
+      "created": 1793660376,
+      "result": null,
       "error": null
     }
   },
