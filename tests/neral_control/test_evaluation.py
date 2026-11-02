@@ -16,22 +16,32 @@ def inputs():
                 'tasks': [{'id': f'case-{i}', 'semantic_group': f'group-{i}',
                            'prompt_sha256': digest(f'prompt-{i}'),
                            'rubric_sha256': digest(f'rubric-{i}')} for i in range(100)]}
-    settings = {'base_revision': 'a'*40, 'quantization': 'nf4', 'seed': 42,
+    settings = {'base_model_id':'Qwen/Qwen2.5-Coder-7B-Instruct',
+                'base_revision': 'a'*40, 'quantization': 'nf4', 'seed': 42,
                 'decoding': {'temperature': 0, 'do_sample': False},
                 'system_prompt': 'Shared instructions', 'budgets': {'tokens': 256, 'seconds': 30},
-                'tools': [], 'adapter_sha256': None, 'controller_memory': False}
+                'tools': [], 'adapter_sha256': None, 'controller_memory': False,
+                'lora_adapter_id':None, 'lora_weights_version':None, 'adapter_hash':None,
+                'adapter_integrity_verified':False, 'controller_active':False,
+                'context_control_active':False}
     results = [{'id': task['id'], 'status': 'fail', 'complete': True,
                 'unsupported_claims': 0, 'latency_ms': 100, 'tool_calls': 0,
                 'input_tokens': 10, 'output_tokens': 20,
-                'resources': {'peak_memory_bytes': 1024}, 'failure_causes': ['reasoning']}
+                'resources': {'peak_memory_bytes': 1024}, 'failure_causes': ['reasoning'],
+                'completion_status':'complete','used_tools':[], 'enabled_tools':[],
+                'tool_provenance':[]}
                for task in manifest['tasks']]
     runs = {name: {'settings': copy.deepcopy(settings), 'results': copy.deepcopy(results)}
             for name in 'ABCD'}
     for name in 'BCD':
         runs[name]['settings']['tools'] = ['solve.v1']
+        for row in runs[name]['results']:row['enabled_tools']=['solve.v1']
     for name in 'CD':
         runs[name]['settings']['adapter_sha256'] = 'b'*64
+        runs[name]['settings'].update(lora_adapter_id='neral-fixture',lora_weights_version='1.0.0',
+                                     adapter_hash='b'*64,adapter_integrity_verified=True)
     runs['D']['settings']['controller_memory'] = True
+    runs['D']['settings'].update(controller_active=True,context_control_active=True)
     return manifest, runs
 
 
@@ -46,6 +56,71 @@ def evaluate(manifest, runs):
 
 def full(row):
     row.update(status='full', failure_causes=[])
+
+
+@pytest.mark.parametrize('condition,field,value', [
+    ('B','lora_adapter_id','hidden'), ('B','lora_weights_version','1.0.0'),
+    ('B','adapter_integrity_verified',True), ('C','lora_adapter_id',None),
+    ('C','lora_weights_version',None), ('C','adapter_hash',None),
+    ('C','adapter_integrity_verified',False), ('D','controller_active',False),
+    ('D','context_control_active',False)])
+def test_explicit_adapter_and_controller_contracts(condition, field, value):
+    manifest, runs = inputs()
+    runs[condition]['settings'][field] = value
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
+
+
+def test_legacy_hash_only_adapter_is_rejected():
+    manifest, runs = inputs()
+    # A hash string alone never establishes adapter activation or integrity.
+    for run in runs.values():
+        for key in ('lora_adapter_id','lora_weights_version','adapter_hash',
+                    'adapter_integrity_verified','controller_active','context_control_active'):
+            del run['settings'][key]
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('used_tools',['solve.v1']), ('enabled_tools',['solve.v1']),
+    ('tool_provenance',[{'tool_id':'solve.v1','call_index':0,'status':'ok'}])])
+def test_zero_call_baseline_cannot_hide_tool_metadata(field, value):
+    manifest, runs = inputs()
+    runs['A']['results'][0][field] = value
+    with pytest.raises(ValueError):evaluate(manifest,runs)
+
+
+def test_incomplete_status_cannot_receive_full_credit():
+    manifest, runs = inputs()
+    full(runs['D']['results'][0])
+    runs['D']['results'][0]['completion_status']='timed_out'
+    assert evaluate(manifest,runs)['conditions']['D']['full']==0
+
+
+def test_reported_tool_usage_must_match_enabled_tools_and_count():
+    manifest,runs=inputs()
+    row=runs['B']['results'][0]
+    row.update(tool_calls=1,used_tools=['solve.v1'],
+               tool_provenance=[{'tool_id':'solve.v1','call_index':0,'status':'ok'}])
+    assert evaluate(manifest,runs)['conditions']['B']['metrics']['tool_calls']['total']==1
+    row['used_tools']=[]
+    with pytest.raises(ValueError,match='provenance'):evaluate(manifest,runs)
+
+
+def test_missing_token_measurements_stay_unknown():
+    manifest,runs=inputs()
+    for row in runs['D']['results']:row.update(input_tokens=None,output_tokens=None)
+    metrics=evaluate(manifest,runs)['conditions']['D']['metrics']
+    assert metrics['output_tokens']=={'total':None,'mean':None,'max':None,'measured_cases':0}
+
+
+@pytest.mark.parametrize('field,value', [
+    ('lora_adapter_id','other'), ('lora_weights_version','2.0.0')])
+def test_cd_adapter_identity_must_match_beyond_hash(field,value):
+    manifest,runs=inputs()
+    runs['D']['settings'][field]=value
+    with pytest.raises(ValueError,match='identities'):evaluate(manifest,runs)
 
 
 def test_exact_twenty_percent_excludes_already_solved_base_cases():

@@ -30,6 +30,11 @@ and results. Settings keys: base_revision (40 hex), quantization (string), seed
 (integer), decoding (nonempty JSON object), system_prompt (string), budgets
 (nonempty JSON object of positive numeric per-call limits), tools (unique
 versioned tool IDs), adapter_sha256 (null or 64 hex), controller_memory (bool).
+Comparison contract 2 additionally requires base_model_id, lora_adapter_id,
+lora_weights_version, adapter_hash, adapter_integrity_verified, controller_active
+and context_control_active. Hash-only legacy settings are rejected, not upgraded
+with invented integrity assertions. validate_condition_settings() checks a single
+available condition without fabricating missing C/D runs.
 All four share base/revision, decoding, quantization, seed, prompt and per-call
 budgets. A has no tools/adapter/memory; B has tools only; C adds the adapter;
 D uses the same tools/adapter and enables controller/memory. These comparisons
@@ -40,7 +45,11 @@ Every result has exactly: id, status ('full'|'partial'|'fail'), complete (bool),
 unsupported_claims (nonnegative integer), latency_ms (finite nonnegative number),
 tool_calls/input_tokens/output_tokens (nonnegative integers), resources (object
 of named finite nonnegative measurements with units encoded in field names),
-failure_causes (unique list from REMEDIES). Every task must appear exactly once
+failure_causes (unique list from REMEDIES), completion_status, used_tools,
+enabled_tools, and tool_provenance. Each tool provenance row is exactly
+{tool_id, call_index, status}; zero-based indices and counts must agree.
+Token counts can be null when unmeasured; aggregate measured_cases exposes gaps.
+Every task must appear exactly once
 in every condition; failed attempts must be included. Incomplete or unsupported
 answers cannot receive full credit. Full credit is a reviewer assertion, never
 an automatically verified correctness claim. Resources are reported only when
@@ -74,10 +83,13 @@ REMEDIES = {
     'hallucination': 'Require source support and abstention for unsupported claims.',
     'runtime': 'Inspect runtime errors, resource limits and provider availability.',
 }
-CORE = {'base_revision', 'quantization', 'seed', 'decoding', 'system_prompt', 'budgets'}
-SETTINGS = CORE | {'tools', 'adapter_sha256', 'controller_memory'}
+CORE = {'base_model_id', 'base_revision', 'quantization', 'seed', 'decoding', 'system_prompt', 'budgets'}
+SETTINGS = CORE | {'tools', 'adapter_sha256', 'controller_memory', 'lora_adapter_id',
+                   'lora_weights_version','adapter_hash','adapter_integrity_verified',
+                   'controller_active','context_control_active'}
 RESULT = {'id', 'status', 'complete', 'unsupported_claims', 'latency_ms',
-          'tool_calls', 'input_tokens', 'output_tokens', 'resources', 'failure_causes'}
+          'tool_calls', 'input_tokens', 'output_tokens', 'resources', 'failure_causes',
+          'completion_status','used_tools','enabled_tools','tool_provenance'}
 HEX64 = re.compile(r'[a-f0-9]{64}\Z')
 
 
@@ -204,6 +216,42 @@ def validate_partition_separation(manifests):
             'semantic_leakage_proven_absent': False}
 
 
+def validate_condition_settings(name, setting):
+    """Validate one explicit condition; execution/artifact assertions need external proof."""
+    if name not in ('A','B','C','D') or not isinstance(setting, dict) or set(setting) != SETTINGS:
+        raise ValueError('Missing or unknown comparison setting.')
+    if (not _text(setting['base_model_id'], 300)
+            or not isinstance(setting['base_revision'], str)
+            or not re.fullmatch('[a-f0-9]{40}', setting['base_revision'])
+            or not _text(setting['quantization'], 200)
+            or type(setting['seed']) is not int or not _text(setting['system_prompt'])
+            or not isinstance(setting['decoding'], dict) or not setting['decoding']
+            or not isinstance(setting['budgets'], dict) or not setting['budgets']
+            or any(not _text(k,100) or not _number(v,positive=True) for k,v in setting['budgets'].items())
+            or not isinstance(setting['tools'],list)
+            or any(not isinstance(t,str) or not re.fullmatch(r'[a-z][a-z0-9_.-]{0,150}\.v[1-9][0-9]*(?:\.[0-9]+){0,2}',t) for t in setting['tools'])
+            or len(set(setting['tools'])) != len(setting['tools'])
+            or any(type(setting[k]) is not bool for k in ('controller_memory','controller_active',
+                'context_control_active','adapter_integrity_verified'))):
+        raise ValueError('Invalid run settings or budgets.')
+    _canonical(setting)
+    if name in 'AB':
+        if (any(setting[k] is not None for k in ('adapter_sha256','adapter_hash','lora_adapter_id','lora_weights_version'))
+                or setting['adapter_integrity_verified']):
+            raise ValueError('Base conditions cannot include an adapter.')
+    elif (not _text(setting['lora_adapter_id'],300)
+            or not isinstance(setting['lora_weights_version'],str)
+            or not re.fullmatch(r'\d+\.\d+\.\d+(?:-pilot\.\d+)?',setting['lora_weights_version'])
+            or not isinstance(setting['adapter_hash'],str) or not HEX64.fullmatch(setting['adapter_hash'])
+            or setting['adapter_sha256'] != setting['adapter_hash']
+            or setting['adapter_integrity_verified'] is not True):
+        raise ValueError('unverified_or_missing_adapter')
+    if any(setting[k] != (name=='D') for k in ('controller_memory','controller_active','context_control_active')):
+        raise ValueError('Only D enables the reasoning controller and context control.')
+    if (name=='A' and setting['tools']) or (name!='A' and not setting['tools']):
+        raise ValueError('A has no tools; B/C/D require tools.')
+
+
 def _settings(runs):
     if not isinstance(runs, dict) or set(runs) != set('ABCD'):
         raise ValueError('Exactly four conditions A/B/C/D are required.')
@@ -211,33 +259,7 @@ def _settings(runs):
         if not isinstance(run, dict) or set(run) != {'settings', 'results'}:
             raise ValueError('Invalid condition envelope.')
         setting = run['settings']
-        if not isinstance(setting, dict) or set(setting) != SETTINGS:
-            raise ValueError('Missing or unknown comparison setting.')
-        if (not isinstance(setting['base_revision'], str)
-                or not re.fullmatch('[a-f0-9]{40}', setting['base_revision'])
-                or not _text(setting['quantization'], 200)
-                or type(setting['seed']) is not int
-                or not _text(setting['system_prompt'])
-                or not isinstance(setting['decoding'], dict) or not setting['decoding']
-                or not isinstance(setting['budgets'], dict) or not setting['budgets']
-                or any(not _text(k, 100) or not _number(v, positive=True)
-                       for k, v in setting['budgets'].items())
-                or not isinstance(setting['tools'], list)
-                or any(not isinstance(tool, str) or not re.fullmatch(
-                    r'[a-z][a-z0-9_.-]{0,150}\.v[1-9][0-9]*(?:\.[0-9]+){0,2}', tool)
-                       for tool in setting['tools'])
-                or len(set(setting['tools'])) != len(setting['tools'])
-                or type(setting['controller_memory']) is not bool):
-            raise ValueError('Invalid run settings or budgets.')
-        _canonical(setting)
-        if name in 'AB':
-            if setting['adapter_sha256'] is not None:
-                raise ValueError('Base conditions cannot include an adapter.')
-        elif (not isinstance(setting['adapter_sha256'], str)
-              or not HEX64.fullmatch(setting['adapter_sha256'])):
-            raise ValueError('C/D require an exact adapter digest.')
-        if setting['controller_memory'] != (name == 'D'):
-            raise ValueError('Only D enables controller/memory.')
+        validate_condition_settings(name, setting)
     base = runs['A']['settings']
     for name in 'BCD':
         if any(_canonical(runs[name]['settings'][key]) != _canonical(base[key]) for key in CORE):
@@ -246,11 +268,12 @@ def _settings(runs):
         raise ValueError('A has no tools; B must supply the declared shared toolset.')
     if any(set(runs[name]['settings']['tools']) != set(runs['B']['settings']['tools']) for name in 'CD'):
         raise ValueError('B/C/D must have the identical toolset.')
-    if runs['C']['settings']['adapter_sha256'] != runs['D']['settings']['adapter_sha256']:
-        raise ValueError('C/D adapter digests differ.')
+    if any(runs['C']['settings'][k] != runs['D']['settings'][k]
+           for k in ('adapter_sha256','adapter_hash','lora_adapter_id','lora_weights_version')):
+        raise ValueError('C/D adapter identities differ.')
 
 
-def _results(rows, expected):
+def _results(rows, expected, setting):
     if not isinstance(rows, list) or len(rows) != len(expected):
         raise ValueError('Every attempted task must be reported exactly once.')
     indexed = {}
@@ -261,9 +284,13 @@ def _results(rows, expected):
         if not isinstance(identity, str) or identity not in expected or identity in indexed:
             raise ValueError('Unknown or duplicate scored task.')
         if (not isinstance(row['status'], str) or row['status'] not in {'full', 'partial', 'fail'}
+                or not isinstance(row['completion_status'],str)
+                or row['completion_status'] not in {'complete','incomplete','cancelled','timed_out','failed'}
                 or type(row['complete']) is not bool
                 or any(not _number(row[key], integer=True) for key in (
-                    'unsupported_claims', 'tool_calls', 'input_tokens', 'output_tokens'))
+                    'unsupported_claims', 'tool_calls'))
+                or any(row[key] is not None and not _number(row[key],integer=True)
+                       for key in ('input_tokens','output_tokens'))
                 or not _number(row['latency_ms'])
                 or not isinstance(row['resources'], dict)
                 or any(not _text(k, 100) or not _number(v) for k, v in row['resources'].items())
@@ -271,13 +298,35 @@ def _results(rows, expected):
                 or any(not isinstance(cause, str) or cause not in REMEDIES for cause in row['failure_causes'])
                 or len(set(row['failure_causes'])) != len(row['failure_causes'])):
             raise ValueError('Invalid score, completion, measurement or failure cause.')
+        if not setting['tools'] and any(row[k] for k in
+                ('tool_calls','used_tools','enabled_tools','tool_provenance')):
+            raise ValueError('A baseline cannot report tool execution or tool provenance.')
+        for key in ('used_tools','enabled_tools'):
+            if (not isinstance(row[key],list) or any(type(t) is not str for t in row[key])
+                    or len(row[key]) != len(set(row[key]))):
+                raise ValueError('Invalid tool evidence.')
+        if set(row['enabled_tools']) != set(setting['tools']):
+            raise ValueError('Enabled tools differ from the declared condition.')
+        provenance = row['tool_provenance']
+        if not isinstance(provenance,list) or len(provenance) != row['tool_calls']:
+            raise ValueError('Tool call count and provenance differ.')
+        for i, call in enumerate(provenance):
+            if (not isinstance(call,dict) or set(call) != {'tool_id','call_index','status'}
+                    or type(call['tool_id']) is not str or call['tool_id'] not in setting['tools']
+                    or type(call['call_index']) is not int or call['call_index'] != i
+                    or type(call['status']) is not str
+                    or call['status'] not in {'ok','error','denied','cancelled','timeout'}):
+                raise ValueError('Invalid tool provenance.')
+        if set(row['used_tools']) != {call['tool_id'] for call in provenance}:
+            raise ValueError('Used tools and provenance differ.')
         effective = row['status']
         causes = set(row['failure_causes'])
-        if not row['complete']:
+        completed = row['complete'] and row['completion_status']=='complete'
+        if not completed:
             causes.add('incomplete')
         if row['unsupported_claims']:
             causes.add('hallucination')
-        if effective == 'full' and (not row['complete'] or row['unsupported_claims']):
+        if effective == 'full' and (not completed or row['unsupported_claims']):
             effective = 'partial'
         if effective == 'full' and causes:
             raise ValueError('Full scores cannot include failure causes.')
@@ -288,13 +337,15 @@ def _results(rows, expected):
 
 
 def _measurement(values):
+    if not values:
+        return {'total':None,'mean':None,'max':None,'measured_cases':0}
     return {'total': sum(values), 'mean': sum(values)/len(values), 'max': max(values), 'measured_cases': len(values)}
 
 
 def _summary(rows):
     counts = Counter(row['effective_status'] for row in rows.values())
     causes = Counter(cause for row in rows.values() for cause in row['failure_causes'])
-    metrics = {key: _measurement([row[key] for row in rows.values()])
+    metrics = {key: _measurement([row[key] for row in rows.values() if row[key] is not None])
                for key in ('latency_ms', 'tool_calls', 'input_tokens', 'output_tokens')}
     resource_keys = sorted({key for row in rows.values() for key in row['resources']})
     metrics['resources'] = {key: _measurement([row['resources'][key] for row in rows.values()
@@ -312,7 +363,7 @@ def evaluate(manifest, runs):
     _settings(runs)
     if manifest.get('split') == 'train':
         raise ValueError('Training partition cannot be scored as a benchmark.')
-    rows = {name: _results(run['results'], expected) for name, run in runs.items()}
+    rows = {name: _results(run['results'], expected, run['settings']) for name, run in runs.items()}
     if any(row['tool_calls'] != 0 for row in rows['A'].values()):
         raise ValueError('A baseline results must report zero tool calls.')
     rank = {'fail': 0, 'partial': 1, 'full': 2}
@@ -329,7 +380,9 @@ def evaluate(manifest, runs):
     numerator = sum(rows['D'][identity]['effective_status'] == 'full' for identity in unsolved)
     denominator = len(unsolved)
     return {
-        'schema': 1, 'manifest_schema': manifest['schema'],
+        'schema': 2, 'comparison_contract_version':2, 'manifest_schema': manifest['schema'],
+        'base_model_id':runs['A']['settings']['base_model_id'],
+        'adapter_hash':runs['D']['settings']['adapter_hash'],
         'split': manifest.get('split', 'legacy_final'),
         'category_counts': dict(sorted(Counter(task['category'] for task in manifest['tasks']).items()))
             if manifest['schema'] == 2 else None,

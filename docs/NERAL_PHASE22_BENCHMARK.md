@@ -1,5 +1,51 @@
 # Phase 2.2: Benchmark-Verträge
 
+## Genehmigte Nacharbeit am 2. November 2026
+
+Der Betreiber hat Nacharbeit an diesem REVIEW_REQUIRED-Task ausdrücklich
+freigegeben. Nach Stoppprüfung und unverändertem Remote-Head läuft der bestehende
+Key regulär in Versuch 2. Keine neue Queue-ID umgeht eine Sperre.
+
+Reproduzierter Defekt: Ein altes Importpaket mit bloßem Adapter-Hash wurde als
+C/D akzeptiert, obwohl ID, Version und Integritätsprüfung fehlen. Der neue
+Vergleichsvertrag 2 verlangt zusätzlich zu den bisherigen Settings:
+`base_model_id`, `lora_adapter_id`, `lora_weights_version`, `adapter_hash`,
+`adapter_integrity_verified`, `controller_active`, `context_control_active`.
+A/B müssen alle Adapter-Identitäten und Hashes null und die Integritätsangabe
+false halten. C/D brauchen eine nichtleere ID, Semver-Version, identische gültige
+SHA-256-Werte und true; C und D müssen auch ID/Version teilen. Nur D aktiviert
+Controller, Kontextsteuerung und controller_memory. Die öffentliche Funktion
+`validate_condition_settings(name, setting)` prüft einzelne verfügbare Bedingungen,
+damit ein Runner fehlende C/D sauber überspringen kann.
+
+Ergebnisse müssen `completion_status`, `enabled_tools`, `used_tools` und
+`tool_provenance` mitbringen. Jede Werkzeug-Provenienz enthält genau `tool_id`,
+`call_index` (ab null, lückenlos) und `status`. Anzahl, aktivierte Werkzeuge und
+genutzte IDs müssen übereinstimmen. A verweigert jede Werkzeugspur, auch bei
+angeblicher Aufrufzahl null. Ein nicht vollständiger Abschlussstatus verhindert
+volle Punktzahl. Nicht gemessene Tokenzahlen dürfen null bleiben; Aggregationen
+weisen dann measured_cases aus, bei null Messungen auch Summe/Mittel/Maximum null.
+Unbekannte Messwerte werden nicht in Nullen verwandelt.
+
+Alte Run-Settings werden absichtlich nicht automatisch mit erfundenen
+Integritätsangaben aufgefüllt. Manifest-Schema 1/2 und die alten acht Holdouts
+werden nicht verändert. Berichtschema 2 nennt Vergleichsvertrag, Basismodell und
+Adapter-Hash; die echte 20-%-Metrik und Regressionen bleiben erhalten.
+
+CPU-TDD: Das alte Hash-only-Paket wurde zuerst unerwartet akzeptiert; aktualisierte
+Positivfixtures und Abschlussstatusfälle schlugen vor der Implementierung fehl.
+Ein weiterer RED-Test zeigte, dass unbekannte Tokenmessungen nicht darstellbar
+waren. Aktuell **89 Evaluierungs-Vertragstests bestanden**. Separate vollständige
+Windows-Modulsuite: **282 bestanden, 2 übersprungen, 2 abgewählt** (vorhandene
+Symlink-/O_NOFOLLOW-Fixture-Voraussetzungen). Diese Zahlen überschneiden sich.
+
+Importierte Integritäts-/Controller-Angaben sind überprüfte Vertragsbehauptungen,
+kein Beweis tatsächlicher Modellinferenz oder Dateiintegrität. Der Runner muss
+den Adapter lokal wirklich prüfen, statt diese Felder aus Nutzereingaben als
+Wahrheit zu übernehmen. Synthetische Tests sind keine Qualitätsmessung. Keine
+Inferenz, Downloads, GPU-/Trainingsläufe, Gewichtänderung, Zusatzkosten, Merges
+oder Deployments; nachfolgende ältere Testergebnisse beziehen sich auf Linux.
+
 Basis: PR #222, `c4c95d5ff2749cd544374f878621e84a2601b937`.
 Dieses Paket ändert ausschließlich den vorhandenen Auswerter, seine Tests und
 vorliegende Dokumentation. Keine Modellinferenz, kein Training, keine Änderung
