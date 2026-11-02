@@ -254,9 +254,9 @@ def test_local_active_adapter_identity_requires_matching_status_and_runtime():
     digest = 'b' * 64
     runtime.identity += ':neral-lora:1.2.3-pilot.1:' + digest
     runtime.adapter_status = {'active': True, 'version': '1.2.3-pilot.1', 'sha256': digest}
-    identity = LocalQwenProvider(runtime).identity
-    assert identity['lora_weights_version'] == '1.2.3-pilot.1'
-    assert identity['active_adapter_id'] == digest
+    # Labels alone are insufficient: artifact integrity is now mandatory.
+    with pytest.raises(ProviderError):
+        LocalQwenProvider(runtime)
     runtime.adapter_status['sha256'] = 'c' * 64
     with pytest.raises(ProviderError):
         LocalQwenProvider(runtime)
@@ -331,3 +331,69 @@ def test_local_untrusted_chat_markers_cannot_create_new_role_boundaries():
                           {'role':'tool','tool_name':'project_files','content':marker}], TOOLS)
     assert all('<|im_start|>' not in row['content'] and '<|im_end|>' not in row['content'] for row in rows[1:])
     assert rows[0]['content'].startswith('trusted instructions')
+
+
+@pytest.mark.parametrize('kind',['local','ollama'])
+def test_explicit_provenance_fields_never_label_base_as_lora(kind):
+    provider=LocalQwenProvider(Runtime()) if kind=='local' else OllamaProvider()
+    identity=provider.identity
+    assert identity['provider_name']==('qwen_local_nf4' if kind=='local' else 'ollama')
+    assert identity['base_model_id']==identity['base_model']
+    assert identity['base_model_revision'] is None
+    assert identity['lora_adapter_id'] is None and identity['lora_weights_version'] is None
+    assert identity['adapter_integrity_verified'] is False
+
+
+@pytest.fixture
+def verified_artifacts(tmp_path):
+    import hashlib
+    from model_catalog import HF_CONFIG,HF_BASE,validate_hf_snapshot
+    from neral_adapter_candidate import TARGETS,seal_adapter
+    base=tmp_path/'base';base.mkdir()
+    files={'config.json':json.dumps(HF_CONFIG),'tokenizer_config.json':json.dumps({'tokenizer_class':'Qwen2TokenizerFast'}),'tokenizer.json':'{}','model.safetensors':'offline fixture, never deserialized'}
+    for name,text in files.items():(base/name).write_text(text)
+    (base/'helios-manifest.json').write_text(json.dumps({'base_model':HF_BASE,'revision':'e'*40,'files':{n:hashlib.sha256((base/n).read_bytes()).hexdigest() for n in files}}))
+    checked=validate_hf_snapshot(base,verify_hashes=True)
+    adapter=tmp_path/'adapter';adapter.mkdir()
+    (adapter/'adapter_config.json').write_text(json.dumps({'peft_type':'LORA','task_type':'CAUSAL_LM','r':16,'lora_alpha':16,'lora_dropout':0,'bias':'none','target_modules':sorted(TARGETS)}))
+    (adapter/'adapter_model.safetensors').write_bytes(b'offline integrity fixture, never loaded')
+    manifest=seal_adapter(adapter,checked,'c'*64,'1.2.3-pilot.1')
+    digest=hashlib.sha256(json.dumps(manifest,sort_keys=True).encode()).hexdigest()
+    runtime=Runtime();runtime.identity='qwen2.5-coder:'+checked['sha256']+':neral-lora:1.2.3-pilot.1:'+digest
+    runtime.adapter_status={'active':True,'version':'1.2.3-pilot.1','sha256':digest}
+    return runtime,base,adapter,digest
+
+
+def test_local_verified_lora_requires_actual_artifact_checks(verified_artifacts):
+    runtime,base,adapter,digest=verified_artifacts
+    with pytest.raises(ProviderError):LocalQwenProvider(runtime)
+    identity=LocalQwenProvider(runtime,model_folder=base,adapter_folder=adapter).identity
+    assert identity['lora_adapter_id']==digest and identity['lora_weights_version']=='1.2.3-pilot.1'
+    assert identity['base_model_revision']=='e'*40 and identity['adapter_integrity_verified'] is True
+    (adapter/'adapter_model.safetensors').write_bytes(b'tampered')
+    with pytest.raises(ProviderError):LocalQwenProvider(runtime,model_folder=base,adapter_folder=adapter)
+
+
+def test_local_base_revision_is_only_reported_for_verified_matching_snapshot(verified_artifacts):
+    runtime,base,adapter,digest=verified_artifacts
+    runtime.identity=runtime.identity.split(':neral-lora:')[0];runtime.adapter_status=None
+    identity=LocalQwenProvider(runtime,model_folder=base).identity
+    assert identity['base_model_revision']=='e'*40 and identity['lora_adapter_id'] is None
+    runtime.identity='qwen2.5-coder:'+'d'*64
+    with pytest.raises(ProviderError):LocalQwenProvider(runtime,model_folder=base)
+
+
+def test_ollama_cancelled_completed_transport_keeps_reported_usage():
+    event=threading.Event()
+    def transport(payload):
+        event.set()
+        return {'model':'qwen3.5:9b','done':True,'done_reason':'stop','message':{'role':'assistant','content':'done'},'eval_count':7,'prompt_eval_count':8}
+    reply=OllamaProvider(transport=transport).complete(MESSAGES,[],options(),event)
+    assert reply.cancelled and reply.tool_calls==[]
+    assert reply.generated_tokens==7 and reply.input_tokens==8
+
+
+def test_ollama_missing_usage_is_not_an_observed_zero():
+    transport=lambda payload:{'model':'qwen3.5:9b','done':True,'message':{'role':'assistant','content':'done'}}
+    reply=OllamaProvider(transport=transport).complete(MESSAGES,[],options(),threading.Event())
+    assert reply.output_tokens_reported is False

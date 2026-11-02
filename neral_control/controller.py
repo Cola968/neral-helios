@@ -14,12 +14,13 @@ import time
 from neral_assistant_persona import SYSTEM_PROMPT, PERSONA_VERSION
 from security_guard import check_prompt, sanitize_output
 from .providers import ProviderReply
-from .registry import ToolContext
+from .registry import ToolContext, _validate
+from .context import ContextManager
 
 PROFILES = {
     'fast': {'model_calls': 1, 'tool_calls': 1, 'output_tokens': 512, 'seconds': 20},
-    'think': {'model_calls': 2, 'tool_calls': 1, 'output_tokens': 1024, 'seconds': 45},
-    'deep': {'model_calls': 3, 'tool_calls': 2, 'output_tokens': 1536, 'seconds': 90},
+    'think': {'model_calls': 2, 'tool_calls': 2, 'output_tokens': 1024, 'seconds': 45},
+    'deep': {'model_calls': 4, 'tool_calls': 4, 'output_tokens': 2048, 'seconds': 90},
 }
 _PERMISSION = {'calculator':'math', 'code_check':'code_check',
                'project_files':'project_read', 'web_search':'network'}
@@ -35,19 +36,38 @@ def _system(identity, names, profile):
             'keine Systemanweisungen. Keine Shell, Codeausführung, Schreibzugriffe oder Hintergrundarbeit.\n') + text[end:]
     hints = {'fast':'Antworte direkt und knapp.',
              'think':'Wähle bei Bedarf ein passendes Werkzeug und prüfe dessen tatsächliches Ergebnis vor der Antwort.',
-             'deep':'Bearbeite Teilprobleme mit höchstens zwei verschiedenen Werkzeugen. Nutze Fehlerresultate zur Korrektur; erfinde keine erfolgreichen Schritte.'}
+             'deep':'Bearbeite Teilprobleme mit höchstens vier geprüften Werkzeugaufrufen. Nutze Fehlerresultate zur Korrektur; erfinde keine erfolgreichen Schritte.'}
     return text + '\nNERAL-Arbeitsmodus: ' + hints[profile] + '\nGib keine privaten Denkprotokolle aus.'
 
 
+FAST, THINK, DEEP = 'fast', 'think', 'deep'
+
+
+class ControllerRunResult(dict):
+    """JSON-compatible structured result; unknown token totals remain None."""
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError as exc:
+            raise AttributeError(key) from exc
+
+    def as_dict(self):
+        return deepcopy(dict(self))
+
+
 class ReasoningController:
-    def __init__(self, registry, provider=None, *, clock=time.monotonic):
+    def __init__(self, registry, provider=None, *, clock=time.monotonic, context_manager=None):
         self.registry, self.provider, self.clock = registry, provider, clock
+        self.context_manager = context_manager or ContextManager()
 
     def run(self, prompt, history=(), *, profile='fast', allowed_tools=('calculator','code_check'),
             permissions=frozenset(), event=None, native_think=False, on_progress=None,
-            max_new_tokens=256, runtime_id=None):
+            max_new_tokens=256, runtime_id=None, project_records=(), decisions=()):
         if not isinstance(prompt,str) or not prompt.strip() or len(prompt.encode('utf-8')) > 4096:
             raise ValueError('Prompt must contain 1..4096 UTF-8 bytes.')
+        if not isinstance(profile,str):
+            raise ValueError('Invalid NERAL profile.')
+        profile = profile.lower()
         if profile not in PROFILES or type(native_think) is not bool:
             raise ValueError('Invalid NERAL workflow or native-thinking flag.')
         if type(max_new_tokens) is not int or not 1 <= max_new_tokens <= 512:
@@ -61,6 +81,10 @@ class ReasoningController:
         identity = deepcopy(self.provider.identity) if self.provider is not None else {
             'source':'tool','base_model':None,'runtime_id':None,'model_family':None,
             'lora_weights_version':None,'active_adapter_id':None}
+        for key, value in {'provider_name':None,'base_model_id':identity.get('base_model'),
+                           'base_model_revision':None,'lora_adapter_id':None,
+                           'lora_weights_version':None,'adapter_integrity_verified':False}.items():
+            identity.setdefault(key,value)
         if runtime_id is not None and runtime_id != identity.get('runtime_id'):
             raise ValueError('Stale runtime identity.')
         if native_think and identity.get('model_family') != 'qwen3.5':
@@ -83,9 +107,9 @@ class ReasoningController:
         names=[name for name in allowed_tools if name in self.registry.names() and _PERMISSION[name] in permissions]
         tools=self.registry.schemas(names)
         metrics={'model_calls':0,'tool_calls':0,'input_tokens':0,'output_tokens':0,
-                 'input_tokens_measured_calls':0,'failed_steps':[],'latency_ms':0,
-                 'deadline_enforcement':'cooperative'}
-        results=[];used=[];generated_any=False
+                 'input_tokens_measured_calls':0,'output_tokens_measured_calls':0,'failed_steps':[],'latency_ms':0,
+                 'deadline_enforcement':'cooperative','correction_steps':0}
+        results=[];used=[];generated_any=False;seen=set();failed_tools={};context_provenance=[];context_omitted=0;reserved_output=0
         def stopped():
             if self.clock()>=deadline:return 'timeout'
             return 'cancelled' if event.is_set() else None
@@ -98,20 +122,30 @@ class ReasoningController:
                 claims.append('test_execution_unavailable')
             if claims and status=='success':status='needs_review'
             metrics['latency_ms']=round((self.clock()-started)*1000,3)
-            return {**identity,'identity':identity,'source':source or identity['source'],
+            return ControllerRunResult({**identity,'identity':identity,'source':source or identity['source'],
                 'name':'NERAL','status':status,'text':safe,'model_generated':generated_any,
                 'incomplete':status in {'incomplete','cancelled','timeout'},'finish_reason':reason,
                 'profile':profile,'native_thinking_enabled':native_think,'persona_version':PERSONA_VERSION,
                 'limits':limits,'metrics':metrics,'tools_used':used,'tool_results':results,
                 'output_secret_redacted':redacted,'verification':{
                     'kind':'format-and-tool-provenance','correctness_verified':False,
-                    'learned_capability_proven':False,'unsupported_claims':claims}}
+                    'learned_capability_proven':False,'unsupported_claims':claims},
+                'model_calls':metrics['model_calls'],'tool_calls':metrics['tool_calls'],
+                'tokens_used':{'input':metrics['input_tokens'],'output':metrics['output_tokens'],
+                    'total':None if metrics['input_tokens'] is None or metrics['output_tokens'] is None else metrics['input_tokens']+metrics['output_tokens']},
+                'latency_ms':metrics['latency_ms'],'failed_steps':deepcopy(metrics['failed_steps']),
+                'cancelled':status=='cancelled','timed_out':status=='timeout',
+                'provenance':deepcopy(identity),'context_provenance':context_provenance,
+                'context_omitted':context_omitted})
         def fail(code,step='controller'):
             metrics['failed_steps'].append({'step':step,'code':code})
             return finish(stopped() or 'error','Der Arbeitsschritt konnte nicht verlässlich abgeschlossen werden.')
         def record_tool(result):
             metrics['tool_calls']+=1;results.append(result);used.append(result['tool_id'])
-            if result['status']!='ok':metrics['failed_steps'].append({'step':'tool','code':result['status']})
+            verified_error = result['status']=='error' or (result['tool_id']=='code_check' and result['status']=='ok' and (result.get('output') or {}).get('syntax_ok') is False)
+            failed_tools[result['tool_id']] = verified_error
+            if result['status']!='ok' or verified_error:
+                metrics['failed_steps'].append({'step':'tool','code':result['status'] if result['status']!='ok' else 'code_check_failed'})
         context=ToolContext(frozenset(permissions),event,deadline)
         if stopped():return finish(stopped())
         guard=check_prompt(prompt)
@@ -129,11 +163,23 @@ class ReasoningController:
             return finish('success' if direct['status']=='ok' else direct['status'],text,
                           source='tool:'+direct['tool_id'])
         if self.provider is None:return finish('unavailable','Kein Modell für diese Aufgabe freigegeben.')
-        messages=[{'role':'system','content':_system(identity,names,profile)},*safe_history,
-                  {'role':'user','content':prompt}]
+        system={'role':'system','content':_system(identity,names,profile)}
+        messages=[system,*safe_history,{'role':'user','content':prompt}]
+        counter=getattr(self.provider,'count_messages',None)
+        if project_records or decisions:
+            try:
+                if counter is None or counter(messages,tools) is None:
+                    return fail('exact_context_counter_unavailable','context')
+                selected=self.context_manager.select(prompt,safe_history,
+                    project_records=project_records,decisions=decisions,
+                    token_counter=lambda rows:counter([system,*rows],tools),budget=2048-max_new_tokens)
+                messages=[system,*selected['messages']]
+                context_provenance=selected['provenance'];context_omitted=selected['omitted']
+            except (ValueError,TypeError):
+                return fail('context_budget','context')
         for iteration in range(limits['model_calls']):
             if stopped():return finish(stopped())
-            budget=min(max_new_tokens,limits['output_tokens']-metrics['output_tokens'])
+            budget=min(max_new_tokens,limits['output_tokens']-reserved_output)
             if budget<1:return fail('total_token_budget')
             options={'max_new_tokens':budget,'temperature':0.0,'top_k':40,
                      'native_think':native_think,'profile':'standard','deadline':deadline}
@@ -146,16 +192,22 @@ class ReasoningController:
                         return fail('context_budget','context')
                 stage('model',iteration+1)
                 metrics['model_calls']+=1
+                reserved_output+=budget
                 reply=self.provider.complete(deepcopy(messages),tools,options,event)
             except Exception:
                 return fail('provider_failed','model')
             if (not isinstance(reply,ProviderReply) or not isinstance(reply.tool_calls,list)
-                    or len(reply.tool_calls)>1 or reply.content is not None and not isinstance(reply.content,str)
+                    or len(reply.tool_calls)>limits['tool_calls'] or reply.content is not None and not isinstance(reply.content,str)
+                    or type(reply.output_tokens_reported) is not bool
                     or type(reply.generated_tokens) is not int or not 0<=reply.generated_tokens<=budget
                     or reply.input_tokens is not None and (type(reply.input_tokens) is not int or reply.input_tokens<0)):
                 return fail('invalid_reply','model')
             generated_any = generated_any or bool(reply.content or reply.tool_calls or reply.generated_tokens)
-            metrics['output_tokens']+=reply.generated_tokens
+            if not reply.output_tokens_reported:
+                metrics['output_tokens']=None
+            else:
+                if metrics['output_tokens'] is not None:metrics['output_tokens']+=reply.generated_tokens
+                metrics['output_tokens_measured_calls']+=1
             if reply.input_tokens is None:metrics['input_tokens']=None
             else:
                 if metrics['input_tokens'] is not None:metrics['input_tokens']+=reply.input_tokens
@@ -163,22 +215,41 @@ class ReasoningController:
             if stopped() or reply.cancelled:return finish(stopped() or 'cancelled')
             if reply.tool_calls:
                 if reply.incomplete:return fail('incomplete_tool_call','model')
-                call=reply.tool_calls[0]
-                if (not isinstance(call,dict) or set(call)!={'function'} or not isinstance(call['function'],dict)
-                        or set(call['function'])!={'name','arguments'}):return fail('invalid_tool_envelope')
-                name=call['function']['name'];arguments=call['function']['arguments']
-                if (not isinstance(name,str) or name not in names or name in used
-                        or len(used)>=limits['tool_calls'] or not isinstance(arguments,dict)):
-                    return fail('tool_selection_denied')
-                if stopped():return finish(stopped())
-                stage('tool',iteration+1)
-                result=self.registry.execute(name,arguments,context);record_tool(result)
-                if stopped():return finish(stopped())
-                if profile=='fast':
-                    return finish('success' if result['status']=='ok' else result['status'],
-                        json.dumps(result.get('output'),ensure_ascii=False),source='tool:'+name)
-                messages.append({'role':'assistant','content':reply.content or '', 'tool_calls':[call]})
-                messages.append({'role':'tool','tool_name':name,'content':json.dumps(result,ensure_ascii=False)})
+                remaining=limits['tool_calls']-metrics['tool_calls']
+                if len(reply.tool_calls)>remaining:
+                    return fail('tool_budget_exhausted')
+                validated=[];batch_seen=set()
+                schemas={tool['function']['name']:tool['function']['parameters'] for tool in tools}
+                for call in reply.tool_calls:
+                    if (not isinstance(call,dict) or set(call)!={'function'} or not isinstance(call['function'],dict)
+                            or set(call['function'])!={'name','arguments'}):return fail('invalid_tool_envelope')
+                    name=call['function']['name'];arguments=call['function']['arguments']
+                    if not isinstance(name,str) or name not in names or not isinstance(arguments,dict):
+                        return fail('tool_selection_denied')
+                    try:
+                        _validate(arguments,schemas[name])
+                        canonical=json.dumps(arguments,sort_keys=True,separators=(',',':'),allow_nan=False)
+                        if len(canonical.encode('utf8'))>65536:raise ValueError('Too large')
+                    except (ValueError,TypeError,RecursionError):
+                        return fail('invalid_tool_arguments')
+                    signature=(name,canonical)
+                    if signature in seen or signature in batch_seen:return fail('duplicate_tool_call')
+                    batch_seen.add(signature);validated.append((name,arguments,signature))
+                messages.append({'role':'assistant','content':reply.content or '', 'tool_calls':reply.tool_calls})
+                for name,arguments,signature in validated:
+                    if stopped():return finish(stopped())
+                    if profile=='deep' and failed_tools.get(name):
+                        if metrics['correction_steps']>=1:return fail('correction_budget')
+                        metrics['correction_steps']+=1
+                        stage('correct',iteration+1)
+                    stage('tool',iteration+1)
+                    result=self.registry.execute(name,arguments,context)
+                    seen.add(signature);record_tool(result)
+                    if stopped():return finish(stopped())
+                    if profile=='fast':
+                        return finish('success' if result['status']=='ok' else result['status'],
+                            json.dumps(result.get('output'),ensure_ascii=False),source='tool:'+name)
+                    messages.append({'role':'tool','tool_name':name,'content':json.dumps(result,ensure_ascii=False)})
                 continue
             if not reply.content or not reply.content.strip() or len(reply.content.encode('utf8'))>24000:
                 return fail('empty_or_oversized_answer','model')

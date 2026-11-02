@@ -33,7 +33,7 @@ def test_explicit_static_code_check_is_not_execution():
  assert out['tool_results'][0]['output']['executed'] is False
  assert out['metrics']['model_calls']==0
 
-@pytest.mark.parametrize('profile,expected',[('fast',1),('think',2),('deep',3)])
+@pytest.mark.parametrize('profile,expected',[('fast',1),('think',2),('deep',4)])
 def test_profile_limits_distinct_from_native_thinking(profile,expected):
  p=Provider(ProviderReply(content='Fertig',generated_tokens=3,input_tokens=4))
  out=run(p,profile=profile)
@@ -70,7 +70,7 @@ def test_invalid_or_incomplete_tool_reply_never_executes(reply):
 
 
 def test_repeat_tool_is_denied_before_second_execution():
- p=Provider(call(expression='2+2'),call(expression='3+3'))
+ p=Provider(call(expression='2+2'),call(expression='2+2'))
  out=run(p,profile='deep',permissions=frozenset({'math'}))
  assert out['status']=='error' and out['metrics']['tool_calls']==1 and len(p.calls)==2
 
@@ -161,3 +161,86 @@ def test_failed_provider_attempt_does_not_claim_a_generated_answer():
  out=run(Provider(RuntimeError('transport unavailable')))
  assert out['metrics']['model_calls']==1
  assert out['model_generated'] is False
+
+
+def test_new_profile_contracts_and_structured_result():
+ from neral_control.controller import ControllerRunResult
+ for profile,models,tools in [('FAST',1,1),('THINK',2,2),('DEEP',4,4)]:
+  out=run(Provider(ProviderReply(content='Antwort',generated_tokens=3,input_tokens=5)),profile=profile)
+  assert isinstance(out,ControllerRunResult)
+  assert out.profile==profile.lower() and out['limits']['model_calls']==models and out['limits']['tool_calls']==tools
+  assert out.model_calls==1 and out.tool_calls==0
+  assert out.tokens_used=={'input':5,'output':3,'total':8}
+  assert out.cancelled is False and out.timed_out is False
+  assert 'lora_adapter_id' in out.provenance and out.provenance['lora_adapter_id'] is None
+
+
+def test_think_can_execute_two_distinct_tools_before_final_second_call():
+ calls=[{'function':{'name':'calculator','arguments':{'expression':'2+2'}}},
+        {'function':{'name':'code_check','arguments':{'code':'pass'}}}]
+ p=Provider(ProviderReply(tool_calls=calls),ProviderReply(content='4 und statisch geprüft.'))
+ out=run(p,profile='think',permissions=frozenset({'math','code_check'}))
+ assert out['status']=='success' and out['model_calls']==2 and out['tool_calls']==2
+
+
+def test_deep_allows_different_arguments_same_tool_but_not_identical_canonical_call():
+ p=Provider(call(expression='2+2'),call(expression='3+3'),ProviderReply(content='4 und 6'))
+ out=run(p,profile='deep',permissions=frozenset({'math'}))
+ assert out['status']=='success' and out['tool_calls']==2
+ p=Provider(call(expression='2+2'),call(expression='2+2'))
+ out=run(p,profile='deep',permissions=frozenset({'math'}))
+ assert out['status']=='error' and out['tool_calls']==1
+
+
+def test_deep_four_tool_budget_and_four_model_calls_are_real_caps():
+ calls=[{'function':{'name':'calculator','arguments':{'expression':f'{i}+1'}}} for i in range(4)]
+ p=Provider(ProviderReply(tool_calls=calls[:2]),ProviderReply(tool_calls=calls[2:3]),ProviderReply(tool_calls=calls[3:]),ProviderReply(content='Fertig'))
+ out=run(p,profile='deep',permissions=frozenset({'math'}))
+ assert out['status']=='success' and out['model_calls']==4 and out['tool_calls']==4
+
+
+def test_deep_allows_only_one_changed_argument_correction_after_verified_failure():
+ p=Provider(call('code_check',code='def broken(:'),call('code_check',code='def still_broken(:'),call('code_check',code='pass'))
+ out=run(p,profile='deep',permissions=frozenset({'code_check'}))
+ assert out['status']=='error' and out['metrics']['correction_steps']==1
+ assert out['tool_calls']==2
+
+
+def test_complete_batch_validation_precedes_first_tool_execution():
+ p=Provider(ProviderReply(tool_calls=[{'function':{'name':'calculator','arguments':{'expression':'2+2'}}},
+                                    {'function':{'name':'code_check','arguments':{'code':'pass','shell':'no'}}}]))
+ out=run(p,profile='think',permissions=frozenset({'math','code_check'}))
+ assert out['status']=='error' and out['tool_calls']==0
+
+
+def test_explicit_context_manager_is_connected_to_exact_provider_counter():
+ p=Provider(ProviderReply(content='Aus Quelle beantwortet.'))
+ p.identity=p.identity.copy();p.identity['model_family']='qwen2.5-coder'
+ p.count_messages=lambda messages,tools:sum(len(m['content'])//8+1 for m in messages)
+ from neral_control.controller import ReasoningController
+ out=ReasoningController(default_registry(),p).run('Was sagt die Quelle?',project_records=[{'path':'a.py','text':'value=42','sha256':'a'*64}],permissions=frozenset())
+ assert out['status']=='success' and out['context_provenance'][0]['path']=='a.py'
+ assert 'untrusted' in p.calls[0][0][-1]['content']
+
+
+def test_deadline_after_model_is_reported_separately_from_cancel():
+ import time
+ class Clock:
+  now=time.monotonic()
+  def __call__(self):return self.now
+ clock=Clock()
+ class Slow(Provider):
+  def complete(self,*args):
+   clock.now+=100
+   return ProviderReply(content='late',generated_tokens=2)
+ from neral_control.controller import ReasoningController
+ out=ReasoningController(default_registry(),Slow(),clock=clock).run('Beantworte diese Frage')
+ assert out['timed_out'] is True and out['cancelled'] is False
+ assert out['tokens_used']['output']==2
+
+
+def test_missing_output_token_report_remains_unknown_with_hard_call_limits():
+    p=Provider(ProviderReply(content='answer',output_tokens_reported=False))
+    result=run(p)
+    assert result.tokens_used['output'] is None and result.tokens_used['total'] is None
+    assert result.model_calls==1

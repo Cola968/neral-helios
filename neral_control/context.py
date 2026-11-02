@@ -174,10 +174,26 @@ class ProjectReader:
     Directory descriptors and O_NOFOLLOW prevent symlink replacement between
     validation and reading. Unsupported platforms fail closed.
     """
-    def __init__(self, root, max_bytes=8192):
+    def __init__(self, root, max_bytes=8192, *, allowed_roots=None, max_files=100):
         if type(max_bytes) is not int or not 1 <= max_bytes <= 65536:
             raise ValueError('Invalid file byte limit.')
+        if type(max_files) is not int or not 1 <= max_files <= 100:
+            raise ValueError('Invalid context file limit.')
+        self.max_files = max_files
+        if str(root).startswith(('\\\\', '//')):
+            raise ValueError('UNC and device roots are not approved.')
         self.root = Path(os.path.abspath(root))
+        roots = [self.root] if allowed_roots is None else list(allowed_roots)
+        if not roots or len(roots) > 32:
+            raise ValueError('An explicit project root allowlist is required.')
+        allowed = {os.path.normcase(os.path.abspath(p)) for p in roots}
+        if os.path.normcase(str(self.root)) not in allowed:
+            raise ValueError('Project root is outside the explicit allowlist.')
+        try:
+            self._check_segments(self.root)
+            self.canonical_root = self.root.resolve(strict=True)
+        except OSError as exc:
+            raise ValueError('Approved root cannot be safely inspected.') from exc
         if os.name == 'nt':
             try:
                 _read_windows(self.root, [], max_bytes, _windows_api())
@@ -189,6 +205,17 @@ class ProjectReader:
             if any(p.is_symlink() for p in self.root.parents):
                 raise ValueError('Root ancestors must not be symlinks.')
         self.max_bytes = max_bytes
+
+    @staticmethod
+    def _check_segments(path):
+        parts = Path(path).absolute().parts
+        current = Path(parts[0])
+        for part in (None, *parts[1:]):
+            if part is not None:
+                current = current / part
+            info = os.lstat(current)
+            if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400):
+                raise ValueError('Symlink or reparse point in project path.')
 
     @staticmethod
     def supported():
@@ -224,6 +251,13 @@ class ProjectReader:
 
     def read(self, relative_path):
         parts = self._parts(relative_path)
+        target = self.root.joinpath(*parts)
+        try:
+            self._check_segments(target)
+            if not target.resolve(strict=True).is_relative_to(self.canonical_root):
+                raise ValueError('Project source escaped the approved root.')
+        except OSError as exc:
+            raise ValueError('Source cannot be safely inspected.') from exc
         if not self.supported():
             raise ValueError('Safe rooted file reading is unavailable on this platform.')
         if os.name == 'nt':
@@ -267,7 +301,8 @@ class ProjectReader:
         if not redacted and text == original.strip():
             text = original
         record = {'path': '/'.join(parts), 'sha256': hashlib.sha256(raw).hexdigest(),
-                  'text': text, 'truncated': False, 'source': 'project-file'}
+                  'text': text, 'truncated': False, 'source': 'project-file',
+                  'untrusted_project_content': True}
         if redacted or text != original:
             record['redacted'] = True
             record['sanitized'] = True
@@ -294,12 +329,16 @@ class ProjectReader:
                         pending.append(parts + [name])
                     else:
                         scanned += 1
-                        if scanned > 100:
+                        if scanned > self.max_files:
                             return
                         yield relative
             return
         scanned = 0
+        folders = 0
         for folder, dirs, files in os.walk(self.root, followlinks=False):
+            folders += 1
+            if folders > 100:
+                return
             dirs[:] = sorted(d for d in dirs if not (Path(folder) / d).is_symlink()
                              and self._allowed((Path(folder) / d).relative_to(self.root).as_posix()))
             for name in sorted(files):
@@ -307,7 +346,7 @@ class ProjectReader:
                 if not self._allowed(relative):
                     continue
                 scanned += 1
-                if scanned > 100:
+                if scanned > self.max_files:
                     return
                 yield relative
 
@@ -321,6 +360,7 @@ class ProjectReader:
     def approved_paths(self, limit=100):
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError('Invalid path limit.')
+        limit = min(limit, self.max_files)
         paths = []
         for path in self._candidates():
             try:
@@ -348,7 +388,7 @@ class ProjectReader:
             if index < 0 and needle not in path.casefold():
                 continue
             start = max(0, index - 120)
-            matches.append({k: record[k] for k in ('path', 'sha256', 'source', 'truncated')})
+            matches.append({k: record[k] for k in ('path', 'sha256', 'source', 'truncated', 'untrusted_project_content')})
             matches[-1]['snippet'] = record['text'][start:start + 480]
             if record.get('redacted'):
                 matches[-1]['redacted'] = True

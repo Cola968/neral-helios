@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import hashlib
+from pathlib import Path
 import math
 import re
 import threading
@@ -32,6 +34,7 @@ class ProviderReply:
     generated_tokens: int = 0
     input_tokens: int | None = None
     seconds: float = 0.0
+    output_tokens_reported: bool = True
 
 
 def _stopped(event, options):
@@ -44,10 +47,10 @@ def _stopped(event, options):
     return event.is_set()
 
 
-def _cancelled(count=0, input_tokens=None, seconds=0.0):
+def _cancelled(count=0, input_tokens=None, seconds=0.0, reported=True):
     return ProviderReply(finish_reason='cancelled', incomplete=True,
                          cancelled=True, generated_tokens=count,
-                         input_tokens=input_tokens, seconds=seconds)
+                         input_tokens=input_tokens, seconds=seconds, output_tokens_reported=reported)
 
 
 def _settings(options, local_provider=False):
@@ -131,7 +134,9 @@ class OllamaProvider:
         self.identity = dict(source='external-model', base_model=model,
                              model_family='qwen3.5', runtime_id='ollama:'+model,
                              token_unit='Ollama-Token', provider_wrapper_version='neral-ollama-v1',
-                             lora_weights_version=None, active_adapter_id=None)
+                             lora_weights_version=None, active_adapter_id=None,
+                             provider_name='ollama', base_model_id=model, base_model_revision=None,
+                             lora_adapter_id=None, adapter_integrity_verified=False)
 
     def count_messages(self, messages, tools):
         """The HTTP runtime exposes usage after generation, not exact preflight counts."""
@@ -151,7 +156,15 @@ class OllamaProvider:
         except ollama.AssistantError as exc:
             raise ProviderError(str(exc)) from exc
         if _stopped(event, options):
-            return _cancelled()
+            try:
+                ollama._message(data, self.model)
+            except ollama.AssistantError:
+                return _cancelled(input_tokens=None, reported=False)
+            duration=data.get('eval_duration')
+            return _cancelled(_count(data.get('eval_count')),
+                _count(data.get('prompt_eval_count'),None),
+                duration/1e9 if type(duration) is int and duration>=0 else 0.0,
+                type(data.get('eval_count')) is int and 0<=data['eval_count']<=1_000_000)
         try:
             message = ollama._message(data, self.model)
         except ollama.AssistantError as exc:
@@ -164,7 +177,8 @@ class OllamaProvider:
                              incomplete=data.get('done_reason') == 'length',
                              generated_tokens=_count(data.get('eval_count')),
                              input_tokens=_count(data.get('prompt_eval_count'), None),
-                             seconds=seconds)
+                             seconds=seconds,
+                             output_tokens_reported=type(data.get('eval_count')) is int and 0<=data['eval_count']<=1_000_000)
 
 
 _PROTOCOL = '''
@@ -251,13 +265,40 @@ def _local_messages(messages, tools):
 class LocalQwenProvider:
     """Existing local Transformers runtime with bounded JSON tool serialization."""
 
-    def __init__(self, runtime):
+    def __init__(self, runtime, *, model_folder=None, adapter_folder=None):
         self.runtime = runtime
         weights_version, adapter_id = _active_adapter(runtime)
+        revision = None
+        integrity_verified = False
+        snapshot = None
+        try:
+            if model_folder is not None:
+                from model_catalog import validate_hf_snapshot
+                snapshot = validate_hf_snapshot(Path(model_folder).expanduser().absolute(), verify_hashes=True)
+                expected = local.FAMILY + ':' + snapshot['sha256']
+                if runtime.identity.split(':neral-lora:', 1)[0] != expected:
+                    raise ProviderError('Verified snapshot differs from active runtime.')
+                revision = snapshot['revision']
+            if adapter_id is not None:
+                if snapshot is None or adapter_folder is None:
+                    raise ProviderError('Active LoRA requires explicit verified base and adapter artifacts.')
+                from neral_adapter_candidate import validate_adapter
+                manifest = validate_adapter(Path(adapter_folder).expanduser().absolute(), snapshot)
+                digest = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+                if manifest['version'] != weights_version or digest != adapter_id:
+                    raise ProviderError('Adapter artifact differs from active runtime.')
+                integrity_verified = True
+            elif adapter_folder is not None:
+                raise ProviderError('An artifact path does not establish an active LoRA.')
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            raise ProviderError('Local model/adapter provenance could not be verified.') from exc
         self.identity = dict(source='external-model', base_model=local.HF_BASE,
                              model_family=local.FAMILY, runtime_id=runtime.identity,
                              token_unit='BPE-Token', provider_wrapper_version='neral-local-qwen-v1',
-                             lora_weights_version=weights_version, active_adapter_id=adapter_id)
+                             lora_weights_version=weights_version, active_adapter_id=adapter_id,
+                             provider_name='qwen_local_nf4', base_model_id=local.HF_BASE,
+                             base_model_revision=revision, lora_adapter_id=adapter_id,
+                             adapter_integrity_verified=integrity_verified)
 
     def _message_ids(self, messages, tools):
         return self.runtime.tokenizer.apply_chat_template(

@@ -12,7 +12,7 @@ def test_reader_reads_actual_source_and_retrieves_deterministically(tmp_path):
     result = reader.read('b.txt')
     assert result == dict(path='b.txt', text='Budget is 42',
                           sha256=hashlib.sha256(b'Budget is 42').hexdigest(),
-                          truncated=False, source='project-file')
+                          truncated=False, source='project-file', untrusted_project_content=True)
     assert [row['path'] for row in reader.search('budget')] == ['a.md', 'b.txt']
     assert reader.search('budget', limit=1)[0]['snippet'] == 'Budget source'
 
@@ -110,3 +110,29 @@ def test_source_secret_is_redacted_with_original_digest(tmp_path):
     assert 'ghp_' not in record['text']
     assert record['sha256'] == hashlib.sha256(raw.encode()).hexdigest()
     assert reader.search('example')[0]['redacted'] is True
+
+
+def test_explicit_root_allowlist_and_context_file_cap(tmp_path):
+    approved=tmp_path/'approved';approved.mkdir()
+    other=tmp_path/'other';other.mkdir()
+    for index in range(4):(approved/f'{index}.txt').write_text('source')
+    with pytest.raises(ValueError):ProjectReader(other,allowed_roots=[approved])
+    reader=ProjectReader(approved,allowed_roots=[approved],max_files=2)
+    assert len(reader.approved_paths())==2
+    assert reader.read('0.txt')['untrusted_project_content'] is True
+    assert reader.search('source')[0]['untrusted_project_content'] is True
+
+
+def test_lstat_reparse_attributes_are_rejected_even_in_crossplatform_tests(tmp_path,monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    import neral_control.context as context
+    target=tmp_path/'source.txt';target.write_text('safe')
+    reader=ProjectReader(tmp_path)
+    original=context.os.lstat
+    def reparse(path,*args,**kwargs):
+        info=original(path,*args,**kwargs)
+        if str(path)==str(target):return SimpleNamespace(st_mode=stat.S_IFREG|0o600,st_file_attributes=0x400)
+        return info
+    monkeypatch.setattr(context.os,'lstat',reparse)
+    with pytest.raises(ValueError,match='[Rr]eparse|[Ll]ink'):reader.read('source.txt')

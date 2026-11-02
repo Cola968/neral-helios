@@ -14,8 +14,8 @@ pipeline are unchanged. See NERAL_INTEGRATION_MATRIX.md for the pinned PR audit.
   cooperative cancellation/deadlines and actual result/provenance records.
   Dynamic imports, shell execution, project writes and paid providers are absent.
 - Three workflow profiles: Schnell (`fast`: one provider call/one tool/512 output
-  tokens total/20 s cooperative deadline), Denken (`think`: two/one/1024/45 s),
-  Tiefenanalyse (`deep`: three/two distinct tools/1536/90 s). Each provider call
+  tokens total/20 s cooperative deadline), Denken (`think`: two/two/1024/45 s),
+  Tiefenanalyse (`deep`: four/four canonical-distinct tool calls/2048/90 s). Each provider call
   is capped at 512 response tokens. Limits are ceilings, not forced extra calls.
   Native Ollama thinking is a separate opt-in. Local Qwen has no native thinking
   flag; its context remains 2048 and is counted including tool/schema/template
@@ -27,9 +27,14 @@ pipeline are unchanged. See NERAL_INTEGRATION_MATRIX.md for the pinned PR audit.
   unchanged; this is selective reuse of #215's protocol correction.
 - Actual tool-only math and explicit `CODE_CHECK:` requests require no model.
   The checker remains static: `executed=false`, no functional test claim.
-- Distinct provider_wrapper_version, lora_weights_version, active_adapter_id.
-  Unmodified bases have null LoRA fields. Active candidate status must agree with
-  the candidate loader's version/hash-bearing runtime identity.
+- Distinct provider_name, provider_wrapper_version, base_model_id,
+  base_model_revision, lora_adapter_id, lora_weights_version and
+  adapter_integrity_verified; active_adapter_id remains a compatibility alias.
+  Unmodified bases have null LoRA fields and integrity=false. Unknown base revision
+  is null. An active candidate requires explicit local base/adapter paths, full
+  existing hash verification and agreement with its version/hash runtime identity.
+  Label-only claims are rejected. These are artifact-integrity checks, not a
+  measurement of learned quality or a new proof of publisher authenticity.
 - A separate Helios panel and routes installed explicitly on the original Flask
   app, reusing its Host/Origin/session guards, generation lock and job events.
   The normal launcher and chat page are not replaced. Streaming shows reviewed
@@ -102,7 +107,10 @@ up to its legacy socket timeout; stop is checked before/after, not a hard in-fli
 interrupt. Local generation signals the existing event between tokens. No leaking
 worker threads are used to pretend arbitrary handlers were forcibly terminated.
 
-Per turn: actual attempted provider/tool calls, reported input/output tokens,
+Per turn ControllerRunResult: profile, actual attempted provider/tool calls,
+reported input/output/total tokens, latency, failures, cancelled/timed_out flags,
+separate provenance and context provenance. Missing token counts remain null;
+call-level response budgets are reserved independently of telemetry. Also reports
 measured-input-call count, elapsed latency, failed steps and terminal status.
 Missing provider token counts stay unknown. Cancelled generations retain reported
 usage. A failed transport is not labelled a generated answer. Result verification
@@ -130,3 +138,55 @@ Windows acceptance, training, adapter activation, merge or deployment is claimed
 The 26 reviewed training examples and eight pilot holdouts from #220 remain
 unchanged. Data expansion, real approved model comparisons, persistent memory and
 full default-chat integration remain separate work packages.
+
+
+## Contract revision requested after the initial review handoff
+
+The original task was already REVIEW_REQUIRED, not expired RUNNING. The explicit
+new operator request was applied through supported resolve(retry)+guarded claim,
+only for this exact key, after stopped-executor/process checks. Attempt 3 is the
+last allowed attempt; no expiration API or manual state rewrite was invented.
+The previous published commit remains 4a83308; this is incremental rework on #222.
+
+Every project path segment is additionally inspected with lstat; symlink and
+FILE_ATTRIBUTE_REPARSE_POINT rejection applies before the existing protected open.
+A configured root must be a member of the explicit root allowlist. Default is the
+single root passed by the operator. Every read/search record is marked
+untrusted_project_content=true. max_files caps enumeration; per-file byte caps
+and pinned-handle/no-follow checks remain. Native Windows race tests still block
+release regardless of mocked attribute/handle tests.
+
+THINK permits up to two validated tool calls before a final second generation;
+DEEP permits four model calls/four tool calls and at most one changed-argument
+retry following a verified failure of that tool (including static syntax failure).
+Canonical JSON argument order determines duplicate signatures; this does not
+claim semantic equivalence detection for differently worded inputs. Entire tool
+batches are validated before the first execution. Profiles are ceilings, not
+forced extra work. Elapsed deadlines remain cooperative with blocking Ollama;
+no hard in-flight network cancellation is claimed.
+
+Optional five-line host hook (does not change the existing application):
+
+```python
+from neral_control import create_shared_controller
+from neral_control.registry import default_registry
+registry = default_registry()
+controller = create_shared_controller(registry=registry)
+result = controller.run("2+2", permissions=frozenset({"math"}))
+```
+
+The opt-in panel uses this factory. A model provider requires the explicit
+allow_model_inference=True factory argument; no factory call loads weights,
+queries a server or activates an adapter. A verified candidate can be supplied
+only after separately approved loading, e.g. LocalQwenProvider(runtime,
+model_folder=approved_base, adapter_folder=approved_adapter). Artifact paths are
+server/operator configuration, never model tool arguments. The ordinary panel's
+base-only path remains valid; it does not auto-load/auto-verify an adapter.
+
+New revision evidence and exact historical-failure isolation are in
+`evidence/neral-control-20261101/contract-v3/`. No blanket claim is made that all
+historical eight failures were outside this package: two were context tests
+fixed during the original development. Five absent-asset failures reproduce on
+the unchanged predecessor and current source. The gateway failure and three
+setup errors were sandbox socket restrictions; current relevant tests pass with
+local networking. No complete green unfiltered repository suite is claimed.

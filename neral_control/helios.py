@@ -38,8 +38,9 @@ def install(helios_module, *, project_root=None, search_provider=None,
     if 'neral_control' in app.extensions:
         raise ValueError('Neral Control is already installed')
     if controller_factory is None:
-        from neral_control.controller import ReasoningController
-        controller_factory = ReasoningController
+        from neral_control import create_shared_controller
+        controller_factory = lambda registry, provider: create_shared_controller(
+            registry, provider, allow_model_inference=allow_model_inference)
     project_reader = None
     project_unavailable = None
     if project_root is not None:

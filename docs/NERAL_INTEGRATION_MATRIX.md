@@ -67,3 +67,12 @@ selected CPU regression suite without competing test runs; review the resulting
 diff and evidence. Reconciliation with #203's newer agent work and #215's broader
 integration branch remains a separate, explicit operation after path holds are
 resolved. Never infer merged status or tested behavior from the roadmap alone.
+
+
+Contract-v3 follow-up on the same PR #222: provenance adds explicit backend/base/
+revision/LoRA/integrity fields with artifact verification; context adds lstat/root
+allowlist/untrusted markers; profile ceilings are now FAST 1 model/1 tool,
+THINK 2/2 and DEEP 4/4 with canonical-call deduplication and one verified-error
+correction. ControllerRunResult and an inert public factory are exported from the
+package. Legacy held files remain unchanged. See contract-v3 evidence for fresh
+module/regression results; earlier 448 is historical, not this revision's count.
