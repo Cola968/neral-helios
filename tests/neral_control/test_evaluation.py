@@ -209,3 +209,127 @@ def test_cli_rejects_duplicate_json_keys_without_revealing_input(tmp_path):
     assert result.returncode == 2
     assert not result.stdout
     assert 'private-value' not in result.stderr
+
+
+@pytest.mark.parametrize('count', [1, 2, 100])
+def test_baseline_results_cannot_claim_any_tool_execution(count):
+    manifest, runs = inputs()
+    runs['A']['results'][0]['tool_calls'] = count
+    with pytest.raises(ValueError, match='A.*tool'):
+        evaluate(manifest, runs)
+
+
+@pytest.mark.parametrize('tool', ['calculator', 'solve.v0', 'solve.v1.extra', 'solve.v1\n'])
+def test_toolset_requires_explicit_positive_version(tool):
+    manifest, runs = inputs()
+    for condition in 'BCD':
+        runs[condition]['settings']['tools'] = [tool]
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
+
+
+def schema2_inputs():
+    manifest, runs = inputs()
+    manifest.update(schema=2, split='dev', external_unseen_assertion=False,
+                    independent_reviewer_assertion=False)
+    for index, task in enumerate(manifest['tasks']):
+        task['semantic_family'] = task.pop('semantic_group')
+        task.update(category='coding' if index < 50 else 'logic',
+                    task_version='1.0.0',
+                    source={'kind':'original', 'reference':'fixture-author/task-'+str(index),
+                            'license':'CC0-1.0'},
+                    review={'status':'reviewed', 'reviewer':'fixture-reviewer',
+                            'method':'hand-checked deterministic rubric'})
+    return manifest, runs
+
+
+def test_schema2_reuses_categories_and_reports_coverage_without_independence_claim():
+    manifest, runs = schema2_inputs()
+    # A semantic family may contain several tasks inside a single partition.
+    manifest['tasks'][1]['semantic_family'] = manifest['tasks'][0]['semantic_family']
+    report = evaluate(manifest, runs)
+    assert report['manifest_schema'] == 2
+    assert report['split'] == 'dev'
+    assert report['category_counts'] == {'coding':50, 'logic':50}
+    assert report['assertions']['external_unseen'] is False
+    assert report['assertions']['independent_reviewer'] is False
+    assert report['independent_quality_proven'] is False
+
+
+@pytest.mark.parametrize('field,value', [
+    ('id','case-1'), ('prompt_sha256','bad'), ('category',''),
+    ('semantic_family',''), ('task_version',''),
+    ('source',{'kind':'original', 'reference':'', 'license':'CC0-1.0'}),
+    ('review',{'status':'draft', 'reviewer':'fixture', 'method':'unchecked'}),
+])
+def test_schema2_requires_unique_tasks_and_reviewed_provenance(field, value):
+    manifest, runs = schema2_inputs()
+    manifest['tasks'][0][field] = value
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
+
+
+def test_schema2_final_requires_external_unseen_and_independent_assertions():
+    manifest, runs = schema2_inputs()
+    manifest['split'] = 'final'
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
+    manifest.update(external_unseen_assertion=True, independent_reviewer_assertion=True)
+    assert evaluate(manifest, runs)['split'] == 'final'
+
+
+def test_versioned_migration_requires_review_metadata_and_preserves_commitments():
+    module = importlib.import_module('neral_control.evaluation')
+    assert callable(getattr(module, 'migrate_manifest_v1', None)), 'Explicit schema migration is missing'
+    old, _ = inputs()
+    original = copy.deepcopy(old)
+    modern, _ = schema2_inputs()
+    metadata = {task['id']: {k:task[k] for k in ('category','task_version','source','review')}
+                for task in modern['tasks']}
+    result = module.migrate_manifest_v1(old, benchmark_version='dev-migrated-v2',
+                                       split='dev', task_metadata=metadata)
+    assert old == original
+    assert result['schema'] == 2 and result['benchmark_version'] == 'dev-migrated-v2'
+    assert result['tasks'][0]['semantic_family'] == 'group-0'
+    assert result['tasks'][0]['prompt_sha256'] == old['tasks'][0]['prompt_sha256']
+    assert result['tasks'][0]['rubric_sha256'] == old['tasks'][0]['rubric_sha256']
+    with pytest.raises(ValueError):
+        module.migrate_manifest_v1(old, benchmark_version='dev-migrated-v2',
+                                  split='dev', task_metadata={})
+
+
+def test_declared_semantic_family_or_prompt_cannot_cross_partitions():
+    module = importlib.import_module('neral_control.evaluation')
+    assert callable(getattr(module, 'validate_partition_separation', None)), 'Partition gate is missing'
+    dev, _ = schema2_inputs()
+    final = copy.deepcopy(dev)
+    final.update(split='final', benchmark_version='final-v1',
+                 external_unseen_assertion=True, independent_reviewer_assertion=True)
+    with pytest.raises(ValueError, match='partition'):
+        module.validate_partition_separation([dev, final])
+    for i, task in enumerate(final['tasks']):
+        task['semantic_family'] = 'independent-'+str(i)
+    # Distinct family labels cannot hide an identical committed prompt.
+    with pytest.raises(ValueError, match='partition'):
+        module.validate_partition_separation([dev, final])
+    for i, task in enumerate(final['tasks']):
+        task['prompt_sha256'] = hashlib.sha256(('new prompt '+str(i)).encode()).hexdigest()
+    result = module.validate_partition_separation([dev, final])
+    assert result['checked_partitions'] == ['dev', 'final']
+    assert result['semantic_leakage_proven_absent'] is False
+
+
+@pytest.mark.parametrize('value', [[], {}, ['dev'], {'split':'dev'}, 2, None])
+def test_malformed_partition_types_fail_with_controlled_validation(value):
+    manifest, runs = schema2_inputs()
+    manifest['split'] = value
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
+
+
+@pytest.mark.parametrize('value', [[], {}, ['reviewed'], {'status':'reviewed'}])
+def test_malformed_review_status_types_fail_with_controlled_validation(value):
+    manifest, runs = schema2_inputs()
+    manifest['tasks'][0]['review']['status'] = value
+    with pytest.raises(ValueError):
+        evaluate(manifest, runs)
