@@ -1,5 +1,5 @@
 {
-  "revision": 163,
+  "revision": 164,
   "tasks": {
     "cloud-queue-214-review": {
       "attempts": 1,
@@ -390,14 +390,17 @@
       "base_ref": "codex/neral-phase22-sft-validation-20261102",
       "base_sha": "6849b7f3fbf28f9af8be7a08b8301da0b4b46a56",
       "priority": 1,
-      "state": "RUNNING",
+      "state": "REVIEW_REQUIRED",
       "attempts": 1,
-      "owner": "chat-neral-pack-20261102",
-      "lease_token": "a60633e3513494cdbcdf44090294460c",
-      "lease_until": 1793661284,
-      "started": 1793660384,
+      "owner": null,
+      "lease_token": null,
+      "lease_until": null,
+      "started": null,
       "created": 1793660376,
-      "result": null,
+      "result": {
+        "pr": 234,
+        "commit": "a082738f9145722dec443141e5d7801a3ead93af"
+      },
       "error": null
     }
   },
