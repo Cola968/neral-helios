@@ -340,8 +340,10 @@ def write(path,text):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode',choices=('plan','collect','score','report'))
+    parser=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
+    modes=('plan','collect','score','report')
+    parser.add_argument('mode',nargs='?',choices=modes)
+    parser.add_argument('--mode',dest='mode_option',choices=modes)
     parser.add_argument('--corpus-root',type=Path,default=Path(__file__).resolve().parents[1])
     parser.add_argument('--model-dir',type=Path);parser.add_argument('--adapter-dir',type=Path)
     parser.add_argument('--track',choices=('resource_equivalent','product'),default='resource_equivalent')
@@ -351,6 +353,10 @@ def main(argv=None):
     parser.add_argument('--collection',type=Path);parser.add_argument('--reviews',type=Path)
     parser.add_argument('--output',type=Path);parser.add_argument('--markdown-output',type=Path)
     args=parser.parse_args(argv)
+    if args.mode and args.mode_option and args.mode!=args.mode_option:
+        parser.error('Positional mode and --mode disagree')
+    args.mode=args.mode_option or args.mode
+    if args.mode is None:parser.error('Supply a mode, e.g. --mode plan')
     try:
         if args.output and args.markdown_output and args.output.resolve()==args.markdown_output.resolve():
             raise ValueError('JSON and Markdown need distinct output paths')

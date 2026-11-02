@@ -33,6 +33,28 @@ def test_collect_requires_confirmation_before_any_work(monkeypatch):
     with pytest.raises(PermissionError):module.collect('.',confirm_execution=False)
 
 
+def test_mode_flag_selects_cpu_plan(monkeypatch,capsys):
+    import json
+    module=api()
+    monkeypatch.setattr(module,'plan',lambda *a,**kw:{'model_started':False,'mode':'plan'})
+    module.main(['--mode','plan'])
+    assert json.loads(capsys.readouterr().out)=={'model_started':False,'mode':'plan'}
+
+
+def test_conflicting_mode_forms_are_rejected(monkeypatch):
+    module=api()
+    monkeypatch.setattr(module,'collect',lambda *a,**k:pytest.fail('conflicting CLI reached inference'))
+    with pytest.raises(SystemExit) as e:module.main(['plan','--mode','collect','--confirm-execution'])
+    assert e.value.code==2
+
+
+def test_abbreviated_confirmation_does_not_authorize_execution(monkeypatch):
+    module=api()
+    monkeypatch.setattr(module,'collect',lambda *a,**k:pytest.fail('abbreviated confirmation reached execution'))
+    with pytest.raises(SystemExit) as e:module.main(['--mode','collect','--conf'])
+    assert e.value.code==2
+
+
 def test_plan_cpu_skips_unverified_adapter_without_loader(monkeypatch):
     module=api();fixture(module,monkeypatch)
     result=module.plan('.')
@@ -89,7 +111,7 @@ def test_scoring_binds_review_to_exact_output_and_preserves_skips(monkeypatch,tm
     source=tmp_path/'collection.json';review_file=tmp_path/'reviews.json'
     source.write_text(json.dumps(collected));review_file.write_text(json.dumps(reviews))
     output=tmp_path/'report.json';markdown=tmp_path/'report.md'
-    module.main(['report','--collection',str(source),'--reviews',str(review_file),
+    module.main(['--mode','report','--collection',str(source),'--reviews',str(review_file),
                  '--output',str(output),'--markdown-output',str(markdown)])
     assert json.loads(output.read_text())['target']['denominator']==100
     assert 'SKIPPED_NO_VERIFIED_ADAPTER' in markdown.read_text(encoding='utf8')

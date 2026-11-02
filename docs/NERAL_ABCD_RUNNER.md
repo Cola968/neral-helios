@@ -1,7 +1,9 @@
 # NERAL A/B/C/D runner
 
 Queue `neral-phase22-runner-v1`, operator-authorized stopped-worker retry, attempt
-2. Stacked on strict benchmark #224 `c4c6a07`; the original pin `8c80bd2` remains
+2, followed by regular attempt 3 for the final requested CLI compatibility fix.
+The prior executor had finished; the same key/scope was retained, with no reset
+or replacement ID. Stacked on strict benchmark #224 `c4c6a07`; the original pin `8c80bd2` remains
 an ancestor. Only this document, the runner and its CPU tests change.
 
 ## Dependencies and commands
@@ -13,9 +15,9 @@ The data root is an explicitly trusted reviewed repository checkout, not an
 arbitrary uploaded directory containing executable Python source.
 
 ```powershell
-python scripts/run_neral_abcd_eval.py plan --corpus-root C:\path\to\reviewed-repo --output plan.json
-python scripts/run_neral_abcd_eval.py score --collection collection.json --reviews reviews.json --output scores.json
-python scripts/run_neral_abcd_eval.py report --collection collection.json --reviews reviews.json --output report.json --markdown-output report.md
+python scripts/run_neral_abcd_eval.py --mode plan --corpus-root C:\path\to\reviewed-repo --output plan.json
+python scripts/run_neral_abcd_eval.py --mode score --collection collection.json --reviews reviews.json --output scores.json
+python scripts/run_neral_abcd_eval.py --mode report --collection collection.json --reviews reviews.json --output report.json --markdown-output report.md
 ```
 
 Plan validates all 100 frozen task/rubric commitments and the existing corpus
@@ -77,9 +79,15 @@ budgets appear in JSON and Markdown. Imported execution and integrity assertions
 are not independently authenticated; this runner makes no independent quality,
 learned-weight or release claim.
 
+Both `--mode plan` and positional `plan` are supported; conflicting forms fail
+before work. Abbreviated flags are refused, especially abbreviated execution
+confirmation. Two final RED cases reproduced rejection/misparsing of the requested
+--mode form before this correction. Real CPU plan with exactly --mode plan again
+passed the 100-task corpus and model-stack import guard; C/D stayed skipped.
+
 ## Actual CPU evidence
 
-Five initial tests failed because no runner existed. Nine focused contract tests
+Five initial tests failed because no runner existed. Initially nine, now **twelve** focused contract tests
 now pass: confirmation precedes work, absent adapters cannot reach a loader,
 plain A never constructs a tool registry/controller, unknown measurements remain
 unknown, resources close, activation failure is explicit, exact-output/rubric
@@ -99,3 +107,16 @@ do not add them. Final checks/commit are recorded in the Draft PR. Five historic
 missing-data/checkpoint failures in the full old repository remain separate and
 were not repaired by this scope. No actual A/B/C/D model run, training, weights,
 extra costs, merge or deployment.
+
+Final disjoint test-file scopes after the CLI fix: **429 passed, 1 skipped,
+1 deselected** in the complete composed NERAL-Control module suite (corpus tests
+excluded); **87 passed** in separate legacy runtime/assistant/store/project
+regressions; **35 passed, 1 skipped** in separate corpus/validator/legacy SFT
+tests. Four separate pure-JS suites pass **4 / 16 / 5 / 3** cases. Do not add these
+to the older overlapping scoped runs above. The module skip/deselection need
+Windows symlink privileges; the data skip is the existing platform witness.
+No GPU evaluation was started. Known historical missing-asset cases remain:
+test_v2_splits_and_hashes, test_pilot02_lineage,
+test_40m_exact_count_and_inherited_weights_unchanged,
+test_curriculum_disjoint_and_masked, test_original_untouched_and_parameter_count.
+They were not rerun or declared fixed in this final selected matrix.
