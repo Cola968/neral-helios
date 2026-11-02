@@ -16,6 +16,64 @@ def run(provider=None,**kw):
  from neral_control.controller import ReasoningController
  return ReasoningController(default_registry(),provider).run('Prüfe und antworte.',**kw)
 
+
+@pytest.mark.parametrize('reply,status', [
+    (ProviderReply(content='answer'), 'complete'),
+    (ProviderReply(content='partial', incomplete=True), 'incomplete'),
+    (ProviderReply(cancelled=True, incomplete=True), 'cancelled'),
+    (ValueError('provider failed'), 'failed')])
+def test_controller_explicit_completion_status(reply, status):
+    assert run(Provider(reply))['completion_status'] == status
+
+
+def test_controller_propagates_measured_cancel_latency():
+    reply = ProviderReply(cancelled=True, incomplete=True)
+    reply.cancel_ack_latency_ms = 19.5
+    reply.transport_closed = True
+    result = run(Provider(reply))
+    assert result['cancel_ack_latency_ms'] == 19.5
+
+
+@pytest.mark.parametrize('metadata', [{}, {'completion_status':'complete'},
+    {'completion_status':'complete', 'provenance_verified':1},
+    {'completion_status':'cancelled', 'provenance_verified':True}])
+def test_unverified_or_unfinished_history_is_rejected(metadata):
+    from neral_control.controller import ReasoningController
+    p = Provider(ProviderReply(content='answer'))
+    with pytest.raises(ValueError):
+        ReasoningController(default_registry(), p).run('current', [
+            {'role':'user','content':'old'}, {'role':'assistant','content':'old answer',**metadata}])
+    assert not p.calls
+
+
+def test_ollama_context_without_counter_is_labelled_conservative():
+    from neral_control.controller import ReasoningController
+    p = Provider(ProviderReply(content='answer'))
+    p.identity = {**p.identity, 'model_family':'qwen3.5'}
+    p.count_messages = lambda messages, tools: None
+    result = ReasoningController(default_registry(), p).run('current',
+        project_records=[{'path':'a.py','text':'value=42','sha256':'a'*64}], allowed_tools=())
+    assert result['status'] == 'success'
+    assert result['context_budget']['conservative_estimate'] is True
+    assert result['context_budget']['input_tokens'] > len('current'.encode('utf8'))
+    assert result['context_provenance'][0]['path'] == 'a.py'
+
+
+def test_conservative_budget_rejects_mandatory_prompt_before_generation():
+    from neral_control.controller import ReasoningController
+    p = Provider(ProviderReply(content='must not run'))
+    p.identity = {**p.identity, 'model_family':'qwen3.5'}
+    result = ReasoningController(default_registry(), p).run('x'*4000, allowed_tools=())
+    assert result['completion_status'] == 'failed' and not p.calls
+    assert result['context_budget']['conservative_estimate'] is True
+
+
+@pytest.mark.parametrize('value', [-1, float('nan'), True, '12'])
+def test_invalid_cancel_latency_is_rejected(value):
+    reply = ProviderReply(content='answer')
+    reply.cancel_ack_latency_ms = value
+    assert run(Provider(reply))['completion_status'] == 'failed'
+
 def call(name='calculator',**arguments):return ProviderReply(tool_calls=[{'function':{'name':name,'arguments':arguments}}],generated_tokens=8,input_tokens=12)
 
 def test_fast_deterministic_math_never_generates_and_reports_system_gain():
@@ -258,7 +316,8 @@ def test_incomplete_history_never_reaches_next_provider(metadata):
     # Removing metadata validation would forward the unfinished answer as fact.
     p = Provider(ProviderReply(content='answer'))
     rows = [{'role': 'user', 'content': 'earlier'},
-            {'role': 'assistant', 'content': 'UNFINISHED_SENTINEL', **metadata}]
+            {'role': 'assistant', 'content': 'UNFINISHED_SENTINEL',
+             'completion_status':'complete','provenance_verified':True, **metadata}]
     with pytest.raises(ValueError, match='incomplete|invalid'):
         from neral_control.controller import ReasoningController
         ReasoningController(default_registry(), p).run('current', rows, allowed_tools=())
@@ -271,7 +330,8 @@ def test_history_only_context_omits_old_pairs_when_current_request_fits():
     p.count_messages = lambda messages, tools: 1800 + sum(
         len(m['content']) for m in messages if m['role'] != 'system')
     rows = [{'role': 'user', 'content': 'h' * 100},
-            {'role': 'assistant', 'content': 'a' * 100}]
+            {'role': 'assistant', 'content': 'a' * 100,
+             'completion_status':'complete','provenance_verified':True}]
     from neral_control.controller import ReasoningController
     result = ReasoningController(default_registry(), p).run(
         'current', rows, allowed_tools=(), max_new_tokens=100)
@@ -334,7 +394,8 @@ def test_current_tool_protocol_survives_context_pressure_before_old_history():
     p.count_messages = count
     from neral_control.controller import ReasoningController
     result = ReasoningController(default_registry(), p).run('Check the calculation.',
-        [{'role': 'user', 'content': 'old question'}, {'role': 'assistant', 'content': 'old answer'}],
+        [{'role': 'user', 'content': 'old question'}, {'role': 'assistant', 'content': 'old answer',
+          'completion_status':'complete','provenance_verified':True}],
         profile='think', permissions=frozenset({'math'}), max_new_tokens=100)
     assert result['status'] == 'success'
     assert result['tool_calls'] == 1 and result['model_calls'] == 2

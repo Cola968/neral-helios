@@ -396,11 +396,18 @@ class ProjectReader:
 
 
 def _history_completed(row):
-    """Reject explicit non-completion evidence; missing legacy metadata stays unknown.
+    """Accept assistant history only after explicit completion and trusted provenance.
 
     This is a completion filter, not a claim that a historical answer is correct.
     Caller/provider identity checks remain separate from this shared predicate.
+    provenance_verified is set by a trusted caller after checking a receipt; an
+    untrusted HTTP payload cannot establish it by asserting the boolean.
     """
+    if 'completion_status' in row and row['completion_status'] != 'complete':
+        return False
+    if row.get('role') == 'assistant' and (row.get('completion_status') != 'complete'
+            or row.get('provenance_verified') is not True):
+        return False
     flags=('imported', 'interrupted', 'incomplete', 'cancelled', 'timed_out',
            'cancel_requested', 'cancel_acknowledged')
     if any(flag in row and (type(row[flag]) is not bool or row[flag]) for flag in flags):
@@ -461,12 +468,20 @@ def select_context(current_prompt, history, *, project_records=(), decisions=(),
         for record in group:
             if not isinstance(record, dict):
                 raise ValueError('Invalid context record.')
+            if source == 'project-file':
+                ProjectReader._parts(record.get('path'))
+                digest = record.get('sha256')
+                if type(digest) is not str or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+                    raise ValueError('Project context requires its source SHA-256.')
             text = record.get('text', record.get('snippet', record.get('content', '')))
             if not isinstance(text, str) or len(text.encode('utf8')) > 65536:
                 raise ValueError('Context text must be bounded.')
             provenance = {key: record[key] for key in ('path', 'sha256', 'project_id', 'revision', 'id') if key in record}
             provenance['source'] = source
-            records.append({'provenance': provenance, 'text': text})
+            entry = {'provenance': provenance, 'text': text}
+            if source == 'project-file':
+                entry['untrusted_project_content'] = True
+            records.append(entry)
     def messages():
         prompt = current_prompt
         if records:

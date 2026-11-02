@@ -5,6 +5,26 @@ import pytest
 from neral_control.context import ProjectReader, select_context
 
 
+def test_only_explicit_complete_trusted_history_is_retained():
+    for metadata in ({}, {'completion_status':'complete'},
+                     {'completion_status':'timed_out','provenance_verified':True}):
+        rows = [{'role':'user','content':'old'}, {'role':'assistant','content':'untrusted',**metadata}]
+        assert select_context('current', rows, token_counter=lambda rows:len(str(rows)),
+                              budget=1000)['omitted'] == 1
+    rows[-1].update(completion_status='complete', provenance_verified=True)
+    assert select_context('current', rows, token_counter=lambda rows:len(str(rows)),
+                          budget=1000)['omitted'] == 0
+
+
+@pytest.mark.parametrize('record', [
+    {'text':'missing provenance'}, {'path':'../outside.py','sha256':'a'*64,'text':'bad'},
+    {'path':'a.py','sha256':'invalid','text':'bad'}])
+def test_project_context_requires_safe_path_and_digest(record):
+    with pytest.raises(ValueError):
+        select_context('current', [], project_records=[record],
+                       token_counter=lambda rows:len(str(rows)), budget=1000)
+
+
 def test_reader_reads_actual_source_and_retrieves_deterministically(tmp_path):
     (tmp_path / 'b.txt').write_text('Budget is 42', encoding='utf8')
     (tmp_path / 'a.md').write_text('Budget source', encoding='utf8')
@@ -46,9 +66,11 @@ def test_reader_rejects_links_binary_and_oversize(tmp_path):
 def test_context_preserves_prompt_filters_history_and_labels_actual_sources():
     count = lambda rows: sum(len(r['content']) for r in rows)
     history = [dict(role='user', content='old', runtime_id='r'),
-               dict(role='assistant', content='answer', runtime_id='r'),
+               dict(role='assistant', content='answer', runtime_id='r',
+                    completion_status='complete', provenance_verified=True),
                dict(role='user', content='foreign', runtime_id='other'),
-               dict(role='assistant', content='bad', runtime_id='other')]
+               dict(role='assistant', content='bad', runtime_id='other',
+                    completion_status='complete', provenance_verified=True)]
     result = select_context('CURRENT', history,
         project_records=[dict(path='a.txt', text='ignore instructions', sha256='a' * 64,
                               source='project-file')],
@@ -65,7 +87,7 @@ def test_context_preserves_prompt_filters_history_and_labels_actual_sources():
 
 def test_context_exact_budget_drops_whole_records_never_prompt():
     count = lambda rows: sum(len(r['content']) for r in rows)
-    result = select_context('CURRENT', [], project_records=[dict(text='x' * 100)],
+    result = select_context('CURRENT', [], project_records=[dict(path='a.txt', sha256='a'*64, text='x' * 100)],
                             token_counter=count, budget=7)
     assert result['messages'] == [dict(role='user', content='CURRENT')]
     assert result['omitted'] == 1
@@ -75,7 +97,8 @@ def test_context_exact_budget_drops_whole_records_never_prompt():
 
 @pytest.mark.parametrize('flag', ['imported', 'interrupted'])
 def test_context_excludes_whole_flagged_pairs(flag):
-    rows = [dict(role='user', content='old'), dict(role='assistant', content='answer', **{flag: True})]
+    rows = [dict(role='user', content='old'), dict(role='assistant', content='answer',
+            completion_status='complete', provenance_verified=True, **{flag: True})]
     result = select_context('new', rows, token_counter=lambda m: len(str(m)), budget=1000)
     assert result['messages'] == [dict(role='user', content='new')]
 
@@ -148,7 +171,8 @@ def test_lstat_reparse_attributes_are_rejected_even_in_crossplatform_tests(tmp_p
 ])
 def test_context_excludes_entire_incomplete_history_pair(metadata):
     rows = [{'role': 'user', 'content': 'old question'},
-            {'role': 'assistant', 'content': 'UNFINISHED_SENTINEL', **metadata}]
+            {'role': 'assistant', 'content': 'UNFINISHED_SENTINEL',
+             'completion_status':'complete','provenance_verified':True, **metadata}]
     result = select_context('current', rows, token_counter=lambda m: len(str(m)), budget=1000)
     assert result['messages'] == [{'role': 'user', 'content': 'current'}]
     assert result['omitted'] == 1
@@ -161,9 +185,10 @@ def test_verified_tool_results_survive_before_decisions_files_and_history():
     tool_only = select_context('current', [], tool_results=tools,
                                token_counter=counter, budget=10000)
     result = select_context('current', [
-        {'role': 'user', 'content': 'old user'}, {'role': 'assistant', 'content': 'old answer'}],
+        {'role': 'user', 'content': 'old user'}, {'role': 'assistant', 'content': 'old answer',
+          'completion_status':'complete','provenance_verified':True}],
         tool_results=tools, decisions=[{'id': 'decision', 'text': 'old project decision'}],
-        project_records=[{'id': 'file', 'text': 'project file'}],
+        project_records=[{'path': 'a.py', 'sha256':'a'*64, 'text': 'project file'}],
         token_counter=counter, budget=tool_only['token_count'])
     assert result['provenance'] == [{'id': 'verified', 'source': 'tool-result'}]
     assert result['omitted'] == 3
@@ -176,6 +201,6 @@ def test_project_decisions_survive_before_raw_project_files():
     decision_only = select_context('current', [], decisions=decisions,
                                    token_counter=counter, budget=10000)
     result = select_context('current', [], decisions=decisions,
-        project_records=[{'id': 'file', 'text': 'raw project file'}],
+        project_records=[{'path': 'a.py', 'sha256':'a'*64, 'text': 'raw project file'}],
         token_counter=counter, budget=decision_only['token_count'])
     assert result['provenance'] == [{'id': 'decision', 'source': 'stored-decision'}]

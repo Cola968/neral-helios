@@ -1,5 +1,50 @@
 # Phase 2.2: complete history and priority-preserving context
 
+## Operator-authorized rework, 2026-11-02 (Windows CPU)
+
+Attempt 2 follows the operator's explicit rework approval for #223 and stopped
+executor/stable-head checks. Eleven new cases first failed for the missing
+completion/status/provenance/estimate contracts. Three additional source-schema
+cases failed before requiring safe relative project paths and SHA-256 syntax.
+
+Assistant history now requires `completion_status="complete"` and
+`provenance_verified=True`; missing legacy metadata is rejected. The latter is
+trusted-caller evidence, not proof supplied by a browser boolean. Helios must
+verify a server-issued receipt and set it itself; an untrusted request must not
+be passed through with this field. Runtime/family identity checks still apply.
+No completion flag certifies factual correctness. Test fixtures for retained
+history now declare completion/provenance; rejection tests start from otherwise
+valid rows, so they still exercise each separate invalid marker.
+
+Controller results expose the five-valued `completion_status`, measured provider
+`cancel_ack_latency_ms` (or null), and a `context_budget` object. Failure and
+unavailable statuses cannot look like complete history. Questionable unsupported
+test-execution claims remain incomplete and require review. Invalid/nonfinite
+latency metadata fails closed. Transport/server closure provenance stays separate.
+
+For Ollama Qwen3.5, absent preflight token counts use UTF-8 serialized message/tool
+bytes plus 256 safety units and 32 per message. This intentionally pessimistic
+heuristic includes system and schema content; `conservative_estimate=True` always
+labels it, and it never changes observed input/output usage. It is not a measured
+server tokenizer count or a certification of arbitrary custom Ollama templates.
+The fixed normal Ollama context limit is 4096; local Qwen retains its exact
+counter and 2048 limit. Mandatory prompt overflow fails before generation.
+Tool results still outrank project records, which now serialize an explicit
+`untrusted_project_content=True` label and require relative path/digest metadata.
+Digest format alone is not source authenticity; trusted readers supply it.
+
+Current Windows module suite: **296 passed, 2 skipped, 2 deselected**. Deselections
+are the unchanged fixtures requiring symlink privilege and POSIX O_NOFOLLOW;
+no privilege or OS setting was changed. A temporary source composition with
+transport #225 at `85c4f73` passed **244 tests, 1 deselected**, confirming its
+provider/transport works with this context/controller. These are overlapping
+scopes, not additive totals. The temporary check did not merge branches or alter
+another task's files. No model inference/training/download/weight changes,
+paid services, merge or deployment occurred.
+
+The following behavior/test notes describe the earlier Linux commit; the new
+strict completion policy supersedes its legacy-metadata allowance.
+
 Base: PR #222 at `c4c95d5ff2749cd544374f878621e84a2601b937`.
 Task: `neral-phase22-context-v1`. Source changes are confined to the leased
 context/controller files and their existing tests. No legacy runtime, stores,
