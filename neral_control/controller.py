@@ -15,7 +15,7 @@ from neral_assistant_persona import SYSTEM_PROMPT, PERSONA_VERSION
 from security_guard import check_prompt, sanitize_output
 from .providers import ProviderReply
 from .registry import ToolContext, _validate
-from .context import ContextManager
+from .context import ContextManager, _history_completed
 
 PROFILES = {
     'fast': {'model_calls': 1, 'tool_calls': 1, 'output_tokens': 512, 'seconds': 20},
@@ -97,9 +97,9 @@ class ReasoningController:
                     or not isinstance(row.get('content'),str) or not row['content'].strip()
                     or row.get('runtime_id', identity.get('runtime_id')) != identity.get('runtime_id')
                     or row.get('model_family',identity.get('model_family')) != identity.get('model_family')
-                    or row.get('imported') or row.get('interrupted')):
+                    or not _history_completed(row)):
                 raise ValueError('Foreign, incomplete or invalid history.')
-            safe_history.append({'role':row['role'],'content':row['content']})
+            safe_history.append(deepcopy(row))
         if sum(len(r['content'].encode('utf8')) for r in safe_history)+len(prompt.encode('utf8'))>8192:
             raise ValueError('History exceeds the bounded input budget.')
         event = event if event is not None else threading.Event()
@@ -110,6 +110,22 @@ class ReasoningController:
                  'input_tokens_measured_calls':0,'output_tokens_measured_calls':0,'failed_steps':[],'latency_ms':0,
                  'deadline_enforcement':'cooperative','correction_steps':0}
         results=[];used=[];generated_any=False;seen=set();failed_tools={};context_provenance=[];context_omitted=0;reserved_output=0
+        transport_state={'cancel_requested':False, 'cancel_acknowledged':False,
+                         'transport_closed':None, 'provider_execution_stopped':None}
+        cancel_ack_latency_ms = None
+        context_budget = {'input_tokens':None, 'conservative_estimate':False,
+                          'limit':4096 if identity.get('model_family') == 'qwen3.5' else 2048}
+        raw_counter = getattr(self.provider, 'count_messages', None)
+        def counter(rows, schemas):
+            value = raw_counter(rows, schemas) if raw_counter is not None else None
+            if value is None and identity.get('model_family') == 'qwen3.5':
+                # Byte-per-token ceiling heuristic plus framing/safety margin.
+                # This is not the server tokenizer or an observed usage count.
+                value = len(json.dumps({'messages':rows,'tools':schemas},
+                    ensure_ascii=False, allow_nan=False).encode('utf8')) + 256 + 32*len(rows)
+                context_budget['conservative_estimate'] = True
+            context_budget['input_tokens'] = value
+            return value
         def stopped():
             if self.clock()>=deadline:return 'timeout'
             return 'cancelled' if event.is_set() else None
@@ -121,10 +137,16 @@ class ReasoningController:
             if re.search(r'(?i)\b(?:alle tests bestanden|all tests passed|tests? erfolgreich ausgeführt)\b',safe):
                 claims.append('test_execution_unavailable')
             if claims and status=='success':status='needs_review'
+            completion = ('complete' if status in {'success','denied'} else
+                          'cancelled' if status=='cancelled' else
+                          'timed_out' if status=='timeout' else
+                          'incomplete' if status in {'incomplete','needs_review'} else 'failed')
             metrics['latency_ms']=round((self.clock()-started)*1000,3)
             return ControllerRunResult({**identity,'identity':identity,'source':source or identity['source'],
                 'name':'NERAL','status':status,'text':safe,'model_generated':generated_any,
-                'incomplete':status in {'incomplete','cancelled','timeout'},'finish_reason':reason,
+                'incomplete':completion!='complete','finish_reason':reason,
+                'completion_status':completion,'cancel_ack_latency_ms':cancel_ack_latency_ms,
+                'context_budget':deepcopy(context_budget),
                 'profile':profile,'native_thinking_enabled':native_think,'persona_version':PERSONA_VERSION,
                 'limits':limits,'metrics':metrics,'tools_used':used,'tool_results':results,
                 'output_secret_redacted':redacted,'verification':{
@@ -135,6 +157,9 @@ class ReasoningController:
                     'total':None if metrics['input_tokens'] is None or metrics['output_tokens'] is None else metrics['input_tokens']+metrics['output_tokens']},
                 'latency_ms':metrics['latency_ms'],'failed_steps':deepcopy(metrics['failed_steps']),
                 'cancelled':status=='cancelled','timed_out':status=='timeout',
+                **transport_state,
+                'cancel_requested':transport_state['cancel_requested'] or (event.is_set() and status!='timeout'),
+                'cancel_acknowledged':transport_state['cancel_acknowledged'] or status=='cancelled',
                 'provenance':deepcopy(identity),'context_provenance':context_provenance,
                 'context_omitted':context_omitted})
         def fail(code,step='controller'):
@@ -164,19 +189,24 @@ class ReasoningController:
                           source='tool:'+direct['tool_id'])
         if self.provider is None:return finish('unavailable','Kein Modell für diese Aufgabe freigegeben.')
         system={'role':'system','content':_system(identity,names,profile)}
-        messages=[system,*safe_history,{'role':'user','content':prompt}]
-        counter=getattr(self.provider,'count_messages',None)
-        if project_records or decisions:
+        messages=[system,*[{'role':r['role'],'content':r['content']} for r in safe_history],
+                  {'role':'user','content':prompt}]
+        if project_records or decisions or safe_history:
             try:
-                if counter is None or counter(messages,tools) is None:
+                initial_count=counter(messages,tools) if counter is not None else None
+                if initial_count is None and (project_records or decisions):
                     return fail('exact_context_counter_unavailable','context')
-                selected=self.context_manager.select(prompt,safe_history,
-                    project_records=project_records,decisions=decisions,
-                    token_counter=lambda rows:counter([system,*rows],tools),budget=2048-max_new_tokens)
-                messages=[system,*selected['messages']]
-                context_provenance=selected['provenance'];context_omitted=selected['omitted']
+                if initial_count is not None:
+                    selected=self.context_manager.select(prompt,safe_history,
+                        project_records=project_records,decisions=decisions,
+                        token_counter=lambda rows:counter([system,*rows],tools),
+                        budget=context_budget['limit']-max_new_tokens)
+                    messages=[system,*selected['messages']]
+                    context_provenance=selected['provenance'];context_omitted=selected['omitted']
             except (ValueError,TypeError):
                 return fail('context_budget','context')
+        # Preserve the current assistant/tool protocol while omitting older context.
+        workflow_messages=[]
         for iteration in range(limits['model_calls']):
             if stopped():return finish(stopped())
             budget=min(max_new_tokens,limits['output_tokens']-reserved_output)
@@ -184,12 +214,19 @@ class ReasoningController:
             options={'max_new_tokens':budget,'temperature':0.0,'top_k':40,
                      'native_think':native_think,'profile':'standard','deadline':deadline}
             try:
-                counter=getattr(self.provider,'count_messages',None)
                 count=counter(messages,tools) if counter else None
                 if count is not None:
                     if type(count) is not int or count<0:raise ValueError('Invalid token count')
-                    if identity.get('model_family')=='qwen2.5-coder' and count+budget>2048:
-                        return fail('context_budget','context')
+                    if (identity.get('model_family')=='qwen2.5-coder' or context_budget['conservative_estimate']) and count+budget>context_budget['limit']:
+                        try:
+                            selected=self.context_manager.select(prompt,safe_history,
+                                project_records=project_records,decisions=decisions,
+                                token_counter=lambda rows:counter([system,*rows,*workflow_messages],tools),
+                                budget=context_budget['limit']-budget)
+                            messages=[system,*selected['messages'],*workflow_messages]
+                            context_provenance=selected['provenance'];context_omitted=selected['omitted']
+                        except (ValueError,TypeError):
+                            return fail('context_budget','context')
                 stage('model',iteration+1)
                 metrics['model_calls']+=1
                 reserved_output+=budget
@@ -202,6 +239,19 @@ class ReasoningController:
                     or type(reply.generated_tokens) is not int or not 0<=reply.generated_tokens<=budget
                     or reply.input_tokens is not None and (type(reply.input_tokens) is not int or reply.input_tokens<0)):
                 return fail('invalid_reply','model')
+            for key in transport_state:
+                value=getattr(reply,key,False if key.startswith('cancel_') else None)
+                if type(value) is not bool and not (value is None and not key.startswith('cancel_')):
+                    return fail('invalid_transport_state','model')
+                transport_state[key]=value
+            latency = getattr(reply, 'cancel_ack_latency_ms', None)
+            if latency is not None and (type(latency) not in (int,float)
+                    or not math.isfinite(latency) or latency < 0):
+                return fail('invalid_transport_state','model')
+            cancel_ack_latency_ms = latency
+            provider_timed_out=getattr(reply,'timed_out',False)
+            if type(provider_timed_out) is not bool:
+                return fail('invalid_transport_state','model')
             generated_any = generated_any or bool(reply.content or reply.tool_calls or reply.generated_tokens)
             if not reply.output_tokens_reported:
                 metrics['output_tokens']=None
@@ -212,7 +262,8 @@ class ReasoningController:
             else:
                 if metrics['input_tokens'] is not None:metrics['input_tokens']+=reply.input_tokens
                 metrics['input_tokens_measured_calls']+=1
-            if stopped() or reply.cancelled:return finish(stopped() or 'cancelled')
+            if stopped() or provider_timed_out or reply.cancelled:
+                return finish(stopped() or ('timeout' if provider_timed_out else 'cancelled'))
             if reply.tool_calls:
                 if reply.incomplete:return fail('incomplete_tool_call','model')
                 remaining=limits['tool_calls']-metrics['tool_calls']
@@ -235,7 +286,8 @@ class ReasoningController:
                     signature=(name,canonical)
                     if signature in seen or signature in batch_seen:return fail('duplicate_tool_call')
                     batch_seen.add(signature);validated.append((name,arguments,signature))
-                messages.append({'role':'assistant','content':reply.content or '', 'tool_calls':reply.tool_calls})
+                turn={'role':'assistant','content':reply.content or '', 'tool_calls':reply.tool_calls}
+                messages.append(turn);workflow_messages.append(turn)
                 for name,arguments,signature in validated:
                     if stopped():return finish(stopped())
                     if profile=='deep' and failed_tools.get(name):
@@ -249,7 +301,8 @@ class ReasoningController:
                     if profile=='fast':
                         return finish('success' if result['status']=='ok' else result['status'],
                             json.dumps(result.get('output'),ensure_ascii=False),source='tool:'+name)
-                    messages.append({'role':'tool','tool_name':name,'content':json.dumps(result,ensure_ascii=False)})
+                    turn={'role':'tool','tool_name':name,'content':json.dumps(result,ensure_ascii=False)}
+                    messages.append(turn);workflow_messages.append(turn)
                 continue
             if not reply.content or not reply.content.strip() or len(reply.content.encode('utf8'))>24000:
                 return fail('empty_or_oversized_answer','model')
