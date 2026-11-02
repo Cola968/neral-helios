@@ -244,3 +244,102 @@ def test_missing_output_token_report_remains_unknown_with_hard_call_limits():
     result=run(p)
     assert result.tokens_used['output'] is None and result.tokens_used['total'] is None
     assert result.model_calls==1
+
+
+@pytest.mark.parametrize('metadata', [
+    {'incomplete': True}, {'finish_reason': 'length'}, {'finish_reason': 'cancelled'},
+    {'finish_reason': 'timeout'}, {'cancelled': True}, {'timed_out': True},
+    {'complete': False}, {'status': 'incomplete'}, {'status': 'failed'},
+    {'cancel_requested': True}, {'cancel_acknowledged': True},
+    {'complete': 0}, {'complete': 1}, {'complete': None},
+    {'incomplete': 'false'}, {'status': []}, {'finish_reason': {}},
+])
+def test_incomplete_history_never_reaches_next_provider(metadata):
+    # Removing metadata validation would forward the unfinished answer as fact.
+    p = Provider(ProviderReply(content='answer'))
+    rows = [{'role': 'user', 'content': 'earlier'},
+            {'role': 'assistant', 'content': 'UNFINISHED_SENTINEL', **metadata}]
+    with pytest.raises(ValueError, match='incomplete|invalid'):
+        from neral_control.controller import ReasoningController
+        ReasoningController(default_registry(), p).run('current', rows, allowed_tools=())
+    assert p.calls == []
+
+
+def test_history_only_context_omits_old_pairs_when_current_request_fits():
+    p = Provider(ProviderReply(content='answer'))
+    p.identity = {**p.identity, 'model_family': 'qwen2.5-coder'}
+    p.count_messages = lambda messages, tools: 1800 + sum(
+        len(m['content']) for m in messages if m['role'] != 'system')
+    rows = [{'role': 'user', 'content': 'h' * 100},
+            {'role': 'assistant', 'content': 'a' * 100}]
+    from neral_control.controller import ReasoningController
+    result = ReasoningController(default_registry(), p).run(
+        'current', rows, allowed_tools=(), max_new_tokens=100)
+    assert result['status'] == 'success'
+    assert result['context_omitted'] == 1
+    assert [r['role'] for r in p.calls[0][0]] == ['system', 'user']
+    assert p.calls[0][0][-1]['content'] == 'current'
+
+
+def test_provider_timeout_closes_transport_without_executing_proposed_tool():
+    reply = call(expression='2+2')
+    reply.timed_out = True
+    reply.transport_closed = True
+    reply.provider_execution_stopped = None
+    p = Provider(reply)
+    result = run(p, profile='deep', permissions=frozenset({'math'}))
+    assert result['status'] == 'timeout'
+    assert result['timed_out'] is True and result['cancelled'] is False
+    assert result['cancel_requested'] is False
+    assert result['transport_closed'] is True
+    assert result['provider_execution_stopped'] is None
+    assert result['tool_calls'] == 0
+    assert result['tokens_used'] == {'input': 12, 'output': 8, 'total': 20}
+
+
+def test_transport_cancellation_evidence_is_not_server_stop_confirmation():
+    reply = ProviderReply(cancelled=True, incomplete=True, generated_tokens=3, input_tokens=4)
+    reply.cancel_requested = True
+    reply.cancel_acknowledged = True
+    reply.transport_closed = True
+    reply.provider_execution_stopped = None
+    result = run(Provider(reply))
+    assert result['status'] == 'cancelled'
+    assert result['cancel_requested'] is True
+    assert result['cancel_acknowledged'] is True
+    assert result['transport_closed'] is True
+    assert result['provider_execution_stopped'] is None
+    assert result['tokens_used']['total'] == 7
+
+
+def test_precancel_acknowledges_controller_without_claiming_transport_was_open():
+    event = threading.Event()
+    event.set()
+    result = run(Provider(), event=event)
+    assert result['cancel_requested'] is True
+    assert result['cancel_acknowledged'] is True
+    assert result['transport_closed'] is None
+    assert result['provider_execution_stopped'] is None
+
+
+def test_current_tool_protocol_survives_context_pressure_before_old_history():
+    # Rechecking the expanded second prompt must evict old pairs, not tool evidence.
+    p = Provider(call(expression='2+2'), ProviderReply(content='4'))
+    p.identity = {**p.identity, 'model_family': 'qwen2.5-coder'}
+    def count(messages, tools):
+        # Fixed fixture units isolate protocol retention; not measured model tokens.
+        history_cost = 200 if any(m.get('content') == 'old answer' for m in messages) else 0
+        tool_cost = 200 if any(m['role'] == 'tool' for m in messages) else 0
+        return 1700 + history_cost + tool_cost
+    p.count_messages = count
+    from neral_control.controller import ReasoningController
+    result = ReasoningController(default_registry(), p).run('Check the calculation.',
+        [{'role': 'user', 'content': 'old question'}, {'role': 'assistant', 'content': 'old answer'}],
+        profile='think', permissions=frozenset({'math'}), max_new_tokens=100)
+    assert result['status'] == 'success'
+    assert result['tool_calls'] == 1 and result['model_calls'] == 2
+    rows = p.calls[1][0]
+    assert [r['role'] for r in rows] == ['system', 'user', 'assistant', 'tool']
+    assert rows[-2]['tool_calls'][0]['function']['name'] == 'calculator'
+    assert '4' in rows[-1]['content']
+    assert result['context_omitted'] == 1

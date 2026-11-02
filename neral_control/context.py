@@ -395,6 +395,23 @@ class ProjectReader:
         return sorted(matches, key=lambda item: item['path'])[:limit]
 
 
+def _history_completed(row):
+    """Reject explicit non-completion evidence; missing legacy metadata stays unknown.
+
+    This is a completion filter, not a claim that a historical answer is correct.
+    Caller/provider identity checks remain separate from this shared predicate.
+    """
+    flags=('imported', 'interrupted', 'incomplete', 'cancelled', 'timed_out',
+           'cancel_requested', 'cancel_acknowledged')
+    if any(flag in row and (type(row[flag]) is not bool or row[flag]) for flag in flags):
+        return False
+    if 'complete' in row and row['complete'] is not True:
+        return False
+    if row.get('status') not in (None, 'success', 'complete', 'completed', 'ok'):
+        return False
+    return row.get('finish_reason') in (None, '', 'stop', 'eos', 'eos_token', 'end_turn')
+
+
 def select_context(current_prompt, history, *, project_records=(), decisions=(),
                    tool_results=(), token_counter, budget, runtime_id=None,
                    model_family=None):
@@ -428,8 +445,7 @@ def select_context(current_prompt, history, *, project_records=(), decisions=(),
             if not valid:
                 break
             valid = (row.get('role') == role and isinstance(row.get('content'), str)
-                     and bool(row['content'].strip()) and not row.get('imported')
-                     and not row.get('interrupted')
+                     and bool(row['content'].strip()) and _history_completed(row)
                      and (runtime_id is None or row.get('runtime_id') == runtime_id)
                      and (model_family is None or row.get('model_family') == model_family))
         if valid:
@@ -437,7 +453,9 @@ def select_context(current_prompt, history, *, project_records=(), decisions=(),
         else:
             omitted += 1
     records = []
-    for source, group in [('project-file', project_records), ('stored-decision', decisions), ('tool-result', tool_results)]:
+    # Records are ordered by retention priority; omission removes the tail.
+    # Tool results are supplied by the trusted execution caller, not the model.
+    for source, group in [('tool-result', tool_results), ('stored-decision', decisions), ('project-file', project_records)]:
         if not isinstance(group, (list, tuple)) or len(group) > 100:
             raise ValueError('Context records must be bounded.')
         for record in group:

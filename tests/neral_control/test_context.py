@@ -59,7 +59,7 @@ def test_context_preserves_prompt_filters_history_and_labels_actual_sources():
     assert 'foreign' not in str(result['messages'])
     assert 'untrusted' in result['messages'][-1]['content'].lower()
     assert 'stored-decision' in result['messages'][-1]['content']
-    assert result['provenance'][0]['path'] == 'a.txt'
+    assert next(p for p in result['provenance'] if p['source'] == 'project-file')['path'] == 'a.txt'
     assert result['token_count'] == count(result['messages'])
 
 
@@ -136,3 +136,46 @@ def test_lstat_reparse_attributes_are_rejected_even_in_crossplatform_tests(tmp_p
         return info
     monkeypatch.setattr(context.os,'lstat',reparse)
     with pytest.raises(ValueError,match='[Rr]eparse|[Ll]ink'):reader.read('source.txt')
+
+
+@pytest.mark.parametrize('metadata', [
+    {'incomplete': True}, {'finish_reason': 'length'}, {'finish_reason': 'cancelled'},
+    {'finish_reason': 'timeout'}, {'cancelled': True}, {'timed_out': True},
+    {'complete': False}, {'status': 'incomplete'}, {'status': 'failed'},
+    {'cancel_requested': True}, {'cancel_acknowledged': True},
+    {'complete': 0}, {'complete': 1}, {'complete': None},
+    {'incomplete': 'false'}, {'status': []}, {'finish_reason': {}},
+])
+def test_context_excludes_entire_incomplete_history_pair(metadata):
+    rows = [{'role': 'user', 'content': 'old question'},
+            {'role': 'assistant', 'content': 'UNFINISHED_SENTINEL', **metadata}]
+    result = select_context('current', rows, token_counter=lambda m: len(str(m)), budget=1000)
+    assert result['messages'] == [{'role': 'user', 'content': 'current'}]
+    assert result['omitted'] == 1
+
+
+def test_verified_tool_results_survive_before_decisions_files_and_history():
+    # A wrong priority order would retain a project file and discard the actual tool result.
+    counter = lambda rows: sum(len(row['content']) for row in rows)
+    tools = [{'id': 'verified', 'text': 'tool result'}]
+    tool_only = select_context('current', [], tool_results=tools,
+                               token_counter=counter, budget=10000)
+    result = select_context('current', [
+        {'role': 'user', 'content': 'old user'}, {'role': 'assistant', 'content': 'old answer'}],
+        tool_results=tools, decisions=[{'id': 'decision', 'text': 'old project decision'}],
+        project_records=[{'id': 'file', 'text': 'project file'}],
+        token_counter=counter, budget=tool_only['token_count'])
+    assert result['provenance'] == [{'id': 'verified', 'source': 'tool-result'}]
+    assert result['omitted'] == 3
+    assert result['messages'][-1]['content'].endswith('current')
+
+
+def test_project_decisions_survive_before_raw_project_files():
+    counter = lambda rows: sum(len(row['content']) for row in rows)
+    decisions = [{'id': 'decision', 'text': 'verified project fact'}]
+    decision_only = select_context('current', [], decisions=decisions,
+                                   token_counter=counter, budget=10000)
+    result = select_context('current', [], decisions=decisions,
+        project_records=[{'id': 'file', 'text': 'raw project file'}],
+        token_counter=counter, budget=decision_only['token_count'])
+    assert result['provenance'] == [{'id': 'decision', 'source': 'stored-decision'}]
