@@ -1,5 +1,6 @@
 """Real loopback HTTP fixtures; no Ollama, model generation or production workers."""
 import contextlib
+import errno
 import importlib
 import json
 import os
@@ -74,6 +75,45 @@ def server(parts, *, cancel=None, hold=False, chunked=False):
 def invoke(port, event=None, **kwargs):
     return api().stream_ollama(PAYLOAD, event=event or threading.Event(),
         deadline=time.monotonic()+2, port=port, **kwargs)
+
+
+@pytest.mark.parametrize('sample', range(20))
+def test_timestamped_cancel_reports_latency_after_socket_close(sample):
+    module = api()
+    event = module.CancellationEvent()
+    signal = {'event': event}
+    with server([b'{"message":'], cancel=signal, hold=True) as (port, _, closed):
+        result = invoke(port, event)
+        elapsed = (time.monotonic() - signal['at']) * 1000
+        assert closed.wait(.5)
+    assert result.completion_status == 'cancelled'
+    assert 0 <= result.cancel_ack_latency_ms <= elapsed < 250
+    assert result.transport_closed and result.provider_execution_stopped is None
+    print(f'cancel_ack_latency_ms={result.cancel_ack_latency_ms:.3f}; external_ms={elapsed:.3f}')
+
+
+def test_request_timestamp_is_first_set_and_can_be_reset():
+    event = api().CancellationEvent()
+    event.set(); first = event.requested_at
+    event.set()
+    assert event.requested_at == first
+    event.clear()
+    assert not event.is_set() and event.requested_at is None
+
+
+def test_plain_event_has_no_invented_request_timestamp():
+    event = threading.Event(); event.set()
+    result = invoke(1, event)
+    assert result.completion_status == 'cancelled'
+    assert result.cancel_ack_latency_ms is None
+
+
+@pytest.mark.parametrize('ending,status', [
+    ([], 'incomplete'), ([frame(done=True, done_reason='length')], 'incomplete'),
+    ([frame(done=True, done_reason='stop')], 'complete')])
+def test_completion_status_taxonomy(ending, status):
+    with server([frame(), *ending]) as (port, _, _):
+        assert invoke(port).completion_status == status
 
 
 def test_cancel_before_connect_does_not_open_socket(monkeypatch):
@@ -165,7 +205,7 @@ def test_connect_phase_observes_cancel_without_worker(monkeypatch):
     class PendingSocket:
         def __init__(self,*a,**kw):self.sock=real(*a,**kw)
         def setblocking(self,*a):return self.sock.setblocking(*a)
-        def connect_ex(self,address):event.set();return 115
+        def connect_ex(self,address):event.set();return errno.EINPROGRESS
         def close(self):self.sock.close()
         def fileno(self):return self.sock.fileno()
     monkeypatch.setattr(socket,'socket',PendingSocket)

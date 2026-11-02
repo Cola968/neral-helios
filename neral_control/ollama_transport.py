@@ -9,11 +9,31 @@ import json
 import math
 import selectors
 import socket
+import threading
 import time
 
 
 class TransportError(ValueError):
     """The loopback HTTP/NDJSON response violated the transport contract."""
+
+
+class CancellationEvent(threading.Event):
+    """One-request event retaining the first request time, in monotonic seconds."""
+    def __init__(self):
+        super().__init__()
+        self._request_lock = threading.Lock()
+        self.requested_at = None
+
+    def set(self):
+        with self._request_lock:
+            if self.requested_at is None:
+                self.requested_at = time.monotonic()
+            super().set()
+
+    def clear(self):
+        with self._request_lock:
+            super().clear()
+            self.requested_at = None
 
 
 @dataclass
@@ -25,6 +45,15 @@ class TransportResult:
     cancel_acknowledged: bool = False
     transport_closed: bool | None = None
     provider_execution_stopped: bool | None = None
+    cancel_ack_latency_ms: float | None = None
+
+    @property
+    def completion_status(self):
+        if self.timed_out:
+            return 'timed_out'
+        if self.cancel_acknowledged:
+            return 'cancelled'
+        return 'incomplete' if self.incomplete else 'complete'
 
 
 class _Stopped(Exception):
@@ -283,7 +312,20 @@ def stream_ollama(payload, *, event, deadline, port=11434, max_response_bytes=25
         check()
         return frames.result(transport_closed=True)
     except _Stopped as stopped:
-        return frames.result(stopped, transport_closed=True if conn is not None else None)
+        # Close before acknowledging; a client close cannot confirm server stop.
+        if selector is not None:
+            selector.close(); selector = None
+        if conn is not None:
+            conn.close(); conn = None
+            closed = True
+        else:
+            closed = None
+        result = frames.result(stopped, transport_closed=closed)
+        if not stopped.timed_out and isinstance(event, CancellationEvent):
+            requested_at = event.requested_at
+            if requested_at is not None:
+                result.cancel_ack_latency_ms = max(0., (time.monotonic()-requested_at)*1000)
+        return result
     except (OSError, UnicodeError, TypeError, RecursionError) as exc:
         raise TransportError('Loopback Ollama transport failed.') from exc
     finally:

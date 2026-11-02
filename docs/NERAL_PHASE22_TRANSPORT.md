@@ -1,5 +1,47 @@
 # Phase 2.2 — cancellable Ollama HTTP transport
 
+## Operator-authorized rework, 2026-11-02 (Windows CPU)
+
+The expired attempt was released only after operator approval and stopped-worker
+checks. This is attempt 3 of the existing transport key, not a replacement key.
+
+Added the required `completion_status` vocabulary (`complete`, `incomplete`,
+`cancelled`, `timed_out`, `failed`); length remains `incomplete`. Provider errors
+still raise rather than fabricate successful replies. Controller/API propagation
+remains separate work in the context/Helios reservations.
+
+`CancellationEvent` records the first monotonic `set()` time. On cancellation the
+transport closes its socket before measuring `cancel_ack_latency_ms`. Ordinary
+threading events have no known request timestamp, so the field stays null. A
+pre-connect cancellation has no allocated transport and reports closure null.
+Server execution stopped remains null. Twenty controlled real loopback HTTP
+measurements using the timestamped event were 0–32 ms, median 31 ms; 0/20 exceeded
+250 ms. The Windows timer resolution produced rounded/zero samples; these are
+fixture measurements, not an Ollama/GPU performance guarantee.
+
+Deadline handling also fixes a reproduced provider defect: injected Ollama and
+local Qwen paths formerly set the user's event on timeout and labelled it a user
+cancel. A local per-generation stop interface now observes both the original
+event and deadline, including the runtime's own safety timeout, without a timer
+thread or mutation of the user's event. Local generation remains cooperative
+between tokens; this does not interrupt an in-flight GPU kernel.
+
+New contract tests first failed for missing timestamp/status fields. Three
+deadline distinction cases then failed before their fix. The old connect fixture
+used Linux errno 115; it now uses `errno.EINPROGRESS` on each platform.
+
+Current scoped transport/provider/controller suite: **161 passed**. Full control
+suite on Windows: **296 passed, 2 skipped, 2 failed**; the failures are existing
+fixtures requiring symlink privilege and POSIX `O_NOFOLLOW`. Explicitly excluding
+those prerequisites gives **296 passed, 2 skipped, 2 deselected**. These scoped
+and module counts overlap and must not be added. Separate legacy runtime,
+assistant, code-tool and adapter tests: **50 passed, 1 failed** (the existing
+adapter symlink fixture also lacks Windows privilege). No full-green claim.
+
+All evidence below this section describes the earlier Linux commit, not a rerun
+on the current Windows head. No real provider/model inference, download,
+training, weight change, merge or deployment was performed for this rework.
+
 Base: PR #222 at `c4c95d5ff2749cd544374f878621e84a2601b937`.
 The change is limited to the new control provider and transport, their tests and
 this document. Legacy `neral_assistant.py`, model weights and normal product
