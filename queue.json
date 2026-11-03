@@ -1,5 +1,5 @@
 {
-  "revision": 166,
+  "revision": 167,
   "tasks": {
     "cloud-queue-214-review": {
       "attempts": 1,
@@ -414,14 +414,17 @@
       "base_ref": "main",
       "base_sha": "4e4dca3da0d8bc0d3ee5ec697edb7575cf9aa278",
       "priority": 2,
-      "state": "RUNNING",
+      "state": "REVIEW_REQUIRED",
       "attempts": 1,
-      "owner": "gpt6-candidate-gate",
-      "lease_token": "ab62d469c8e32f4097bdb13103c892ff",
-      "lease_until": 1793696416,
-      "started": 1793695516,
+      "owner": null,
+      "lease_token": null,
+      "lease_until": null,
+      "started": null,
       "created": 1793695483,
-      "result": null,
+      "result": {
+        "pr": 235,
+        "commit": "5135a7942bdb62fa502bb9fdd3a169a148c9d2c3"
+      },
       "error": null
     }
   },
