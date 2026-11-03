@@ -1,5 +1,5 @@
 {
-  "revision": 164,
+  "revision": 165,
   "tasks": {
     "cloud-queue-214-review": {
       "attempts": 1,
@@ -401,6 +401,27 @@
         "pr": 234,
         "commit": "a082738f9145722dec443141e5d7801a3ead93af"
       },
+      "error": null
+    },
+    "neral-candidate-quality-gate-20261103": {
+      "key": "neral-candidate-quality-gate-20261103",
+      "title": "Add manual-only adapter candidate quality gate",
+      "scope": [
+        "docs/NERAL_CANDIDATE_QUALITY_GATE.md",
+        "scripts/neral_candidate_quality_gate.py",
+        "tests/test_neral_candidate_quality_gate.py"
+      ],
+      "base_ref": "main",
+      "base_sha": "4e4dca3da0d8bc0d3ee5ec697edb7575cf9aa278",
+      "priority": 2,
+      "state": "READY",
+      "attempts": 0,
+      "owner": null,
+      "lease_token": null,
+      "lease_until": null,
+      "started": null,
+      "created": 1793695483,
+      "result": null,
       "error": null
     }
   },
