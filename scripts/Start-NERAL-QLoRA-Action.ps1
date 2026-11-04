@@ -67,6 +67,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Local HF snapshot validation refused; see classified reason above' }
     $step = 'snapshot_verified'
 
+    # The Windows checkout may have CRLF-smudged reviewed sources.
+    # Restore only exact CRLF equivalents of SHA-pinned Git blobs in SCRATCH.
+    # Unknown mutations or incorrect reviewed commitments must fail closed.
+    & $python (Join-Path $control 'scripts\neral_pinned_checkout_restore.py') --repo-root $src
+    if ($LASTEXITCODE -ne 0) { throw 'Pinned source or frozen dataset bytes could not be verified and restored' }
+
     $rankCopy = Join-Path $src 'scripts\neral_qlora_rank32_pilot.py'
     $rankValidator = Join-Path $src 'neral_adapter_candidate_r32.py'
     & $python (Join-Path $control 'scripts\neral_rank32_copy.py') `
