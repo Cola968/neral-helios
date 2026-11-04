@@ -1,0 +1,49 @@
+name: NERAL Qwen Snapshot Inventory (metadata only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  locate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Find manifest paths only, without opening weights or personal files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $roots = @(
+            (Join-Path $env:USERPROFILE 'Documents\Codex'),
+            (Join-Path $env:USERPROFILE 'OneDrive\Dokumente'),
+            (Join-Path $env:USERPROFILE 'NERAL'),
+            (Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--Qwen--Qwen2.5-Coder-7B-Instruct'),
+            (Join-Path $env:USERPROFILE 'AppData\Local\huggingface'),
+            'D:\NERAL', 'D:\Models', 'E:\NERAL', 'E:\Models'
+          )
+          $seen = @{}
+          $total = 0
+          foreach ($root in $roots) {
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+            $canonical = [IO.Path]::GetFullPath($root).TrimEnd([char]92)
+            if ($seen.ContainsKey($canonical)) { continue }
+            $seen[$canonical] = $true
+            Write-Host ("SEARCH_ROOT=" + $canonical)
+            Get-ChildItem -LiteralPath $canonical -Filter 'helios-manifest.json' -File -Recurse -Depth 12 -ErrorAction SilentlyContinue |
+              Select-Object -First 30 | ForEach-Object {
+                Write-Host ("SEALED_SNAPSHOT_DIR=" + $_.DirectoryName)
+                $script:total++
+              }
+          }
+          $cache = Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--Qwen--Qwen2.5-Coder-7B-Instruct\snapshots'
+          if (Test-Path -LiteralPath $cache -PathType Container) {
+            Get-ChildItem -LiteralPath $cache -Directory -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object {
+              Write-Host ("RAW_HF_CACHE_SNAPSHOT_NOT_SEALED=" + $_.FullName)
+            }
+          }
+          Write-Host ("SEALED_CANDIDATES_FOUND=" + $total)
+          Write-Host 'Read-only inventory completed; no model weights or file contents were accessed.'
