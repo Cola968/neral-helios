@@ -95,6 +95,12 @@ class Rank32WorkflowContracts(TestCase):
         self.assertIn('persist-credentials: false',content)
         self.assertNotIn('pull_request:',content)
 
+    def test_discovered_sealed_smoke_cache_is_exact_pinned_candidate(self):
+        script=(ROOT/'scripts'/'Start-NERAL-QLoRA-Action.ps1').read_text('utf-8')
+        self.assertIn('.cache\\neral\\qwen25-smoke\\c03e6d358207e414f1eca0bb1891e29f1db0e242',script)
+        self.assertIn('helios-manifest.json',script)
+        self.assertIn('verify_hashes=True',script)
+
     def test_artifact_upload_depends_on_allowlist_guard(self):
         content=(ROOT/'.github'/'workflows'/'neral-qwen7b-r32-qlora.yml').read_text('utf-8')
         self.assertIn('id: upload_guard',content)
