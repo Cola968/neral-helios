@@ -28,6 +28,13 @@ if ($LASTEXITCODE -ne 0 -or $head -ne $expectedSource) { throw 'Trainer source S
 $blob = (& git -C $src hash-object 'scripts/neral_qlora_pilot.py').Trim()
 if ($LASTEXITCODE -ne 0 -or $blob -ne $expectedTrainerBlob) { throw 'QLoRA trainer blob differs from trusted pin' }
 
+# Git for Windows may CRLF-convert JSONL/source files during actions/checkout.
+# This directory is a fresh SHA-pinned SCRATCH checkout, never a user workspace.
+# Reconstruct exact immutable Git blob bytes (LF) before hash-pinned data review.
+& git -C $src -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+if ($LASTEXITCODE -ne 0) { throw 'Pinned Git checkout normalization failed; no training permitted' }
+Write-Host 'PINNED_CHECKOUT_ORIGINAL_GIT_BLOB_BYTES_RESTORED'
+
 # Always place outputs outside both GitHub checkout worktrees. Never reuse a run directory.
 $external = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
 $runId = $env:GITHUB_RUN_ID
