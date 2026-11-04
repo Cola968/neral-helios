@@ -13,11 +13,13 @@ $expectedTrainerBlob = 'f4b0f72440ce40653ca0ce2b171bec6721505e18'
 $work = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
 $control = Join-Path $work 'control'
 $src = Join-Path $work 'trainer'
-$python = 'C:\actions-runner\_work\_tool\Python\3.12.10\x64\python.exe'
+# Use the EXACT existing Python already verified by the CUDA Actions probe.
+# No Python -c inline quoting or unverified WindowsApps/py-launcher fallback.
+$python = Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    $python = (& py -3.12 -c 'import sys; print(sys.executable)').Trim()
+    throw 'Previously verified NERAL Python interpreter unavailable'
 }
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'No Python 3.12 interpreter' }
+Write-Host "PINNED_CONTROL_INTERPRETER=$python"
 if (-not (Test-Path -LiteralPath $src -PathType Container) -or -not (Test-Path -LiteralPath $control -PathType Container)) {
     throw 'Pinned checkout or workflow control checkout missing'
 }
@@ -52,9 +54,10 @@ try {
     $model = [IO.Path]::GetFullPath($found[0])
     Write-Host "QWEN_MANIFEST_PATH=$(Join-Path $model 'helios-manifest.json')"
     $env:PYTHONPATH = $src
-    $check = 'import sys;from model_catalog import validate_hf_snapshot; v=validate_hf_snapshot(sys.argv[1],verify_hashes=True);assert v["base_model"] == "Qwen/Qwen2.5-Coder-7B-Instruct"; print("Offline model hash validation PASSED")'
-    & $python -c $check $model
-    if ($LASTEXITCODE -ne 0) { throw 'Local HF snapshot hash check failed' }
+    # Use a real Python source file; PowerShell native argument quoting in -c
+    # previously exited before the verifier printed any reason.
+    & $python (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $model
+    if ($LASTEXITCODE -ne 0) { throw 'Local HF snapshot validation refused; see classified reason above' }
     $step = 'snapshot_verified'
 
     $rankCopy = Join-Path $src 'scripts\neral_qlora_rank32_pilot.py'
