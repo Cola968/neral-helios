@@ -17,14 +17,8 @@ jobs:
       - name: Find manifest paths only, without opening weights or personal files
         run: |
           $ErrorActionPreference = 'Stop'
-          $roots = @(
-            (Join-Path $env:USERPROFILE 'Documents\Codex'),
-            (Join-Path $env:USERPROFILE 'OneDrive\Dokumente'),
-            (Join-Path $env:USERPROFILE 'NERAL'),
-            (Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--Qwen--Qwen2.5-Coder-7B-Instruct'),
-            (Join-Path $env:USERPROFILE 'AppData\Local\huggingface'),
-            'D:\NERAL', 'D:\Models', 'E:\NERAL', 'E:\Models'
-          )
+          # A deeper but read-only metadata-only search after the narrow inventory found zero.
+          $roots = @($env:USERPROFILE, 'D:\', 'E:\')
           $seen = @{}
           $total = 0
           foreach ($root in $roots) {
@@ -33,7 +27,7 @@ jobs:
             if ($seen.ContainsKey($canonical)) { continue }
             $seen[$canonical] = $true
             Write-Host ("SEARCH_ROOT=" + $canonical)
-            Get-ChildItem -LiteralPath $canonical -Filter 'helios-manifest.json' -File -Recurse -Depth 12 -ErrorAction SilentlyContinue |
+            Get-ChildItem -LiteralPath $canonical -Filter 'helios-manifest.json' -File -Recurse -Depth 16 -ErrorAction SilentlyContinue |
               Select-Object -First 30 | ForEach-Object {
                 Write-Host ("SEALED_SNAPSHOT_DIR=" + $_.DirectoryName)
                 $script:total++
@@ -46,4 +40,7 @@ jobs:
             }
           }
           Write-Host ("SEALED_CANDIDATES_FOUND=" + $total)
+          $qwenDirs = @(Get-ChildItem -LiteralPath $env:USERPROFILE -Directory -Filter '*qwen*' -Recurse -Depth 12 -ErrorAction SilentlyContinue | Select-Object -First 30)
+          foreach ($d in $qwenDirs) { Write-Host ("QWEN_DIRECTORY_ONLY=" + $d.FullName) }
+          Write-Host ("QWEN_DIRECTORIES_FOUND=" + $qwenDirs.Count)
           Write-Host 'Read-only inventory completed; no model weights or file contents were accessed.'
