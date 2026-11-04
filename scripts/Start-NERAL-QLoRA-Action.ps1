@@ -43,6 +43,8 @@ try {
     if ($env:NERAL_QWEN25_HF_SNAPSHOT) { $candidates += $env:NERAL_QWEN25_HF_SNAPSHOT }
     if ($env:NERAL_ASSETS_ROOT) { $candidates += (Join-Path $env:NERAL_ASSETS_ROOT 'installed_models\hf-qwen25-coder-7b') }
     $candidates += (Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral\installed_models\hf-qwen25-coder-7b')
+    # Verified smoke-cache snapshot found by read-only inventory #41907058648.
+    $candidates += (Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b')
     $candidates += (Join-Path $env:USERPROFILE 'NERAL\models\qwen25-verified')
     $candidates += (Join-Path $env:USERPROFILE 'NERAL\models\qwen25-coder-7b')
     $found = @($candidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'helios-manifest.json') -PathType Leaf) } | Select-Object -Unique)
