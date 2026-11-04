@@ -1,0 +1,56 @@
+name: NERAL Qwen Snapshot Audit (no training)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout pinned model validation code only
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: pinned
+          clean: true
+          persist-credentials: false
+      - name: Audit only known Qwen smoke cache (file names and sizes)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $model = Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          if (-not (Test-Path -LiteralPath $model -PathType Container)) { throw 'Trusted cache directory absent' }
+          $files = @(Get-ChildItem -LiteralPath $model -File -Force)
+          Write-Host ("MODEL_FILE_COUNT=" + $files.Count)
+          foreach ($file in $files) {
+            if ($file.Name -match '^(?:model(?:-\d{5}-of-\d{5})?\.safetensors|model\.safetensors\.index\.json|config\.json|tokenizer(?:_config)?\.json|special_tokens_map\.json|generation_config\.json|vocab\.json|merges\.txt|helios-manifest\.json)$') {
+              Write-Host ("MODEL_FILE=" + $file.Name + " SIZE_BYTES=" + $file.Length)
+            } else { Write-Host ("UNEXPECTED_FILENAME=" + $file.Name) }
+          }
+          $python = 'C:\actions-runner\_work\_tool\Python\3.12.10\x64\python.exe'
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Expected Python 3.12 is absent' }
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE 'pinned'
+          $code = @'
+          import sys
+          from pathlib import Path
+          print('PYTHON=' + sys.executable)
+          try:
+              from model_catalog import validate_hf_snapshot
+              value = validate_hf_snapshot(Path(sys.argv[1]), verify_hashes=False)
+              print('METADATA_VALIDATION=PASSED')
+              print('BASE_REVISION=' + value['revision'])
+          except Exception as exc:
+              print('METADATA_VALIDATION=FAILED')
+              print('EXCEPTION_TYPE=' + type(exc).__name__)
+              print('EXCEPTION_MESSAGE=' + str(exc)[:220])
+              raise SystemExit(2)
+          '@
+          & $python -c $code $model
+          if ($LASTEXITCODE -ne 0) { throw 'Readonly model metadata validation failed' }
+          Write-Host 'Audit only: no model loaded, no weights read, no training performed.'
