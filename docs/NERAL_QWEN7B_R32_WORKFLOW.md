@@ -13,3 +13,34 @@ The existing `scripts/neral_qlora_pilot.py` uses BF16/NF4, PEFT, completion-only
 Output adapter and full local reports remain under the runner user's `NERAL-QLoRA-Research/actions-r32-*` directory outside the repo. Only scalar JSON (loss per optimizer step, duration, three-step count, peak GPU bytes and SHA-256 of the **adapter** file) is allowlisted for upload. Artifact uploads MUST NOT include safetensors, private prompts, model weights, tokenizer files or datasets.
 
 **Limits:** Nothing here proves the rank32 pilot fits 12 GB VRAM or that 3 optimizer steps improve model quality. A successful pilot proves training plumbing and creates a sealed candidate, not a new independent model. The proposed workflow must be reviewed and merged before it can be dispatched; existing task-queue restrictions on hidden paths require an explicit policy review. No existing PRs/branches or base model weights are modified by the proposal.
+
+## Audit corrections prepared on 2026-11-04 (not committed to GitHub)
+
+- The pinned `neral_adapter_candidate.py` rejects `r=32` in its
+  `validate_adapter()` function. The updated `neral_rank32_copy.py` verifies
+  the exact trainer **and validator** Git-blob SHA-1 values before any generated
+  code is trusted, then creates a separate `neral_adapter_candidate_r32.py`.
+  The original r16 validator remains unchanged. Both generated Python files
+  must be present in the pinned checkout during the pilot. Validate against
+  exact frozen source, not a fabricated/mutable external dependency.
+- Windows GPU utilization is sampled three times; *every* sample must show
+  at least 10,000 MiB free and at most one of the samples may exceed 15%
+  utilization. This is a heuristic, not exclusive ownership of the GPU.
+- The runner prints the selected manifest path and isolated Python executable
+  for troubleshooting; these paths are log data, not secret tokens.
+- **New durable one-shot protection:** the first explicitly authorized `train-three-steps`
+  after a successful preflight atomically creates
+  `NERAL-QLoRA-Research/.neral-r32-three-step-one-shot.lock` using Python's
+  `os.O_CREAT | os.O_EXCL`. Any later training dispatch is refused, even with
+  the same authorization phrase and a different GitHub run ID. A crash still
+  consumes this authorization to prevent unreviewed automatic retries.
+  The `preflight` mode does not consume it. A human operator must inspect any
+  interrupted run before manually authorizing *another* pilot. There is no
+  automatic delete/reset path.
+
+Local evidence for this prepared revision: 19/19 stdlib/CPU tests passed,
+`compileall` passed, actual pinned GitHub trainer and validator Git blobs
+matched and the generated trainer/validator both passed Python AST parsing.
+None of this certifies Windows PowerShell behavior, HF model availability,
+training, GPU peak memory, loss or model quality. The new workflow still needs
+explicit repository review and controlled registration on the default branch.

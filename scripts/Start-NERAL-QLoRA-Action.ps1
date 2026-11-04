@@ -48,6 +48,7 @@ try {
     $found = @($candidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'helios-manifest.json') -PathType Leaf) } | Select-Object -Unique)
     if ($found.Count -ne 1) { throw 'Expected exactly one known, sealed Qwen HF snapshot; no unverified directory selected' }
     $model = [IO.Path]::GetFullPath($found[0])
+    Write-Host "QWEN_MANIFEST_PATH=$(Join-Path $model 'helios-manifest.json')"
     $env:PYTHONPATH = $src
     $check = 'import sys;from model_catalog import validate_hf_snapshot; v=validate_hf_snapshot(sys.argv[1],verify_hashes=True);assert v["base_model"] == "Qwen/Qwen2.5-Coder-7B-Instruct"; print("Offline model hash validation PASSED")'
     & $python -c $check $model
@@ -55,8 +56,11 @@ try {
     $step = 'snapshot_verified'
 
     $rankCopy = Join-Path $src 'scripts\neral_qlora_rank32_pilot.py'
-    & $python (Join-Path $control 'scripts\neral_rank32_copy.py') --trainer (Join-Path $src 'scripts\neral_qlora_pilot.py') --output $rankCopy
-    if ($LASTEXITCODE -ne 0) { throw 'Rank32 transformer refused source' }
+    $rankValidator = Join-Path $src 'neral_adapter_candidate_r32.py'
+    & $python (Join-Path $control 'scripts\neral_rank32_copy.py') `
+      --trainer (Join-Path $src 'scripts\neral_qlora_pilot.py') --output $rankCopy `
+      --validator (Join-Path $src 'neral_adapter_candidate.py') --validator-output $rankValidator
+    if ($LASTEXITCODE -ne 0) { throw 'Rank32 trainer/validator generation refused source' }
     $dataset = Join-Path $runRoot 'reviewed_dataset'
     & $python (Join-Path $src 'scripts\neral_capability_train_pack.py') --root $src --out-dir $dataset
     if ($LASTEXITCODE -ne 0) { throw 'Dataset review or 86-row pack rejected' }
@@ -71,18 +75,26 @@ try {
     }
     if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf)) { throw 'Isolated training environment unavailable' }
     if ($trainPython -like "${src}*") { throw 'Training interpreter may not reside within source checkout' }
+    Write-Host "TRAINING_INTERPRETER=$trainPython"
+    Write-Host 'Checking pinned transformers/peft/trl/accelerate/bitsandbytes/safetensors and CUDA BF16/NF4'
     & $trainPython (Join-Path $src 'scripts\neral_training_preflight.py') --check-cuda
     if ($LASTEXITCODE -ne 0) { throw 'CUDA BF16/NF4 training preflight failed' }
     $step = 'cuda_verified'
-    for ($i=0; $i -lt 2; $i++) {
+    # Strict VRAM budget on every sample, but tolerate one transient DWM spike.
+    $utilProbes = @()
+    for ($i=0; $i -lt 3; $i++) {
         $raw = & nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
         if ($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
         $parts = ($raw | Select-Object -First 1) -split ','
         if ($parts.Count -ne 2) { throw 'Invalid nvidia-smi result' }
         $free = [int]$parts[0].Trim()
         $usage = [int]$parts[1].Trim()
-        if ($free -lt 10000 -or $usage -gt 15) { throw 'GPU is busy or below 10000 MiB free' }
-        if ($i -eq 0) { Start-Sleep -Seconds 2 }
+        if ($free -lt 10000) { throw 'GPU is below hard 10000 MiB free VRAM threshold' }
+        $utilProbes += $usage
+        if ($i -lt 2) { Start-Sleep -Seconds 2 }
+    }
+    if (@($utilProbes | Where-Object { $_ -gt 15 }).Count -ge 2) {
+        throw 'GPU is persistently busy (at least two of three samples above 15%)'
     }
     if ($Mode -eq 'preflight') {
         [ordered]@{schema=1;status='PREFLIGHT_PASSED';training_executed=$false;rank=32;steps=3;weight_upload=$false} |
@@ -93,6 +105,12 @@ try {
     if ($env:NERAL_R32_TRAIN_AUTHORIZATION -ne 'EXACTLY_THREE_OPTIMIZER_STEPS_R32') {
         throw 'Explicit one-shot workflow training authorization absent'
     }
+    # Durable one-shot claim. Another workflow_dispatch must never train again
+    # automatically, even with the same authorization phrase and a new run id.
+    # Preflight does not consume the claim. A crash consumes it intentionally.
+    & $python (Join-Path $control 'scripts\neral_one_shot_guard.py') `
+      --root $external --run-id $runId --attempt $attempt
+    if ($LASTEXITCODE -ne 0) { throw 'One-shot authorization already consumed or unsafe' }
     $step = 'training_started'
     $env:HF_HUB_OFFLINE='1'
     $env:TRANSFORMERS_OFFLINE='1'

@@ -20,6 +20,7 @@ FAKE_TRAINER = '''
             report["logs"].append({"step": state.global_step, **(logs or {})})
     samples = []
     report["metrics"] = trainer.train().metrics
+    from neral_adapter_candidate import seal_adapter
 '''
 sys.path.insert(0, str(ROOT))
 from scripts.neral_rank32_copy import patched_trainer, EXPECTED_SOURCE_GIT_BLOB

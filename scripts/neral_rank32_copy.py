@@ -10,6 +10,7 @@ import hashlib
 from pathlib import Path
 
 EXPECTED_SOURCE_GIT_BLOB = 'f4b0f72440ce40653ca0ce2b171bec6721505e18'
+EXPECTED_VALIDATOR_GIT_BLOB = 'beed6caa310d6e45327fe63f4800ad2ebb276060'
 
 class PatchError(ValueError):
     pass
@@ -83,9 +84,37 @@ def patched_trainer(source: str, *, expected_blob_sha: str | None = None) -> str
         '    train_result = trainer.train()\n'
         '    report["metrics"] = train_result.metrics\n'
         '    report["optimizer_steps_completed"] = train_result.global_step')
+    source = _single_replace(
+        source, 'from neral_adapter_candidate import seal_adapter',
+        'from neral_adapter_candidate_r32 import seal_adapter')
     if source.count('80_740_352') != 1 or source.count('r=args.lora_rank') != 1:
         raise PatchError('Patch verification failed')
     return source
+
+
+
+def patched_validator(source: str, *, expected_blob_sha: str | None = None) -> str:
+    """Create a separate r32-only validator; preserve the original r16 policy."""
+    if expected_blob_sha is not None and git_blob_sha(source) != expected_blob_sha:
+        raise PatchError('Adapter validator differs from exact pinned source')
+    return _single_replace(
+        source,
+        "or config.get('r') != 16 or config.get('lora_alpha') != 16",
+        "or config.get('r') != 32 or config.get('lora_alpha') != 32",
+    )
+
+
+def write_validator_copy(src: Path, dest: Path, *, expected_blob_sha: str = EXPECTED_VALIDATOR_GIT_BLOB):
+    src, dest = Path(src), Path(dest)
+    if src.resolve() == dest.resolve() or dest.exists() or dest.is_symlink():
+        raise PatchError('Never overwrite a validator')
+    if not src.is_file() or src.is_symlink() or src.stat().st_size > 64 * 1024:
+        raise PatchError('Validator source missing, linked or oversized')
+    if not dest.parent.is_dir():
+        raise PatchError('Validator destination parent missing')
+    data = patched_validator(src.read_text(encoding='utf-8'), expected_blob_sha=expected_blob_sha)
+    with dest.open('x', encoding='utf-8', newline='\n') as out:
+        out.write(data)
 
 
 def write_patched_copy(src: Path, dest: Path, *, expected_blob_sha: str = EXPECTED_SOURCE_GIT_BLOB):
@@ -107,9 +136,17 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     p.add_argument('--trainer',required=True,type=Path)
     p.add_argument('--output',required=True,type=Path)
+    p.add_argument('--validator',required=True,type=Path)
+    p.add_argument('--validator-output',required=True,type=Path)
     p.add_argument('--expected-blob',default=EXPECTED_SOURCE_GIT_BLOB)
     args=p.parse_args(argv)
     try:
+        # Read/validate all source bytes before creating either file.
+        trainer_source = args.trainer.read_text(encoding="utf-8")
+        validator_source = args.validator.read_text(encoding="utf-8")
+        patched_trainer(trainer_source, expected_blob_sha=args.expected_blob)
+        patched_validator(validator_source, expected_blob_sha=EXPECTED_VALIDATOR_GIT_BLOB)
+        write_validator_copy(args.validator, args.validator_output)
         write_patched_copy(args.trainer,args.output,expected_blob_sha=args.expected_blob)
     except (OSError,PatchError,UnicodeError) as exc:
         p.exit(2, f'No source overwritten, patch refused: {exc}\n')
