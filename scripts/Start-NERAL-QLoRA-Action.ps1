@@ -84,12 +84,23 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Dataset review or 86-row pack rejected' }
     $step = 'data_verified'
 
-    $venv = Join-Path $external 'training-env'
+    # Keep this environment separate from the existing inference Python and
+    # any partially initialized old "training-env" from the broken py launcher.
+    $venv = Join-Path $external 'training-env-py312'
     $trainPython = if ($env:NERAL_QLORA_PYTHON) { $env:NERAL_QLORA_PYTHON } else { Join-Path $venv 'Scripts\python.exe' }
     if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf) -and $InstallPinnedEnvironment) {
+        if ($env:NERAL_QLORA_PYTHON) { throw 'Explicit training Python is missing; do not replace it implicitly' }
         if (Test-Path -LiteralPath $venv) { throw 'Environment exists but lacks interpreter, refuse repairs in-place' }
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $src 'scripts\setup_neral_training.ps1') -VenvDir $venv
-        if ($LASTEXITCODE -ne 0) { throw 'Pinned isolated dependency installation failed' }
+        Write-Host 'Bootstrapping isolated pinned QLoRA environment from already verified Python'
+        & $python -m venv $venv
+        if ($LASTEXITCODE -ne 0) { throw 'Verified Python could not create an isolated training venv' }
+        if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf)) { throw 'New training Python was not created' }
+        & $trainPython -m pip install --disable-pip-version-check --no-input 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
+        if ($LASTEXITCODE -ne 0) { throw 'Pinned free CUDA torch installation failed' }
+        & $trainPython -m pip install --disable-pip-version-check --no-input -r (Join-Path $src 'requirements-neral-training.txt')
+        if ($LASTEXITCODE -ne 0) { throw 'Pinned isolated QLoRA dependency installation failed' }
+        & $trainPython -m pip check
+        if ($LASTEXITCODE -ne 0) { throw 'Isolated QLoRA dependency compatibility check failed' }
     }
     if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf)) { throw 'Isolated training environment unavailable' }
     if ($trainPython -like "${src}*") { throw 'Training interpreter may not reside within source checkout' }
