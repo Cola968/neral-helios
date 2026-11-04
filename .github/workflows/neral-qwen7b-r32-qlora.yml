@@ -1,0 +1,95 @@
+name: NERAL Qwen 7B Rank32 QLoRA (three steps only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preflight first; three steps are separate explicitly authorized action"
+        type: choice
+        required: true
+        default: preflight
+        options:
+          - preflight
+          - train-three-steps
+      authorize:
+        description: "For training: type EXACTLY_THREE_OPTIMIZER_STEPS_R32"
+        required: true
+        type: string
+        default: ""
+      install_pinned_environment:
+        description: "Allow new isolated venv with pinned free Python dependencies (no model download)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  rank32-pilot:
+    if: github.ref == 'refs/heads/main' && (inputs.mode != 'train-three-steps' || inputs.authorize == 'EXACTLY_THREE_OPTIMIZER_STEPS_R32')
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_R32_TRAIN_AUTHORIZATION: ${{ inputs.authorize }}
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - name: Checkout reviewed workflow helper from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout exact pinned trainer and reviewed 86-row data from PR 234
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Run restricted preflight or explicitly authorized three-step local pilot
+        env:
+          MODE: ${{ inputs.mode }}
+          INSTALL_PINNED_ENVIRONMENT: ${{ inputs.install_pinned_environment }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $entry = Join-Path $env:GITHUB_WORKSPACE 'control\scripts\Start-NERAL-QLoRA-Action.ps1'
+          if ($env:INSTALL_PINNED_ENVIRONMENT -eq 'true') {
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $entry -Mode $env:MODE -InstallPinnedEnvironment
+          } else {
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $entry -Mode $env:MODE
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'NERAL rank32 job refused or failed' }
+      - name: Reject uploads of weights, private datasets and trainer internals
+        id: upload_guard
+        if: always()
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE 'control\neral_qlora_reports'
+          if (-not (Test-Path $path)) { exit 0 }
+          $allow = @('summary.json','status.json')
+          $files = @(Get-ChildItem -LiteralPath $path -File -Recurse)
+          if ($files.Count -eq 0) { exit 0 }
+          foreach ($f in $files) {
+            if ($allow -notcontains $f.Name -or $f.Length -gt 32768) {
+              throw 'Non-allowlisted or oversized report prohibited'
+            }
+          }
+          'safe=true' >> $env:GITHUB_OUTPUT
+      - name: Upload scalar reports only (no adapter or corpus)
+        if: always() && steps.upload_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-r32-scalar-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/neral_qlora_reports/*.json
+          retention-days: 14
+          if-no-files-found: warn
