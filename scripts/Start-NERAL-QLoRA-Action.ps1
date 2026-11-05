@@ -88,13 +88,23 @@ try {
     # any partially initialized old "training-env" from the broken py launcher.
     $venv = Join-Path $external 'training-env-py312'
     $trainPython = if ($env:NERAL_QLORA_PYTHON) { $env:NERAL_QLORA_PYTHON } else { Join-Path $venv 'Scripts\python.exe' }
-    if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf) -and $InstallPinnedEnvironment) {
+    if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf)) {
+        if (-not $InstallPinnedEnvironment) { throw 'Isolated training environment unavailable' }
         if ($env:NERAL_QLORA_PYTHON) { throw 'Explicit training Python is missing; do not replace it implicitly' }
         if (Test-Path -LiteralPath $venv) { throw 'Environment exists but lacks interpreter, refuse repairs in-place' }
         Write-Host 'Bootstrapping isolated pinned QLoRA environment from already verified Python'
         & $python -m venv $venv
         if ($LASTEXITCODE -ne 0) { throw 'Verified Python could not create an isolated training venv' }
         if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf)) { throw 'New training Python was not created' }
+    }
+    # The interpreter can exist while torch or another pinned package is missing,
+    # e.g. after an interrupted venv setup. Install only with explicit opt-in,
+    # and only inside our dedicated isolated training venv (never inference Python).
+    if ($InstallPinnedEnvironment -and -not $env:NERAL_QLORA_PYTHON) {
+        if (-not (Test-Path -LiteralPath (Join-Path $venv 'pyvenv.cfg') -PathType Leaf)) {
+            throw 'Refusing dependency installation outside an isolated training venv'
+        }
+        Write-Host 'Ensuring pinned CUDA torch and QLoRA dependencies in isolated training venv'
         & $trainPython -m pip install --disable-pip-version-check --no-input 'torch==2.8.0+cu128' --index-url 'https://download.pytorch.org/whl/cu128'
         if ($LASTEXITCODE -ne 0) { throw 'Pinned free CUDA torch installation failed' }
         & $trainPython -m pip install --disable-pip-version-check --no-input -r (Join-Path $src 'requirements-neral-training.txt')
