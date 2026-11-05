@@ -1,9 +1,9 @@
 """Thin adapters over the existing inference paths; no tool execution here.
 
 Local tool turns use an explicit, whole-response JSON protocol. Generation is
-buffered so tool arguments never enter the user-facing text stream. Ollama's
-legacy HTTP transport is blocking: cancellation is checked before and after it,
-and must not be advertised as interrupting an in-flight HTTP request.
+buffered so tool arguments never enter the user-facing text stream. The default
+Ollama transport is bounded and cancellable; explicitly injected legacy callable
+transports retain cooperative cancellation checks only.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import time
 
 import neral_assistant as ollama
 import qwen_local_runtime as local
+from .ollama_transport import stream_ollama, TransportError, CancellationEvent
 
 
 class ProviderError(ValueError):
@@ -35,6 +36,22 @@ class ProviderReply:
     input_tokens: int | None = None
     seconds: float = 0.0
     output_tokens_reported: bool = True
+    timed_out: bool = False
+    cancel_requested: bool = False
+    cancel_acknowledged: bool = False
+    transport_closed: bool | None = None
+    provider_execution_stopped: bool | None = None
+    cancel_ack_latency_ms: float | None = None
+
+    @property
+    def completion_status(self):
+        if self.timed_out:
+            return 'timed_out'
+        if self.cancelled:
+            return 'cancelled'
+        if self.finish_reason == 'failed':
+            return 'failed'
+        return 'incomplete' if self.incomplete else 'complete'
 
 
 def _stopped(event, options):
@@ -42,15 +59,38 @@ def _stopped(event, options):
     if deadline is not None:
         if type(deadline) not in (float, int) or not math.isfinite(deadline):
             raise ProviderError('Invalid inference deadline.')
-        if time.monotonic() >= deadline:
-            event.set()
-    return event.is_set()
+    return event.is_set() or deadline is not None and time.monotonic() >= deadline
 
 
-def _cancelled(count=0, input_tokens=None, seconds=0.0, reported=True):
-    return ProviderReply(finish_reason='cancelled', incomplete=True,
-                         cancelled=True, generated_tokens=count,
+def _cancelled(count=0, input_tokens=None, seconds=0.0, reported=True, *, timed_out=False):
+    return ProviderReply(finish_reason='timeout' if timed_out else 'cancelled', incomplete=True,
+                         cancelled=not timed_out, timed_out=timed_out,
+                         cancel_requested=not timed_out, cancel_acknowledged=not timed_out,
+                         generated_tokens=count,
                          input_tokens=input_tokens, seconds=seconds, output_tokens_reported=reported)
+
+
+class _GenerationStop:
+    """Runtime stop interface keeping deadline signals out of the user's event."""
+    def __init__(self, event, options):
+        self.event, self.options = event, options
+        self.internal_timeout = threading.Event()
+
+    def is_set(self):
+        return self.internal_timeout.is_set() or _stopped(self.event, self.options)
+
+    def set(self):
+        # The existing runtime signals its own safety deadline through set().
+        self.internal_timeout.set()
+
+    def wait(self, timeout=None):
+        until = float('inf') if timeout is None else time.monotonic()+timeout
+        while not self.is_set():
+            remaining = until-time.monotonic()
+            if remaining <= 0:
+                return False
+            self.event.wait(min(.02, remaining))
+        return True
 
 
 def _settings(options, local_provider=False):
@@ -133,7 +173,7 @@ class OllamaProvider:
         self.transport = transport
         self.identity = dict(source='external-model', base_model=model,
                              model_family='qwen3.5', runtime_id='ollama:'+model,
-                             token_unit='Ollama-Token', provider_wrapper_version='neral-ollama-v1',
+                             token_unit='Ollama-Token', provider_wrapper_version='neral-ollama-v2',
                              lora_weights_version=None, active_adapter_id=None,
                              provider_name='ollama', base_model_id=model, base_model_revision=None,
                              lora_adapter_id=None, adapter_integrity_verified=False)
@@ -144,27 +184,61 @@ class OllamaProvider:
 
     def complete(self, messages, tools, options, event, on_progress=None):
         budget, temperature, _, think, profile = _settings(options)
-        if _stopped(event, options):
-            return _cancelled()
+        if self.transport is not None and _stopped(event, options):
+            return _cancelled(timed_out=not event.is_set())
         payload = dict(model=self.model, messages=messages, tools=tools,
-                       stream=False, think=think, keep_alive='5m',
+                       stream=self.transport is None, think=think, keep_alive='5m',
                        options=dict(num_ctx=8192 if profile == 'deep' else 4096,
                                     num_predict=budget, temperature=temperature))
-        transport = self.transport or ollama.local_ollama_request
+        streaming = self.transport is None
+        transport_result = None
         try:
-            data = transport(payload)
-        except ollama.AssistantError as exc:
+            if streaming:
+                transport_result = stream_ollama(payload, event=event,
+                    deadline=options.get('deadline', time.monotonic()+125))
+                data = transport_result.data
+                # A deadline/cancel may arrive after the terminal frame but before
+                # provider validation. Keep timeout distinct from a user event.
+                if not transport_result.incomplete and (event.is_set()
+                        or time.monotonic() >= options.get('deadline', float('inf'))):
+                    transport_result.incomplete = True
+                    transport_result.cancel_requested = event.is_set()
+                    transport_result.cancel_acknowledged = event.is_set()
+                    transport_result.timed_out = not event.is_set()
+                    if event.is_set() and isinstance(event, CancellationEvent) and event.requested_at is not None:
+                        transport_result.cancel_ack_latency_ms = max(0., (time.monotonic()-event.requested_at)*1000)
+                if transport_result.incomplete:
+                    reason = ('timeout' if transport_result.timed_out else
+                              'cancelled' if transport_result.cancel_acknowledged else
+                              data.get('done_reason') or 'connection_closed')
+                    return ProviderReply(content=data.get('message', {}).get('content', ''),
+                        finish_reason=reason, incomplete=True,
+                        cancelled=transport_result.cancel_acknowledged,
+                        timed_out=transport_result.timed_out,
+                        cancel_requested=transport_result.cancel_requested,
+                        cancel_acknowledged=transport_result.cancel_acknowledged,
+                        transport_closed=transport_result.transport_closed,
+                        provider_execution_stopped=transport_result.provider_execution_stopped,
+                        cancel_ack_latency_ms=transport_result.cancel_ack_latency_ms,
+                        generated_tokens=_count(data.get('eval_count')),
+                        input_tokens=_count(data.get('prompt_eval_count'), None),
+                        output_tokens_reported=type(data.get('eval_count')) is int
+                            and 0<=data['eval_count']<=1_000_000)
+            else:
+                data = self.transport(payload)
+        except (ollama.AssistantError, TransportError) as exc:
             raise ProviderError(str(exc)) from exc
-        if _stopped(event, options):
+        if not streaming and _stopped(event, options):
             try:
                 ollama._message(data, self.model)
             except ollama.AssistantError:
-                return _cancelled(input_tokens=None, reported=False)
+                return _cancelled(input_tokens=None, reported=False, timed_out=not event.is_set())
             duration=data.get('eval_duration')
             return _cancelled(_count(data.get('eval_count')),
                 _count(data.get('prompt_eval_count'),None),
                 duration/1e9 if type(duration) is int and duration>=0 else 0.0,
-                type(data.get('eval_count')) is int and 0<=data['eval_count']<=1_000_000)
+                type(data.get('eval_count')) is int and 0<=data['eval_count']<=1_000_000,
+                timed_out=not event.is_set())
         try:
             message = ollama._message(data, self.model)
         except ollama.AssistantError as exc:
@@ -172,13 +246,14 @@ class OllamaProvider:
         duration = data.get('eval_duration')
         seconds = duration / 1e9 if type(duration) is int and duration >= 0 else 0.0
         return ProviderReply(content=message.get('content', ''),
-                             tool_calls=_canonical_tool_calls(message.get('tool_calls', [])),
+                             tool_calls=[] if data.get('done_reason') == 'length' else _canonical_tool_calls(message.get('tool_calls', [])),
                              finish_reason=data.get('done_reason'),
                              incomplete=data.get('done_reason') == 'length',
                              generated_tokens=_count(data.get('eval_count')),
                              input_tokens=_count(data.get('prompt_eval_count'), None),
                              seconds=seconds,
-                             output_tokens_reported=type(data.get('eval_count')) is int and 0<=data['eval_count']<=1_000_000)
+                             output_tokens_reported=type(data.get('eval_count')) is int and 0<=data['eval_count']<=1_000_000,
+                             transport_closed=True if streaming else None)
 
 
 _PROTOCOL = '''
@@ -312,30 +387,21 @@ class LocalQwenProvider:
     def complete(self, messages, tools, options, event, on_progress=None):
         budget, temperature, top_k, _, _ = _settings(options, local_provider=True)
         if _stopped(event, options):
-            return _cancelled()
+            return _cancelled(timed_out=not event.is_set())
         ids = self._message_ids(messages, tools)
         if not ids or len(ids)+budget > local.CONTEXT:
             raise ProviderError('Context and response exceed 2048 Qwen tokens.')
         if _stopped(event, options):
-            return _cancelled(input_tokens=len(ids))
-        # The existing runtime checks the same event between generated tokens.
-        # A deadline timer only signals cancellation; it never starts inference.
-        timer = None
-        if options.get('deadline') is not None:
-            timer = threading.Timer(max(0, options['deadline']-time.monotonic()), event.set)
-            timer.daemon = True
-            timer.start()
+            return _cancelled(input_tokens=len(ids), timed_out=not event.is_set())
+        stop = _GenerationStop(event, options)
         started = time.monotonic()
         try:
-            continuation = self.runtime.generate(ids, budget, temperature, top_k, event)
+            continuation = self.runtime.generate(ids, budget, temperature, top_k, stop)
         except local.LocalQwenError as exc:
             raise ProviderError(str(exc)) from exc
-        finally:
-            if timer is not None:
-                timer.cancel()
         seconds = time.monotonic()-started
-        if _stopped(event, options) or self.runtime.finish_reason == 'cancelled':
-            return _cancelled(len(continuation), len(ids), seconds)
+        if stop.is_set() or self.runtime.finish_reason == 'cancelled':
+            return _cancelled(len(continuation), len(ids), seconds, timed_out=not event.is_set())
         content, calls = _parse_local(self.runtime.decode(continuation))
         reason = self.runtime.finish_reason
         if reason not in {'eos', 'length'}:

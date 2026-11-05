@@ -14,6 +14,18 @@ def options(**changes):
                 **changes)
 
 
+@pytest.mark.parametrize('reply,status', [
+    (ProviderReply(), 'complete'),
+    (ProviderReply(incomplete=True, finish_reason='length'), 'incomplete'),
+    (ProviderReply(incomplete=True, finish_reason='failed'), 'failed'),
+    (ProviderReply(incomplete=True, timed_out=True), 'timed_out'),
+    (ProviderReply(incomplete=True, cancelled=True), 'cancelled'),
+    (ProviderReply(incomplete=True), 'incomplete')])
+def test_provider_completion_status(reply, status):
+    assert reply.completion_status == status
+    assert reply.cancel_ack_latency_ms is None
+
+
 class Tokenizer:
     def __init__(self):
         self.calls = []
@@ -110,7 +122,8 @@ def test_cancel_and_deadline_stop_before_provider_generation(kind):
     assert reply.cancelled and reply.incomplete and runtime.calls == []
     event.clear(); opts=options(); opts['deadline']=time.monotonic()-1
     reply = provider.complete(MESSAGES, TOOLS, opts, event)
-    assert reply.cancelled and event.is_set() and runtime.calls == []
+    assert reply.timed_out and not reply.cancelled and not event.is_set() and runtime.calls == []
+    assert reply.completion_status == 'timed_out'
 
 
 def test_local_uses_existing_runtime_and_audited_template_without_protocol_progress():
@@ -197,17 +210,18 @@ def test_ollama_cancel_after_blocking_transport_never_returns_actionable_calls()
     assert reply.cancelled and reply.tool_calls == []
 
 
-def test_local_deadline_signals_existing_runtime_event():
+def test_local_deadline_stops_runtime_without_mutating_user_event():
     runtime=Runtime(); event=threading.Event()
     def generate(ids, max_new, temperature, top_k, active_event):
-        assert active_event is event
+        assert active_event is not event
         assert active_event.wait(.5), 'provider deadline must signal the existing event'
         runtime.finish_reason='cancelled'
         return [42]
     runtime.generate=generate
     opts=options(); opts['deadline']=time.monotonic()+.02
     reply=LocalQwenProvider(runtime).complete(MESSAGES, TOOLS, opts, event)
-    assert reply.cancelled and reply.generated_tokens == 1 and reply.tool_calls == []
+    assert reply.timed_out and not reply.cancelled and not event.is_set()
+    assert reply.generated_tokens == 1 and reply.tool_calls == []
 
 
 def test_local_exact_context_boundary_and_truncated_answer():
@@ -397,3 +411,63 @@ def test_ollama_missing_usage_is_not_an_observed_zero():
     transport=lambda payload:{'model':'qwen3.5:9b','done':True,'message':{'role':'assistant','content':'done'}}
     reply=OllamaProvider(transport=transport).complete(MESSAGES,[],options(),threading.Event())
     assert reply.output_tokens_reported is False
+
+
+def test_default_ollama_uses_cancellable_stream_and_separate_status(monkeypatch):
+    from neral_control import providers
+    try:
+        from neral_control.ollama_transport import TransportResult
+    except ImportError:
+        pytest.fail('Missing cancellable transport result')
+    captured=[]
+    def stream(payload, **kwargs):
+        captured.append((payload,kwargs))
+        return TransportResult(data={'model':'qwen3.5:9b','done':False,
+            'message':{'role':'assistant','content':'partial','tool_calls':[]}},
+            incomplete=True,cancel_requested=True,cancel_acknowledged=True,transport_closed=True,
+            cancel_ack_latency_ms=12.5)
+    monkeypatch.setattr(providers,'stream_ollama',stream,raising=False)
+    monkeypatch.setattr(providers.ollama,'local_ollama_request',lambda _:pytest.fail('blocking legacy transport used'))
+    event=threading.Event();opts=options()
+    reply=OllamaProvider().complete(MESSAGES,TOOLS,opts,event)
+    assert captured[0][0]['stream'] is True
+    assert captured[0][1]['event'] is event and captured[0][1]['deadline']==opts['deadline']
+    assert reply.incomplete and reply.cancelled and reply.tool_calls==[]
+    assert reply.cancel_requested and reply.cancel_acknowledged and reply.transport_closed
+    assert reply.provider_execution_stopped is None
+    assert reply.completion_status == 'cancelled' and reply.cancel_ack_latency_ms == 12.5
+
+
+def test_default_ollama_timeout_does_not_claim_user_cancellation(monkeypatch):
+    from neral_control import providers
+    from neral_control.ollama_transport import TransportResult
+    def stream(payload, **kwargs):
+        return TransportResult(data={'model':'qwen3.5:9b','done':False,
+            'message':{'role':'assistant','content':'','tool_calls':[]}},incomplete=True,timed_out=True,transport_closed=True)
+    monkeypatch.setattr(providers,'stream_ollama',stream,raising=False)
+    monkeypatch.setattr(providers.ollama,'local_ollama_request',lambda _:pytest.fail('blocking legacy transport used'))
+    reply=OllamaProvider().complete(MESSAGES,TOOLS,options(),threading.Event())
+    assert reply.timed_out and not reply.cancelled and not reply.cancel_requested
+    assert reply.finish_reason=='timeout' and reply.incomplete and reply.transport_closed
+
+
+def test_injected_ollama_length_never_exposes_actionable_tool_calls():
+    tool={'function':{'name':'calculator','arguments':{'expression':'2+2'}}}
+    provider=OllamaProvider(transport=lambda _:ollama_tool_reply(tool,'length'))
+    reply=provider.complete(MESSAGES,TOOLS,options(),threading.Event())
+    assert reply.incomplete and reply.tool_calls==[]
+
+
+def test_default_ollama_deadline_after_terminal_receipt_stays_timeout(monkeypatch):
+    from neral_control import providers
+    from neral_control.ollama_transport import TransportResult
+    opts=options();opts['deadline']=time.monotonic()+.01;event=threading.Event()
+    def stream(payload, **kwargs):
+        event.wait(.02)
+        return TransportResult(data={'model':'qwen3.5:9b','done':True,
+            'done_reason':'stop','message':{'role':'assistant','content':'late','tool_calls':[]}},
+            incomplete=False,transport_closed=True)
+    monkeypatch.setattr(providers,'stream_ollama',stream)
+    reply=OllamaProvider().complete(MESSAGES,TOOLS,opts,event)
+    assert reply.timed_out and not reply.cancelled and not event.is_set()
+    assert reply.incomplete and reply.tool_calls==[] and reply.transport_closed
