@@ -1,0 +1,23 @@
+{
+  "scope": "Wheel availability only, not Windows execution or CUDA backward verification",
+  "torch_index": "https://download.pytorch.org/whl/cu128/torch/",
+  "torch_windows_wheel": "https://download-r2.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp312-cp312-win_amd64.whl#sha256=0ad925202387f4e7314302a1b4f8860fa824357f9b1466d7992bf276370ebcff",
+  "downloaded_windows_wheels": [
+    {
+      "filename": "bitsandbytes-0.48.2-py3-none-win_amd64.whl",
+      "sha256": "a048c285eb6ff53a8d189880e9dfa421d2bfb54e8cab263311757cf5b742d865"
+    },
+    {
+      "filename": "safetensors-0.6.2-cp38-abi3-win_amd64.whl",
+      "sha256": "c7b214870df923cbc1593c3faee16bec59ea462758699bd3fee399d00aac072c"
+    },
+    {
+      "filename": "tokenizers-0.22.1-cp39-abi3-win_amd64.whl",
+      "sha256": "65fd6e3fb11ca1e78a6a93602490f134d1fdeb13bcef99389d5102ea318ed138"
+    }
+  ],
+  "unsloth": "Not installed; not required. No compatibility claim.",
+  "bitsandbytes_cuda128_dlls": [
+    "bitsandbytes/libbitsandbytes_cuda128.dll"
+  ]
+}

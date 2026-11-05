@@ -1,0 +1,480 @@
+[
+  {
+    "id": "instruction_de_single",
+    "category": "instruction",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Antworte ausschließlich mit dem Wort ORBIT. Keine Satzzeichen.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "ORBIT"
+    }
+  },
+  {
+    "id": "instruction_en_single",
+    "category": "instruction",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Reply with exactly QUARTZ in uppercase, nothing else.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "QUARTZ"
+    }
+  },
+  {
+    "id": "instruction_de_json",
+    "category": "instruction",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Gib ausschließlich gültiges JSON aus: Objekt mit genau den Feldern \"ok\" (true) und \"menge\" (4).",
+    "history": [],
+    "grading": {
+      "type": "json_exact",
+      "value": {
+        "ok": true,
+        "menge": 4
+      }
+    }
+  },
+  {
+    "id": "instruction_en_brief",
+    "category": "instruction",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Write exactly the phrase: ready for launch",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "ready for launch"
+    }
+  },
+  {
+    "id": "math_two_step_de",
+    "category": "math",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Berechne (63 + 29) - 17. Antworte nur mit einer ganzen Zahl.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 75
+    }
+  },
+  {
+    "id": "math_two_step_en",
+    "category": "math",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Compute (91 - 37) * 3. Output only the integer.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 162
+    }
+  },
+  {
+    "id": "math_percent_de",
+    "category": "math",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Was sind 15 Prozent von 240? Gib nur die ganze Zahl aus.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 36
+    }
+  },
+  {
+    "id": "math_ratio_en",
+    "category": "math",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Six identical boxes contain 42 screws. How many screws are in 11 boxes? Integer only.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 77
+    }
+  },
+  {
+    "id": "math_remainder_de",
+    "category": "math",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Ein Zug fährt 92 Kilometer in 2 Stunden mit konstanter Geschwindigkeit. Wie viele Kilometer fährt er in 5 Stunden? Nur die Zahl.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 230
+    }
+  },
+  {
+    "id": "logic_syllogism_de",
+    "category": "logic",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Alle Möwen sind Vögel. Einige Vögel sind schwarz. Folgt zwingend, dass einige Möwen schwarz sind? Nur JA oder NEIN.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "NEIN"
+    }
+  },
+  {
+    "id": "logic_syllogism_en",
+    "category": "logic",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "All tulips are plants. Every plant needs water. Do all tulips need water? Answer only YES or NO.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "YES"
+    }
+  },
+  {
+    "id": "logic_order_de",
+    "category": "logic",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Mira ist schneller als Lina. Lina ist schneller als Theo. Wer ist am langsamsten? Gib ausschließlich den Namen aus.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "Theo"
+    }
+  },
+  {
+    "id": "logic_order_en",
+    "category": "logic",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Amber is older than Blake. Blake is older than Casey. Who is the oldest? Name only.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "Amber"
+    }
+  },
+  {
+    "id": "context_recall_de",
+    "category": "context",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Welche Stadt habe ich in unserem Gespräch als Treffpunkt festgelegt? Nur den Namen.",
+    "history": [
+      {
+        "role": "user",
+        "content": "Wir treffen uns am Samstag in Potsdam."
+      },
+      {
+        "role": "assistant",
+        "content": "Verstanden, der Treffpunkt ist Potsdam."
+      }
+    ],
+    "grading": {
+      "type": "exact",
+      "value": "Potsdam"
+    }
+  },
+  {
+    "id": "context_recall_en",
+    "category": "context",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "What color did I choose? One word only.",
+    "history": [
+      {
+        "role": "user",
+        "content": "Choose green for the chart."
+      },
+      {
+        "role": "assistant",
+        "content": "I'll use green."
+      }
+    ],
+    "grading": {
+      "type": "exact",
+      "value": "green"
+    }
+  },
+  {
+    "id": "context_overwrite_de",
+    "category": "context",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Was ist jetzt das aktuelle Codewort? Nur das Wort.",
+    "history": [
+      {
+        "role": "user",
+        "content": "Codewort ist Radar. Ich ändere es auf Komet."
+      },
+      {
+        "role": "assistant",
+        "content": "Verstanden, das aktuelle Codewort ist Komet."
+      }
+    ],
+    "grading": {
+      "type": "exact",
+      "value": "Komet"
+    }
+  },
+  {
+    "id": "context_followup_en",
+    "category": "context",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "What is the final destination? One word only.",
+    "history": [
+      {
+        "role": "user",
+        "content": "First stop is Bergen, then we continue to Oslo."
+      },
+      {
+        "role": "assistant",
+        "content": "Bergen first, then Oslo."
+      }
+    ],
+    "grading": {
+      "type": "exact",
+      "value": "Oslo"
+    }
+  },
+  {
+    "id": "factual_chemistry_de",
+    "category": "factual",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Wie lautet die chemische Formel von Wasser? Gib nur die Formel an.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "H2O"
+    }
+  },
+  {
+    "id": "factual_geography_en",
+    "category": "factual",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "What is the capital of Portugal? Answer with one word.",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "Lisbon"
+    }
+  },
+  {
+    "id": "factual_units_de",
+    "category": "factual",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Wie viele Sekunden hat eine Stunde? Gib nur die Zahl an.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 3600
+    }
+  },
+  {
+    "id": "factual_history_en",
+    "category": "factual",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "In which year did the Berlin Wall fall? Reply with the year only.",
+    "history": [],
+    "grading": {
+      "type": "integer_only",
+      "value": 1989
+    }
+  },
+  {
+    "id": "structured_array_en",
+    "category": "structured",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Return only JSON with the exact key \"values\" and array [2,4,6]. No markdown.",
+    "history": [],
+    "grading": {
+      "type": "json_exact",
+      "value": {
+        "values": [
+          2,
+          4,
+          6
+        ]
+      }
+    }
+  },
+  {
+    "id": "structured_boolean_de",
+    "category": "structured",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Antworte nur als gültiges JSON mit genau den Feldern \"aktiv\" (false) und \"anzahl\" (0).",
+    "history": [],
+    "grading": {
+      "type": "json_exact",
+      "value": {
+        "aktiv": false,
+        "anzahl": 0
+      }
+    }
+  },
+  {
+    "id": "structured_nested_en",
+    "category": "structured",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "Return JSON only, exactly {\"flight\":{\"from\":\"BER\",\"to\":\"RIX\"}}.",
+    "history": [],
+    "grading": {
+      "type": "json_exact",
+      "value": {
+        "flight": {
+          "from": "BER",
+          "to": "RIX"
+        }
+      }
+    }
+  },
+  {
+    "id": "calibration_unknown_de",
+    "category": "calibration",
+    "language": "de",
+    "kind": "auto",
+    "prompt": "Ich habe dir meinen PIN nicht genannt. Kannst du ihn wissen? Antworte exakt: UNBEKANNT",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "UNBEKANNT"
+    }
+  },
+  {
+    "id": "calibration_unknown_en",
+    "category": "calibration",
+    "language": "en",
+    "kind": "auto",
+    "prompt": "You have not been told my secret password. Reply exactly: UNKNOWN",
+    "history": [],
+    "grading": {
+      "type": "exact",
+      "value": "UNKNOWN"
+    }
+  },
+  {
+    "id": "coding_debug_de",
+    "category": "coding",
+    "language": "de",
+    "kind": "manual",
+    "prompt": "Korrigiere diesen Python-Code und erkläre den Fehler: def add(a,b): return a-b",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Korrekte Addition, syntaktisch gültiger Python-Code, knappe Erklärung der Subtraktion als Fehler."
+  },
+  {
+    "id": "coding_function_en",
+    "category": "coding",
+    "language": "en",
+    "kind": "manual",
+    "prompt": "Write a Python function that returns the first duplicate item in a list, or None if all are unique.",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Prüfe Korrektheit mit leeren Listen, None-Werten, mehrfachen Vorkommen, Syntax und angemessene Komplexität."
+  },
+  {
+    "id": "translation_de_en",
+    "category": "translation",
+    "language": "de",
+    "kind": "manual",
+    "prompt": "Übersetze ins Englische: Obwohl der Zug verspätet war, erreichten wir unseren Anschluss.",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Grammatik, Bedeutungswahrung, korrekte Konzessivstruktur. Keine reine Stichwortprüfung."
+  },
+  {
+    "id": "summary_long_de",
+    "category": "summary",
+    "language": "de",
+    "kind": "manual",
+    "prompt": "Fasse in zwei Sätzen zusammen: Ein Forschungsteam beobachtete über drei Monate den Energieverbrauch von 20 Gebäuden. Die Messungen zeigten einen Rückgang des Verbrauchs um acht Prozent, nachdem die Heizungen automatisch geregelt wurden. Die Studie nennt keine Kontrollgruppe.",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Nenne drei Monate, 20 Gebäude, 8% Rückgang und fehlende Kontrollgruppe; keine Kausalität als bewiesen darstellen."
+  },
+  {
+    "id": "calibration_uncertainty_en",
+    "category": "calibration",
+    "language": "en",
+    "kind": "manual",
+    "prompt": "Predict exactly how many minutes my train will be delayed tomorrow without any schedule or live data.",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Muss fehlende Informationen und Unsicherheit offenlegen, keine konkrete Zahl erfinden."
+  },
+  {
+    "id": "ambiguity_de",
+    "category": "instruction",
+    "language": "de",
+    "kind": "manual",
+    "prompt": "Buche mir einen Tisch für morgen.",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Keine echte Reservierung oder Verfügbarkeit behaupten; notwendige fehlende Angaben sinnvoll erfragen."
+  },
+  {
+    "id": "context_revision_en",
+    "category": "context",
+    "language": "en",
+    "kind": "manual",
+    "prompt": "Update our plan to the new meeting day and tell me the final day.",
+    "history": [
+      {
+        "role": "user",
+        "content": "Let's meet on Thursday."
+      },
+      {
+        "role": "assistant",
+        "content": "Thursday noted."
+      },
+      {
+        "role": "user",
+        "content": "Actually move it to Friday."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated to Friday."
+      }
+    ],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Berücksichtigt die Korrektur am Ende des Verlaufs: Freitag, nicht Donnerstag."
+  },
+  {
+    "id": "reasoning_explain_de",
+    "category": "logic",
+    "language": "de",
+    "kind": "manual",
+    "prompt": "Ein Flugzeug ist schneller als ein Zug. Kann man daraus schließen, dass die Reise mit dem Flugzeug immer kürzer dauert? Begründe knapp.",
+    "history": [],
+    "grading": {
+      "type": "manual"
+    },
+    "review": "Unterscheidet Reisegeschwindigkeit von Gesamtreisezeit und berücksichtigt Anfahrt/Wartezeit."
+  }
+]

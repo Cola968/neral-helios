@@ -2,19 +2,112 @@
 // No HTML parsing: model output and saved messages are always untrusted text.
 (function(root){
   const bytes=s=>new TextEncoder().encode(s).length;
-  function context(messages,prompt,budget,maxContext,checkpoint){
+  const qwen25Base='Qwen/Qwen2.5-Coder-7B-Instruct';
+  const isQwen25=m=>m.source==='external-model'&&m.model_family==='qwen2.5-coder'&&
+    m.base_model===qwen25Base&&/^qwen2\.5-coder:[a-f0-9]{64}$/.test(m.runtime_id||'')&&
+    (m.active_checkpoint||m.checkpoint)==='hf-qwen25-coder-7b';
+  function context(messages,prompt,budget,maxContext,checkpoint,runtimeId=null,family='neral-byte',mode='chat'){
     const pairs=[];
     for(let i=0;i+1<messages.length;i++){
       const u=messages[i],a=messages[i+1];
-      if(u.role==='user'&&u.mode==='chat'&&a.role==='assistant'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint){
-        pairs.push([{role:'user',content:u.content},{role:'assistant',content:a.content}]);i++;
+      const complete=u.role==='user'&&a.role==='assistant'&&!a.interrupted&&!a.imported&&!u.imported;
+      const native=family!=='qwen2.5-coder'&&mode==='chat'&&u.mode==='chat'&&a.mode==='trained-generation'&&a.checkpoint===checkpoint&&
+        (!a.source||a.source==='native-model')&&(!runtimeId||(a.runtime_id===runtimeId&&a.model_family===family));
+      const external=mode==='assistant'&&u.mode==='assistant'&&a.mode==='neral-assistant'&&
+        a.source==='external-model'&&a.model_family==='qwen3.5'&&a.base_model===checkpoint&&
+        ['qwen3.5:9b','qwen3.5:4b'].includes(checkpoint);
+      const localQwen=mode==='chat'&&u.mode==='chat'&&a.mode==='trained-generation'&&
+        family==='qwen2.5-coder'&&checkpoint==='hf-qwen25-coder-7b'&&isQwen25(a)&&a.runtime_id===runtimeId;
+      if(complete&&(native||external||localQwen)){
+        const provenance=localQwen?{runtime_id:runtimeId,model_family:family,checkpoint,
+          source:'external-model',base_model:qwen25Base,imported:false,interrupted:false}:{};
+        pairs.push([{role:'user',content:u.content,...provenance},{role:'assistant',content:a.content,...provenance,
+          ...(native&&runtimeId?{runtime_id:runtimeId,model_family:family,checkpoint,source:'native-model',imported:false,interrupted:false}:{})}]);i++;
       }
     }
     const format=rows=>rows.map(m=>(m.role==='user'?'User':'Assistant')+': '+m.content.trim()+'\n').join('')+'User: '+prompt.trim()+'\nAssistant:';
     const original=pairs.length;
-    while(pairs.length&&(pairs.length>6||bytes(format(pairs.flat()))+1+budget>maxContext))pairs.shift();
+    // BPE length is checked by the actual tokenizer on the server, never treated as bytes.
+    const fits=rows=>mode==='assistant'?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=maxContext:['neral-arctus350','qwen2.5-coder'].includes(family)?bytes(prompt)+rows.reduce((n,m)=>n+bytes(m.content),0)<=4096:bytes(format(rows))+1+budget<=maxContext;
+    while(pairs.length&&(pairs.length>6||!fits(pairs.flat())))pairs.shift();
     const history=pairs.flat();
-    return {history,omitted:original-pairs.length,fits:bytes(format(history))+1+budget<=maxContext};
+    return {history,omitted:original-pairs.length,fits:fits(history)};
+  }
+  function sourceLabel(message,labels={}){
+    if(message.model_family==='qwen2.5-coder'&&message.base_model===qwen25Base&&message.source==='external-model')
+      return (message.imported?'Modellangabe (nicht verifiziert) · ':'NERAL · ')+'Qwen2.5-Coder 7B · externe Gewichte';
+    if(message.mode==='neral-assistant'){
+      const known=['qwen3.5:9b','qwen3.5:4b'].includes(message.base_model)&&message.source==='external-model'&&message.model_family==='qwen3.5';
+      return known?(message.imported?'Modellangabe (nicht verifiziert) · ':'NERAL Assistant · ')+'Qwen3.5 '+message.base_model.split(':')[1].toUpperCase()+' · externes Open-Weight-Modell':'Modellherkunft nicht verifiziert';
+    }
+    if(message.mode==='external-model'||String(message.source||'').startsWith('external'))return 'Externes Modell · nicht NERAL';
+    if(message.mode==='solve-tool')return 'Rechenwerkzeug · '+(message.source==='tool:calculator'?'Rechner':message.source==='tool:percentage'?'Prozentrechnung':'SOLVE');
+    if(message.mode==='code-tool')return 'Codeprüfung · lokal, ohne Ausführung';
+    if(message.mode==='guarded-response')return 'Sicherheitsregel · keine Modellantwort';
+    if(message.mode==='error')return 'Anfrage fehlgeschlagen';
+    if(message.mode==='no-model')return 'Kein natives Modell geladen';
+    const names={arctus350:'Arctus350 · experimentell',original:'Neral 20M · Original',pilot_01:'Neral 20M · Pilot 01',pilot_02:'Neral 20M · Preview 02',neral40m:'Neral 40M · Experiment',neral50m:'Neral 50M · Sprachpilot',neral50m_i1:'Neral 50M · I1'};
+    const name=Object.hasOwn(names,message.checkpoint)?names[message.checkpoint]:Object.hasOwn(labels,message.checkpoint)?labels[message.checkpoint]:null;
+    return message.mode==='trained-generation'&&typeof name==='string'?
+      (message.imported?'Modellangabe (nicht verifiziert) · ':'Eigenes Modell · ')+name:'Modellherkunft nicht verifiziert';
+  }
+  function normalizeStoredChat(chat){
+    if(!chat||typeof chat.id!=='string'||typeof chat.title!=='string'||!Array.isArray(chat.messages))return null;
+    return {...chat,messages:chat.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string')
+      .map(m=>({...m,imported:typeof m.imported==='boolean'?m.imported:chat.imported===true}))};
+  }
+  function generationResult(result){
+    if(!result||typeof result.text!=='string')throw Error('Der Server hat keine gültige Antwort gesendet.');
+    if(result.mode==='trained-generation'){
+      const localQwen=isQwen25(result);
+      if((result.active_checkpoint==='hf-qwen25-coder-7b'||result.model_family==='qwen2.5-coder')&&!localQwen)
+        throw Error('Die Qwen2.5-Herkunft ist nicht verifiziert.');
+      if(result.model_generated!==true||typeof result.active_checkpoint!=='string'||!result.active_checkpoint||
+         (result.source&&result.source!=='native-model'&&!localQwen))throw Error('Die Herkunft der Modellantwort ist widersprüchlich.');
+      if(result.active_checkpoint==='arctus350'&&(result.model_family!=='neral-arctus350'||
+         !/^neral-arctus350:[a-f0-9]{64}$/.test(result.runtime_id||'')))throw Error('Die Arctus350-Herkunft ist nicht verifiziert.');
+    }else if(result.mode==='neral-assistant'){
+      if(result.model_generated!==true||result.source!=='external-model'||result.model_family!=='qwen3.5'||
+         !['qwen3.5:9b','qwen3.5:4b'].includes(result.base_model)||result.active_checkpoint==='arctus350')
+        throw Error('Die Herkunft der Qwen-Antwort ist widersprüchlich.');
+    }else if(!['solve-tool','code-tool','guarded-response'].includes(result.mode)||result.model_generated!==false){
+      throw Error('Die Herkunft der Antwort ist nicht verifiziert.');
+    }
+    const sources={'solve-tool':['tool:calculator','tool:percentage','tool:solve'],'code-tool':['tool:code-check'],'guarded-response':['local-rule:security']};
+    if(sources[result.mode]&&result.source&&!sources[result.mode].includes(result.source))throw Error('Die Herkunft der Werkzeugantwort ist widersprüchlich.');
+    return result;
+  }
+  async function readGenerationResponse(response,onProgress){
+    if(!response.headers.get('content-type')?.includes('application/x-ndjson')){
+      let value;try{value=await response.json();}catch{throw Error('Das Antwortformat ist nicht lesbar. Bitte erneut versuchen.');}
+      return generationResult(value);
+    }
+    if(!response.body)throw Error('Der Server hat keinen Antwortstrom gesendet.');
+    const reader=response.body.getReader(),decoder=new TextDecoder('utf-8',{fatal:true});
+    let buffer='',result=null,total=0;
+    const consume=line=>{
+      if(!line.trim())return;
+      let item;try{item=JSON.parse(line);}catch{throw Error('Das Antwortformat ist nicht lesbar. Bitte erneut versuchen.');}
+      if(!item||result!==null)throw Error('Ungültiger Abschluss des Antwortstroms.');
+      if(item.type==='done')result=generationResult(item.result);
+      else if(item.type==='error')throw Error(typeof item.error==='string'?item.error:'Die Berechnung wurde unterbrochen.');
+      else if(item.type==='progress'){
+        if(typeof item.text!=='string'||!Number.isInteger(item.generated_tokens)||item.generated_tokens<0)throw Error('Ungültige Teilantwort.');
+        onProgress(item);
+      }else if(!['start','heartbeat'].includes(item.type))throw Error('Ungültiges Antwortformat.');
+    };
+    try{
+      while(true){
+        const {value,done}=await reader.read();total+=value?.length||0;
+        if(total>2*1024*1024)throw Error('Antwortstrom überschreitet das Größenlimit.');
+        buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+        if(buffer.length>262144)throw Error('Ungültiger Antwortstrom.');
+        let end;while((end=buffer.indexOf('\n'))>=0){consume(buffer.slice(0,end));buffer=buffer.slice(end+1);}
+        if(done){consume(buffer);break;}
+      }
+      if(result===null)throw Error('Verbindung unterbrochen. Die Teilantwort ist unvollständig.');
+      return result;
+    }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
   }
   function blocks(text){
     const out=[];let code=null,language='';
@@ -56,13 +149,17 @@
     if(bytes(text)>2*1024*1024)throw Error('Import ist größer als 2 MB.');
     const data=JSON.parse(text);
     if(data?.format!=='neral-chat-v1'||typeof data.title!=='string'||!Array.isArray(data.messages)||data.messages.length>500)throw Error('Ungültiges Chat-Exportformat.');
-    const modes=new Set(['chat','solve','code','trained-generation','solve-tool','code-tool','guarded-response']);
+    const modes=new Set(['chat','assistant','neral-assistant','solve','code','trained-generation','solve-tool','code-tool','guarded-response','external-model','error','no-model']);
     const messages=data.messages.map(m=>{
       if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||bytes(m.content)>32768||!modes.has(m.mode))throw Error('Ungültige Nachricht im Import.');
-      return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,meta:'Importierter Verlauf · nicht neu berechnet'};
+      return {role:m.role,content:m.content,mode:m.mode,checkpoint:typeof m.checkpoint==='string'?m.checkpoint.slice(0,64):undefined,
+        source:typeof m.source==='string'?m.source.slice(0,80):undefined,base_model:['qwen3.5:9b','qwen3.5:4b',qwen25Base].includes(m.base_model)?m.base_model:undefined,
+        model_family:typeof m.model_family==='string'?m.model_family.slice(0,64):undefined,
+        imported:true,interrupted:m.interrupted===true,meta:'Importierter Verlauf · nicht neu berechnet'};
     });
     return {title:data.title.slice(0,80)||'Importierter Chat',messages,draft:'',temporary:false,imported:true};
   }
-  const api={context,blocks,render,parseImport};
+  const api={context,blocks,render,parseImport,sourceLabel,generationResult,readGenerationResponse,normalizeStoredChat};
   if(typeof module!=='undefined')module.exports=api;else root.HeliosCore=api;
 })(typeof window==='undefined'?{}:window);
+

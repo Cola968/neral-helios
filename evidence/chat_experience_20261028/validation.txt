@@ -1,0 +1,88 @@
+NERAL chat experience CPU validation, 2026-10-28.
+Base main: 4e4dca3da0d8bc0d3ee5ec697edb7575cf9aa278.
+Python 3.12.14, torch 2.8.0+cpu; Node 24.22.1; isolated Headless Edge.
+No production model weights loaded by the app tests; no GPU/paid jobs, training or deployment.
+All browser messages/screenshots are synthetic. Session tokens, private paths and tracebacks are omitted.
+
+Flask API RED
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[7+8-15]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[57+68-125]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[7+8=?-15]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[Wie viel ist 57 plus 68? Gib nur die Zahl aus.-125]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[What is 57 plus 68? Reply only with the number.-125]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[Berechne 65 + 78. Schreibe ausschlie\xdflich das Ergebnis.-143]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[Compute 17+19. Return only the number.-36]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[(7+8)*2-30]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[12,5+0,5?-13]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[Berechne 0.123456789012 + 0.000000000001-0.123456789013]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[Wie viel sind 10 Prozent von 50?-5]
+FAILED tests/test_helios_chat_experience.py::test_actual_chat_routes_complete_math_without_model[3 \xd7 7-21]
+FAILED tests/test_helios_chat_experience.py::test_unavailable_runtime_has_machine_readable_identity
+FAILED tests/test_helios_chat_experience.py::test_native_answer_has_own_model_provenance
+14 failed, 11 passed in 5.29s
+
+Native-history/source RED
+ℹ tests 11
+ℹ pass 8
+ℹ fail 3
+ℹ skipped 0
+
+Whole multiline request RED
+FAILED tests/test_helios_chat_experience.py::test_unsupported_or_unsafe_request_is_never_a_partial_tool_answer[Berechne 7+8\nErkl\xe4re au\xdferdem die Geschichte von Berlin.]
+FAILED tests/test_helios_chat_experience.py::test_unsupported_or_unsafe_request_is_never_a_partial_tool_answer[Compute 7+8\nExplain why the sky is blue.]
+2 failed, 27 passed in 3.56s
+
+Pending render RED
+AssertionError [ERR_ASSERTION]: background rendering must preserve in-flight reply
+
+SOLVE compatibility RED
+FAILED tests/test_model50.py::test_missing_checkpoint_fails_closed_but_tools_work
+1 failed in 3.35s
+
+Readable protocol errors RED
+ℹ tests 14
+ℹ pass 12
+ℹ fail 2
+ℹ skipped 0
+
+Core GREEN
+ℹ tests 14
+ℹ pass 14
+ℹ fail 0
+ℹ skipped 0
+
+Relevant Flask API GREEN
+113 passed in 9.62s
+
+Existing browser GREEN
+PASS: light/dark, draft/reload, import/Markdown/XSS, variants/delete, model picker, mobile navigation, projects; zero model requests
+
+Streaming/sync browser GREEN
+PASS: two-device sync/conflict preservation, custom model label, settings, quick access, streaming, partial failure, offline draft
+
+REAL Flask + desktop/mobile browser GREEN
+PASS real Flask: DE/EN math, tools-only chat, no partial completion, source labels, failure/draft/reload, external import, XSS, keyboard, 4 viewport widths
+
+Full repository run, explicit missing private artifacts
+FAILED tests/test_curriculum_v2.py::test_v2_splits_and_hashes - FileNotFoundE...
+FAILED tests/test_curriculum_v2.py::test_pilot02_lineage - FileNotFoundError:...
+FAILED tests/test_growth.py::test_40m_exact_count_and_inherited_weights_unchanged
+FAILED tests/test_regressions.py::test_curriculum_disjoint_and_masked - FileN...
+FAILED tests/test_regressions.py::test_original_untouched_and_parameter_count
+5 failed, 451 passed, 1 skipped in 14.64s
+
+Batch launcher readiness RED
+AssertionError: batch launcher cannot recognize running Flask app (HTTP 401 without cookie session).
+
+Batch launcher readiness + real Flask browser GREEN
+PASS real Flask: DE/EN math, tools-only chat, no partial completion, source labels, failure/draft/reload, external import, XSS, keyboard, 4 viewport widths
+
+Linux CI RED at aac1db6: run 40760274731, job 123070003663
+AssertionError: composer must fit a short mobile viewport (390x480).
+Short-height layout fix: hide welcome block and cap textarea, keeping the original strict viewport assertion.
+Local real-Flask/browser GREEN repeated after CSS correction.
+
+Legacy origin RED: missing stored-chat migration and inherited prototype names mislabeled as own models.
+Legacy origin + protocol/history GREEN: 16 Node tests passed.
+Existing browser GREEN: old imported chat reload retains unverified label and zero native context.
+Workspace browser GREEN: sync, own subsequent messages, streaming and interrupted history preserved.

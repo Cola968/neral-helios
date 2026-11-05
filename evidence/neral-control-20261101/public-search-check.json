@@ -1,0 +1,16 @@
+{
+  "provider": "wikipedia",
+  "query": "Python programming language",
+  "available": true,
+  "results": [
+    {
+      "title": "Python (programming language)",
+      "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+      "snippet": "Python is a high-level, general-purpose programming language that emphasizes code readability, simplicity, and ease-of-writing with the use of significant indentation, an extensive (\"batteries-included\") standard library, and garbage collection. Python supports multiple programming paradigms but with an emphasis on object-oriented programming and dynamic typing.\nGuido van Rossum began working on Python in the late 1980s as a successor to the ABC programming language. Python 3.0, released in 2008, was a major revision and not completely backward-compatible with earlier versions. Beginning with Python 3.5, capabilities and keywords for typing were added to the language, allowing optional static typing. As of 2026, the Python Software Foundation supports Python 3.15.2, 3.14.10, 3.13.18, 3.12.16 and 3.11.18 that all were \"expedited security releases\" in October 2026, following the project's annual release cycle and five-year support policy. Python 3.15 the latest stable release defaults to UTF-8, unlike previous versions. Earlier versions in the 3.x series have reached end-of-life and no longer receive security updates. \nPython is widely taught as an introductory programming language.",
+      "untrusted": true,
+      "retrieved_at": "2026-11-02T06:41:15.735389Z",
+      "fetched_via": "https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&pageids=23862&prop=extracts%7Cinfo%7Crevisions&explaintext=1&exintro=1&exchars=1200&inprop=url&rvprop=timestamp&rvlimit=1",
+      "published_at": "2026-11-01T10:22:16Z"
+    }
+  ]
+}

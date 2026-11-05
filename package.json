@@ -1,0 +1,9 @@
+{
+  "name": "neral-helios",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/test_helios_history.js",
+    "test:ui": "node tests/test_helios_browser.cjs && node tests/test_helios_workspace.cjs && node tests/test_helios_chat_experience.cjs"
+  }
+}

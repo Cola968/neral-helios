@@ -1,0 +1,125 @@
+/* Product surface for the existing Flask workspace. No remote fonts or assets. */
+:root {
+  --bg:#181b20; --side:#121419; --surface:#22262d; --soft:#2a3039;
+  --text:#eef1f5; --muted:#afb8c6; --line:#363e4b; --accent:#bdceff;
+  --green:#aec9b8; --error:#f3b8b4;
+  font-synthesis:none;
+}
+html[data-theme=light] {
+  --bg:#fafbfc; --side:#f0f2f6; --surface:#fff; --soft:#e8edf5;
+  --text:#202630; --muted:#596679; --line:#d5dce6; --accent:#3455a6;
+  --green:#345f48; --error:#a32e2e;
+}
+body {font-family:Inter,'Segoe UI',system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
+.sidebar {width:252px; padding:26px 16px 16px; gap:8px;}
+.brand {font-size:20px; letter-spacing:2.2px; font-weight:650; margin:0 12px 24px;}
+.brand::after {display:none;}
+.new-chat {min-height:44px; font-weight:500; padding:11px 13px;}
+#newChat {border:1px solid var(--line); background:var(--surface); border-radius:10px;}
+#search {border:1px solid var(--line); border-radius:8px; margin-top:18px; padding:9px 11px;}
+.section-label {font-size:11px; letter-spacing:.5px; padding:18px 12px 4px;}
+.chat-item {border-radius:7px;}
+.chat-item.active {box-shadow:inset 2px 0 var(--accent);}
+.chat-item>button:first-child {min-height:42px; font-size:13px;}
+.sidebar-foot {border-top:1px solid var(--line); margin-top:12px; padding-top:16px; line-height:1.6;}
+header {height:72px; border-bottom:1px solid var(--line); padding:0 28px;}
+.view-switch {border:0; background:var(--side); border-radius:8px; padding:4px; gap:4px;}
+.view-switch button {min-height:34px; padding:6px 24px;}
+.view-switch button.selected {background:var(--surface); box-shadow:0 1px 3px #0001;}
+.chat-actions>summary {min-height:40px; display:flex; align-items:center;}
+.welcome {width:min(100%,808px); text-align:left; padding:20px 28px 0; margin:auto auto 24px;}
+.welcome-eyebrow {color:var(--muted); font-size:11px; font-weight:600; letter-spacing:1.8px; margin:0 0 20px;}
+.welcome h1 {font-size:clamp(28px,3vw,38px); line-height:1.2; font-weight:560; letter-spacing:-1px;}
+.welcome-copy {max-width:540px; color:var(--muted); font-size:15px; line-height:1.75; margin:16px 0 22px;}
+.starter-actions {display:flex; flex-wrap:wrap; gap:10px;}
+.starter-actions button {border:1px solid var(--line); border-radius:8px; min-height:42px; padding:9px 13px; font-size:13px; text-align:left;}
+.starter-actions span {margin-right:7px; color:var(--accent); font-size:15px;}
+.composer-wrap {max-width:808px; padding:0 28px 20px; flex-shrink:0;}
+.composer {border-radius:14px; padding:16px 16px 12px; background:var(--surface); box-shadow:0 3px 12px #0000000a;}
+.composer:focus-within {border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
+.composer textarea {min-height:54px; font-size:16px; line-height:1.65; padding:0 3px; max-height:200px; overflow-y:auto;}
+.composer-bottom {margin-top:12px; gap:8px;}
+.composer .icon {font-size:24px; width:36px; height:36px; border:1px solid var(--line); border-radius:8px;}
+#send {width:42px; height:40px; border-radius:10px; background:var(--accent); color:var(--side); font-size:23px;}
+html[data-theme=light] #send {color:#fff;}
+#send:disabled {opacity:.35;}
+#stop {min-height:40px; border:1px solid var(--line); border-radius:8px; padding:7px 10px;}
+#modelPicker>summary {font-size:12px; padding:8px; gap:10px;}
+.model-menu {border-radius:10px; max-height:min(440px,50dvh);}
+.composer-meta {display:flex; justify-content:space-between; gap:12px; padding:10px 3px 0; color:var(--muted); font-size:11px;}
+#byteCount {white-space:nowrap; font-variant-numeric:tabular-nums;}
+#byteCount.over-limit {color:var(--error);}
+.runtime-notice {border-left:2px solid var(--line); padding:0 0 0 12px; margin:0 0 14px; font-size:12px; line-height:1.65; color:var(--muted);}
+.composer-tools {border:0; margin:4px 0 0; padding:4px 0; flex-wrap:wrap;}
+.mode-row {flex-wrap:wrap;}
+.mode-row button {border-radius:6px; padding:7px 10px;}
+#assistantMode {white-space:normal; text-align:left;}
+#assistantModelLabel {display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px;}
+.mode-row button.selected {background:var(--soft); font-weight:550;}
+.temporary {font-size:11px;}
+.deep-mode {display:inline-flex; align-items:center; gap:6px; padding:5px 7px; border:1px solid var(--line); border-radius:7px; color:var(--text); font-size:11px; white-space:nowrap; cursor:pointer;}
+.deep-mode input {width:15px; height:15px; margin:0; accent-color:var(--accent); cursor:pointer;}
+.deep-mode:has(input:checked) {border-color:var(--accent); background:var(--soft);}
+
+.footnote {font-size:11px; margin-top:9px; text-align:left; line-height:1.5;}
+#activity {color:var(--muted);}
+.status {width:min(100%,808px); max-width:808px; font-size:13px; line-height:1.6; padding:12px 28px 0;}
+.log {padding:32px max(28px,calc((100% - 752px)/2)); overscroll-behavior:contain; scrollbar-gutter:stable;}
+.message {margin:0 0 32px;}
+.message .content {font-size:16px; line-height:1.8;}
+.message.user .content {background:var(--soft); border-radius:14px 14px 3px 14px; padding:10px 16px; max-width:88%;}
+.message-label {font-size:11px; font-weight:600; color:var(--accent); margin-bottom:11px; letter-spacing:.15px;}
+.message.error-message {border-left:2px solid var(--error); padding-left:16px;}
+.message.error-message .message-label {color:var(--error);}
+.message.error-message .content {font-size:14px; color:var(--muted);}
+.meta {font-size:11px; line-height:1.6;}
+.message-actions {gap:8px; margin-top:6px;}
+.message-actions button {min-height:32px; font-size:12px; padding:4px 8px;}
+.message.pending {border-left:2px solid var(--line); padding-left:16px;}
+.message.pending .content {color:var(--muted); font-size:14px;}
+.message.pending .message-label::after {content:' …';}
+.jump-latest {align-self:center; z-index:2; font-size:12px; padding:7px 13px; background:var(--surface); border:1px solid var(--line); border-radius:8px; margin:-15px 0 12px;}
+.code-block {border-color:var(--line); border-radius:9px;}
+.code-toolbar {background:var(--side);}
+.inspector,.project-workspace {top:72px;}
+button:focus-visible,a:focus-visible,summary:focus-visible {outline:2px solid var(--accent); outline-offset:3px;}
+@media(max-width:1000px) {
+  .sidebar {width:226px; padding-inline:12px;}
+  .composer-wrap,.welcome {max-width:760px;}
+}
+@media(max-width:730px) {
+  header {height:58px; padding:0 12px;}
+  .sidebar {width:276px; padding:24px 16px 16px;}
+  .view-switch button {padding:5px 17px;}
+  .welcome {padding:26px 20px 0; margin:auto auto 22px;}
+  .welcome-eyebrow {font-size:10px; letter-spacing:1.2px; margin-bottom:14px;}
+  .welcome h1 {font-size:29px; letter-spacing:-.7px;}
+  .welcome-copy {font-size:14px; margin:14px 0 18px;}
+  .starter-actions {gap:7px;}
+  .starter-actions button {font-size:12px; padding:8px 10px;}
+  .composer-wrap {padding:0 14px max(12px,env(safe-area-inset-bottom));}
+  .composer {border-radius:12px; padding:13px 12px 10px;}
+  .composer textarea {min-height:54px;}
+  #modelPicker>summary {font-size:11px; padding:8px 3px; gap:5px;}
+  .composer-model {max-width:calc(100% - 88px);}
+  #modelName {max-width:170px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;}
+  .composer-meta {font-size:10px; gap:6px;}
+  .composer-tools {gap:3px;}
+  .mode-row button,.composer-tools .text-button {padding:7px; font-size:11px;}
+  .temporary {font-size:10px;}
+  .runtime-notice {font-size:11px; line-height:1.55; margin-bottom:11px;}
+  .log {padding:24px 18px;}
+  .message .content {font-size:15px;}
+  .message {margin-bottom:26px;}
+  .status {padding:10px 18px 0;}
+  .footnote {font-size:10px;}
+  .inspector,.project-workspace {top:58px;}
+}
+/* A short viewport (landscape / resized window) reserves space for input.
+   System font metrics differ on Linux, Windows and mobile platforms. */
+@media(max-width:730px) and (max-height:600px) {
+  .welcome {display:none;}
+  .composer textarea {max-height:120px;}
+  .runtime-notice {margin-bottom:8px;}
+  .composer-wrap {padding-bottom:max(8px,env(safe-area-inset-bottom));}
+}

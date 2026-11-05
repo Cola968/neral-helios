@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NERAL Control · Helios</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='neral.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='neral-control.css') }}">
+<script defer src="{{ url_for('static', filename='neral-control.js') }}"></script></head>
+<body class="control-body"><a class="skip-link" href="#taskPrompt">Zur Aufgabe springen</a>
+<div class="control-shell"><header class="control-header"><a class="brand" href="/">NERAL</a><span class="muted">Control / Helios</span><a href="/">Chat öffnen ↗</a></header>
+<main class="control-main"><div class="control-title"><p class="muted small">LOKALER ARBEITSBEREICH</p><h1>Eine Aufgabe. Die passenden Werkzeuge.</h1><p class="muted">Wähle den Arbeitsmodus und gib die benötigten Werkzeuge ausdrücklich frei.</p></div>
+<div class="control-grid"><section class="control-card"><h2>Aufgabe</h2>
+<form id="controlForm"><label class="field" for="taskPrompt">Was möchtest du erledigen?<textarea id="taskPrompt" rows="6" maxlength="4096" required placeholder="Berechne 125 * 48, oder nutze CODE_CHECK: gefolgt von Python-Code."></textarea></label>
+<div class="control-options"><label class="field">Arbeitsmodus<select id="taskProfile"><option value="fast">Schnell</option><option value="think">Denken</option><option value="deep">Tiefenanalyse</option></select></label><label class="field">Modellanbieter<select id="taskProvider"><option value="">Nur Werkzeuge</option></select></label></div>
+<p class="small muted">Arbeitsmodi begrenzen Modellaufrufe und Werkzeugschritte. Natives Modell-Denken ist eine separate Option.</p>
+<label class="control-toggle"><input type="checkbox" id="nativeThink" disabled> Natives Ollama-Denken</label>
+<fieldset id="toolOptions"><legend>Freigegebene Werkzeuge</legend></fieldset>
+<p id="providerNote" class="small muted">Modellinferenz ist standardmäßig deaktiviert.</p>
+<div class="control-actions"><button class="project-button control-primary" type="submit" id="taskSubmit">Aufgabe starten</button><button class="project-button" type="button" id="taskStop" disabled>Stopp</button><button class="project-button" type="button" id="refreshCapabilities">Status aktualisieren</button></div></form></section>
+<aside class="control-card"><h2>Laufzeit-Identität</h2><dl id="runtimeIdentity"></dl><p class="small muted">Anbieterschnittstelle und LoRA-Gewichte haben separate Versionen. Ein leeres Adapterfeld bedeutet, dass kein aktiver Adapter gemeldet wird.</p><p id="capabilityStatus" role="status" class="small muted">Funktionen werden geladen…</p></aside></div>
+<section class="control-card control-result" aria-labelledby="resultHeading"><h2 id="resultHeading">Ergebnis</h2><p id="taskStage" role="status" aria-live="polite" class="small muted">Bereit.</p><pre id="taskResult" tabindex="0"></pre><p id="taskMeta" class="small muted"></p></section>
+</main><footer class="control-footer"><a href="/">Zum aktuellen Chat zurück</a><span>Arbeitsschritte und finale Antworten · lokale Steuerung</span></footer></div></body></html>

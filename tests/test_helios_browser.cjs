@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{
   const file=req.url==='/'?'templates/index.html':req.url==='/manifest.webmanifest'?'static/manifest.webmanifest':req.url==='/sw.js'?'static/sw.js':req.url.slice(1);
-  if(!['templates/index.html','static/neral.css','static/neral.js','static/helios-core.js','static/projects.js','static/install.js','static/workspace.js','static/manifest.webmanifest','static/sw.js','static/icon.svg','static/icon-192.png','static/icon-512.png'].includes(file)){res.writeHead(404);res.end();return;}
+  if(!['templates/index.html','static/neral.css','static/chat-experience.css','static/neral.js','static/helios-core.js','static/projects.js','static/install.js','static/workspace.js','static/manifest.webmanifest','static/sw.js','static/icon.svg','static/icon-192.png','static/icon-512.png'].includes(file)){res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webmanifest')?'application/manifest+json':file.endsWith('.png')?'image/png':file.endsWith('.svg')?'image/svg+xml':'text/html');
   res.end(fs.readFileSync(path.join(root,file)));
  });
@@ -40,6 +40,12 @@ const root=path.resolve(__dirname,'..');
   await page.locator('#chats button').filter({hasText:'Neuer Chat'}).first().click();
   assert.equal(await page.locator('#prompt').inputValue(),'Mein gespeicherter Entwurf');
   await page.reload();assert.equal(await page.locator('#prompt').inputValue(),'Mein gespeicherter Entwurf');
+  const legacy={id:'legacy-import-fixture',title:'Alter importierter Verlauf',imported:true,mode:'chat',draft:'',messages:[
+   {role:'user',mode:'chat',content:'Alte Frage'},
+   {role:'assistant',mode:'trained-generation',checkpoint:'pilot_02',content:'Ungeprüfter alter Import'}]};
+  await page.evaluate(chat=>{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');saved.push(chat);localStorage.setItem(storageKey,JSON.stringify(saved));localStorage.setItem('neral.helios.active',chat.id);},legacy);
+  await page.reload();await page.locator('#log .message-label').filter({hasText:'nicht verifiziert'}).waitFor();
+  assert.equal(await page.evaluate(()=>HeliosCore.context(current.messages,'Hi',20,4096,'pilot_02').history.length),0);
   const imported={format:'neral-chat-v1',title:'Sicherheitstest',messages:[{role:'user',mode:'chat',content:'Beispiel'},{role:'assistant',mode:'trained-generation',checkpoint:'pilot_02',content:'# Beispiel\n**Fett** und `inline`\n```python\nprint("Hallo")\n```\n<img src=x onerror=alert(1)>'}]};
   await page.locator('#chatFile').setInputFiles({name:'chat.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(imported))});
   await page.locator('#log .code-block').waitFor();assert.equal(await page.locator('#log img').count(),0);

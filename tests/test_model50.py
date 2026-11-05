@@ -12,6 +12,7 @@ def test_fifty_exact_parameters_and_padding_equivalence():
 def test_missing_checkpoint_fails_closed_but_tools_work(monkeypatch,tmp_path):
     import app
     monkeypatch.setattr(app,'checkpoint_loaded',False);app._hits.clear();c=app.app.test_client();kw={'base_url':'http://localhost'}
+    c.get('/',**kw)
     assert c.post('/api/generate',json={'prompt':'Hallo'},**kw).status_code==503
     r=c.post('/api/generate',json={'prompt':'9 + 2'},**kw)
     assert r.status_code==200 and r.json['solve']['result']=='11' and not r.json['model_generated']
