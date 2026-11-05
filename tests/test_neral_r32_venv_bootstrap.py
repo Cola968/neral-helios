@@ -22,6 +22,19 @@ class BootstrapContracts(unittest.TestCase):
         self.assertIn('if ($LASTEXITCODE -ne 0)', s)
         self.assertIn('neral_training_preflight.py', s)
 
+    def test_install_optin_recovers_an_existing_incomplete_isolated_venv(self):
+        s = (ROOT / 'scripts/Start-NERAL-QLoRA-Action.ps1').read_text('utf-8')
+        # Regression: run 42060030427 found an existing Python but no torch.
+        # Installation must be independent of the interpreter-creation guard.
+        self.assertNotIn(
+            'if (-not (Test-Path -LiteralPath $trainPython -PathType Leaf) -and $InstallPinnedEnvironment)',
+            s,
+        )
+        self.assertIn("if ($InstallPinnedEnvironment -and -not $env:NERAL_QLORA_PYTHON) {", s)
+        self.assertIn("Join-Path $venv 'pyvenv.cfg'", s)
+        self.assertIn('& $trainPython -m pip install', s)
+        self.assertIn('& $trainPython -m pip check', s)
+
     def test_retains_original_one_shot_guard(self):
         s = (ROOT / 'scripts/Start-NERAL-QLoRA-Action.ps1').read_text('utf-8')
         self.assertIn('neral_one_shot_guard.py', s)
