@@ -89,6 +89,7 @@ Feld action ist eine dieser Optionen:
   inventory                 -> Projektdateien auflisten
   read (path)               -> Textdatei lesen (relativer Pfad)
   search (query)            -> Text in Projektdateien suchen
+  solve (expression)        -> sichere lokale Arithmetik/lineare Gleichung ohne Shell oder Modellraten
   python                    -> statischer Python-AST-Syntaxcheck
   formats                   -> JSON/TOML/CSV prüfen
   security                  -> verdächtige Muster prüfen
@@ -130,7 +131,7 @@ def _parse_choice(raw: str) -> dict:
 
 class AutonomousAgent:
     MAX_JOBS = 6
-    TOOL_NAMES = set(AgentEngine.TOOLS) - {"summary"} | {"propose_edit", "finish", "tests"}
+    TOOL_NAMES = set(AgentEngine.TOOLS) - {"summary"} | {"propose_edit", "finish", "tests", "solve"}
     READ_EXTENSIONS = {".py", ".js", ".ts", ".md", ".json", ".toml", ".txt",
                        ".yml", ".yaml", ".html", ".css"}
 
@@ -304,6 +305,15 @@ class AutonomousAgent:
             return self.snapshot(id)
 
     def _execute(self, action: str, command: dict, job: dict) -> dict:
+        if action == "solve":
+            from solve import solve
+            expression = command.get("expression")
+            if not isinstance(expression, str) or len(expression) > 180:
+                raise AgentError("Nur begrenzte lokale Rechenausdrücke erlaubt.")
+            try:
+                return solve(expression)
+            except ValueError as exc:
+                raise AgentError("Ungültiger oder nicht unterstützter Rechenausdruck.") from exc
         if action == "tests":
             from neral_agent_sandbox import run_isolated_python_tests
             return run_isolated_python_tests(self.engine)

@@ -2,11 +2,19 @@
 import ast,re
 from fractions import Fraction
 
+def _insert_implicit_multiplication(expression: str) -> str:
+    """Insert * solely between a numeric digit and x or an opening bracket.
+
+    Caller must validate the input character allowlist before this operation.
+    Unary -x already has correct exact AST semantics; no text expansion needed.
+    """
+    return re.sub(r'(?<=\d)\s*(?=[x(])', '*', expression)
+
 def arithmetic(expression:str)->dict:
     expression=re.sub(r'^\s*SOLVE\s*:\s*','',expression,flags=re.I).strip()
     if not expression or len(expression)>180:raise ValueError('Gib einen Rechenausdruck mit höchstens 180 Zeichen ein.')
     if not re.fullmatch(r'[0-9\s.+*/()%\-^]+',expression):raise ValueError('SOLVE unterstützt nur Zahlen, Klammern und + - * / // % **.')
-    expression=expression.replace('^','**')
+    expression=_insert_implicit_multiplication(expression).replace('^','**')
     try:tree=ast.parse(expression,mode='eval')
     except (SyntaxError,RecursionError) as e:raise ValueError('Ungültiger Rechenausdruck.') from e
     if len(list(ast.walk(tree)))>64:raise ValueError('Der Rechenausdruck ist zu komplex.')
@@ -46,6 +54,7 @@ def solve(expression:str)->dict:
     if '=' not in expression:return arithmetic(expression)
     expression=re.sub(r'^\s*SOLVE\s*:\s*','',expression,flags=re.I).strip()
     if len(expression)>180 or expression.count('=')!=1 or not re.fullmatch(r'[0-9x\s.+*/()=\-]+',expression):raise ValueError('Lineare Gleichung, z. B. 2*x + 3 = 11, eingeben.')
+    expression=_insert_implicit_multiplication(expression)
     steps=[]
     def visit(n,source):
         if isinstance(n,ast.Name) and n.id=='x':return Fraction(1),Fraction(0)

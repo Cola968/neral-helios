@@ -71,7 +71,7 @@ def register_autonomous_agent_api(app, workspace, backend=None):
                        model_identity=("neral_local_adapter_loaded_experimental_not_quality_promoted" if loaded
                                        else "local_adapter_configured_not_yet_loaded" if is_adapter
                                        else "foundation_or_custom_model_not_verified_neral_adapter"),
-                       capabilities=["model_tool_selection", "read", "search", "analyze", "patch_proposal",
+                       capabilities=["model_tool_selection", "read", "search", "solve", "analyze", "patch_proposal",
                                      "isolated_docker_tests", "explicit_approval", "cancel", "pause", "resume"],
                        limitations=["no_browser", "no_shell", "no_unattended_writes", "process_memory_only"])
 
