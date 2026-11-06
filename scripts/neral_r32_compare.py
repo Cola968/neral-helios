@@ -129,6 +129,17 @@ def summary_from_rows(runs: dict) -> dict:
     return out
 
 
+def evaluation_status(runs: dict, *, docker_ready: bool) -> str:
+    """Do not confuse a locally installed Docker image with executed tests."""
+    if not docker_ready:
+        return 'GENERATED_ONLY'
+    statuses = [row.get('execution_status') for rows in runs.values() for row in rows]
+    evaluated = sum(status in ('executed', 'timeout', 'invalid_syntax') for status in statuses)
+    if not evaluated:
+        return 'GENERATED_ONLY'
+    return 'EVALUATED_WITH_DOCKER' if evaluated == len(statuses) else 'PARTIALLY_EVALUATED'
+
+
 def _model(base: Path):
     import torch
     from transformers import BitsAndBytesConfig, Qwen2ForCausalLM
@@ -239,7 +250,7 @@ def main(argv=None):
                 'no_training': True, 'no_autopromotion': True}
     (args.out / 'ergebnisse.json').write_text(json.dumps(detailed, indent=2), encoding='utf-8')
     summary = summary_from_rows(results)
-    summary.update(status='EVALUATED_WITH_DOCKER' if docker_ready else 'GENERATED_ONLY',
+    summary.update(status=evaluation_status(results, docker_ready=docker_ready),
                    base_revision=base['revision'],
                    adapter_sha256=manifest['files']['adapter_model.safetensors'],
                    max_new_tokens=args.max_new_tokens)
