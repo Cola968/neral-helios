@@ -1,0 +1,94 @@
+name: NERAL legacy NeralTalk -> Qwen QLoRA admission audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Type INTEGRATE_REVIEW_ONLY_NERALTALK; no training or adapter change'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen-legacy-integration-readonly
+  cancel-in-progress: false
+
+jobs:
+  integrate:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'INTEGRATE_REVIEW_ONLY_NERALTALK'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - name: Checkout integrated read-only gate from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout exact pinned QLoRA trainer and holdouts
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Run CPU admission contract tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Pinned local Python environment unavailable' }
+          Push-Location control
+          try {
+            & $python -B -m unittest discover -s tests -p 'test_neral_legacy_qlora_gate.py' -v
+            if ($LASTEXITCODE -ne 0) { throw 'Legacy QLoRA integration contracts failed' }
+          } finally { Pop-Location }
+      - name: Verify sealed NeralTalk, old QLoRA data and actual Qwen tokenizer budget
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $python = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $candidate = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\legacy-candidate-42242745430-1'
+          $legacy = Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          $model = Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $output = Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\legacy-integration-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $output) { throw 'Refusing to replace previous integration candidate' }
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          & $python -B (Join-Path $env:GITHUB_WORKSPACE 'control\scripts\neral_legacy_qlora_gate.py') `
+            --candidate-dir $candidate --legacy-root $legacy `
+            --trainer-root (Join-Path $env:GITHUB_WORKSPACE 'trainer') `
+            --model-dir $model --out $output `
+            --max-length 512 --expected-sha256 '50c3c200913f6e40ed4b3975de39ecba795c1839b9983fdcd3029095b716fa9a'
+          if ($LASTEXITCODE -ne 0) { throw 'NERAL legacy dataset integration refused' }
+          New-Item -ItemType Directory -Force (Join-Path $env:GITHUB_WORKSPACE 'control\legacy_integration_report') | Out-Null
+          Copy-Item -LiteralPath (Join-Path $output 'summary.json') -Destination (Join-Path $env:GITHUB_WORKSPACE 'control\legacy_integration_report\summary.json')
+      - name: Enforce scalar-only reporting and non-training identity
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $directory = Join-Path $env:GITHUB_WORKSPACE 'control\legacy_integration_report'
+          if (-not (Test-Path -LiteralPath $directory -PathType Container)) { exit 0 }
+          $files = @(Get-ChildItem -LiteralPath $directory -File -Recurse)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 16384) { throw 'Unsafe artifact payload' }
+          $r = Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          if ($r.status -ne 'INTEGRATED_REVIEW_REQUIRED' -or $r.approved_for_training -ne $false -or $r.training_performed -ne $false -or $r.model_weights_modified -ne $false -or $r.heldout_answers_used -ne $false -or $r.semantic_review_complete -ne $false) { throw 'Invalid training-status contract' }
+          'safe=true' >> $env:GITHUB_OUTPUT
+      - name: Upload counts and hashes only - no private dataset or weights
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-legacy-qlora-integration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/legacy_integration_report/summary.json
+          retention-days: 14
+          if-no-files-found: error
