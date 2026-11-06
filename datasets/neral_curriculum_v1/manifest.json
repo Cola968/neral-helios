@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "dataset": "NERAL curated deterministic curriculum v1",
+  "source": "original synthetic examples generated from explicit arithmetic and code templates",
+  "privacy": "no user prompts, chats, web scraping or third-party data",
+  "format": "system/user/assistant JSONL",
+  "splits": {
+    "train": {
+      "rows": 800
+    },
+    "val": {
+      "rows": 100
+    },
+    "test": {
+      "rows": 100
+    }
+  },
+  "categories": [
+    "algebra",
+    "budget",
+    "fuel",
+    "timezones",
+    "sql_join",
+    "sql_group",
+    "python_debug",
+    "tool_choice",
+    "analysis",
+    "physics"
+  ],
+  "limitations": [
+    "template based; repetition across same families",
+    "not independently human fact-checked for each row",
+    "validation/test rows MUST NEVER enter training",
+    "actual tokenizer length and model effect not yet measured"
+  ],
+  "training_allowed": false,
+  "requires_holdout_review": true,
+  "quality_improvement_proven": false
+}
