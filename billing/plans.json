@@ -14,7 +14,7 @@
         "cascade": "limited",
         "ripple": "limited",
         "living": "limited",
-        "web_search": "limited",
+        "web_search": true,
         "deep_research": false,
         "automations": false,
         "priority_inference": false
@@ -34,7 +34,7 @@
         "cascade": "full",
         "ripple": "full",
         "living": "full",
-        "web_search": "higher_limits",
+        "web_search": true,
         "deep_research": "limited",
         "automations": "basic",
         "priority_inference": true
@@ -54,7 +54,7 @@
         "cascade": "advanced",
         "ripple": "advanced",
         "living": "advanced",
-        "web_search": "high_limits",
+        "web_search": true,
         "deep_research": true,
         "automations": "advanced",
         "priority_inference": "highest"
