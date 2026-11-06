@@ -50,16 +50,29 @@ class OllamaLocalBackend:
         self.model = model
         self.endpoint = endpoint
         self.timeout = timeout
+        self._inference_lock = threading.Lock()
 
     def respond(self, messages: list[dict]) -> str:
+        # Agent tool selection needs strict JSON. Serialize with chat requests
+        # so one local model is not forced into concurrent GPU generations.
+        with self._inference_lock:
+            return self._respond(messages, require_json=True)
+
+    def respond_chat(self, messages: list[dict]) -> str:
+        # Conversations are prose, not forced JSON. Use the same inference lock.
+        with self._inference_lock:
+            return self._respond(messages, require_json=False)
+
+    def _respond(self, messages: list[dict], *, require_json: bool) -> str:
         request_data = {
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "format": "json",
             "options": {"temperature": 0, "num_predict": 512},
             "keep_alive": "5m",
         }
+        if require_json:
+            request_data["format"] = "json"
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")

@@ -54,10 +54,10 @@ def test_review_resolves_task_without_overwriting_later_changes(graph):
     assert not s.get(p)['nodes']['task']['stale']
     with pytest.raises(ValueError):s.undo(p,a['last_transaction'])
 
-@pytest.mark.parametrize('expr,result',[('2*x + 3 = 11','x = 4'),('x/3 = 1/2','x = 3/2'),('5*x-3 = 2*x + 9','x = 4'),('x=x','Unendlich viele Lösungen'),('x=x+1','Keine Lösung'),('0.1*x = 0.3','x = 3'),('-x=2','x = -2')])
+@pytest.mark.parametrize('expr,result',[('2*x + 3 = 11','x = 4'),('2x=4','x = 2'),('x/3 = 1/2','x = 3/2'),('5*x-3 = 2*x + 9','x = 4'),('x=x','Unendlich viele Lösungen'),('x=x+1','Keine Lösung'),('0.1*x = 0.3','x = 3'),('-x=2','x = -2')])
 def test_linear_solver(expr,result):assert solve(expr)['result']==result
 
-@pytest.mark.parametrize('expr',['x*x=9','1/x=2','x/0=1','2*x=__import__(1)','2x=4','x**2=4','x=1=2','x='+'9'*170])
+@pytest.mark.parametrize('expr',['x*x=9','1/x=2','x/0=1','2*x=__import__(1)','x**2=4','x=1=2','x='+'9'*170])
 def test_linear_solver_rejects(expr):
     with pytest.raises(ValueError):solve(expr)
 
