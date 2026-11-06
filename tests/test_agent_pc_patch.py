@@ -19,6 +19,7 @@ class PatchSmokeTests(unittest.TestCase):
             {"action":"read","path":"buggy.py"},
             {"action":"propose_edit","path":"buggy.py",
              "content":"def multiply(a, b):\n    return a * b\n"},
+            {"action":"syntax_check"},
             {"action":"finish","summary":"Patched"},
         ])
         out = patch_smoke(model)

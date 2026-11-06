@@ -106,3 +106,25 @@ class LocalAdapterSelectionTests(unittest.TestCase):
                 result=app.test_client().get("/api/agent/auto/status").json
                 self.assertEqual(result["provider"],"ollama_local_only")
                 self.assertFalse(result["confirmed_available"])
+
+
+@unittest.skipIf(Flask is None, "Flask unavailable")
+class ContractTestCases(unittest.TestCase):
+    def test_invalid_asserts_rejected_over_http(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app=Flask(__name__+"asserts")
+            register_autonomous_agent_api(app,Path(tmp),Fake())
+            response=app.test_client().post("/api/agent/auto/start",
+                json={"goal":"Repair", "test_path":"a.py",
+                      "test_cases":["assert __import__('os')==1"]})
+            self.assertEqual(response.status_code,400)
+            self.assertIn("Testfälle",response.json["error"])
+
+    def test_valid_assert_cases_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app=Flask(__name__+"asserts-ok")
+            register_autonomous_agent_api(app,Path(tmp),Fake())
+            response=app.test_client().post("/api/agent/auto/start",
+                json={"goal":"Repair", "test_path":"a.py",
+                      "test_cases":["assert f(2)==4"]})
+            self.assertEqual(response.status_code,201)

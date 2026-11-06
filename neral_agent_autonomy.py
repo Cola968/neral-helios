@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from agent_mode import AgentEngine, AgentError
+from neral_agent_math import MathInputError, solve_math_symbolic, eval_python_expr
 
 
 class AgentModelError(RuntimeError):
@@ -89,19 +90,26 @@ Feld action ist eine dieser Optionen:
   inventory                 -> Projektdateien auflisten
   read (path)               -> Textdatei lesen (relativer Pfad)
   search (query)            -> Text in Projektdateien suchen
-  solve (expression)        -> sichere lokale Arithmetik/lineare Gleichung ohne Shell oder Modellraten
   python                    -> statischer Python-AST-Syntaxcheck
   formats                   -> JSON/TOML/CSV prüfen
   security                  -> verdächtige Muster prüfen
   markdown                  -> lokale Dokumentationslinks prüfen
   markers                   -> TODO/FIXME sammeln
   whitespace                -> Formatierungsmängel finden
+  solve_math_symbolic (equation) -> lineare Gleichung exakt lösen, nur Zahlen/Variable x
+  eval_python_expr (expression)  -> exakte sichere Bruch-/Dezimalrechnung via AST
+  syntax_check              -> zuletzt freigegebene Patch-Datei ohne Ausführung prüfen
+  run_isolated_unit_test    -> vom Nutzer hinterlegte asserts ausschließlich offline in
+                               Docker, ohne Netzwerk und ohne Host-Ausführung (3s);
+                               Traceback dient nur als Reparaturbeobachtung
   tests                     -> vorhandene Python-Unit-Tests NUR in Docker ohne
                                Netzwerk, beschränktem Speicher, schreibgeschützt
                                ausführen; ohne vorhandenes Docker-Image kein Test
   propose_edit (path,content)-> kompletten Dateiinhalt als Änderung vorschlagen;
                                 erfordert BENUTZERFREIGABE vor dem Schreiben
-  finish (summary)          -> Aufgabe abschließen, ehrlich Ergebnisse zusammenfassen
+  finish (summary)          -> nur nach erfolgreich bestandenem syntax_check und,
+                               wenn Assertions vorliegen, run_isolated_unit_test NACH Patch;
+                               sonst bleibt finish blockiert
 Optionale Angabe reason beschreibt kurz, warum das Werkzeug gewählt wurde.
 Schreibe nur benötigte Felder, z.B. {"action":"read","path":"main.py"}.
 Keine Shell, kein Subprocess, kein Browser, keine Downloads, keine API-Schlüssel,
@@ -131,11 +139,14 @@ def _parse_choice(raw: str) -> dict:
 
 class AutonomousAgent:
     MAX_JOBS = 6
-    TOOL_NAMES = set(AgentEngine.TOOLS) - {"summary"} | {"propose_edit", "finish", "tests", "solve"}
+    TOOL_NAMES = set(AgentEngine.TOOLS) - {"summary"} | {
+        "propose_edit", "finish", "tests", "syntax_check",
+        "run_isolated_unit_test", "solve_math_symbolic", "eval_python_expr",
+    }
     READ_EXTENSIONS = {".py", ".js", ".ts", ".md", ".json", ".toml", ".txt",
                        ".yml", ".yaml", ".html", ".css"}
 
-    def __init__(self, root: Path | str, backend, *, max_steps: int = 8, max_seconds: int = 300):
+    def __init__(self, root: Path | str, backend, *, max_steps: int = 12, max_seconds: int = 300):
         if not 1 <= max_steps <= 12 or not 30 <= max_seconds <= 900:
             raise ValueError("Ungültige Laufzeitbegrenzung.")
         self.engine = AgentEngine(root)
@@ -150,9 +161,21 @@ class AutonomousAgent:
             raise AgentError("Unbekannter KI-Agentenauftrag.")
         return self.jobs[id]
 
-    def start(self, goal: str) -> dict:
+    def start(self, goal: str, *, test_cases: list[str] | None = None,
+              test_path: str | None = None) -> dict:
         if not isinstance(goal, str) or not 1 <= len(goal.strip()) <= 800:
             raise AgentError("Ziel muss 1 bis 800 Zeichen lang sein.")
+        if test_cases is not None:
+            from neral_agent_sandbox import _validated_assertions
+            try:
+                test_cases = _validated_assertions(test_cases)
+            except ValueError as exc:
+                raise AgentError("Ungültige oder unsichere Testfälle.") from exc
+            if not isinstance(test_path, str) or not test_path.endswith(".py"):
+                raise AgentError("Für Assertions ist eine Python-Testdatei erforderlich.")
+            self.engine.safe_path(test_path)
+        elif test_path is not None:
+            raise AgentError("Testdatei ohne Prüffälle ist unzulässig.")
         with self.lock:
             for key, job in list(self.jobs.items()):
                 if job["status"] in {"completed", "failed", "limit_reached", "cancelled"}:
@@ -166,7 +189,10 @@ class AutonomousAgent:
                 "deadline": time.monotonic() + self.max_seconds, "history": [],
                 "answer": None, "last_action": None, "duplicates": 0,
                 "pending_task": None, "proposal": None, "model_origin": "local_model_only",
-                "reads": {},
+                "reads": {}, "patch_revision": 0, "syntax_pass_revision": -1,
+                "tests_pass_revision": -1, "last_patch_path": None,
+                "test_cases": test_cases, "test_path": test_path,
+                "repair_failures": 0,
             }
             return self.snapshot(ident)
 
@@ -218,7 +244,12 @@ class AutonomousAgent:
             if time.monotonic() >= job["deadline"]:
                 raise AgentError("Auftrag ist abgelaufen.")
             self.engine.approve(job["pending_task"], token)
-            job["history"].append({"action": "propose_edit", "status": "applied_after_approval"})
+            job["patch_revision"] += 1
+            job["syntax_pass_revision"] = -1
+            job["tests_pass_revision"] = -1
+            job["last_patch_path"] = job["proposal"]["path"]
+            job["history"].append({"action": "propose_edit", "status": "applied_after_approval",
+                                   "revision": job["patch_revision"]})
             job["pending_task"] = None
             job["proposal"] = None
             job["status"] = "running"
@@ -251,7 +282,9 @@ class AutonomousAgent:
                 action = command["action"]
                 if action not in self.TOOL_NAMES:
                     raise AgentModelError("Unbekanntes Werkzeug.")
-                signature = json.dumps({k: command.get(k) for k in ("action", "path", "query")}, sort_keys=True)
+                signature = json.dumps({k: command.get(k) for k in
+                                        ("action", "path", "query", "equation", "expression", "content")},
+                                       sort_keys=True)[:5000]
                 if signature == job["last_action"]:
                     job["duplicates"] += 1
                 else:
@@ -259,7 +292,17 @@ class AutonomousAgent:
                 job["last_action"] = signature
                 if job["duplicates"] >= 2:
                     raise AgentModelError("Agent wiederholt denselben Schritt.")
-                if action == "finish":
+                if action == "finish" and job["patch_revision"] and (
+                    job["syntax_pass_revision"] != job["patch_revision"] or
+                    (job["test_cases"] and job["tests_pass_revision"] != job["patch_revision"])
+                ):
+                    missing = ["syntax_check"] if job["syntax_pass_revision"] != job["patch_revision"] else []
+                    if job["test_cases"] and job["tests_pass_revision"] != job["patch_revision"]:
+                        missing.append("run_isolated_unit_test")
+                    job["history"].append({"action": "finish", "status": "blocked",
+                                           "observation": "Verify-Before-Finish: "
+                                                          + ", ".join(missing) + " erforderlich."})
+                elif action == "finish":
                     summary = command.get("summary")
                     if not isinstance(summary, str) or not 1 <= len(summary) <= 4000:
                         raise AgentModelError("Ungültiger Abschluss.")
@@ -292,9 +335,12 @@ class AutonomousAgent:
                     job["history"].append({"action": action, "path": path, "status": "approval_required"})
                 else:
                     result = self._execute(action, command, job)
-                    job["history"].append({"action": action, "status": "ok", "observation": result})
+                    observation_status = ("test_failed" if action == "run_isolated_unit_test" and
+                                          result.get("status") != "PASSED" else "ok")
+                    job["history"].append({"action": action, "status": observation_status,
+                                           "observation": result})
             except (AgentError, AgentModelError, OSError, UnicodeError, ValueError, TypeError) as exc:
-                if isinstance(exc, AgentError):
+                if isinstance(exc, (AgentError, MathInputError)):
                     job["history"].append({"action": "tool", "status": "blocked",
                                            "observation": "Pfad oder Parameter nicht freigegeben."})
                 else:
@@ -305,15 +351,38 @@ class AutonomousAgent:
             return self.snapshot(id)
 
     def _execute(self, action: str, command: dict, job: dict) -> dict:
-        if action == "solve":
-            from solve import solve
-            expression = command.get("expression")
-            if not isinstance(expression, str) or len(expression) > 180:
-                raise AgentError("Nur begrenzte lokale Rechenausdrücke erlaubt.")
+        if action == "solve_math_symbolic":
+            return solve_math_symbolic(command.get("equation"))
+        if action == "eval_python_expr":
+            return eval_python_expr(command.get("expression"))
+        if action == "syntax_check":
+            import ast
+            path = job["last_patch_path"]
+            if not path or not job["patch_revision"]:
+                return {"status": "NO_PATCH", "passed": False}
             try:
-                return solve(expression)
-            except ValueError as exc:
-                raise AgentError("Ungültiger oder nicht unterstützter Rechenausdruck.") from exc
+                path_obj = self.engine.safe_path(path)
+                ast.parse(self.engine._read(path_obj), filename=path)
+            except (SyntaxError, AgentError) as exc:
+                return {"status": "FAILED", "passed": False,
+                        "error_type": "SyntaxError", "line": getattr(exc, "lineno", None)}
+            job["syntax_pass_revision"] = job["patch_revision"]
+            return {"status": "PASSED", "passed": True,
+                    "patch_revision": job["patch_revision"], "file": path}
+        if action == "run_isolated_unit_test":
+            from neral_agent_sandbox import run_isolated_unit_test
+            if not job["test_cases"] or not job["last_patch_path"] or (
+                job["test_path"] != job["last_patch_path"]):
+                return {"status": "MISSING_TRUSTED_TEST_CASES", "passed": False}
+            result = run_isolated_unit_test(self.engine, job["test_path"], job["test_cases"])
+            if result.get("status") == "PASSED" and result.get("sandboxed") is True:
+                job["tests_pass_revision"] = job["patch_revision"]
+            elif result.get("status") in {"FAILED", "TIMEOUT", "SYNTAX_FAILED"}:
+                job["repair_failures"] += 1
+                if job["repair_failures"] >= 3:
+                    job["status"] = "failed"
+                    result["repair_budget_exhausted"] = True
+            return result
         if action == "tests":
             from neral_agent_sandbox import run_isolated_python_tests
             return run_isolated_python_tests(self.engine)

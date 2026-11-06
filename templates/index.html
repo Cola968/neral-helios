@@ -22,6 +22,12 @@
     <p id="agentAutoModel" aria-live="polite">Lokales Modell wird geprüft …</p>
     <form id="agentAutoForm">
       <label>Aufgabe für den KI-Agenten<textarea id="agentAutoGoal" maxlength="800" rows="3" required placeholder="Untersuche die Python-Dateien und schlage eine Korrektur vor"></textarea></label>
+      <details>
+        <summary>Verbindliche Unit-Tests für Codeänderungen (optional)</summary>
+        <p>Ohne schon lokal vorhandenes Docker-Image wird nicht getestet. Keine Ausführung des generierten Codes auf dem Windows-Host.</p>
+        <label>Relativer Python-Dateipfad<input id="agentAutoTestPath" maxlength="240" placeholder="src/calculation.py" autocomplete="off"></label>
+        <label>Assertions, eine pro Zeile (max. 16)<textarea id="agentAutoTestCases" rows="4" placeholder="assert multiply(3, 4)==12" spellcheck="false"></textarea></label>
+      </details>
       <button id="agentAutoStart" type="submit">KI-Agent starten</button>
     </form>
     <div class="agent-toolbar">

@@ -67,6 +67,8 @@ class AgentTests(unittest.TestCase):
             {"action":"read","path":"main.py"},
             {"action":"propose_edit","path":"main.py","content":"def add(a,b):\n    return a + b\n",
              "reason":"format"},
+            {"action":"finish","summary":"Patch reviewed"},
+            {"action":"syntax_check"},
             {"action":"finish","summary":"Patch reviewed"})
         task = agent.start("Fix formatting")
         wait = agent.run(task["id"])
