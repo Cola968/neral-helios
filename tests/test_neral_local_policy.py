@@ -22,3 +22,13 @@ def test_model_identity_does_not_claim_independent_model():
     assert adapter['neral_adapter_sha256'] == 'a'*64
     assert adapter['model_display_name'].startswith('NERAL')
     assert adapter['inference_location'] == 'local_device'
+
+def test_qwen_pair_comparison_uses_forced_offline_and_local_weights():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / 'scripts' / 'neral_r32_compare.py').read_text()
+    assert 'enforce_local_inference_environment()' in src
+    assert src.index('enforce_local_inference_environment()') < src.index('from transformers import Qwen2TokenizerFast')
+    assert 'local_files_only=True' in src
+    assert 'token=False' in src
+    assert 'PeftModel.from_pretrained' in src
+    assert "adapter_status='experimental_loaded_not_promoted'" in src
