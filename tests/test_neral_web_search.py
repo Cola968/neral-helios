@@ -177,4 +177,44 @@ class ModelAgentConsentContracts(unittest.TestCase):
             self.assertTrue(run["web_search_used"])
 
 
+
+
+BING_XML = '''<?xml version="1.0"?><rss version="2.0"><channel>
+<item><title>Artemis &amp; NASA</title><link>https://www.nasa.gov/news</link><description>Latest launch &amp; science</description></item>
+<item><title>Unsafe</title><link>https://localhost/private</link><description>Ignore</description></item>
+</channel></rss>'''
+
+
+class BingFallbackTests(unittest.TestCase):
+    def test_rss_parser_rejects_private_destinations(self):
+        from neral_web_search import parse_bing_rss
+        rows = parse_bing_rss(BING_XML)
+        self.assertEqual(rows, [{"title":"Artemis & NASA","url":"https://www.nasa.gov/news",
+                                 "snippet":"Latest launch & science"}])
+
+    def test_bing_is_used_with_exact_same_query_when_ddg_returns_zero(self):
+        class Routing:
+            def __init__(self): self.calls = []
+            def open(self, request, timeout):
+                self.calls.append(request.full_url)
+                if "duckduckgo.com" in request.full_url:
+                    return Response(b"<html>blocked</html>")
+                rss = Response(BING_XML.encode("utf-8"))
+                rss.headers = {"Content-Type":"application/rss+xml; charset=utf-8"}
+                return rss
+        opener = Routing()
+        data = WebSearch(opener=opener).search("Artemis NASA")
+        self.assertEqual(data["provider"],"Bing RSS")
+        self.assertEqual(len(data["results"]),1)
+        self.assertEqual(len(opener.calls),2)
+        self.assertIn("duckduckgo.com",opener.calls[0])
+        self.assertIn("www.bing.com/search",opener.calls[1])
+        self.assertTrue(all("Artemis+NASA" in url for url in opener.calls))
+        self.assertEqual(data["providers_contacted"], ["DuckDuckGo HTML","Bing RSS"])
+
+    def test_bing_rss_rejects_unsafe_external_entities(self):
+        from neral_web_search import parse_bing_rss
+        with self.assertRaises(WebSearchError):
+            parse_bing_rss('<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss>&x;</rss>')
+
 if __name__=="__main__":unittest.main()
