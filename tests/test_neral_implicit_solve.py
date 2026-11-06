@@ -12,7 +12,7 @@ class ImplicitMultiplicationTests(unittest.TestCase):
         frozen = [r for r in original_cases() if r["family"] == "equation"]
         self.assertEqual(len(frozen), 8)
         for row in frozen:
-            match = re.search(r"-?\\d+x \\+ \\(-?\\d+\\) = -?\\d+", row["prompt"])
+            match = re.search(r"-?\d+x \+ \(-?\d+\) = -?\d+", row["prompt"])
             self.assertIsNotNone(match, msg=row["id"])
             with self.subTest(id=row["id"]):
                 self.assertEqual(solve(match.group(0))["result"], "x = " + row["expected"])
