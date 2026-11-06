@@ -1,0 +1,94 @@
+name: NERAL Qwen7B Rank32 read-only paired comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: "Type RUN_READONLY_R32_COMPARISON to run GPU inference only; no training"
+        type: string
+        required: true
+      max_new_tokens:
+        description: "Bounded tokens for each fixed coding task"
+        type: choice
+        default: '256'
+        required: true
+        options:
+          - '128'
+          - '256'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  comparison:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_READONLY_R32_COMPARISON'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      NERAL_R32_TRAIN_AUTHORIZATION: READONLY_COMPARISON_NO_TRAINING
+    steps:
+      - name: Checkout reviewed comparison and existing preflight from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout exact pinned adapter-validator source
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Run existing verified read-only preflight (no training)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $entry = Join-Path $env:GITHUB_WORKSPACE 'control\scripts\Start-NERAL-QLoRA-Action.ps1'
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $entry -Mode preflight
+          if ($LASTEXITCODE -ne 0) { throw 'Preflight failed; no inference permitted' }
+      - name: Compare fixed prompts, no host execution of generated code
+        env:
+          MAX_NEW_TOKENS: ${{ inputs.max_new_tokens }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $model = Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $adapter = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          $python = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath (Join-Path $adapter 'adapter_model.safetensors') -PathType Leaf)) { throw 'Trained pilot adapter is missing' }
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Pinned training environment unavailable' }
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $output = Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\comparison-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $summary = Join-Path $env:GITHUB_WORKSPACE 'control\neral_compare_reports\summary.json'
+          & $python (Join-Path $env:GITHUB_WORKSPACE 'control\scripts\neral_r32_compare.py') `
+            --base $model --adapter $adapter --out $output --summary-out $summary `
+            --max-new-tokens $env:MAX_NEW_TOKENS
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only adapter inference comparison failed' }
+      - name: Verify allowlisted scalar-only report (never upload generated code)
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'control\neral_compare_reports'
+          if (-not (Test-Path -LiteralPath $dir -PathType Container)) { exit 0 }
+          $files = @(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 32768) { throw 'Non-scalar output prohibited' }
+          'safe=true' >> $env:GITHUB_OUTPUT
+      - name: Upload scalar summary only
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-r32-comparison-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/neral_compare_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
