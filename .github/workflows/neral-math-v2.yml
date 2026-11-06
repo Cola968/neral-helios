@@ -56,7 +56,7 @@ jobs:
           if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Isolated pinned Python missing'}
           Push-Location control
           try {
-            & $python -B -m unittest discover -s tests -p 'test_neral_math_v2.py' -v
+            & $python -B -m unittest discover -s tests -p 'test_neral_math_v2*.py' -v
             if($LASTEXITCODE -ne 0){throw 'Math v2 CPU tests failed'}
           } finally {Pop-Location}
       - name: Build local 744-example reviewed candidate without GPU or downloads
@@ -67,6 +67,8 @@ jobs:
           $control=Join-Path $env:GITHUB_WORKSPACE 'control'
           & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
           if($LASTEXITCODE -ne 0){throw 'Pinned checkout normalization failed'}
+          & $python -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows CRLF dataset/source restoration refused'}
           $external=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
           $pack=Join-Path $external "math-v2-pack-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           $experiment=Join-Path $external "math-v2-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
