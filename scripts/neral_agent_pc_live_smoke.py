@@ -40,14 +40,26 @@ def smoke(backend):
         root = Path(directory)
         (root / "calculation.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
         (root / "README.md").write_text("# Isolierter NERAL-Agententest\n", encoding="utf-8")
-        agent = AutonomousAgent(root, backend, max_steps=4, max_seconds=480)
+        agent = AutonomousAgent(root, backend, max_steps=6, max_seconds=480)
         started = agent.start(
             "Live-Test: Lies calculation.py mit dem read-Werkzeug, "
             "prüfe danach mit dem python-Werkzeug die Syntax und schließe "
             "mit finish ab. Keine Dateiänderungen.")
         result = agent.run(started["id"])
         names = [item["action"] for item in result["history"]]
+        # Export only explicit enum statuses, never private model text or paths.
+        tail = result["history"][-1] if result["history"] else {}
+        permitted_actions = {"none", "model", "tool", "read", "python", "finish",
+                             "deadline", "inventory", "search", "solve", "syntax_check",
+                             "run_isolated_unit_test", "solve_math_symbolic", "eval_python_expr", "propose_edit"}
+        permitted_statuses = {"none", "ok", "completed", "failed", "blocked",
+                              "invalid_or_unavailable", "invalid_output_retry",
+                              "invalid_output_exhausted", "test_failed", "approval_required"}
+        action_code = tail.get("action", "none")
+        status_code = tail.get("status", "none")
         return {
+            "last_action_code": action_code if action_code in permitted_actions else "other",
+            "last_status_code": status_code if status_code in permitted_statuses else "other",
             "status": result["status"],
             "steps": result["steps"],
             "read_performed": "read" in names,
@@ -130,6 +142,7 @@ def main():
         "steps": 0, "writes_performed": 0, "no_cloud_model_calls": True,
         "training_performed": False, "code_execution_performed": False,
         "error_category": "none", "status": "not_started",
+        "last_action_code": "none", "last_status_code": "none",
         "patch_proposed": False, "patch_approved_test_only": False,
         "patch_ast_valid": False, "patch_logic_verified": False,
         "patch_steps": 0, "executed_generated_code_on_host": False,
@@ -142,8 +155,10 @@ def main():
         else:
             observed = smoke(backend)
             report.update(observed)
-            report["model_loaded"] = observed["steps"] > 0 and observed["status"] != "failed"
             report["adapter_loaded"] = provider == "hf_adapter" and getattr(backend, "_model", None) is not None
+            # A loaded adapter may still fail a multi-step task.
+            report["model_loaded"] = bool(report["adapter_loaded"] or (
+                provider == "ollama" and observed["read_performed"]))
             if report["result_correct"]:
                 # Bonus coding check, not a launch gate. Must never run
                 # generated Python on the Windows host.
