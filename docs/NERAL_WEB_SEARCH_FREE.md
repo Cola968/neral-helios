@@ -19,7 +19,7 @@ Suchbegriffe werden ignoriert. Die lokale Projektdateisuche bleibt separat.
 
 ## Datenschutz
 - KI-Inferenz und Modellgewichte bleiben lokal, keine Qwen-Cloud-API.
-- Der Suchbegriff wird an DuckDuckGo übertragen. DuckDuckGo erfährt dabei
+- Der Suchbegriff wird zunächst an DuckDuckGo, falls nötig an Bing übertragen. Anbieter erfahren dabei
   auch Verbindungsmetadaten wie die IP-Adresse.
 - Kein automatisches Senden von Chatverläufen, Projektdateien,
   Modellprompts oder API-Schlüsseln.
@@ -30,7 +30,7 @@ Suchbegriffe werden ignoriert. Die lokale Projektdateisuche bleibt separat.
   deaktivierte Redirects und keine impliziten Proxy-Umgebungsvariablen.
 
 ## Grenzen und Tests
-DuckDuckGos öffentliches HTML-Frontend ist **keine offiziell stabile API**.
+DuckDuckGos öffentliches HTML-Frontend und Bings RSS-Suchfeed sind **keine offiziell stabilen APIs**.
 CAPTCHAs, Änderungen des HTML-Layouts, Sperren oder Ratenbegrenzungen
 können die Websuche jederzeit beeinträchtigen. Bei leeren Ergebnissen
 werden keine Fakten erfunden. Ein umfassender Artikelabruf ist noch
