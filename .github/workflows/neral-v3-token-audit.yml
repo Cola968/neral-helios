@@ -1,0 +1,125 @@
+name: NERAL v3 Qwen completion-token admission (no GPU training)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only: RUN_NERAL_V3_TOKEN_GATE'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_NERAL_V3_TOKEN_GATE'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_READ_ONLY: '1'
+
+    steps:
+      - name: Checkout reviewed current source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout original immutable QLoRA tokenizer contract
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+
+      - name: CPU mask and no-truncation regression tests
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python missing'}
+          Push-Location control
+          try {
+            & $py -B -m unittest discover -s tests -p 'test_neral_v3_token_audit.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Token mask regression gate failed'}
+          } finally {Pop-Location}
+
+      - name: Verify Qwen hashes and real 512-token boundaries for both local splits
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $split=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\math-v3-split-42283867443-1'
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v3-token-audit-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'Existing local audit must not be overwritten'}
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Pinned checkout byte restoration failed'}
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Pinned old source verification failed'}
+          foreach($name in @('neral_math_v2_builder.py','neral_math_v3_balanced_pack.py')){
+            $dest=Join-Path $trainer ('scripts\'+$name)
+            if(Test-Path -LiteralPath $dest){throw 'Unexpected scratch source'}
+            Copy-Item -LiteralPath (Join-Path $control ('scripts\'+$name)) -Destination $dest -ErrorAction Stop
+          }
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
+             --root $trainer --review-manifest (Join-Path $split 'train.review.json')
+          if($LASTEXITCODE -ne 0){throw 'Unpinned inherited review source'}
+          $env:PYTHONPATH=$trainer
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v3_token_audit `
+              --trainer-root $trainer --base $base `
+              --train (Join-Path $split 'train.jsonl') `
+              --train-review (Join-Path $split 'train.review.json') `
+              --validation (Join-Path $split 'validation.jsonl') `
+              --validation-review (Join-Path $split 'validation.review.json') `
+              --out $out
+            if($LASTEXITCODE -ne 0){throw 'Tokenizer admission failed before any training'}
+          } finally {Pop-Location}
+          New-Item -ItemType Directory -Path (Join-Path $control 'v3_token_reports') -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $out 'summary.json') (Join-Path $control 'v3_token_reports\summary.json') -ErrorAction Stop
+
+      - name: Prohibit private corpus or false release metrics
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\v3_token_reports'
+          if(-not(Test-Path -LiteralPath $dir)){exit 0}
+          $all=@(Get-ChildItem -LiteralPath $dir -File -Recurse)
+          if($all.Count -ne 1 -or $all[0].Name -ne 'summary.json' -or $all[0].Length -gt 12000){
+            throw 'Unexpected private data export'
+          }
+          $r=Get-Content -LiteralPath $all[0].FullName -Raw|ConvertFrom-Json
+          if($r.status -ne 'NERAL_V3_PINNED_TOKEN_GATE_PASS' -or
+             $r.splits.train.count -ne 320 -or $r.splits.validation.count -ne 64 -or
+             $r.splits.train.max_tokens -gt 512 -or $r.splits.validation.max_tokens -gt 512 -or
+             $r.training_performed -ne $false -or $r.release_validated -ne $false){
+            throw 'Wrong admission result or release claim'
+          }
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true`n",[System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload only scalar token counts and digests
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-token-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/v3_token_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
