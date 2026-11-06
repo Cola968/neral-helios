@@ -32,6 +32,28 @@ def git_blob_sha(raw:bytes)->str:
     return hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\x00'+raw).hexdigest()
 
 
+def restore_pinned_generator(path: Path, expected_blob: str) -> None:
+    """Restore only CRLF-smudged bytes in an immutable scratch checkout.
+
+    No arbitrary normalization or source-pin weakening: the resulting Git blob
+    must match the exact immutable source tree of the original Arctus trainer.
+    """
+    path = Path(path)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+        raise ValueError('Pinned source missing, symlinked or oversized')
+    raw = path.read_bytes()
+    if git_blob_sha(raw) == expected_blob:
+        return
+    restored = raw.replace(b'\r\n', b'\n')
+    if restored == raw or git_blob_sha(restored) != expected_blob:
+        raise ValueError('Unpinned generator')
+    # The original content is represented exactly by the immutable Git blob;
+    # only Windows CRLF line-ending smudging is reversible.
+    path.write_bytes(restored)
+    if git_blob_sha(path.read_bytes()) != expected_blob:
+        raise ValueError('Pinned generator restoration failed')
+
+
 def message_text(row):
     if not isinstance(row,dict) or set(row)!={'messages'}:raise ValueError('Not a QLoRA row')
     ms=row['messages']
@@ -136,8 +158,7 @@ def prepare(*,candidate:Path, trainer_root:Path,out:Path,max_rows:int=100)->dict
         raise ValueError('Input/output path restriction')
     if file_sha(candidate)!=EXPECTED_CANDIDATE_SHA256:raise ValueError('430 source candidate SHA mismatch')
     script=trainer_root/'build_targeted_sft50_sources.py'
-    if script.is_symlink() or git_blob_sha(script.read_bytes())!=SOURCE_GIT_BLOB:
-        raise ValueError('Unpinned generator')
+    restore_pinned_generator(script,SOURCE_GIT_BLOB)
     # Load only trusted exact git-blob-pinned generator; no calls to external services.
     sys.path.insert(0,str(trainer_root))
     import build_targeted_sft50_sources as gen

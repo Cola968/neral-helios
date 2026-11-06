@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from scripts.neral_math_review import check_math, choose_verified_math, build_review
+from scripts.neral_math_review import check_math, choose_verified_math, build_review, restore_pinned_generator, git_blob_sha
 
 
 def q(prompt, answer):
@@ -50,6 +50,29 @@ class MathReviewTests(unittest.TestCase):
             self.assertEqual(r['rows'][0]['row_sha256'],hashlib.sha256(p.read_text(encoding='utf8').strip().encode()).hexdigest())
             self.assertNotEqual(r['reviewer'],'Human')
             self.assertFalse(r['human_semantic_review'])
+    def test_crlf_only_git_checkout_restored_and_pinned(self):
+        original = b"import math\nVALUE = 10\n"
+        expected = git_blob_sha(original)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'pinned.py'
+            p.write_bytes(original.replace(b'\n', b'\r\n'))
+            restore_pinned_generator(p, expected)
+            self.assertEqual(p.read_bytes(), original)
+            # Repeating does not mutate already-correct checkout bytes.
+            restore_pinned_generator(p, expected)
+            self.assertEqual(p.read_bytes(), original)
+
+    def test_unpinned_generator_is_not_repaired_or_accepted(self):
+        original = b"import math\nVALUE = 10\n"
+        expected = git_blob_sha(original)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'pinned.py'
+            bad = original.replace(b'VALUE = 10', b'VALUE = 20').replace(b'\n', b'\r\n')
+            p.write_bytes(bad)
+            with self.assertRaises(ValueError):
+                restore_pinned_generator(p, expected)
+            self.assertEqual(p.read_bytes(), bad)
+
     def test_no_other_files_or_outputs_in_review(self):
         e=q('Berechne 7 + 4 und erkläre den Rechenweg kurz.','7 + 4 = 11. Das Ergebnis ist 11.')
         with tempfile.TemporaryDirectory() as d:
