@@ -1,0 +1,98 @@
+name: NERAL math-v2 verified read-only 80-case comparison
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Enter RUN_READONLY_MATH_V2_80_CASES (no training)'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_READONLY_MATH_V2_80_CASES'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          persist-credentials: false
+      - name: Verify fixed trainer import and evaluation contracts
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python missing'}
+          Push-Location control
+          try {
+            & $py -B -m unittest discover -s tests -p 'test_neral_v2_pinned_import.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Wrong-origin module regression'}
+            & $py -B -m unittest discover -s tests -p 'test_neral_math_v2.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Evaluation regression'}
+          } finally {Pop-Location}
+      - name: Evaluate three preserved models without training
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $old=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          $new=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\math-v2-42264245416-1\adapter'
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v2-evaluation-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $summary=Join-Path $control 'math_v2_readonly_reports\summary.json'
+          if(Test-Path -LiteralPath $out){throw 'Existing evaluation output; refuse overwrite'}
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $base
+          if($LASTEXITCODE -ne 0){throw 'Pinned Qwen integrity mismatch'}
+          & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') `
+             --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+             --output (Join-Path $trainer 'scripts\neral_qlora_rank32_pilot.py') `
+             --validator (Join-Path $trainer 'neral_adapter_candidate.py') `
+             --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'Old rank32 validator generation failed'}
+          $free=(& nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1)
+          if($LASTEXITCODE -ne 0 -or [int]$free.Trim() -lt 10000){throw 'GPU VRAM below 10000 MiB'}
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_math_v2_eval --base $base --old-r32 $old `
+                --new-r16 $new --trainer-root $trainer --out $out --summary $summary
+            if($LASTEXITCODE -ne 0){throw 'Read-only benchmark failed'}
+          } finally {Pop-Location}
+      - name: Verify upload contains only scalar scores and hashes
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\math_v2_readonly_reports'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -File -Recurse)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 32768){throw 'Data export refused'}
+          $r=Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          if($r.status -ne 'MATH_V2_DEVELOPMENT_COMPARISON' -or $r.weights_promoted -ne $false -or $r.general_improvement_proven -ne $false){throw 'False release claims'}
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "safe=true`n", [System.Text.UTF8Encoding]::new($false))
+      - name: Upload scoring summary only
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-readonly-evaluation
+          path: control/math_v2_readonly_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error

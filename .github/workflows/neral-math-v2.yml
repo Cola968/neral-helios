@@ -170,7 +170,7 @@ jobs:
           Push-Location $control
           try {
             & $python -B -m scripts.neral_math_v2_eval --base $model --old-r32 $old `
-              --new-r16 $env:V2_ADAPTER --out (Join-Path $env:V2_ROOT 'evaluation') `
+              --new-r16 $env:V2_ADAPTER --trainer-root $trainer --out (Join-Path $env:V2_ROOT 'evaluation') `
               --summary (Join-Path $control 'math_v2_reports\evaluation-summary.json')
             if($LASTEXITCODE -ne 0){throw 'No math comparison result; adapters not promoted'}
           } finally {Pop-Location}
