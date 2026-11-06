@@ -1,0 +1,9 @@
+# ZeroGPU provides PyTorch with compatible CUDA; do not override it blindly.
+gradio>=5,<7
+spaces
+transformers>=4.49,<5
+accelerate>=1,<2
+peft>=0.14,<1
+bitsandbytes>=0.45,<1
+safetensors>=0.4,<1
+huggingface_hub>=0.30,<2
