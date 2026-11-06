@@ -71,7 +71,8 @@ def test_tool_decision_requires_one_exact_json_command(raw,ok):
 
 
 def test_scoring_requires_full_exact_case_set_and_is_honest():
-    responses={case["id"]:case["expected"] for case in CASES}
+    responses={case["id"]:(json.dumps({"action":case["expected"]}) if case["family"]=="agent"
+                            else case["expected"]) for case in CASES}
     perfect=score(responses)
     assert perfect["total"] == 32 and perfect["correct"] == 32
     assert perfect["by_family"]["math"]["correct"] == 8
@@ -86,7 +87,8 @@ def test_scoring_requires_full_exact_case_set_and_is_honest():
 def test_pairwise_comparison_without_generated_text_leakage():
     from scripts.neral_generalization_probe import compare_responses
     base={c["id"]:"incorrect" for c in CASES}
-    adapter={c["id"]:c["expected"] for c in CASES}
+    adapter={c["id"]:(json.dumps({"action":c["expected"]}) if c["family"]=="agent"
+                       else c["expected"]) for c in CASES}
     row=compare_responses(base,adapter)
     assert row["base_correct"] == 0
     assert row["adapter_correct"] == 32
