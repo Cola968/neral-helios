@@ -419,11 +419,14 @@ class AgentEngine:
                 old_text = ""
             if existing == raw:
                 raise AgentError("Datei ist unverändert.")
-            diff = "".join(list(difflib.unified_diff(old_text.splitlines(keepends=True),
-                            content.splitlines(keepends=True), fromfile=path + ":alt", tofile=path + ":neu"))[:400])
+            diff_lines = list(difflib.unified_diff(old_text.splitlines(keepends=True),
+                            content.splitlines(keepends=True), fromfile=path + ":alt", tofile=path + ":neu"))
+            diff = "".join(diff_lines)
+            if len(diff_lines) > 400 or len(diff) > 12000:
+                raise AgentError("Diff ist für eine vollständige Vorschau zu groß. Teile die Änderung auf.")
             token = secrets.token_hex(16)
             task["proposal"] = {"path": path, "expected_sha": expected_sha, "new_sha": self._digest(raw),
-                                "token": token, "diff": diff[:12000], "is_new": existing is None}
+                                "token": token, "diff": diff, "is_new": existing is None}
             task["_pending"] = raw
             task["status"] = "awaiting_approval"
             self._log(task, "preview", "approval_required")
