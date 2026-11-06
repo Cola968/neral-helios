@@ -82,3 +82,16 @@ def test_scoring_requires_full_exact_case_set_and_is_honest():
         score({key:value for key,value in responses.items() if key != CASES[0]["id"]})
     with pytest.raises(ValueError):
         score(responses | {"extra":"junk"})
+
+def test_pairwise_comparison_without_generated_text_leakage():
+    from scripts.neral_generalization_probe import compare_responses
+    base={c["id"]:"incorrect" for c in CASES}
+    adapter={c["id"]:c["expected"] for c in CASES}
+    row=compare_responses(base,adapter)
+    assert row["base_correct"] == 0
+    assert row["adapter_correct"] == 32
+    assert row["delta_adapter_vs_base"] == 32
+    assert row["model_quality_improvement_proven"] is False
+    assert row["training_performed"] is False
+    assert "incorrect" not in str(row)
+    assert "def multiply" not in str(row)
