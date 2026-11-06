@@ -7,8 +7,7 @@ approved with a short-lived one-use capability. No background autonomy.
 from __future__ import annotations
 
 import base64
-import math
-import re
+import binascii
 import secrets
 import sys
 import threading
@@ -66,7 +65,11 @@ class WindowsDesktop:
         elif kind == "type":
             gui.write(action["text"], interval=0.02)
         elif kind == "press":
-            gui.press(action["key"])
+            gui.press({
+                "Escape":"esc","Tab":"tab","Enter":"enter","Up":"up",
+                "Down":"down","Left":"left","Right":"right","Home":"home",
+                "End":"end","Backspace":"backspace","Delete":"delete"
+            }[action["key"]])
         else:
             raise ComputerUseError("Nicht erlaubte Computeraktion.")
 
@@ -123,7 +126,7 @@ class ComputerUse:
             raise ComputerUseError("Bildschirmbild zu groß.")
         try:
             raw = base64.b64decode(data, validate=True)
-        except ValueError as exc:
+        except (ValueError, binascii.Error) as exc:
             raise ComputerUseError("Ungültige Bilddaten.") from exc
         if len(raw) > 1_200_000 or frame.get("media_type") not in {"image/png", "image/jpeg"}:
             raise ComputerUseError("Ungültiges Bildformat.")
