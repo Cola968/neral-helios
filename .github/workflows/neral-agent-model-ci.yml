@@ -12,6 +12,7 @@ on:
       - 'templates/index.html'
       - 'tests/test_agent_auto*.py'
       - 'tests/test_agent_sandbox.py'
+      - 'tests/test_agent_pc_patch.py'
       - '.github/workflows/neral-agent-model-ci.yml'
 permissions:
   contents: read
@@ -28,4 +29,5 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_agent_auto*.py' -v
       - run: python -m unittest discover -s tests -p test_agent_sandbox.py -v
       - run: python -m compileall -q neral_agent_autonomy.py neral_agent_hf.py neral_agent_sandbox.py agent_auto_api.py scripts/neral_agent_pc_live_smoke.py
+      - run: python -m unittest discover -s tests -p test_agent_pc_patch.py -v
       - run: node --check static/agent-auto.js
