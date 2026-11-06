@@ -110,6 +110,15 @@ class MathV2Contracts(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'Output exists'):
                     b.build(old,oldr,reviewed,reviewr,out,source,set())
 
+    def test_pinned_holdout_is_eight_jsonl_rows_not_one_json_object(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'holdout.jsonl'
+            path.write_text(''.join(json.dumps({'prompt':f'unseen protected question {i}'})+'\n' for i in range(8)))
+            self.assertEqual(len(b.load_holdout_prompts(path)),8)
+            with self.assertRaisesRegex(ValueError,'exactly eight'):
+                path.write_text(json.dumps({'prompt':'only one object'}))
+                b.load_holdout_prompts(path)
+
     def test_frozen_holdout_prompt_blocks_without_data_output(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
