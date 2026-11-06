@@ -15,3 +15,12 @@
 .agent-evidence{background:var(--surface,#1d1d1d);border:1px solid #7775;border-radius:10px;padding:1rem;white-space:pre-wrap;overflow:auto;max-height:350px;max-width:100%;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
 .agent-panel details summary{cursor:pointer;font-weight:600}
 @media(max-width:620px){.agent-panel{padding:.75rem;max-height:calc(100vh - 90px)}}
+
+.agent-autonomy{border-top:1px solid var(--line,#555);margin:1.2rem 0;padding-top:1rem}
+.agent-autonomy h3{font-size:1.12rem;margin:.3rem 0}
+.agent-autonomy p{opacity:.82;font-size:.87rem;max-width:720px}
+.agent-autonomy form{display:grid;gap:.65rem}
+.agent-autonomy form label{display:grid;gap:.4rem}
+.agent-autonomy textarea{width:100%;max-width:100%;min-width:0}
+#agentAutoState{overflow-wrap:anywhere;margin-top:.7rem;font-size:.85rem}
+#agentAutoApproval[hidden]{display:none}

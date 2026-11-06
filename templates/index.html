@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#131513"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/static/icon.svg"><title>Neral / Helios · Lokal</title><link rel="stylesheet" href="/static/neral.css"><link rel="stylesheet" href="/static/agent-mode.css"><script src="/static/helios-core.js" defer></script><script src="/static/neral.js" defer></script><script src="/static/projects.js" defer></script><script src="/static/install.js" defer></script><script src="/static/workspace.js" defer></script><script src="/static/agent-mode.js" defer></script></head>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#131513"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/static/icon.svg"><title>Neral / Helios · Lokal</title><link rel="stylesheet" href="/static/neral.css"><link rel="stylesheet" href="/static/agent-mode.css"><script src="/static/helios-core.js" defer></script><script src="/static/neral.js" defer></script><script src="/static/projects.js" defer></script><script src="/static/install.js" defer></script><script src="/static/workspace.js" defer></script><script src="/static/agent-mode.js" defer></script><script src="/static/agent-auto.js" defer></script></head>
 <body><a class="skip-link" href="#prompt">Zur Nachricht</a><div class="workspace"><button id="sidebarBackdrop" class="sidebar-backdrop" aria-label="Navigation schließen" hidden></button>
 <aside class="sidebar" id="sidebar"><a class="brand" href="/" aria-label="Neral Start">Neral</a><button id="newChat" class="new-chat">Neuer Chat</button><button id="openProjects" class="new-chat">Projekte</button><input id="search" type="search" placeholder="Chats suchen" aria-label="Gespräche suchen"><div class="section-label">Letzte Chats <span id="syncStatus" role="status"></span></div><nav id="chats" aria-label="Gespeicherte Gespräche"></nav><div class="sidebar-foot"><span class="dot" id="connectionDot"></span><span id="connection" role="status">Verbinde …</span><button id="reconnect" class="text-button" hidden>Erneut verbinden</button></div></aside>
 <main><header><div class="row header-title"><button id="menu" class="icon mobile" aria-label="Seitenleiste öffnen">☰</button><span id="chatTitle">Neuer Chat</span><span class="breadcrumb" hidden></span></div><div class="view-switch" aria-label="Ansicht"><button id="chatView" class="selected">Chat</button><button id="projectShortcut">Projekte</button><button id="agentView" type="button">Agent</button></div><details id="chatActions" class="chat-actions"><summary aria-label="Chat-Menü">···</summary><div class="action-menu"><button id="renameChat">Umbenennen</button><button id="importChat">Chat importieren</button><input id="chatFile" type="file" accept="application/json,.json" hidden><button id="export">Chat exportieren</button><button id="openSettings" type="button">Einstellungen</button><button id="quickAccess" type="button">Schnellzugriff</button><button id="installApp" type="button">App installieren</button><button id="theme">Hell / Dunkel</button><button id="inspect" aria-expanded="false">Modelldetails</button></div></details></header>
@@ -16,6 +16,29 @@
   </div>
   <div id="agentState" class="agent-state" role="status" aria-live="polite">Noch kein Auftrag.</div>
   <pre id="agentEvidence" class="agent-evidence" tabindex="0" aria-label="Prüfergebnisse"></pre>
+  <section class="agent-autonomy" id="agentAutonomy" aria-label="KI-gesteuerter Agent">
+    <h3>KI-Agent (lokales Sprachmodell)</h3>
+    <p>NERAL wählt Werkzeuge aus, beobachtet die Ergebnisse und arbeitet mehrstufig weiter. Code wird nur als überprüfbarer Vorschlag erstellt; jede Dateiänderung braucht deine Freigabe.</p>
+    <p id="agentAutoModel" aria-live="polite">Lokales Modell wird geprüft …</p>
+    <form id="agentAutoForm">
+      <label>Aufgabe für den KI-Agenten<textarea id="agentAutoGoal" maxlength="800" rows="3" required placeholder="Untersuche die Python-Dateien und schlage eine Korrektur vor"></textarea></label>
+      <button id="agentAutoStart" type="submit">KI-Agent starten</button>
+    </form>
+    <div class="agent-toolbar">
+      <button id="agentAutoNext" type="button" disabled>Nächste KI-Aktion</button>
+      <button id="agentAutoRun" type="button" disabled>Automatisch weiterarbeiten</button>
+      <button id="agentAutoPause" type="button" disabled>Pausieren</button>
+      <button id="agentAutoResume" type="button" disabled>Fortsetzen</button>
+      <button id="agentAutoCancel" type="button" disabled>Abbrechen</button>
+    </div>
+    <div id="agentAutoState" role="status" aria-live="polite">Kein KI-Auftrag gestartet.</div>
+    <pre id="agentAutoEvidence" class="agent-evidence" tabindex="0"></pre>
+    <div id="agentAutoApproval" hidden>
+      <h4>KI schlägt eine Dateiänderung vor</h4>
+      <pre id="agentAutoDiff" class="agent-evidence" tabindex="0"></pre>
+      <div class="agent-toolbar"><button type="button" id="agentAutoApprove">Änderung freigeben</button><button type="button" id="agentAutoReject">Ablehnen</button></div>
+    </div>
+  </section>
   <details id="agentEdit"><summary>Kontrollierte Dateiänderung</summary>
     <p>Du gibst den Ersatzinhalt ein. NERAL zeigt einen Diff und schreibt erst nach ausdrücklicher Freigabe. Keine automatische KI-Codeerzeugung.</p>
     <label>Relativer Pfad<input id="agentEditPath" maxlength="240" placeholder="app.py"></label>
