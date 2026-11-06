@@ -4,9 +4,11 @@ on:
     paths:
       - 'neral_agent_autonomy.py'
       - 'neral_agent_hf.py'
+      - 'neral_agent_sandbox.py'
       - 'agent_auto_api.py'
       - 'scripts/neral_agent_pc_live_smoke.py'
       - 'tests/test_agent_auto*.py'
+      - 'tests/test_agent_sandbox.py'
       - '.github/workflows/neral-agent-live-pc.yml'
 permissions:
   contents: read
@@ -59,6 +61,8 @@ jobs:
         run: |
           & $env:NERAL_AGENT_PYTHON -m unittest discover -s tests -p test_agent_autonomy.py -q
           if ($LASTEXITCODE -ne 0) { throw 'Agent regression tests failed on Windows' }
+          & $env:NERAL_AGENT_PYTHON -m unittest discover -s tests -p test_agent_sandbox.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Sandbox contract tests failed on Windows' }
       - name: Run isolated read-only agent loop with real local model
         working-directory: code
         run: |

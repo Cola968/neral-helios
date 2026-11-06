@@ -84,6 +84,9 @@ Feld action ist eine dieser Optionen:
   markdown                  -> lokale Dokumentationslinks prüfen
   markers                   -> TODO/FIXME sammeln
   whitespace                -> Formatierungsmängel finden
+  tests                     -> vorhandene Python-Unit-Tests NUR in Docker ohne
+                               Netzwerk, beschränktem Speicher, schreibgeschützt
+                               ausführen; ohne vorhandenes Docker-Image kein Test
   propose_edit (path,content)-> kompletten Dateiinhalt als Änderung vorschlagen;
                                 erfordert BENUTZERFREIGABE vor dem Schreiben
   finish (summary)          -> Aufgabe abschließen, ehrlich Ergebnisse zusammenfassen
@@ -116,7 +119,7 @@ def _parse_choice(raw: str) -> dict:
 
 class AutonomousAgent:
     MAX_JOBS = 6
-    TOOL_NAMES = set(AgentEngine.TOOLS) - {"summary"} | {"propose_edit", "finish"}
+    TOOL_NAMES = set(AgentEngine.TOOLS) - {"summary"} | {"propose_edit", "finish", "tests"}
     READ_EXTENSIONS = {".py", ".js", ".ts", ".md", ".json", ".toml", ".txt",
                        ".yml", ".yaml", ".html", ".css"}
 
@@ -290,6 +293,9 @@ class AutonomousAgent:
             return self.snapshot(id)
 
     def _execute(self, action: str, command: dict, job: dict) -> dict:
+        if action == "tests":
+            from neral_agent_sandbox import run_isolated_python_tests
+            return run_isolated_python_tests(self.engine)
         if action == "read":
             path = command.get("path")
             file = self.engine.safe_path(path)

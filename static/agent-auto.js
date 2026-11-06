@@ -64,6 +64,9 @@
   });
   el('agentAutoReject').addEventListener('click',()=>action('reject'));
   fetch('/api/agent/auto/status').then(r=>r.json()).then(d=>{
-    el('agentAutoModel').textContent='Lokales Modell: '+d.model+' · Ollama / keine verifizierte NERAL-Adapter-Identität · Verfügbarkeit noch nicht geprüft';
+    const detail = d.provider==='hf_local_adapter'
+      ? ('Lokaler NERAL-LoRA-Adapter · '+(d.confirmed_available?'geladen':'noch nicht geladen'))
+      : 'Ollama lokal · kein verifizierter NERAL-Adapter';
+    el('agentAutoModel').textContent='Lokales Modell: '+d.model+' · '+detail;
   }).catch(()=>{el('agentAutoModel').textContent='Modellstatus nicht verfügbar.';});
 })();

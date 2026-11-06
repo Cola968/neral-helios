@@ -43,13 +43,16 @@ def register_autonomous_agent_api(app, workspace, backend=None):
 
     @app.get("/api/agent/auto/status")
     def autonomous_status():
-        return jsonify(provider="hf_local_adapter" if hasattr(backend, "adapter_sha256") else "ollama_local_only",
+        is_adapter = hasattr(backend, "adapter_sha256")
+        loaded = is_adapter and getattr(backend, "_model", None) is not None
+        return jsonify(provider="hf_local_adapter" if is_adapter else "ollama_local_only",
                        model=getattr(backend, "model", "test_backend"),
-                       confirmed_available=False,
-                       model_identity="verified_file_loaded_at_first_inference_not_quality_promoted"
-                       if hasattr(backend, "adapter_sha256") else "foundation_or_custom_model_not_verified_neral_adapter",
+                       confirmed_available=bool(loaded),
+                       model_identity=("neral_local_adapter_loaded_experimental_not_quality_promoted" if loaded
+                                       else "local_adapter_configured_not_yet_loaded" if is_adapter
+                                       else "foundation_or_custom_model_not_verified_neral_adapter"),
                        capabilities=["model_tool_selection", "read", "search", "analyze", "patch_proposal",
-                                     "explicit_approval", "cancel", "pause", "resume"],
+                                     "isolated_docker_tests", "explicit_approval", "cancel", "pause", "resume"],
                        limitations=["no_browser", "no_shell", "no_unattended_writes", "process_memory_only"])
 
     @app.post("/api/agent/auto/start")

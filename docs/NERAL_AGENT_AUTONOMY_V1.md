@@ -19,8 +19,11 @@ zurück und kann weitere Schritte wählen oder eine Änderung vorschlagen.
 
 Die Werkzeuge können Dateien inventarisieren, lesen und suchen sowie statisch
 Python-Syntax, JSON/TOML/CSV, Security-Muster, Markdown-Links und Formatierung
-prüfen. Keine Shell, keine Browsersteuerung, keine selbstständigen Downloads,
-keine unbestätigten Schreibzugriffe. Das ist noch **kein Funktionsparitäts-
+prüfen. Außerdem kann NERAL vorhandene Python-Unittests in einer separaten,
+netzwerklosen **Docker-Sandbox** ausführen, sofern ein geeignetes Image bereits
+lokal installiert ist. Andernfalls wird der Test nicht ausgeführt.
+Keine Shell vom Modell, keine Browsersteuerung, keine selbstständigen Downloads
+und keine unbestätigten Schreibzugriffe. Das ist noch **kein Funktionsparitäts-
 Versprechen** mit dem ChatGPT-Agenten und keine Garantie für gute Patches.
 
 ## Konfiguration für lokale KI
@@ -78,4 +81,8 @@ Für echte Parität mit einem vollständigen Agenten werden gesondert benötigt:
 ein robuster browser-/desktopfähiger, isolierter Werkzeugadapter, sichere
 Test-Ausführung, persistent gespeicherte Aufträge, automatische
 Fehlerkorrekturschleifen und eine geprüfte Adapter-Evaluation. Diese Punkte
-sind hier **nicht als fertig implementiert** deklariert.
+sind hier **nicht als fertig implementiert** deklariert. Die optionale
+Docker-Sandbox mit vorinstalliertem `python:3.11-alpine` nutzt ein
+schreibgeschütztes temporäres Verzeichnis mit kopierten Python-Quellen,
+begrenzt CPU, RAM, Prozesse und Laufzeit und besitzt keinen Netzwerkzugriff.
+Eine lokal fehlende Docker-Installation wird als `unavailable` ausgewiesen.

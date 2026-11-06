@@ -227,3 +227,19 @@ class WindowsLineEndingRegression(unittest.TestCase):
             self.assertIn("proposal", response)
             self.assertEqual((root / "windows.py").read_bytes(),
                              b"def result():\r\n    return 1\r\n")
+
+
+class SafeDockerToolIntegration(unittest.TestCase):
+    def test_model_requests_real_sandbox_tests_then_finishes(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = FakeModel({"action": "tests"}, {"action": "finish", "summary": "Sandbox tests checked"})
+            agent = AutonomousAgent(root, model)
+            with patch("neral_agent_sandbox.run_isolated_python_tests",
+                       return_value={"status": "passed", "passed": True, "sandboxed": True}) as fn:
+                result = agent.run(agent.start("Verify behavior")["id"])
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["history"][0]["action"], "tests")
+            self.assertTrue(result["history"][0]["observation"]["sandboxed"])
+            fn.assert_called_once()
