@@ -83,7 +83,7 @@ jobs:
           $reportdir=Join-Path $env:GITHUB_WORKSPACE 'control\math_pilot_reports'
           New-Item -ItemType Directory -Force $reportdir | Out-Null
           Copy-Item -LiteralPath (Join-Path $root 'summary.json') (Join-Path $reportdir 'summary.json') -ErrorAction Stop
-          "EXP_ROOT=$root" >> $env:GITHUB_ENV
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "EXP_ROOT=$root`n", [System.Text.UTF8Encoding]::new($false))
       - name: Guarded one-shot GPU training of NEW rank16 math adapter
         if: inputs.mode == 'train'
         run: |
@@ -125,7 +125,7 @@ jobs:
           if ($report.status -ne 'completed' -or $report.steps -ne 25 -or @($report.logs|Where-Object {$_.step -eq 25}).Count -lt 1){throw 'Missing completed optimizer-step evidence'}
           $result=[ordered]@{schema=1;status='TRAINED_NEW_ADAPTER_NOT_DEPLOYED';steps=25;rank=16;source='reviewed_legacy_math';base_unchanged=$true;old_adapter_unchanged=$true;automatic_promotion=$false}
           $result|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $control 'math_pilot_reports\train-summary.json') -Encoding UTF8
-          "NEW_ADAPTER=$adapter" >> $env:GITHUB_ENV
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "NEW_ADAPTER=$adapter`n", [System.Text.UTF8Encoding]::new($false))
       - name: Deterministic 16-task base vs old NERAL vs new math adapter comparison
         if: inputs.mode == 'train'
         run: |
@@ -157,7 +157,7 @@ jobs:
           foreach($f in $files){if($names -notcontains $f.Name -or $f.Length -gt 16384){throw 'Unexpected report content'}}
           $r=Get-Content -LiteralPath (Join-Path $dir 'summary.json') -Raw|ConvertFrom-Json
           if($r.status -ne 'MATH_MACHINE_REVIEW_READY' -or $r.model_improvement_measured -ne $false -or $r.human_semantic_review -ne $false){throw 'Misleading source audit'}
-          'safe=true' >> $env:GITHUB_OUTPUT
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "safe=true`n", [System.Text.UTF8Encoding]::new($false))
       - name: Upload counts and hashes only
         if: always() && steps.report_guard.outputs.safe == 'true'
         uses: actions/upload-artifact@v4
