@@ -1,0 +1,98 @@
+# NERAL KI-Agent: lokaler Modell-/Werkzeug-Kreislauf
+
+Stand 06.11.2026. Das ist die zweite Agentenstufe, nicht nur eine statische
+Werkzeugliste. Ein lokales Sprachmodell entscheidet in einem begrenzten
+Plan-Act-Observe-Zyklus über das nächste Werkzeug. Es bekommt die Beobachtungen
+zurück und kann weitere Schritte wählen oder eine Änderung vorschlagen.
+
+## Verwendung in der Helios-App
+
+* NERAL starten wie üblich und **Agent → KI-Agent** öffnen.
+* Aufgabe formulieren, **KI-Agent starten**, dann **Automatisch
+  weiterarbeiten** oder **Nächste KI-Aktion** drücken.
+* Ergebnisse und den Status jeder Modellentscheidung im Agentenprotokoll sehen.
+* KI-generierte Änderungen werden nur als Diff vorgeschlagen. Schreiben ist
+  ausschließlich nach bewusstem Klick auf **Änderung freigeben** möglich.
+  Vor einer Änderung einer bestehenden Datei muss das Modell dieselbe Datei
+  zuerst gelesen haben; SHA-256 verhindert das Überschreiben zwischenzeitlicher
+  Nutzeränderungen.
+
+Die Werkzeuge können Dateien inventarisieren, lesen und suchen sowie statisch
+Python-Syntax, JSON/TOML/CSV, Security-Muster, Markdown-Links und Formatierung
+prüfen. Außerdem kann NERAL vorhandene Python-Unittests in einer separaten,
+netzwerklosen **Docker-Sandbox** ausführen, sofern ein geeignetes Image bereits
+lokal installiert ist. Andernfalls wird der Test nicht ausgeführt.
+Keine Shell vom Modell, keine Browsersteuerung, keine selbstständigen Downloads
+und keine unbestätigten Schreibzugriffe. Das ist noch **kein Funktionsparitäts-
+Versprechen** mit dem ChatGPT-Agenten und keine Garantie für gute Patches.
+
+## Konfiguration für lokale KI
+
+Standard ist `NERAL_AGENT_BACKEND=auto`: NERAL bevorzugt die beiden
+bekannten, bereits lokal vorhandenen Qwen2.5-Coder-7B-/NERAL-Rank32-
+Adapterpfade im Benutzerprofil. Ein ausdrücklich gesetztes
+`NERAL_AGENT_BASE_PATH` und `NERAL_AGENT_ADAPTER_PATH` geht vor.
+Wenn kein verwendbarer lokaler Adapter vorhanden ist, ist **nur**
+`http://127.0.0.1:11434/api/chat` über Ollama erlaubt; ohne HTTP-Proxy
+und ohne HTTP-Redirects. Der lokale Ollama-Modellname kann mit
+`NERAL_AGENT_OLLAMA_MODEL=qwen3.5:9b` festgelegt werden. Das Modell
+muss bereits lokal installiert sein, es gibt keinen automatischen Download
+und keine externe Qwen-API. Eine bloße Ollama-Qwen-Foundation ist
+**keine verifizierte NERAL-LoRA**; die UI kennzeichnet diese Herkunft.
+
+Ist ein automatisch gefundener Adapter beschädigt, verhindert das nicht
+den Start der Helios-App: Das Programm weicht auf das lokale Ollama-Backend
+aus und zeigt die fehlende NERAL-LoRA-Identität ehrlich an.
+Ist `hf_adapter` ausdrücklich erzwungen, führt ein ungültiger Adapter
+dagegen zu einem Fehler statt einem stillen Wechsel.
+
+Optional kann eine bereits lokal installierte NERAL-LoRA auf einer
+unterstützten CUDA-GPU geladen werden:
+
+```text
+NERAL_AGENT_BACKEND=hf_adapter
+NERAL_AGENT_BASE_PATH=<lokaler, geprüfter Qwen2.5-Coder-7B-Snapshot>
+NERAL_AGENT_ADAPTER_PATH=<lokal trainierter PEFT/LoRA-Adapter>
+```
+
+Die HF-Variante lädt 4-Bit-NF4-Gewichte nur lokal, aktiviert
+`HF_HUB_OFFLINE` und verlangt BF16 und ausreichenden GPU-Speicher.
+Sie liest zunächst nur die Adapterkonfiguration und den Dateihash; erst
+bei einer Inferenz wird der Adapter tatsächlich geladen. Die Bezeichnung
+`NERAL` setzt einen geladenen lokalen Adapter voraus. Ein erfolgreicher
+Load ist **kein** Nachweis hoher Modellqualität.
+
+## Live-Abnahme auf dem Windows-PC
+
+Der Workflow `.github/workflows/neral-agent-live-pc.yml` läuft nur auf dem
+verbundenen GitHub-Runner mit Label `neral-gpu`. Er installiert keine Modelle,
+startet kein Training und prüft die Steuerung zunächst mit echten Python-
+Tests direkt auf Windows. Danach versucht er eine **echte lokale Modellinferenz**
+mit bereits installierten Gewichten/Adapter, sonst mit lokalem Ollama.
+
+In einem isolierten temporären Workspace muss das Modell eine Python-Datei
+lesen, die Syntax prüfen und die Aufgabe abschließen. Das ist ein enges
+Smoke-Testszenario; es führt keinen von der KI geschriebenen Code aus. Ein
+bloßer erfolgreicher CPU-Regressionslauf gilt nicht als Modell-Live-Erfolg.
+Der Workflow speichert ausschließlich einen zulässigen JSON-Bericht aus
+Skalaren; keine Dateien, Prompts, Gewichte oder generierten Ausgaben werden
+nach GitHub hochgeladen. Er markiert den echten Modelltest als fehlgeschlagen,
+falls kein solches Resultat nachweisbar ist.
+
+## Weitere Grenzen
+
+Auftragszustand liegt nur im Prozessspeicher. Eine Sitzung endet spätestens
+nach 8 Modellentscheidungen oder Ablauf des lokalen Zeitbudgets. Das Modell
+kann falsche Werkzeugwahl treffen, ungültiges JSON zurückgeben oder auf
+einem kleinen lokalen Modell zu langsam/ungenau arbeiten. Die Nutzerfreigabe
+gilt je Patch, nicht pauschal für beliebige Aktionen.
+
+Für echte Parität mit einem vollständigen Agenten werden gesondert benötigt:
+ein robuster browser-/desktopfähiger, isolierter Werkzeugadapter, sichere
+Test-Ausführung, persistent gespeicherte Aufträge, automatische
+Fehlerkorrekturschleifen und eine geprüfte Adapter-Evaluation. Diese Punkte
+sind hier **nicht als fertig implementiert** deklariert. Die optionale
+Docker-Sandbox mit vorinstalliertem `python:3.11-alpine` nutzt ein
+schreibgeschütztes temporäres Verzeichnis mit kopierten Python-Quellen,
+begrenzt CPU, RAM, Prozesse und Laufzeit und besitzt keinen Netzwerkzugriff.
+Eine lokal fehlende Docker-Installation wird als `unavailable` ausgewiesen.

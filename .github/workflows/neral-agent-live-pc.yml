@@ -1,0 +1,98 @@
+name: NERAL real local agent on Windows PC
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_autonomy.py'
+      - 'neral_agent_hf.py'
+      - 'neral_agent_sandbox.py'
+      - 'agent_auto_api.py'
+      - 'scripts/neral_agent_pc_live_smoke.py'
+      - 'tests/test_agent_auto*.py'
+      - 'tests/test_agent_sandbox.py'
+      - 'tests/test_agent_pc_patch.py'
+      - '.github/workflows/neral-agent-live-pc.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  local-windows-smoke:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      WANDB_MODE: 'disabled'
+    steps:
+      - name: Checkout branch under test
+        uses: actions/checkout@v4
+        with:
+          path: code
+          clean: true
+          persist-credentials: false
+      - name: Checkout pinned Qwen trainer helper
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Resolve existing Python without installation
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $existing = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if (Test-Path -LiteralPath $existing -PathType Leaf) {
+            $python = $existing
+          } elseif (Get-Command py -ErrorAction SilentlyContinue) {
+            $python = (& py -3.12 -c 'import sys;print(sys.executable)' | Select-Object -Last 1).Trim()
+          } else {
+            throw 'Python 3.12 unavailable; no installs performed'
+          }
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Python unavailable' }
+          "NERAL_AGENT_PYTHON=$python" >> $env:GITHUB_ENV
+          & $python -c "import sys;assert sys.version_info[:2] == (3,12);print('local_python_ready')"
+      - name: Run agent contract tests on physical Windows runner
+        working-directory: code
+        run: |
+          & $env:NERAL_AGENT_PYTHON -m unittest discover -s tests -p test_agent_autonomy.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Agent regression tests failed on Windows' }
+          & $env:NERAL_AGENT_PYTHON -m unittest discover -s tests -p test_agent_sandbox.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Sandbox contract tests failed on Windows' }
+          & $env:NERAL_AGENT_PYTHON -m unittest discover -s tests -p test_agent_pc_patch.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Patch smoke contract tests failed on Windows' }
+      - name: Run isolated read-only agent loop with real local model
+        working-directory: code
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $adapter = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          $env:PYTHONPATH = (Join-Path $env:GITHUB_WORKSPACE 'trainer') + [IO.Path]::PathSeparator + (Join-Path $env:GITHUB_WORKSPACE 'code')
+          & $env:NERAL_AGENT_PYTHON scripts/neral_agent_pc_live_smoke.py --base $base --adapter $adapter --report agent_live_reports/metrics.json
+          if ($LASTEXITCODE -ne 0) { throw 'Local-model agent did not complete task; see scalar report' }
+      - name: Guard scalar report before upload
+        if: always()
+        working-directory: code
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = 'agent_live_reports/metrics.json'
+          if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { exit 0 }
+          $raw = Get-Content -LiteralPath $file -Raw
+          if ($raw.Length -gt 8000) { throw 'Report too large' }
+          $data = ConvertFrom-Json $raw
+          $expected = @('schema','suite','model_backend','model_loaded','adapter_loaded','read_performed','python_check_performed','finished','result_correct','steps','writes_performed','no_cloud_model_calls','training_performed','code_execution_performed','error_category','status','patch_proposed','patch_approved_test_only','patch_ast_valid','patch_logic_verified','patch_steps','executed_generated_code_on_host')
+          $keys = @($data.PSObject.Properties.Name)
+          if ($keys | Where-Object {$_ -notin $expected}) { throw 'Unexpected report field' }
+      - name: Upload scalar metrics only (no prompts, private code or weights)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-agent-live-scalar
+          path: code/agent_live_reports/metrics.json
+          retention-days: 7
+          if-no-files-found: warn

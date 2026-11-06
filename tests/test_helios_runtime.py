@@ -110,6 +110,12 @@ def test_ui_reconnect_and_csp(client):
     ("POST", "/api/agent/1234567890abcdef12345678/next"),
     ("POST", "/api/agent/1234567890abcdef12345678/approve"),
     ("POST", "/api/agent/1234567890abcdef12345678/undo"),
+    ("GET", "/api/agent/auto/status"),
+    ("POST", "/api/agent/auto/start"),
+    ("GET", "/api/agent/auto/1234567890abcdef12345678"),
+    ("POST", "/api/agent/auto/1234567890abcdef12345678/step"),
+    ("POST", "/api/agent/auto/1234567890abcdef12345678/approve"),
+    ("POST", "/api/agent/auto/1234567890abcdef12345678/cancel"),
 ])
 def test_all_user_data_routes_reject_missing_session(method,path):
     unauthenticated = runtime.app.test_client()
