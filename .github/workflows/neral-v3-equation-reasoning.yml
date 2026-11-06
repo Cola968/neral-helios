@@ -1,0 +1,130 @@
+name: NERAL v3 equation reasoning A/B read-only (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Type RUN_READONLY_V3_EQUATION_REASONING'
+        type: string
+        required: true
+      v2_run_id:
+        description: 'Pinned completed v2 adapter training run'
+        type: string
+        required: true
+        default: '42264245416'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  diagnosis:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_READONLY_V3_EQUATION_REASONING' && inputs.v2_run_id == '42264245416'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_READ_ONLY: '1'
+
+    steps:
+      - name: Checkout reviewed controls
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout pinned original QLoRA validators
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+
+      - name: CPU regression gate for prompt strategies and algebra scoring
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local python missing'}
+          Push-Location control
+          try {
+            & $py -B -m unittest discover -s tests -p 'test_neral_v3_equation_probe.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Algebra probe tests refused'}
+          } finally {Pop-Location}
+
+      - name: Read-only three-model eight-equation three-strategy inference
+        env:
+          V2_RUN: ${{ inputs.v2_run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:V2_RUN -ne '42264245416'){throw 'Unapproved frozen v2 run'}
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $old=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          $new=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v2-$env:V2_RUN-1\adapter"
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\equation-probe-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $summary=Join-Path $control 'equation_probe_reports\summary.json'
+          if(Test-Path -LiteralPath $out){throw 'Output already exists; no overwrite permitted'}
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') `
+             --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+             --output (Join-Path $trainer 'scripts\neral_qlora_rank32_pilot.py') `
+             --validator (Join-Path $trainer 'neral_adapter_candidate.py') `
+             --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'Pinned rank32 validator failed'}
+          & $py -B (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $base
+          if($LASTEXITCODE -ne 0){throw 'Immutable Qwen snapshot verification failed'}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU telemetry missing'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 10000 -or [int]$fields[1].Trim() -gt 15){
+            throw 'GPU busy or free memory below 10000 MiB'
+          }
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v3_equation_probe `
+              --base $base --old-r32 $old --new-r16 $new `
+              --trainer-root $trainer --out $out --summary $summary
+            if($LASTEXITCODE -ne 0){throw 'No reliable algebra diagnostic; no promotion'}
+          } finally {Pop-Location}
+
+      - name: Report-only export protection
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\equation_probe_reports'
+          if(-not(Test-Path -LiteralPath $folder)){exit 0}
+          $all=@(Get-ChildItem -LiteralPath $folder -File -Recurse)
+          if($all.Count -ne 1 -or $all[0].Name -ne 'summary.json' -or $all[0].Length -gt 16384){
+            throw 'Local model answer export forbidden'
+          }
+          $r=Get-Content -LiteralPath $all[0].FullName -Raw|ConvertFrom-Json
+          if($r.status -ne 'NERAL_V3_EQUATION_REASONING_DEV_DIAGNOSTIC' -or
+             $r.cases -ne 8 -or $r.training_performed -ne $false -or
+             $r.weights_promoted -ne $false -or $r.general_improvement_proven -ne $false){
+            throw 'Invalid benchmark metadata or release claim'
+          }
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "safe=true`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload aggregate counts and digests only
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-equation-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/equation_probe_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
