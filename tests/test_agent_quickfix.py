@@ -102,3 +102,16 @@ def test_quick_fix_rejects_aborted_and_paused_jobs(tmp_path):
     engine.cancel(task["id"])
     with pytest.raises(AgentError):
         engine.propose_fix(task["id"], path="data.json", kind="json_pretty")
+
+def test_large_diff_never_hidden_behind_truncated_approval(tmp_path):
+    target = tmp_path / "big.txt"
+    target.write_text("".join(f"entry {i:04}: BEFORE\n" for i in range(450)))
+    original = target.read_bytes()
+    engine = AgentEngine(tmp_path)
+    job = engine.create("review")
+    with pytest.raises(AgentError, match="Diff"):
+        engine.propose(job["id"], path="big.txt",
+                       content="".join(f"entry {i:04}: AFTER\n" for i in range(450)),
+                       expected_sha=hashlib.sha256(original).hexdigest())
+    assert target.read_bytes() == original
+    assert engine.snapshot(job["id"])["proposal"] is None
