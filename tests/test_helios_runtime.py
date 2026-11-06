@@ -86,3 +86,38 @@ def test_ui_reconnect_and_csp(client):
     assert b'id="reconnect"' in r.data
     assert "script-src 'self'" in r.headers['Content-Security-Policy']
     assert r.headers['X-Frame-Options']=='DENY'
+
+# Every listed data/action endpoint must fail before resource validation if
+# no app session is present. This cannot test cross-user isolation: NERAL has
+# no separate user identities yet.
+@pytest.mark.parametrize("method,path",[
+    ("GET", "/api/projects"),
+    ("POST", "/api/projects"),
+    ("GET", "/api/projects/unknown"),
+    ("POST", "/api/projects/unknown/preview"),
+    ("GET", "/api/chats"),
+    ("POST", "/api/chats/1234567890123456"),
+    ("POST", "/api/generate"),
+    ("POST", "/api/cancel"),
+    ("POST", "/api/model"),
+    ("GET", "/api/info"),
+    ("GET", "/api/metrics"),
+    ("GET", "/api/health"),
+])
+def test_all_user_data_routes_reject_missing_session(method,path):
+    unauthenticated = runtime.app.test_client()
+    response = unauthenticated.open(path, method=method, json={} if method == "POST" else None,
+                                    base_url="http://localhost")
+    assert response.status_code == 401
+    assert response.json["code"] == "session_expired"
+
+
+def test_no_file_upload_surface_or_multipart_project_import(client):
+    from io import BytesIO
+    response = client.post("/api/projects", data={
+        "name": "Untrusted",
+        "file": (BytesIO(b"not-a-safe-file"), "sample.php"),
+    }, content_type="multipart/form-data", base_url="http://localhost")
+    assert response.status_code == 415
+    response = client.post("/api/upload", data=b"file", base_url="http://localhost")
+    assert response.status_code == 404
