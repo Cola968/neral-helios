@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'app.py'
+      - 'agent_mode.py'
+      - 'agent_api.py'
+      - 'agent_quickfix.py'
+      - 'tests/test_agent_quickfix.py'
       - 'phone_gateway.py'
       - 'setup_phone.py'
       - 'billing/**'
@@ -27,6 +31,10 @@ on:
   pull_request:
     paths:
       - 'app.py'
+      - 'agent_mode.py'
+      - 'agent_api.py'
+      - 'agent_quickfix.py'
+      - 'tests/test_agent_quickfix.py'
       - 'phone_gateway.py'
       - 'setup_phone.py'
       - 'billing/**'
@@ -78,8 +86,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install isolated test dependencies
-        run: python -m pip install --disable-pip-version-check pytest cryptography
+        run: python -m pip install --disable-pip-version-check pytest cryptography 'Flask>=3,<4'
       - name: Check HTTP routes, pairing secrets and secret scan behavior
-        run: python -m pytest tests/test_http_security_contract.py tests/test_phone_setup_security.py tests/test_secret_scan.py tests/test_billing_entitlements.py tests/test_billing_server_authority.py tests/test_neral_local_policy.py tests/test_neral_r32_compare.py -q
+        run: python -m pytest tests/test_http_security_contract.py tests/test_phone_setup_security.py tests/test_secret_scan.py tests/test_billing_entitlements.py tests/test_billing_server_authority.py tests/test_neral_local_policy.py tests/test_neral_r32_compare.py tests/test_agent_quickfix.py tests/test_agent_api.py -q
       - name: Scan tracked files and reachable Git history without printing values
         run: python scripts/scan_tracked_secrets.py --history

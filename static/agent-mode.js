@@ -52,6 +52,7 @@
     el('agentResume').disabled = !paused;
     el('agentCancel').disabled = !['running', 'paused', 'awaiting_approval'].includes(status);
     el('agentPreview').disabled = !running;
+    el('agentQuickFix').disabled = !(running || status === 'completed') || working;
     el('agentUndo').disabled = !data.can_undo;
     el('agentApprove').disabled = status !== 'awaiting_approval' || !approval;
     el('agentState').textContent = status + ' · ' + data.steps_completed + '/' + data.plan.length +
@@ -95,6 +96,17 @@
       }
     } catch (error) { message(error); }
     finally { working = false; if (current) update(current); }
+  });
+  el('agentQuickFix').addEventListener('click', async () => {
+    if (!current || !['running', 'completed'].includes(current.status) || working) return;
+    approval = null;
+    try {
+      const data = await request('/api/agent/' + current.id + '/quickfix', {
+        path: el('agentEditPath').value, kind: el('agentFixKind').value
+      });
+      approval = data.proposal?.token || null;
+      update(data);
+    } catch (error) { message(error); }
   });
   el('agentPreview').addEventListener('click', async () => {
     if (!current || current.status !== 'running') return;

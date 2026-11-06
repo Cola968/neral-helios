@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent_quickfix import QuickFixError, build_quick_fix
+
 try:
     import tomllib
 except ImportError:  # pragma: no cover - Python < 3.11
@@ -356,6 +358,7 @@ class AgentEngine:
                 task["status"] = "cancelled"
                 task["proposal"] = None
                 task.pop("_pending", None)
+                task.pop("_after_edit_status", None)
                 self._log(task, "cancel", "ok")
             return self.snapshot(ident)
 
@@ -416,15 +419,55 @@ class AgentEngine:
                 old_text = ""
             if existing == raw:
                 raise AgentError("Datei ist unverändert.")
-            diff = "".join(list(difflib.unified_diff(old_text.splitlines(keepends=True),
-                            content.splitlines(keepends=True), fromfile=path + ":alt", tofile=path + ":neu"))[:400])
+            diff_lines = list(difflib.unified_diff(old_text.splitlines(keepends=True),
+                            content.splitlines(keepends=True), fromfile=path + ":alt", tofile=path + ":neu"))
+            diff = "".join(diff_lines)
+            if len(diff_lines) > 400 or len(diff) > 12000:
+                raise AgentError("Diff ist für eine vollständige Vorschau zu groß. Teile die Änderung auf.")
             token = secrets.token_hex(16)
             task["proposal"] = {"path": path, "expected_sha": expected_sha, "new_sha": self._digest(raw),
-                                "token": token, "diff": diff[:12000], "is_new": existing is None}
+                                "token": token, "diff": diff, "is_new": existing is None}
             task["_pending"] = raw
             task["status"] = "awaiting_approval"
             self._log(task, "preview", "approval_required")
             return self.snapshot(ident)
+
+    def propose_fix(self, ident: str, *, path: str, kind: str) -> dict:
+        """Compute a deterministic fix, then use the normal SHA approval gate.
+
+        Supports completed audits so the user can inspect results first.
+        No file mutation occurs until a separate approve(token) call.
+        """
+        with self._lock:
+            task = self._task(ident)
+            if task["status"] not in {"running", "completed"}:
+                raise AgentError("Quick-Fix nur für aktive oder abgeschlossene Prüfungen.")
+            if time.monotonic() >= task["deadline"]:
+                raise AgentError("Zeitbudget abgelaufen.")
+            file = self.safe_path(path)
+            if not file.is_file():
+                raise AgentError("Quick-Fix benötigt eine vorhandene Textdatei.")
+            size = file.stat().st_size
+            if size > self.MAX_EDIT:
+                raise AgentError("Datei überschreitet Bearbeitungsgrenze.")
+            raw = file.read_bytes()
+            try:
+                original = raw.decode("utf-8")
+                updated = build_quick_fix(path, original, kind)
+            except (UnicodeError, QuickFixError) as exc:
+                raise AgentError(str(exc) if isinstance(exc, QuickFixError)
+                                 else "Datei ist kein UTF-8-Text.") from exc
+            completed = task["status"] == "completed"
+            if completed:
+                task["status"] = "running"
+            try:
+                result = self.propose(ident, path=path, content=updated, expected_sha=self._digest(raw))
+                task["_after_edit_status"] = "completed" if completed else "running"
+                return result
+            except Exception:
+                if completed:
+                    task["status"] = "completed"
+                raise
 
     @staticmethod
     def _atomic_write(file: Path, data: bytes) -> None:
@@ -460,7 +503,7 @@ class AgentEngine:
             task.pop("_pending", None)
             task["undo"] = {"path": p["path"], "old": existing, "new_sha": p["new_sha"]}
             task["proposal"] = None
-            task["status"] = "running"
+            task["status"] = task.pop("_after_edit_status", "running")
             self._log(task, "apply", "ok")
             return self.snapshot(ident)
 
@@ -486,4 +529,5 @@ class AgentEngine:
                 "max_steps": self.MAX_STEPS, "max_file_bytes": self.MAX_READ,
                 "max_edit_bytes": self.MAX_EDIT, "external_model": False,
                 "remote_execution": False, "shell_execution": False,
-                "autonomous_code_generation": False, "approval_required_for_writes": True}
+                "autonomous_code_generation": False, "approval_required_for_writes": True,
+                "reviewed_quick_fixes": ["json_pretty", "python_whitespace", "python_colon"]}

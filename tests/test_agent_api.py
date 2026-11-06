@@ -67,3 +67,44 @@ def test_http_cancel_and_resume(client):
 def test_malicious_paths_not_disclosed(client):
     assert client.post("/api/agent/check", json={"path": "../test.py"}).status_code == 400
     assert client.post("/api/agent/check", json={"path": ".env"}).status_code == 400
+
+def test_http_reviewed_quick_fix_after_audit(client, tmp_path):
+    target = tmp_path / "broken.py"
+    target.write_text("def answer()\n    return 42\n")
+    started = client.post("/api/agent/start", json={"goal": "Prüfe Python", "strategy": "quality"})
+    task = started.json["id"]
+    for _ in range(8):
+        finished = client.post(f"/api/agent/{task}/next", json={})
+        if finished.json["status"] == "completed":
+            break
+    assert finished.json["status"] == "completed"
+    preview = client.post(f"/api/agent/{task}/quickfix", json={
+        "path": "broken.py", "kind": "python_colon"
+    })
+    assert preview.status_code == 200
+    assert preview.json["status"] == "awaiting_approval"
+    assert "def answer():" in preview.json["proposal"]["diff"]
+    assert target.read_text() == "def answer()\n    return 42\n"
+    assert client.post(f"/api/agent/{task}/approve", json={"token": "invalid"}).status_code == 400
+    approve = client.post(f"/api/agent/{task}/approve", json={
+        "token": preview.json["proposal"]["token"]
+    })
+    assert approve.status_code == 200
+    assert approve.json["status"] == "completed"
+    assert target.read_text() == "def answer():\n    return 42\n"
+    assert client.post(f"/api/agent/{task}/undo", json={}).status_code == 200
+    assert target.read_text() == "def answer()\n    return 42\n"
+
+
+def test_http_quickfix_invalid_input_never_writes(client, tmp_path):
+    original = (tmp_path / "entry.py").read_bytes()
+    task = client.post("/api/agent/start", json={"goal": "Review"}).json["id"]
+    for payload in [
+        {"path": "../outside.py", "kind": "python_colon"},
+        {"path": "entry.py", "kind": "execute_script"},
+        {"path": "entry.py", "kind": "python_colon"},
+        {"path": "entry.py", "kind": None},
+    ]:
+        response = client.post(f"/api/agent/{task}/quickfix", json=payload)
+        assert response.status_code == 400
+        assert (tmp_path / "entry.py").read_bytes() == original
