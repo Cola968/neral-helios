@@ -71,11 +71,12 @@ def register_autonomous_agent_api(app, workspace, backend=None):
                        model_identity=("neral_local_adapter_loaded_experimental_not_quality_promoted" if loaded
                                        else "local_adapter_configured_not_yet_loaded" if is_adapter
                                        else "foundation_or_custom_model_not_verified_neral_adapter"),
-                       capabilities=["model_tool_selection", "read", "search", "analyze", "patch_proposal",
+                       capabilities=["model_tool_selection", "read", "search", "web_search_opt_in", "analyze", "patch_proposal",
                                      "solve_math_symbolic", "eval_python_expr", "syntax_check",
                                      "run_isolated_unit_test", "verify_before_finish",
                                      "isolated_docker_tests", "explicit_approval", "cancel", "pause", "resume"],
-                       limitations=["no_browser", "no_shell", "no_unattended_writes", "process_memory_only"])
+                       limitations=["no_browser", "no_shell", "no_unattended_writes", "process_memory_only",
+                                    "web_search_sends_explicit_query_to_duckduckgo_only"])
 
     @app.post("/api/agent/auto/start")
     def autonomous_start():
@@ -84,7 +85,9 @@ def register_autonomous_agent_api(app, workspace, backend=None):
             return err
         return safe_call(lambda: controller.start(data.get("goal"),
                                 test_cases=data.get("test_cases"),
-                                test_path=data.get("test_path")), 201)
+                                test_path=data.get("test_path"),
+                                allow_web_search=data.get("allow_web_search", False),
+                                web_query=data.get("web_query")), 201)
 
     @app.get("/api/agent/auto/<ident>")
     def autonomous_get(ident):
