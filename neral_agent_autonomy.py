@@ -338,9 +338,9 @@ class AutonomousAgent:
                     "wiederhole keine bereits erfolgreichen Prüfschritte.")
         return [
             {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": f"Aufgabe: {job['goal']}\\nNoch verfügbare Entscheidungen: {remaining}\\n"
-                                      f"Bisherige Werkzeugergebnisse: {history}\\n{web_policy}\\n"
-                                      f"{hint}\\nWähle die nächste Aktion."},
+            {"role": "user", "content": f"Aufgabe: {job['goal']}\nNoch verfügbare Entscheidungen: {remaining}\n"
+                                      f"Bisherige Werkzeugergebnisse: {history}\n{web_policy}\n"
+                                      f"{hint}\nWähle die nächste Aktion."},
         ]
 
     def step(self, id: str) -> dict:
