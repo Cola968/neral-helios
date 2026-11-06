@@ -287,7 +287,7 @@ class ContextPriorityRegression(unittest.TestCase):
             parsed = json.loads(packed)
             self.assertEqual(parsed[-1]["action"], "syntax_check")
             self.assertEqual(parsed[-1]["observation"]["status"], "PASSED")
-            self.assertLessEqual(len(packed), 8500)
+            self.assertLessEqual(len(packed), 3500)
 
     def test_required_verification_is_explicit_in_next_step_hint(self):
         model = FakeModel({"action": "finish", "summary": "ok"})
