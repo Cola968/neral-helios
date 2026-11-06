@@ -1,0 +1,87 @@
+name: NERAL NeralTalk350 to Qwen candidate (read-only audit)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Type AUDIT_LOCAL_NERALTALK_ONLY; no GPU training'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-legacy-data-audit
+  cancel-in-progress: false
+
+jobs:
+  select:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_LOCAL_NERALTALK_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout reviewed source from main without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Run pure-CPU schema, holdout and privacy tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $python = Join-Path $assets '.venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Pinned local Python environment missing' }
+          Push-Location 'control'
+          try {
+            & $python -B -m unittest discover -s tests -p 'test_neral_legacy_transfer.py' -v
+            if ($LASTEXITCODE -ne 0) { throw 'Legacy dataset CPU contracts failed' }
+          } finally { Pop-Location }
+      - name: Inspect NeralTalk splits and prepare private 430-row maximum candidate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { 'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $python = Join-Path $assets '.venv\Scripts\python.exe'
+          $source = Join-Path $assets 'frontier350_chat_data\neraltalk350-v3-20261009'
+          $parent = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw 'Original NeralTalk data missing' }
+          if (-not (Test-Path -LiteralPath $parent -PathType Container)) { throw 'Trusted local NERAL research directory missing' }
+          $candidate = Join-Path $parent "legacy-candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $candidate) { throw 'Refusing to overwrite existing candidate' }
+          Push-Location 'control'
+          try {
+            & $python -B scripts\neral_legacy_transfer.py --source-root $source --output-dir $candidate
+            if ($LASTEXITCODE -ne 0) { throw 'NeralTalk review-only candidate preparation failed' }
+          } finally { Pop-Location }
+          $reportDir = Join-Path $env:GITHUB_WORKSPACE 'control\legacy_transfer_report'
+          New-Item -ItemType Directory -Path $reportDir -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $candidate 'summary.json') -Destination (Join-Path $reportDir 'summary.json') -ErrorAction Stop
+      - name: Verify report has no training content or secrets
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportDir = Join-Path $env:GITHUB_WORKSPACE 'control\legacy_transfer_report'
+          if (-not (Test-Path -LiteralPath $reportDir -PathType Container)) { exit 0 }
+          $files = @(Get-ChildItem -LiteralPath $reportDir -File -Recurse)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 8192) { throw 'Unexpected report file' }
+          $report = Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          if ($report.status -ne 'LOCAL_CANDIDATE_REVIEW_REQUIRED' -or $report.approved_for_training -ne $false -or $report.training_performed -ne $false -or $report.holdout_examples_exported -ne 0) { throw 'Unsafe or misleading audit report' }
+          'safe=true' >> $env:GITHUB_OUTPUT
+      - name: Upload counts and hashes only (not dataset)
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-legacy-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/legacy_transfer_report/summary.json
+          retention-days: 14
+          if-no-files-found: error
