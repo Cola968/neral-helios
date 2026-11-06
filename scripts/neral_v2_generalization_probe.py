@@ -59,16 +59,32 @@ SYSTEM = ('Du bist NERAL. Gib die verlangte Ausgabe exakt zurück. '
           'Mathematikaufgaben benötigen nur den verlangten Zahlenwert. '
           'Andere Aufgaben benötigen genau die ausdrücklich verlangte Antwort.')
 
+# Audited, frozen 36-case development catalog; changes require a reviewed PR.
+EXPECTED_CASESET_SHA256 = '971f17ed80991a7a6791cb525a4e0ba95f5cd60ec066816fbca0f2ca190c18c1'
+EXPECTED_BASE_REVISION = 'c03e6d358207e414f1eca0bb1891e29f1db0e242'
+EXPECTED_OLD_ADAPTER_SHA256 = '090aac244e1057c4a0a3a51400ecf0ca3f4619d0ecb0b871f5da27c3825c6a39'
+EXPECTED_V2_ADAPTER_SHA256 = '9c89979280b09e3818f4f408dcce909c1563be7b0c24c949825ec4802600e758'
 
-def checked_cases():
+
+def case_digest(cases, system):
+    canonical = json.dumps({'schema': 1, 'cases': cases, 'system': system},
+                           ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+
+def checked_cases(cases=None):
+    if cases is None:
+        cases = CASES
+    if case_digest(cases, SYSTEM) != EXPECTED_CASESET_SHA256:
+        raise ValueError('Generalization cases differ from reviewed SHA-256')
     seen = set()
-    for case_id, kind, prompt, expected in CASES:
+    for case_id, kind, prompt, expected in cases:
         if case_id in seen or kind not in ('math', 'instruction') or not prompt or not expected:
             raise ValueError('Duplicate or invalid probe case')
         seen.add(case_id)
         if kind == 'math':
             Fraction(expected)
-    return CASES
+    return cases
 
 
 def grade(raw: str, kind: str, expected: str) -> dict:
@@ -103,7 +119,7 @@ def summary(results: dict) -> dict:
                        'correct':sum(v['correct'] for v in by_type.values()),
                        'by_type':dict(sorted(by_type.items()))}
     return {'schema':1,'status':'ADDITIONAL_PUBLIC_GENERALIZATION_DEV_CHECK',
-            'cases':len(expected), 'independent_holdout':False,
+            'cases':len(expected), 'cases_sha256':EXPECTED_CASESET_SHA256, 'independent_holdout':False,
             'general_improvement_proven':False, 'weights_promoted':False,
             'scores':scores}
 
@@ -145,6 +161,10 @@ def main(argv=None):
     s=validate_hf_snapshot(a.base,verify_hashes=True)
     old=check_r32(a.old_r32,s)
     new=check_r16(a.new_r16,s)
+    if (s['revision'] != EXPECTED_BASE_REVISION or
+            old['files']['adapter_model.safetensors'] != EXPECTED_OLD_ADAPTER_SHA256 or
+            new['files']['adapter_model.safetensors'] != EXPECTED_V2_ADAPTER_SHA256):
+        p.error('Unapproved base or adapter SHA-256; inference refused')
     if old['release_validated'] or new['release_validated']:p.error('Research adapters only')
     import torch
     from transformers import Qwen2TokenizerFast
