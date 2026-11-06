@@ -1,8 +1,17 @@
 name: Security regression
 
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
+      - 'app.py'
+      - 'phone_gateway.py'
+      - 'setup_phone.py'
+      - 'billing/**'
+      - 'scripts/scan_tracked_secrets.py'
+      - 'tests/test_phone_setup_security.py'
+      - 'tests/test_secret_scan.py'
+      - 'tests/test_http_security_contract.py'
       - 'security_guard.py'
       - 'code_check.py'
       - 'cyberbench_helios.py'
@@ -10,6 +19,24 @@ on:
       - 'summarize_benchmarks50.py'
       - 'tests/test_security_promotion.py'
       - '.github/workflows/security-regression.yml'
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'phone_gateway.py'
+      - 'setup_phone.py'
+      - 'billing/**'
+      - 'scripts/scan_tracked_secrets.py'
+      - 'tests/test_phone_setup_security.py'
+      - 'tests/test_secret_scan.py'
+      - 'tests/test_http_security_contract.py'
+      - 'security_guard.py'
+      - 'code_check.py'
+      - 'cyberbench_helios.py'
+      - 'promotion_gate50.py'
+      - 'summarize_benchmarks50.py'
+      - 'tests/test_security_promotion.py'
+      - '.github/workflows/security-regression.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,3 +56,20 @@ jobs:
         run: python cyberbench_helios.py --out cyberbench_ci.json
       - name: Run security and promotion tests
         run: python -m pytest tests/test_security_promotion.py -q
+
+  http-and-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated test dependencies
+        run: python -m pip install --disable-pip-version-check pytest cryptography
+      - name: Check HTTP routes, pairing secrets and secret scan behavior
+        run: python -m pytest tests/test_http_security_contract.py tests/test_phone_setup_security.py tests/test_secret_scan.py tests/test_billing_entitlements.py -q
+      - name: Scan tracked files and reachable Git history without printing values
+        run: python scripts/scan_tracked_secrets.py --history
