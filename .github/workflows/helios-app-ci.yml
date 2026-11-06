@@ -1,7 +1,7 @@
 name: Helios app CPU tests
 on:
   pull_request:
-    paths: ['Start-Neral.ps1', 'tests/Test-NeralLauncher.ps1', 'app.py', 'phone_gateway.py', 'setup_phone.py', 'chat_store.py', 'project_store.py', 'storage_codec.py', 'stream_runtime.py', 'model_catalog.py', 'import_neral.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_projects.py', '.github/workflows/helios-app-ci.yml']
+    paths: ['Start-Neral.ps1', 'tests/Test-NeralLauncher.ps1', 'app.py', 'neral_local_chat_api.py', 'neral_agent_autonomy.py', 'tests/test_neral_local_chat_api.py', 'phone_gateway.py', 'setup_phone.py', 'chat_store.py', 'project_store.py', 'storage_codec.py', 'stream_runtime.py', 'model_catalog.py', 'import_neral.py', 'static/**', 'templates/**', 'tests/test_helios*', 'tests/test_projects.py', '.github/workflows/helios-app-ci.yml']
   push:
     branches: [helios-history-markdown-i1-ready]
 permissions:
@@ -20,9 +20,10 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install pytest numpy flask waitress
       - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py
+      - run: python -m pytest -q tests/test_helios_runtime.py tests/test_projects.py tests/test_helios_i1_ready.py tests/test_helios_install.py tests/test_helios_workspace.py tests/test_neral_local_chat_api.py
       - run: node --check static/workspace.js
       - run: node --check static/neral.js
+      - run: node --check static/neral-local-chat.js
       - run: node --check static/projects.js
       - run: node --check static/helios-core.js
       - run: node --test tests/test_helios_history.js
