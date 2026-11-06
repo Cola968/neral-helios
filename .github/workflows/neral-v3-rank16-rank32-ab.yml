@@ -127,6 +127,7 @@ jobs:
             --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
           if($LASTEXITCODE -ne 0){throw 'Pinned rank32 validator or source patch failed'}
           $newtrainer=Join-Path $trainer 'scripts\neral_qlora_v3_rank_ab.py'
+          $env:PYTHONPATH=$control
           & $py -B (Join-Path $control 'scripts\neral_v3_rank_ab_patcher.py') --source $original --out $newtrainer
           if($LASTEXITCODE -ne 0){throw 'Exact reviewed source patch refused'}
           $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
