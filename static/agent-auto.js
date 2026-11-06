@@ -34,6 +34,12 @@
     e.preventDefault();abortRequested=false;
     try{
       const payload={goal:el('agentAutoGoal').value};
+      if(el('agentAutoAllowWeb').checked){
+        const webQuery=el('agentAutoWebQuery').value.trim();
+        if(webQuery.length<2||webQuery.length>160) throw Error('Gib den exakten Web-Suchbegriff (2–160 Zeichen) ein.');
+        payload.allow_web_search=true;
+        payload.web_query=webQuery;
+      }
       const rawTests=el('agentAutoTestCases').value.trim();
       if(rawTests){
         payload.test_cases=rawTests.split(/\r?\n/).map(t=>t.trim()).filter(Boolean);
