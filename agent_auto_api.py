@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 from flask import jsonify, request
 from agent_mode import AgentError
 from neral_agent_autonomy import AutonomousAgent, OllamaLocalBackend, AgentModelError
+from neral_mission_journal import MissionJournal
 
 
 def register_autonomous_agent_api(app, workspace, backend=None):
@@ -44,6 +46,8 @@ def register_autonomous_agent_api(app, workspace, backend=None):
         else:
             raise ValueError("Unbekanntes lokales Agentenmodell.")
     controller = AutonomousAgent(workspace, backend)
+    journal_path = os.environ.get("NERAL_MISSION_JOURNAL_PATH")
+    journal = MissionJournal(journal_path) if journal_path else None
 
     def request_json():
         if not request.is_json:
@@ -53,12 +57,20 @@ def register_autonomous_agent_api(app, workspace, backend=None):
             return None, (jsonify(error="JSON-Objekt erforderlich."), 400)
         return data, None
 
-    def safe_call(fn, status=200):
+    def safe_call(fn, status=200, *, record=False):
         try:
-            return jsonify(fn()), status
+            response = fn()
+            if record and journal is not None:
+                try:
+                    journal.record(response)
+                except (sqlite3.Error, OSError):
+                    # Report persistence failure without hiding an agent action
+                    # that may already have completed (including a file edit).
+                    response = dict(response, mission_history_saved=False)
+            return jsonify(response), status
         except AgentError as exc:
             return jsonify(error=str(exc)), 400
-        except (OSError, UnicodeError):
+        except (OSError, UnicodeError, sqlite3.Error):
             return jsonify(error="Lokale Verarbeitung fehlgeschlagen."), 409
 
     @app.get("/api/agent/auto/status")
@@ -72,15 +84,22 @@ def register_autonomous_agent_api(app, workspace, backend=None):
                                        else "local_adapter_configured_not_yet_loaded" if is_adapter
                                        else "foundation_or_custom_model_not_verified_neral_adapter"),
                        capabilities=["model_tool_selection", "read", "search", "solve", "analyze", "patch_proposal",
-                                     "isolated_docker_tests", "explicit_approval", "cancel", "pause", "resume"],
-                       limitations=["no_browser", "no_shell", "no_unattended_writes", "process_memory_only"])
+                                     "isolated_docker_tests", "explicit_approval", "cancel", "pause", "resume"] +
+                                    (["local_metadata_history"] if journal is not None else []),
+                       limitations=["no_browser", "no_shell", "no_unattended_writes", "process_memory_only"] +
+                                   (["history_does_not_resume_jobs"] if journal is not None else ["history_disabled_by_default"]))
+
+    @app.get("/api/agent/auto/history")
+    def autonomous_history():
+        return safe_call(lambda: {"enabled": journal is not None,
+                                  "missions": journal.list_recent() if journal is not None else []})
 
     @app.post("/api/agent/auto/start")
     def autonomous_start():
         data, err = request_json()
         if err:
             return err
-        return safe_call(lambda: controller.start(data.get("goal")), 201)
+        return safe_call(lambda: controller.start(data.get("goal")), 201, record=True)
 
     @app.get("/api/agent/auto/<ident>")
     def autonomous_get(ident):
@@ -107,5 +126,5 @@ def register_autonomous_agent_api(app, workspace, backend=None):
             if action == "reject":
                 return controller.reject(ident)
             return controller.approve(ident, data.get("token"))
-        return safe_call(do)
+        return safe_call(do, record=True)
     return controller
