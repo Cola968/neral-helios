@@ -64,7 +64,57 @@ jobs:
           V2_RUN: ${{ inputs.v2_run_id }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if($env:V2_RUN -notmatch '^[0-9]{8,14}$'){throw 'Run ID must be strictly numeric'}
+          if($env:V2_RUN -notmatch '^[0-9]{8,14}
+          $trainer = Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control = Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $env:PYTHONPATH = $trainer
+          & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') `
+            --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+            --output (Join-Path $trainer 'scripts\neral_qlora_rank32_pilot.py') `
+            --validator (Join-Path $trainer 'neral_adapter_candidate.py') `
+            --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'Original rank32 model integrity not verifiable'}
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $old=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          $new=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v2-$env:V2_RUN-1\adapter"
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\generalization-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $summary=Join-Path $control 'generalization_reports\summary.json'
+          if(Test-Path -LiteralPath $out){throw 'No existing local evaluation output may be overwritten'}
+          & $py -B (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $base
+          if($LASTEXITCODE -ne 0){throw 'Qwen snapshot integrity gate rejected'}
+          $free=(& nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | Select-Object -First 1)
+          if($LASTEXITCODE -ne 0 -or [int]$free.Trim() -lt 10000){throw 'Insufficient free GPU memory for comparison'}
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v2_generalization_probe `
+              --base $base --old-r32 $old --new-r16 $new --trainer-root $trainer --out $out --summary $summary
+            if($LASTEXITCODE -ne 0){throw 'Read-only generalization inference failed'}
+          } finally {Pop-Location}
+      - name: Enforce report-only export (never upload generated answers or model weights)
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\generalization_reports'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -File -Recurse)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 16384){throw 'Non-scalar output forbidden'}
+          $report=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          if($report.cases_sha256 -ne '971f17ed80991a7a6791cb525a4e0ba95f5cd60ec066816fbca0f2ca190c18c1' -or `
+             $report.status -ne 'ADDITIONAL_PUBLIC_GENERALIZATION_DEV_CHECK' -or `
+             $report.general_improvement_proven -ne $false -or $report.weights_promoted -ne $false -or `
+             $report.independent_holdout -ne $false){throw 'Misleading public quality gate'}
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "safe=true`n", [System.Text.UTF8Encoding]::new($false))
+      - name: Upload scalar counts only
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-generalization-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/generalization_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error){throw 'Run ID must be strictly numeric'}
+          if($env:V2_RUN -ne '42264245416'){throw 'Unapproved v2 training run ID'}
           $trainer = Join-Path $env:GITHUB_WORKSPACE 'trainer'
           $control = Join-Path $env:GITHUB_WORKSPACE 'control'
           $py = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
