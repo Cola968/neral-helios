@@ -208,3 +208,22 @@ class AdditionalSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             agent.approve(ident, proposal["token"])
         self.assertFalse((self.root / "new.py").exists())
+
+
+class WindowsLineEndingRegression(unittest.TestCase):
+    def test_raw_crlf_read_version_is_used_for_compare_and_swap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "windows.py").write_bytes(b"def result():\r\n    return 1\r\n")
+            backend = FakeModel(
+                {"action":"read","path":"windows.py"},
+                {"action":"propose_edit","path":"windows.py",
+                 "content":"def result():\n    return 2\n"},
+            )
+            agent = AutonomousAgent(root, backend)
+            task = agent.start("Patch CRLF")["id"]
+            response = agent.run(task)
+            self.assertEqual(response["status"], "awaiting_approval", response["history"])
+            self.assertIn("proposal", response)
+            self.assertEqual((root / "windows.py").read_bytes(),
+                             b"def result():\r\n    return 1\r\n")

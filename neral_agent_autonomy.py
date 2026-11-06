@@ -296,7 +296,9 @@ class AutonomousAgent:
             if file.suffix.lower() not in self.READ_EXTENSIONS or not file.is_file():
                 raise AgentError("Datei nicht freigegeben.")
             data = self.engine._read(file)
-            job["reads"][path] = self.engine._digest(data.encode("utf-8"))
+            # Hash the raw file bytes, not read_text()'s universal-newline
+            # normalization (which changes CRLF to LF on Windows).
+            job["reads"][path] = self.engine._digest(file.read_bytes())
             return {"file": path, "sha256": job["reads"][path],
                     "preview": data[:5000], "truncated": len(data) > 5000}
         if action == "search":
