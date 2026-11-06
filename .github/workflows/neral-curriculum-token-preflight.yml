@@ -1,0 +1,115 @@
+name: NERAL 1000 synthetic rows Qwen tokenizer preflight (no training)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_curriculum_preflight.py'
+      - 'tests/test_neral_curriculum_preflight.py'
+      - 'datasets/neral_curriculum_v1/**'
+      - '.github/workflows/neral-curriculum-token-preflight.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Read-only local verification: RUN_NERAL_1000_TOKEN_PREFLIGHT'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  cpu-contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Verify exact data pins and mock completion-mask gates
+        run: python -m pytest -q tests/test_neral_curriculum_preflight.py tests/test_neral_curriculum.py
+      - name: Check Python syntax
+        run: python -m py_compile scripts/neral_curriculum_preflight.py
+
+  local-qwen-tokenizer:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_NERAL_1000_TOKEN_PREFLIGHT'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      WANDB_MODE: 'disabled'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_READ_ONLY: '1'
+    steps:
+      - name: Checkout reviewed NERAL control source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout original pinned QLoRA runtime
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Normalize exact Git blob bytes in scratch checkouts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach($name in @('control','trainer')){
+            $root = Join-Path $env:GITHUB_WORKSPACE $name
+            & git -C $root -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Scratch checkout normalization failed'}
+          }
+      - name: Verify local tokenizer and every completion boundary
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $control = Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer = Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $py = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $model = Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $reportdir = Join-Path $control 'neral_curriculum_token_reports'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or -not(Test-Path -LiteralPath $model -PathType Container)){throw 'Only existing local Python and Qwen snapshot are allowed'}
+          if(Test-Path -LiteralPath $reportdir){throw 'Existing report output cannot be overwritten'}
+          New-Item -ItemType Directory -Path $reportdir | Out-Null
+          $env:PYTHONPATH = $control
+          & $py -B (Join-Path $control 'scripts\neral_curriculum_preflight.py') --data (Join-Path $control 'datasets\neral_curriculum_v1') --trainer-root $trainer --model-dir $model --summary (Join-Path $reportdir 'summary.json')
+          if($LASTEXITCODE -ne 0){throw 'Local completion-only tokenizer check failed; no training performed'}
+      - name: Verify scalar-only report
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'control\neral_curriculum_token_reports'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files = @(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 16000){throw 'Private or oversized artifact upload blocked'}
+          $data = Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          $allow = @('schema','status','rows','total_rows','trainable_examples','max_length','source_git_blob_pins','files_sha256','token_stats','tokenizer_contract_checked','completion_only_mask_checked','local_qwen_tokenizer_verified','training_allowed','training_performed','adapter_modified','new_adapter_quality_proven','uploaded_user_data','base_revision')
+          $keys = @($data.PSObject.Properties.Name)
+          if(@($keys | Where-Object {$_ -notin $allow}).Count -ne 0 -or $data.status -ne 'LOCAL_QWEN_TOKENIZER_PREFLIGHT_PASSED' -or $data.total_rows -ne 1000 -or $data.trainable_examples -ne 800 -or $data.local_qwen_tokenizer_verified -ne $true -or $data.completion_only_mask_checked -ne $true -or $data.training_performed -ne $false -or $data.adapter_modified -ne $false -or $data.training_allowed -ne $false -or $data.uploaded_user_data -ne $false){throw 'Report is not a reviewed no-training tokenizer result'}
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload only aggregate token counts and file hashes
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-curriculum-tokenizer-scalar
+          path: control/neral_curriculum_token_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
