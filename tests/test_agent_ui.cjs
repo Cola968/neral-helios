@@ -12,8 +12,15 @@ function harness() {
       elements.set(id, {
         id, hidden:id==='agentPanel', disabled:false, value:'',
         textContent:'', handlers, classList:{add(){},remove(){}},
-        addEventListener(name, cb){ handlers[name]=cb; },
-        async emit(name){ return handlers[name]?.({preventDefault(){}}); }
+        addEventListener(name, cb, capture=false){
+          (handlers[name] ||= []).push({cb,capture});
+        },
+        async emit(name){
+          const event = {preventDefault(){}};
+          for (const h of (handlers[name] || []).filter(x => x.capture)) await h.cb(event);
+          if (name === 'click' && this.onclick) await this.onclick(event);
+          for (const h of (handlers[name] || []).filter(x => !x.capture)) await h.cb(event);
+        }
       });
     }
     return elements.get(id);
@@ -66,4 +73,17 @@ test('agent runs a bounded multi-step plan and disables finished execution', asy
   assert.match(el('agentState').textContent,/completed/);
   assert.equal(el('agentAll').disabled,true);
   assert.match(el('agentEvidence').textContent,/inventory/);
+});
+
+
+test('switching from agent to projects does not get undone by view restoration', async () => {
+  const {el} = harness();
+  el('projectShortcut').onclick = () => {
+    el('projectWorkspace').hidden = false;
+    el('welcome').hidden = true;
+  };
+  await el('agentView').emit('click');
+  await el('projectShortcut').emit('click');
+  assert.equal(el('agentPanel').hidden, true);
+  assert.equal(el('projectWorkspace').hidden, false);
 });
