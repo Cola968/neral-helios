@@ -152,6 +152,7 @@ def evaluate_variant(model,tokenizer,suites):
                 out=model.generate(ids,attention_mask=torch.ones_like(ids),
                     do_sample=False,max_new_tokens=144,pad_token_id=tokenizer.pad_token_id)
             raw=tokenizer.decode(out[0,ids.shape[-1]:],skip_special_tokens=True)
+            del out, ids
             correct,fmt=suite_score(case,raw)
             gathered.append({'id':case['id'],'correct':bool(correct),'format_valid':bool(fmt),
                              'answer_sha256':hashlib.sha256(raw.encode('utf8')).hexdigest(),
@@ -165,7 +166,11 @@ def main(argv=None):
     p=argparse.ArgumentParser(allow_abbrev=False)
     for name in ('base','rank16','rank32','trainer-root','data-root','out'):
         p.add_argument('--'+name,required=True,type=Path)
+    p.add_argument('--variant',choices=MODEL_KEYS,default=None)
+    p.add_argument('--combine-results',action='store_true')
     a=p.parse_args(argv)
+    if a.variant and a.combine_results:
+        p.error('Choose variant or combine, not both')
     if a.out.exists() or a.out.is_symlink() or not a.out.parent.is_dir():
         p.error('Evaluation directory must be new')
     ensure_pinned_model_runtime(a.trainer_root)
@@ -195,11 +200,47 @@ def main(argv=None):
     suites=build_suites(val_rows,train_rows)
     if len(suites['math80'])!=80 or len(suites['phrasing36'])!=36:
         p.error('Known development suites changed')
+    if a.combine_results:
+        from scripts.neral_v3_eval_isolation import collect_variant_outputs
+        val_sha=hashlib.sha256(validation.read_bytes()).hexdigest()
+        results=collect_variant_outputs(a.out.parent,{k:len(v) for k,v in suites.items()},
+            v16['files']['adapter_model.safetensors'],
+            v32['files']['adapter_model.safetensors'],val_sha)
+        # No CUDA model is ever loaded when combining child-process outputs.
+        report=summarize(results,{k:len(v) for k,v in suites.items()})
+        report['adapter_16_sha256']=v16['files']['adapter_model.safetensors']
+        report['adapter_32_sha256']=v32['files']['adapter_model.safetensors']
+        report['validation_sha256']=val_sha
+        a.out.mkdir(exist_ok=False)
+        (a.out/'summary.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
+        print(json.dumps(report,ensure_ascii=False),flush=True)
+        return
     tokenizer=Qwen2TokenizerFast.from_pretrained(str(a.base),local_files_only=True,trust_remote_code=False,token=False)
     if tokenizer.pad_token is None:tokenizer.pad_token=tokenizer.eos_token
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         p.error('CUDA BF16 required')
     a.out.mkdir(exist_ok=False)
+    if a.variant:
+        from scripts.neral_v3_eval_isolation import clean_cuda, prepare_cuda
+        model=None
+        prepare_cuda(torch)
+        try:
+            model=_load_model(a.base)
+            if a.variant!='base':
+                adapter=a.rank16 if a.variant=='rank16_v3' else a.rank32
+                model=PeftModel.from_pretrained(model,str(adapter),is_trainable=False,local_files_only=True)
+            results=evaluate_variant(model,tokenizer,suites)
+            record={'model':a.variant,'results':results,
+                'adapter16_sha256':v16['files']['adapter_model.safetensors'],
+                'adapter32_sha256':v32['files']['adapter_model.safetensors'],
+                'validation_sha256':hashlib.sha256(validation.read_bytes()).hexdigest()}
+            (a.out/'local-outputs.json').write_text(json.dumps(record,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
+            print('Completed variant '+a.variant+'; raw answers kept on Windows only',flush=True)
+        finally:
+            if model is not None:
+                del model
+            clean_cuda(torch)
+        return
     results={}
     for rank,label in [(16,'rank16_v3'),(32,'rank32_v3')]:
         torch.cuda.empty_cache()
