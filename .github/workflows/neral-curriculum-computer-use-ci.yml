@@ -1,0 +1,58 @@
+name: NERAL computer-use and curriculum CPU contracts
+
+on:
+  pull_request:
+    paths:
+      - 'computer_use.py'
+      - 'computer_api.py'
+      - 'app.py'
+      - 'templates/index.html'
+      - 'static/computer-use.js'
+      - 'datasets/neral_curriculum_v1/**'
+      - 'scripts/validate_neral_curriculum.py'
+      - 'tests/test_computer_use.py'
+      - 'tests/test_computer_api.py'
+      - 'tests/test_neral_curriculum.py'
+      - '.github/workflows/neral-curriculum-computer-use-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'computer_use.py'
+      - 'computer_api.py'
+      - 'static/computer-use.js'
+      - 'datasets/neral_curriculum_v1/**'
+      - 'scripts/validate_neral_curriculum.py'
+      - 'tests/test_computer_use.py'
+      - 'tests/test_computer_api.py'
+      - 'tests/test_neral_curriculum.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-cpu-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only test requirements
+        run: python -m pip install --disable-pip-version-check 'Flask>=3,<4' pytest
+      - name: Verify 1,000 synthetic QLoRA rows and answer integrity
+        run: python scripts/validate_neral_curriculum.py --data datasets/neral_curriculum_v1
+      - name: Run desktop and training-data contract tests
+        run: python -m pytest -q tests/test_computer_use.py tests/test_computer_api.py tests/test_neral_curriculum.py
+      - name: Check computer-use JavaScript syntax
+        run: node --check static/computer-use.js
+      - name: Ensure no default desktop activation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          script=Path('app.py').read_text()
+          assert 'NERAL_ENABLE_COMPUTER_USE' in script
+          assert 'register_computer_api(' in script
+          assert 'enabled=os.environ.get("NERAL_ENABLE_COMPUTER_USE") == "1"' in script
+          PY
