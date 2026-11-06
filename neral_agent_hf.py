@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 
 from neral_agent_autonomy import AgentModelError
@@ -48,6 +49,8 @@ class HFAdapterLocalBackend:
         self.max_new_tokens = max_new_tokens
         self._model = None
         self._tokenizer = None
+        # Shared by NERAL chat and agent: never load/generate twice on 12 GB GPU.
+        self._inference_lock = threading.Lock()
 
     def _load(self):
         if self._model is not None:
@@ -81,6 +84,10 @@ class HFAdapterLocalBackend:
         self._model = model
 
     def respond(self, messages: list[dict]) -> str:
+        with self._inference_lock:
+            return self._respond_once(messages)
+
+    def _respond_once(self, messages: list[dict]) -> str:
         try:
             self._load()
             import torch
