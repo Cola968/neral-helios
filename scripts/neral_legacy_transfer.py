@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 import unicodedata
 
 SPLITS = ("train", "val", "test")
@@ -250,6 +251,7 @@ def main(argv=None):
     scan = scan_legacy_dataset(args.source_root)
     blocked = set()
     try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from scripts.neral_r32_compare import TASKS as DEV_CODING_TASKS
         blocked.update(_digest(_canonical(t[1])) for t in DEV_CODING_TASKS)
     except ImportError:

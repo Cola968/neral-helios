@@ -1,5 +1,8 @@
 """Contracts for import of historic, local NeralTalk350 train examples."""
 import json
+import subprocess
+import shutil
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -27,6 +30,23 @@ def make_root(parent, train, val=None, test=None):
 
 
 class LegacyTransfer(unittest.TestCase):
+    def test_direct_script_execution_resolves_sibling_comparison_module(self):
+        with TemporaryDirectory() as tmp:
+            root = make_root(tmp, [row(i+1000) for i in range(105)])
+            out = Path(tmp) / "new_candidate"
+            original = Path(__file__).resolve().parents[1] / "scripts" / "neral_legacy_transfer.py"
+            scripts = Path(tmp) / "standalone" / "scripts"
+            scripts.mkdir(parents=True)
+            script = scripts / "neral_legacy_transfer.py"
+            shutil.copyfile(original, script)
+            (scripts / "neral_r32_compare.py").write_text("TASKS = [('x','Test-only prompt','')]\n", encoding="utf-8")
+            process = subprocess.run([sys.executable, "-B", str(script),
+                                      "--source-root", str(root), "--output-dir", str(out)],
+                                     capture_output=True, text=True, timeout=15)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertEqual(validate_export(out / "candidate.jsonl"), 105)
+            self.assertFalse(json.loads((out / "summary.json").read_text())["approved_for_training"])
+
     def test_no_import_from_val_test_even_with_distinct_answers(self):
         with TemporaryDirectory() as tmp:
             train = [row(1, prompt="Doppelte Frage"), row(2, prompt="Einzigartige Frage")]
