@@ -12,8 +12,8 @@ from scripts.neral_v3_token_audit import (
 
 
 def audit(root: Path, base: Path, folder: Path) -> dict:
-    from model_catalog import validate_hf_snapshot
     trainer=load_pinned_trainer(root)
+    from model_catalog import validate_hf_snapshot
     snapshot=validate_hf_snapshot(base, verify_hashes=True)
     if snapshot.get('revision')!=PINNED_BASE_REVISION or snapshot.get('base_model')!=MODEL_ID:
         raise ValueError('Unpinned base model')
