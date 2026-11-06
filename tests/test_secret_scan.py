@@ -38,3 +38,12 @@ def test_git_history_detects_removed_key_without_printing_it(tmp_path):
     findings = scan_history(repo)
     assert any(f[1] == "example.py" and f[3] == "github_classic_token" for f in findings)
     assert secret not in repr(findings)
+
+def test_known_pytest_fixture_only_ignored_in_exact_historical_report():
+    synthetic = "AKIA" + "A" * 16
+    report = '<testcase classname="tests.test_regressions" name="test_secret_redaction[' + synthetic + ']" />'
+    assert not scan_text(report, "evidence/reports/pytest_50.xml")
+    assert scan_text(report, "other/untrusted.xml")
+    assert scan_text(synthetic, "evidence/reports/pytest_50.xml")
+    assert scan_text(report.replace(synthetic, "AKIA" + "B" * 16),
+                     "evidence/reports/pytest_50.xml")
