@@ -107,6 +107,9 @@ def test_status_does_not_claim_adapter_loaded_before_backend_load():
 def test_runtime_inherits_local_http_session_and_origin_guards(monkeypatch):
     import app as runtime
     monkeypatch.setattr(runtime.autonomous_agent.backend,"respond",lambda messages:"Nur lokal.")
+    if hasattr(runtime.autonomous_agent.backend, "respond_chat"):
+        monkeypatch.setattr(runtime.autonomous_agent.backend, "respond_chat",
+                            lambda messages:"Nur lokal.")
     client=runtime.app.test_client()
     assert client.post("/api/neral/chat/generate",json={"prompt":"test"},base_url="http://localhost").status_code == 401
     client.get("/",base_url="http://localhost")
@@ -127,3 +130,51 @@ def test_ui_offers_explicit_adapter_chat_without_external_api():
     assert "/api/neral/chat/generate" in js
     assert "innerHTML" not in js
     assert "model_origin" in js
+
+def test_ollama_agent_still_requires_json_but_chat_uses_plain_prose(monkeypatch):
+    import json
+    import neral_agent_autonomy
+    from neral_agent_autonomy import OllamaLocalBackend
+
+    calls=[]
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def read(self,n): return b'{"message":{"content":"Hallo aus dem lokalen Modell."}}'
+    class FakeOpener:
+        def open(self,request,timeout):
+            assert request.full_url == OllamaLocalBackend.ENDPOINT
+            calls.append(json.loads(request.data))
+            return FakeResponse()
+    monkeypatch.setattr(neral_agent_autonomy, "local_only_opener", lambda:FakeOpener())
+    model=OllamaLocalBackend("qwen3.5:9b")
+    assert model.respond_chat([{"role":"user","content":"Guten Tag"}]).startswith("Hallo")
+    assert "format" not in calls[-1]
+    model.respond([{"role":"user","content":"Wähle ein Tool"}])
+    assert calls[-1]["format"] == "json"
+    assert calls[-1]["stream"] is False
+
+
+def test_ollama_native_chat_endpoint_uses_prose_mode(monkeypatch):
+    import json
+    import neral_agent_autonomy
+    from neral_agent_autonomy import OllamaLocalBackend
+
+    requests=[]
+    class Answer:
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+        def read(self,n):return b'{"message":{"content":"Ja, rein lokal."}}'
+    class Opener:
+        def open(self,req,timeout):
+            requests.append(json.loads(req.data))
+            return Answer()
+    monkeypatch.setattr(neral_agent_autonomy,"local_only_opener",lambda:Opener())
+    backend=OllamaLocalBackend("qwen3.5:9b")
+    app=Flask("ollama-native-conversation")
+    register_neral_local_chat_api(app,backend)
+    resp=app.test_client().post("/api/neral/chat/generate",json={"prompt":"Test"})
+    assert resp.status_code == 200
+    assert resp.json["text"] == "Ja, rein lokal."
+    assert resp.json["model_origin"] == "local_foundation_not_neral_adapter"
+    assert "format" not in requests[0]
