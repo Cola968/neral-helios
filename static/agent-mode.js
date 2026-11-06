@@ -29,7 +29,8 @@
   btn.addEventListener('click', show);
   el('agentClose').addEventListener('click', close);
   for (const id of ['chatView', 'projectShortcut', 'openProjects', 'welcomeProjects', 'closeProjects']) {
-    el(id)?.addEventListener('click', close);
+    // Close before the existing view handler toggles its own surfaces.
+    el(id)?.addEventListener('click', close, true);
   }
 
   async function request(path, payload) {
