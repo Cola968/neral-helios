@@ -264,7 +264,7 @@ class AutonomousAgent:
                 action = command["action"]
                 if action not in self.TOOL_NAMES:
                     raise AgentModelError("Unbekanntes Werkzeug.")
-                signature = json.dumps({k: command.get(k) for k in ("action", "path", "query")}, sort_keys=True)
+                signature = json.dumps({k: command.get(k) for k in ("action", "path", "query", "expression")}, sort_keys=True)
                 if signature == job["last_action"]:
                     job["duplicates"] += 1
                 else:
