@@ -1,0 +1,127 @@
+name: NERAL 32-case local Qwen versus adapter comparison
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_generalization_probe.py'
+      - 'scripts/neral_generalization_gpu.py'
+      - 'scripts/neral_generalization_validate_report.py'
+      - 'tests/test_neral_generalization_probe.py'
+      - 'tests/test_neral_generalization_gpu.py'
+      - '.github/workflows/neral-32-local-comparison.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Read-only local model comparison: RUN_NERAL_LOCAL_32_DEV_COMPARE'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  cpu-contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Minimal CPU dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Verify 32-task evaluation, scoring and scalar reports
+        run: python -m pytest -q tests/test_neral_generalization_probe.py tests/test_neral_generalization_gpu.py
+      - name: Python syntax
+        run: python -m py_compile scripts/neral_generalization_probe.py scripts/neral_generalization_gpu.py scripts/neral_generalization_validate_report.py
+
+  local-paired-evaluation:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_NERAL_LOCAL_32_DEV_COMPARE'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      WANDB_MODE: 'disabled'
+      NERAL_READ_ONLY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout reviewed code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout immutable pinned Qwen trainer
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Restore and validate source before model loading
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer = Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control = Join-Path $env:GITHUB_WORKSPACE 'control'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local environment missing'}
+          foreach($root in @($control,$trainer)){
+            & git -C $root -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Scratch Git normalization failed'}
+          }
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Immutable trainer verification failed'}
+          & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') --output (Join-Path $trainer 'scripts\neral_qlora_rank32_smoke.py') --validator (Join-Path $trainer 'neral_adapter_candidate.py') --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'Pinned rank32 validator creation failed'}
+      - name: Paired read-only local Qwen and NERAL adapter inference
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $control = Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer = Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $base = Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $adapter = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          if(-not(Test-Path -LiteralPath (Join-Path $adapter 'adapter_model.safetensors') -PathType Leaf)){throw 'Experimental adapter not installed'}
+          if(-not(Test-Path -LiteralPath $base -PathType Container)){throw 'Immutable Qwen base missing'}
+          $reportdir = Join-Path $control 'neral32_scalar_reports'
+          if(Test-Path -LiteralPath $reportdir){throw 'Refuse to overwrite earlier reports'}
+          New-Item -ItemType Directory -Path $reportdir -ErrorAction Stop | Out-Null
+          $env:PYTHONPATH = $control + [IO.Path]::PathSeparator + $trainer
+          & $py -B (Join-Path $control 'scripts\neral_generalization_gpu.py') --base $base --adapter $adapter --trainer-root $trainer --summary (Join-Path $reportdir 'summary.json') --max-new-tokens 160
+          if($LASTEXITCODE -ne 0){throw 'Local paired development comparison failed'}
+      - name: Deny all private data/model/response uploads
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $dir=Join-Path $control 'neral32_scalar_reports'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 12000){throw 'Unapproved artifact export blocked'}
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $env:PYTHONPATH=$control
+          & $py -B -m scripts.neral_generalization_validate_report --summary (Join-Path $dir 'summary.json')
+          if($LASTEXITCODE -ne 0){throw 'Unexpected report fields or false claims'}
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload numeric scores only
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral32-internal-dev-scores
+          path: control/neral32_scalar_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
