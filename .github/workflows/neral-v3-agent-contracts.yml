@@ -12,7 +12,10 @@ on:
       - 'benchmarks/neral_agent_coding_suite.json'
       - 'scripts/build_neral_agent_coding_suite.py'
       - 'scripts/neral_v3_combined.py'
+      - 'scripts/neral_v3_rank32_patch.py'
+      - '.github/workflows/neral-v3-combined-r32.yml'
       - 'tests/test_neral_agent_*.py'
+      - 'tests/test_neral_v3_*.py'
       - 'tests/test_neral_isolated_unit.py'
       - '.github/workflows/neral-v3-agent-contracts.yml'
 permissions:
@@ -23,6 +26,11 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -37,5 +45,8 @@ jobs:
           python -m unittest discover -s tests -p test_neral_agent_verify.py -q
           python -m unittest discover -s tests -p test_neral_isolated_unit.py -q
           python -m unittest discover -s tests -p test_neral_agent_coding_suite.py -q
+          python -m unittest discover -s tests -p test_neral_v3_combined.py -q
+          NERAL_PINNED_TRAINER_ROOT=trainer python -m unittest discover -s tests -p test_neral_v3_rank32_patch.py -q
+          python -m unittest discover -s tests -p test_neral_v3_workflow_schema.py -q
       - run: node --check static/agent-auto.js
       - run: python -m compileall -q neral_agent_math.py neral_agent_autonomy.py neral_agent_sandbox.py agent_auto_api.py scripts
