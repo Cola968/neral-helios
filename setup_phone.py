@@ -21,9 +21,15 @@ def setup(host,root):
     if (address.version != 4 or not address.is_private or address.is_loopback
             or address.is_unspecified or address.is_link_local):
         raise ValueError('Use a concrete private IPv4 LAN address')
-    root=Path(root).resolve();root.mkdir(parents=True,exist_ok=True,mode=0o700)
-    if os.name != "nt":root.chmod(0o700)
+    root=Path(root).resolve()
+    existing = root.exists()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
     if (root/'config.json').exists():raise ValueError('Phone credentials already exist; reuse the existing setup')
+    if os.name != "nt":
+        if existing and root.stat().st_mode & 0o077:
+            raise PermissionError('Existing phone setup directory must be private (0700)')
+        if not existing:
+            root.chmod(0o700)
     now=datetime.datetime.now(datetime.timezone.utc)
     ca_key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
     name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'Neral Local Device CA')])
