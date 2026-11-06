@@ -52,14 +52,23 @@ class OllamaLocalBackend:
         self.timeout = timeout
 
     def respond(self, messages: list[dict]) -> str:
+        # Agent tool selection needs a strict JSON response.
+        return self._respond(messages, require_json=True)
+
+    def respond_chat(self, messages: list[dict]) -> str:
+        # Conversational replies are regular prose, not a forced JSON object.
+        return self._respond(messages, require_json=False)
+
+    def _respond(self, messages: list[dict], *, require_json: bool) -> str:
         request_data = {
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "format": "json",
             "options": {"temperature": 0, "num_predict": 512},
             "keep_alive": "5m",
         }
+        if require_json:
+            request_data["format"] = "json"
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
