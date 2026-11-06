@@ -19,7 +19,8 @@ class FakeTokenizer:
 
 def test_all_1000_rows_have_completion_only_training_boundary():
     report=prepare_report(DATA, FakeTokenizer(), "PINNED_TEMPLATE", max_length=512)
-    assert report["status"] == "LOCAL_QWEN_TOKENIZER_PREFLIGHT_PASSED"
+    assert report["status"] == "TOKENIZER_INTERFACE_PASSED_NOT_MODEL_VERIFIED"
+    assert report["local_qwen_tokenizer_verified"] is False
     assert report["rows"] == {"train":800,"val":100,"test":100}
     assert report["tokenizer_contract_checked"] is True
     assert report["completion_only_mask_checked"] is True
