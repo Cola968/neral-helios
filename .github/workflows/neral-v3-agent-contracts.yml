@@ -13,6 +13,7 @@ on:
       - 'scripts/build_neral_agent_coding_suite.py'
       - 'scripts/neral_v3_combined.py'
       - 'scripts/neral_v3_rank32_patch.py'
+      - 'scripts/neral_v3_token_check.py'
       - '.github/workflows/neral-v3-combined-r32.yml'
       - 'tests/test_neral_agent_*.py'
       - 'tests/test_neral_v3_*.py'
@@ -47,6 +48,7 @@ jobs:
           python -m unittest discover -s tests -p test_neral_agent_coding_suite.py -q
           python -m unittest discover -s tests -p test_neral_v3_combined.py -q
           NERAL_PINNED_TRAINER_ROOT=trainer python -m unittest discover -s tests -p test_neral_v3_rank32_patch.py -q
+          python -m unittest discover -s tests -p test_neral_v3_token_check.py -q
           python -m unittest discover -s tests -p test_neral_v3_workflow_schema.py -q
       - run: node --check static/agent-auto.js
       - run: python -m compileall -q neral_agent_math.py neral_agent_autonomy.py neral_agent_sandbox.py agent_auto_api.py scripts
