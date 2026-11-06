@@ -8,7 +8,7 @@ def _insert_implicit_multiplication(expression: str) -> str:
     Caller must validate the input character allowlist before this operation.
     Unary -x already has correct exact AST semantics; no text expansion needed.
     """
-    return re.sub(r'(?<=\\d)\\s*(?=[x(])', '*', expression)
+    return re.sub(r'(?<=\d)\s*(?=[x(])', '*', expression)
 
 def arithmetic(expression:str)->dict:
     expression=re.sub(r'^\s*SOLVE\s*:\s*','',expression,flags=re.I).strip()
