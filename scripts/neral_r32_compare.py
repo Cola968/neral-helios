@@ -19,6 +19,12 @@ import time
 import uuid
 from pathlib import Path
 
+# Works both as a direct script on the Windows runner and as a package import.
+try:
+    from scripts.neral_local_policy import enforce_local_inference_environment, inference_provenance
+except ModuleNotFoundError:
+    from neral_local_policy import enforce_local_inference_environment, inference_provenance
+
 SYSTEM = ('Du schreibst Python 3. Gib ausschließlich ausführbaren Python-Code aus, '
           'ohne Markdown, Erklärungen, Ein- oder Ausgabe und ohne fremde Bibliotheken.')
 TASKS = [
@@ -210,6 +216,9 @@ def main(argv=None):
         p.error('Refusing to overwrite existing output')
     if args.base.is_symlink() or args.adapter.is_symlink() or not args.base.is_dir() or not args.adapter.is_dir():
         p.error('Trusted local base/adapter directories required')
+    # Force fully offline inference before loading any tokenizer, model or
+    # optional telemetry integration. Plugins that browse the web are separate.
+    enforce_local_inference_environment()
     from model_catalog import validate_hf_snapshot
     from neral_adapter_candidate_r32 import validate_adapter
     base = validate_hf_snapshot(args.base, verify_hashes=True)
@@ -250,9 +259,16 @@ def main(argv=None):
                 'no_training': True, 'no_autopromotion': True}
     (args.out / 'ergebnisse.json').write_text(json.dumps(detailed, indent=2), encoding='utf-8')
     summary = summary_from_rows(results)
+    provenance = inference_provenance(
+        adapter_loaded=True, adapter_sha256=manifest['files']['adapter_model.safetensors'])
     summary.update(status=evaluation_status(results, docker_ready=docker_ready),
                    base_revision=base['revision'],
                    adapter_sha256=manifest['files']['adapter_model.safetensors'],
+                   foundation_model=provenance['foundation_model'],
+                   adapter_status='experimental_loaded_not_promoted',
+                   inference_location=provenance['inference_location'],
+                   data_sent_to_qwen_service=provenance['data_sent_to_qwen_service'],
+                   independent_from_qwen_weights=provenance['independent_from_qwen_weights'],
                    max_new_tokens=args.max_new_tokens)
     args.summary_out.parent.mkdir(parents=True, exist_ok=True)
     with args.summary_out.open('x', encoding='utf-8') as dest:
