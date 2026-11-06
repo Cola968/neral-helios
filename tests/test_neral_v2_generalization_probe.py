@@ -1,8 +1,25 @@
 """Focused CPU-only contracts for additional generalization diagnostic."""
 import unittest
-from scripts.neral_v2_generalization_probe import CASES, checked_cases, grade, summary
+from scripts.neral_v2_generalization_probe import CASES, SYSTEM, EXPECTED_CASESET_SHA256, case_digest, checked_cases, grade, summary
 
 class GeneralizationProbeTests(unittest.TestCase):
+    def test_case_catalog_is_cryptographically_frozen(self):
+        self.assertEqual(case_digest(CASES, SYSTEM), EXPECTED_CASESET_SHA256)
+        self.assertEqual(len(EXPECTED_CASESET_SHA256), 64)
+
+    def test_modified_question_or_answer_fails_closed(self):
+        broken = list(CASES)
+        changed = list(broken[0]); changed[3] = '109'
+        broken[0] = tuple(changed)
+        self.assertNotEqual(case_digest(broken, SYSTEM), EXPECTED_CASESET_SHA256)
+        with self.assertRaises(ValueError):
+            checked_cases(broken)
+
+    def test_summary_proves_frozen_catalog_digest(self):
+        rows=[{'id':cid,'correct':True,'format_valid':True} for cid,*_ in CASES]
+        report=summary({k:rows for k in ('base','old_rank32','new_rank16_v2')})
+        self.assertEqual(report['cases_sha256'], EXPECTED_CASESET_SHA256)
+
     def test_cases_are_diverse_and_unique(self):
         self.assertEqual(len(checked_cases()),36)
         self.assertEqual(len({x[0] for x in CASES}),36)
