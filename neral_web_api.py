@@ -14,7 +14,7 @@ def register_web_search_api(app, service=None):
         return jsonify(configured=True, live_verified=False, free_for_all=True,
                        requires_account=False, requires_api_key=False,
                        provider="DuckDuckGo HTML / Bing RSS", model_provider="none",
-                       disclosure="Nur der eingegebene Suchbegriff wird an DuckDuckGo gesendet.")
+                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf auch an Bing gesendet.")
 
     @app.post("/api/web/search")
     def web_search_submit():
