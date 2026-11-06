@@ -47,7 +47,7 @@
       results.append(article);
     }
     status.textContent = results.children.length
-      ? results.children.length + ' externe Suchtreffer von DuckDuckGo · Inhalte nicht verifiziert.'
+      ? results.children.length + ' externe Suchtreffer von ' + String(data.provider || 'Suchanbieter') + ' · Inhalte nicht verifiziert.'
       : 'Keine verarbeitbaren Treffer. Der Anbieter könnte die Suche eingeschränkt haben.';
   }
 
