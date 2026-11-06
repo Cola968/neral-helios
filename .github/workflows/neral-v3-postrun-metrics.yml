@@ -1,0 +1,136 @@
+name: NERAL v3 post-run telemetry and adapter SHA (read-only)
+
+on:
+  workflow_run:
+    workflows:
+      - NERAL v3 rank16 vs rank32 matched 80-step QLoRA (manual)
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Read-only reporting only: REPORT_NERAL_V3_GPU_READONLY'
+        type: string
+        required: true
+      training_run_id:
+        description: 'Already-completed original training workflow run ID'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  aggregate:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       inputs.authorize == 'REPORT_NERAL_V3_GPU_READONLY')
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_READ_ONLY: '1'
+      ORIGINAL_RUN: ${{ github.event.workflow_run.id }}
+      ORIGINAL_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      MANUAL_RUN: ${{ inputs.training_run_id }}
+
+    steps:
+      - name: Checkout audited scalar-only telemetry script
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Run no-GPU scalar reporting regression tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)) {throw 'Pinned local Python missing'}
+          Push-Location control
+          try {
+            & $py -B -m unittest discover -s tests -p 'test_neral_v3_training_metrics.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Telemetry integrity tests failed'}
+          } finally {Pop-Location}
+
+      - name: Read verified adapter manifests and scalar training logs; never open model with PyTorch
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:GITHUB_EVENT_NAME -eq 'workflow_run') {
+            $run = $env:ORIGINAL_RUN
+            $attempt = $env:ORIGINAL_ATTEMPT
+          } else {
+            $run = $env:MANUAL_RUN
+            $attempt = '1'
+          }
+          if($run -notmatch '^[0-9]{8,14}$' -or $attempt -notmatch '^[1-9][0-9]{0,2}$') {
+            throw 'Numeric training run ID/attempt required; refusing path traversal'
+          }
+          $root = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $experiment = Join-Path $root "math-v3-rank-ab-$run-$attempt"
+          if(-not(Test-Path -LiteralPath $experiment -PathType Container)) {
+            throw 'Original training did not create a local experiment: report unavailable, inspect training job'
+          }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'control\v3_postrun_reports'
+          New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
+          $py = Join-Path $root 'training-env-py312\Scripts\python.exe'
+          Push-Location control
+          try {
+            & $py -B -m scripts.neral_v3_training_metrics `
+              --run-root $experiment --source-search-root $root `
+              --out (Join-Path $output 'summary.json')
+            if($LASTEXITCODE -ne 0){throw 'Cannot certify local training telemetry and source SHA'}
+          } finally {Pop-Location}
+
+      - name: Enforce scalar-only artifact and experimental status
+        id: scalar_gate
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportDir = Join-Path $env:GITHUB_WORKSPACE 'control\v3_postrun_reports'
+          if(-not(Test-Path -LiteralPath $reportDir -PathType Container)) { exit 0 }
+          $files = @(Get-ChildItem -LiteralPath $reportDir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 32768) {
+            throw 'Private corpus/model export blocked'
+          }
+          $report = Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          if($report.status -notin @('NO_TRAINING_REPORTS','PARTIAL_OR_FAILED_TRAINING',
+                                    'BOTH_TRAINED_SCORES_PENDING','TRAINED_AND_DEVELOPMENT_EVALUATED') -or
+             $report.schema -ne 1 -or $report.weights_promoted -ne $false -or
+             $report.release_validated -ne $false -or
+             $report.independent_external_benchmark -ne $false -or
+             $report.private_prompts_uploaded -ne $false -or
+             $report.adapter_weights_uploaded -ne $false -or
+             $report.source.train_count -ne 320 -or
+             $report.source.validation_count -ne 64) {
+            throw 'Unexpected claim or invalid reporting schema'
+          }
+          foreach($part in @('rank16','rank32')) {
+            $rank = $report.ranks.$part
+            if($rank.status -eq 'completed' -and $rank.adapter_sha256 -notmatch '^[a-f0-9]{64}$') {
+              throw 'Completed LoRA has no verified adapter SHA'
+            }
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true`n",[Text.UTF8Encoding]::new($false))
+
+      - name: Upload only loss/VRAM/timing counters and adapter SHA-256
+        if: always() && steps.scalar_gate.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-postrun-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/v3_postrun_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
