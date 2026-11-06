@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.neral_r32_compare import (
-    TASKS, extract_code, docker_command, redact_runtime_result, summary_from_rows,
+    TASKS, extract_code, docker_command, redact_runtime_result, summary_from_rows, evaluation_status,
 )
 
 
@@ -59,6 +59,19 @@ class CompareContracts(unittest.TestCase):
         res = {'basis': [{'task': 'a', 'passed': True, 'execution_status': 'executed'}],
                'neral': [{'task': 'a', 'passed': None, 'execution_status': 'not_run'}]}
         self.assertEqual(summary_from_rows(res)['paired']['comparable'], 0)
+
+    def test_docker_present_but_unusable_does_not_claim_evaluation(self):
+        runs = {label: [{'task': 'even', 'passed': None,
+                         'execution_status': 'docker_error', 'syntax_valid': True}]
+                for label in ('basis', 'neral')}
+        self.assertEqual(evaluation_status(runs, docker_ready=True), 'GENERATED_ONLY')
+
+    def test_partial_docker_execution_is_not_full_evaluation(self):
+        runs = {label: [
+            {'task': 'even', 'passed': True, 'execution_status': 'executed'},
+            {'task': 'average', 'passed': None, 'execution_status': 'docker_error'}]
+            for label in ('basis', 'neral')}
+        self.assertEqual(evaluation_status(runs, docker_ready=True), 'PARTIALLY_EVALUATED')
 
     def test_runtime_error_redacted(self):
         row = redact_runtime_result({'output': 'SECRET', 'passed': False, 'returncode': 2})
