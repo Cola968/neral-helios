@@ -8,6 +8,13 @@ on:
       - 'phone_gateway.py'
       - 'setup_phone.py'
       - 'billing/**'
+      - 'computer_use.py'
+      - 'computer_api.py'
+      - 'static/computer-use.js'
+      - 'scripts/validate_neral_curriculum.py'
+      - 'datasets/neral_curriculum_v1/**'
+      - 'tests/test_computer_*'
+      - 'tests/test_neral_curriculum.py'
       - 'scripts/neral_local_policy.py'
       - 'scripts/neral_r32_compare.py'
       - 'tests/test_billing_server_authority.py'
@@ -30,6 +37,13 @@ on:
       - 'phone_gateway.py'
       - 'setup_phone.py'
       - 'billing/**'
+      - 'computer_use.py'
+      - 'computer_api.py'
+      - 'static/computer-use.js'
+      - 'scripts/validate_neral_curriculum.py'
+      - 'datasets/neral_curriculum_v1/**'
+      - 'tests/test_computer_*'
+      - 'tests/test_neral_curriculum.py'
       - 'scripts/neral_local_policy.py'
       - 'scripts/neral_r32_compare.py'
       - 'tests/test_billing_server_authority.py'
@@ -80,6 +94,10 @@ jobs:
       - name: Install isolated test dependencies
         run: python -m pip install --disable-pip-version-check pytest cryptography
       - name: Check HTTP routes, pairing secrets and secret scan behavior
-        run: python -m pytest tests/test_http_security_contract.py tests/test_phone_setup_security.py tests/test_secret_scan.py tests/test_billing_entitlements.py tests/test_billing_server_authority.py tests/test_neral_local_policy.py tests/test_neral_r32_compare.py -q
+        run: python -m pytest tests/test_http_security_contract.py tests/test_phone_setup_security.py tests/test_secret_scan.py tests/test_billing_entitlements.py tests/test_billing_server_authority.py tests/test_neral_local_policy.py tests/test_neral_r32_compare.py tests/test_computer_use.py tests/test_computer_api.py tests/test_neral_curriculum.py -q
+      - name: Validate 1,000 synthetic reasoning and tool examples
+        run: python scripts/validate_neral_curriculum.py --data datasets/neral_curriculum_v1
+      - name: Verify Computer Use interface syntax
+        run: node --check static/computer-use.js
       - name: Scan tracked files and reachable Git history without printing values
         run: python scripts/scan_tracked_secrets.py --history
