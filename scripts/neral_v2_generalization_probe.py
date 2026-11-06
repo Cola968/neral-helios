@@ -130,9 +130,11 @@ def _run(label, model, tokenizer):
 
 def main(argv=None):
     p=argparse.ArgumentParser(allow_abbrev=False)
-    for k in ('base','old-r32','new-r16','out','summary'):
+    for k in ('base','old-r32','new-r16','out','summary','trainer-root'):
         p.add_argument('--'+k,type=Path,required=True)
     a=p.parse_args(argv)
+    from scripts.neral_math_v2_eval import ensure_pinned_model_runtime
+    ensure_pinned_model_runtime(a.trainer_root)
     if a.out.exists() or a.summary.exists() or a.out.is_symlink():
         p.error('Fresh external output required')
     for folder in (a.base,a.old_r32,a.new_r16):
