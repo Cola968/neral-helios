@@ -9,6 +9,29 @@ import hashlib
 import json
 from pathlib import Path
 import time
+import sys
+
+def ensure_pinned_model_runtime(trainer_root: Path) -> None:
+    """Pin immutable trainer imports before loading Qwen, PEFT or adapter validators.
+
+    The Windows Actions control checkout contains a different model_catalog.py,
+    which previously shadowed the pinned trainer and broke evaluation after
+    120 successful optimization steps.
+    """
+    original = Path(trainer_root)
+    root = original.resolve()
+    if original.is_symlink() or not root.is_dir():
+        raise ValueError('Pinned trainer folder missing or symlinked')
+    for name in ('model_catalog.py', 'qwen_local_runtime.py', 'neral_adapter_candidate.py'):
+        path = root / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Pinned trainer module is missing or symlinked')
+    for name in ('model_catalog', 'qwen_local_runtime', 'neral_adapter_candidate'):
+        if name in sys.modules:
+            path = getattr(sys.modules[name], '__file__', None)
+            if not path or Path(path).resolve() != root / (name + '.py'):
+                raise ValueError('Unpinned model runtime already loaded; refusing')
+    sys.path.insert(0, str(root))
 
 from scripts.neral_math_eval import CASES, SYSTEM, _load_model, normalized_number
 from scripts.neral_math_v2_builder import EVAL_SEED, generate, norm, TRAIN_SEED
@@ -85,9 +108,10 @@ def _run(label,model,tokenizer):
 
 def main():
     p=argparse.ArgumentParser(allow_abbrev=False)
-    for k in ('base','old-r32','new-r16','out','summary'):
+    for k in ('base','old-r32','new-r16','out','summary','trainer-root'):
         p.add_argument('--'+k,required=True,type=Path)
     a=p.parse_args()
+    ensure_pinned_model_runtime(a.trainer_root)
     if a.out.exists() or a.summary.exists():p.error('Output must be fresh')
     for directory in (a.base,a.old_r32,a.new_r16):
         if directory.is_symlink() or not directory.is_dir():p.error('Trusted local directories only')
