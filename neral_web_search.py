@@ -1,13 +1,15 @@
 """Opt-in no-key web search for all NERAL plans; no external model calls.
 
-Only an explicitly supplied search query is sent to DuckDuckGo HTML. Result
-pages are never fetched by the server. Search HTML and snippets are untrusted.
-The provider's unofficial HTML interface may change or rate-limit requests.
+Only an explicitly supplied query is sent to DuckDuckGo HTML and (if needed)
+Bing RSS. Result pages are never fetched. Both unofficial providers can block
+or change their output; search hits are untrusted data, never instructions.
 """
 from __future__ import annotations
 
 from collections import deque
 from html.parser import HTMLParser
+from html import unescape
+from xml.etree import ElementTree
 from ipaddress import ip_address
 import re
 import threading
@@ -17,6 +19,7 @@ from urllib.parse import parse_qs, quote_plus, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
+BING_ENDPOINT = "https://www.bing.com/search"
 MAX_RESPONSE_BYTES = 600_000
 MAX_RESULTS = 5
 MAX_QUERY_CHARS = 160
@@ -154,6 +157,32 @@ def parse_search_results(markup: str, *, limit: int = MAX_RESULTS) -> list[dict[
     return parser.finish()
 
 
+def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]]:
+    """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
+    if not isinstance(xml, str) or not 1 <= limit <= MAX_RESULTS or len(xml) > MAX_RESPONSE_BYTES:
+        raise WebSearchError("Ungültige RSS-Antwort.")
+    if re.search(r"<!\s*(?:DOCTYPE|ENTITY)", xml, flags=re.IGNORECASE):
+        raise WebSearchError("RSS mit externen Entitäten nicht erlaubt.")
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        raise WebSearchError("Ungültige RSS-Antwort.") from None
+    if root.tag != "rss":
+        raise WebSearchError("Kein RSS-Suchfeed empfangen.")
+    output: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in root.findall("./channel/item")[:60]:
+        url = safe_result_url(item.findtext("link", default=""))
+        title = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("title", default=""))), 180)
+        snippet = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("description", default=""))), 350)
+        if url and title and url not in seen:
+            output.append({"title": title, "url": url, "snippet": snippet})
+            seen.add(url)
+        if len(output) >= limit:
+            break
+    return output
+
+
 class WebSearch:
     """A bounded, explicitly requested search. No external API key needed."""
     def __init__(self, *, opener=None, max_per_minute: int = 6):
@@ -177,21 +206,48 @@ class WebSearch:
             if len(self._hits) >= self.max_per_minute:
                 raise WebSearchRateLimitError("Zu viele Websuchen. Bitte in einer Minute erneut versuchen.")
             self._hits.append(now)
-        req = Request(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned), headers={
-            "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
-            "Accept": "text/html", "Accept-Language": "de,en;q=0.8",
-        }, method="GET")
-        try:
+        contacted = []
+
+        def request_page(url: str, accept: str, expected_type: str) -> str:
+            # Only fixed providers below. Never follow redirect or use proxies.
+            req = Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
+                "Accept": accept, "Accept-Language": "de,en;q=0.8",
+            }, method="GET")
             with self.opener.open(req, timeout=7.0) as response:
-                mime = response.headers.get("Content-Type", "")
-                if "text/html" not in mime.lower():
-                    raise WebSearchError("Suchanbieter hat kein HTML zurückgegeben.")
+                mime = response.headers.get("Content-Type", "").lower()
+                if expected_type not in mime:
+                    raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
             if len(raw) > MAX_RESPONSE_BYTES:
                 raise WebSearchError("Suchanbieter-Antwort überschreitet das Limit.")
-            results = parse_search_results(raw.decode("utf-8", errors="replace"))
-        except (HTTPError, URLError, TimeoutError, OSError):
-            raise WebSearchError("Websuche nicht erreichbar. Prüfe Internetverbindung oder Suchanbieter.") from None
-        return {"query": cleaned, "provider": "DuckDuckGo HTML", "external_request": True,
-                "model_generated": False, "results": results,
-                "notice": "Nur dieser Suchbegriff wurde an DuckDuckGo übertragen. Externe Treffer sind ungeprüft."}
+            return raw.decode("utf-8", errors="replace")
+
+        contacted.append("DuckDuckGo HTML")
+        ddg_problem = False
+        try:
+            markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned), "text/html", "text/html")
+            results = parse_search_results(markup)
+        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError) as exc:
+            if isinstance(exc, WebSearchError) and "überschreitet" in str(exc):
+                raise  # Oversized responses are a hard failure.
+            ddg_problem = True
+            results = []
+
+        provider = "DuckDuckGo HTML"
+        if not results:
+            contacted.append("Bing RSS")
+            rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss"
+            try:
+                xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
+                results = parse_bing_rss(xml)
+                provider = "Bing RSS"
+            except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+                if ddg_problem:
+                    raise WebSearchError("Websuche bei beiden Anbietern nicht verfügbar.") from None
+                results = []
+
+        return {"query": cleaned, "provider": provider, "providers_contacted": contacted,
+                "external_request": True, "model_generated": False, "results": results,
+                "notice": "Nur dieser Suchbegriff wurde an " + " und ".join(contacted) +
+                          " übertragen. Externe Treffer sind ungeprüft."}
