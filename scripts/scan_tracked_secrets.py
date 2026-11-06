@@ -21,7 +21,7 @@ PATTERNS = {
 }
 TEXT_SUFFIXES = {".py", ".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx",
                  ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini",
-                 ".cfg", ".txt", ".md", ".ps1", ".cmd", ".bat", ".sh"}
+                 ".cfg", ".txt", ".md", ".ps1", ".cmd", ".bat", ".sh", ".xml", ".html", ".map"}
 SENSITIVE_FILENAMES = {".env", ".env.local", ".env.production", "id_rsa",
                        "id_ed25519", "credentials.json", "service-account.json"}
 SENSITIVE_SUFFIXES = {".p12", ".pfx", ".key"}
@@ -32,12 +32,30 @@ def is_sensitive_path(path: str) -> bool:
     return name in SENSITIVE_FILENAMES or Path(name).suffix in SENSITIVE_SUFFIXES
 
 
+# Verified synthetic AWS-shaped fixture in exactly these historical pytest reports.
+# Ignore only this literal test parameter, not other matches in the same line.
+FIXTURE_REPORTS = {
+    "evidence/i1_data_fix_20260907/pytest_running_github_code.xml",
+    "evidence/i1_data_fix_20260907/pytest_full.xml",
+    "evidence/roadmap_20260907/pytest_latest_roadmap.xml",
+    "evidence/reports/pytest_50.xml",
+}
+
+
+def _known_fixture_match(path: str, line: str, match: re.Match[str], category: str) -> bool:
+    return (path in FIXTURE_REPORTS and category == "aws_access_key_id"
+            and match.group() == "AKIA" + "A" * 16
+            and line[:match.start()].endswith("test_secret_redaction[")
+            and line[match.end():].startswith("]"))
+
+
 def scan_text(text: str, path: str, commit: str = "") -> list[tuple[str, str, int, str]]:
     findings = []
     for line_number, line in enumerate(text.splitlines(), 1):
         for category, pattern in PATTERNS.items():
-            if pattern.search(line):
-                findings.append((commit, path, line_number, category))
+            for match in pattern.finditer(line):
+                if not _known_fixture_match(path, line, match, category):
+                    findings.append((commit, path, line_number, category))
     return findings
 
 
