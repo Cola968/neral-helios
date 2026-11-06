@@ -5,8 +5,9 @@ from scripts.neral_generalization_probe import CASES
 
 
 def test_report_allows_only_bounded_scalar_and_verified_models():
-    base={c["id"]:c["expected"] for c in CASES}
-    adapter={c["id"]:c["expected"] for c in CASES}
+    base={c["id"]:(__import__("json").dumps({"action":c["expected"]}) if c["family"]=="agent"
+                      else c["expected"]) for c in CASES}
+    adapter=dict(base)
     r=build_aggregate(base,adapter,base_revision="c03e6d358207e414f1eca0bb1891e29f1db0e242",
                       adapter_sha256="a"*64, max_new_tokens=160)
     assert r["base_correct"]==r["adapter_correct"]==32
