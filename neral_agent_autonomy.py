@@ -24,6 +24,17 @@ class AgentModelError(RuntimeError):
     """Untrusted inference failed; raw details must not reach HTTP clients."""
 
 
+class DenyRedirect(urllib.request.HTTPRedirectHandler):
+    """Never allow the local model endpoint to redirect private prompts."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AgentModelError("Lokale Modell-Weiterleitung blockiert.")
+
+
+def local_only_opener():
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), DenyRedirect())
+
+
 class OllamaLocalBackend:
     """Opt-in localhost Ollama, never a remote provider or outbound proxy."""
 
@@ -53,7 +64,7 @@ class OllamaLocalBackend:
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
         # The proxy handler is explicitly disabled. No cloud inference fallback.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = local_only_opener()
         try:
             with opener.open(request, timeout=self.timeout) as response:
                 raw = response.read(128 * 1024 + 1)

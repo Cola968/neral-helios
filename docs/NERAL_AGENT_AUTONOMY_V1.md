@@ -28,13 +28,23 @@ Versprechen** mit dem ChatGPT-Agenten und keine Garantie für gute Patches.
 
 ## Konfiguration für lokale KI
 
-Standardmäßig wird **nur** `http://127.0.0.1:11434/api/chat` verwendet,
-ohne HTTP-Proxy. Der Ollama-Modellname kann mit
-`NERAL_AGENT_OLLAMA_MODEL=qwen3.5:9b` festgelegt werden. Das muss ein
-**lokal bereits installiertes Modell** sein. Fehlende Modelle verursachen
-einen Fehler; NERAL sendet die Anfrage nicht an eine externe Qwen-API.
-Die bloße Nutzung von Qwen per Ollama beweist jedoch **keine** aktive
-NERAL-LoRA.
+Standard ist `NERAL_AGENT_BACKEND=auto`: NERAL bevorzugt die beiden
+bekannten, bereits lokal vorhandenen Qwen2.5-Coder-7B-/NERAL-Rank32-
+Adapterpfade im Benutzerprofil. Ein ausdrücklich gesetztes
+`NERAL_AGENT_BASE_PATH` und `NERAL_AGENT_ADAPTER_PATH` geht vor.
+Wenn kein verwendbarer lokaler Adapter vorhanden ist, ist **nur**
+`http://127.0.0.1:11434/api/chat` über Ollama erlaubt; ohne HTTP-Proxy
+und ohne HTTP-Redirects. Der lokale Ollama-Modellname kann mit
+`NERAL_AGENT_OLLAMA_MODEL=qwen3.5:9b` festgelegt werden. Das Modell
+muss bereits lokal installiert sein, es gibt keinen automatischen Download
+und keine externe Qwen-API. Eine bloße Ollama-Qwen-Foundation ist
+**keine verifizierte NERAL-LoRA**; die UI kennzeichnet diese Herkunft.
+
+Ist ein automatisch gefundener Adapter beschädigt, verhindert das nicht
+den Start der Helios-App: Das Programm weicht auf das lokale Ollama-Backend
+aus und zeigt die fehlende NERAL-LoRA-Identität ehrlich an.
+Ist `hf_adapter` ausdrücklich erzwungen, führt ein ungültiger Adapter
+dagegen zu einem Fehler statt einem stillen Wechsel.
 
 Optional kann eine bereits lokal installierte NERAL-LoRA auf einer
 unterstützten CUDA-GPU geladen werden:

@@ -2,16 +2,36 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from flask import jsonify, request
 from agent_mode import AgentError
-from neral_agent_autonomy import AutonomousAgent, OllamaLocalBackend
+from neral_agent_autonomy import AutonomousAgent, OllamaLocalBackend, AgentModelError
 
 
 def register_autonomous_agent_api(app, workspace, backend=None):
     name = os.environ.get("NERAL_AGENT_OLLAMA_MODEL", "qwen3.5:9b")
     if backend is None:
-        engine = os.environ.get("NERAL_AGENT_BACKEND", "ollama")
-        if engine == "hf_adapter":
+        engine = os.environ.get("NERAL_AGENT_BACKEND", "auto")
+        if engine == "auto":
+            home = Path.home()
+            base = Path(os.environ.get("NERAL_AGENT_BASE_PATH") or
+                        (home / ".cache" / "neral" / "qwen25-smoke" /
+                         "c03e6d358207e414f1eca0bb1891e29f1db0e242" /
+                         "installed_models" / "hf-qwen25-coder-7b"))
+            adapter = Path(os.environ.get("NERAL_AGENT_ADAPTER_PATH") or
+                           (home / "NERAL-QLoRA-Research" / "actions-r32-42078722575-1" / "adapter"))
+            if base.is_dir() and (adapter / "adapter_model.safetensors").is_file():
+                from neral_agent_hf import HFAdapterLocalBackend
+                try:
+                    backend = HFAdapterLocalBackend(base, adapter)
+                except (AgentModelError, OSError, ValueError):
+                    # Auto mode must not prevent the existing local Helios app
+                    # from booting if experimental adapter files are invalid.
+                    # Provenance will truthfully show foundation-only Ollama.
+                    backend = OllamaLocalBackend(name)
+            else:
+                backend = OllamaLocalBackend(name)
+        elif engine == "hf_adapter":
             from neral_agent_hf import HFAdapterLocalBackend
             base = os.environ.get("NERAL_AGENT_BASE_PATH")
             adapter = os.environ.get("NERAL_AGENT_ADAPTER_PATH")

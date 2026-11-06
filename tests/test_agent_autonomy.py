@@ -243,3 +243,19 @@ class SafeDockerToolIntegration(unittest.TestCase):
             self.assertEqual(result["history"][0]["action"], "tests")
             self.assertTrue(result["history"][0]["observation"]["sandboxed"])
             fn.assert_called_once()
+
+
+class NetworkIsolationRegression(unittest.TestCase):
+    def test_local_model_redirects_to_external_endpoints_are_rejected(self):
+        from neral_agent_autonomy import DenyRedirect
+        from urllib.request import Request
+        handler = DenyRedirect()
+        req = Request("http://127.0.0.1:11434/api/chat")
+        with self.assertRaises(AgentModelError):
+            handler.redirect_request(req, None, 302, "Found", {},
+                                     "https://example.com/upload")
+
+    def test_model_client_uses_redirect_blocking_handler(self):
+        from neral_agent_autonomy import local_only_opener, DenyRedirect
+        opener = local_only_opener()
+        self.assertTrue(any(isinstance(h, DenyRedirect) for h in opener.handlers))

@@ -10,11 +10,11 @@ import json
 import tempfile
 import urllib.request
 from pathlib import Path
-from neral_agent_autonomy import AutonomousAgent, OllamaLocalBackend
+from neral_agent_autonomy import AutonomousAgent, OllamaLocalBackend, local_only_opener
 
 
 def _ollama_available(name: str) -> bool:
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = local_only_opener()
     try:
         with opener.open("http://127.0.0.1:11434/api/tags", timeout=3) as response:
             raw = response.read(32769)
