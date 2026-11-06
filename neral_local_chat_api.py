@@ -93,7 +93,10 @@ def register_neral_local_chat_api(app, backend):
         try:
             started = time.monotonic()
             try:
-                text = backend.respond(data)
+                # Ollama agent requests enforce JSON; normal conversations do
+                # not. HF adapter backends use their existing local respond().
+                reply = getattr(backend, "respond_chat", None)
+                text = reply(data) if callable(reply) else backend.respond(data)
             except Exception:
                 # Do not leak local paths, model credentials or private prompts.
                 return jsonify(error="Lokale Modell-Inferenz nicht verfügbar oder fehlgeschlagen."), 503
