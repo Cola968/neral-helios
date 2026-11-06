@@ -5,7 +5,13 @@ ROOT=Path(__file__).resolve().parent
 URL='http://127.0.0.1:9680'
 def status():
     try:
-        with urllib.request.urlopen(URL+'/api/info',timeout=1) as response:
+        # The real API requires the local HttpOnly session cookie issued by /.
+        # Keep it inside this short-lived opener; never read gateway-token files
+        # or weaken authentication just to poll readiness from the batch starter.
+        opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+        with opener.open(URL+'/',timeout=1):
+            pass
+        with opener.open(URL+'/api/info',timeout=1) as response:
             data=json.load(response)
         return data.get('name')=='Neral / Helios' and data.get('parameters') in {20587008,40051200,50012976}
     except Exception:return False

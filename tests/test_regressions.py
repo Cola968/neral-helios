@@ -56,8 +56,12 @@ def test_original_untouched_and_parameter_count():
 def backend(monkeypatch):
     import app
     app._hits.clear();app.app.config['TESTING']=True
+    monkeypatch.setattr(app,'PREPARATION_MODE',False)
+    monkeypatch.setattr(app,'checkpoint_loaded',True)
     monkeypatch.setattr(app,'generate_tokens',lambda *args:app.tokenizer.encode('Testantwort.',eos=True))
-    return app,app.app.test_client()
+    client=app.app.test_client()
+    client.get('/',base_url='http://127.0.0.1:9680')
+    return app,client
 def post(client,payload,**kw):return client.post('/api/generate',json=payload,base_url='http://127.0.0.1:9680',**kw)
 @pytest.mark.parametrize('payload',[None,[],['x'],7,{'prompt':1},{'prompt':True},{'prompt':''},{'prompt':'Hi','temperature':float('nan')},{'prompt':'Hi','temperature':float('inf')},{'prompt':'Hi','temperature':True},{'prompt':'Hi','max_new_tokens':True},{'prompt':'Hi','max_new_tokens':513},{'prompt':'Hi','history':{}},{'prompt':'Hi','history':[{'role':'system','content':'x'}]},{'prompt':'Hi','top_k':-1},{'prompt':'Hi','request_id':'x'}])
 def test_api_rejects_invalid(backend,payload):
@@ -76,7 +80,7 @@ def test_api_tools_labelled(backend):
 def test_api_context_and_busy(backend):
     app,c=backend
     assert post(c,{'prompt':'x'*3900,'max_new_tokens':512}).status_code==413
-    assert post(c,{'prompt':'Hi','history':[{'role':'user','content':'x'*4096}]}).status_code==413
+    assert post(c,{'prompt':'Hi','history':[{'role':'user','content':'x'*4096},{'role':'assistant','content':'y'}]}).status_code==413
     app._generation_lock.acquire()
     try:assert post(c,{'prompt':'Hi'}).status_code==429
     finally:app._generation_lock.release()
@@ -86,11 +90,38 @@ def test_api_cancel(backend):
     finally:app._jobs.pop('a'*16)
 def test_api_rate_limit(backend):
     app,c=backend
-    for _ in range(app.RATE_LIMIT):assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==200
-    assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==429
+    for _ in range(app.RATE_LIMIT):assert post(c,{'prompt':'7+8'}).status_code==200
+    assert post(c,{'prompt':'7+8'}).status_code==429
+    assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==200
 def test_api_redacts_output(backend,monkeypatch):
     app,c=backend;monkeypatch.setattr(app,'generate_tokens',lambda *a:app.tokenizer.encode('sk-'+'a'*30,eos=True));r=post(c,{'prompt':'Hi'});assert r.json['output_secret_redacted'];assert 'sk-' not in r.json['text']
 def test_model_selection_preserves_on_error(backend):
     app,c=backend;before=app.checkpoint_sha256;r=c.post('/api/model',json={'checkpoint':'../../x'},base_url='http://127.0.0.1:9680');assert r.status_code==400;assert app.checkpoint_sha256==before
 @pytest.mark.parametrize('payload',[{'prompt':'Hi','mode':[]},{'prompt':'Hi','history':[{'role':[],'content':'x'}]},{'prompt':'\ud800'},{'prompt':'Hi','history':[{'role':'user','content':'\ud800'}]}])
 def test_api_malformed_nested_values(backend,payload):assert post(backend[1],payload).status_code==400
+
+
+@pytest.mark.parametrize('expression',[
+    '1000000000000000000000000*x=-1000000000000000000000000*x',
+    '2*x+1000000000000000000000000=-1000000000000000000000000',
+    'x/1000000000003=x/1000000000001',
+    'x/1000000000003+1/1000000000003=1/1000000000001',
+])
+def test_solve_linear_cross_side_intermediates_obey_existing_bound(expression):
+    # The branch's AST arithmetic already bounds each side to 10**24.
+    # Combining independently safe sides must obey the same bound.
+    with pytest.raises(ValueError, match='Zahlenbereich überschritten'):
+        solve(expression)
+
+
+@pytest.mark.parametrize('expression,expected',[
+    ('999999999999999999999999*x=-x', 'x = 0'),
+    ('2*x+999999999999999999999999=-1', 'x = -500000000000000000000000'),
+    ('x/1000000000000000000000000=0', 'x = 0'),
+    ('2*x+3=11', 'x = 4'),
+    ('x+1=x+1', 'Unendlich viele Lösungen'),
+])
+def test_solve_linear_boundary_compatible_with_valid_equations(expression, expected):
+    result=solve(expression)
+    assert result['result']==expected
+    assert result['model_generated'] is False

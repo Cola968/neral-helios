@@ -77,6 +77,7 @@ def solve(expression:str)->dict:
         if len(list(ast.walk(tree)))>64:raise ValueError('Gleichung zu komplex.')
         sides.append(visit(tree.body,side))
     (a,b),(c,d)=sides;coefficient=a-c;constant=d-b
+    if any(abs(v.numerator)>10**24 or v.denominator>10**24 for v in (coefficient,constant)):raise ValueError('Zahlenbereich überschritten.')
     steps=[f'Links: ({a})*x + ({b}); rechts: ({c})*x + ({d})',f'Zusammenfassen: ({coefficient})*x = {constant}']
     if coefficient==0:answer='Unendlich viele Lösungen' if constant==0 else 'Keine Lösung'
     else:

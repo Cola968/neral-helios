@@ -4,17 +4,15 @@ try{const saved=JSON.parse(localStorage.getItem('neral.settings')||'{}');for(con
 document.documentElement.dataset.font=settings.font;
 function persistSettings(){try{localStorage.setItem('neral.settings',JSON.stringify(settings));}catch{notify('Einstellungen konnten nicht gespeichert werden.');}}
 async function generateRequest(payload,onProgress){
- const response=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,stream:settings.stream&&payload.mode==='chat'}),signal:AbortSignal.timeout(150000)});
- if(!response.ok){let data={};try{data=await response.json();}catch{}throw Error(data.error||'Anfrage fehlgeschlagen.');}
- if(!response.headers.get('content-type')?.includes('application/x-ndjson'))return response.json();
- const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',result=null;
  try{
-  while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});if(buffer.length>262144)throw Error('Ungültiger Antwortstrom.');
-   let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;const item=JSON.parse(line);if(item.type==='progress')onProgress(item);if(item.type==='done')result=item.result;if(item.type==='error')throw Error(item.error);}
-   if(done)break;
-  }
-  if(!result)throw Error('Verbindung unterbrochen. Die angezeigte Teilantwort bleibt erhalten.');return result;
- }finally{await reader.cancel().catch(()=>{});}
+  const response=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,stream:settings.stream&&payload.mode==='chat'}),signal:AbortSignal.timeout(150000)});
+  if(!response.ok){let data={};try{data=await response.json();}catch{}const error=Error(data.error||'Anfrage fehlgeschlagen. Bitte erneut versuchen.');error.status=response.status;throw error;}
+  return await HeliosCore.readGenerationResponse(response,onProgress);
+ }catch(error){
+  if(error.name==='AbortError'||error.name==='TimeoutError')throw Error('Die Antwort hat zu lange gedauert. Dein Entwurf bleibt erhalten.');
+  if(error instanceof TypeError)throw Error('Verbindung zum lokalen Server verloren. Prüfe die Verbindung und versuche es erneut.');
+  throw error;
+ }
 }
 function deletedQueue(){try{return JSON.parse(localStorage.getItem('neral.sync.deleted')||'{}');}catch{return {};}}
 function queueChatDelete(chat){if(chat.temporary)return;const pending=deletedQueue();pending[chat.id]=chat._revision||0;try{localStorage.setItem('neral.sync.deleted',JSON.stringify(pending));}catch{}scheduleSync();}
@@ -38,8 +36,9 @@ async function syncChats(manual=false){
   }
   const data=await jsonRequest('/api/chats');
   for(const remote of data.chats){if(Object.hasOwn(deletedQueue(),remote.id))continue;const local=chats.find(c=>c.id===remote.id);if(local?._dirty)continue;if(remote.deleted){chats=chats.filter(c=>c.id!==remote.id);if(current?.id===remote.id){current=null;fresh();}continue;}
-   if(!local){chats.push({...remote.chat,_revision:remote.revision,_dirty:false});continue;}
-   if((local._revision||0)<remote.revision){Object.assign(local,remote.chat,{_revision:remote.revision,_dirty:false});if(current?.id===local.id){$('prompt').value=local.draft||'';setMode(local.mode||'chat');}}
+   const recovered=HeliosCore.normalizeStoredChat(remote.chat);if(!recovered)continue;
+   if(!local){chats.push({...recovered,_revision:remote.revision,_dirty:false});continue;}
+   if((local._revision||0)<remote.revision){Object.assign(local,recovered,{_revision:remote.revision,_dirty:false});if(current?.id===local.id){$('prompt').value=local.draft||'';setMode(local.mode||'chat');}}
   }
   saveSynced();render();$('syncStatus').textContent=' · Gespeichert';if(manual)$('settingsStatus').textContent='Chats mit dem PC abgeglichen.';
  }catch(e){$('syncStatus').textContent=e.status===401?' · Neu verbinden':' · Lokal gespeichert';if(manual)$('settingsStatus').textContent=e.message;}
@@ -51,6 +50,30 @@ setInterval(()=>{if(document.visibilityState==='visible')syncChats();},30000);
 scheduleSync();
 $('openSettings').onclick=()=>{$('settingTheme').value=document.documentElement.dataset.theme||'dark';$('settingFont').value=settings.font;$('settingStream').checked=settings.stream;$('settingSync').checked=settings.sync;$('settingsDialog').showModal();};
 $('closeSettings').onclick=()=>$('settingsDialog').close();
+$('launchAudit').onclick=async()=>{
+  const button=$('launchAudit'),target=$('launchAuditResult');
+  button.disabled=true;
+  target.textContent='Prüfe lokale Quelldateien …';
+  try{
+    const report=await jsonRequest('/api/launch-readiness');
+    if(report.schema_version!==1||!Array.isArray(report.checks)||report.checks.length!==6)throw Error('Unbekanntes Prüfergebnis.');
+    target.replaceChildren();
+    const headline=document.createElement('p');
+    headline.textContent='6 Bereiche · '+report.blocker_count+' technische Warnungen · '+report.manual_review_count+' offene Fachprüfungen. Öffentlicher Launch ist nicht freigegeben.';
+    target.append(headline);
+    for(const check of report.checks){
+      const detail=document.createElement('details'),summary=document.createElement('summary');
+      const state={pass:'Code-Scan unauffällig',review:'Manuelle Prüfung offen',blocker:'Technischer Blocker',unverified:'Nicht vollständig prüfbar'}[check.status]||'Unbekannt';
+      summary.textContent=check.title+' · '+state;
+      const info=document.createElement('p'),next=document.createElement('p');
+      info.textContent=check.summary;next.textContent='Vor dem Launch: '+check.next_step;
+      detail.append(summary,info,next);target.append(detail);
+    }
+    const note=document.createElement('p');
+    note.textContent=report.notice;target.append(note);
+  }catch(error){target.textContent='Launch-Check nicht verfügbar: '+error.message;}
+  finally{button.disabled=false;}
+};
 $('settingTheme').onchange=()=>{document.documentElement.dataset.theme=$('settingTheme').value;try{localStorage.setItem('neral.theme',$('settingTheme').value);}catch{}};
 $('settingFont').onchange=()=>{settings.font=$('settingFont').value;document.documentElement.dataset.font=settings.font;persistSettings();};
 $('settingStream').onchange=()=>{settings.stream=$('settingStream').checked;persistSettings();};

@@ -1,0 +1,212 @@
+"""Issue #195: offline-only integration tests; no Ollama, downloads or GPU."""
+import pytest
+import app as web
+from neral_assistant import AssistantUnavailable
+
+
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(web, "PREPARATION_MODE", False)
+    monkeypatch.setattr(web, "ASSISTANT_ENABLED", True)
+    monkeypatch.setattr(web, "ASSISTANT_MODEL", "qwen3.5:9b")
+    monkeypatch.setattr(web, "checkpoint_loaded", False)
+    monkeypatch.setattr(web, "arctus", None)
+    monkeypatch.setattr(web, "chat_store", web.ChatStore(tmp_path / "sync.db"))
+    web._hits.clear()
+    c = web.app.test_client()
+    c.get("/", base_url="http://localhost")
+    return c
+
+
+def post(client, payload):
+    return client.post("/api/generate", json=payload, base_url="http://localhost")
+
+
+def test_local_assistant_keeps_its_provenance_without_native_checkpoint(client, monkeypatch):
+    observed = []
+    def fake(prompt, history, **kwargs):
+        observed.append((prompt, history, kwargs))
+        return dict(mode="neral-assistant", source="external-model",
+                    model_generated=True, text="Hallo von Qwen",
+                    base_model="qwen3.5:9b", model_family="qwen3.5",
+                    generated_tokens=6, seconds=1.0, tokens_per_second=6.0,
+                    tools_used=[])
+    monkeypatch.setattr(web, "assistant_turn", fake)
+    response = post(client, {"mode": "assistant", "prompt": "Hallo", "history": [],
+                             "stream": False, "runtime_id": "stale-native-runtime"})
+    assert response.status_code == 200
+    result = response.json
+    assert result["text"] == "Hallo von Qwen"
+    assert result["source"] == "external-model"
+    assert result["base_model"] == "qwen3.5:9b"
+    assert result["mode"] == "neral-assistant"
+    assert result["model_family"] == "qwen3.5"
+    assert observed[0][2]["model"] == "qwen3.5:9b"
+    assert not web._generation_lock.locked()
+
+
+def test_assistant_is_explicitly_opt_in_and_offline_returns_503(client, monkeypatch):
+    monkeypatch.setattr(web, "ASSISTANT_ENABLED", False)
+    assert post(client, {"mode": "assistant", "prompt": "Hallo"}).status_code == 503
+    assert web.info_payload()["assistant"]["enabled"] is False
+    monkeypatch.setattr(web, "ASSISTANT_ENABLED", True)
+    monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: (_ for _ in ()).throw(AssistantUnavailable("offline")))
+    response = post(client, {"mode": "assistant", "prompt": "Hallo"})
+    assert response.status_code == 503 and "Ollama" in response.json["error"]
+    assert not web._generation_lock.locked()
+
+
+def test_assistant_refuses_stream_illusion_and_foreign_history(client, monkeypatch):
+    monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: pytest.fail("must not invoke Ollama"))
+    assert post(client, {"mode": "assistant", "prompt": "Hallo", "stream": True}).status_code == 400
+    response = post(client, {"mode": "assistant", "prompt": "Weiter", "history": [
+        {"role": "user", "content": "Frage"},
+        {"role": "assistant", "content": "Arctus-Ausgabe", "model_family": "neral-arctus350"},
+    ]})
+    assert response.status_code == 400
+
+
+def test_assistant_results_remain_separate_in_chat_sync(client):
+    chat = {"title": "Qwen", "mode": "assistant", "messages": [
+        {"role": "user", "content": "Frage", "mode": "assistant"},
+        {"role": "assistant", "content": "Qwen-Antwort", "mode": "neral-assistant",
+         "source": "external-model", "base_model": "qwen3.5:9b", "model_family": "qwen3.5",
+         "imported": False, "interrupted": False},
+    ]}
+    response = client.post("/api/chats/abcdefghijklmnop",
+                           json={"revision": 0, "chat": chat}, base_url="http://localhost")
+    assert response.status_code == 200
+    saved = client.get("/api/chats", base_url="http://localhost").json["chats"][0]["chat"]
+    assert saved["mode"] == "assistant"
+    assert saved["messages"][1]["base_model"] == "qwen3.5:9b"
+    assert saved["messages"][1]["source"] == "external-model"
+
+
+def test_complete_flask_to_provider_contract_with_fake_local_ollama(client, monkeypatch):
+    """Real provider + Flask, with the HTTP boundary simulated; no native Qwen inference."""
+    import neral_assistant as provider
+    seen = []
+    def fake_ollama(payload):
+        seen.append(payload)
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Qwen-Testantwort"},
+                "eval_count": 3, "eval_duration": 1000000000}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    r = post(client, {"mode": "assistant", "prompt": "Was ist NERAL?",
+                      "history": [{"role": "user", "content": "Hallo"},
+                                  {"role": "assistant", "content": "Guten Tag"}]})
+    assert r.status_code == 200
+    assert r.json["text"] == "Qwen-Testantwort"
+    assert r.json["mode"] == "neral-assistant"
+    assert r.json["source"] == "external-model"
+    assert r.json["model_family"] == "qwen3.5"
+    assert len(seen) == 1 and seen[0]["model"] == "qwen3.5:9b"
+    assert [row["role"] for row in seen[0]["messages"]][-3:] == ["user", "assistant", "user"]
+    assert seen[0]["stream"] is False
+
+
+def test_complete_flask_to_static_python_checker_uses_qwen_and_no_execution(client, monkeypatch):
+    """Full Flask/provider boundary with fake Ollama; submitted Python is AST-only."""
+    import json
+    import neral_assistant as provider
+    observed = []
+    def fake_ollama(payload):
+        observed.append(payload)
+        if len(observed) == 1:
+            assert [x["function"]["name"] for x in payload["tools"]] == ["calculator", "code_check"]
+            return {"model": "qwen3.5:9b", "done": True,
+                    "message": {"role": "assistant", "content": "", "tool_calls": [
+                        {"function": {"name": "code_check",
+                                      "arguments": {"code": "def broken(:\\n  pass"}}}]}}
+        assert payload["messages"][-1]["role"] == "tool"
+        assert payload["messages"][-1]["tool_name"] == "code_check"
+        audit = json.loads(payload["messages"][-1]["content"])
+        assert audit["syntax_ok"] is False
+        assert audit["executed"] is False
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Der Code hat einen Syntaxfehler."}}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    response = post(client, {"mode": "assistant", "prompt": "Prüfe den Python-Code.",
+                             "stream": False, "history": []})
+    assert response.status_code == 200
+    assert response.json["tools_used"] == ["code_check"]
+    assert response.json["source"] == "external-model"
+    assert response.json["base_model"] == "qwen3.5:9b"
+    assert len(observed) == 2
+
+
+def test_busy_native_runtime_blocks_qwen_and_preserves_lock(client, monkeypatch):
+    monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: pytest.fail("busy model must not run"))
+    with web._generation_lock:
+        result = post(client, {"mode": "assistant", "prompt": "Hallo"})
+        assert result.status_code == 429
+        assert web._generation_lock.locked()
+    assert not web._generation_lock.locked()
+
+
+def test_deep_quality_actually_enables_thinking_and_enough_tokens(client, monkeypatch):
+    """An explicit deep request must reach Ollama as thinking, not as a UI-only label."""
+    import neral_assistant as provider
+    payloads = []
+    def fake_ollama(payload):
+        payloads.append(payload)
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Begründete Antwort"},
+                "eval_count": 128, "eval_duration": 1000000000}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    response = post(client, {"mode": "assistant", "quality": "deep", "prompt": "Prüfe das Argument.",
+                             "max_new_tokens": 1024, "stream": False})
+    assert response.status_code == 200
+    assert response.json["source"] == "external-model"
+    assert response.json["reasoning_enabled"] is True
+    assert response.json["quality_mode"] == "deep"
+    assert payloads[0]["think"] is True
+    assert payloads[0]["options"]["num_predict"] == 1024
+    assert payloads[0]["options"]["num_ctx"] == 8192
+
+
+def test_deep_quality_can_retain_longer_but_bounded_same_model_history(client, monkeypatch):
+    import neral_assistant as provider
+    calls = []
+    def fake_ollama(payload):
+        calls.append(payload)
+        return {"model": "qwen3.5:9b", "done": True,
+                "message": {"role": "assistant", "content": "Langkontext verarbeitet."}}
+    monkeypatch.setattr(provider, "local_ollama_request", fake_ollama)
+    history = [{"role": "user", "content": "u" * 2600},
+               {"role": "assistant", "content": "a" * 2400}]
+    assert post(client, {"mode": "assistant", "prompt": "Weiter", "history": history}).status_code == 413
+    response = post(client, {"mode": "assistant", "quality": "deep", "prompt": "Weiter",
+                             "history": history, "max_new_tokens": 1024})
+    assert response.status_code == 200
+    assert calls[0]["messages"][1]["content"] == "u" * 2600
+    assert calls[0]["messages"][2]["content"] == "a" * 2400
+    too_long = [{"role": "user", "content": "u" * 4400},
+                {"role": "assistant", "content": "a" * 4400}]
+    assert post(client, {"mode": "assistant", "quality": "deep",
+                         "prompt": "Weiter", "history": too_long}).status_code == 413
+
+
+def test_invalid_quality_or_native_deep_fails_before_inference(client, monkeypatch):
+    monkeypatch.setattr(web, "assistant_turn", lambda *a, **k: pytest.fail("invalid profile must not run"))
+    for row in [
+        {"mode": "assistant", "quality": "ultra", "prompt": "Hallo"},
+        {"mode": "assistant", "quality": True, "prompt": "Hallo"},
+        {"mode": "chat", "quality": "deep", "prompt": "Hallo"},
+    ]:
+        assert post(client, row).status_code == 400
+
+
+@pytest.mark.parametrize("reason, incomplete", [("length", True), ("stop", False)])
+def test_flask_preserves_provider_completion_for_chat_history(client, monkeypatch, reason, incomplete):
+    import neral_assistant as provider
+    monkeypatch.setattr(provider, "local_ollama_request", lambda body: {
+        "model": "qwen3.5:9b", "done": True, "done_reason": reason,
+        "message": {"role": "assistant", "content": "Antwortfragment"},
+    })
+    response = post(client, {"mode": "assistant", "prompt": "Erkläre den Zusammenhang"})
+    assert response.status_code == 200
+    assert response.json.get("finish_reason") == reason
+    assert response.json.get("incomplete") is incomplete
+    assert response.json["source"] == "external-model"
+    assert not web._generation_lock.locked()

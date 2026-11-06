@@ -10,6 +10,24 @@ Installation und Checkpoint-Pfade: [REPRODUCE.md](REPRODUCE.md). Danach `START_N
 
 Ohne eigene installierte Gewichte laufen die lokalen Projektwerkzeuge, SOLVE und Codeprüfung. Chatgenerierung meldet fehlende Gewichte; sie wird nicht heimlich ersetzt. Eigene Modellartefakte gehören in die separat bereitgestellten Checkpoint-Pfade, nicht in normale Git-Dateien.
 
+## Chat Experience & Stability Update
+
+Der echte Einstieg `START_NERAL.bat` → `launcher.py` → `app.py` bietet jetzt
+auch im normalen Chat ohne geladenes Modell vollständige DE/EN-Rechenanfragen:
+`7+8`, `57+68`, `What is 57 plus 68? Reply only with the number.` und `(7+8)*2`.
+Diese Antworten sind ausdrücklich **Rechenwerkzeuge**, keine Modellleistung.
+Zusätzliche, nicht unterstützte Arbeitsschritte werden nicht still übergangen.
+
+Die Oberfläche hat eine überarbeitete Desktop-/Mobilansicht, eine wachsende
+Eingabeleiste, sichtbare Zustände und Herkunftslabels. Fehlgeschlagene Nachrichten
+und Entwürfe bleiben erhalten; unvollständige oder importierte Antworten werden
+nicht als eigener Modellkontext verwendet. Streaming und lokale Synchronisierung
+bleiben integriert. Externe Modelle werden nicht aufgerufen; importierte externe
+Antworten werden als solche angezeigt. **Arctus350 ist ein separater Entwicklungszweig
+und wird von dieser Flask-App nicht als geladen ausgegeben.**
+
+[Architekturprüfung, Startanleitung, Tests und Screenshots](docs/CHAT_EXPERIENCE_UPDATE.md).
+
 ## Erste Features
 
 - **CASCADE:** Folgen einer lokalen Projektänderung vorab berechnen, bestätigen, anwenden und rückgängig machen.
