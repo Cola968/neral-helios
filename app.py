@@ -43,6 +43,8 @@ from agent_api import register_agent_api
 agent_engine=register_agent_api(app, ASSETS)
 from agent_auto_api import register_autonomous_agent_api
 autonomous_agent=register_autonomous_agent_api(app, ASSETS)
+from neral_local_chat_api import register_neral_local_chat_api
+local_neral_chat_lock=register_neral_local_chat_api(app, autonomous_agent.backend)
 # Explicit local Windows opt-in; never available via the paired-phone gateway.
 from computer_api import register_computer_api
 computer_engine=register_computer_api(app, enabled=os.environ.get("NERAL_ENABLE_COMPUTER_USE") == "1")
