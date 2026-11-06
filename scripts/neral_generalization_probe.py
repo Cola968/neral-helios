@@ -155,5 +155,32 @@ def score(responses: dict[str,str]) -> dict:
             "training_performed":False,"raw_prompts_uploaded":False}
 
 
+def compare_responses(base_responses: dict[str,str], adapter_responses: dict[str,str]) -> dict:
+    """Return ONLY aggregate metrics, not generated prompts, code or responses."""
+    base = score(base_responses)
+    adapter = score(adapter_responses)
+    return {
+        "schema": 1,
+        "status": "PROJECT_INTERNAL_DEV_COMPARISON_NOT_RELEASE_VALIDATION",
+        "question_count": len(CASES),
+        "base_correct": base["correct"],
+        "adapter_correct": adapter["correct"],
+        "delta_adapter_vs_base": adapter["correct"] - base["correct"],
+        "by_family": {
+            family: {
+                "base_correct": base["by_family"][family]["correct"],
+                "adapter_correct": adapter["by_family"][family]["correct"],
+                "total": base["by_family"][family]["total"],
+            }
+            for family in ("math","sql","coding_ast","agent")
+        },
+        "independent_external_holdout": False,
+        "code_executed": False,
+        "model_quality_improvement_proven": False,
+        "training_performed": False,
+        "raw_prompts_uploaded": False,
+    }
+
+
 if __name__=="__main__":
     print("NERAL 32-case project-internal probe available; no inference or training executed.")
