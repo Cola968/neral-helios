@@ -1,0 +1,170 @@
+name: NERAL v3 combined dataset and authorized R32 training
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        required: true
+        default: audit
+        options: [audit, train]
+        description: audit creates source-reviewed corpus; train is one 120-step local GPU run
+      authorize:
+        type: string
+        required: true
+        description: AUDIT_ONLY or TRAIN_NERAL_V3_R32_120_STEPS
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  v3:
+    if: github.ref == 'refs/heads/main' && ((inputs.mode == 'audit' && inputs.authorize == 'AUDIT_ONLY') || (inputs.mode == 'train' && inputs.authorize == 'TRAIN_NERAL_V3_R32_120_STEPS'))
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 160
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      WANDB_MODE: disabled
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_V3_TRAIN_AUTHORIZATION: ${{ inputs.authorize }}
+    steps:
+      - name: Checkout control source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout immutable original trainer
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: CPU security and training contract tests
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python missing'}
+          $env:NERAL_PINNED_TRAINER_ROOT=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          Push-Location control
+          try {
+            foreach($test in @('test_neral_agent_math.py','test_neral_agent_verify.py','test_neral_isolated_unit.py','test_neral_agent_coding_suite.py','test_neral_v3_combined.py','test_neral_v3_rank32_patch.py')){
+              & $py -B -m unittest discover -s tests -p $test -q
+              if($LASTEXITCODE -ne 0){throw "Contract failed: $test"}
+            }
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_V3_PY=$py"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Build 842 reviewed examples on local PC and verify source hashes
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=$env:NERAL_V3_PY
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $v2=Join-Path $research 'math-v2-42264245416-1'
+          $dest=Join-Path $research "neral-v3-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $dest){throw 'Never overwrite dataset'}
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Immutable checkout failed'}
+          & $py -B (Join-Path $control 'scripts/neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Original reviewed sources refused'}
+          foreach($file in @('neral_math_v2_builder.py','neral_v3_combined.py')){
+            $target=Join-Path $trainer "scripts/$file"
+            if(Test-Path -LiteralPath $target){throw 'Trainer file already exists'}
+            Copy-Item -LiteralPath (Join-Path $control "scripts/$file") -Destination $target -ErrorAction Stop
+          }
+          $env:PYTHONPATH=$control
+          Push-Location control
+          try {
+            $builderArgs=@('--v2-data',(Join-Path $v2 'train.jsonl'),'--v2-review',(Join-Path $v2 'train.review.json'),'--holdout',(Join-Path $trainer 'datasets/neral_qlora_holdout.jsonl'),'--coding-suite',(Join-Path $control 'benchmarks/neral_agent_coding_suite.json'),'--source',(Join-Path $trainer 'scripts/neral_v3_combined.py'),'--out',$dest)
+            & $py -B -m scripts.neral_v3_combined @builderArgs
+            if($LASTEXITCODE -ne 0){throw 'Data or leakage check failed'}
+          } finally {Pop-Location}
+          & $py -B (Join-Path $control 'scripts/neral_math_v2_restore.py') --root $trainer --review-manifest (Join-Path $dest 'train.review.json')
+          if($LASTEXITCODE -ne 0){throw 'Legacy source hash mismatch'}
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $trainer 'scripts/neral_qlora_pilot.py') --dataset (Join-Path $dest 'train.jsonl') --review-manifest (Join-Path $dest 'train.review.json') --check-review
+          if($LASTEXITCODE -ne 0){throw 'Original trainer review refused'}
+          $m=Get-Content -LiteralPath (Join-Path $dest 'summary.json') -Raw|ConvertFrom-Json
+          if($m.examples -ne 842 -or $m.inherited_math_v2 -ne 744 -or $m.reviewed_core_inherited_not_counted_twice -ne 86 -or $m.new_equations -ne 48 -or $m.new_synthetic_trajectories -ne 50 -or $m.leakage.exact_overlap -ne 0 -or $m.leakage.duplicate_prompts -ne 0 -or $m.leakage.verbatim_coding_overlap -ne 0 -or $m.release_ready -ne $false){throw 'Candidate admission failed'}
+          $reports=Join-Path $control 'v3_reports'
+          New-Item -ItemType Directory -Path $reports -ErrorAction Stop |Out-Null
+          Copy-Item -LiteralPath (Join-Path $dest 'summary.json') -Destination (Join-Path $reports 'summary.json')
+          $base=Join-Path $env:USERPROFILE '.cache/neral/qwen25-smoke/c03e6d358207e414f1eca0bb1891e29f1db0e242/installed_models/hf-qwen25-coder-7b'
+          & $py -B (Join-Path $control 'scripts/neral_v3_token_check.py') --trainer $trainer --base $base --dataset (Join-Path $dest 'train.jsonl') --review (Join-Path $dest 'train.review.json') --report (Join-Path $reports 'token-report.json')
+          if($LASTEXITCODE -ne 0){throw 'Real 512-token completion-only preflight failed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_V3_PACK=$dest"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Train one guarded 120-step R32 offline experiment (not deployment)
+        if: inputs.mode == 'train'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:NERAL_V3_TRAIN_AUTHORIZATION -ne 'TRAIN_NERAL_V3_R32_120_STEPS'){throw 'No train authorization'}
+          if($env:NERAL_V3_PACK -notmatch 'neral-v3-[0-9]+-[0-9]+$'){throw 'Untrusted dataset'}
+          $py=$env:NERAL_V3_PY
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $model=Join-Path $env:USERPROFILE '.cache/neral/qwen25-smoke/c03e6d358207e414f1eca0bb1891e29f1db0e242/installed_models/hf-qwen25-coder-7b'
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $control 'scripts/neral_snapshot_preflight.py') --snapshot $model
+          if($LASTEXITCODE -ne 0){throw 'Pinned Qwen SHA refused'}
+          & $py -B (Join-Path $trainer 'scripts/neral_training_preflight.py') --check-cuda
+          if($LASTEXITCODE -ne 0){throw 'NF4 CUDA BF16 preflight refused'}
+          $usage=@()
+          for($i=0;$i -lt 3;$i++){
+            $sample=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits|Select-Object -First 1
+            if($LASTEXITCODE -ne 0){throw 'GPU measurement failed'}
+            $split=$sample -split ','
+            if($split.Count -ne 2 -or [int]$split[0].Trim() -lt 10000){throw 'Less than 10000 MiB free GPU memory'}
+            $usage+=[int]$split[1].Trim()
+            if($i -lt 2){Start-Sleep -Seconds 2}
+          }
+          if(@($usage|Where-Object {$_ -gt 15}).Count -ge 2){throw 'GPU is busy'}
+          $r32args=@('--trainer',(Join-Path $trainer 'scripts/neral_qlora_pilot.py'),'--output',(Join-Path $trainer 'scripts/neral_qlora_rank32_pilot.py'),'--validator',(Join-Path $trainer 'neral_adapter_candidate.py'),'--validator-output',(Join-Path $trainer 'neral_adapter_candidate_r32.py'))
+          & $py -B (Join-Path $control 'scripts/neral_rank32_copy.py') @r32args
+          if($LASTEXITCODE -ne 0){throw 'Pinned R32 validator refused'}
+          $patched=Join-Path $trainer 'scripts/neral_v3_rank32_train.py'
+          & $py -B (Join-Path $control 'scripts/neral_v3_rank32_patch.py') --source (Join-Path $trainer 'scripts/neral_qlora_pilot.py') --output $patched
+          if($LASTEXITCODE -ne 0){throw 'Trainer patch refused'}
+          $lock=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/neral-v3-r32-120-once.claim'
+          $handle=[IO.File]::Open($lock,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+          try {$bytes=[Text.Encoding]::UTF8.GetBytes("run=$env:GITHUB_RUN_ID/$env:GITHUB_RUN_ATTEMPT");$handle.Write($bytes,0,$bytes.Length)}finally{$handle.Dispose()}
+          $adapter=Join-Path $env:NERAL_V3_PACK 'adapter'
+          if(Test-Path -LiteralPath $adapter){throw 'Never overwrite adapter'}
+          $argsTrain=@('--dataset',(Join-Path $env:NERAL_V3_PACK 'train.jsonl'),'--review-manifest',(Join-Path $env:NERAL_V3_PACK 'train.review.json'),'--model-dir',$model,'--output-dir',$adapter,'--adapter-version','0.4.0-v3-r32.1','--lora-rank','32','--steps','120','--max-length','512','--run-local-gpu')
+          & $py -B $patched @argsTrain
+          if($LASTEXITCODE -ne 0){throw 'Training stopped; no promotion'}
+          $r=Get-Content -LiteralPath (Join-Path $adapter 'training-report.json') -Raw|ConvertFrom-Json
+          if($r.status -ne 'completed' -or $r.steps -ne 120 -or $r.lora_rank -ne 32 -or $r.neral_trainable_parameters -ne 80740352 -or $r.optimizer_steps_completed -ne 120 -or $r.device_used_peak_sampled_bytes -ge 12348030976){throw 'Training VRAM or steps acceptance failed'}
+          $brief=[ordered]@{schema=1;status='TRAINED_NOT_DEPLOYED';rank=32;steps=120;trainable_parameters=80740352;peak_gpu_bytes=$r.device_used_peak_sampled_bytes;promoted=$false;benchmark_pending=$true}
+          $brief|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $control 'v3_reports/train_summary.json') -Encoding UTF8
+      - name: Only export scalar counts and hashes, never dataset or weights
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $reports=Join-Path $env:GITHUB_WORKSPACE 'control/v3_reports'
+          if(-not(Test-Path -LiteralPath $reports -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $reports -Recurse -File)
+          if($files.Count -lt 2 -or $files.Count -gt 3){throw 'Unexpected file inventory'}
+          foreach($f in $files){if($f.Name -notin @('summary.json','train_summary.json','token-report.json') -or $f.Length -gt 8192){throw 'Non-scalar report prohibited'}}
+          $m=Get-Content -LiteralPath (Join-Path $reports 'summary.json') -Raw|ConvertFrom-Json
+          if($m.status -ne 'DATA_CANDIDATE_NOT_TRAINED' -or $m.release_ready -ne $false -or $m.leakage.semantic_leakage_excluded -ne $false){throw 'Misleading quality claim'}
+          $t=Get-Content -LiteralPath (Join-Path $reports 'token-report.json') -Raw|ConvertFrom-Json
+          if($t.status -ne 'NERAL_V3_512_TOKEN_GATE_PASS' -or $t.samples -ne 842 -or $t.max_sequence_tokens -gt 512 -or $t.overflow -ne 0 -or $t.completion_only_masks_valid -ne $true -or $t.training_performed -ne $false){throw 'Token boundary/masking summary refused'}
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload scalar audit summary only
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-audit-scalar
+          path: control/v3_reports/*.json
+          retention-days: 14
+          if-no-files-found: error

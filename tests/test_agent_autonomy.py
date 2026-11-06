@@ -67,6 +67,8 @@ class AgentTests(unittest.TestCase):
             {"action":"read","path":"main.py"},
             {"action":"propose_edit","path":"main.py","content":"def add(a,b):\n    return a + b\n",
              "reason":"format"},
+            {"action":"finish","summary":"Patch reviewed"},
+            {"action":"syntax_check"},
             {"action":"finish","summary":"Patch reviewed"})
         task = agent.start("Fix formatting")
         wait = agent.run(task["id"])
@@ -96,15 +98,18 @@ class AgentTests(unittest.TestCase):
         self.assertIn("blocked", str(result["history"]))
 
     def test_stop_when_model_invalid_json(self):
-        agent, _ = self.make("not json")
+        agent, _ = self.make("not json", "still not json")
         result = agent.run(agent.start("Run")["id"])
         self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["steps"], 1)
+        self.assertEqual(result["steps"], 2)
+        self.assertEqual(result["history"][-1]["status"], "invalid_output_exhausted")
 
     def test_unknown_action_fails_closed(self):
-        agent, _ = self.make({"action":"powershell","command":"whoami"})
+        agent, _ = self.make({"action":"powershell","command":"whoami"},
+                             {"action":"powershell","command":"whoami"})
         result = agent.run(agent.start("Run")["id"])
         self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["steps"], 2)
 
     def test_repeated_action_stops(self):
         agent, _ = self.make(*([{"action":"inventory"}]*5))

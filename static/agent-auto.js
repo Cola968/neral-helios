@@ -33,7 +33,14 @@
   el('agentAutoForm').addEventListener('submit', async e=>{
     e.preventDefault();abortRequested=false;
     try{
-      const data=await post('/api/agent/auto/start',{goal:el('agentAutoGoal').value});
+      const payload={goal:el('agentAutoGoal').value};
+      const rawTests=el('agentAutoTestCases').value.trim();
+      if(rawTests){
+        payload.test_cases=rawTests.split(/\r?\n/).map(t=>t.trim()).filter(Boolean);
+        payload.test_path=el('agentAutoTestPath').value.trim();
+        if(payload.test_cases.length>16 || !payload.test_path) throw Error('1–16 Assertions und ein Python-Dateipfad erforderlich.');
+      }
+      const data=await post('/api/agent/auto/start',payload);
       display(data);
     }catch(err){message(err);}
   });
