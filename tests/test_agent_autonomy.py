@@ -264,3 +264,46 @@ class NetworkIsolationRegression(unittest.TestCase):
         from neral_agent_autonomy import local_only_opener, DenyRedirect
         opener = local_only_opener()
         self.assertTrue(any(isinstance(h, DenyRedirect) for h in opener.handlers))
+
+
+class ContextPriorityRegression(unittest.TestCase):
+    """Prompt context must preserve the newest verified observations."""
+
+    def test_newest_observation_survives_large_previous_results(self):
+        model = FakeModel({"action": "finish", "summary": "ok"})
+        with tempfile.TemporaryDirectory() as directory:
+            agent = AutonomousAgent(directory, model)
+            ident = agent.start("Prüfe die Datei")["id"]
+            agent.jobs[ident]["history"] = [
+                {"action": "inventory", "status": "ok",
+                 "observation": {"preview": "OLDER_A_" * 1200}},
+                {"action": "read", "status": "ok",
+                 "observation": {"preview": "OLDER_B_" * 1200}},
+                {"action": "syntax_check", "status": "ok",
+                 "observation": {"status": "PASSED", "file": "main.py", "patch_revision": 1}},
+            ]
+            content = agent._history_messages(agent.jobs[ident])[1]["content"]
+            packed = content.split("Bisherige Werkzeugergebnisse: ", 1)[1].split("\\nWebsuche", 1)[0]
+            parsed = json.loads(packed)
+            self.assertEqual(parsed[-1]["action"], "syntax_check")
+            self.assertEqual(parsed[-1]["observation"]["status"], "PASSED")
+            self.assertLessEqual(len(packed), 8500)
+
+    def test_required_verification_is_explicit_in_next_step_hint(self):
+        model = FakeModel({"action": "finish", "summary": "ok"})
+        with tempfile.TemporaryDirectory() as directory:
+            agent = AutonomousAgent(directory, model)
+            ident = agent.start("Fix bug", test_path="main.py",
+                                test_cases=["assert 2 + 2 == 4"])["id"]
+            state = agent.jobs[ident]
+            state["patch_revision"] = 1
+            state["last_patch_path"] = "main.py"
+            state["history"] = [{"action": "propose_edit", "status": "applied_after_approval"}]
+            before = agent._history_messages(state)[1]["content"]
+            self.assertIn("Nächster erforderlicher Schritt: syntax_check", before)
+            state["syntax_pass_revision"] = 1
+            after = agent._history_messages(state)[1]["content"]
+            self.assertIn("Nächster erforderlicher Schritt: run_isolated_unit_test", after)
+            state["tests_pass_revision"] = 1
+            verified = agent._history_messages(state)[1]["content"]
+            self.assertIn("Alle erforderlichen Patch-Prüfungen bestanden", verified)
