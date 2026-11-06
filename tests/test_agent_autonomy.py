@@ -283,7 +283,7 @@ class ContextPriorityRegression(unittest.TestCase):
                  "observation": {"status": "PASSED", "file": "main.py", "patch_revision": 1}},
             ]
             content = agent._history_messages(agent.jobs[ident])[1]["content"]
-            packed = content.split("Bisherige Werkzeugergebnisse: ", 1)[1].split("\\nWebsuche", 1)[0]
+            packed = content.split("Bisherige Werkzeugergebnisse: ", 1)[1].split("\nWebsuche", 1)[0]
             parsed = json.loads(packed)
             self.assertEqual(parsed[-1]["action"], "syntax_check")
             self.assertEqual(parsed[-1]["observation"]["status"], "PASSED")
@@ -293,10 +293,10 @@ class ContextPriorityRegression(unittest.TestCase):
         model = FakeModel({"action": "finish", "summary": "ok"})
         with tempfile.TemporaryDirectory() as directory:
             agent = AutonomousAgent(directory, model)
-            ident = agent.start("Fix bug", test_path="main.py",
-                                test_cases=["assert 2 + 2 == 4"])["id"]
+            ident = agent.start("Fix bug")["id"]
             state = agent.jobs[ident]
             state["patch_revision"] = 1
+            state["test_cases"] = ["assert 2 + 2 == 4"]
             state["last_patch_path"] = "main.py"
             state["history"] = [{"action": "propose_edit", "status": "applied_after_approval"}]
             before = agent._history_messages(state)[1]["content"]
