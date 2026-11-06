@@ -101,10 +101,15 @@ jobs:
           $trainreview=Join-Path $source 'train.review.json'
           $val=Join-Path $source 'validation.jsonl'
           $valreview=Join-Path $source 'validation.review.json'
-          foreach($item in @(@($train,$s.splits.train.data_sha256),@($trainreview,$s.splits.train.review_sha256),
-                             @($val,$s.splits.validation.data_sha256),@($valreview,$s.splits.validation.review_sha256))){
-            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $item[0]).Hash.ToLowerInvariant()
-            if($actual -ne $item[1]){throw 'Sealed source file differs from declared SHA256'}
+          $locked=@(
+            @{path=$train;sha=$s.splits.train.data_sha256},
+            @{path=$trainreview;sha=$s.splits.train.review_sha256},
+            @{path=$val;sha=$s.splits.validation.data_sha256},
+            @{path=$valreview;sha=$s.splits.validation.review_sha256}
+          )
+          foreach($item in $locked){
+            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $item.path).Hash.ToLowerInvariant()
+            if($actual -ne $item.sha){throw 'Sealed source file differs from declared SHA256'}
           }
           foreach($set in @('train','validation')){
             & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
