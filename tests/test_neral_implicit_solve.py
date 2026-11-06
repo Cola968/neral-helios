@@ -7,19 +7,15 @@ from neral_agent_autonomy import AutonomousAgent
 
 class ImplicitMultiplicationTests(unittest.TestCase):
     def test_eight_verified_development_equations(self):
-        cases = [
-            ("6x - 32 = 286", "x = 53"),
-            ("-3x + 8 = 44", "x = -12"),
-            ("2x + 118 = 134", "x = 8"),
-            ("14x + 5 = 439", "x = 31"),
-            ("9x + 20 = 191", "x = 19"),
-            ("15x + 68 = 683", "x = 41"),
-            ("7x + 8 = 491", "x = 69"),
-            ("13x + 96 = 642", "x = 42"),
-        ]
-        for expression, expected in cases:
-            with self.subTest(expression=expression):
-                self.assertEqual(solve(expression)["result"], expected)
+        from scripts.neral_math_v2_eval import cases as original_cases
+        import re
+        frozen = [r for r in original_cases() if r["family"] == "equation"]
+        self.assertEqual(len(frozen), 8)
+        for row in frozen:
+            match = re.search(r"-?\\d+x \\+ \\(-?\\d+\\) = -?\\d+", row["prompt"])
+            self.assertIsNotNone(match, msg=row["id"])
+            with self.subTest(id=row["id"]):
+                self.assertEqual(solve(match.group(0))["result"], "x = " + row["expected"])
 
     def test_signed_coefficient_and_brackets(self):
         cases = [
