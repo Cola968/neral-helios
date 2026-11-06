@@ -88,7 +88,7 @@ jobs:
           Push-Location $control
           try {
             & $py -B -m scripts.neral_v2_generalization_probe `
-              --base $base --old-r32 $old --new-r16 $new --out $out --summary $summary
+              --base $base --old-r32 $old --new-r16 $new --trainer-root $trainer --out $out --summary $summary
             if($LASTEXITCODE -ne 0){throw 'Read-only generalization inference failed'}
           } finally {Pop-Location}
       - name: Enforce report-only export (never upload generated answers or model weights)
