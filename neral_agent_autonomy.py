@@ -322,7 +322,21 @@ class AutonomousAgent:
                       + repr(job["web_query"]) + "; KEINEN anderen Begriff übertragen."
                       if job["allow_web_search"] else "Websuche nicht freigegeben; web_search verboten.")
 
-        if job["patch_revision"] and job["syntax_pass_revision"] != job["patch_revision"]:
+        # Look behind intermediate reads: a failed verification must lead to
+        # inspection/repair, not endless retries of the same broken revision.
+        last_review = next((entry for entry in reversed(job["history"])
+                            if entry.get("action") in
+                            {"syntax_check", "run_isolated_unit_test", "propose_edit"}), {})
+        review_result = last_review.get("observation")
+        review_status = review_result.get("status") if isinstance(review_result, dict) else None
+        failed_review = (last_review.get("action") in
+                         {"syntax_check", "run_isolated_unit_test"} and
+                         review_status in {"FAILED", "SYNTAX_FAILED", "TIMEOUT"})
+        if job["patch_revision"] and failed_review:
+            hint = ("Letzte Verifikation fehlgeschlagen: Fehler analysieren und korrigierten Patch "
+                    "per read und propose_edit vorbereiten; erneute Prüfung erst nach Freigabe "
+                    "einer korrigierten Revision. KEIN finish.")
+        elif job["patch_revision"] and job["syntax_pass_revision"] != job["patch_revision"]:
             hint = ("Nächster erforderlicher Schritt: syntax_check. "
                     "Ohne bestandene Syntaxprüfung KEIN finish.")
         elif (job["patch_revision"] and job["test_cases"] and
