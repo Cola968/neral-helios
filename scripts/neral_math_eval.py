@@ -133,4 +133,3 @@ def main(argv=None):
     args.summary.write_text(json.dumps(s,indent=2)+'\n',encoding='utf8')
     print(json.dumps(s,ensure_ascii=False),flush=True)
 if __name__=='__main__':main()
-
