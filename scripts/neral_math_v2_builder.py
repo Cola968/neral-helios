@@ -222,13 +222,22 @@ def build(legacy:Path,legacy_review:Path,pack:Path,pack_review:Path,out:Path,sou
     return summary
 
 
+def load_holdout_prompts(path:Path)->set[str]:
+    items=[json.loads(line) for line in path.read_text(encoding='utf8').splitlines() if line.strip()]
+    if len(items)!=8 or any(not isinstance(item,dict) or not isinstance(item.get('prompt'),str)
+                            or not item['prompt'].strip() for item in items):
+        raise ValueError('Pinned QLoRA holdout must contain exactly eight JSONL questions')
+    prompts={norm(item['prompt']) for item in items}
+    if len(prompts)!=8:raise ValueError('Duplicate QLoRA holdout question')
+    return prompts
+
+
 def main():
     p=argparse.ArgumentParser(allow_abbrev=False)
     for x in ('legacy','legacy-review','pack','pack-review','out','source-in-trainer','holdout'):
         p.add_argument('--'+x,required=True,type=Path)
     a=p.parse_args()
-    holdout=json.loads(a.holdout.read_text(encoding='utf8'))
-    protected={norm(c['prompt']) for c in holdout}
+    protected=load_holdout_prompts(a.holdout)
     from scripts.neral_math_eval import CASES
     protected.update(norm(c['prompt']) for c in CASES)
     result=build(a.legacy,a.legacy_review,a.pack,a.pack_review,a.out,a.source_in_trainer,protected)
