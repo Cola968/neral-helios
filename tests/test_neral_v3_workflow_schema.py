@@ -21,7 +21,7 @@ class V3WorkflowSafety(unittest.TestCase):
         y = self.text
         for text in ("TRANSFORMERS_OFFLINE:", "HF_HUB_OFFLINE:", "HF_DATASETS_OFFLINE:",
                      "persist-credentials: false", "neral-v3-r32-120-once.claim",
-                     "Never overwrite dataset", "Refuse existing adapter"):
+                     "Never overwrite dataset", "Never overwrite adapter"):
             self.assertIn(text, y)
 
     def test_hard_gates_before_training(self):
@@ -35,7 +35,7 @@ class V3WorkflowSafety(unittest.TestCase):
     def test_no_private_training_data_uploaded(self):
         y = self.text
         self.assertIn("Only export scalar counts and hashes", y)
-        self.assertIn("Only small scalar reports permitted", y)
+        self.assertIn("Non-scalar report prohibited", y)
         self.assertIn("v3_reports/*.json", y)
         self.assertNotIn("path: control/neral-v3-", y)
         self.assertIn("TRAINED_NOT_DEPLOYED", y)
