@@ -1,0 +1,266 @@
+name: NERAL v3 rank16 vs rank32 matched 80-step QLoRA (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Manual one-time: TRAIN_NERAL_V3_R16_R32_80_STEPS'
+      source_run_id:
+        type: string
+        required: true
+        description: 'Completed reviewed neral-v3-two-line workflow run ID'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'TRAIN_NERAL_V3_R16_R32_80_STEPS'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+
+    steps:
+      - name: Checkout reviewed current experiment
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout original pinned Qwen trainer and validators
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+
+      - name: CPU gates for pinned trainer, independent grading, original solver and algebra
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned offline Python missing'}
+          Push-Location control
+          try {
+            foreach($name in @('test_neral_v3_rank_ab*.py','test_neral_v3_two_line_equations.py','test_neral_implicit_solve.py')){
+              & $py -B -m unittest discover -s tests -p $name -v
+              if($LASTEXITCODE -ne 0){throw ('CPU contract test failed: '+$name)}
+            }
+          } finally {Pop-Location}
+
+      - name: Verify Qwen and two-line 320/64 source lineage; create isolated trainers
+        env:
+          SOURCE_RUN: ${{ inputs.source_run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:SOURCE_RUN -notmatch '^[0-9]{8,14}$'){throw 'Only numeric reviewed source run IDs permitted'}
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          & git -C $control -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Control source LF restoration failed'}
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Original git byte restoration failed'}
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Immutable QLoRA input sources refused'}
+          foreach($name in @('neral_math_v2_builder.py','neral_math_v3_balanced_pack.py','neral_v3_two_line_equations.py')){
+            $dest=Join-Path $trainer ('scripts\'+$name)
+            if(Test-Path -LiteralPath $dest){throw 'Scratch source collision'}
+            Copy-Item -LiteralPath (Join-Path $control ('scripts\'+$name)) -Destination $dest -ErrorAction Stop
+          }
+          $source=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v3-two-line-$env:SOURCE_RUN-1"
+          if(-not(Test-Path -LiteralPath $source -PathType Container)){throw 'Missing completed local two-line data audit'}
+          $s=Get-Content -LiteralPath (Join-Path $source 'summary.json') -Raw|ConvertFrom-Json
+          $t=Get-Content -LiteralPath (Join-Path $source 'token-report.json') -Raw|ConvertFrom-Json
+          if($s.status -ne 'NERAL_V3_TWO_LINE_ALGEBRA_REVIEW_ONLY' -or
+             $s.original_split_run -ne 42283867443 -or
+             $s.splits.train.count -ne 320 -or $s.splits.train.converted_equations -ne 142 -or
+             $s.splits.validation.count -ne 64 -or $s.splits.validation.converted_equations -ne 28 -or
+             $s.training_performed -ne $false -or
+             $t.status -ne 'NERAL_V3_TWO_LINE_TOKEN_GATE_PASS' -or
+             $t.splits.train.overflow -ne 0 -or $t.splits.validation.overflow -ne 0 -or
+             $t.splits.train.completion_only -ne $true -or $t.splits.validation.completion_only -ne $true){
+            throw 'Not an approved 320/64 two-line training source or tokenizer gate'
+          }
+          $train=Join-Path $source 'train.jsonl'
+          $trainreview=Join-Path $source 'train.review.json'
+          $val=Join-Path $source 'validation.jsonl'
+          $valreview=Join-Path $source 'validation.review.json'
+          foreach($item in @(@($train,$s.splits.train.data_sha256),@($trainreview,$s.splits.train.review_sha256),
+                             @($val,$s.splits.validation.data_sha256),@($valreview,$s.splits.validation.review_sha256))){
+            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $item[0]).Hash.ToLowerInvariant()
+            if($actual -ne $item[1]){throw 'Sealed source file differs from declared SHA256'}
+          }
+          foreach($set in @('train','validation')){
+            & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
+              --root $trainer --review-manifest (Join-Path $source ($set+'.review.json'))
+            if($LASTEXITCODE -ne 0){throw 'Declared source evidence failed'}
+            & $py -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+              --dataset (Join-Path $source ($set+'.jsonl')) `
+              --review-manifest (Join-Path $source ($set+'.review.json')) --check-review
+            if($LASTEXITCODE -ne 0){throw 'Original QLoRA review gate refused'}
+          }
+          $original=Join-Path $trainer 'scripts\neral_qlora_pilot.py'
+          & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') `
+            --trainer $original --output (Join-Path $trainer 'scripts\neral_qlora_rank32_smoke.py') `
+            --validator (Join-Path $trainer 'neral_adapter_candidate.py') `
+            --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'Pinned rank32 validator or source patch failed'}
+          $newtrainer=Join-Path $trainer 'scripts\neral_qlora_v3_rank_ab.py'
+          & $py -B (Join-Path $control 'scripts\neral_v3_rank_ab_patcher.py') --source $original --out $newtrainer
+          if($LASTEXITCODE -ne 0){throw 'Exact reviewed source patch refused'}
+          $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          & $py -B (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $model
+          if($LASTEXITCODE -ne 0){throw 'Immutable Qwen model SHA gate failed'}
+          & $py -B (Join-Path $trainer 'scripts\neral_training_preflight.py') --check-cuda
+          if($LASTEXITCODE -ne 0){throw 'Bitsandbytes NF4 and bf16 GPU compatibility failed'}
+          $root=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v3-rank-ab-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $root){throw 'Never overwrite an existing QLoRA experiment'}
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV,"V3_SOURCE=$source`nV3_ROOT=$root`nV3_MODEL=$model`n",[Text.UTF8Encoding]::new($false))
+
+      - name: Check free VRAM and lock one-time 80-step experiment
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $samples=@()
+          for($i=0;$i -lt 3;$i++){
+            $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+            if($LASTEXITCODE -ne 0){throw 'GPU measurement unavailable'}
+            $fields=($raw|Select-Object -First 1)-split ','
+            if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 10500){throw 'Under 10500 MiB free VRAM'}
+            $samples+=[int]$fields[1].Trim()
+            if($i -lt 2){Start-Sleep -Seconds 2}
+          }
+          if(@($samples|Where-Object {$_ -gt 15}).Count -ge 2){throw 'GPU busy with other jobs'}
+          $claim=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\neral-v3-rank-ab-80-steps.once'
+          $h=[IO.File]::Open($claim,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+          try {$bytes=[Text.Encoding]::UTF8.GetBytes("run=$env:GITHUB_RUN_ID/$env:GITHUB_RUN_ATTEMPT`n");$h.Write($bytes,0,$bytes.Length)} finally {$h.Dispose()}
+
+      - name: Train rank16 fixed seed42 80 steps, save separate LoRA
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $target=Join-Path $env:V3_ROOT 'rank16'
+          if(Test-Path -LiteralPath $target){throw 'Rank16 existing data may not be replaced'}
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $trainer 'scripts\neral_qlora_v3_rank_ab.py') `
+              --dataset (Join-Path $env:V3_SOURCE 'train.jsonl') `
+              --review-manifest (Join-Path $env:V3_SOURCE 'train.review.json') `
+              --model-dir $env:V3_MODEL --output-dir $target `
+              --adapter-version '0.4.0-pilot.1' --steps 80 --max-length 512 `
+              --lora-rank 16 --run-local-gpu
+          if($LASTEXITCODE -ne 0){throw 'Rank16 training failed; no evaluation/promotion'}
+          $r=Get-Content -LiteralPath (Join-Path $target 'training-report.json') -Raw|ConvertFrom-Json
+          if($r.status -ne 'completed' -or $r.optimizer_steps_completed -ne 80 -or
+             $r.neral_trainable_parameters -ne 40370176 -or $r.lora_rank -ne 16){
+             throw 'Rank16 step count/capacity report rejected'
+          }
+
+      - name: Verify rank16 integrity, VRAM clearance, then train rank32 80 matched steps
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $target=Join-Path $env:V3_ROOT 'rank32'
+          if(Test-Path -LiteralPath $target){throw 'Rank32 existing data may not be replaced'}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'Rank32 GPU sensor unavailable'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 10500 -or [int]$fields[1].Trim() -gt 15){
+            throw 'Insufficient free VRAM or GPU busy; rank32 training not attempted'
+          }
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $trainer 'scripts\neral_qlora_v3_rank_ab.py') `
+              --dataset (Join-Path $env:V3_SOURCE 'train.jsonl') `
+              --review-manifest (Join-Path $env:V3_SOURCE 'train.review.json') `
+              --model-dir $env:V3_MODEL --output-dir $target `
+              --adapter-version '0.4.0-pilot.2' --steps 80 --max-length 512 `
+              --lora-rank 32 --run-local-gpu
+          if($LASTEXITCODE -ne 0){throw 'Rank32 training failed; no evaluation/promotion'}
+          $r=Get-Content -LiteralPath (Join-Path $target 'training-report.json') -Raw|ConvertFrom-Json
+          if($r.status -ne 'completed' -or $r.optimizer_steps_completed -ne 80 -or
+             $r.neral_trainable_parameters -ne 80740352 -or $r.lora_rank -ne 32){
+             throw 'Rank32 completed step count/capacity report rejected'
+          }
+
+      - name: Evaluate both adapters and adapter-disabled Qwen with only one model loaded
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $env:PYTHONPATH=$trainer
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v3_rank_ab_eval `
+                --base $env:V3_MODEL --trainer-root $trainer --data-root $env:V3_SOURCE `
+                --rank16 (Join-Path $env:V3_ROOT 'rank16') `
+                --rank32 (Join-Path $env:V3_ROOT 'rank32') `
+                --out (Join-Path $env:V3_ROOT 'evaluation')
+            if($LASTEXITCODE -ne 0){throw 'No valid single-model comparison result; adapters remain experimental'}
+          } finally {Pop-Location}
+          $dir=Join-Path $control 'v3_rank_reports'
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+          $modelResult=Join-Path $env:V3_ROOT 'evaluation\summary.json'
+          $res=Get-Content -LiteralPath $modelResult -Raw|ConvertFrom-Json
+          if($res.status -ne 'NERAL_V3_RANK16_RANK32_DEV_COMPARISON' -or
+             $res.weights_promoted -ne $false -or $res.independent_external_benchmark -ne $false){
+            throw 'Invalid quality/release claim'
+          }
+          $base16=Get-Content -LiteralPath (Join-Path $env:V3_ROOT 'rank16\training-report.json') -Raw|ConvertFrom-Json
+          $base32=Get-Content -LiteralPath (Join-Path $env:V3_ROOT 'rank32\training-report.json') -Raw|ConvertFrom-Json
+          [ordered]@{schema=1;status='TRAINED_BOTH_EXPERIMENTAL_NOT_DEPLOYED';
+            steps=80;learning_rate=0.00005;seed=42;batch=4;
+            rank16_params=$base16.neral_trainable_parameters;
+            rank32_params=$base32.neral_trainable_parameters;
+            adapter_promoted=$false;previous_weights_unchanged=$true} |
+            ConvertTo-Json|Set-Content -LiteralPath (Join-Path $dir 'training-summary.json') -Encoding UTF8
+          Copy-Item -LiteralPath $modelResult (Join-Path $dir 'evaluation-summary.json') -ErrorAction Stop
+
+      - name: Reject upload of model text, weights, private dataset or release claim
+        id: audit_upload
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\v3_rank_reports'
+          if(-not(Test-Path -LiteralPath $dir)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 2 -or @($files|Where-Object {
+             $_.Name -notin @('training-summary.json','evaluation-summary.json') -or $_.Length -gt 16384
+          }).Count -gt 0){throw 'Private data or unexpected model output upload refused'}
+          $x=Get-Content -LiteralPath (Join-Path $dir 'training-summary.json') -Raw|ConvertFrom-Json
+          $y=Get-Content -LiteralPath (Join-Path $dir 'evaluation-summary.json') -Raw|ConvertFrom-Json
+          if($x.status -ne 'TRAINED_BOTH_EXPERIMENTAL_NOT_DEPLOYED' -or
+             $x.rank16_params -ne 40370176 -or $x.rank32_params -ne 80740352 -or
+             $x.adapter_promoted -ne $false -or
+             $y.status -ne 'NERAL_V3_RANK16_RANK32_DEV_COMPARISON' -or
+             $y.weights_promoted -ne $false -or $y.independent_external_benchmark -ne $false){
+             throw 'Rank report provenance gate refused'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true`n",[Text.UTF8Encoding]::new($false))
+
+      - name: Upload aggregate scores only; no actual model or corpus
+        if: always() && steps.audit_upload.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-rank16-rank32-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/v3_rank_reports/*.json
+          retention-days: 14
+          if-no-files-found: error
