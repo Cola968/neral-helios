@@ -180,4 +180,3 @@ def main(argv=None):
     print(json.dumps(prepare(candidate=args.candidate,trainer_root=args.trainer_root,out=args.out),ensure_ascii=False))
 
 if __name__=='__main__':main()
-
