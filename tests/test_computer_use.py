@@ -115,9 +115,11 @@ def test_screenshot_size_limit_fails_closed():
         def screenshot(self):
             return {"image_base64":"A"*(2_000_000),"media_type":"image/png","width":800,"height":600}
     ctrl=ComputerUse(Oversize(),clock=lambda:1000)
-    ctrl.start()
+    # The first screen capture happens during explicit activation; fail there
+    # rather than accepting an oversized image even briefly.
     with pytest.raises(ComputerUseError):
-        ctrl.screenshot()
+        ctrl.start()
+    assert ctrl.status()["enabled"] is False
 
 
 def test_rate_limit_does_not_permit_unbounded_calls(desktop):
