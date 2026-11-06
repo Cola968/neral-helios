@@ -17,9 +17,9 @@
   <div id="agentState" class="agent-state" role="status" aria-live="polite">Noch kein Auftrag.</div>
   <pre id="agentEvidence" class="agent-evidence" tabindex="0" aria-label="Prüfergebnisse"></pre>
   <details id="agentEdit"><summary>Kontrollierte Dateiänderung</summary>
-    <p>Du gibst den Ersatzinhalt ein. NERAL zeigt einen Diff und schreibt erst nach ausdrücklicher Freigabe. Keine automatische KI-Codeerzeugung.</p>
+    <p>NERAL kann JSON formatieren, ungefährliche Python-Leerzeichen korrigieren und bei eindeutigem Syntaxfehler einen fehlenden Doppelpunkt vorschlagen. Immer mit Diff, ausdrücklicher Freigabe und Undo. Keine fremde Codeausführung.</p>
     <label>Relativer Pfad<input id="agentEditPath" maxlength="240" placeholder="app.py"></label>
-    <label>Neuer vollständiger Dateiinhalt<textarea id="agentEditContent" rows="7" spellcheck="false" maxlength="32768"></textarea></label>
+    <label>Geprüfter Quick-Fix<select id="agentFixKind"><option value="python_colon">Python: fehlenden Doppelpunkt ergänzen</option><option value="python_whitespace">Python: sichere Leerzeichen-Korrektur</option><option value="json_pretty">JSON: lesbar formatieren</option></select></label><div class="agent-toolbar"><button id="agentQuickFix" type="button" disabled>Quick-Fix als Diff vorschlagen</button></div><label>Neuer vollständiger Dateiinhalt<textarea id="agentEditContent" rows="7" spellcheck="false" maxlength="32768"></textarea></label>
     <div class="agent-toolbar"><button id="agentPreview" type="button" disabled>Änderung prüfen</button><button id="agentApprove" type="button" disabled>Diff freigeben und schreiben</button><button id="agentUndo" type="button" disabled>Letzte Änderung rückgängig</button></div>
     <pre id="agentDiff" class="agent-evidence" tabindex="0" aria-label="Diff-Vorschau"></pre>
   </details>
