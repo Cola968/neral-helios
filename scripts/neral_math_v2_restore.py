@@ -45,6 +45,27 @@ def restore_checkout(root:Path)->dict:
     return {'status':'PINNED_BYTES_VERIFIED','crlf_only_repaired':len(set(corrected)),
             'data_hashes_unchanged':True,'original_git_source_not_modified':True}
 
+
+def restore_review_sources(root:Path,review_file:Path)->dict:
+    root=Path(root)
+    manifest=json.loads(Path(review_file).read_text(encoding='utf8'))
+    sources=manifest.get('sources')
+    if not isinstance(sources,dict) or not sources:
+        raise ValueError('Composed QLoRA sources missing')
+    corrected=[]
+    for rel,expected in sources.items():
+        target=(root/rel).resolve()
+        if root.resolve() not in target.parents or target.is_symlink():
+            raise ValueError('Composed QLoRA source escaped pinned checkout')
+        if restore(target,expected):corrected.append(rel)
+    return {'status':'COMPOSED_SOURCES_VERIFIED','source_count':len(sources),
+            'crlf_only_repaired':len(corrected),'source_hashes_unchanged':True}
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--root',required=True,type=Path)
-    args=parser.parse_args();print(json.dumps(restore_checkout(args.root)))
+    parser.add_argument('--review-manifest',type=Path)
+    args=parser.parse_args()
+    report=restore_checkout(args.root)
+    if args.review_manifest:report['composed_sources']=restore_review_sources(args.root,args.review_manifest)
+    print(json.dumps(report))
