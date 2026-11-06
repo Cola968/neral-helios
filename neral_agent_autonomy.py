@@ -294,15 +294,67 @@ class AutonomousAgent:
             return self.snapshot(id)
 
     def _history_messages(self, job: dict) -> list[dict]:
-        history = json.dumps(job["history"][-7:], ensure_ascii=False)[:8500]
+        # Keep the newest observations FIRST when preparing a bounded context.
+        # A large older file preview must never hide the latest test result.
+        chunks: list[str] = []
+        budget = 3498  # Protect the 3072-token HF backend with a strict char cap.
+        for entry in reversed(job["history"][-7:]):
+            rendered = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
+            if len(rendered) > 2600:
+                # Preserve audit fields and an explicitly labelled excerpt;
+                # do not slice serialized JSON into an invalid fragment.
+                compact = {k: entry[k] for k in
+                           ("action", "status", "path", "revision") if k in entry}
+                if "observation" in entry:
+                    compact["observation"] = {
+                        "excerpt": json.dumps(entry["observation"], ensure_ascii=False)[:2100],
+                        "truncated": True,
+                    }
+                rendered = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+            cost = len(rendered) + (1 if chunks else 0)
+            if cost > budget:
+                continue  # omit older entries; the newest result is retained.
+            chunks.append(rendered)
+            budget -= cost
+        history = "[" + ",".join(reversed(chunks)) + "]"
         remaining = self.max_steps - job["steps"]
         web_policy = ("Websuche genau einmal erlaubt: Aktion web_search, nur Nutzerbegriff "
                       + repr(job["web_query"]) + "; KEINEN anderen Begriff übertragen."
                       if job["allow_web_search"] else "Websuche nicht freigegeben; web_search verboten.")
+
+        # Look behind intermediate reads: a failed verification must lead to
+        # inspection/repair, not endless retries of the same broken revision.
+        last_review = next((entry for entry in reversed(job["history"])
+                            if entry.get("action") in
+                            {"syntax_check", "run_isolated_unit_test", "propose_edit"}), {})
+        review_result = last_review.get("observation")
+        review_status = review_result.get("status") if isinstance(review_result, dict) else None
+        failed_review = (last_review.get("action") in
+                         {"syntax_check", "run_isolated_unit_test"} and
+                         review_status in {"FAILED", "SYNTAX_FAILED", "TIMEOUT"})
+        if job["patch_revision"] and failed_review:
+            hint = ("Letzte Verifikation fehlgeschlagen: Fehler analysieren und korrigierten Patch "
+                    "per read und propose_edit vorbereiten; erneute Prüfung erst nach Freigabe "
+                    "einer korrigierten Revision. KEIN finish.")
+        elif job["patch_revision"] and job["syntax_pass_revision"] != job["patch_revision"]:
+            hint = ("Nächster erforderlicher Schritt: syntax_check. "
+                    "Ohne bestandene Syntaxprüfung KEIN finish.")
+        elif (job["patch_revision"] and job["test_cases"] and
+              job["tests_pass_revision"] != job["patch_revision"]):
+            hint = ("Nächster erforderlicher Schritt: run_isolated_unit_test. "
+                    "Ohne bestandenen isolierten Test KEIN finish.")
+        elif job["patch_revision"]:
+            hint = ("Alle erforderlichen Patch-Prüfungen bestanden. "
+                    "Wenn das Ziel erfüllt ist, wähle finish mit einer belegten summary.")
+        else:
+            hint = ("Wenn das Nutzerziel durch die bisherigen Werkzeugergebnisse erfüllt ist, "
+                    "wähle finish mit summary. Sonst wähle eine neue, notwendige Aktion; "
+                    "wiederhole keine bereits erfolgreichen Prüfschritte.")
         return [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": f"Aufgabe: {job['goal']}\nNoch verfügbare Entscheidungen: {remaining}\n"
-                                      f"Bisherige Werkzeugergebnisse: {history}\n{web_policy}\nWähle die nächste Aktion."},
+                                      f"Bisherige Werkzeugergebnisse: {history}\n{web_policy}\n"
+                                      f"{hint}\nWähle die nächste Aktion."},
         ]
 
     def step(self, id: str) -> dict:
