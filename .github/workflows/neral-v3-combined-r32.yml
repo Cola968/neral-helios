@@ -98,6 +98,9 @@ jobs:
           $reports=Join-Path $control 'v3_reports'
           New-Item -ItemType Directory -Path $reports -ErrorAction Stop |Out-Null
           Copy-Item -LiteralPath (Join-Path $dest 'summary.json') -Destination (Join-Path $reports 'summary.json')
+          $base=Join-Path $env:USERPROFILE '.cache/neral/qwen25-smoke/c03e6d358207e414f1eca0bb1891e29f1db0e242/installed_models/hf-qwen25-coder-7b'
+          & $py -B (Join-Path $control 'scripts/neral_v3_token_check.py') --trainer $trainer --base $base --dataset (Join-Path $dest 'train.jsonl') --review (Join-Path $dest 'train.review.json') --report (Join-Path $reports 'token-report.json')
+          if($LASTEXITCODE -ne 0){throw 'Real 512-token completion-only preflight failed'}
           [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_V3_PACK=$dest"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
       - name: Train one guarded 120-step R32 offline experiment (not deployment)
         if: inputs.mode == 'train'
@@ -150,10 +153,12 @@ jobs:
           $reports=Join-Path $env:GITHUB_WORKSPACE 'control/v3_reports'
           if(-not(Test-Path -LiteralPath $reports -PathType Container)){exit 0}
           $files=@(Get-ChildItem -LiteralPath $reports -Recurse -File)
-          if($files.Count -lt 1 -or $files.Count -gt 2){throw 'Unexpected file inventory'}
-          foreach($f in $files){if($f.Name -notin @('summary.json','train_summary.json') -or $f.Length -gt 8192){throw 'Non-scalar report prohibited'}}
+          if($files.Count -lt 2 -or $files.Count -gt 3){throw 'Unexpected file inventory'}
+          foreach($f in $files){if($f.Name -notin @('summary.json','train_summary.json','token-report.json') -or $f.Length -gt 8192){throw 'Non-scalar report prohibited'}}
           $m=Get-Content -LiteralPath (Join-Path $reports 'summary.json') -Raw|ConvertFrom-Json
           if($m.status -ne 'DATA_CANDIDATE_NOT_TRAINED' -or $m.release_ready -ne $false -or $m.leakage.semantic_leakage_excluded -ne $false){throw 'Misleading quality claim'}
+          $t=Get-Content -LiteralPath (Join-Path $reports 'token-report.json') -Raw|ConvertFrom-Json
+          if($t.status -ne 'NERAL_V3_512_TOKEN_GATE_PASS' -or $t.samples -ne 842 -or $t.max_sequence_tokens -gt 512 -or $t.overflow -ne 0 -or $t.completion_only_masks_valid -ne $true -or $t.training_performed -ne $false){throw 'Token boundary/masking summary refused'}
           [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
       - name: Upload scalar audit summary only
         if: always() && steps.report_guard.outputs.safe == 'true'
