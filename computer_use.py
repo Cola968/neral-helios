@@ -56,6 +56,15 @@ class WindowsDesktop:
     def execute(self, action: dict) -> None:
         kind = action["action"]
         gui = self.gui
+        # This native Windows dialog is independent of the browser. A forged
+        # request or model-generated tool call cannot skip operator consent.
+        summary = "Text mit " + str(len(action["text"])) + " Zeichen eingeben" if kind == "type" else kind
+        choice = gui.confirm(text="NERAL will genau EINE Aktion ausfuehren: " + summary
+                             + "\nNur auf diesem lokalen PC freigeben.",
+                             title="NERAL Computer Use – Betriebssystemfreigabe",
+                             buttons=["Freigeben", "Abbrechen"])
+        if choice != "Freigeben":
+            raise ComputerUseError("Computeraktion am PC nicht freigegeben.")
         if kind == "click":
             gui.click(action["x"], action["y"])
         elif kind == "move":
@@ -161,6 +170,8 @@ class ComputerUse:
         if not isinstance(payload, dict):
             raise ComputerUseError("Aktion muss ein JSON-Objekt sein.")
         kind = payload.get("action")
+        if not isinstance(kind, str):
+            raise ComputerUseError("Unbekannte Computeraktion.")
         if kind in {"click", "move"}:
             if set(payload) != {"action", "x", "y"}:
                 raise ComputerUseError("Unzulässige Mausparameter.")
@@ -176,7 +187,7 @@ class ComputerUse:
             return {"action": kind, "amount": amount}
         if kind == "press":
             key = payload.get("key")
-            if set(payload) != {"action", "key"} or key not in self.ALLOWED_KEYS:
+            if set(payload) != {"action", "key"} or not isinstance(key, str) or key not in self.ALLOWED_KEYS:
                 raise ComputerUseError("Tastenkombination nicht erlaubt.")
             return {"action": kind, "key": key}
         if kind == "type":
