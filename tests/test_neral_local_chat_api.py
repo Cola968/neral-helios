@@ -127,7 +127,8 @@ def test_ui_offers_explicit_adapter_chat_without_external_api():
     js=(root/"static/neral-local-chat.js").read_text(encoding="utf-8")
     assert 'id="neralLocalChatForm"' in html
     assert 'id="neralLocalChatAnswer"' in html
-    assert "/api/neral/chat/generate" in js
+    assert "/api/neral/chat/" in js
+    assert "req('generate'" in js
     assert "innerHTML" not in js
     assert "model_origin" in js
 
