@@ -23,7 +23,7 @@ REPORT_KEYS = frozenset((
     "schema", "status", "question_count", "base_correct", "adapter_correct",
     "delta_adapter_vs_base", "by_family", "independent_external_holdout",
     "model_quality_improvement_proven", "training_performed",
-    "raw_prompts_uploaded", "base_revision", "adapter_sha256",
+    "raw_prompts_uploaded", "code_executed", "base_revision", "adapter_sha256",
     "max_new_tokens", "adapter_modified", "source_training_changed",
     "data_sent_to_external_model_provider", "model_origin",
 ))
@@ -58,7 +58,7 @@ def validate_report(report: object) -> bool:
         report.get("max_new_tokens") not in (96,160)):
         raise ValueError("Wrong report identity")
     for key in ("independent_external_holdout","model_quality_improvement_proven",
-                "training_performed","raw_prompts_uploaded","adapter_modified",
+                "training_performed","raw_prompts_uploaded","code_executed","adapter_modified",
                 "source_training_changed","data_sent_to_external_model_provider"):
         if report.get(key) is not False:
             raise ValueError("Invalid training/privacy or quality claim")
