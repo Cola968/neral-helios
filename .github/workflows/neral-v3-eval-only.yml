@@ -1,0 +1,146 @@
+name: NERAL v3 saved adapter evaluation ONLY (no training)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Type EVALUATE_NERAL_V3_SAVED_80'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  eval_only:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V3_SAVED_80'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout evaluated source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout immutable Qwen runtime
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: CPU contracts and pinned rank32 validator
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Offline Python environment missing'}
+          Push-Location $control
+          try {
+            foreach($test in @('test_neral_v3_eval_isolation.py','test_neral_v3_rank_ab_eval.py')){
+              & $py -B -m unittest discover -s tests -p $test -v
+              if($LASTEXITCODE -ne 0){throw 'Eval-only CPU contracts failed'}
+            }
+          } finally {Pop-Location}
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Pinned source checkout failed'}
+          & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') --output (Join-Path $trainer 'scripts\neral_qlora_rank32_smoke.py') --validator (Join-Path $trainer 'neral_adapter_candidate.py') --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'Pinned rank32 validator cannot be reconstructed'}
+      - name: Verify sealed existing models and source
+        run: |
+          $ErrorActionPreference='Stop'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $existing=Join-Path $research 'math-v3-rank-ab-42297190703-1'
+          $source=Join-Path $research 'math-v3-two-line-42296646197-1'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          foreach($folder in @($existing,$source,$base)){
+            if(-not(Test-Path -LiteralPath $folder -PathType Container)){throw 'Saved source or model absent; no retraining allowed'}
+          }
+          $expected=@{rank16='0f0b6b48e615d59f2dff0754dbaab902604beb66814871888a22d3210c51202b';rank32='cb67b0fb3c9b3eb84bb8353e7ff00cf373c49a921a23ac94848d3a461047b97d'}
+          foreach($rank in @('rank16','rank32')){
+            $folder=Join-Path $existing $rank
+            $report=Get-Content -LiteralPath (Join-Path $folder 'training-report.json') -Raw|ConvertFrom-Json
+            $manifest=Get-Content -LiteralPath (Join-Path $folder 'neral-adapter.json') -Raw|ConvertFrom-Json
+            $hash=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $folder 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+            if($report.status -ne 'completed' -or $report.optimizer_steps_completed -ne 80 -or $hash -ne $expected[$rank] -or $hash -ne $manifest.files.'adapter_model.safetensors'){
+              throw 'Sealed adapter SHA mismatch'
+            }
+          }
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $py=Join-Path $research 'training-env-py312\Scripts\python.exe'
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$trainer
+            & $py -B -c "import sys;from pathlib import Path;from scripts.neral_v3_training_metrics import collect;r=collect(Path(sys.argv[1]),Path(sys.argv[2]));assert r['status']=='BOTH_TRAINED_SCORES_PENDING';assert all(x['status']=='completed' for x in r['ranks'].values())" $existing $source
+            if($LASTEXITCODE -ne 0){throw '320/64 data provenance failed'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"V3_RUN_ROOT=$existing" + [Environment]::NewLine + "V3_SOURCE=$source" + [Environment]::NewLine + "V3_BASE=$base" + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Evaluate three models in separate fresh GPU processes
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $result=Join-Path $env:V3_RUN_ROOT "evaluation-only-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $result){throw 'Never overwrite an existing evaluation'}
+          New-Item -ItemType Directory -Path $result -ErrorAction Stop|Out-Null
+          $env:PYTHONPATH=$trainer
+          foreach($variant in @('base','rank16_v3','rank32_v3')){
+            $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+            if($LASTEXITCODE -ne 0){throw 'GPU memory sensor failed'}
+            $fields=($raw|Select-Object -First 1)-split ','
+            if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 9000 -or [int]$fields[1].Trim() -gt 20){throw "GPU busy or under 9000 MiB before $variant"}
+            Push-Location $control
+            try {
+              & $py -B -m scripts.neral_v3_rank_ab_eval --base $env:V3_BASE --trainer-root $trainer --data-root $env:V3_SOURCE --rank16 (Join-Path $env:V3_RUN_ROOT 'rank16') --rank32 (Join-Path $env:V3_RUN_ROOT 'rank32') --out (Join-Path $result $variant) --variant $variant
+              if($LASTEXITCODE -ne 0){throw "Variant $variant failed, originals unchanged"}
+            } finally {Pop-Location}
+          }
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v3_rank_ab_eval --base $env:V3_BASE --trainer-root $trainer --data-root $env:V3_SOURCE --rank16 (Join-Path $env:V3_RUN_ROOT 'rank16') --rank32 (Join-Path $env:V3_RUN_ROOT 'rank32') --out (Join-Path $result 'summary') --combine-results
+            if($LASTEXITCODE -ne 0){throw 'Failed complete three-model comparison'}
+          } finally {Pop-Location}
+          $dest=Join-Path $control 'v3_eval_only_reports'
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $result 'summary\summary.json') -Destination (Join-Path $dest 'summary.json') -ErrorAction Stop
+      - name: Whitelist summary only, no raw model text
+        id: approve
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\v3_eval_only_reports'
+          if(-not(Test-Path -LiteralPath $dir)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 16384){throw 'Unexpected output export'}
+          $p=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          if($p.status -ne 'NERAL_V3_RANK16_RANK32_DEV_COMPARISON' -or $p.weights_promoted -ne $false -or $p.independent_external_benchmark -ne $false -or $p.general_improvement_proven -ne $false -or $p.adapter_16_sha256 -ne '0f0b6b48e615d59f2dff0754dbaab902604beb66814871888a22d3210c51202b' -or $p.adapter_32_sha256 -ne 'cb67b0fb3c9b3eb84bb8353e7ff00cf373c49a921a23ac94848d3a461047b97d'){throw 'Unverified scalar score'}
+          $expected=@{validation64=64;math80=80;phrasing36=36;holdout20=20}
+          foreach($model in @('base','rank16_v3','rank32_v3')){
+            foreach($suite in $expected.Keys){
+              $r=$p.scores.$model.$suite
+              if($null -eq $r -or $r.total -ne $expected[$suite] -or $r.correct -lt 0 -or $r.correct -gt $r.total -or $r.format_valid -lt 0 -or $r.format_valid -gt $r.total){throw 'Invalid comparison counts'}
+            }
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true" + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload verified scalar comparison only
+        if: always() && steps.approve.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-eval-only-scores
+          path: control/v3_eval_only_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error

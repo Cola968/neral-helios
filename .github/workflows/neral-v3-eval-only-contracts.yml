@@ -1,0 +1,19 @@
+name: NERAL v3 eval-only CPU safety contracts
+on:
+  push:
+    branches: [main, feat/neral-v3-eval-only-20261106]
+    paths: [scripts/neral_v3_rank_ab_eval.py, scripts/neral_v3_eval_isolation.py, tests/test_neral_v3_eval_isolation.py, .github/workflows/neral-v3-eval-only.yml]
+  pull_request:
+    paths: [scripts/neral_v3_rank_ab_eval.py, scripts/neral_v3_eval_isolation.py, tests/test_neral_v3_eval_isolation.py, .github/workflows/neral-v3-eval-only.yml]
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_neral_v3_eval_isolation.py -v
+      - run: python -m unittest discover -s tests -p test_neral_v3_rank_ab_eval.py -v
