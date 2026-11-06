@@ -297,17 +297,17 @@ class AutonomousAgent:
         # Keep the newest observations FIRST when preparing a bounded context.
         # A large older file preview must never hide the latest test result.
         chunks: list[str] = []
-        budget = 8498  # JSON array brackets; reserve one separator per entry.
+        budget = 3498  # Protect the 3072-token HF backend with a strict char cap.
         for entry in reversed(job["history"][-7:]):
             rendered = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
-            if len(rendered) > 6000:
+            if len(rendered) > 2600:
                 # Preserve audit fields and an explicitly labelled excerpt;
                 # do not slice serialized JSON into an invalid fragment.
                 compact = {k: entry[k] for k in
                            ("action", "status", "path", "revision") if k in entry}
                 if "observation" in entry:
                     compact["observation"] = {
-                        "excerpt": json.dumps(entry["observation"], ensure_ascii=False)[:4700],
+                        "excerpt": json.dumps(entry["observation"], ensure_ascii=False)[:2100],
                         "truncated": True,
                     }
                 rendered = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
