@@ -93,6 +93,9 @@ jobs:
           $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
           $control=Join-Path $env:GITHUB_WORKSPACE 'control'
           $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          # Verified model_catalog and Qwen runtime live in the immutable pinned trainer checkout.
+          # This must be set BEFORE snapshot validation, never only at training time.
+          $env:PYTHONPATH=$trainer
           $adapter=Join-Path $env:EXP_ROOT 'adapter'
           if (Test-Path -LiteralPath $adapter){throw 'No existing adapter may be overwritten'}
           & $py -B (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $model
