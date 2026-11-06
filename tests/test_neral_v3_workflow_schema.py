@@ -38,5 +38,4 @@ class V3WorkflowSafety(unittest.TestCase):
         self.assertIn("Only small scalar reports permitted", y)
         self.assertIn("v3_reports/*.json", y)
         self.assertNotIn("path: control/neral-v3-", y)
-        self.assertIn("model_promoted", Path("scripts/neral_v3_rank32_patch.py").read_text()
-                      if False else "model_promoted")
+        self.assertIn("TRAINED_NOT_DEPLOYED", y)
