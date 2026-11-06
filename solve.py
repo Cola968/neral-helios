@@ -46,6 +46,9 @@ def solve(expression:str)->dict:
     if '=' not in expression:return arithmetic(expression)
     expression=re.sub(r'^\s*SOLVE\s*:\s*','',expression,flags=re.I).strip()
     if len(expression)>180 or expression.count('=')!=1 or not re.fullmatch(r'[0-9x\s.+*/()=\-]+',expression):raise ValueError('Lineare Gleichung, z. B. 2*x + 3 = 11, eingeben.')
+    # Reject ambiguous implicit multiplication even if parsing behavior changes.
+    if re.search(r'(?:\d|\))\s*x\b', expression):
+        raise ValueError('Multiplikation ausdrücklich als 2*x schreiben.')
     steps=[]
     def visit(n,source):
         if isinstance(n,ast.Name) and n.id=='x':return Fraction(1),Fraction(0)
