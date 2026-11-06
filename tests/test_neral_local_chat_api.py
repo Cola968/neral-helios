@@ -178,3 +178,33 @@ def test_ollama_native_chat_endpoint_uses_prose_mode(monkeypatch):
     assert resp.json["text"] == "Ja, rein lokal."
     assert resp.json["model_origin"] == "local_foundation_not_neral_adapter"
     assert "format" not in requests[0]
+
+def test_shared_hf_adapter_serializes_agent_and_chat_without_gpu(tmp_path):
+    import concurrent.futures
+    import json
+    import threading
+    import time
+    from neral_agent_hf import HFAdapterLocalBackend
+    base = tmp_path / "base"
+    adapter = tmp_path / "adapter"
+    base.mkdir()
+    adapter.mkdir()
+    (adapter / "adapter_model.safetensors").write_bytes(b"synthetic test adapter")
+    (adapter / "adapter_config.json").write_text(json.dumps({"peft_type":"LORA","r":32}))
+    backend=HFAdapterLocalBackend(base,adapter)
+    lock=threading.Lock()
+    active=[0]
+    peak=[0]
+    def fake_inference(messages):
+        with lock:
+            active[0]+=1
+            peak[0]=max(peak[0],active[0])
+        time.sleep(0.02)
+        with lock:
+            active[0]-=1
+        return "nur Test"
+    backend._respond_once=fake_inference
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        results=list(pool.map(backend.respond,[[{"role":"user","content":"test"}]]*3))
+    assert results==["nur Test"]*3
+    assert peak[0]==1
