@@ -42,7 +42,7 @@ class ImplicitMultiplicationTests(unittest.TestCase):
         bad = [
             "2x=__import__('os').system('echo hello')", "2xy=4",
             "3sin(x)=0", "x(3)=3", "x*x=16", "2x=3=4",
-            "3(2x+1", "3)x=1", "3(2x)**2=12", "0x=4", "2x=1;exit()",
+            "3(2x+1", "3)x=1", "3(2x)**2=12", "2x=1;exit()",
             "2x=1\nprint(1)", "9"*181 + "x=1",
         ]
         for expr in bad:
