@@ -71,10 +71,16 @@
     error.textContent = '';
     transcript.setAttribute('aria-busy','true');
     try {
-      const history = messages.slice(-12).map(m => ({
-        role:m.role,
-        content:m.content.slice(0,1900),
-      }));
+      // Bound each history item by UTF-8 bytes and drop oldest COMPLETE
+      // turns when the aggregate prompt would exceed the local API budget.
+      let history = messages.slice(-12).map(m => {
+        let content = m.content.slice(0,1700);
+        while (encoder.encode(content).length > 1900) content = content.slice(0,-1);
+        return {role:m.role,content};
+      });
+      while (history.length && encoder.encode(JSON.stringify(history)).length > 9000) {
+        history = history.slice(2);
+      }
       const answer = await req('generate',{prompt:text,history});
       messages.push({role:'user',content:text},{role:'assistant',content:answer.text});
       // Keep memory bounded and keep alternating user-assistant turns.
