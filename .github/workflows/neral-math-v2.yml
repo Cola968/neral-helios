@@ -1,0 +1,195 @@
+name: NERAL math-v2 reviewed format training and A/B/C (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'audit=local data only; train=one bounded 120-step RTX experiment and independent development comparison'
+        type: choice
+        required: true
+        default: audit
+        options: [audit, train]
+      authorize:
+        description: 'For train: TRAIN_NERAL_MATH_V2_R16_120_STEPS; for audit: AUDIT_ONLY'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  math-v2:
+    if: github.ref == 'refs/heads/main' && ((inputs.mode == 'audit' && inputs.authorize == 'AUDIT_ONLY') || (inputs.mode == 'train' && inputs.authorize == 'TRAIN_NERAL_MATH_V2_R16_120_STEPS'))
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout main with reviewed experiment source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout immutable original QLoRA trainer and 86 reviewed examples
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: CPU unit tests for dataset, evaluator and fail-closed trainer patch
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Isolated pinned Python missing'}
+          Push-Location control
+          try {
+            & $python -B -m unittest discover -s tests -p 'test_neral_math_v2.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Math v2 CPU tests failed'}
+          } finally {Pop-Location}
+      - name: Build local 744-example reviewed candidate without GPU or downloads
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Pinned checkout normalization failed'}
+          $external=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $pack=Join-Path $external "math-v2-pack-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $experiment=Join-Path $external "math-v2-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if((Test-Path -LiteralPath $pack) -or (Test-Path -LiteralPath $experiment)){throw 'No existing data or checkpoint will be overwritten'}
+          $env:PYTHONPATH=$trainer
+          & $python -B (Join-Path $trainer 'scripts\neral_capability_train_pack.py') --root $trainer --out-dir $pack
+          if($LASTEXITCODE -ne 0){throw 'Pinned source-reviewed 86-row pack rejected'}
+          # Pin our new math source inside this scratch trainer root for the original
+          # trainer verify_review() to re-hash before any training step.
+          $builder=Join-Path $trainer 'scripts\neral_math_v2_builder.py'
+          if(Test-Path -LiteralPath $builder){throw 'Scratch source already exists'}
+          Copy-Item -LiteralPath (Join-Path $control 'scripts\neral_math_v2_builder.py') -Destination $builder -ErrorAction Stop
+          $older=Join-Path $external 'math-r16-exp-42257059336-1'
+          $env:PYTHONPATH=$control
+          Push-Location $control
+          try {
+            & $python -B -m scripts.neral_math_v2_builder `
+                --legacy (Join-Path $older 'math_train.jsonl') `
+                --legacy-review (Join-Path $older 'math_train.review.json') `
+                --pack (Join-Path $pack 'neral_train_86.jsonl') `
+                --pack-review (Join-Path $pack 'neral_train_86.review.json') `
+                --source-in-trainer $builder --holdout (Join-Path $trainer 'datasets\neral_qlora_holdout.jsonl') `
+                --out $experiment
+            if($LASTEXITCODE -ne 0){throw 'Independent math data preparation failed'}
+          } finally {Pop-Location}
+          $env:PYTHONPATH=$trainer
+          & $python -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+             --dataset (Join-Path $experiment 'train.jsonl') `
+             --review-manifest (Join-Path $experiment 'train.review.json') --check-review
+          if($LASTEXITCODE -ne 0){throw 'Immutable original trainer rejected v2 source review'}
+          $reportDir=Join-Path $control 'math_v2_reports'
+          New-Item -ItemType Directory -Path $reportDir -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $experiment 'summary.json') (Join-Path $reportDir 'summary.json') -ErrorAction Stop
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "V2_ROOT=$experiment`n", [System.Text.UTF8Encoding]::new($false))
+      - name: Guarded one-shot local RTX 4070 QLoRA training (rank 16, LR 5e-5, 120 steps)
+        if: inputs.mode == 'train'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:V2_ROOT -notmatch 'math-v2-[0-9]+-[0-9]+$'){throw 'Unsafe experiment output path'}
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $env:PYTHONPATH=$trainer
+          & $python -B (Join-Path $control 'scripts\neral_snapshot_preflight.py') --snapshot $model
+          if($LASTEXITCODE -ne 0){throw 'Sealed Qwen snapshot mismatch'}
+          & $python -B (Join-Path $trainer 'scripts\neral_training_preflight.py') --check-cuda
+          if($LASTEXITCODE -ne 0){throw 'CUDA NF4/BF16 compatibility gate failed'}
+          $usage=@()
+          for($i=0;$i -lt 3;$i++){
+            $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+            if($LASTEXITCODE -ne 0){throw 'GPU measurement failed'}
+            $parts=($raw|Select-Object -First 1)-split ','
+            if($parts.Count -ne 2 -or [int]$parts[0].Trim() -lt 10000){throw 'Free GPU memory below mandatory 10000 MiB'}
+            $usage+=[int]$parts[1].Trim()
+            if($i -lt 2){Start-Sleep -Seconds 2}
+          }
+          if(@($usage|Where-Object {$_ -gt 15}).Count -ge 2){throw 'GPU busy'}
+          # Exactly one claim for THIS v2 experiment. Preflight failures do not consume it.
+          $marker=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\neral-math-v2-r16-120steps-once.claim'
+          $claim=[System.IO.File]::Open($marker,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+          try {$bytes=[Text.Encoding]::UTF8.GetBytes("run=$env:GITHUB_RUN_ID/$env:GITHUB_RUN_ATTEMPT`n");$claim.Write($bytes,0,$bytes.Length)}finally{$claim.Dispose()}
+          $patched=Join-Path $trainer 'scripts\neral_qlora_math_v2_pilot.py'
+          & $python -B (Join-Path $control 'scripts\neral_math_v2_patcher.py') `
+              --source (Join-Path $trainer 'scripts\neral_qlora_pilot.py') --out $patched
+          if($LASTEXITCODE -ne 0){throw 'Immutable QLoRA patch refused'}
+          $adapter=Join-Path $env:V2_ROOT 'adapter'
+          if(Test-Path -LiteralPath $adapter){throw 'Existing adapters may never be overwritten'}
+          & $python -B $patched --dataset (Join-Path $env:V2_ROOT 'train.jsonl') `
+             --review-manifest (Join-Path $env:V2_ROOT 'train.review.json') `
+             --model-dir $model --output-dir $adapter --adapter-version '0.3.0-pilot.1' `
+             --steps 120 --max-length 512 --run-local-gpu
+          if($LASTEXITCODE -ne 0){throw 'v2 training stopped; prior models unchanged'}
+          $report=Get-Content -LiteralPath (Join-Path $adapter 'training-report.json') -Raw|ConvertFrom-Json
+          if($report.status -ne 'completed' -or $report.steps -ne 120 -or @($report.logs|Where-Object {$_.step -eq 120}).Count -lt 1){throw 'Incomplete 120-step training'}
+          $brief=[ordered]@{schema=1;status='TRAINED_NEW_R16_V2_NOT_DEPLOYED';rank=16;steps=120;learning_rate=0.00005;source='98_legacy_86_reviewed_560_numeric';old_adapter_unchanged=$true;base_unchanged=$true;promoted=$false}
+          $brief|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $control 'math_v2_reports\train-summary.json') -Encoding UTF8
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "V2_ADAPTER=$adapter`n",[System.Text.UTF8Encoding]::new($false))
+      - name: Compare base Qwen, original R32 and new math-v2 R16 on 80 dev tasks
+        if: inputs.mode == 'train'
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $old=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\actions-r32-42078722575-1\adapter'
+          & $python -B (Join-Path $control 'scripts\neral_rank32_copy.py') `
+             --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+             --output (Join-Path $trainer 'scripts\neral_qlora_rank32_pilot.py') `
+             --validator (Join-Path $trainer 'neral_adapter_candidate.py') `
+             --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
+          if($LASTEXITCODE -ne 0){throw 'R32 pin validator refused'}
+          $env:PYTHONPATH=$trainer
+          Push-Location $control
+          try {
+            & $python -B -m scripts.neral_math_v2_eval --base $model --old-r32 $old `
+              --new-r16 $env:V2_ADAPTER --out (Join-Path $env:V2_ROOT 'evaluation') `
+              --summary (Join-Path $control 'math_v2_reports\evaluation-summary.json')
+            if($LASTEXITCODE -ne 0){throw 'No math comparison result; adapters not promoted'}
+          } finally {Pop-Location}
+      - name: Enforce scalar-only reporting, never upload dataset or model weights
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\math_v2_reports'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $names=@('summary.json','train-summary.json','evaluation-summary.json')
+          $files=@(Get-ChildItem -LiteralPath $dir -File -Recurse)
+          if($files.Count -lt 1 -or $files.Count -gt 3){throw 'Unexpected report count'}
+          foreach($file in $files){if($file.Name -notin $names -or $file.Length -gt 32768){throw 'Private data export forbidden'}}
+          $r=Get-Content -LiteralPath (Join-Path $dir 'summary.json') -Raw|ConvertFrom-Json
+          if($r.status -ne 'MATH_V2_PREPARED' -or $r.training_performed -ne $false -or $r.promoted -ne $false){throw 'Misleading source report'}
+          $eval=Join-Path $dir 'evaluation-summary.json'
+          if(Test-Path -LiteralPath $eval){$v=Get-Content -LiteralPath $eval -Raw|ConvertFrom-Json
+            if($v.status -ne 'MATH_V2_DEVELOPMENT_COMPARISON' -or $v.weights_promoted -ne $false -or $v.general_improvement_proven -ne $false){throw 'Invalid evaluation claim'}}
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true`n",[System.Text.UTF8Encoding]::new($false))
+      - name: Upload scalar counts and hashes only
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-math-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/math_v2_reports/*.json
+          retention-days: 14
+          if-no-files-found: error
