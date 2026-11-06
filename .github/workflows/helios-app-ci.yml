@@ -32,7 +32,7 @@ jobs:
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: node tests/test_helios_browser.cjs
-      - name: Live web provider smoke (non-gating: provider may block CI)
+      - name: 'Live web provider smoke (non-gating: provider may block CI)'
         continue-on-error: true
         run: |
           python - <<'PY'
