@@ -1,0 +1,144 @@
+name: NERAL v3 verified two-line equations and tokenizer (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Only CREATE_NERAL_V3_TWO_LINE_REVIEWED_SPLIT'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'CREATE_NERAL_V3_TWO_LINE_REVIEWED_SPLIT'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+      NERAL_READ_ONLY: '1'
+
+    steps:
+      - name: Checkout reviewed current controls
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout immutable QLoRA trainer
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+
+      - name: Run data provenance and 170-equation unit tests on CPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Pinned Python not available'}
+          Push-Location control
+          try {
+            & $python -B -m unittest discover -s tests -p 'test_neral_v3_two_line_equations.py' -v
+            if($LASTEXITCODE -ne 0){throw '170 equation test gate failed'}
+            & $python -B -m unittest discover -s tests -p 'test_neral_implicit_solve.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Safe equation solver regression failed'}
+          } finally {Pop-Location}
+
+      - name: Convert split without changing original and verify actual 512 token boundary
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          & git -C $control -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Reviewed controls LF normalization failed'}
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Pinned original trainer normalization failed'}
+          & $python -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Original QLoRA source SHA mismatch'}
+          foreach($name in @('neral_math_v2_builder.py','neral_math_v3_balanced_pack.py','neral_v3_two_line_equations.py')){
+            $dest=Join-Path $trainer ('scripts\'+$name)
+            if(Test-Path -LiteralPath $dest){throw 'Refusing to overwrite scratch source'}
+            Copy-Item -LiteralPath (Join-Path $control ('scripts\'+$name)) -Destination $dest -ErrorAction Stop
+          }
+          $split=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\math-v3-split-42283867443-1'
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v3-two-line-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'Existing local corpus must not be overwritten'}
+          $env:PYTHONPATH=$control
+          Push-Location $control
+          try {
+            & $python -B -m scripts.neral_v3_two_line_equations `
+               --split $split --out $out `
+               --source-in-trainer (Join-Path $trainer 'scripts\neral_v3_two_line_equations.py')
+            if($LASTEXITCODE -ne 0){throw 'Pinned algebra conversion failed'}
+          } finally {Pop-Location}
+          foreach($set in @('train','validation')){
+            & $python -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
+                --root $trainer --review-manifest (Join-Path $out ($set+'.review.json'))
+            if($LASTEXITCODE -ne 0){throw 'Conversion source hash review failed'}
+            $env:PYTHONPATH=$trainer
+            & $python -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+                --dataset (Join-Path $out ($set+'.jsonl')) `
+                --review-manifest (Join-Path $out ($set+'.review.json')) --check-review
+            if($LASTEXITCODE -ne 0){throw 'Original QLoRA review verification failed'}
+          }
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $env:PYTHONPATH=$trainer
+          Push-Location $control
+          try {
+            & $python -B -m scripts.neral_v3_two_line_token_audit `
+                --trainer-root $trainer --base $base --folder $out
+            if($LASTEXITCODE -ne 0){throw 'Real Qwen tokenizer mask failed'}
+          } finally {Pop-Location}
+          New-Item -ItemType Directory -Path (Join-Path $control 'two_line_reports') -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $out 'summary.json') (Join-Path $control 'two_line_reports\summary.json') -ErrorAction Stop
+          Copy-Item -LiteralPath (Join-Path $out 'token-report.json') (Join-Path $control 'two_line_reports\token-report.json') -ErrorAction Stop
+
+      - name: Block any corpus or model upload and false training claims
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'control\two_line_reports'
+          if(-not(Test-Path -LiteralPath $path)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $path -File -Recurse)
+          if($files.Count -ne 2 -or @($files|Where-Object {$_.Name -notin @('summary.json','token-report.json') -or $_.Length -gt 16384}).Count -gt 0){
+            throw 'Unapproved raw data export'
+          }
+          $s=Get-Content -LiteralPath (Join-Path $path 'summary.json') -Raw|ConvertFrom-Json
+          $t=Get-Content -LiteralPath (Join-Path $path 'token-report.json') -Raw|ConvertFrom-Json
+          if($s.status -ne 'NERAL_V3_TWO_LINE_ALGEBRA_REVIEW_ONLY' -or
+             $s.splits.train.count -ne 320 -or $s.splits.train.converted_equations -ne 142 -or
+             $s.splits.validation.count -ne 64 -or $s.splits.validation.converted_equations -ne 28 -or
+             $t.status -ne 'NERAL_V3_TWO_LINE_TOKEN_GATE_PASS' -or
+             $t.splits.train.overflow -ne 0 -or $t.splits.validation.overflow -ne 0 -or
+             $t.splits.train.completion_only -ne $true -or $t.splits.validation.completion_only -ne $true -or
+             $s.training_performed -ne $false -or $t.training_performed -ne $false){
+            throw 'Data split or training safety gate rejected'
+          }
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true`n",[System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload only SHA-256 counts and tokenizer statistics
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-two-line-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/two_line_reports/*.json
+          retention-days: 14
+          if-no-files-found: error
