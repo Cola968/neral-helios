@@ -41,6 +41,10 @@ chat_store=ChatStore(STATE/'chats.sqlite3')
 # Local-only, auditable file-agent. Existing /api/ session/origin/rate guards apply.
 from agent_api import register_agent_api
 agent_engine=register_agent_api(app, ASSETS)
+# Explicit Windows-only opt-in; no LAN/phone proxy access or background capture.
+from computer_api import register_computer_api
+computer_engine=register_computer_api(
+    app, enabled=os.environ.get("NERAL_ENABLE_COMPUTER_USE") == "1")
 _hits=defaultdict(deque);_hit_lock=threading.Lock();_generation_lock=threading.Lock();_jobs={};_job_lock=threading.Lock()
 torch.set_num_threads(2);torch.manual_seed(968);torch.set_float32_matmul_precision('high')
 cfg=NeralConfig();model=Neral20M(cfg);tokenizer=ByteTokenizer();report=model.parameter_report()
