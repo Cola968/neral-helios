@@ -103,3 +103,30 @@ node --test tests/test_agent_ui.cjs
 
 Im PR läuft `.github/workflows/neral-agent-mode-ci.yml`.
 Die bestehende Helios-Testpipeline ist zusätzlich relevant.
+
+## Kontrollierte Quick-Fixes (Erweiterung vom 6. November)
+
+Im Bereich **Kontrollierte Dateiänderung** können drei rein lokal berechnete
+Änderungsvorschläge erzeugt werden, auch **nach Abschluss einer Analyse**:
+
+- Python: genau einen fehlenden Doppelpunkt in einer eindeutig
+  identifizierten Kopfzeile ergänzen. Der vollständig korrigierte Quelltext
+  muss danach erfolgreich mit ast.parse analysiert werden können.
+- Python: abschließende Leerzeichen entfernen und fehlenden letzten
+  Zeilenumbruch ergänzen; nur wenn der AST vor/nach dem Eingriff
+  **identisch** ist. Mehrzeilige Strings mit geänderten Werten werden
+  nicht verändert.
+- JSON: lesbar einrücken; ungültige JSON-Daten, doppelte Schlüssel und
+  NaN/Infinity werden abgelehnt, damit keine Daten verschwinden.
+
+Ablauf: Pfad eingeben → Quick-Fix-Typ auswählen → **Quick-Fix als Diff
+vorschlagen** → Änderung kontrollieren → **Diff freigeben und schreiben**.
+Der unveränderte SHA-256 des Ausgangszustands wird zwischen Vorschlag und
+Freigabe verglichen. Danach ist ein Undo möglich, solange niemand die
+Datei geändert hat. Die reine Vorschau schreibt keine Dateien. Es werden
+weder Netzwerkzugriffe noch fremder Code ausgeführt. Nicht eindeutig
+korrigierbare Fehler werden bewusst nicht automatisch verändert.
+
+Neue Tests:
+python -m pytest -q tests/test_agent_quickfix.py tests/test_agent_api.py
+node --test tests/test_agent_ui.cjs
