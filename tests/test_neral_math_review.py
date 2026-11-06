@@ -58,4 +58,3 @@ class MathReviewTests(unittest.TestCase):
             self.assertNotIn('Berechne 7',str(report))
 
 if __name__=='__main__':unittest.main()
-
