@@ -23,7 +23,7 @@ def test_phone_pairing_secrets_are_private_with_permissive_umask(tmp_path):
 
 def test_phone_pairing_does_not_overwrite_preexisting_files(tmp_path):
     target = tmp_path / "pairing"
-    target.mkdir()
+    target.mkdir(mode=0o700)
     (target / "server.key").write_text("keep-this-existing-key", encoding="utf-8")
     with pytest.raises(FileExistsError):
         setup("192.168.8.27", target)
@@ -34,3 +34,11 @@ def test_phone_pairing_does_not_overwrite_preexisting_files(tmp_path):
 def test_phone_pairing_rejects_unsafe_host(host, tmp_path):
     with pytest.raises(ValueError):
         setup(host, tmp_path / "pairing")
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory modes")
+def test_existing_shared_directory_is_not_silently_chmodded(tmp_path):
+    target = tmp_path / "shared"
+    target.mkdir(mode=0o755)
+    with pytest.raises(PermissionError):
+        setup("192.168.8.27", target)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755
