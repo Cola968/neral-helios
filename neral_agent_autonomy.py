@@ -25,6 +25,10 @@ class AgentModelError(RuntimeError):
     """Untrusted inference failed; raw details must not reach HTTP clients."""
 
 
+class AgentOutputError(AgentModelError):
+    """Recoverable malformed local model tool response, with no raw output exported."""
+
+
 class DenyRedirect(urllib.request.HTTPRedirectHandler):
     """Never allow the local model endpoint to redirect private prompts."""
 
@@ -135,19 +139,19 @@ Wenn du nicht weiterkommst, verwende finish mit einer ehrlichen Erklärung.
 
 def _parse_choice(raw: str) -> dict:
     if not isinstance(raw, str) or len(raw) > 40_000:
-        raise AgentModelError("Modell lieferte keine gültige Tool-Anweisung.")
+        raise AgentOutputError("Modell lieferte keine gültige Tool-Anweisung.")
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         match = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", cleaned, re.S | re.I)
         if not match:
-            raise AgentModelError("Ungültige Tool-Anweisung.")
+            raise AgentOutputError("Ungültige Tool-Anweisung.")
         cleaned = match.group(1).strip()
     try:
         data = json.loads(cleaned)
     except (ValueError, TypeError) as exc:
-        raise AgentModelError("Modell lieferte kein JSON.") from exc
+        raise AgentOutputError("Modell lieferte kein JSON.") from exc
     if not isinstance(data, dict) or not isinstance(data.get("action"), str):
-        raise AgentModelError("Tool-Anweisung ohne gültige Aktion.")
+        raise AgentOutputError("Tool-Anweisung ohne gültige Aktion.")
     return data
 
 
@@ -203,7 +207,7 @@ class AutonomousAgent:
                 "deadline": time.monotonic() + self.max_seconds, "history": [],
                 "answer": None, "last_action": None, "duplicates": 0,
                 "pending_task": None, "proposal": None, "model_origin": "local_model_only",
-                "reads": {}, "patch_revision": 0, "syntax_pass_revision": -1,
+                "reads": {}, "format_failures": 0, "patch_revision": 0, "syntax_pass_revision": -1,
                 "tests_pass_revision": -1, "last_patch_path": None,
                 "test_cases": test_cases, "test_path": test_path,
                 "repair_failures": 0,
@@ -295,7 +299,7 @@ class AutonomousAgent:
                 command = _parse_choice(self.backend.respond(self._history_messages(job)))
                 action = command["action"]
                 if action not in self.TOOL_NAMES:
-                    raise AgentModelError("Unbekanntes Werkzeug.")
+                    raise AgentOutputError("Unbekanntes Werkzeug.")
                 signature = json.dumps({k: command.get(k) for k in
                                         ("action", "path", "query", "equation", "expression", "content")},
                                        sort_keys=True)[:5000]
@@ -319,14 +323,14 @@ class AutonomousAgent:
                 elif action == "finish":
                     summary = command.get("summary")
                     if not isinstance(summary, str) or not 1 <= len(summary) <= 4000:
-                        raise AgentModelError("Ungültiger Abschluss.")
+                        raise AgentOutputError("Ungültiger Abschluss.")
                     job["answer"] = summary
                     job["status"] = "completed"
                     job["history"].append({"action": "finish", "status": "completed"})
                 elif action == "propose_edit":
                     path, content = command.get("path"), command.get("content")
                     if not isinstance(path, str) or not isinstance(content, str):
-                        raise AgentModelError("Patch erfordert Pfad und Inhalt.")
+                        raise AgentOutputError("Patch erfordert Pfad und Inhalt.")
                     # Use the existing audited CAS/approval engine. Never auto-approve.
                     target = self.engine.safe_path(path)
                     existing = target.read_bytes() if target.is_file() else None
@@ -353,6 +357,18 @@ class AutonomousAgent:
                                           result.get("status") != "PASSED" else "ok")
                     job["history"].append({"action": action, "status": observation_status,
                                            "observation": result})
+            except AgentOutputError:
+                # Retry at most once after a malformed locally generated action.
+                # Do not expose raw model text or any sensitive model response.
+                job["format_failures"] += 1
+                exhausted = job["format_failures"] >= 2
+                job["history"].append({
+                    "action": "model",
+                    "status": "invalid_output_exhausted" if exhausted else "invalid_output_retry",
+                    "observation": "Sende genau ein JSON-Objekt mit einem erlaubten action-Feld; finish benötigt summary.",
+                })
+                if exhausted:
+                    job["status"] = "failed"
             except (AgentError, AgentModelError, OSError, UnicodeError, ValueError, TypeError) as exc:
                 if isinstance(exc, (AgentError, MathInputError)):
                     job["history"].append({"action": "tool", "status": "blocked",
