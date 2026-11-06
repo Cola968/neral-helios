@@ -94,6 +94,10 @@ jobs:
                 --out $experiment
             if($LASTEXITCODE -ne 0){throw 'Independent math data preparation failed'}
           } finally {Pop-Location}
+          # Restore reviewed generator/source bytes only when LF normalization proves their pinned SHA-256.
+          & $python -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
+             --root $trainer --review-manifest (Join-Path $experiment 'train.review.json')
+          if($LASTEXITCODE -ne 0){throw 'Legacy math generator/source SHA-256 refused'}
           $env:PYTHONPATH=$trainer
           & $python -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
              --dataset (Join-Path $experiment 'train.jsonl') `
