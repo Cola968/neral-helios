@@ -1,0 +1,127 @@
+name: NERAL v3 pinned 320-64 train-validation source audit (no training)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        description: 'Read-only: RUN_NERAL_V3_FROZEN_SPLIT_AUDIT'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  split-audit:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_NERAL_V3_FROZEN_SPLIT_AUDIT'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_READ_ONLY: '1'
+
+    steps:
+      - name: Checkout current reviewed source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout immutable original QLoRA reviewer
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+
+      - name: Verify deterministic stratification and integrity tests
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python missing'}
+          Push-Location control
+          try {
+            & $py -B -m unittest discover -s tests -p 'test_neral_v3_split.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Split CPU gate failed'}
+          } finally {Pop-Location}
+
+      - name: Split exactly reviewed 384 rows and validate each output manifest
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $old=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\math-v3-mix-42280829676-1'
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v3-split-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'No existing local split may be overwritten'}
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Immutable original sources not available'}
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Pinned reviewed sources failed'}
+          foreach($name in @('neral_math_v2_builder.py','neral_math_v3_balanced_pack.py')){
+            $dest=Join-Path $trainer ('scripts\'+$name)
+            if(Test-Path -LiteralPath $dest){throw 'Scratch source exists'}
+            Copy-Item -LiteralPath (Join-Path $control ('scripts\'+$name)) -Destination $dest -ErrorAction Stop
+          }
+          $env:PYTHONPATH=$control
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v3_split `
+               --data (Join-Path $old 'train.jsonl') `
+               --review (Join-Path $old 'train.review.json') --out $out
+            if($LASTEXITCODE -ne 0){throw 'Source hash or split policy rejected'}
+          } finally {Pop-Location}
+          foreach($set in @('train','validation')){
+            & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
+               --root $trainer --review-manifest (Join-Path $out ($set+'.review.json'))
+            if($LASTEXITCODE -ne 0){throw 'Original review source SHA mismatch'}
+            $env:PYTHONPATH=$trainer
+            & $py -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+               --dataset (Join-Path $out ($set+'.jsonl')) `
+               --review-manifest (Join-Path $out ($set+'.review.json')) --check-review
+            if($LASTEXITCODE -ne 0){throw 'Pinned original QLoRA reviewer rejected split'}
+          }
+          New-Item -ItemType Directory -Path (Join-Path $control 'v3_split_reports') -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $out 'summary.json') (Join-Path $control 'v3_split_reports\summary.json') -ErrorAction Stop
+
+      - name: Block unreviewed uploads
+        id: report_guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'control\v3_split_reports'
+          if(-not(Test-Path -LiteralPath $path)){exit 0}
+          $all=@(Get-ChildItem -LiteralPath $path -File -Recurse)
+          if($all.Count -ne 1 -or $all[0].Name -ne 'summary.json' -or $all[0].Length -gt 12000){
+            throw 'Private training corpus export denied'
+          }
+          $report=Get-Content -LiteralPath $all[0].FullName -Raw|ConvertFrom-Json
+          if($report.status -ne 'NERAL_V3_FROZEN_SPLIT_PREPARED' -or
+             $report.source_sha256 -ne '4b0e54712ea889cadd98eb668d315f3eb8647a7b9ac2209a1ed9942f7bbd3941' -or
+             $report.total -ne 384 -or $report.train -ne 320 -or
+             $report.validation -ne 64 -or $report.training_performed -ne $false -or
+             $report.release_validated -ne $false -or $report.independent_holdout -ne $false){
+            throw 'Not the frozen read-only 320/64 split'
+          }
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "safe=true`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload only aggregate counts and hashes
+        if: always() && steps.report_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-split-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/v3_split_reports/summary.json
+          retention-days: 14
+          if-no-files-found: error
