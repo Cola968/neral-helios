@@ -21,4 +21,3 @@ class MathEvalTests(unittest.TestCase):
         self.assertFalse(s['general_improvement_proven'])
         self.assertEqual(s['status'],'SMALL_MATH_DEV_DIAGNOSTIC')
 if __name__=='__main__':unittest.main()
-
