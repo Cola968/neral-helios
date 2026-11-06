@@ -1,6 +1,6 @@
 """Local-only inference must be explicit, no benchmark claims from names."""
 import pytest
-from neral_local_policy import OFFLINE_ENV, enforce_local_inference_environment, inference_provenance
+from scripts.neral_local_policy import OFFLINE_ENV, enforce_local_inference_environment, inference_provenance
 
 
 def test_offline_env_overrides_network_telemetry():
