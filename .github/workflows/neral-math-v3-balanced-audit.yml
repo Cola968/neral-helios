@@ -1,0 +1,114 @@
+name: NERAL balanced core and equation draft audit (no training)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Read-only: RUN_REVIEWED_NERAL_V3_MIX_AUDIT'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_REVIEWED_NERAL_V3_MIX_AUDIT'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_READ_ONLY: '1'
+    steps:
+      - name: Checkout audited current controls
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout pinned QLoRA source contract
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Test algebra checker and core distribution without GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python unavailable'}
+          Push-Location control
+          try {
+            & $py -B -m unittest discover -s tests -p 'test_neral_math_v3_balanced_pack.py' -v
+            if($LASTEXITCODE -ne 0){throw 'Math v3 source-verification tests failed'}
+          } finally {Pop-Location}
+      - name: Reconstruct local 384-example reviewed candidate only
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Pinned checkout restoration failed'}
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Original source pin failed'}
+          $builder=Join-Path $trainer 'scripts\neral_math_v2_builder.py'
+          $v3source=Join-Path $trainer 'scripts\neral_math_v3_balanced_pack.py'
+          foreach($target in @($builder,$v3source)){if(Test-Path -LiteralPath $target){throw 'Scratch source already exists'}}
+          Copy-Item -LiteralPath (Join-Path $control 'scripts\neral_math_v2_builder.py') -Destination $builder -ErrorAction Stop
+          Copy-Item -LiteralPath (Join-Path $control 'scripts\neral_math_v3_balanced_pack.py') -Destination $v3source -ErrorAction Stop
+          $original=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\math-v2-42264245416-1'
+          $out=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\math-v3-mix-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'No existing candidate may be overwritten'}
+          $env:PYTHONPATH=$control
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_math_v3_balanced_pack `
+              --v2-data (Join-Path $original 'train.jsonl') `
+              --v2-review (Join-Path $original 'train.review.json') `
+              --source $v3source `
+              --holdout (Join-Path $trainer 'datasets\neral_qlora_holdout.jsonl') `
+              --out $out
+            if($LASTEXITCODE -ne 0){throw 'Balanced candidate generation refused'}
+          } finally {Pop-Location}
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') `
+            --root $trainer --review-manifest (Join-Path $out 'train.review.json')
+          if($LASTEXITCODE -ne 0){throw 'Source hash restore refused'}
+          $env:PYTHONPATH=$trainer
+          & $py -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') `
+            --dataset (Join-Path $out 'train.jsonl') --review-manifest (Join-Path $out 'train.review.json') --check-review
+          if($LASTEXITCODE -ne 0){throw 'Original QLoRA training review contract refused'}
+          $report=Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw|ConvertFrom-Json
+          if($report.status -ne 'MATH_V3_DRAFT_REVIEW_ONLY' -or $report.examples -ne 384 -or $report.training_performed -ne $false){throw 'Not an approved read-only mix'}
+          New-Item -ItemType Directory -Path (Join-Path $control 'v3_reports') -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $out 'summary.json') (Join-Path $control 'v3_reports\summary.json') -ErrorAction Stop
+      - name: Permit only numerical source digests in GitHub artifact
+        id: guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\v3_reports'
+          if(-not(Test-Path -LiteralPath $folder)){exit 0}
+          $all=@(Get-ChildItem -LiteralPath $folder -File -Recurse)
+          if($all.Count -ne 1 -or $all[0].Name -ne 'summary.json' -or $all[0].Length -gt 8192){throw 'Private corpus export forbidden'}
+          $s=Get-Content $all[0].FullName -Raw|ConvertFrom-Json
+          if($s.training_performed -ne $false -or $s.release_approved -ne $false -or $s.examples -ne 384){throw 'False model promotion state'}
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "safe=true`n", [System.Text.UTF8Encoding]::new($false))
+      - name: Upload only counts and SHA-256
+        if: always() && steps.guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-math-v3-balanced-${{ github.run_id }}-${{ github.run_attempt }}
+          path: control/v3_reports/summary.json
+          retention-days: 14
