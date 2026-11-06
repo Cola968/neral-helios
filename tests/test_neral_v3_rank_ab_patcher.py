@@ -11,11 +11,9 @@ class RankedV3PatchTests(unittest.TestCase):
     def setUpClass(cls):
         from pathlib import Path
         # Tests load original bytes only when installed in the sealed source checkout.
-        cls.source = Path(__file__).resolve().parents[1]/'scripts'/'neral_qlora_source_fixture.py'
+        cls.source = Path(__file__).resolve().parents[1]/'tests'/'fixtures'/'neral_qlora_source_fixture.py'
 
     def test_reviewed_original_patch_has_no_conditional_production_promotion(self):
-        if not self.source.is_file():
-            self.skipTest('Pinned trainer fixture is not in ordinary checkout')
         s=adapt_trainer(self.source.read_text(encoding='utf8'))
         ast.parse(s)
         self.assertIn('if args.steps != 80 or args.max_length != 512:',s)
