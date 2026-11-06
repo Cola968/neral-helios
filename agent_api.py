@@ -65,7 +65,7 @@ def register_agent_api(app, workspace):
 
     @app.post("/api/agent/<ident>/<action>")
     def agent_action(ident, action):
-        allowed = {"next", "cancel", "pause", "resume", "propose", "approve", "undo"}
+        allowed = {"next", "cancel", "pause", "resume", "propose", "quickfix", "approve", "undo"}
         if action not in allowed:
             return jsonify(error="Unbekannte Agentenaktion."), 404
         data, err = body()
@@ -86,6 +86,8 @@ def register_agent_api(app, workspace):
             if action == "propose":
                 return engine.propose(ident, path=data.get("path"), content=data.get("content"),
                                       expected_sha=data.get("expected_sha"))
+            if action == "quickfix":
+                return engine.propose_fix(ident, path=data.get("path"), kind=data.get("kind"))
             return engine.approve(ident, data.get("token"))
 
         return attempt(run)
