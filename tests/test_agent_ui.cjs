@@ -42,6 +42,15 @@ function harness() {
       data = {id:'1234567890abcdef12345678', goal:'audit',
               status:steps>=2?'completed':'running',steps_completed:steps,
               plan:['inventory','summary'],results:{inventory:{files:2}},events:[],can_undo:false};
+    } else if (path.endsWith('/quickfix')) {
+      data = {id:'1234567890abcdef12345678',goal:'audit',status:'awaiting_approval',
+              steps_completed:2,plan:['inventory','summary'],
+              results:{},events:[],can_undo:false,
+              proposal:{token:'valid-approval',diff:'--- old\n+++ new\n+def answer():\n'}};
+    } else if (path.endsWith('/approve')) {
+      data = {id:'1234567890abcdef12345678',goal:'audit',status:'completed',
+              steps_completed:2,plan:['inventory','summary'],
+              results:{},events:[],can_undo:true};
     } else {
       data = {error:'unexpected'};
     }
@@ -86,4 +95,24 @@ test('switching from agent to projects does not get undone by view restoration',
   await el('projectShortcut').emit('click');
   assert.equal(el('agentPanel').hidden, true);
   assert.equal(el('projectWorkspace').hidden, false);
+});
+
+
+test('quick-fix after completed audit requires visible diff and approval', async () => {
+  const {el} = harness();
+  el('agentGoal').value = 'audit';
+  el('agentStrategy').value = 'audit';
+  await el('agentForm').emit('submit');
+  await el('agentAll').emit('click');
+  assert.match(el('agentState').textContent, /completed/);
+  assert.equal(el('agentQuickFix').disabled, false);
+  el('agentEditPath').value = 'broken.py';
+  el('agentFixKind').value = 'python_colon';
+  await el('agentQuickFix').emit('click');
+  assert.match(el('agentState').textContent, /awaiting_approval/);
+  assert.match(el('agentDiff').textContent, /def answer/);
+  assert.equal(el('agentApprove').disabled, false);
+  await el('agentApprove').emit('click');
+  assert.match(el('agentState').textContent, /completed/);
+  assert.equal(el('agentUndo').disabled, false);
 });
