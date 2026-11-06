@@ -307,3 +307,33 @@ class ContextPriorityRegression(unittest.TestCase):
             state["tests_pass_revision"] = 1
             verified = agent._history_messages(state)[1]["content"]
             self.assertIn("Alle erforderlichen Patch-Prüfungen bestanden", verified)
+
+    def test_failed_assertions_request_repair_not_same_test_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = AutonomousAgent(directory, FakeModel({"action": "finish", "summary": "x"}))
+            ident = agent.start("Repair buggy.py")["id"]
+            state = agent.jobs[ident]
+            state["patch_revision"] = 1
+            state["syntax_pass_revision"] = 1
+            state["test_cases"] = ["assert 1 == 1"]
+            state["history"] = [{
+                "action": "run_isolated_unit_test", "status": "test_failed",
+                "observation": {"status": "FAILED", "traceback": "AssertionError"},
+            }]
+            prompt = agent._history_messages(state)[1]["content"]
+            self.assertIn("Fehler analysieren und korrigierten Patch", prompt)
+            self.assertNotIn("Nächster erforderlicher Schritt: run_isolated_unit_test", prompt)
+
+    def test_failed_syntax_check_requests_repair_not_same_check_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = AutonomousAgent(directory, FakeModel({"action": "finish", "summary": "x"}))
+            ident = agent.start("Repair buggy.py")["id"]
+            state = agent.jobs[ident]
+            state["patch_revision"] = 1
+            state["history"] = [{
+                "action": "syntax_check", "status": "ok",
+                "observation": {"status": "FAILED", "line": 2},
+            }]
+            prompt = agent._history_messages(state)[1]["content"]
+            self.assertIn("Fehler analysieren und korrigierten Patch", prompt)
+            self.assertNotIn("Nächster erforderlicher Schritt: syntax_check", prompt)
