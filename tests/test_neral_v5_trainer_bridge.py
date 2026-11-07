@@ -32,7 +32,7 @@ class TransferV5TrainerBridge(unittest.TestCase):
                 lines=data.decode().splitlines()
                 review=json.loads((output/(split+".review.json")).read_text())
                 self.assertEqual(review["schema"],1)
-                self.assertIn("neral_v5_transfer_curriculum.py",review["sources"])
+                self.assertIn("scripts/neral_v5_transfer_curriculum.py",review["sources"])
                 self.assertEqual(review["dataset_sha256"],hashlib.sha256(data).hexdigest())
                 self.assertEqual(len(review["rows"]),len(lines))
                 self.assertFalse(review["training_allowed"])
