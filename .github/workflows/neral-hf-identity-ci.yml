@@ -1,0 +1,29 @@
+name: NERAL Helios pinned Qwen adapter identity CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_hf.py'
+      - 'neral_hf_identity.py'
+      - 'tests/test_neral_hf_identity.py'
+      - '.github/workflows/neral-hf-identity-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_agent_hf.py'
+      - 'neral_hf_identity.py'
+      - 'tests/test_neral_hf_identity.py'
+permissions:
+  contents: read
+jobs:
+  verify_identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: No GPU, no model downloads, only local identity checks
+        run: |
+          python -m compileall -q neral_agent_hf.py neral_hf_identity.py tests/test_neral_hf_identity.py
+          python -m unittest discover -s tests -p test_neral_hf_identity.py -v
