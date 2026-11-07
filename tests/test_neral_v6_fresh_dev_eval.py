@@ -9,7 +9,8 @@ from pathlib import Path
 from scripts.neral_v6_fresh_dev_eval import (
     build_cases, suite_fingerprint, parse_answer, score_three_way, 
     check_source_isolation, validate_variant_output,
-    prepare_fewshot_messages, messages_for_protocol, BASE_SHA, V5_SHA, V6_SHA,
+    prepare_fewshot_messages, messages_for_protocol, phase2_training_gate,
+    BASE_SHA, V5_SHA, V6_SHA,
 )
 
 
@@ -74,7 +75,71 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertFalse(report["release_validated"])
         self.assertFalse(report["independent_benchmark_proven"])
         self.assertEqual(report["scores"]["neral_v6"]["incomplete"],1)
+        self.assertEqual(report["prompt_protocol"],"historical")
+        self.assertEqual(report["phase2_gate"]["decision"],"refuse")
+        self.assertIn("historical_protocol_is_not_phase2_evidence",
+                      report["phase2_gate"]["reasons"])
+        self.assertFalse(report["phase2_gate"]["claimed_capability_gain"])
+        self.assertFalse(report["claimed_score_gain"])
         self.assertNotIn(cases[0]["prompt"],json.dumps(report))
+
+    def test_partitions_cover_the_suite_and_only_matched_fewshot_can_pass(self):
+        cases=build_cases()
+        def blank():
+            return {name:[{"id":c["id"],"text":c["answer"],"complete":True,
+                           "new_tokens":4} for c in cases]
+                    for name in ("qwen_fewshot","neral_v5","neral_v6")}
+        outputs=blank()
+        outputs["neral_v6"][0]["complete"]=False
+        outputs["neral_v6"][1]["text"]="FINAL_ANSWER: 999999"
+        outputs["neral_v6"][2]["text"]="Ich rechne noch "+cases[2]["answer"]
+        report=score_three_way(cases,outputs,prompt_protocol="matched_fewshot")
+        row=report["scores"]["neral_v6"]
+        self.assertEqual(row["strict_correct"],69)
+        self.assertEqual(row["wrong_readable_number"],1)
+        self.assertEqual(row["unreadable"],1)
+        self.assertEqual(row["incomplete"],1)
+        self.assertEqual(row["correct"],row["strict_correct"])
+        self.assertEqual(row["ungraded_completed"],row["unreadable"])
+        self.assertEqual(sum(row[k] for k in (
+            "strict_correct","wrong_readable_number","unreadable","incomplete")),72)
+        self.assertEqual(sum(row["per_domain"].values()),row["strict_correct"])
+        gate=report["phase2_gate"]
+        self.assertEqual(gate["decision"],"ok")
+        self.assertEqual(gate["phase2_training"],"v61_comparison_not_in_report")
+        self.assertFalse(gate["training_authorized"])
+        self.assertFalse(gate["claimed_score_gain"])
+        self.assertFalse(gate["release_validated"])
+        historical=dict(report,prompt_protocol="historical")
+        refused=phase2_training_gate(historical)
+        self.assertEqual(refused["decision"],"refuse")
+        self.assertEqual(refused["phase2_training"],"blocked")
+        zeroshot=phase2_training_gate(dict(report,prompt_protocol="matched_zeroshot"))
+        self.assertEqual(zeroshot["decision"],"refuse")
+        self.assertIn("matched_fewshot_required",zeroshot["reasons"])
+        claimed=phase2_training_gate(dict(report,claimed_score_gain=True))
+        self.assertEqual(claimed["decision"],"refuse")
+        self.assertIn("release_or_gain_claim:claimed_score_gain",claimed["reasons"])
+        broken=json.loads(json.dumps(report))
+        del broken["scores"]["neral_v6"]["wrong_readable_number"]
+        self.assertEqual(phase2_training_gate(broken)["decision"],"refuse")
+        ahead=json.loads(json.dumps(report))
+        ahead["scores"]["neral_v61"]=dict(ahead["scores"]["neral_v6"],
+                                          wrong_readable_number=0,strict_correct=70,
+                                          correct=70)
+        ahead["scores"]["neral_v5"]["wrong_readable_number"]=2
+        ahead["scores"]["neral_v5"]["strict_correct"]=70
+        ahead["scores"]["neral_v5"]["correct"]=70
+        skip=phase2_training_gate(ahead)
+        self.assertEqual(skip["decision"],"ok")
+        self.assertEqual(skip["phase2_training"],"skip_training")
+        self.assertFalse(skip["claimed_capability_gain"])
+        behind=json.loads(json.dumps(ahead))
+        behind["scores"]["neral_v61"]["wrong_readable_number"]=4
+        behind["scores"]["neral_v61"]["strict_correct"]=66
+        behind["scores"]["neral_v61"]["correct"]=66
+        self.assertEqual(phase2_training_gate(behind)["phase2_training"],
+                         "v61_has_more_wrong_readable_numbers")
 
     def test_misordered_missing_extra_and_tainted_data_rejected(self):
         cases=build_cases()

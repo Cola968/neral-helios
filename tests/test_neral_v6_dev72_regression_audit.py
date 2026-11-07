@@ -100,6 +100,19 @@ class RegressionAuditTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 audit_private_files(root,root/"audit-agg.json",root/"audit-private.jsonl")
 
+    def test_saved_report_without_new_partitions_keeps_original_counts(self):
+        cases, variants=fixtures()
+        fresh=score_three_way(cases,variants)
+        locked=json.loads(json.dumps(fresh))
+        for row in locked["scores"].values():
+            for field in ("strict_correct","wrong_readable_number","unreadable"):
+                row.pop(field)
+        aggregate,_=diagnose_saved(cases,variants,locked,review_limit=0)
+        self.assertEqual(aggregate["original_score"]["neral_v6"]["correct"],68)
+        locked["scores"]["neral_v6"]["correct"]=0
+        with self.assertRaises(ValueError):
+            diagnose_saved(cases,variants,locked,review_limit=0)
+
 
 if __name__=="__main__":
     unittest.main()

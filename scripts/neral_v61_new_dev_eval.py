@@ -218,14 +218,14 @@ def validate_local_candidate(receipt_path:Path,candidate_dir:Path,v5_dir:Path,
     return sha
 
 
-def score_result(cases,outputs,*,candidate_sha):
-    raw=original.score_three_way(cases,outputs)
+def score_result(cases,outputs,*,candidate_sha,prompt_protocol="historical"):
+    raw=original.score_three_way(cases,outputs,prompt_protocol=prompt_protocol)
     scores=dict(raw["scores"])
     scores["neral_v61"]=scores.pop("neral_v6")
     paired=dict(raw["paired"])
     paired["v61_vs_v5"]=paired.pop("v6_vs_v5")
     paired["v61_vs_qwen"]=paired.pop("v6_vs_qwen")
-    return {**raw,
+    report={**raw,
         "status":STATUS,
         "scores":scores,"paired":paired,
         "candidate_adapter_sha256":candidate_sha,
@@ -233,7 +233,10 @@ def score_result(cases,outputs,*,candidate_sha):
         "release_validated":False,"adapter_promoted":False,
         "source_isolation":"exact_and_10gram_vs_v61_train_validation_and_old_dev72",
         "limitations":"Exploratory, researcher-authored and correlated, not independent; code-tracing is not coding. Low power n=72, no release claim.",
+        "claimed_score_gain":False,
     }
+    report["phase2_gate"]=original.phase2_training_gate(report)
+    return report
 
 
 def _read(path):
@@ -316,13 +319,18 @@ def main(argv=None):
                           "candidate_sha256":candidate_sha},sort_keys=True))
     else:
         sources={v:_read(folder/(v+".jsonl")) for v in original.VARIANTS}
-        report=score_result(cases,sources,candidate_sha=candidate_sha)
+        report=score_result(cases,sources,candidate_sha=candidate_sha,
+                            prompt_protocol=args.prompt_protocol)
         dest=folder/"summary.json"
         if dest.exists() or dest.is_symlink():
             raise ValueError("No report overwrite allowed")
         dest.write_text(json.dumps(report,ensure_ascii=False,sort_keys=True,indent=2)+"\n",encoding="utf8")
-        print(json.dumps({"status":report["status"],"scores":report["scores"],
-                          "paired":report["paired"],"release_validated":False},
+        print(json.dumps({"status":report["status"],
+                          "prompt_protocol":report["prompt_protocol"],
+                          "scores":report["scores"],
+                          "paired":report["paired"],
+                          "phase2_gate":report["phase2_gate"],
+                          "release_validated":False},
                          sort_keys=True))
 
 

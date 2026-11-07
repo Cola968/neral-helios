@@ -272,15 +272,34 @@ def _mcnemar(better,worse):
     return exact_mcnemar_p(better,worse)
 
 
-def score_three_way(cases:list[dict],responses:dict)->dict:
+def _partition_row(case:dict, row:dict) -> str:
+    """Locked parser only. A readable wrong integer is the sole math finding."""
+    if not row["complete"]:
+        return "incomplete"
+    parsed = parse_answer(case, row["text"])
+    if parsed is None:
+        return "unreadable"
+    if parsed == Fraction(int(case["answer"])):
+        return "strict_correct"
+    return "wrong_readable_number"
+
+
+def score_three_way(cases:list[dict], responses:dict, *,
+                    prompt_protocol:str="historical") -> dict:
+    if prompt_protocol not in {"historical","matched_fewshot","matched_zeroshot"}:
+        raise ValueError("Unknown prompt protocol")
     if set(responses)!=set(VARIANTS): raise ValueError("All three variants required")
     grades={}
     by_domain={}
+    partitions={}
     for label in VARIANTS:
         validate_variant_output(cases,responses[label])
-        grades[label]=[bool(r["complete"] and
-                 parse_answer(c,r["text"])==Fraction(int(c["answer"])))
-                 for c,r in zip(cases,responses[label])]
+        kinds=[_partition_row(c,r) for c,r in zip(cases,responses[label])]
+        grades[label]=[kind=="strict_correct" for kind in kinds]
+        partitions[label]={kind:kinds.count(kind) for kind in (
+            "strict_correct","wrong_readable_number","unreadable","incomplete")}
+        if sum(partitions[label].values())!=len(cases):
+            raise ValueError("Outcome partition does not cover the suite")
         by_domain[label]={d:sum(grades[label][i] for i,c in enumerate(cases)
                                 if c["domain"]==d) for d in DOMAINS}
     def pair(a,b):
@@ -289,16 +308,19 @@ def score_three_way(cases:list[dict],responses:dict)->dict:
         return {"improvements":improved,"regressions":regressed,
                 "gap_pp":round(100*(improved-regressed)/len(cases),3),
                 "exact_mcnemar_p_exploratory":_mcnemar(improved,regressed)}
-    return {
+    report = {
         "schema":1,"status":"NERAL_V6_NEW_STRUCTURAL_DEV_72_THREE_WAY",
         "total":len(cases),
         "suite_sha256":suite_fingerprint(cases),
+        "prompt_protocol":prompt_protocol,
         "scores":{label:{
-            "correct":sum(grades[label]),
+            "correct":partitions[label]["strict_correct"],
+            "strict_correct":partitions[label]["strict_correct"],
+            "wrong_readable_number":partitions[label]["wrong_readable_number"],
+            "unreadable":partitions[label]["unreadable"],
+            "ungraded_completed":partitions[label]["unreadable"],
+            "incomplete":partitions[label]["incomplete"],
             "total":len(cases),
-            "incomplete":sum(not r["complete"] for r in responses[label]),
-            "ungraded_completed":sum(r["complete"] and parse_answer(c,r["text"]) is None
-                                    for c,r in zip(cases,responses[label])),
             "per_domain":by_domain[label]}
             for label in VARIANTS},
         "paired":{"v6_vs_v5":pair("neral_v5","neral_v6"),
@@ -310,7 +332,85 @@ def score_three_way(cases:list[dict],responses:dict)->dict:
         "task_families":12,"domain_cases_each":24,
         "independent_benchmark_proven":False,"release_validated":False,
         "general_improvement_proven":False,"weights_promoted":False,
+        "claimed_score_gain":False,
         "limitations":"Researcher-authored fresh generator, 72 correlated templates, no independent human review; code-trace is not code-writing; 160-token EOS cutoff may censor correct reasoning. Results diagnostic only.",
+    }
+    report["phase2_gate"]=phase2_training_gate(report)
+    return report
+
+
+def phase2_training_gate(report:dict) -> dict:
+    """Decide whether a scored report may inform the verified-step training.
+
+    Unit tests never establish a capability gain. Historical Qwen-only
+    few-shot is not evidence for that training. A readable wrong integer
+    is the only math comparison used here.
+    """
+    reasons=[]
+    protocol=report.get("prompt_protocol") if isinstance(report, dict) else None
+    if protocol is None:
+        protocol="historical"
+    if protocol=="historical":
+        reasons.append("historical_protocol_is_not_phase2_evidence")
+    elif protocol=="matched_zeroshot":
+        reasons.append("matched_fewshot_required")
+    elif protocol!="matched_fewshot":
+        reasons.append("unknown_prompt_protocol")
+    if not isinstance(report, dict):
+        reasons.append("missing_report")
+        scores={}
+    else:
+        scores=report.get("scores")
+        if not isinstance(scores, dict) or not scores:
+            reasons.append("missing_scores")
+            scores={}
+        for flag in ("release_validated","adapter_promoted","weights_promoted",
+                     "claimed_score_gain","general_improvement_proven"):
+            if report.get(flag) is True:
+                reasons.append("release_or_gain_claim:"+flag)
+        for name, row in scores.items():
+            if not isinstance(row, dict):
+                reasons.append("missing_partition:"+str(name))
+                continue
+            fields=[]
+            for field in ("strict_correct","wrong_readable_number","unreadable","incomplete"):
+                value=row.get(field)
+                if type(value) is not int:
+                    reasons.append("missing_partition:"+str(name)+":"+field)
+                    value=None
+                fields.append(value)
+            total=row.get("total", report.get("total"))
+            if type(total) is not int or any(v is None for v in fields):
+                continue
+            if sum(fields)!=total:
+                reasons.append("partition_does_not_cover_suite:"+str(name))
+            if "correct" in row and row["correct"]!=row.get("strict_correct"):
+                reasons.append("strict_correct_disagrees_with_locked_correct:"+str(name))
+            if ("ungraded_completed" in row
+                    and row["ungraded_completed"]!=row.get("unreadable")):
+                reasons.append("unreadable_disagrees_with_locked_ungraded:"+str(name))
+    recommendation="blocked"
+    if not reasons and isinstance(scores, dict):
+        v61=scores.get("neral_v61")
+        v5=scores.get("neral_v5")
+        if isinstance(v61, dict) and isinstance(v5, dict):
+            wrong_new, wrong_old=v61.get("wrong_readable_number"), v5.get("wrong_readable_number")
+            if type(wrong_new) is int and type(wrong_old) is int and wrong_new<=wrong_old:
+                recommendation="skip_training"
+            else:
+                recommendation="v61_has_more_wrong_readable_numbers"
+        else:
+            recommendation="v61_comparison_not_in_report"
+    return {
+        "decision":"refuse" if reasons else "ok",
+        "reasons":reasons,
+        "phase2_training":recommendation,
+        "prompt_protocol":protocol,
+        "training_authorized":False,
+        "claimed_capability_gain":False,
+        "claimed_score_gain":False,
+        "release_validated":False,
+        "adapter_promoted":False,
     }
 
 
@@ -447,7 +547,7 @@ def main(argv=None):
         print(json.dumps(_gpu_variant(cases,a),sort_keys=True))
         return
     responses={v:_rows(a.run_dir/(v+".jsonl")) for v in VARIANTS}
-    result=score_three_way(cases,responses)
+    result=score_three_way(cases,responses,prompt_protocol=a.prompt_protocol)
     result["base_revision"]=BASE_SHA
     result["v5_adapter_sha256"]=V5_SHA
     result["v6_adapter_sha256"]=V6_SHA
@@ -459,8 +559,10 @@ def main(argv=None):
     if out.exists(): raise ValueError("Never overwrite a benchmark report")
     out.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n",encoding="utf8")
     print(json.dumps({"status":result["status"],
+                      "prompt_protocol":result["prompt_protocol"],
                       "scores":result["scores"],
                       "paired":result["paired"],
+                      "phase2_gate":result["phase2_gate"],
                       "release_validated":False},sort_keys=True))
 
 

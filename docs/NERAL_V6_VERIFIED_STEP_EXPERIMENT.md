@@ -49,12 +49,26 @@ Bestehende Adapter, kein neues Training. Dieselbe Aufgabe, dieselbe
 Vorlage, dieselben drei Beispiele, greedy, 160 neue Tokens, für Qwen,
 v5 und den vorhandenen v6-Adapter. Dafür gibt es
 `--prompt-protocol matched_fewshot`. Ohne dieses Flag bleibt der alte
-ungleiche Vergleich (nur Qwen sieht Beispiele) und darf nicht als
-Entscheidung für das neue Training dienen.
+ungleiche Vergleich (nur Qwen sieht Beispiele).
+
+Die Auswertung nennt jetzt vier Zähler, die zusammen die Suite ergeben:
+`strict_correct`, `wrong_readable_number`, `unreadable`, `incomplete`.
+Nur `wrong_readable_number` ist ein Rechenbefund. `unreadable` ist
+Messung. Die alten Schlüssel `correct` und `ungraded_completed` bleiben
+dieselben Zahlen wie `strict_correct` und `unreadable`. Der Parser ist
+unverändert. 29/24/21 wird nicht neu bewertet. Diese Zähler sind
+Instrumentierung, kein Fähigkeitsgewinn.
+
+`phase2_training_gate` lehnt `historical` und `matched_zeroshot` ab.
+Nur `matched_fewshot` kann `decision=ok` werden. `ok` heißt nicht
+trainieren: `training_authorized` bleibt falsch, `claimed_score_gain`
+bleibt falsch. Liegt im selben Bericht v6.1 bei den falschen lesbaren
+Zahlen auf Höhe von v5 oder besser, lautet die Empfehlung
+`skip_training`.
 
 Ausgabe nur in einen neuen Ordner. Kein Überschreiben von v5, v6 oder
-v6.1. Zählen: streng richtig, falsche lesbare Zahl, unlesbarer Text.
-Nur die falsche lesbare Zahl ist ein Rechenbefund.
+v6.1. Dieser CPU-Stand startet weder den Vergleich noch Phase 2.
+Beides braucht eine ausdrückliche Freigabe.
 
 `scripts.neral_v61_new_dev_eval --mode run` akzeptiert denselben Schalter
 für den schon trainierten v6.1-Adapter. Liegt v6.1 unter

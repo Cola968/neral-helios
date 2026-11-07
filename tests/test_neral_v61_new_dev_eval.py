@@ -68,6 +68,10 @@ class NewV61DevTests(unittest.TestCase):
         self.assertFalse(result["adapter_promoted"])
         self.assertEqual(result["paired"]["v61_vs_v5"]["regressions"],1)
         self.assertEqual(result["paired"]["v61_vs_v5"]["improvements"],1)
+        self.assertEqual(result["prompt_protocol"],"historical")
+        self.assertEqual(result["phase2_gate"]["decision"],"refuse")
+        self.assertFalse(result["phase2_gate"]["claimed_capability_gain"])
+        self.assertFalse(result["claimed_score_gain"])
         self.assertNotIn(cases[0]["prompt"],json.dumps(result))
 
     def test_local_weights_and_receipt_sha_validated_without_powershell_coercion(self):

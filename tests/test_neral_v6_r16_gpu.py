@@ -144,6 +144,24 @@ class V6ExperimentContracts(unittest.TestCase):
                               "--authorize", permit])
         self.assertNotEqual(AUTH, VERIFIED_STEPS_AUTH)
 
+    def test_phase2_gate_blocks_historical_protocol_before_any_training(self):
+        from scripts.neral_v6_fresh_dev_eval import phase2_training_gate
+        counts={"strict_correct":70,"wrong_readable_number":1,"unreadable":1,
+                "incomplete":0,"correct":70,"ungraded_completed":1,"total":72}
+        report={"prompt_protocol":"historical","release_validated":False,
+                "adapter_promoted":False,"weights_promoted":False,
+                "claimed_score_gain":False,"general_improvement_proven":False,
+                "total":72,"scores":{name:dict(counts) for name in
+                                     ("qwen_fewshot","neral_v5","neral_v6")}}
+        gate=phase2_training_gate(report)
+        self.assertEqual(gate["decision"],"refuse")
+        self.assertIn("historical_protocol_is_not_phase2_evidence",gate["reasons"])
+        self.assertFalse(gate["training_authorized"])
+        self.assertFalse(gate["claimed_score_gain"])
+        matched=phase2_training_gate(dict(report,prompt_protocol="matched_fewshot"))
+        self.assertEqual(matched["decision"],"ok")
+        self.assertFalse(matched["claimed_capability_gain"])
+
     def test_verified_step_workflow_cannot_start_from_a_pull_request(self):
         workflow = Path(__file__).resolve().parents[1].joinpath(
             ".github","workflows","neral-v6-verified-steps-train.yml"
