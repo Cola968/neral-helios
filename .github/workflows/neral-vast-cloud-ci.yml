@@ -1,0 +1,33 @@
+name: NERAL Vast A100 cloud readiness CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_vast_cloud.py'
+      - 'scripts/neral_vast_setup.sh'
+      - 'tests/test_neral_vast_cloud.py'
+      - 'docs/NERAL_VAST_A100.md'
+      - '.github/workflows/neral-vast-cloud-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_vast_cloud.py'
+      - 'scripts/neral_vast_setup.sh'
+      - 'tests/test_neral_vast_cloud.py'
+      - 'docs/NERAL_VAST_A100.md'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Strict syntax and bash parser
+        run: |
+          python -m compileall -q scripts/neral_vast_cloud.py tests/test_neral_vast_cloud.py
+          bash -n scripts/neral_vast_setup.sh
+      - name: CPU-only contract tests; never rent or load Qwen
+        run: python -m unittest discover -s tests -p test_neral_vast_cloud.py -v
