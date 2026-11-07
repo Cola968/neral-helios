@@ -1,0 +1,33 @@
+name: NERAL E1 verified train-only pair miner (CPU)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_e1_pair_miner.py'
+      - 'tests/test_neral_e1_pair_miner.py'
+      - 'docs/NERAL_E1_PAIR_MINING.md'
+      - '.github/workflows/neral-e1-pair-miner-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_e1_pair_miner.py'
+      - 'tests/test_neral_e1_pair_miner.py'
+      - 'docs/NERAL_E1_PAIR_MINING.md'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate semantic pair-mining and no-leak contracts
+        run: python -m unittest discover -s tests -p test_neral_e1_pair_miner.py -v
+      - name: Compile miner
+        run: python -m py_compile scripts/neral_e1_pair_miner.py
