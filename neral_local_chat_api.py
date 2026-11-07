@@ -72,6 +72,58 @@ def _messages(payload: object) -> list[dict]:
     return [{"role": "system", "content": SYSTEM}] + normalized + [{"role": "user", "content": prompt.strip()}]
 
 
+
+def _verified_math_request(prompt: str) -> dict | None:
+    """Exact local math only for explicitly requested standalone calculations.
+
+    Fail closed to the ordinary model for prose, unsafe syntax, unsupported
+    expressions, or tasks that ask for explanation rather than a bare answer.
+    No eval/exec, shell, network or model invocation occurs here.
+    """
+    from neral_agent_math import MathInputError, eval_python_expr, solve_math_symbolic
+
+    if not isinstance(prompt, str) or len(prompt) > 200 or "\\n" in prompt:
+        return None
+    clean = prompt.strip()
+    if clean.endswith("?"):
+        clean = clean[:-1].rstrip()
+    chars = r"[-+*/().0-9x=^−×÷ \\t]{1,160}"
+    equation = re.fullmatch(
+        r"(?:bitte\\s+)?(?:löse|solve)(?:\\s+bitte)?(?:\\s+die\\s+gleichung)?"
+        r"\\s*:?\\s*(?P<expr>" + chars + r")", clean, re.IGNORECASE)
+    arithmetic = None
+    if equation is None:
+        arithmetic = re.fullmatch(
+            r"(?:bitte\\s+)?(?:berechne|calculate)(?:\\s+bitte)?"
+            r"\\s*:?\\s*(?P<expr>" + chars + r")", clean, re.IGNORECASE)
+    try:
+        if equation is not None:
+            expr = equation.group("expr").strip().lower()
+            if expr.count("=") != 1 or "x" not in expr:
+                return None
+            result = solve_math_symbolic(expr)
+            if result["status"] == "PASSED":
+                answer = "x = " + result["value"]
+            elif result["status"] == "INFINITE_SOLUTIONS":
+                answer = "Unendlich viele Lösungen."
+            elif result["status"] == "NO_SOLUTION":
+                answer = "Keine Lösung."
+            else:
+                return None
+            return {"text": answer, "tool_used": "neral_math_exact",
+                    "exact": True, "method": result["method"]}
+        if arithmetic is not None:
+            expr = arithmetic.group("expr").strip()
+            if "=" in expr or "x" in expr.lower():
+                return None
+            result = eval_python_expr(expr)
+            return {"text": result["value"], "tool_used": "neral_math_exact",
+                    "exact": True, "method": result["method"]}
+    except (MathInputError, ValueError, TypeError):
+        return None
+    return None
+
+
 def register_neral_local_chat_api(app, backend):
     """Mount onto same Flask app; the main app's session/Origin guard applies."""
     busy = threading.Lock()
@@ -92,6 +144,12 @@ def register_neral_local_chat_api(app, backend):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
+            # Empty history only: never override an ongoing conversation.
+            exact = _verified_math_request(data[-1]["content"]) if len(data) == 2 else None
+            if exact is not None:
+                return jsonify({**exact, "model_generated": False,
+                                "seconds": round(time.monotonic() - started, 3),
+                                **_provenance(backend)})
             try:
                 # Ollama agent requests enforce JSON; normal conversations do
                 # not. HF adapter backends use their existing local respond().
