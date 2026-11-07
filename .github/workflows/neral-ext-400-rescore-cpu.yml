@@ -1,0 +1,96 @@
+name: NERAL-EXT 400 numeric transfer CPU rescore (manual, no GPU inference)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: "Exact read-only scalar permit: RESCORE_NERAL_EXT_400_SCALAR_READONLY"
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  rescore:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'RESCORE_NERAL_EXT_400_SCALAR_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Recompute numeric A+B from locally saved immutable 400-case outputs (CPU only)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+          $saved=Join-Path $root 'ext-400-42395097203-1'
+          $data=Join-Path $saved 'dataset'
+          $cases=Join-Path $data 'neral-ext-400.jsonl'
+          $manifest=Join-Path $data 'neral-ext-400-manifest.json'
+          $previous=Join-Path $saved 'summary-local.json'
+          $old=Get-Content -LiteralPath $previous -Raw | ConvertFrom-Json
+          if($old.case_sha256 -ne '47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1' -or
+             $old.adapter_sha256 -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5' -or
+             $old.total -ne 400 -or $old.release_validated -ne $false){
+            throw 'Historical GPU result identity not verifiable'
+          }
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Pinned local Python unavailable'
+          }
+          $files=@($cases,$manifest,$previous,
+            (Join-Path $saved 'base.jsonl'),
+            (Join-Path $saved 'base_fewshot.jsonl'),
+            (Join-Path $saved 'neral_v5.jsonl'))
+          foreach($file in $files) {
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw 'Required local historical response file absent'
+            }
+          }
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath $cases).Hash.ToLowerInvariant()
+          if($sha -ne $old.case_sha256) {throw 'Historical dataset SHA mismatch'}
+          $out=Join-Path $root "ext-400-rescore-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'Never overwrite an experiment'}
+          New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_ext_run --mode combine --cases $cases --case-sha256 $sha --out (Join-Path $out 'summary.json') --base-responses (Join-Path $saved 'base.jsonl') --fewshot-responses (Join-Path $saved 'base_fewshot.jsonl') --neral-responses (Join-Path $saved 'neral_v5.jsonl') --manifest $manifest --adapter-sha $old.adapter_sha256
+            if($LASTEXITCODE -ne 0){throw 'Historical CPU numeric aggregation failed'}
+          } finally {Pop-Location}
+          $result=Get-Content -LiteralPath (Join-Path $out 'summary.json') -Raw|ConvertFrom-Json
+          if($result.total -ne 400 -or $result.case_sha256 -ne $sha -or
+             $result.adapter_sha256 -ne $old.adapter_sha256 -or
+             $result.quantitative_A_B.total -le 0 -or
+             $null -eq $result.quantitative_A_B.gap_percentage_points -or
+             $result.python_A_B.functional_correctness_evaluated -ne $false -or
+             $result.format_adjusted_gap_A_B_legacy_denominator -ne 300 -or
+             $result.release_validated -ne $false -or $result.weights_promoted -ne $false) {
+            throw 'Untrusted score report; raw responses never leave this runner'
+          }
+          $export=Join-Path $control 'ext_rescore_scalar'
+          if(Test-Path -LiteralPath $export){throw 'Refuse to overwrite scalar export'}
+          New-Item -ItemType Directory -Path $export -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $out 'summary.json') -Destination (Join-Path $export 'summary.json')
+          Write-Host 'NERAL_EXT_NUMERIC_AB_RESCORED: private raw answers stayed local'
+      - name: Upload scalar aggregate only, never original model answers
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-ext-400-numeric-scalar-only
+          path: control/ext_rescore_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
