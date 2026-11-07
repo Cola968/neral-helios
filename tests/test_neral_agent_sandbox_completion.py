@@ -42,7 +42,7 @@ class SandboxCompletionTests(unittest.TestCase):
 
     def run_mocked(self, source=SOURCE, *, output="correct"):
         target = self.root / "subject_under_test.py"
-        target.write_text(source, encoding="utf-8")
+        target.write_bytes(source.encode("utf-8"))
         captured = []
 
         def docker(cmd, **kwargs):

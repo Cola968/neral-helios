@@ -29,7 +29,7 @@ class VerificationFreshness(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.target = self.root / "bug.py"
-        self.target.write_text("def double(x):\n    return x + 1\n", encoding="utf-8")
+        self.target.write_bytes(b"def double(x):\n    return x + 1\n")
 
     def approved(self, *actions, assertions=True):
         backend = Choices(
@@ -74,7 +74,7 @@ class VerificationFreshness(unittest.TestCase):
         )
         self.verify(agent, ident)
         before = self.target.stat()
-        self.target.write_text(self.PATCH.replace("* 2", "* 3"), encoding="utf-8")
+        self.target.write_bytes(self.PATCH.replace("* 2", "* 3").encode("utf-8"))
         os.utime(self.target, ns=(before.st_atime_ns, before.st_mtime_ns))
         self.assertEqual(self.target.stat().st_size, before.st_size)
         self.assertEqual(self.target.stat().st_mtime_ns, before.st_mtime_ns)
@@ -86,7 +86,7 @@ class VerificationFreshness(unittest.TestCase):
 
     def test_change_during_model_response_also_blocks_finish(self):
         def finish_after_external_edit():
-            self.target.write_text("def double(:\n", encoding="utf-8")
+            self.target.write_bytes(b"def double(:\n")
             return {"action": "finish", "summary": "Verified"}
 
         agent, ident = self.approved(
@@ -107,7 +107,7 @@ class VerificationFreshness(unittest.TestCase):
 
         def docker_changes_host(cmd, **kwargs):
             if cmd[:2] == ["docker", "run"]:
-                self.target.write_text(self.PATCH.replace("* 2", "* 3"), encoding="utf-8")
+                self.target.write_bytes(self.PATCH.replace("* 2", "* 3").encode("utf-8"))
             return self.docker_pass(cmd, **kwargs)
 
         with patch("neral_agent_sandbox.subprocess.run", side_effect=docker_changes_host):
@@ -124,12 +124,12 @@ class VerificationFreshness(unittest.TestCase):
             {"action": "syntax_check"}, {"action": "run_isolated_unit_test"},
         )
         agent.step(ident)
-        self.target.write_text(self.PATCH.replace("* 2", "* 3"), encoding="utf-8")
+        self.target.write_bytes(self.PATCH.replace("* 2", "* 3").encode("utf-8"))
         copied_digest = hashlib.sha256(self.target.read_bytes()).hexdigest()
 
         def docker_restores_old_source(cmd, **kwargs):
             if cmd[:2] == ["docker", "run"]:
-                self.target.write_text(self.PATCH, encoding="utf-8")
+                self.target.write_bytes(self.PATCH.encode("utf-8"))
             return self.docker_pass(cmd, **kwargs)
 
         with patch("neral_agent_sandbox.subprocess.run", side_effect=docker_restores_old_source):
@@ -204,6 +204,6 @@ class VerificationFreshness(unittest.TestCase):
             {"action": "finish", "summary": "Verified"},
         )
         self.verify(agent, ident)
-        self.target.write_text(self.PATCH.replace("* 2", "* 3"), encoding="utf-8")
-        self.target.write_text(self.PATCH, encoding="utf-8")
+        self.target.write_bytes(self.PATCH.replace("* 2", "* 3").encode("utf-8"))
+        self.target.write_bytes(self.PATCH.encode("utf-8"))
         self.assertEqual(agent.step(ident)["status"], "completed")
