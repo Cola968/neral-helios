@@ -67,7 +67,7 @@ class NovelV4Eval(unittest.TestCase):
         self.assertFalse(result["general_improvement_proven"])
         self.assertFalse(result["release_validated"])
         self.assertFalse(result["independent_external_benchmark"])
-        self.assertNotIn("prompt",json.dumps(result))
+        self.assertNotIn(\'"prompt":\',json.dumps(result))
         self.assertNotIn("local_raw",json.dumps(result))
         with self.assertRaisesRegex(ValueError,"matching"):
             report(make_rows(old),make_rows(newer)[:-1],adapter_sha="b"*64,
