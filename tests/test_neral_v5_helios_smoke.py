@@ -49,12 +49,13 @@ class V5HeliosLiveSmokeContract(unittest.TestCase):
     def test_no_overwrite_and_private_log_safety(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/"status.json"
-            write_report(path,make_report(FakeBackend(),"LOCAL",10))
+            private_reply="SENSITIVE_PRIVATE_REPLY_SENTINEL_987"
+            write_report(path,make_report(FakeBackend(),private_reply,10))
             data=json.loads(path.read_text())
-            self.assertEqual(data["response_length"],5)
-            self.assertNotIn("LOCAL",path.read_text())
+            self.assertEqual(data["response_length"],len(private_reply))
+            self.assertNotIn(private_reply,path.read_text())
             with self.assertRaises(ValueError):
-                write_report(path,make_report(FakeBackend(),"LOCAL",10))
+                write_report(path,make_report(FakeBackend(),private_reply,10))
 
     def test_workflow_uses_single_explicit_v5_adapter_and_no_training(self):
         workflow=Path(".github/workflows/neral-v5-helios-smoke.yml").read_text(encoding="utf8")
