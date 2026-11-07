@@ -131,6 +131,8 @@ def test_ui_offers_explicit_adapter_chat_without_external_api():
     assert "req('generate'" in js
     assert "innerHTML" not in js
     assert "model_origin" in js
+    assert "tool_used" in js
+    assert "exakte lokale Berechnung" in js
 
 def test_ollama_agent_still_requires_json_but_chat_uses_plain_prose(monkeypatch):
     import json
