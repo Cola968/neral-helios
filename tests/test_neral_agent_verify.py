@@ -37,8 +37,9 @@ class VerifyBeforeFinish(unittest.TestCase):
         task=agent.start('Fix code',test_path='bug.py',test_cases=['assert double(2)==4'])['id']
         wait=agent.run(task)
         self.assertEqual(wait['status'],'awaiting_approval')
-        with patch('neral_agent_sandbox.run_isolated_unit_test',return_value={
-                'status':'PASSED','passed':True,'sandboxed':True,'assertions':1}):
+        with patch('neral_agent_sandbox.run_isolated_unit_test',side_effect=lambda engine, path, cases: {
+                'status':'PASSED','passed':True,'sandboxed':True,'assertions':1,
+                'source_sha256':engine._digest(engine.safe_path(path).read_bytes())}):
             agent.approve(task,wait['proposal']['token'])
             end=agent.run(task)
         self.assertEqual(end['status'],'completed')
@@ -66,7 +67,8 @@ class VerifyBeforeFinish(unittest.TestCase):
             failthenpass.calls+=1
             return {'status':'FAILED','passed':False,'sandboxed':True,
                     'traceback':'AssertionError: expected 4'} if failthenpass.calls==1 else {
-                    'status':'PASSED','passed':True,'sandboxed':True}
+                    'status':'PASSED','passed':True,'sandboxed':True,
+                    'source_sha256':_args[0]._digest(_args[0].safe_path(_args[1]).read_bytes())}
         failthenpass.calls=0
         with patch('neral_agent_sandbox.run_isolated_unit_test',side_effect=failthenpass):
             agent.approve(task,a['proposal']['token'])

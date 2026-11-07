@@ -13,6 +13,9 @@ on:
       - 'tests/test_agent_auto*.py'
       - 'tests/test_agent_sandbox.py'
       - 'tests/test_agent_pc_patch.py'
+      - 'tests/test_neral_agent_verify.py'
+      - 'tests/test_neral_agent_verification_freshness.py'
+      - 'tests/test_neral_agent_sandbox_completion.py'
       - '.github/workflows/neral-agent-model-ci.yml'
 permissions:
   contents: read
@@ -29,6 +32,8 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_agent_auto*.py' -v
       - run: python -m unittest discover -s tests -p 'test_agent_autonomy.py' -v
       - run: python -m unittest discover -s tests -p 'test_neral_agent_verify.py' -v
+      - run: python -m unittest discover -s tests -p 'test_neral_agent_verification_freshness.py' -v
+      - run: python -m unittest discover -s tests -p 'test_neral_agent_sandbox_completion.py' -v
       - run: python -m unittest discover -s tests -p test_agent_sandbox.py -v
       - run: python -m compileall -q neral_agent_autonomy.py neral_agent_hf.py neral_agent_sandbox.py agent_auto_api.py scripts/neral_agent_pc_live_smoke.py
       - run: python -m unittest discover -s tests -p test_agent_pc_patch.py -v

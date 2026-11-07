@@ -1,0 +1,38 @@
+name: NERAL fresh source verification contract
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_autonomy.py'
+      - 'neral_agent_sandbox.py'
+      - 'tests/test_neral_agent_verification_freshness.py'
+      - 'tests/test_neral_agent_sandbox_completion.py'
+      - '.github/workflows/neral-source-verification-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_agent_autonomy.py'
+      - 'neral_agent_sandbox.py'
+      - 'tests/test_neral_agent_verification_freshness.py'
+      - 'tests/test_neral_agent_sandbox_completion.py'
+      - '.github/workflows/neral-source-verification-ci.yml'
+permissions:
+  contents: read
+jobs:
+  file-and-assertion-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source changes revoke stale success
+        run: python -m unittest discover -s tests -p 'test_neral_agent_verification_freshness.py' -v
+      - name: Early process exit cannot imply completed assertions
+        run: python -m unittest discover -s tests -p 'test_neral_agent_sandbox_completion.py' -v
+      - name: Existing agent verification contracts
+        run: python -m unittest discover -s tests -p 'test_neral_agent_verify.py' -v

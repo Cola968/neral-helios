@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from agent_mode import AgentEngine
-from neral_agent_sandbox import run_isolated_python_tests
+from neral_agent_sandbox import run_isolated_python_tests, run_isolated_unit_test
 
 
 class SandboxedTests(unittest.TestCase):
@@ -78,3 +78,31 @@ class SandboxedTests(unittest.TestCase):
             out=run_isolated_python_tests(AgentEngine(self.root))
         self.assertEqual(out["status"],"failed")
         self.assertFalse(out["passed"])
+
+    def test_assertion_result_hashes_the_exact_copied_source_bytes(self):
+        import ast
+        import hashlib
+        original = b"def add(a,b):\r\n    return a+b\r\n"
+        (self.root / "main.py").write_bytes(original)
+
+        def docker_changes_host_source(cmd, **kwargs):
+            output = b""
+            if cmd[:2] == ["docker", "run"]:
+                mount = cmd[cmd.index("--mount") + 1]
+                work = Path(mount.split("src=", 1)[1].split(",dst=", 1)[0])
+                self.assertEqual((work / "subject.py").read_bytes(), original)
+                (self.root / "main.py").write_text("def add(a,b): return 0\n", encoding="utf-8")
+                runner = ast.parse((work / "runner.py").read_text(encoding="utf-8"))
+                marker = next(arg.value for node in ast.walk(runner)
+                              if isinstance(node, ast.Call)
+                              for arg in node.args if isinstance(arg, ast.Constant)
+                              and isinstance(arg.value, str)
+                              and arg.value.startswith("NERAL_ASSERTIONS_COMPLETED:"))
+                output = (marker + "\n").encode("ascii")
+            return subprocess.CompletedProcess(cmd, 0, output, b"")
+
+        with patch("neral_agent_sandbox.subprocess.run", side_effect=docker_changes_host_source):
+            result = run_isolated_unit_test(AgentEngine(self.root), "main.py", ["assert add(2,2)==4"])
+        self.assertEqual(result["status"], "PASSED")
+        self.assertEqual(result["source_sha256"], hashlib.sha256(original).hexdigest())
+        self.assertNotEqual(result["source_sha256"], hashlib.sha256((self.root / "main.py").read_bytes()).hexdigest())
