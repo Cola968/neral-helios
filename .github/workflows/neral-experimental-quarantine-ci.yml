@@ -1,0 +1,39 @@
+name: NERAL v6 v6.1 experimental runtime quarantine CPU checks
+on:
+  pull_request:
+    paths:
+      - 'neral_hf_identity.py'
+      - 'neral_agent_hf.py'
+      - 'mini/neral_mini.py'
+      - 'tests/test_neral_hf_identity.py'
+      - 'tests/test_neral_mini.py'
+      - '.github/workflows/neral-experimental-quarantine-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_hf_identity.py'
+      - 'neral_agent_hf.py'
+      - 'mini/neral_mini.py'
+      - 'tests/test_neral_hf_identity.py'
+      - 'tests/test_neral_mini.py'
+permissions:
+  contents: read
+jobs:
+  quarantine:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test-only dependency (no model downloads)
+        run: python -m pip install pytest
+      - name: Assert research v6/v61 LoRA never loads in sealed local runtimes
+        run: python -m pytest tests/test_neral_hf_identity.py tests/test_neral_mini.py -q
+      - name: Syntax verify without any CUDA or model files
+        run: python -m py_compile neral_hf_identity.py neral_agent_hf.py mini/neral_mini.py
