@@ -10,7 +10,22 @@ from scripts.neral_e1_pair_miner import (
     assess_responses, build_pairs, _answer_value, _final_line,
 )
 from scripts.neral_e1_smoke import validate_pairs
-from tests.test_neral_v6_suite_intake import make_suite
+def make_suite(label):
+    rows = []
+    for domain in ("math", "code", "reasoning"):
+        kind = {"math": "numeric", "code": "python", "reasoning": "boolean"}[domain]
+        for i in range(200):
+            rows.append({
+                "id": f"{label}-{domain}-{i:03}",
+                "domain": domain,
+                "family": f"{domain}-method-{i % 10}",
+                "source_id": f"{label}-original-{domain}-{i:03}",
+                "kind": kind,
+                "prompt": f"An independent {label} {domain} private problem {i} with separate content.",
+                "answer": "17" if kind != "python" else "def f(x): return x",
+                "tests_sha256": "e"*64 if kind == "python" else None,
+            })
+    return rows
 
 
 ADAPTER_SHA = "a" * 64
