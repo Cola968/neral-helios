@@ -1,0 +1,29 @@
+name: NERAL v6 suite intake and contamination CPU CI
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v6_suite_intake.py'
+      - 'tests/test_neral_v6_suite_intake.py'
+      - 'docs/NERAL_V6_SUITE_INTAKE.md'
+      - '.github/workflows/neral-v6-suite-intake-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v6_suite_intake.py'
+      - 'tests/test_neral_v6_suite_intake.py'
+      - 'docs/NERAL_V6_SUITE_INTAKE.md'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check safe release suite intake contracts
+        run: python -m unittest discover -s tests -p test_neral_v6_suite_intake.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_v6_suite_intake.py
