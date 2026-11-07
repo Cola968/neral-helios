@@ -1,0 +1,34 @@
+name: NERAL-EXT ceiling measurement CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_ext_ceiling_audit.py'
+      - 'tests/test_neral_ext_ceiling_audit.py'
+      - 'docs/NERAL_EXT_CEILING_AUDIT.md'
+      - '.github/workflows/neral-ext-ceiling-audit-ci.yml'
+      - '.github/workflows/neral-ext-ceiling-cpu-manual.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_ext_ceiling_audit.py'
+      - 'tests/test_neral_ext_ceiling_audit.py'
+      - '.github/workflows/neral-ext-ceiling-audit-ci.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify extraction, incomplete censoring and privacy contracts
+        run: python -m unittest discover -s tests -p test_neral_ext_ceiling_audit.py -v
+      - name: Syntax
+        run: python -m py_compile scripts/neral_ext_ceiling_audit.py

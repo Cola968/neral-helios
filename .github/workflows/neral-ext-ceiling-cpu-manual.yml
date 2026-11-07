@@ -1,0 +1,90 @@
+name: NERAL-EXT 400 ceiling audit CPU-only (manual, raw private)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only CPU audit permit AUDIT_NERAL_EXT_400_CEILING_CPU_ONLY'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_EXT_400_CEILING_CPU_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Analyze preexisting 400 answers, store human review only on private disk
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+          $old=Join-Path $root 'ext-400-42395097203-1'
+          $data=Join-Path $old 'dataset'
+          $files=@(
+            (Join-Path $data 'neral-ext-400.jsonl'),
+            (Join-Path $data 'neral-ext-400-manifest.json'),
+            (Join-Path $old 'base.jsonl'),
+            (Join-Path $old 'base_fewshot.jsonl'),
+            (Join-Path $old 'neral_v5.jsonl'),
+            (Join-Path $old 'summary-local.json'))
+          foreach($item in $files){if(-not(Test-Path -LiteralPath $item -PathType Leaf)){throw 'Pinned original local evaluation missing'}}
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath $files[0]).Hash.ToLowerInvariant()
+          if($sha -ne '47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1'){
+            throw 'Original 400 task SHA changed'
+          }
+          $previous=Get-Content -LiteralPath $files[5] -Raw|ConvertFrom-Json
+          if($previous.case_sha256 -ne $sha -or $previous.total -ne 400 -or
+             $previous.adapter_sha256 -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5' -or
+             $previous.release_validated -ne $false){throw 'Untrusted previous score metadata'}
+          $target=Join-Path $root "ext-400-ceiling-cpu-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $target){throw 'Never overwrite previous local output'}
+          New-Item -ItemType Directory -Path $target -ErrorAction Stop|Out-Null
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_ext_ceiling_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'Private audit unit contracts failed'}
+            & $py -B -m scripts.neral_ext_ceiling_audit --cases $files[0] --manifest $files[1] --base $files[2] --fewshot $files[3] --neral $files[4] --scalar (Join-Path $target 'scalar.json') --private-review (Join-Path $target '20-per-variant-A-RAW-LOCAL-ONLY.jsonl') --case-sha256 $sha --adapter-sha256 $previous.adapter_sha256
+            if($LASTEXITCODE -ne 0){throw 'Read-only aggregate audit failed'}
+          } finally {Pop-Location}
+          $sc=Get-Content -LiteralPath (Join-Path $target 'scalar.json') -Raw|ConvertFrom-Json
+          if($sc.total -ne 400 -or $sc.status -ne 'NERAL_EXT_CEILING_CPU_DIAGNOSTIC_ONLY' -or
+             $sc.overall.base.incomplete_censored -ne 126 -or
+             $sc.overall.base_fewshot.incomplete_censored -ne 12 -or
+             $sc.overall.neral_v5.incomplete_censored -ne 2 -or
+             $sc.private_review_count_per_variant_A.base -ne 20 -or
+             $sc.private_review_count_per_variant_A.neral_v5 -ne 20 -or
+             $sc.release_validated -ne $false -or
+             $sc.python_functional_tests_executed -ne $false){throw 'Unexpected scalar audit results'}
+          $public=Join-Path $control 'ext_ceiling_scalar'
+          if(Test-Path $public){throw 'Export path exists'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $target 'scalar.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_EXT_CPU_CEILING_AUDIT_COMPLETED; reviewer raw remains exclusively in private Windows research folder.'
+      - name: Upload aggregate only (never private reviewer samples)
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-ext-400-ceiling-aggregate-only
+          path: control/ext_ceiling_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
