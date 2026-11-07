@@ -25,7 +25,7 @@ import time
 from urllib.parse import parse_qs
 
 from mini.neral_mini import (
-    BASE_REVISION, MAX_BODY, NeralModel, MiniError, MiniServer,
+    BASE_REVISION, MAX_BODY, NeralModel, MiniError, MiniCancelled, MiniServer,
     create_server, offline, parse_chat,
 )
 
@@ -208,7 +208,7 @@ class MobileHandler(BaseHTTPRequestHandler):
             return self._json(403, {"error":"Unbekannter Host."})
         if not self._same_origin():
             return self._json(403, {"error":"Fremde Webseite blockiert."})
-        if self.path not in ("/pair", "/api/chat", "/logout"):
+        if self.path not in ("/pair", "/api/chat", "/api/cancel", "/logout"):
             return self._json(404, {"error":"Unbekannter Pfad."})
         if self.path == "/pair":
             if self.headers.get("Content-Type","").split(";")[0].strip().lower() != "application/x-www-form-urlencoded":
@@ -244,6 +244,10 @@ class MobileHandler(BaseHTTPRequestHandler):
         supplied = self.headers.get("X-Neral-Session", "")
         if not supplied or not secrets.compare_digest(token, supplied):
             return self._json(403, {"error":"Chat-Sitzung fehlt."})
+        if self.path == "/api/cancel":
+            if self.server.desktop.request_cancel():
+                return self._json(202, {"cancel_requested": True})
+            return self._json(409, {"error": "Keine laufende Antwort zum Abbrechen."})
         if self.path == "/logout":
             with self.server.lock:
                 self.server.mobile_sessions.pop(token, None)
@@ -258,6 +262,7 @@ class MobileHandler(BaseHTTPRequestHandler):
         if not self.server.desktop.busy.acquire(blocking=False):
             return self._json(429, {"error":"NERAL beantwortet bereits eine Frage."})
         try:
+            self.server.desktop.cancel_event.clear()
             try:
                 started = time.monotonic()
                 response = self.server.desktop.backend.respond(messages)
@@ -268,6 +273,8 @@ class MobileHandler(BaseHTTPRequestHandler):
                     "seconds":round(time.monotonic()-started,2),
                     **self.server.desktop.backend.status()
                 })
+            except MiniCancelled:
+                return self._json(409, {"cancelled": True, "error": "Antwort abgebrochen."})
             except Exception:
                 return self._json(503, {"error":"Die lokale Modellantwort ist fehlgeschlagen. PC und GPU prüfen."})
         finally:
