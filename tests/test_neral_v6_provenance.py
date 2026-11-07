@@ -25,7 +25,7 @@ def suite(label):
                 "domain": domain, "family": case["family"], "language": "de" if index%2 else "en",
                 "source_class": "original", "source": f"independent-review-{label}",
                 "source_revision": "original-human",
-                "source_index": index + (0 if label == "dev" else 200),
+                "source_index": index + {"math":0,"code":200,"reasoning":400}[domain] + (0 if label == "dev" else 600),
                 "license": "author-original",
                 "reference_sha256": hashlib.sha256(answer.encode("utf8")).hexdigest(),
                 "tests_sha256": case["tests_sha256"],
