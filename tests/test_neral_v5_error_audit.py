@@ -73,7 +73,7 @@ class V5ErrorAuditTests(unittest.TestCase):
                 elif tamper == "wrong_sha":
                     data["adapter_sha256"] = "0" * 64
                 elif tamper == "tampered_score":
-                    data["scores"][0]["correct"] = False
+                    data["scores"][0]["correct"] = not data["scores"][0]["correct"]
                 elif tamper == "injected_key":
                     data["scores"][0]["training_secret"] = "SECRET"
                 p.write_text(json.dumps(data), encoding="utf8")
