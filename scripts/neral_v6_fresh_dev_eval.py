@@ -432,6 +432,10 @@ def main(argv=None):
     result["base_revision"]=BASE_SHA
     result["v5_adapter_sha256"]=V5_SHA
     result["v6_adapter_sha256"]=V6_SHA
+    # Always record the regression verdict before storing any development result.
+    # NEVER treat a passing development screen as release authorization.
+    from scripts.neral_v6_regression_gate import audit_candidate_report
+    result["regression_screen"]=audit_candidate_report(result)
     out=a.run_dir/"summary.json"
     if out.exists(): raise ValueError("Never overwrite a benchmark report")
     out.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n",encoding="utf8")

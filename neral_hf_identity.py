@@ -14,6 +14,11 @@ import re
 
 BASE_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_REVISION = "c03e6d358207e414f1eca0bb1891e29f1db0e242"
+# Proven-bad experimental weights may still be evaluated in isolated research jobs,
+# but must never be loaded through normal sealed runtime adapter validation.
+QUARANTINED_ADAPTER_SHA256 = frozenset({
+    "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd",
+})
 HF_CONFIG = {
     "model_type": "qwen2",
     "architectures": ["Qwen2ForCausalLM"],
@@ -171,6 +176,8 @@ def validate_adapter(folder, base) -> dict:
                 not re.fullmatch("[0-9a-f]{64}",digest) or
                 path.stat().st_size > 512*1024**2 or _sha(path) != digest):
             raise ValueError("Adapter integrity failed")
+    if files["adapter_model.safetensors"] in QUARANTINED_ADAPTER_SHA256:
+        raise ValueError("NERAL-Adapter wegen gemessener Regression gesperrt")
     config = _json(folder/"adapter_config.json")
     if not isinstance(config, dict):
         raise ValueError("Adapter config malformed")

@@ -12,7 +12,8 @@ import threading
 from pathlib import Path
 
 from neral_agent_autonomy import AgentModelError
-from neral_hf_identity import CHAT_TEMPLATE, BASE_REVISION, validate_hf_snapshot, validate_adapter
+from neral_hf_identity import (CHAT_TEMPLATE, BASE_REVISION, validate_hf_snapshot,
+                               validate_adapter, QUARANTINED_ADAPTER_SHA256)
 
 
 def enforce_offline():
@@ -47,6 +48,8 @@ class HFAdapterLocalBackend:
         self.model = f"NERAL-local-r{rank}-experimental"
         with file.open("rb") as stream:
             self.adapter_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+        if self.adapter_sha256 in QUARANTINED_ADAPTER_SHA256:
+            raise AgentModelError("NERAL-Adapter wegen gemessener Regression gesperrt.")
         self.max_new_tokens = max_new_tokens
         self._model = None
         self._tokenizer = None
