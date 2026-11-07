@@ -158,5 +158,24 @@ class ThinkEngineTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+    def test_multiturn_math_does_not_override_conversation_with_oracle(self):
+        context = [
+            {"role": "system", "content": "NERAL local assistant."},
+            {"role": "user", "content": "Bitte nur über die Rechnung diskutieren, nicht rechnen."},
+            {"role": "assistant", "content": "Verstanden."},
+            {"role": "user", "content": "Löse schrittweise: 2x+3=11"},
+        ]
+        calls = []
+        def model(turns):
+            calls.append(turns)
+            return "Der Gesprächskontext sollte zuerst geklärt werden."
+        answer = think_reply(context, model)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(answer["verified"])
+        self.assertTrue(answer["model_generated"])
+        self.assertEqual(answer["verification_status"], "not_available")
+
+
+
 if __name__ == "__main__":
     unittest.main()
