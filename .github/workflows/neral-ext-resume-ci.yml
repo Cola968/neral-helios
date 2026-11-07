@@ -1,0 +1,34 @@
+name: NERAL-EXT restartable GPU-run CPU contract
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_ext_resume.py'
+      - 'scripts/neral_ext_run.py'
+      - 'tests/test_neral_ext_resume.py'
+      - 'tests/test_neral_ext_run.py'
+      - '.github/workflows/neral-ext-resume-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_ext_resume.py'
+      - 'scripts/neral_ext_run.py'
+      - 'tests/test_neral_ext_resume.py'
+      - 'tests/test_neral_ext_run.py'
+      - '.github/workflows/neral-ext-resume-ci.yml'
+permissions:
+  contents: read
+jobs:
+  restartable-eval-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: New interrupted-run regression checks (CPU only)
+        run: python -m unittest discover -s tests -p 'test_neral_ext_resume.py' -v
+      - name: Existing three-way scorer regressions
+        run: python -m unittest discover -s tests -p 'test_neral_ext_run.py' -v
+      - name: Python syntax
+        run: python -m compileall -q scripts/neral_ext_resume.py scripts/neral_ext_run.py tests/test_neral_ext_resume.py
