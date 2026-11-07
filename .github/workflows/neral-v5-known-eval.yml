@@ -1,4 +1,4 @@
-name: NERAL v5 heldout 128-case A/B GPU (manual, no training)
+name: NERAL v5 known-development 128-case A/B GPU (manual, no training)
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
       train_run_id:
         type: string
         required: true
-        description: 'Completed v4 rank16 training GitHub run ID'
+        description: 'Completed v5 rank16 480-step training run ID'
       train_steps:
         type: choice
         required: true
