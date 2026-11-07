@@ -219,6 +219,7 @@ def analyze_trial(
         "gap_target_met": gain + 1e-10 >= required_gap,
         "exact_mcnemar_p_le_0_01": pvalue <= 0.01,
         "paired_newcombe_95_lower_positive": lower > 0,
+        "family_cluster_bootstrap_lower_positive": bootstrap_lower > 0,
         "domain_improvement_count_met": improved_domain_count >=
             (2 if version == "v6" else 3),
         "no_major_domain_point_regression": all(
