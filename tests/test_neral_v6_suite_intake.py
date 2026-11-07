@@ -142,8 +142,10 @@ class V6SuiteIntakeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 audit_files(root / "dev.jsonl", root / "release.jsonl", [train], dest)
             modified = root / "modified.jsonl"
-            modified.write_bytes((root / "release.jsonl").read_bytes().replace(
-                b"Krelease_math_001", b"Kdev_math_001"))
+            tampered = [dict(row) for row in release]
+            tampered[0]["prompt"] = dev[0]["prompt"]
+            modified.write_text("".join(json.dumps(row, sort_keys=True) + "\n"
+                                for row in tampered), encoding="utf8")
             with self.assertRaises(ValueError):
                 audit_files(root / "dev.jsonl", modified, [train], root / "other.json")
 
