@@ -87,7 +87,7 @@ class Fresh72DevTests(unittest.TestCase):
             [records[1],records[0],*records[2:]],
             [dict(records[0],new_tokens=999),*records[1:]],
             [dict(records[0],complete=1),*records[1:]],
-            [dict(records[0],text="12\\x00"),*records[1:]],
+            [dict(records[0],text="12"+chr(0)),*records[1:]],
         )):
             with self.subTest(corruption=index):
                 with self.assertRaises(ValueError):
@@ -102,7 +102,7 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertEqual(len(plain),2)
         self.assertEqual(plain,v6)
         self.assertEqual(plain[-1],msgs[-1])
-        self.assertEqual(V5_SHA,len(V5_SHA)*"x" if False else V5_SHA)
+        self.assertEqual(len(V5_SHA),64)
         self.assertEqual(len(V6_SHA),64)
         self.assertEqual(len(BASE_SHA),40)
 
