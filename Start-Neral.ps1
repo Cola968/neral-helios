@@ -1,4 +1,4 @@
-param([switch]$NoBrowser)
+param([switch]$NoBrowser,[switch]$GpuLab)
 $ErrorActionPreference='Stop'
 
 function Resolve-NeralRoot {
@@ -103,6 +103,30 @@ function Install-NeralPython {
     throw 'Python-Installer beendet, aber kein startbares Python gefunden. Die vorhandene Python-Installation muss repariert werden; Details stehen im Python-Installationsprotokoll unter %TEMP%.'
 }
 
+# Optional GPU assistant without changing the default CPU-only NERAL app.
+# This uses only the existing offline QLoRA Python environment and sealed v5 files.
+if($GpuLab){
+    $env:NERAL_AGENT_BACKEND='hf_adapter'
+    $env:NERAL_AGENT_ADAPTER_CHANNEL='v5'
+    if(-not $env:NERAL_PYTHON){
+        $env:NERAL_PYTHON=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+    }
+    if(-not(Test-Python311 $env:NERAL_PYTHON)){
+        throw 'NERAL v5 GPU-Lab braucht die bereits vorhandene QLoRA-Python-Umgebung mit CUDA, Transformers, PEFT und bitsandbytes. Keine automatische Installation.'
+    }
+    # Verify real CUDA Python before starting the protected local app.
+    $env:CUDA_VISIBLE_DEVICES='0'
+    & $env:NERAL_PYTHON -B -c 'import torch, transformers, peft, bitsandbytes; raise SystemExit(0 if torch.cuda.is_available() else 1)'
+    if($LASTEXITCODE -ne 0){
+        throw 'NERAL v5 GPU-Lab: CUDA oder die vorhandenen GPU-Python-Pakete fehlen. Kein CPU-Modell als v5 ausgeben.'
+    }
+    $v5Adapter=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1\adapter'
+    if(-not(Test-Path -LiteralPath (Join-Path $v5Adapter 'adapter_model.safetensors') -PathType Leaf) -or
+       -not(Test-Path -LiteralPath (Join-Path $v5Adapter 'neral-adapter.json') -PathType Leaf)){
+        throw 'NERAL v5 Adaptergewichte fehlen lokal. Keine Cloud- oder Basismodell-Ersatzantwort.'
+    }
+}
+
 $pythonCandidates=@(
     $env:NERAL_PYTHON,
     (Join-Path $appRoot '.venv\Scripts\python.exe'),
@@ -132,7 +156,12 @@ if(-not $appPython){
 
 $env:PYTHONDONTWRITEBYTECODE='1'
 $env:HELIOS_DEVICE='cpu'
-$env:CUDA_VISIBLE_DEVICES=''
+if($GpuLab){
+    # Keep the legacy Helios checkpoint on CPU but allow the HF agent to use CUDA.
+    $env:CUDA_VISIBLE_DEVICES='0'
+}else{
+    $env:CUDA_VISIBLE_DEVICES=''
+}
 $env:HELIOS_STATE_ROOT=$state
 $env:HELIOS_PREPARATION_MODE='0'
 $env:HELIOS_CHECKPOINT='neral50m_i1'
@@ -149,6 +178,10 @@ try{
     $info=Get-NeralInfo
     $ready=($info.app_version -eq '2.0' -and $info.active_checkpoint -eq 'neral50m_i1' -and $info.checkpoint_loaded -and $info.device -eq 'cpu' -and -not $info.preparation_mode)
 }catch{}
+
+if($ready -and $GpuLab){
+    throw 'NERAL ist bereits gestartet. Die bestehende App beenden, bevor das v5 GPU-Lab mit anderem Adapter gestartet wird.'
+}
 
 if(-not $ready){
     Start-Process -FilePath $appPython -ArgumentList @('-X','utf8','app.py') -WorkingDirectory $appRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $state 'app.log') -RedirectStandardError (Join-Path $state 'app-error.log') | Out-Null
@@ -167,4 +200,8 @@ $edge=Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
 if(-not $NoBrowser){
     if(Test-Path -LiteralPath $edge){Start-Process -FilePath $edge -ArgumentList @('--disable-gpu',"--app=$url")}else{Start-Process $url}
 }
-Write-Host 'Neral laeuft. Ab jetzt reicht fuer jeden Start ein Doppelklick auf Start Neral.cmd.' -ForegroundColor Green
+if($GpuLab){
+    Write-Host 'NERAL v5 GPU-Lab gestartet: Helios bleibt CPU, der lokale 7B-Adapter darf CUDA nutzen. Kein Training, keine automatische Promotion.' -ForegroundColor Green
+}else{
+    Write-Host 'Neral laeuft. Ab jetzt reicht fuer jeden Start ein Doppelklick auf Start Neral.cmd.' -ForegroundColor Green
+}

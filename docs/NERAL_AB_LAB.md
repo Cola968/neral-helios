@@ -24,6 +24,33 @@ zwischen Foundation- und Adapterdurchlauf schalten. Browsertranskript und
 Vergleichsantworten bleiben flüchtig im Browser; rohe Prompts/Outputs gehen nicht
 an GitHub.
 
+## Windows: NERAL v5 tatsächlich im GPU-Lab laden
+
+Der übliche `Start Neral.cmd` bleibt **CPU-only**. Er lässt die GPU frei und
+startet weiterhin die vorhandene Helios-CPU-Anwendung. Der neue Starter
+`Start NERAL v5 Lab.cmd` ist ein **expliziter Opt-in** für die bereits lokal
+trainierten v5-Rank-16-Gewichte:
+
+1. Laufende NERAL-App am lokalen Port 9686 zuerst beenden; andernfalls bricht
+   der Lab-Starter ab, statt unbemerkt einen alten Prozess weiterzuverwenden.
+2. Im vollständig installierten NERAL-App-Ordner
+   `Start NERAL v5 Lab.cmd` starten.
+3. Benötigt wird die vorhandene
+   `NERAL-QLoRA-Research/training-env-py312`-Python-Umgebung und der
+   trainierte Adapter aus GPU-Lauf
+   [42378021782](https://github.com/Cola968/neral-helios/actions/runs/42378021782).
+   Lokale Modellverzeichnisse bleiben auf dem PC.
+4. In Helios **NERAL AI – lokaler Chat und direkter Modellvergleich** öffnen,
+   einen Prompt eingeben und **NERAL vs. Qwen vergleichen** anklicken.
+
+Der Starter setzt nur für diese Ausführung
+`NERAL_AGENT_BACKEND=hf_adapter`, `NERAL_AGENT_ADAPTER_CHANNEL=v5`
+und `CUDA_VISIBLE_DEVICES=0`. Der ältere Helios-CPU-Checkpoint bleibt auf
+CPU; nur der separate lokale 7B-Agent nutzt die RTX-GPU. Die vorhandene
+App-Python-Umgebung muss die erforderlichen GPU-Pakete enthalten.
+Das Lab installiert **keine** Python-Pakete, ändert keine Gewichte und startet
+**kein** Training. Aktive GPU-Trainingsjobs können das Laden blockieren.
+
 ## Sichtbare Unterschiede richtig lesen
 
 - **Verschiedene Texte:** Der aktive Adapter hat das Ausgabeverhalten bei
