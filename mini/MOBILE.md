@@ -68,9 +68,15 @@ Die lokale Modellinitialisierung bei der ersten Frage kann dauern.
 - Die Modellantwort stammt vom experimentellen NERAL-LoRA auf
   Qwen2.5-Coder-7B als Foundation, sofern die lokal verifizierten
   Modellgewichte vorhanden und ladbar sind.
-- Keine behauptete allgemeine Intelligenzverbesserung,
-  kein Streaming und keine Garantie für eine erfolgreiche
-  GPU-Inferenz ohne echten PC-Abnahmetest.
+- Keine behauptete allgemeine Intelligenzverbesserung und weiterhin kein
+  Token-Streaming. Der Button **Abbrechen** sendet eine geschützte
+  Abbruchanforderung an den lokalen Modellprozess; nach Beginn der
+  Token-Erzeugung wird die Inferenz am nächsten Stoppsignal beendet.
+  Während der erstmaligen Gewichtsinitialisierung wird das Signal
+  erst vor der Token-Erzeugung wirksam. Der Browser allein beendet die
+  GPU-Berechnung nicht.
+- Keine Garantie für eine erfolgreiche GPU-Inferenz ohne echten
+  Windows-/Android-Abnahmetest.
 
 Wird NERAL Mobile nicht mehr genutzt, entferne das eigens installierte
 NERAL-CA-Zertifikat wieder aus Android. Das Ablaufdatum der

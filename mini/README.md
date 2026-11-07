@@ -56,8 +56,12 @@ enthalten. Unpassende oder beschädigte Modelle werden nicht geladen.
 - Kein Websearch, Computer Use, Shellzugriff oder Codeausführung.
 - Verlauf nur im Speicher dieses Browserfensters.
 - Maximal zwölf Verlaufseinträge, 224 neue Token pro Antwort.
-- Nur eine laufende GPU-Berechnung, noch kein Token-Streaming
-  oder verlässlicher serverseitiger Abbruch.
+- Nur eine laufende GPU-Berechnung, weiterhin kein Token-Streaming.
+  Der geschützte **Abbrechen**-Button sendet ein Stoppsignal an den
+  lokalen CUDA-Generierungsprozess. Ein bereits laufender Token-Schritt
+  wird nicht unterbrochen; bei der nächsten Stopping-Criteria-Prüfung
+  wird die Ausgabe beendet. Wird zuerst das Modell geladen, greift
+  der Abbruch erst vor der Generierung.
 - Qwen bleibt die Foundation. Der eigene NERAL-LoRA-Adapter ist ein
   zusätzlich trainierter Gewichtsanteil, kein eigenständig vortrainiertes 7B-Modell.
 
