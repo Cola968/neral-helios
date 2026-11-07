@@ -70,5 +70,22 @@ class EvalOnlySafety(unittest.TestCase):
         for prohibited in ('--run-local-gpu','--steps 80','TRAIN_NERAL_V3_R16_R32_80_STEPS'):
             self.assertNotIn(prohibited,w)
 
+    def test_eval_restores_reviewed_scratch_sources_before_gpu(self):
+        # The pinned trainer checkout lacks the composed 2026-11 v3 source
+        # lineage. Without this stage, verify_review rejects both datasets.
+        w=Path('.github/workflows/neral-v3-eval-only.yml').read_text(encoding='utf8')
+        before_gpu=w.split('      - name: Evaluate three models in separate fresh GPU processes')[0]
+        for name in ('neral_math_v2_builder.py', 'neral_math_v3_balanced_pack.py',
+                     'neral_v3_two_line_equations.py'):
+            self.assertIn(name, before_gpu)
+        self.assertIn('neral_math_v2_restore.py', before_gpu)
+        self.assertIn('--review-manifest', before_gpu)
+        self.assertIn('--check-review', before_gpu)
+        self.assertIn('--dataset', before_gpu)
+        self.assertIn('checkout-index --force --all', before_gpu)
+        self.assertIn('ref: a082738f9145722dec443141e5d7801a3ead93af', before_gpu)
+        self.assertIn('Never overwrite an existing evaluation', w)
+
+
 if __name__=='__main__':
     unittest.main()

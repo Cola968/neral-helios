@@ -56,6 +56,16 @@ jobs:
           } finally {Pop-Location}
           & git -C $trainer -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
           if($LASTEXITCODE -ne 0){throw 'Pinned source checkout failed'}
+          # Restore only CRLF-smudged pinned bytes in this disposable checkout.
+          # The reviewed training source was composed from these exact scripts;
+          # the immutable trainer commit alone cannot satisfy review.sources.
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Pinned trainer source restoration refused'}
+          foreach($name in @('neral_math_v2_builder.py','neral_math_v3_balanced_pack.py','neral_v3_two_line_equations.py')){
+            $dest=Join-Path $trainer ('scripts\'+$name)
+            if(Test-Path -LiteralPath $dest){throw 'Reviewed source scratch file collision'}
+            Copy-Item -LiteralPath (Join-Path $control ('scripts\'+$name)) -Destination $dest -ErrorAction Stop
+          }
           & $py -B (Join-Path $control 'scripts\neral_rank32_copy.py') --trainer (Join-Path $trainer 'scripts\neral_qlora_pilot.py') --output (Join-Path $trainer 'scripts\neral_qlora_rank32_smoke.py') --validator (Join-Path $trainer 'neral_adapter_candidate.py') --validator-output (Join-Path $trainer 'neral_adapter_candidate_r32.py')
           if($LASTEXITCODE -ne 0){throw 'Pinned rank32 validator cannot be reconstructed'}
       - name: Verify sealed existing models and source
@@ -81,6 +91,16 @@ jobs:
           $control=Join-Path $env:GITHUB_WORKSPACE 'control'
           $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
           $py=Join-Path $research 'training-env-py312\Scripts\python.exe'
+          # No changes to either sealed dataset. Restore only provably identical
+          # source bytes and repeat the exact original trainer review on both.
+          foreach($split in @('train','validation')){
+            $review=Join-Path $source ($split+'.review.json')
+            $dataset=Join-Path $source ($split+'.jsonl')
+            & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer --review-manifest $review
+            if($LASTEXITCODE -ne 0){throw 'Reviewed v3 composed sources differ from training'}
+            & $py -B (Join-Path $trainer 'scripts\neral_qlora_pilot.py') --dataset $dataset --review-manifest $review --check-review
+            if($LASTEXITCODE -ne 0){throw 'Pinned original trainer rejected v3 review'}
+          }
           Push-Location $control
           try {
             $env:PYTHONPATH=$trainer
