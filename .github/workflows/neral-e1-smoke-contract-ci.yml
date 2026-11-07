@@ -1,0 +1,38 @@
+name: NERAL E1 preference smoke and suite provenance CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_e1_smoke.py'
+      - 'scripts/neral_v6_provenance.py'
+      - 'tests/test_neral_e1_smoke.py'
+      - 'tests/test_neral_v6_provenance.py'
+      - 'tests/test_neral_ext_rescore_workflow.py'
+      - '.github/workflows/neral-ext-400-rescore-cpu.yml'
+      - 'docs/NERAL_E1_SMOKE_AND_SUITE_SPEC.md'
+      - '.github/workflows/neral-e1-smoke-contract-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_e1_smoke.py'
+      - 'scripts/neral_v6_provenance.py'
+      - 'tests/test_neral_e1_smoke.py'
+      - 'tests/test_neral_v6_provenance.py'
+      - 'docs/NERAL_E1_SMOKE_AND_SUITE_SPEC.md'
+permissions:
+  contents: read
+jobs:
+  cpu_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: E1 pair/gpu opt-in contract and provenance schema
+        run: |
+          python -m unittest discover -s tests -p test_neral_e1_smoke.py -v
+          python -m unittest discover -s tests -p test_neral_v6_provenance.py -v
+          python -m unittest discover -s tests -p test_neral_ext_rescore_workflow.py -v
+      - name: Syntax compile offline training entrypoint
+        run: python -m py_compile scripts/neral_e1_smoke.py scripts/neral_v6_provenance.py
