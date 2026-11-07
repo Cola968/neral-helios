@@ -132,7 +132,8 @@ def cases72():
             expected))
 
         p=4+i;q=7+i
-        answer=(p+3*i)+(q+i)+3
+        # sum(a) includes the appended value 3; len(b) adds another 3.
+        answer=(p+3*i)+(q+i)+6
         snippet=(f"a = [{p}, {q}]\nb = a\na.append({3})\nb[0] += {3*i}\n"
                  f"a[1] += {i}\nprint(sum(a) + len(b))")
         results.append(_one("code_trace","python_mutable_aliasing",i,
