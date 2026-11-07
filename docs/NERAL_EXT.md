@@ -84,10 +84,10 @@ Docker-Test-Sandbox im Semantikscore **nicht** bewertet.
 
 1. Installiere `datasets` und `huggingface_hub`, dann erstelle
    ein *neues* lokales Verzeichnis für den Datensatz.
-2. Für einen Erstaufbau mit öffentlich aufgelösten, danach unveränderlich
-   gepinnten Git-Revisionen:
+2. Für einen Erstaufbau mit den geprüften, fest im Code gepinnten
+   Hugging-Face-Revisionen:
 
-       python -m scripts.neral_ext_dataset --out-dir C:\neral-ext-private --resolve-public-revisions
+       python -m scripts.neral_ext_dataset --out-dir C:\neral-ext-private
 
    Der Generator speichert `neral-ext-400.jsonl` und
    `neral-ext-400-manifest.json` mit Quellen-SHAs, Testfall-SHAs und
@@ -132,3 +132,22 @@ Docker-Test-Sandbox im Semantikscore **nicht** bewertet.
 
 Ohne externe tatsächliche Scores bleiben
 `release_validated` und `general_improvement_proven` auf `false`.
+
+### Verifizierter GitHub-CPU-Preflight (7. November 2026)
+
+- Workflow: https://github.com/Cola968/neral-helios/actions/runs/42392230682
+- SHA-256 des **wirklich erzeugten** 400-Fälle-JSONL:
+  `47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1`
+- Quellenrevisionen: GSM8K `740312add88f781978c0658806c59bc2815b9866`,
+  MATH-500 `6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be`,
+  MBPP `4bb6404fdc6cacfda99d4ac4205087b89d32030c`.
+- Eingelesene v5-Zeilen: Train 1920, Val 320, Test 320.
+- Normalisierte 10-Gramm-Überlappungen: A=0, B=0, C=50 (beabsichtigt), D=0.
+- Echte Modellantworten: **noch nicht generiert**. NERAL-/Qwen-Scores:
+  **noch nicht vorhanden**.
+- Das öffentliche CI erzeugt Fälle nur temporär, veröffentlicht ausschließlich
+  Hashes und Mengen. Die gleichen Quellrevisionen reproduzieren sie lokal.
+- `--resolve-public-revisions` ist ein **bewusstes Re-Pinning** auf neue
+  externe Commits und darf nicht stillschweigend mit dem hier geprüften
+  400-Fälle-SHA vermischt werden.
+
