@@ -89,6 +89,74 @@ class NovelV4Eval(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"overlap"):
                 verify_prompt_isolation(root,copied)
 
+    def test_windows_encoding_regression_has_non_ascii_prompts(self):
+        from scripts.neral_v4_curriculum import build
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t)
+            build(root)
+            raw=(root/"train.jsonl").read_bytes()
+            utf=json.loads(raw.decode("utf8").splitlines()[0])
+            wrong=json.loads(raw.decode("cp1252").splitlines()[0])
+            self.assertNotEqual(utf["prompt"][1]["content"], wrong["prompt"][1]["content"])
+            self.assertTrue(verify_prompt_isolation(root,CASES))
+            corrupt=list(CASES)
+            corrupt[0]={**corrupt[0],"prompt":utf["prompt"][1]["content"]}
+            with self.assertRaisesRegex(ValueError,"overlap"):
+                verify_prompt_isolation(root,corrupt)
+
+    def test_eval_workflow_supports_saved_480_training_run_without_retraining(self):
+        flow=Path(".github/workflows/neral-v4-novel-eval.yml").read_text(encoding="utf8")
+        self.assertIn("train_steps:",flow)
+        self.assertIn("'^(200|480)
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t)
+            for model in ("base","neral_v4"):
+                folder=root/model
+                folder.mkdir()
+                rows=[{"id":c["id"],"correct":True,"format_valid":True,
+                       "answer_sha256":"a"*64,"local_raw":"no-cloud"} for c in CASES]
+                payload={"variant":model,"adapter_sha256":"b"*64,
+                         "base_revision":"c03e6d358207e414f1eca0bb1891e29f1db0e242",
+                         "case_hash":"c"*64,"scores":rows}
+                (folder/"local.json").write_text(json.dumps(payload))
+            result=combine(root,adapter_sha="b"*64,
+                           base_revision="c03e6d358207e414f1eca0bb1891e29f1db0e242",
+                           case_hash="c"*64)
+            self.assertEqual(result["paired"]["net_gain"],0)
+            self.assertNotIn("no-cloud",json.dumps(result))
+            altered=json.loads((root/"base"/"local.json").read_text())
+            altered["case_hash"]="d"*64
+            (root/"base"/"local.json").write_text(json.dumps(altered))
+            with self.assertRaisesRegex(ValueError,"provenance"):
+                combine(root,adapter_sha="b"*64,
+                        base_revision="c03e6d358207e414f1eca0bb1891e29f1db0e242",
+                        case_hash="c"*64)
+
+    def test_workflow_is_manual_no_training_and_sequential_gpu_variants(self):
+        src=Path(".github/workflows/neral-v4-novel-eval.yml").read_text()
+        self.assertIn("EVALUATE_NERAL_V4_R16_SAVED",src)
+        self.assertIn("workflow_dispatch",src)
+        self.assertIn("runs-on: [self-hosted, windows, x64, neral-gpu]",src)
+        self.assertIn("train_run_id",src)
+        self.assertIn("neral-qwen7b-r32-gpu-exclusive",src)
+        self.assertIn("--variant $variant",src)
+        self.assertIn("--combine",src)
+        self.assertIn("upload-artifact",src)
+        for forbidden in ("--run-local-gpu","--steps 200","TRAIN_NERAL_V4_R16_200_EXPERIMENTAL",
+                          "git push","schedule:"):
+            self.assertNotIn(forbidden,src)
+
+
+if __name__=="__main__":
+    unittest.main()
+",flow)
+        self.assertIn("v4-r16-{0}-{1}-1",flow)
+        self.assertIn("$tr.steps -ne [int]$env:TRAIN_STEPS",flow)
+        self.assertIn("$tr.optimizer_steps_completed -ne [int]$env:TRAIN_STEPS",flow)
+        self.assertIn("EVALUATE_NERAL_V4_R16_SAVED",flow)
+        self.assertNotIn("--run-local-gpu",flow)
+        self.assertNotIn("workflow_run:",flow)
+
     def test_only_local_results_combine_with_pinned_sha(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t)
