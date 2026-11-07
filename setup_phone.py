@@ -16,7 +16,9 @@ def _write_private(path, data):
         os.chmod(path, 0o600)
 
 
-def setup(host,root):
+def setup(host,root,port=9443):
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('Use an unprivileged TCP port between 1024 and 65535')
     address=ipaddress.ip_address(host)
     if (address.version != 4 or not address.is_private or address.is_loopback
             or address.is_unspecified or address.is_link_local):
@@ -41,16 +43,16 @@ def setup(host,root):
     _write_private(root/'server.key',key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
     # CA signing key deliberately not retained.
     code=secrets.token_hex(8)
-    config={'host':host,'port':9443,'certificate':str(root/'server.pem'),'key':str(root/'server.key'),'pair_hash':hashlib.sha256(code.encode()).hexdigest()}
+    config={'host':host,'port':port,'certificate':str(root/'server.pem'),'key':str(root/'server.key'),'pair_hash':hashlib.sha256(code.encode()).hexdigest()}
     _write_private(root/'config.json',json.dumps(config,indent=2))
-    _write_private(root/'HANDY-ZUGANG.txt',f'Neral auf Android\n\n1. PC und Handy ins gleiche WLAN.\n2. Neral-Android-CA.crt auf das eigene Handy kopieren und in Android unter Sicherheit > Verschluesselung/Anmeldedaten > Zertifikat installieren > CA-Zertifikat installieren (Bezeichnung je nach Hersteller).\n3. https://{host}:9443/ in Chrome oeffnen.\n4. Kopplungscode: {code}\n5. Nach dem Verbinden: Chrome-Menue > App installieren.\n\nPC muss eingeschaltet bleiben. Nur dieses Zertifikat installieren; keine Browser-Sicherheitspruefung deaktivieren. Zertifikat spaeter in Android wieder entfernen, wenn Neral nicht mehr verwendet wird. Windows-Firewall muss Port 9443 fuer das private Heimnetz zulassen. Keine Router-Portfreigabe.\n')
+    _write_private(root/'HANDY-ZUGANG.txt',f'Neral auf Android\n\n1. PC und Handy ins gleiche WLAN.\n2. Neral-Android-CA.crt auf das eigene Handy kopieren und in Android unter Sicherheit > Verschluesselung/Anmeldedaten > Zertifikat installieren > CA-Zertifikat installieren (Bezeichnung je nach Hersteller).\n3. https://{host}:{port}/ in Chrome oeffnen.\n4. Kopplungscode: {code}\n5. Nach dem Verbinden: Chrome-Menue > App installieren.\n\nPC muss eingeschaltet bleiben. Nur dieses Zertifikat installieren; keine Browser-Sicherheitspruefung deaktivieren. Zertifikat spaeter in Android wieder entfernen, wenn Neral nicht mehr verwendet wird. Windows-Firewall muss Port 9443 fuer das private Heimnetz zulassen. Keine Router-Portfreigabe.\n')
     return config
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--host');parser.add_argument('--out',default='local_state/phone');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--host');parser.add_argument('--out',default='local_state/phone');parser.add_argument('--port',type=int,default=9443);args=parser.parse_args()
     host=args.host
     if not host:
         with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as s:
             s.connect(('192.0.2.1',9));host=s.getsockname()[0]
-    config=setup(host,args.out)
+    config=setup(host,args.out,port=args.port)
     print('Phone setup created. Open '+str(Path(args.out)/'HANDY-ZUGANG.txt'))
