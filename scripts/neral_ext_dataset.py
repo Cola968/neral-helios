@@ -110,7 +110,7 @@ def _public_cases(sources: dict[str, list[dict]]) -> list[tuple[dict, dict]]:
 
 
 def _interest(i: int, rng: random.Random) -> tuple[str, str, str]:
-    """Compound interest example with exact integer cent result, no floats."""
+    """Simple interest less a fee on original principal, exact cents."""
     principal = rng.randint(100, 1000)
     rate = rng.choice([5, 10, 20])
     discount = rng.choice([0, 20, 30])
@@ -273,6 +273,19 @@ def export(cases: list[dict], manifest: dict, directory: Path) -> dict:
     return result
 
 
+def resolve_public_revisions() -> dict[str, str]:
+    """Explicitly resolve latest public HF commits once, then load pinned SHAs."""
+    from huggingface_hub import HfApi
+    api = HfApi()
+    resolved = {name: api.dataset_info(repo_id=repo, revision="main").sha
+                for name, (repo, _, _, _) in SOURCE_CONFIG.items()}
+    if any(not isinstance(sha, str) or
+           re.fullmatch(r"[0-9a-f]{40}", sha) is None
+           for sha in resolved.values()):
+        raise ValueError("Hugging Face did not return immutable full SHAs")
+    return resolved
+
+
 def load_sources(resolved: dict[str, str]) -> dict[str, list[dict]]:
     """Explicit public-network dataset load, never during CI or model inference."""
     from datasets import load_dataset
@@ -288,11 +301,18 @@ def main(argv: list[str] | None = None) -> None:
     import argparse
     p = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument("--out-dir", required=True, type=Path)
+    p.add_argument("--resolve-public-revisions", action="store_true")
     for name in SOURCE_CONFIG:
-        p.add_argument("--" + name + "-revision", required=True)
+        p.add_argument("--" + name + "-revision")
     args = p.parse_args(argv)
     revisions = {k: getattr(args, k + "_revision") for k in SOURCE_CONFIG}
-    if any(not re.fullmatch(r"[0-9a-f]{40}", v) for v in revisions.values()):
+    if args.resolve_public_revisions:
+        if any(revisions.values()):
+            p.error("Choose explicit hashes OR --resolve-public-revisions")
+        revisions = resolve_public_revisions()
+    if any(not isinstance(v, str) or
+           re.fullmatch(r"[0-9a-f]{40}", v) is None
+           for v in revisions.values()):
         p.error("Supply a full, immutable 40-character commit SHA for each dataset")
     cases, manifest = build(load_sources(revisions), revisions)
     result = export(cases, manifest, args.out_dir)
