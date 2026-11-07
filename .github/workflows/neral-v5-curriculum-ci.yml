@@ -1,0 +1,25 @@
+name: NERAL v5 math-transfer curriculum CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v5_transfer_curriculum.py'
+      - 'tests/test_neral_v5_transfer_curriculum.py'
+      - '.github/workflows/neral-v5-curriculum-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v5_transfer_curriculum.py'
+      - 'tests/test_neral_v5_transfer_curriculum.py'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_neral_v5_transfer_curriculum.py -v
+      - run: python -m compileall -q scripts/neral_v5_transfer_curriculum.py
