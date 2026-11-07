@@ -135,6 +135,29 @@ jobs:
               if($null -eq $r -or $r.total -ne $expected[$suite] -or $r.correct -lt 0 -or $r.correct -gt $r.total -or $r.format_valid -lt 0 -or $r.format_valid -gt $r.total){throw 'Invalid comparison counts'}
             }
           }
+          # New diagnostic fields are SCALARS only. Never upload model text or prompt data.
+          $allowedMetrics=@('total','improvements','regressions','net_gain','discordant','unchanged_correct','unchanged_incorrect','format_improvements','format_regressions','exact_mcnemar_p')
+          foreach($model in @('rank16_v3','rank32_v3')){
+            foreach($suite in $expected.Keys){
+              $pbase=$p.scores.base.$suite
+              $pcand=$p.scores.$model.$suite
+              $metric=$p.paired_vs_base.$model.$suite
+              if($null -eq $metric){throw 'Paired diagnostics missing'}
+              $names=@($metric.PSObject.Properties.Name)
+              if($names.Count -ne $allowedMetrics.Count -or @($names|Where-Object{$_ -notin $allowedMetrics}).Count -gt 0){throw 'Unexpected diagnostic property'}
+              if($metric.total -ne $expected[$suite] -or
+                 $metric.improvements -lt 0 -or $metric.regressions -lt 0 -or
+                 $metric.improvements -gt $metric.total -or $metric.regressions -gt $metric.total -or
+                 $metric.discordant -ne ($metric.improvements + $metric.regressions) -or
+                 $metric.net_gain -ne ($metric.improvements - $metric.regressions) -or
+                 $metric.net_gain -ne ($pcand.correct - $pbase.correct) -or
+                 $metric.unchanged_correct -lt 0 -or $metric.unchanged_incorrect -lt 0 -or
+                 ($metric.unchanged_correct + $metric.unchanged_incorrect + $metric.discordant) -ne $metric.total -or
+                 $metric.format_improvements -lt 0 -or $metric.format_regressions -lt 0 -or
+                 ($metric.format_improvements - $metric.format_regressions) -ne ($pcand.format_valid - $pbase.format_valid) -or
+                 $metric.exact_mcnemar_p -lt 0 -or $metric.exact_mcnemar_p -gt 1){throw 'Unverified paired comparison'}
+            }
+          }
           [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true" + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))
       - name: Upload verified scalar comparison only
         if: always() && steps.approve.outputs.safe == 'true'
