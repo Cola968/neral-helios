@@ -21,7 +21,7 @@ import secrets
 import subprocess
 import tempfile
 
-from scripts.neral_ext import read_cases, read_responses, write_report
+from scripts.neral_ext import _mcnemar, read_cases, read_responses, write_report
 
 IMAGE = "python:3.11-alpine"
 VARIANTS = ("base", "base_fewshot", "neral_v5")
@@ -180,6 +180,7 @@ def score_saved_mbpp(cases: list[dict], metadata: list[dict],
         raise ValueError("No MBPP Python tasks in dataset")
     ids = {c["id"] for c in cases}
     summary = {}
+    outcomes = {name: {} for name in VARIANTS}
     for variant in VARIANTS:
         data = responses[variant]
         if set(data) != ids:
@@ -187,6 +188,7 @@ def score_saved_mbpp(cases: list[dict], metadata: list[dict],
         counts = Counter()
         for case in subset:
             result = grade_one(case, keyed[case["id"]], data[case["id"]])
+            outcomes[variant][case["id"]] = result["status"]
             counts[result["status"]] += 1
         out = {status: counts[status] for status in STATUS}
         out["total"] = len(subset)
@@ -198,8 +200,26 @@ def score_saved_mbpp(cases: list[dict], metadata: list[dict],
         if sum(out[s] for s in STATUS) != len(subset):
             raise ValueError("Inconsistent MBPP status partition")
         summary[variant] = out
+    both = [case["id"] for case in subset
+            if all(outcomes[name][case["id"]] in ("passed", "failed")
+                   for name in ("base_fewshot", "neral_v5"))]
+    improvements = sum(outcomes["base_fewshot"][i] == "failed"
+                       and outcomes["neral_v5"][i] == "passed" for i in both)
+    regressions = sum(outcomes["base_fewshot"][i] == "passed"
+                      and outcomes["neral_v5"][i] == "failed" for i in both)
+    paired = {
+        "both_tested": len(both),
+        "excluded_ambiguous_or_censored": len(subset) - len(both),
+        "improvements": improvements,
+        "regressions": regressions,
+        "exact_mcnemar_p_exploratory": (
+            _mcnemar(improvements, regressions) if both else None),
+        "significance_claim_allowed": False,
+    }
     return {
         "schema": 1, "status": "NERAL_EXT_MBPP_FUNCTIONAL_DIAGNOSTIC",
+        "paired_fewshot_vs_neral": paired,
+        "significance_claim_allowed": False,
         "python_cases": len(subset), "by_variant": summary,
         "evaluated_saved_responses": True,
         "release_validated": False, "general_improvement_proven": False,
