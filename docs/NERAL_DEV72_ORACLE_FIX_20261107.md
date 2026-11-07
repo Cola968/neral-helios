@@ -1,6 +1,7 @@
 # NERAL dev72 – Oracle-Sperre, Testergebnis und Bewertung
 
 Audit davor: `docs/NERAL_DEV72_ORACLE_AUDIT_20261107.md`, Commit `ad1d4500`.
+Oracle-Sperre: Commit `8a1067ea`.
 Zweig: `cursor/dev72-independent-oracle-f78c`.
 Diese Änderung bewertet keine 7B-Gewichte. 21/72, 24/72 und 29/72 bleiben die
 gesperrten Aggregatzahlen aus Lauf 42409458549.
