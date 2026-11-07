@@ -36,6 +36,11 @@ def bounded(value):
         for x in value:
             if type(x) not in (int,str,bool): raise TraceUnsupported("Nested value")
             bounded(x)
+    elif type(value) is set:
+        if len(value)>MAX_ITEMS: raise TraceUnsupported("Set size limit")
+        for x in value:
+            if type(x) is not int: raise TraceUnsupported("Only integer set elements")
+            bounded(x)
     elif type(value) is dict:
         if len(value)>MAX_ITEMS: raise TraceUnsupported("Dictionary limit")
         for k,v in value.items():
@@ -69,6 +74,80 @@ class Machine:
         if type(value) is not int: raise TraceUnsupported("Integer required")
         return value
 
+    def comprehension(self,node,depth):
+        # A tiny deliberately non-general interpreter. No arbitrary iterators,
+        # nested comprehensions, attribute methods, lambdas or module calls.
+        if (type(node) not in (ast.SetComp,ast.GeneratorExp)
+                or len(node.generators)!=1):
+            raise TraceUnsupported("Only one bounded comprehension loop")
+        gen=node.generators[0]
+        if gen.is_async or len(gen.ifs)>2:
+            raise TraceUnsupported("Unsafe comprehension loop")
+        if isinstance(node,ast.SetComp):
+            names=(name_of(gen.target),)
+            source=self.expr(gen.iter,depth+1)
+            if type(source) not in (list,tuple,range):
+                raise TraceUnsupported("Only bounded list/range sets")
+            if len(source)>MAX_ITEMS:
+                raise TraceUnsupported("Comprehension iteration limit")
+            iterator=((item,) for item in source)
+            result=set()
+        else:
+            if (not isinstance(gen.target,ast.Tuple) or
+                    len(gen.target.elts)!=2 or
+                    not isinstance(gen.iter,ast.Call) or
+                    not isinstance(gen.iter.func,ast.Name) or
+                    gen.iter.func.id!="enumerate" or
+                    len(gen.iter.args)!=1 or gen.iter.keywords):
+                raise TraceUnsupported("Only enumerate(list) generator")
+            names=tuple(name_of(n) for n in gen.target.elts)
+            if len(set(names))!=2:
+                raise TraceUnsupported("Repeated generator target")
+            source=self.expr(gen.iter.args[0],depth+1)
+            if type(source) not in (list,tuple) or len(source)>MAX_ITEMS:
+                raise TraceUnsupported("Only bounded enumerate sequence")
+            iterator=enumerate(source)
+            result=[]
+        sentinel=object()
+        saved={name:self.env.get(name,sentinel) for name in names}
+        try:
+            for values in iterator:
+                self.step(depth+1)
+                for name,val in zip(names,values):
+                    self.env[name]=bounded(val)
+                if all(bool(self.expr(pred,depth+1)) for pred in gen.ifs):
+                    element=self.integer(self.expr(node.elt,depth+1))
+                    if isinstance(node,ast.SetComp):
+                        result.add(element)
+                    else:
+                        result.append(element)
+                    if len(result)>MAX_ITEMS:
+                        raise TraceUnsupported("Comprehension result too large")
+        finally:
+            for name,old in saved.items():
+                if old is sentinel:
+                    self.env.pop(name,None)
+                else:
+                    self.env[name]=old
+        return bounded(result if isinstance(node,ast.SetComp) else tuple(result))
+
+    def append(self,call,depth):
+        # Treat append as a single whitelisted AST statement, not arbitrary
+        # Python method execution. Alias identity intentionally preserved.
+        if (not isinstance(call.func,ast.Attribute) or
+                call.func.attr!="append" or
+                not isinstance(call.func.value,ast.Name) or
+                len(call.args)!=1 or call.keywords):
+            raise TraceUnsupported("Only bounded list.append is supported")
+        receiver=self.env.get(name_of(call.func.value))
+        if type(receiver) is not list or len(receiver)>=MAX_ITEMS:
+            raise TraceUnsupported("Only bounded existing list append")
+        value=self.expr(call.args[0],depth+1)
+        if type(value) not in (int,bool,str):
+            raise TraceUnsupported("Nested append value")
+        receiver.append(bounded(value))
+        bounded(receiver)
+
     def expr(self,node,depth=0):
         self.step(depth)
         if isinstance(node,ast.Constant):
@@ -91,6 +170,8 @@ class Machine:
             a=self.integer(a)
             if isinstance(node.op,ast.USub): return bounded(-a)
             if isinstance(node.op,ast.UAdd): return bounded(a)
+        if isinstance(node,(ast.SetComp,ast.GeneratorExp)):
+            return self.comprehension(node,depth+1)
         if isinstance(node,ast.BinOp):
             a=self.integer(self.expr(node.left,depth+1))
             b=self.integer(self.expr(node.right,depth+1))
@@ -145,7 +226,7 @@ class Machine:
                     result=range(*[self.integer(n) for n in args])
                     if len(result)>MAX_ITEMS: raise TraceUnsupported("Large range")
                     return result
-                if op=="sum" and len(args)==1 and type(args[0]) in (list,tuple):
+                if op=="sum" and len(args)==1 and type(args[0]) in (list,tuple,set):
                     return bounded(sum(self.integer(n) for n in args[0]))
                 if op=="len" and len(args)==1 and type(args[0]) in (list,tuple,dict,str):
                     return bounded(len(args[0]))
@@ -172,12 +253,22 @@ class Machine:
             return
         if isinstance(target,ast.Subscript) and isinstance(target.value,ast.Name):
             receiver=self.env.get(name_of(target.value))
-            if type(receiver) is not dict or isinstance(target.slice,ast.Slice):
-                raise TraceUnsupported("Only dictionary assignment")
+            if isinstance(target.slice,ast.Slice):
+                raise TraceUnsupported("Slice assignment not supported")
             key=self.expr(target.slice)
-            if type(key) not in (int,str) or (key not in receiver and len(receiver)>=MAX_ITEMS):
-                raise TraceUnsupported("Dictionary key invalid")
-            receiver[key]=value
+            if type(receiver) is dict:
+                if type(key) not in (int,str) or (key not in receiver and len(receiver)>=MAX_ITEMS):
+                    raise TraceUnsupported("Dictionary key invalid")
+                receiver[key]=value
+            elif type(receiver) is list:
+                if type(key) is not int:
+                    raise TraceUnsupported("List index must be integer")
+                try:
+                    receiver[key]=value
+                except IndexError:
+                    raise TraceUnsupported("List index out of range") from None
+            else:
+                raise TraceUnsupported("Only list/dictionary subscript assignment")
             bounded(receiver)
             return
         raise TraceUnsupported("Assignment not supported")
@@ -187,7 +278,7 @@ class Machine:
             self.step(depth)
             if isinstance(row,ast.Assign) and len(row.targets)==1:
                 self.assign(row.targets[0],self.expr(row.value,depth+1))
-            elif isinstance(row,ast.AugAssign) and isinstance(row.target,ast.Name):
+            elif isinstance(row,ast.AugAssign) and isinstance(row.target,(ast.Name,ast.Subscript)):
                 old=self.integer(self.expr(row.target,depth+1))
                 n=self.integer(self.expr(row.value,depth+1))
                 if isinstance(row.op,ast.Add): result=old+n
@@ -212,12 +303,15 @@ class Machine:
                 pass
             elif isinstance(row,ast.Expr) and isinstance(row.value,ast.Call):
                 call=row.value
-                if (not isinstance(call.func,ast.Name) or call.func.id!="print"
-                        or len(call.args)!=1 or call.keywords or self.output):
-                    raise TraceUnsupported("Exactly one integer print")
-                value=self.expr(call.args[0],depth+1)
-                if type(value) is not int: raise TraceUnsupported("Non-integer print")
-                self.output.append(str(value))
+                if isinstance(call.func,ast.Attribute):
+                    self.append(call,depth+1)
+                else:
+                    if (not isinstance(call.func,ast.Name) or call.func.id!="print"
+                            or len(call.args)!=1 or call.keywords or self.output):
+                        raise TraceUnsupported("Exactly one integer print")
+                    value=self.expr(call.args[0],depth+1)
+                    if type(value) is not int: raise TraceUnsupported("Non-integer print")
+                    self.output.append(str(value))
             else:
                 raise TraceUnsupported("Unsafe or unsupported statement")
         return False

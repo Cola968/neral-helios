@@ -1,0 +1,35 @@
+name: NERAL THINK safe Python AST extension contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_python_trace.py'
+      - 'tests/test_neral_safe_python_trace_expansion.py'
+      - '.github/workflows/neral-think-ast-expand-ci.yml'
+      - 'docs/NERAL_THINK_SAFE_PYTHON_AST.md'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_agent_python_trace.py'
+      - 'tests/test_neral_safe_python_trace_expansion.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run new AST extensions and all existing Python verifier/THINK safety regressions
+        run: |
+          python -m unittest discover -s tests -p test_neral_safe_python_trace_expansion.py -v
+          python -m unittest discover -s tests -p test_neral_agent_python_trace.py -v
+          python -m unittest discover -s tests -p test_neral_think.py -v
+      - name: Python compile
+        run: python -m py_compile neral_agent_python_trace.py

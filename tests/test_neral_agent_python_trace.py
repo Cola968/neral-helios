@@ -69,11 +69,14 @@ class PythonTraceTests(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertIsNone(trace_python_integer(code))
 
-    def test_no_user_defined_functions_or_mutations(self):
+    def test_no_user_defined_functions_or_unreviewed_mutations(self):
+        # Explicitly reviewed, bounded append/index mutations now have their
+        # own positive and hostile CPU tests. All OTHER methods remain blocked.
         for code in (
             "def f():\n return 4\nprint(f())",
-            "x=[1,2]\nx.append(3)\nprint(len(x))",
-            "x=[1]\nx[0]=2\nprint(x[0])",
+            "x=[1,2]\nx.extend([3])\nprint(len(x))",
+            "x=[1]\nx[0:1]=[2]\nprint(x[0])",
+            "x=[1]\nx.clear()\nprint(len(x))",
         ):
             self.assertIsNone(trace_python_integer(code))
 
