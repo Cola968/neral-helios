@@ -89,6 +89,9 @@ class MBPPTests(unittest.TestCase):
         self.assertEqual(report["by_variant"]["base_fewshot"]["censored"],1)
         self.assertEqual(report["by_variant"]["neral_v5"]["no_code"],1)
         self.assertFalse(report["release_validated"])
+        self.assertEqual(report["paired_fewshot_vs_neral"]["both_tested"],0)
+        self.assertEqual(report["paired_fewshot_vs_neral"]["excluded_ambiguous_or_censored"],1)
+        self.assertFalse(report["significance_claim_allowed"])
         dump=json.dumps(report)
         for word in ("def add","Implement add","assert add","test_setup_code"):
             self.assertNotIn(word,dump)
