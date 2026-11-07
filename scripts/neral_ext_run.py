@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -17,6 +18,7 @@ from scripts.neral_ext import (
     _mcnemar, _value, evaluate, read_cases, read_responses, write_report,
 )
 from scripts.neral_v5_style_eval import BASE_REVISION
+from scripts.neral_ext_resume import write_variant_checkpointed
 
 SYSTEM = ("Du bist NERAL. Löse technische Aufgaben präzise. "
           "Gib eine eindeutige Endantwort; erfinde keine Tests oder Quellen.")
@@ -217,7 +219,26 @@ def _gpu_run(cases: list[dict], variant: str, args) -> dict:
             text = tokenizer.decode(output, skip_special_tokens=True)
             complete = bool(count and int(output[-1]) == tokenizer.eos_token_id)
             return {"text": text, "complete": complete, "new_tokens": count}
-        return write_variant(cases, variant, args.out, generate)
+        # Bind resumed answers to exact, locally validated weights and decoding.
+        run_identity = {
+            "base_revision": BASE_REVISION,
+            "base_manifest_sha256": hashlib.sha256(
+                (args.base / "helios-manifest.json").read_bytes()).hexdigest(),
+            "adapter_weights_sha256": (
+                seal["files"]["adapter_model.safetensors"]
+                if variant == "neral_v5" else None),
+            "variant": variant,
+            "max_new_tokens": args.max_new_tokens,
+            "decoding": "greedy_do_sample_false",
+            "chat_template": CHAT_TEMPLATE,
+            "checkpoint_protocol": 1,
+        }
+        run_key = hashlib.sha256(json.dumps(
+            run_identity, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        return write_variant_checkpointed(
+            cases, variant, args.out, generate, build_messages,
+            run_key=run_key)
     finally:
         if model is not None:
             del model
