@@ -86,7 +86,10 @@ def test_mobile_requires_pairing_and_secure_cookie(running):
     assert "Kopplungscode" in html
     assert "NERAL Mini" in html
     assert request(running,"/api/status")[0]==401
-    assert request(running,"/api/chat","POST",{"prompt":"Hallo"})[0]==401
+    assert request(running,"/api/chat","POST",{"prompt":"Hallo"},
+                   headers={"Origin":"https://192.168.17.3:9444"})[0]==401
+    # A non-browser/cross-origin POST is rejected even before pairing.
+    assert request(running,"/api/chat","POST",{"prompt":"Hallo"})[0]==403
     status,headers,_,token=pair(running)
     assert status==200
     assert token
