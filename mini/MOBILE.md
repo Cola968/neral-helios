@@ -75,3 +75,29 @@ Die lokale Modellinitialisierung bei der ersten Frage kann dauern.
 Wird NERAL Mobile nicht mehr genutzt, entferne das eigens installierte
 NERAL-CA-Zertifikat wieder aus Android. Das Ablaufdatum der
 Server-Zertifikate liegt bei höchstens 180 Tagen.
+
+## Wenn der Starter `cryptography` vermisst
+
+Es wird nichts automatisch installiert. Öffne PowerShell und führe den vom
+Starter angezeigten Befehl aus. Für die Standardumgebung lautet er:
+
+```powershell
+& "$env:USERPROFILE\NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe" -m pip install cryptography
+```
+
+Das lädt ein Python-Paket, keine Modellgewichte. Starte danach die CMD-Datei neu.
+
+Falls die Windows-Firewall die Verbindung blockiert, überprüfe zuerst das
+Netzwerkprofil und das lokale Subnetz. Nur nach eigener Bestätigung in einer
+PowerShell **als Administrator** (ersetze `192.168.1.0/24` durch dein tatsächliches
+privates Subnetz):
+
+```powershell
+New-NetFirewallRule -DisplayName 'NERAL Mini Mobile 9444' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 9444 -Profile Private -RemoteAddress 192.168.1.0/24
+```
+
+Rückgängig: `Remove-NetFirewallRule -DisplayName 'NERAL Mini Mobile 9444'`.
+Keine Routerfreigabe einrichten. Falls die IP wechselt, den Ordner
+`local_state\mini_mobile` bei beendetem Server sichern oder umbenennen und
+neu starten; das neue CA-Zertifikat auf dem Handy installieren und das alte
+entfernen. Den Ordner mit privaten Schlüsseln nicht weitergeben.

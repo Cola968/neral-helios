@@ -268,8 +268,11 @@ class MobileHandler(BaseHTTPRequestHandler):
                     "seconds":round(time.monotonic()-started,2),
                     **self.server.desktop.backend.status()
                 })
-            except Exception:
-                return self._json(503, {"error":"Die lokale Modellantwort ist fehlgeschlagen. PC und GPU prüfen."})
+            except Exception as exc:
+                # Keep local paths and exception details out of the phone response.
+                detail = str(exc) if isinstance(exc, MiniError) else type(exc).__name__
+                print("NERAL-Inferenz fehlgeschlagen: " + detail, flush=True)
+                return self._json(503, {"error":"Lokale Modellantwort fehlgeschlagen. Details stehen im PC-Fenster."})
         finally:
             self.server.desktop.busy.release()
 
