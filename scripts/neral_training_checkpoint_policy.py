@@ -12,11 +12,11 @@ import re
 
 
 def options_for_training(*,steps:int,interval:int|None)->dict:
-    if type(steps) is not int or not 30<=steps<=120:
+    if type(steps) is not int or not 1<=steps<=120:
         raise ValueError("Only bounded, manual experimental training schedules")
     if interval is None:
         return {"eval_strategy":"no","save_strategy":"no"}
-    if (type(interval) is not int or
+    if steps<30 or (type(interval) is not int or
             interval<10 or interval>steps//3 or steps%interval):
         raise ValueError("Only aligned, >=3-evaluation checkpoint schedules")
     return {
