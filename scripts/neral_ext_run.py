@@ -143,12 +143,39 @@ def combine_scores(cases: list[dict], meta: list[dict], base: dict, few: dict, n
     t = subset(transfer)
     gap = 100.0 * (t["neral_v5"]["semantic_correct"] -
                    t["base_fewshot"]["semantic_correct"]) / len(transfer) if transfer else 0.0
+
+    # The legacy A/B gap includes Python MBPP tasks that the offline scorer
+    # deliberately leaves ungraded. A separate numeric-only transfer score
+    # must not count ungraded Python correctness as zero.
+    numeric = [c for c in transfer if c["kind"] in ("integer", "rational", "eur")]
+    python = [c for c in transfer if c["kind"] == "python"]
+    numeric_stats = subset(numeric)
+    numeric_gap = (round(100.0 * (
+        numeric_stats["neral_v5"]["semantic_correct"] -
+        numeric_stats["base_fewshot"]["semantic_correct"]
+    ) / len(numeric), 4) if numeric else None)
+    numeric_report = {
+        "total": len(numeric),
+        "base_fewshot_correct": numeric_stats["base_fewshot"]["semantic_correct"],
+        "neral_v5_correct": numeric_stats["neral_v5"]["semantic_correct"],
+        "gap_percentage_points": numeric_gap,
+        "paired": numeric_stats["paired_fewshot_vs_neral"],
+        "scored_kinds": ["integer", "rational", "eur"],
+    }
+    python_report = {
+        "total": len(python),
+        "functional_correctness_evaluated": False,
+        "verified_correct": None,
+    }
     return {
         "schema": 1, "status": "NERAL_EXT_THREE_WAY_UNVERIFIED_HOLDOUT",
         "total": len(cases), "case_sha256": case_sha,
         "base_revision": base_revision, "adapter_sha256": adapter_sha,
         "overall": full, "strata": strata,
         "format_adjusted_gap_A_B": round(gap, 4),
+        "format_adjusted_gap_A_B_legacy_denominator": len(transfer),
+        "quantitative_A_B": numeric_report,
+        "python_A_B": python_report,
         "format_adjusted_gap_unit": "percentage_points",
         "independent_external_benchmark": False,
         "general_improvement_proven": False, "release_validated": False,
