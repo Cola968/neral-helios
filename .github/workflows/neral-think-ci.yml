@@ -6,6 +6,7 @@ on:
       - 'neral_think.py'
       - 'neral_agent_python_trace.py'
       - 'tests/test_neral_agent_python_trace.py'
+      - 'tests/test_neral_python_trace_fresh250.py'
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_think_api.py'
@@ -18,6 +19,7 @@ on:
       - 'neral_think.py'
       - 'neral_agent_python_trace.py'
       - 'tests/test_neral_agent_python_trace.py'
+      - 'tests/test_neral_python_trace_fresh250.py'
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_think_api.py'
@@ -31,8 +33,12 @@ permissions:
 
 jobs:
   cpu_think:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,6 +50,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_think.py -v
       - name: Run bounded AST Python-trace and THINK retry tests
         run: python -m unittest discover -s tests -p test_neral_agent_python_trace.py -v
+      - name: Test 250 fresh Python trace cases and safety limits
+        run: python -m unittest discover -s tests -p test_neral_python_trace_fresh250.py -v
       - name: Run HTTP contract tests
         run: python -m unittest discover -s tests -p test_neral_think_api.py -v
       - name: Verify opt-in Helios THINK controls
