@@ -23,6 +23,11 @@ SOURCE_CONFIG = {
     "math500": ("HuggingFaceH4/MATH-500", None, "test", 50),
     "mbpp": ("google-research-datasets/mbpp", "full", "test", 50),
 }
+PINNED_REVISIONS = {
+    "gsm8k": "740312add88f781978c0658806c59bc2815b9866",
+    "math500": "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be",
+    "mbpp": "4bb6404fdc6cacfda99d4ac4205087b89d32030c"
+}
 REQUIRED = {"A": 200, "B": 100, "C": 50, "D": 50}
 FINAL_GSM = re.compile(r"####\s*([+-]?\d[\d,]*(?:\.\d+)?)\s*\Z")
 NUMBER = re.compile(r"[+-]?\d+(?:/\d+)?(?:\.\d+)?\Z")
@@ -310,6 +315,10 @@ def main(argv: list[str] | None = None) -> None:
         if any(revisions.values()):
             p.error("Choose explicit hashes OR --resolve-public-revisions")
         revisions = resolve_public_revisions()
+    elif not any(revisions.values()):
+        revisions = dict(PINNED_REVISIONS)
+    elif not all(revisions.values()):
+        p.error("Supply all three full revisions, or use pinned defaults")
     if any(not isinstance(v, str) or
            re.fullmatch(r"[0-9a-f]{40}", v) is None
            for v in revisions.values()):
