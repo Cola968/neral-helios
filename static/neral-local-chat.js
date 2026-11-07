@@ -94,7 +94,9 @@
       while (history.length && encoder.encode(JSON.stringify(history)).length > 9000) {
         history = history.slice(2);
       }
-      const answer = await req(thinkSwitch && thinkSwitch.checked ? 'think' : 'generate',{prompt:text,history});
+      const answer = thinkSwitch && thinkSwitch.checked
+        ? await req('think',{prompt:text,history})
+        : await req('generate',{prompt:text,history});
       messages.push({role:'user',content:text},{role:'assistant',content:answer.text,
         mode: answer.mode === 'THINK' ? 'THINK' : null,
         verified: answer.verified === true && answer.verification_scope === 'numeric_final_only',
