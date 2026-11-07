@@ -1,0 +1,49 @@
+name: NERAL-EXT CPU contract tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_ext.py'
+      - 'tests/test_neral_ext.py'
+      - 'scripts/neral_ext_dataset.py'
+      - 'scripts/neral_decontamination.py'
+      - 'tests/test_neral_ext_data.py'
+      - 'scripts/neral_ext_run.py'
+      - 'tests/test_neral_ext_run.py'
+      - '.github/workflows/neral-ext-gpu.yml'
+      - 'tests/test_neral_ext_workflow.py'
+      - 'docs/NERAL_EXT.md'
+      - '.github/workflows/neral-ext-ci.yml'
+  push:
+    paths:
+      - 'scripts/neral_ext.py'
+      - 'tests/test_neral_ext.py'
+      - 'scripts/neral_ext_dataset.py'
+      - 'scripts/neral_decontamination.py'
+      - 'tests/test_neral_ext_data.py'
+      - 'scripts/neral_ext_run.py'
+      - 'tests/test_neral_ext_run.py'
+      - '.github/workflows/neral-ext-gpu.yml'
+      - 'tests/test_neral_ext_workflow.py'
+      - '.github/workflows/neral-ext-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cpu_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test scoring contracts without GPU
+        run: |
+          python -m unittest discover -s tests -p 'test_neral_ext.py' -v
+          python -m unittest discover -s tests -p 'test_neral_ext_data.py' -v
+          python -m unittest discover -s tests -p 'test_neral_ext_run.py' -v
+          python -m unittest discover -s tests -p 'test_neral_ext_workflow.py' -v
+      - name: Compile scorer
+        run: python -m py_compile scripts/neral_ext.py scripts/neral_ext_dataset.py scripts/neral_decontamination.py scripts/neral_ext_run.py

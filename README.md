@@ -1,5 +1,16 @@
 # Neral / Helios
 
+> **Aktueller experimenteller Entwicklungszweig (November 2026):**
+> Neben den historischen 20M/50M-Eigenmodellen existiert ein lokales
+> **Qwen2.5-Coder-7B-Instruct + NERAL-v5-LoRA**-System.
+> Das 320er-v5-Ergebnis ist ein interner In-Distribution-Test, **kein**
+> Nachweis allgemeiner Überlegenheit. Der unabhängige CPU-Auswerteweg
+> **NERAL-EXT** wird in [docs/NERAL_EXT.md](docs/NERAL_EXT.md) entwickelt.
+> Die Repository-Sichtbarkeit ist aktuell öffentlich; die ältere
+> Bezeichnung „privat“ im historischen Abschnitt ist nicht aktuell.
+> GPU-Adapter und private Chatdaten werden nicht im Repository veröffentlicht.
+
+
 Eigenes lokales Sprachmodell mit CASCADE, RIPPLE, SOLVE und LIVING Answers.
 
 **Aktuell:** Neral-50M Sprachpilot mit **50.012.976 Parametern**. Ausschließlich eigene Neral-Gewichte, keine fremden Checkpoints und keine Cloud-Inferenz. Der Pilot besteht den freien Sprachtest noch nicht; **Neral-20M Preview 02 bleibt Standard**. Das ist ein Entwicklungsprojekt, kein zuverlässiger allgemeiner Chatbot.

@@ -1,0 +1,82 @@
+name: NERAL-EXT 400 public-data CPU preflight (no GPU)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/neral_ext.py'
+      - 'scripts/neral_ext_dataset.py'
+      - 'scripts/neral_decontamination.py'
+      - '.github/workflows/neral-ext-data-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify_external_holdout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_HUB_OFFLINE: '0'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PUBLIC dataset tools (no model weights)
+        run: python -m pip install 'datasets>=4.0,<5.0' 'huggingface_hub>=0.35,<2.0'
+      - name: Generate original v5 train/val/test locally from pinned generator
+        run: python -m scripts.neral_v5_transfer_curriculum --out "$RUNNER_TEMP/v5-transfer"
+      - name: Build 400 cases from resolved immutable public HF revisions
+        run: |
+          mkdir -p "$RUNNER_TEMP/neral-ext"
+          python -m scripts.neral_ext_dataset --out-dir "$RUNNER_TEMP/neral-ext"
+      - name: Verify 400 rows, manifest SHA, and 2560-case train/val/test overlap
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.neral_ext import read_cases
+          from scripts.neral_decontamination import audit, load_jsonl
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          data = root / "neral-ext"
+          source = root / "v5-transfer"
+          manifest = json.loads((data / "neral-ext-400-manifest.json").read_text("utf8"))
+          cases = read_cases(data / "neral-ext-400.jsonl", manifest["dataset_sha256"])
+          training = []
+          for split in ("train", "val", "test"):
+              training.extend(load_jsonl(source / f"{split}.jsonl"))
+          assert len(training) == 2560, "Pinned v5 source split changed"
+          report = audit(cases, manifest["cases"], training)
+          assert len(cases) == 400
+          assert manifest["total"] == 400
+          assert manifest["strata"] == {"A": 200, "B": 100, "C": 50, "D": 50}
+          if not report["A_B_D_clean"]:
+              raise ValueError("Cross-training overlap in A/B/D; no holdout promoted")
+          out = {"status": "NERAL_EXT_PUBLIC_DATA_CPU_PREFLIGHT",
+                 "dataset_sha256": manifest["dataset_sha256"],
+                 "case_counts": manifest["strata"],
+                 "source_revisions": {key: value["revision"]
+                                      for key, value in manifest["sources"].items()},
+                 "checked_v5_source_rows": len(training),
+                 "overlap_counts": report["overlap_counts"],
+                 "model_inference_performed": False,
+                 "general_improvement_proven": False,
+                 "release_validated": False,
+                 "foundation_pretraining_contamination_excluded": False}
+          final = Path("neral-ext-data-safe-summary.json")
+          final.write_text(json.dumps(out, sort_keys=True, indent=2) + "\n", encoding="utf8")
+          print(json.dumps(out, sort_keys=True))
+          PY
+      - name: Upload strictly scalar-only checked summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-ext-public-data-sha-and-counts
+          path: neral-ext-data-safe-summary.json
+          retention-days: 14
+          if-no-files-found: error
