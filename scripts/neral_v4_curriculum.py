@@ -100,12 +100,16 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
         if op == "/" and c == 0:
             c = 3
         left, right = Fraction(a,b), Fraction(c,d)
-        result = {
-            "+": left+right,
-            "-": left-right,
-            "*": left*right,
-            "/": left/right,
-        }[op]
+        # Do not eagerly evaluate unused operators (division by zero is
+        # invalid even for a multiplication-only generated example).
+        if op == "+":
+            result = left + right
+        elif op == "-":
+            result = left - right
+        elif op == "*":
+            result = left * right
+        else:
+            result = left / right
         if op == "+":
             assert result-right == left
         elif op == "-":
