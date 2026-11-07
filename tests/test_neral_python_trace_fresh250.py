@@ -37,13 +37,14 @@ def fresh_cases():
 
         upper1,upper2=r.randint(3,8),r.randint(3,7)
         modulus=r.randint(2,5)
-        source=(f"count = 0\nfor p in range(1, {upper1}):\n"
+        initial = i + 1
+        source=(f"count = {initial}\nfor p in range(1, {upper1}):\n"
                 f"    for q in range(2, {upper2}):\n"
                 f"        if (p * q) % {modulus} == 0:\n"
                 "            continue\n"
                 "        count += 1\n"
                 "print(count)")
-        expected=sum((p*q)%modulus != 0
+        expected=initial + sum((p*q)%modulus != 0
                      for p in range(1,upper1) for q in range(2,upper2))
         cases.append(("loop_continue",source,expected))
 
