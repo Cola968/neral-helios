@@ -47,6 +47,11 @@ class MiniError(ValueError):
     pass
 
 
+class MiniCancelled(MiniError):
+    """User-requested generation stop; no model answer is published."""
+    pass
+
+
 def offline() -> None:
     # Set BEFORE importing any HF code. Local weights, no remote model access.
     os.environ.update({
@@ -192,6 +197,13 @@ class NeralModel:
         self.tokenizer = None
         self.identity = None
         self.error = None
+        self._cancel_event = threading.Event()
+
+    def set_cancel_event(self, event: threading.Event) -> None:
+        self._cancel_event = event
+
+    def _cancel_requested(self) -> bool:
+        return self._cancel_event.is_set()
 
     def status(self) -> dict:
         present = (self.base / "helios-manifest.json").is_file() and (
@@ -246,20 +258,34 @@ class NeralModel:
 
     def respond(self, messages: list[dict[str, str]]) -> str:
         offline()
+        if self._cancel_requested():
+            raise MiniCancelled("Abgebrochen.")
         self._load()
+        if self._cancel_requested():
+            raise MiniCancelled("Abgebrochen.")
         import torch
+        from transformers import StoppingCriteria, StoppingCriteriaList
+        stop_event = self._cancel_event
+        class StopOnRequest(StoppingCriteria):
+            def __call__(self, input_ids, scores, **kwargs):
+                return stop_event.is_set()
         tokens = self.tokenizer.apply_chat_template(
             messages, chat_template=CHAT_TEMPLATE, tokenize=True,
             add_generation_prompt=True, return_tensors="pt"
         ).to("cuda:0")
         if tokens.shape[-1] + MAX_TOKENS > TOKEN_LIMIT:
             raise MiniError("Chatkontext zu lang. Bitte neuen Chat beginnen.")
+        if self._cancel_requested():
+            raise MiniCancelled("Abgebrochen.")
         with torch.inference_mode():
             generated = self.model.generate(
                 tokens, attention_mask=torch.ones_like(tokens),
                 do_sample=False, max_new_tokens=MAX_TOKENS,
                 pad_token_id=self.tokenizer.pad_token_id,
+                stopping_criteria=StoppingCriteriaList([StopOnRequest()]),
             )
+        if self._cancel_requested():
+            raise MiniCancelled("Abgebrochen.")
         answer = self.tokenizer.decode(generated[0, tokens.shape[-1]:], skip_special_tokens=True)
         if not answer.strip():
             raise MiniError("Das Modell hat keine Antwort erzeugt.")
@@ -275,7 +301,17 @@ class MiniServer(ThreadingHTTPServer):
         self.html = html
         self.token = secrets.token_urlsafe(36)
         self.busy = threading.Lock()
+        self.cancel_event = threading.Event()
+        if callable(getattr(backend, "set_cancel_event", None)):
+            backend.set_cancel_event(self.cancel_event)
         super().__init__(address, MiniHandler)
+
+    def request_cancel(self) -> bool:
+        # Same event is consumed by the desktop and mobile GPU inference.
+        if not self.busy.locked():
+            return False
+        self.cancel_event.set()
+        return True
 
 
 class MiniHandler(BaseHTTPRequestHandler):
@@ -324,7 +360,7 @@ class MiniHandler(BaseHTTPRequestHandler):
             self._json(404, {"error": "Nicht gefunden."})
 
     def do_POST(self):
-        if not self._host_ok() or self.path != "/api/chat":
+        if not self._host_ok() or self.path not in ("/api/chat", "/api/cancel"):
             self._json(403, {"error": "Lokaler Aufruf verweigert."})
             return
         if (self.headers.get("Origin") != self._origin()
@@ -342,6 +378,12 @@ class MiniHandler(BaseHTTPRequestHandler):
         if (not valid_cookie or not secrets.compare_digest(
             self.headers.get("X-Neral-Session", ""), self.server.token)):
             self._json(403, {"error": "Chat-Sitzung fehlt. Seite neu laden."})
+            return
+        if self.path == "/api/cancel":
+            if self.server.request_cancel():
+                self._json(202, {"cancel_requested": True})
+            else:
+                self._json(409, {"error": "Keine laufende Anfrage zum Abbrechen."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
             self._json(415, {"error": "Nur JSON erlaubt."})
@@ -362,6 +404,7 @@ class MiniHandler(BaseHTTPRequestHandler):
             self._json(429, {"error": "NERAL bearbeitet bereits eine Frage."})
             return
         try:
+            self.server.cancel_event.clear()
             try:
                 started = time.monotonic()
                 response = self.server.backend.respond(messages)
@@ -371,6 +414,8 @@ class MiniHandler(BaseHTTPRequestHandler):
                     "text": response, "seconds": round(time.monotonic()-started, 2),
                     **self.server.backend.status(),
                 })
+            except MiniCancelled:
+                self._json(409, {"cancelled": True, "error": "Antwort abgebrochen."})
             except Exception:
                 # No filesystem paths, traceback, credentials or raw prompts in HTTP.
                 self._json(503, {"error": "Lokale Inferenz fehlgeschlagen. Gewichte, GPU-Speicher und Python-Pakete pruefen."})
