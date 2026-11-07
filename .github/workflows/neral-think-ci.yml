@@ -7,6 +7,9 @@ on:
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_think_api.py'
+      - 'tests/test_neral_think_ui.py'
+      - 'static/neral-local-chat.js'
+      - 'templates/index.html'
       - '.github/workflows/neral-think-ci.yml'
   push:
     paths:
@@ -14,6 +17,9 @@ on:
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_think_api.py'
+      - 'tests/test_neral_think_ui.py'
+      - 'static/neral-local-chat.js'
+      - 'templates/index.html'
       - '.github/workflows/neral-think-ci.yml'
 
 permissions:
@@ -34,5 +40,9 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_think.py -v
       - name: Run HTTP contract tests
         run: python -m unittest discover -s tests -p test_neral_think_api.py -v
+      - name: Verify opt-in Helios THINK controls
+        run: |
+          python -m unittest discover -s tests -p test_neral_think_ui.py -v
+          node --check static/neral-local-chat.js
       - name: Check module syntax
         run: python -m py_compile neral_think.py
