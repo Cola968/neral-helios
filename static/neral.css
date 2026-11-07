@@ -48,3 +48,11 @@ dialog{color:var(--text);background:var(--side);border:1px solid var(--line);bor
 .neral-compare-grid article{min-width:0;padding:12px;border:1px solid var(--line);border-radius:8px}
 .neral-compare-grid pre{white-space:pre-wrap;overflow-wrap:anywhere;min-height:60px;margin:0;font:inherit;font-size:13px}
 @media(max-width:730px){.neral-compare-grid{grid-template-columns:1fr}}
+
+/* Dated, source-linked GPU evidence; not a current-model quality claim. */
+.neral-v5-evidence{margin:11px 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px}
+.neral-v5-evidence summary{cursor:pointer;font-weight:600}
+.neral-v5-evidence p{font-size:12px;line-height:1.6}
+.neral-v5-evidence table{border-collapse:collapse;width:100%;font-size:12px;margin:9px 0}
+.neral-v5-evidence th,.neral-v5-evidence td{border-bottom:1px solid var(--line);padding:7px;text-align:left}
+.neral-v5-evidence td{font-variant-numeric:tabular-nums;white-space:nowrap}
