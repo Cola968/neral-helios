@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'neral_agent_hf.py'
+      - 'scripts/neral_v5_helios_smoke.py'
+      - 'tests/test_neral_v5_helios_smoke.py'
+      - '.github/workflows/neral-v5-helios-smoke.yml'
       - 'neral_hf_identity.py'
       - 'tests/test_neral_hf_identity.py'
       - '.github/workflows/neral-hf-identity-ci.yml'
@@ -10,6 +13,9 @@ on:
     branches: [main]
     paths:
       - 'neral_agent_hf.py'
+      - 'scripts/neral_v5_helios_smoke.py'
+      - 'tests/test_neral_v5_helios_smoke.py'
+      - '.github/workflows/neral-v5-helios-smoke.yml'
       - 'neral_hf_identity.py'
       - 'tests/test_neral_hf_identity.py'
 permissions:
@@ -25,5 +31,6 @@ jobs:
           python-version: '3.12'
       - name: No GPU, no model downloads, only local identity checks
         run: |
-          python -m compileall -q neral_agent_hf.py neral_hf_identity.py tests/test_neral_hf_identity.py
+          python -m compileall -q neral_agent_hf.py neral_hf_identity.py scripts/neral_v5_helios_smoke.py tests/test_neral_hf_identity.py tests/test_neral_v5_helios_smoke.py
           python -m unittest discover -s tests -p test_neral_hf_identity.py -v
+          python -m unittest discover -s tests -p test_neral_v5_helios_smoke.py -v
