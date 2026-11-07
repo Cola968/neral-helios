@@ -118,14 +118,16 @@ def checked_private_run(folder:Path)->bool:
             meta.get("reused")!=sorted(REUSED) or
             meta.get("new_gpu_arms")!=sorted(MISSING) or
             meta.get("release_validated") is not False or
-            meta.get("candidate_adapter_sha256",V61_SHA)!=V61_SHA):
+            meta.get("candidate_adapter_sha256")!=V61_SHA or
+            not isinstance(meta.get("reused_files_sha256"),dict) or
+            set(meta["reused_files_sha256"])!=set(REUSED)):
         raise ValueError("Untrusted six-arm suite or manifest")
     # Original inputs immutable. Whenever a missing response exists,
     # validate it too (including its question IDs and unique ordering).
     for arm in SIX_ARMS:
         path=folder/(arm+".jsonl")
         if arm in REUSED:
-            if "reused_files_sha256" in meta and _sha(path)!=meta["reused_files_sha256"][arm]:
+            if _sha(path)!=meta["reused_files_sha256"][arm]:
                 raise ValueError("Historical raw answer changed")
             base.validate_variant_output(cases,_read_responses(path))
         elif path.exists() or path.is_symlink():
