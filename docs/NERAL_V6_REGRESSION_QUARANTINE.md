@@ -27,6 +27,19 @@ python -m scripts.neral_v6_regression_gate --report C:\private\v6-new-dev72\summ
 
 Der zweite Befehl bricht mit Fehlercode ab, falls ein bekannter oder gemessener Rückschritt vorliegt. Das ist ein **technischer Stopp für Workflows, die diese Sperre aufrufen**, keine Behauptung, dass künftig jeder Adapter-Loader automatisch verhindert ist. Das Development-Screen-Resultat führt niemals zum automatischen Deployment: `release_authorized=false` bleibt auch bei bestandener Vorprüfung.
 
+## Laufzeitabsicherung
+
+Zusätzlich zur Entwicklungsprüfung verweigern der zentrale Manifest-Prüfer
+(`neral_hf_identity.validate_adapter`), der lokale HF-Agent (`HFAdapterLocalBackend`,
+bereits vor dem CUDA-Import) und das getrennt paketierbare `NERAL Mini`
+(`mini/neral_mini.verify_assets`) den bekannten v6-Gewichts-Hash. Der Loader
+nimmt weder eine umbenannte Datei noch ein mit passender Metadatei
+versehenes Modell dieses Hashs an. Forschungs-GPU-Vergleiche im
+separaten Evaluationsskript bleiben möglich; so kann der gescheiterte
+Kandidat weiterhin diagnostiziert werden, ohne ihn produktiv zu laden.
+Die zentrale Hash-Sperre ist keine Aussage darüber, dass alle
+denkbaren externen Tools oder benutzerdefinierten Ladepfade erfasst sind.
+
 ## Ehrliche Grenzen / Freigabepolitik
 
 Die derzeitige Entwicklungs-Suite ist verbraucht. Ihre Fälle dürfen zur Diagnose und als Regressionstest verwendet werden, aber **nicht** zur unabhängigen Releasefreigabe. Der rohe 72er-Report darf nur mit vertrauenswürdiger Herkunft bewertet werden; Hashes und Zähler belegen nicht eigenständig, dass ein Modell die Aufgaben gelöst hat.
