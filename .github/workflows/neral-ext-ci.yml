@@ -5,6 +5,12 @@ on:
     paths:
       - 'scripts/neral_ext.py'
       - 'tests/test_neral_ext.py'
+      - 'scripts/neral_ext_dataset.py'
+      - 'scripts/neral_decontamination.py'
+      - 'tests/test_neral_ext_data.py'
+      - 'scripts/neral_ext_dataset.py'
+      - 'scripts/neral_decontamination.py'
+      - 'tests/test_neral_ext_data.py'
       - 'docs/NERAL_EXT.md'
       - '.github/workflows/neral-ext-ci.yml'
   push:
@@ -26,6 +32,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test scoring contracts without GPU
-        run: python -m unittest discover -s tests -p 'test_neral_ext.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_neral_ext.py' -v
+          python -m unittest discover -s tests -p 'test_neral_ext_data.py' -v
       - name: Compile scorer
-        run: python -m py_compile scripts/neral_ext.py
+        run: python -m py_compile scripts/neral_ext.py scripts/neral_ext_dataset.py scripts/neral_decontamination.py
