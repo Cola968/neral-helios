@@ -47,7 +47,7 @@ class V6ExperimentContracts(unittest.TestCase):
                 for item in messages:
                     t+=list(item["role"].encode())+list(item["content"].encode())+[0]
                 if kwargs.get("add_generation_prompt"):
-                    t+=list(b"assistant")
+                    t+=[255]  # deliberately wrong assistant-token prefix
                 # To match real chat template, completion removes the artificial
                 # end-of-message preceding the assistant generation prompt.
                 if not kwargs.get("add_generation_prompt"):
