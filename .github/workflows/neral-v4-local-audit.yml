@@ -1,0 +1,126 @@
+name: NERAL v4 local saved-answer root-cause audit (manual, CPU only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Local-only read-only diagnosis: AUDIT_NERAL_V4_SAVED'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_V4_SAVED'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Audit saved v4-480 and Qwen answers without GPU or training
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $run=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v4-r16-480-42369544061-1'
+          $saved=Join-Path $run 'novel-eval-42372478543-1'
+          $adapter=Join-Path $run 'adapter'
+          $sha='2f50658efb932dbfbe99d9d8734ab028593379c9c878bd7125f679c7c8812d8a'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          foreach($dir in @($control,$run,$saved,$adapter)){
+            if(-not(Test-Path -LiteralPath $dir -PathType Container)){throw 'Saved local model or answers unavailable'}
+          }
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $adapter 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+          if($actual -ne $sha){throw 'Adapter is not the evaluated sealed candidate'}
+          $manifest=Get-Content -LiteralPath (Join-Path $adapter 'neral-adapter.json') -Raw | ConvertFrom-Json
+          if($manifest.files.'adapter_model.safetensors' -ne $sha -or
+             $manifest.release_validated -ne $false -or
+             $manifest.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242'){
+            throw 'Adapter provenance or release status changed'
+          }
+          $outFolder=Join-Path $run "root-cause-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $outFolder){throw 'Never overwrite previous local audit'}
+          New-Item -ItemType Directory -Path $outFolder -ErrorAction Stop|Out-Null
+          $localOut=Join-Path $outFolder 'audit.json'
+          Push-Location $control
+          try {
+            & $py -B -m unittest discover -s tests -p test_neral_v4_local_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'Root-cause unit tests failed'}
+            & $py -B -m scripts.neral_v4_local_audit --root $saved --adapter-sha $sha --out $localOut
+            if($LASTEXITCODE -ne 0){throw 'Local answer hashes or score provenance invalid'}
+          } finally {Pop-Location}
+          $dest=Join-Path $control 'local_audit_scalar'
+          if(Test-Path -LiteralPath $dest){throw 'Scalar-only output folder already exists'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath $localOut -Destination (Join-Path $dest 'audit.json') -ErrorAction Stop
+      - name: Refuse any raw answers or unverified root-cause numbers
+        id: allow
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\local_audit_scalar'
+          if(-not(Test-Path -LiteralPath $folder -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $folder -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'audit.json' -or $files[0].Length -gt 18000){
+            throw 'Unexpected files or oversized audit'
+          }
+          $content=Get-Content -LiteralPath $files[0].FullName -Raw
+          if($content -match '"(local_raw|answer|prompt|messages|tokens|training_data)"\s*:'){
+            throw 'Refuse raw model answers or training data'
+          }
+          $p=$content|ConvertFrom-Json
+          $fields=@('schema','status','source_training_run','source_eval_run','case_hash',
+            'adapter_sha256','base_revision','total','original_strict','original_format_valid',
+            'semantic','semantic_paired','original_benchmark_unchanged',
+            'independent_external_benchmark','general_improvement_proven',
+            'release_validated','weights_promoted','limitations')
+          $keys=@($p.PSObject.Properties.Name)
+          if($keys.Count -ne $fields.Count -or @($keys|Where-Object{$_ -notin $fields}).Count -ne 0 -or
+             $p.status -ne 'LOCAL_ONLY_DIAGNOSTIC_NOT_NEW_BENCHMARK' -or
+             $p.total -ne 128 -or $p.original_strict.base -ne 49 -or $p.original_strict.neral_v4 -ne 49 -or
+             $p.original_format_valid.base -ne 112 -or $p.original_format_valid.neral_v4 -ne 122 -or
+             $p.case_hash -ne 'a670bdd8aa6153474f10599a6f20ee689b2c7b1ff03f44a039a9e131b1ae1828' -or
+             $p.adapter_sha256 -ne '2f50658efb932dbfbe99d9d8734ab028593379c9c878bd7125f679c7c8812d8a' -or
+             $p.source_training_run -ne 42369544061 -or $p.source_eval_run -ne 42372478543 -or
+             $p.original_benchmark_unchanged -ne $true -or
+             $p.independent_external_benchmark -ne $false -or $p.general_improvement_proven -ne $false -or
+             $p.release_validated -ne $false -or $p.weights_promoted -ne $false){
+            throw 'Invalid proof of identity or altered strict benchmark'
+          }
+          $categories=@('algebra','fractions','money','timezone','fuel','python_trace','sql','tool')
+          foreach($name in @('base','neral_v4')){
+            $v=$p.semantic.$name
+            if($v.confirmed_correct -lt 0 -or $v.confirmed_wrong -lt 0 -or
+               $v.unscorable -lt 0 -or
+               $v.confirmed_correct+$v.confirmed_wrong+$v.unscorable -ne 128 -or
+               $v.format_only_correct -gt $v.confirmed_correct -or
+               @($v.per_category.PSObject.Properties.Name).Count -ne 8){
+              throw 'Unverified semantic totals'
+            }
+            foreach($cat in $categories){
+              $c=$v.per_category.$cat
+              if($null -eq $c -or
+                 $c.confirmed_correct+$c.confirmed_wrong+$c.unscorable -ne 16 -or
+                 $c.format_only_correct -gt $c.confirmed_correct){
+                throw 'Invalid per-category diagnostic metrics'
+              }
+            }
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload neral-v4-local-audit scalar scores only
+        if: always() && steps.allow.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v4-local-audit
+          path: control/local_audit_scalar/audit.json
+          retention-days: 14
+          if-no-files-found: error
