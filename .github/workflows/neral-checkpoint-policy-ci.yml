@@ -1,0 +1,38 @@
+name: NERAL QLoRA best-validation-checkpoint experimental CPU policy
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_training_checkpoint_policy.py'
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'scripts/neral_v61_replay_train.py'
+      - 'tests/test_neral_training_checkpoint_policy.py'
+      - '.github/workflows/neral-checkpoint-policy-ci.yml'
+      - 'docs/NERAL_CHECKPOINT_POLICY.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_training_checkpoint_policy.py'
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'scripts/neral_v61_replay_train.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Policy test plus existing v6 and v61 training contracts, zero GPU required
+        run: |
+          python -m unittest discover -s tests -p test_neral_training_checkpoint_policy.py -v
+          python -m unittest discover -s tests -p test_neral_v6_r16_gpu.py -v
+          python -m unittest discover -s tests -p test_neral_v61_replay_train.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_training_checkpoint_policy.py scripts/neral_v6_r16_gpu.py scripts/neral_v61_replay_train.py
