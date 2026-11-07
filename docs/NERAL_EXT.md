@@ -67,3 +67,68 @@ Die Integration in die Inferenz und echte OOD-Evaluation folgen separat.
     python -m unittest discover -s tests -p test_neral_ext.py -v
 
 Der bestehende v5-Benchmark bleibt unverändert.
+ 
+## NERAL-EXT: 400 Fälle, Quellen und sichere Reihenfolge
+
+Der Generator `scripts/neral_ext_dataset.py` erzeugt lokal einen
+400-Fälle-Datensatz mit A=200 (100 GSM8K-Test, 50 numerische MATH-500-Test,
+50 MBPP-Code), B=100 unabhängigen synthetischen Aufgaben (Zinsen,
+Einheiten, Syllogismen), C=50 expliziten v5-Style-7-Kontrollen und
+D=50 Umformulierungen von A/B. Originalfälle aus A dürfen in D erneut
+vorkommen; D ist ein Robustheitstest, kein unabhängig neues Problem.
+
+**Wichtig:** Hugging Face GSM8K / MATH-500 / MBPP sind zwar externe
+Benchmarkquellen, aber nicht garantiert ungesehen während des
+Foundation-Pretrainings. Python-MBPP-Aufgaben werden bis zur geprüften
+Docker-Test-Sandbox im Semantikscore **nicht** bewertet.
+
+1. Installiere `datasets` und `huggingface_hub`, dann erstelle
+   ein *neues* lokales Verzeichnis für den Datensatz.
+2. Für einen Erstaufbau mit öffentlich aufgelösten, danach unveränderlich
+   gepinnten Git-Revisionen:
+
+       python -m scripts.neral_ext_dataset --out-dir C:\neral-ext-private --resolve-public-revisions
+
+   Der Generator speichert `neral-ext-400.jsonl` und
+   `neral-ext-400-manifest.json` mit Quellen-SHAs, Testfall-SHAs und
+   Gesamt-SHA. Für vollständige Wiederholbarkeit können die drei
+   Manifest-Revisionen statt `--resolve-public-revisions` über
+   `--gsm8k-revision`, `--math500-revision` und
+   `--mbpp-revision` direkt angegeben werden.
+
+3. Erzeuge die alten v5-Splits rein per CPU:
+
+       python -m scripts.neral_v5_transfer_curriculum --out C:\v5-verified
+
+   Das sind **1.920 Trainings- + 320 Validierungs- + 320 Testfälle**,
+   insgesamt 2.560. Beim Kontaminationscheck dürfen keine A/B/D-Fälle
+   zehn identische normalisierte Wörter hintereinander mit den v5-Daten
+   teilen. C wird als Negativkontrolle separat ausgewiesen.
+
+4. Der GitHub-hosted Workflow
+   `.github/workflows/neral-ext-data-ci.yml` prüft die echten öffentlichen
+   Quellen, den SHA und die 2.560 Fälle rein auf CPU und veröffentlicht
+   nur einen scalar-only Report; keine Prompts, Codeantworten oder Gewichte.
+   Dieser Preflight ist **kein Modellvergleich**.
+
+5. Nach erfolgreicher Datensatzprüfung kann
+   `scripts/neral_ext_run.py` manuell lokal mit dem verifizierten
+   Foundation-Snapshot und dem **versiegelten v5-Adapter** für jeweils
+   `base`, `base_fewshot`, `neral_v5` in getrennten Prozessen laufen.
+   Der `combine`-Modus erzeugt Format-/Strict-/Semantikscores je
+   A/B/C/D, McNemar und den formatbereinigten A+B-Abstand. Modellantworten
+   bleiben lokal. Es gibt **keinen automatischen GPU-Workflow**.
+
+6. **THINK/DEEP und neue LoRA-Trainingsläufe werden nicht automatisch
+   aktiviert.** Die strenge Reihenfolge lautet: Preflight der Daten,
+   Kontaminationsprüfung, kontrollierte A/B/C-GPU-Inferenz, erst danach
+   Produktintegration und Profil-Messungen.
+
+### Lokale CPU-Prüfungen
+
+    python -m unittest discover -s tests -p 'test_neral_ext.py' -v
+    python -m unittest discover -s tests -p 'test_neral_ext_data.py' -v
+    python -m unittest discover -s tests -p 'test_neral_ext_run.py' -v
+
+Ohne externe tatsächliche Scores bleiben
+`release_validated` und `general_improvement_proven` auf `false`.
