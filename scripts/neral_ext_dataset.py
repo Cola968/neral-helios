@@ -114,10 +114,10 @@ def _interest(i: int, rng: random.Random) -> tuple[str, str, str]:
     principal = rng.randint(100, 1000)
     rate = rng.choice([5, 10, 20])
     discount = rng.choice([0, 20, 30])
-    # Simple-interest-based payable amount; round only if exact cents.
-    total = Fraction(principal * (100 + rate - discount), 100)
-    if total.denominator != 1:
-        raise AssertionError("Non-integral cents in generator")
+    # Principal is in whole EUR. Integer cents avoid float rounding.
+    cents = principal * (100 + rate - discount)
+    if cents <= 0:
+        raise ValueError("Unexpected nonpositive payable amount")
     is_en = i % 2 == 1
     if is_en:
         prompt = (f"A deposit of {principal} EUR earns {rate}% simple interest "
@@ -127,7 +127,7 @@ def _interest(i: int, rng: random.Random) -> tuple[str, str, str]:
         prompt = (f"Ein Guthaben von {principal} EUR erhält {rate}% einfache Zinsen. "
                   f"Zusätzlich werden {discount}% des ursprünglichen Betrags als "
                   f"Gebühr abgezogen. Wie hoch ist der Endbetrag in EUR?")
-    return prompt, str(total) + ",00 EUR", "eur"
+    return prompt, f"{cents // 100},{cents % 100:02d} EUR", "eur"
 
 
 def _conversion(i: int, rng: random.Random) -> tuple[str, str, str]:
@@ -162,7 +162,7 @@ def _logic(i: int, rng: random.Random) -> tuple[str, str, str]:
     conclusion = f"Alle {a} sind {c}" if true else f"Alle {c} sind {a}"
     prompt = (f"Given: all {a} are {b}, and all {b} are {c}. "
               f"Does it necessarily follow that '{conclusion}'? Answer 1 or 0."
-              if i % 2 else
+              if (i // 2) % 2 else
               f"Gegeben: Alle {a} sind {b}; alle {b} sind {c}. "
               f"Folgt zwingend '{conclusion}'? Antworte 1 oder 0.")
     return prompt, "1" if true else "0", "integer"
