@@ -78,14 +78,14 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
             or type(seed) is not int or not 0 <= seed <= 2**63-1):
         raise ValueError("Invalid example coordinates")
     rng = _rng(seed, category, style, index)
-    if category == "linear":
-        a, x, b = rng.randint(2,24), rng.randint(-50,50), rng.randint(-90,90)
+    # One independent numerical coordinate per template slot prevents\n    # accidental duplicate prompts in otherwise random synthetic families.\n    if category == "linear":
+        a, x, b = index+2, rng.randint(-50,50), rng.randint(-90,90)
         rhs = a*x+b
         task = f"Bestimme x: {a}x {_signed(b)} = {rhs}."
         answer, fmt = f"x = {x}", "x = Zahl"
         assert a*x+b == rhs
     elif category == "both_sides":
-        a, d = rng.randint(3,22), rng.randint(1,12)
+        a, d = index+3, rng.randint(1,12)
         if a == d:
             a += 1
         x, b = rng.randint(-45,45), rng.randint(-80,80)
@@ -94,7 +94,7 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
         answer, fmt = f"{a-d}x = {c-b}\nx = {x}", "zwei Rechenzeilen"
         assert a*x+b == d*x+c and a != d
     elif category == "fractions":
-        a, b = rng.randint(-22,22), rng.randint(2,17)
+        a, b = index-20, rng.randint(2,17)
         c, d = rng.randint(-22,22), rng.randint(2,19)
         op = ("+", "-", "*", "/")[index % 4]
         if op == "/" and c == 0:
@@ -119,7 +119,7 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
         task = f"Berechne exakt: ({a}/{b}) {op} ({c}/{d})."
         answer, fmt = str(result), "gekürzten Bruch oder ganze Zahl"
     elif category == "percent":
-        price = rng.randint(1,20)*100
+        price = (index+1)*100
         discount, surcharge = rng.randint(5,35), rng.randint(3,21)
         cents = price*(100-discount)*(100+surcharge)//100
         assert cents % 1 == 0
@@ -130,7 +130,7 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
     elif category == "timezone":
         hour, minute = rng.randint(0,23), 15*rng.randint(0,3)
         src, dest = rng.randint(-7,5), rng.randint(-2,11)
-        duration = rng.randint(2,34)*30
+        duration = (index+2)*30
         total = hour*60+minute+duration+60*(dest-src)
         day, clock = divmod(total,1440)
         assert total == 1440*day+clock
@@ -140,7 +140,7 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
         answer, fmt = f"{clock//60:02d}:{clock%60:02d} (Tag {day:+d})", "HH:MM (Tag +/-N)"
     elif category == "fuel":
         burn = rng.randint(10,36)*60
-        flight = rng.randint(8,42)*15
+        flight = (index+8)*15
         reserve = rng.randint(2,8)*15
         taxi = rng.randint(15,140)
         value = burn*(flight+reserve)//60+taxi
