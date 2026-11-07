@@ -1,0 +1,27 @@
+name: NERAL v4 verified curriculum CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v4_curriculum.py'
+      - 'tests/test_neral_v4_curriculum.py'
+      - '.github/workflows/neral-v4-curriculum-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v4_curriculum.py'
+      - 'tests/test_neral_v4_curriculum.py'
+permissions:
+  contents: read
+jobs:
+  verify-curriculum:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify deterministic reviewed-before-training data
+        run: python -m unittest discover -s tests -p test_neral_v4_curriculum.py -v
+      - name: Verify Python syntax
+        run: python -m compileall -q scripts/neral_v4_curriculum.py tests/test_neral_v4_curriculum.py
