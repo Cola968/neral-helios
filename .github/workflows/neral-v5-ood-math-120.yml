@@ -1,0 +1,153 @@
+name: NERAL v5 novel-math 120-case A/B GPU (read-only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v5_ood_math_eval.py'
+      - '.github/workflows/neral-v5-ood-math-120.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only sealed v5 GPU evaluation: EVALUATE_NERAL_V5_OOD_120'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'feat(NERAL v5): novel math 120 GPU comparison')) || (github.event_name == 'workflow_dispatch' && inputs.authorize == 'EVALUATE_NERAL_V5_OOD_120'))
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Verify saved adapter and isolated novel case generator
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          foreach($path in @($control,$trainer)){
+            & git -C $path -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Source normalization failed'}
+          }
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $run=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+          $adapter=Join-Path $run 'adapter'
+          $data=Join-Path $run 'candidate'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          foreach($folder in @($control,$trainer,$run,$adapter,$data,$base)){
+            if(-not(Test-Path -LiteralPath $folder -PathType Container)){
+              throw 'A pinned research path is missing: no download or auto-train'
+            }
+          }
+          $train=Get-Content -LiteralPath (Join-Path $adapter 'training-report.json') -Raw|ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath (Join-Path $adapter 'neral-adapter.json') -Raw|ConvertFrom-Json
+          $config=Get-Content -LiteralPath (Join-Path $adapter 'adapter_config.json') -Raw|ConvertFrom-Json
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $adapter 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+          if($train.status -ne 'completed' -or $train.steps -ne 480 -or
+             $train.optimizer_steps_completed -ne 480 -or $train.lora_rank -ne 16 -or
+             $config.r -ne 16 -or $manifest.release_validated -ne $false -or
+             $manifest.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
+             $manifest.files.'adapter_model.safetensors' -ne $sha){
+            throw 'Saved adapter identity or completed 480-step evidence differs'
+          }
+          Push-Location $control
+          try {
+            & $py -B -m unittest discover -s tests -p test_neral_v5_ood_math_eval.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU maths and provenance contracts failed'}
+            $env:PYTHONPATH=$control
+            & $py -B -c "from pathlib import Path;from scripts.neral_v5_ood_math_eval import verify_novel_prompts;import sys;assert verify_novel_prompts(Path(sys.argv[1]))" $data
+            if($LASTEXITCODE -ne 0){throw 'Novel math cases overlap existing v5 corpus'}
+          } finally {Pop-Location}
+          $result=Join-Path $run "novel-math-eval-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $result){throw 'Refuse overwrite of saved GPU results'}
+          New-Item -ItemType Directory -Path $result -ErrorAction Stop|Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NEW_EVAL_RESULT=$result"+[Environment]::NewLine+
+            "NEW_EVAL_DATA=$data"+[Environment]::NewLine+
+            "NEW_EVAL_ADAPTER=$adapter"+[Environment]::NewLine+
+            "NEW_EVAL_BASE=$base"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Run Qwen and NERAL v5 on 120 new math problems in separate processes
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          foreach($variant in @('base','neral_v5')){
+            & $py -B (Join-Path $control 'scripts\neral_v5_gpu_wait.py') --variant $variant
+            if($LASTEXITCODE -ne 0){throw "GPU readiness check failed before $variant"}
+            Push-Location $control
+            try {
+              $env:PYTHONPATH=$trainer
+              & $py -B -m scripts.neral_v5_ood_math_eval --base $env:NEW_EVAL_BASE --adapter $env:NEW_EVAL_ADAPTER --trainer-root $trainer --source-root $env:NEW_EVAL_DATA --out (Join-Path $env:NEW_EVAL_RESULT $variant) --variant $variant
+              if($LASTEXITCODE -ne 0){throw "Novel math $variant inference failed; no retry/training"}
+            } finally {Pop-Location}
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$trainer
+            & $py -B -m scripts.neral_v5_ood_math_eval --base $env:NEW_EVAL_BASE --adapter $env:NEW_EVAL_ADAPTER --trainer-root $trainer --source-root $env:NEW_EVAL_DATA --out (Join-Path $env:NEW_EVAL_RESULT 'summary') --combine
+            if($LASTEXITCODE -ne 0){throw 'Novel math paired combine rejected'}
+          } finally {Pop-Location}
+          $folder=Join-Path $control 'novel_math_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Refuse scalar output overwrite'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:NEW_EVAL_RESULT 'summary\summary.json') -Destination (Join-Path $folder 'summary.json') -ErrorAction Stop
+      - name: Validate strict scalar-only aggregate before leaving the runner
+        id: safe
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\novel_math_scalar'
+          $files=@(Get-ChildItem -LiteralPath $folder -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 12000){
+            throw 'Only a single small summary.json may leave the private runner'
+          }
+          $p=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          $allow=@('schema','status','total','base','neral_v5','per_category','paired','base_revision','adapter_sha256','case_hash','trained_adapter_evaluated','independent_external_benchmark','general_improvement_proven','release_validated','weights_promoted','limitations')
+          $keys=@($p.PSObject.Properties.Name)
+          if($keys.Count -ne $allow.Count -or @($keys|Where-Object{$_ -notin $allow}).Count -ne 0 -or
+             $p.status -ne 'NERAL_V5_NOVEL_SYNTHETIC_MATH_120' -or $p.total -ne 120 -or
+             $p.general_improvement_proven -ne $false -or $p.independent_external_benchmark -ne $false -or
+             $p.release_validated -ne $false -or $p.weights_promoted -ne $false -or
+             $p.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
+             $p.adapter_sha256 -notmatch '^[a-f0-9]{64}$' -or $p.case_hash -notmatch '^[a-f0-9]{64}$'){
+            throw 'Unexpected novel math aggregate schema'
+          }
+          if($p.base.correct -lt 0 -or $p.base.correct -gt 120 -or
+             $p.neral_v5.correct -lt 0 -or $p.neral_v5.correct -gt 120 -or
+             $p.paired.net_gain -ne ($p.neral_v5.correct - $p.base.correct)){
+            throw 'Unverified paired score bounds'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload numeric comparison only (never raw model responses or weights)
+        if: success() && steps.safe.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v5-novel-math-120-ab
+          path: control/novel_math_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
