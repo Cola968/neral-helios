@@ -69,5 +69,22 @@ class V4TrainPatcher(unittest.TestCase):
         self.assertNotIn("git push",src)
 
 
+    def test_200_step_workflow_runs_novel_holdout_ab_before_claiming_quality(self):
+        flow=(ROOT/".github/workflows/neral-v4-r16-training.yml").read_text(encoding="utf8")
+        train=flow.index("Train separate experimental NERAL v4 rank16 adapter")
+        verify=flow.index("Verify sealed adapter and print scalar-only experimental results")
+        heldout=flow.index("Compare Qwen base and saved NERAL on 128 novel tasks")
+        self.assertLess(train,verify)
+        self.assertLess(verify,heldout)
+        self.assertIn("neral_v4_novel_eval",flow)
+        self.assertIn("--variant $variant",flow)
+        self.assertIn("--combine",flow)
+        self.assertIn("nvidia-smi",flow[heldout:])
+        self.assertIn("novel-128-paired-scores",flow)
+        self.assertIn("novel_eval_scalar/summary.json",flow)
+        self.assertNotIn("adapter_promoted=$true",flow)
+        self.assertNotIn("release_validated=$true",flow)
+
+
 if __name__=="__main__":
     unittest.main()
