@@ -1,0 +1,111 @@
+name: NERAL v5 real Qwen tokenizer preflight (no training)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v5_token_preflight.py'
+      - 'scripts/neral_v5_curriculum.py'
+      - 'tests/test_neral_v5_token_preflight.py'
+      - '.github/workflows/neral-v5-token-preflight.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only local tokenizer check: RUN_NERAL_V5_TOKEN_PREFLIGHT'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  cpu:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: CPU-only v4 real-tokenizer interface contracts
+        run: python -m unittest discover -s tests -p test_neral_v5_token_preflight.py -v
+      - run: python -m compileall -q scripts/neral_v5_token_preflight.py
+  local-qwen:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_NERAL_V5_TOKEN_PREFLIGHT'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout current verified data generators
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Checkout immutable Qwen tokenizer validator
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Normalize scratch Git bytes
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($name in @('control','trainer')){
+            $root=Join-Path $env:GITHUB_WORKSPACE $name
+            & git -C $root -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Scratch checkout normalization failed'}
+          }
+      - name: Verify original local model tokenizer and all v5 completion masks
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $data=Join-Path $control 'v5_token_candidate'
+          $dir=Join-Path $control 'v5_token_scalar'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or -not(Test-Path -LiteralPath $model -PathType Container)){throw 'Local Python/model snapshot missing'}
+          if(Test-Path -LiteralPath $data){throw 'Candidate output already exists'}
+          if(Test-Path -LiteralPath $dir){throw 'Report output already exists'}
+          $env:PYTHONPATH=$control
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v5_curriculum --out $data
+            if($LASTEXITCODE -ne 0){throw 'Verified candidate generation failed'}
+            New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+            & $py -B -m scripts.neral_v5_token_preflight --data $data --model-dir $model --trainer-root $trainer --summary (Join-Path $dir 'summary.json')
+            if($LASTEXITCODE -ne 0){throw 'Real local Qwen tokenizer preflight failed'}
+          } finally {Pop-Location}
+      - name: Reject unapproved report fields or private text
+        id: export_guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\v5_token_scalar'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 10000){throw 'Unsafe or oversized report'}
+          $p=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          $allow=@('schema','status','rows','total_rows','trainable_examples','max_length','token_stats','source_sha256','completion_only_mask_checked','tokenizer_contract_checked','local_qwen_tokenizer_verified','training_allowed','training_performed','adapter_modified','quality_improvement_proven','base_revision')
+          $keys=@($p.PSObject.Properties.Name)
+          if(@($keys|Where-Object{$_ -notin $allow}).Count -gt 0 -or $keys.Count -ne $allow.Count -or $p.status -ne 'NERAL_V5_LOCAL_QWEN_TOKENIZER_PASSED' -or $p.total_rows -ne 2560 -or $p.trainable_examples -ne 1920 -or $p.local_qwen_tokenizer_verified -ne $true -or $p.completion_only_mask_checked -ne $true -or $p.training_allowed -ne $false -or $p.training_performed -ne $false -or $p.adapter_modified -ne $false -or $p.quality_improvement_proven -ne $false){throw 'Unverified tokenizer metadata'}
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload guarded scalar tokenizer report only
+        if: always() && steps.export_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v5-local-tokenizer-scalar
+          path: control/v5_token_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
