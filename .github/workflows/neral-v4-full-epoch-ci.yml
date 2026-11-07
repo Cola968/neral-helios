@@ -1,0 +1,26 @@
+name: NERAL v4 full-epoch rank16 training CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v4_full_epoch_patcher.py'
+      - 'tests/test_neral_v4_full_epoch.py'
+      - '.github/workflows/neral-v4-full-epoch.yml'
+      - '.github/workflows/neral-v4-full-epoch-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v4_full_epoch_patcher.py'
+      - 'tests/test_neral_v4_full_epoch.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_neral_v4_full_epoch.py -v
+      - run: python -m compileall -q scripts/neral_v4_full_epoch_patcher.py
