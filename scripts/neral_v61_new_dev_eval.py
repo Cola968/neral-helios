@@ -208,7 +208,7 @@ def validate_local_candidate(receipt_path:Path,candidate_dir:Path,v5_dir:Path,
             any(p.is_symlink() or not p.is_file() for p in (candidate_file,v5_file)) or
             not isinstance(expected_v5_sha,str) or len(expected_v5_sha)!=64):
         raise ValueError("Unsafe or missing local training receipt or adapter files")
-    receipt=json.loads(receipt_path.read_text(encoding="utf8-sig"))
+    receipt=json.loads(receipt_path.read_text(encoding="utf-8-sig"))
     sha=validate_candidate_receipt(receipt)
     if sha256(candidate_file.read_bytes()).hexdigest()!=sha:
         raise ValueError("Trained candidate adapter SHA differs from training receipt")
@@ -289,7 +289,7 @@ def main(argv=None):
     cases,manifest=_identity(folder)
     if not args.candidate_receipt or not args.candidate_receipt.is_file():
         p.error("Exact local v6.1 receipt required")
-    receipt=json.loads(args.candidate_receipt.read_text(encoding="utf8-sig"))
+    receipt=json.loads(args.candidate_receipt.read_text(encoding="utf-8-sig"))
     candidate_sha=validate_candidate_receipt(receipt)
     if args.mode=="run":
         if not all((args.variant,args.out,args.base,args.v5_adapter,args.candidate_adapter)):
