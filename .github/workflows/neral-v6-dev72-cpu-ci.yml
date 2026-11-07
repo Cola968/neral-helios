@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'scripts/neral_dev_oracle.py'
       - 'scripts/neral_v6_regression_gate.py'
       - 'tests/test_neral_v6_fresh_dev_eval.py'
       - 'tests/test_neral_v6_regression_gate.py'
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'scripts/neral_dev_oracle.py'
       - 'scripts/neral_v6_regression_gate.py'
       - 'tests/test_neral_v6_fresh_dev_eval.py'
       - 'tests/test_neral_v6_regression_gate.py'

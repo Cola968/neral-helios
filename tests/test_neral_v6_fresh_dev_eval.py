@@ -76,6 +76,35 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertEqual(report["scores"]["neral_v6"]["incomplete"],1)
         self.assertNotIn(cases[0]["prompt"],json.dumps(report))
 
+    def test_code_gold_is_execution_locked_and_wrong_family_is_not_correct(self):
+        from scripts.neral_dev_oracle import OracleMismatch, assert_independent_oracles
+        cases=build_cases()
+        code=[row for row in cases if row["domain"]=="code_trace"]
+        self.assertEqual(len(code),24)
+        forged=dict(code[0],answer=str(int(code[0]["answer"])+1))
+        with self.assertRaises(OracleMismatch):
+            assert_independent_oracles([forged])
+        families=sorted({row["family"] for row in cases})
+        self.assertEqual(len(families),12)
+        for family in families:
+            outputs={name:[{"id":row["id"],"text":row["answer"],"complete":True,
+                            "new_tokens":3} for row in cases]
+                     for name in ("qwen_fewshot","neral_v5","neral_v6")}
+            prose={name:[dict(item) for item in outputs[name]] for name in outputs}
+            for row,item in zip(cases,outputs["neral_v6"]):
+                if row["family"]==family:
+                    item["text"]=str(int(row["answer"])+1)
+            for row,item in zip(cases,prose["neral_v5"]):
+                if row["family"]==family:
+                    item["text"]="Rechnung endet vielleicht bei "+row["answer"]
+            report=score_three_way(cases,outputs)
+            blurred=score_three_way(cases,prose)
+            with self.subTest(family=family):
+                self.assertEqual(report["scores"]["neral_v6"]["correct"],66)
+                self.assertEqual(report["scores"]["neral_v6"]["ungraded_completed"],0)
+                self.assertEqual(blurred["scores"]["neral_v5"]["correct"],66)
+                self.assertEqual(blurred["scores"]["neral_v5"]["ungraded_completed"],6)
+
     def test_misordered_missing_extra_and_tainted_data_rejected(self):
         cases=build_cases()
         records=[{"id":c["id"],"text":c["answer"],"complete":True,

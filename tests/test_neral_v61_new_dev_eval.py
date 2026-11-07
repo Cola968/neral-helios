@@ -70,6 +70,67 @@ class NewV61DevTests(unittest.TestCase):
         self.assertEqual(result["paired"]["v61_vs_v5"]["improvements"],1)
         self.assertNotIn(cases[0]["prompt"],json.dumps(result))
 
+    def test_withdrawn_alias_gold_fails_execution_and_current_gold_matches(self):
+        # d7c33cc used (p+3*i)+(q+i)+3, which counts the appended 3 once
+        # and drops len(b). CPython prints three more.
+        from scripts.neral_dev_oracle import (
+            OracleMismatch, assert_independent_oracles, replay_source,
+        )
+        cases=cases72()
+        alias=[row for row in cases if row["family"]=="python_mutable_aliasing"]
+        self.assertEqual(len(alias),6)
+        for i,case in enumerate(alias):
+            p,q=4+i,7+i
+            withdrawn=(p+3*i)+(q+i)+3
+            self.assertEqual(withdrawn,14+6*i)
+            source=(f"a = [{p}, {q}]\nb = a\na.append(3)\nb[0] += {3*i}\n"
+                    f"a[1] += {i}\nprint(sum(a) + len(b))")
+            replayed=replay_source(source)
+            self.assertEqual(replayed,withdrawn+3)
+            self.assertEqual(int(case["answer"]),replayed)
+            forged=dict(case,answer=str(withdrawn))
+            with self.assertRaises(OracleMismatch):
+                assert_independent_oracles([forged])
+
+    def test_unsafe_source_is_rejected_before_execution(self):
+        from scripts.neral_dev_oracle import replay_source
+        for source in (
+            "import os\nprint(1)",
+            "print(open('x'))",
+            "print(__import__('os'))",
+            "exec('print(1)')\n",
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError) as caught:
+                    replay_source(source)
+                self.assertIn("before execution",str(caught.exception))
+
+    def test_every_family_wrong_integer_fails_and_prose_stays_ungraded(self):
+        cases=cases72()
+        families=sorted({row["family"] for row in cases})
+        self.assertEqual(len(families),12)
+        variants=("qwen_fewshot","neral_v5","neral_v6")
+        for family in families:
+            wrong={name:[{"id":row["id"],"text":"FINAL_ANSWER: "+row["answer"],
+                          "complete":True,"new_tokens":4} for row in cases]
+                   for name in variants}
+            prose={name:[dict(item) for item in wrong[name]] for name in variants}
+            for row,item in zip(cases,wrong["neral_v6"]):
+                if row["family"]==family:
+                    item["text"]="FINAL_ANSWER: "+str(int(row["answer"])+1)
+            for row,item in zip(cases,prose["qwen_fewshot"]):
+                if row["family"]==family:
+                    item["text"]="Zwischenwert "+row["answer"]+" bleibt unklar"
+            scored=score_result(cases,wrong,candidate_sha="e"*64)
+            blurred=score_result(cases,prose,candidate_sha="e"*64)
+            with self.subTest(family=family):
+                self.assertEqual(scored["scores"]["neral_v61"]["correct"],66)
+                self.assertEqual(scored["scores"]["neral_v61"]["ungraded_completed"],0)
+                self.assertEqual(scored["scores"]["neral_v5"]["correct"],72)
+                self.assertEqual(blurred["scores"]["qwen_fewshot"]["correct"],66)
+                self.assertEqual(blurred["scores"]["qwen_fewshot"]["ungraded_completed"],6)
+                self.assertFalse(scored["release_validated"])
+
     def test_local_weights_and_receipt_sha_validated_without_powershell_coercion(self):
         import hashlib
         import tempfile
