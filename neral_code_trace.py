@@ -190,7 +190,7 @@ class _Interpreter:
                     list, tuple, str, dict):
                     return _safe(len(args[0]))
                 raise TraceInputError("Function not explicitly permitted")
-            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if isinstance(node.func, ast.Attribute):
                 receiver = sub(node.func.value)
                 method = node.func.attr
                 if type(receiver) is dict and method == "values" and not node.args:
