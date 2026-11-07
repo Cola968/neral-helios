@@ -66,27 +66,12 @@ jobs:
             if(-not(Test-Path -LiteralPath $file -PathType Container)){throw 'Pinned model/adapter missing'}
           }
           if(-not(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'Training not completed, no evaluation'}
-          $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-          $sha=(Get-FileHash -LiteralPath (Join-Path $v61 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
-          $v5sha=(Get-FileHash -LiteralPath (Join-Path $v5 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
-          # Fail closed with *names only* of failed scalar checks, no private data.
-          $checks=[ordered]@{
-            receipt_status=($report.status -eq 'NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL')
-            optimizer_steps=($report.steps_completed -eq 120)
-            train_rows=($report.train_rows -eq 800)
-            validation_rows=($report.validation_rows -eq 140)
-            v5_replay_rows=($report.source_counts.v5_train_replay -eq 560)
-            v6_new_rows=($report.source_counts.v6_train_multistep -eq 240)
-            candidate_sha=($report.candidate_adapter_sha256 -eq $sha)
-            original_v5_sha=($v5sha -eq '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5')
-            release_false=($null -ne $report.release_validated -and $report.release_validated -eq $false)
-            promotion_false=($null -ne $report.adapter_promoted -and $report.adapter_promoted -eq $false)
-          }
-          $failed=@($checks.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object { $_.Key })
-          if($failed.Count -gt 0){
-            throw ("NERAL_V61_PINNED_RECEIPT_REJECTED: " + ($failed -join ', '))
-          }
-          Write-Host 'NERAL_V61_EXACT_LOCAL_WEIGHTS_VERIFIED'
+          Push-Location $env:V61_EVAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:V61_EVAL_CONTROL
+            & $env:V61_EVAL_PY -B -m scripts.neral_v61_new_dev_eval --mode verify --run-dir $env:V61_EVAL_FOLDER --candidate-receipt $receipt --candidate-adapter $v61 --v5-adapter $v5
+            if($LASTEXITCODE -ne 0){throw 'Python verification rejected local v6.1 receipt or adapter SHA'}
+          } finally {Pop-Location}
           $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
           if($LASTEXITCODE -ne 0){throw 'CUDA GPU not found'}
           $gpu=($raw|Select-Object -First 1)-split ','
