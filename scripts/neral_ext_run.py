@@ -157,10 +157,22 @@ def combine_scores(cases: list[dict], meta: list[dict], base: dict, few: dict, n
     }
 
 
+def pinned_runtime_identity():
+    """Use Helios' audited Qwen revision/LoRA validators without shadowable names.
+
+    No trainer checkout imports; metadata and weight digests are checked against
+    the same immutable Qwen2.5 foundation revision. The trainer folder itself
+    remains required by the manually gated Windows evaluation workflow.
+    """
+    from neral_hf_identity import (
+        CHAT_TEMPLATE, validate_hf_snapshot, validate_adapter,
+    )
+    return CHAT_TEMPLATE, validate_hf_snapshot, validate_adapter
+
+
 def _gpu_run(cases: list[dict], variant: str, args) -> dict:
     """Manual only: sealed local Qwen and adapter, one model process, no network."""
     import os
-    import sys
     import torch
     from transformers import Qwen2TokenizerFast
     from peft import PeftModel
@@ -172,12 +184,9 @@ def _gpu_run(cases: list[dict], variant: str, args) -> dict:
     root = args.trainer_root.resolve(strict=True)
     if not root.is_dir() or root.is_symlink():
         raise ValueError("Pinned trainer missing")
-    sys.path.insert(0, str(root))
-    # The trainer's qwen_local_runtime imports HF_BASE from its own model_catalog.
-    # Import it only after the pinned trainer checkout leads sys.path.
-    from qwen_local_runtime import CHAT_TEMPLATE
-    from model_catalog import validate_hf_snapshot
-    from neral_adapter_candidate import validate_adapter
+    # No sys.path mutation: both control/ and trainer/ contain a model_catalog
+    # module, and Python may cache the wrong one before GPU inference begins.
+    CHAT_TEMPLATE, validate_hf_snapshot, validate_adapter = pinned_runtime_identity()
     snapshot = validate_hf_snapshot(args.base, verify_hashes=True)
     if snapshot.get("revision") != BASE_REVISION:
         raise ValueError("Wrong pinned Qwen foundation")
