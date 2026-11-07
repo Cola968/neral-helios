@@ -44,7 +44,7 @@ jobs:
         run: python -m pip install 'Flask>=3.0,<4'
       - name: Run pure CPU THINK contract tests
         run: python -m unittest discover -s tests -p test_neral_think.py -v
-      - name: Safe Python program-trace contract: no exec or network
+      - name: Safe Python trace contracts without executing source
         run: python -m unittest discover -s tests -p test_neral_code_trace.py -v
       - name: Run HTTP contract tests
         run: python -m unittest discover -s tests -p test_neral_think_api.py -v
