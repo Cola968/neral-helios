@@ -230,4 +230,36 @@ def register_neral_local_chat_api(app, backend):
             })
         finally:
             busy.release()
+
+    @app.post("/api/neral/chat/think")
+    def local_chat_think():
+        """Opt-in local THINK: one response and at most one checked correction.
+
+        Shares the normal chat's busy lock. No remote APIs, generated code
+        execution, automatic LoRA promotion or persistent prompt logs.
+        """
+        if not request.is_json:
+            return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
+        try:
+            data = _messages(request.get_json(silent=True))
+            data[0]["content"] = build_identity_prompt(
+                "web", _provenance(backend)["model_origin"]
+            )
+        except (TypeError, ValueError, UnicodeError):
+            return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
+        if not busy.acquire(blocking=False):
+            return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        try:
+            from neral_think import think_reply
+            local_respond = getattr(backend, "respond_chat", None)
+            if not callable(local_respond):
+                local_respond = backend.respond
+            result = think_reply(data, local_respond)
+            return jsonify({**result, **_provenance(backend)})
+        except Exception:
+            # Never leak local paths, checkpoints, prompts or model outputs.
+            return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden."), 503
+        finally:
+            busy.release()
+
     return busy

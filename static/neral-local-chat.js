@@ -14,6 +14,7 @@
   const transcript = el('neralLocalChatAnswer');
   const form = el('neralLocalChatForm');
   const prompt = el('neralLocalChatPrompt');
+  const thinkSwitch = el('neralLocalChatThink');
   const compareButton = el('neralLocalChatCompare');
   const comparePanel = el('neralComparePanel');
   const compareBase = el('neralCompareBase');
@@ -45,7 +46,9 @@
       const line = document.createElement('p');
       const role = document.createElement('strong');
       role.textContent = item.role === 'user' ? 'Du: ' :
-        item.tool_used === 'neral_math_exact' ? 'NERAL (exakte lokale Berechnung): ' : 'NERAL: ';
+        item.tool_used === 'neral_math_exact' ? 'NERAL (exakte lokale Berechnung): ' :
+        item.mode === 'THINK' && item.verified === true ? 'NERAL THINK (Endwert geprüft): ' :
+        item.mode === 'THINK' ? 'NERAL THINK (ungeprüft): ' : 'NERAL: ';
       const content = document.createElement('span');
       content.textContent = item.content;
       line.append(role, content);
@@ -57,7 +60,7 @@
   async function req(path, data) {
     const init = data === undefined ? {method:'GET',signal:AbortSignal.timeout(8000)} : {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data), signal:AbortSignal.timeout(120000)
+      body:JSON.stringify(data), signal:AbortSignal.timeout(path === 'think' ? 180000 : 120000)
     };
     const response = await fetch('/api/neral/chat/' + path, init);
     let obj;
@@ -91,8 +94,12 @@
       while (history.length && encoder.encode(JSON.stringify(history)).length > 9000) {
         history = history.slice(2);
       }
-      const answer = await req('generate',{prompt:text,history});
+      const answer = thinkSwitch && thinkSwitch.checked
+        ? await req('think',{prompt:text,history})
+        : await req('generate',{prompt:text,history});
       messages.push({role:'user',content:text},{role:'assistant',content:answer.text,
+        mode: answer.mode === 'THINK' ? 'THINK' : null,
+        verified: answer.verified === true && answer.verification_scope === 'numeric_final_only',
         tool_used: answer.model_generated === false && answer.tool_used === 'neral_math_exact'
           ? 'neral_math_exact' : null});
       // Keep memory bounded and keep alternating user-assistant turns.

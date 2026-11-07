@@ -81,6 +81,11 @@
     <label>Nachricht an NERAL 7B
       <textarea id="neralLocalChatPrompt" rows="3" maxlength="4000" required placeholder="Frage NERAL nach Code, Mathe, Planung oder einer Erklärung."></textarea>
     </label>
+    <label class="neral-think-option"><input id="neralLocalChatThink" type="checkbox">
+      THINK (optional): Rechenaufgaben mit einem zusätzlichen lokalen Prüfversuch.
+      Nur die numerische Endantwort kann exakt verifiziert werden;
+      allgemeine Antworten bleiben ungeprüft. Höchstens zwei Modellaufrufe, kein garantiertes Abbruch-Zeitlimit.
+    </label>
     <div class="agent-toolbar"><button id="neralLocalChatSend" type="submit">Lokal antworten lassen</button>
       <button id="neralLocalChatClear" type="button">Verlauf aus diesem Fenster löschen</button>
       <button id="neralLocalChatCompare" type="button" disabled>NERAL vs. Qwen vergleichen</button></div>
