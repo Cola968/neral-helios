@@ -105,12 +105,8 @@ jobs:
           $control=Join-Path $env:GITHUB_WORKSPACE 'control'
           $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
           foreach($variant in @('base','neral_v5')){
-            $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
-            if($LASTEXITCODE -ne 0){throw 'GPU memory sensor unavailable'}
-            $values=($raw|Select-Object -First 1)-split ','
-            if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 9000 -or [int]$values[1].Trim() -gt 20){
-              throw "GPU busy / under 9000 MiB before $variant"
-            }
+            & $py -B (Join-Path $control 'scripts\neral_v5_gpu_wait.py') --variant $variant
+            if($LASTEXITCODE -ne 0){throw "GPU readiness check failed before $variant"}
             Push-Location $control
             try {
               $env:PYTHONPATH=$trainer
