@@ -66,19 +66,12 @@ jobs:
             if(-not(Test-Path -LiteralPath $file -PathType Container)){throw 'Pinned model/adapter missing'}
           }
           if(-not(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'Training not completed, no evaluation'}
-          $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-          $sha=(Get-FileHash -LiteralPath (Join-Path $v61 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
-          $v5sha=(Get-FileHash -LiteralPath (Join-Path $v5 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($report.status -ne 'NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL' -or
-             $report.steps_completed -ne 120 -or $report.train_rows -ne 800 -or
-             $report.validation_rows -ne 140 -or
-             $report.source_counts.v5_train_replay -ne 560 -or
-             $report.source_counts.v6_train_multistep -ne 240 -or
-             $report.candidate_adapter_sha256 -ne $sha -or
-             $v5sha -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d' -or
-             $report.release_validated -ne $false -or $report.adapter_promoted -ne $false){
-            throw 'Wrong original v5 or experimental v6.1 weights; comparison rejected'
-          }
+          Push-Location $env:V61_EVAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:V61_EVAL_CONTROL
+            & $env:V61_EVAL_PY -B -m scripts.neral_v61_new_dev_eval --mode verify --run-dir $env:V61_EVAL_FOLDER --candidate-receipt $receipt --candidate-adapter $v61 --v5-adapter $v5
+            if($LASTEXITCODE -ne 0){throw 'Python verification rejected local v6.1 receipt or adapter SHA'}
+          } finally {Pop-Location}
           $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
           if($LASTEXITCODE -ne 0){throw 'CUDA GPU not found'}
           $gpu=($raw|Select-Object -First 1)-split ','
