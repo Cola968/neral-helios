@@ -31,6 +31,8 @@ class V6ExportContract(unittest.TestCase):
                 self.assertTrue(all(set(json.loads(line)) == {"messages"} for line in lines))
                 review = json.loads((root / "trainer" / (split + ".review.json")).read_text())
                 self.assertFalse(review["training_allowed"])
+                self.assertIn("scripts/neral_v6_compositional.py", review["sources"])
+                self.assertEqual(len(review["sources"]["scripts/neral_v6_compositional.py"]), 64)
                 self.assertEqual(len(review["rows"]), length)
             self.assertEqual(verify_export(root / "candidate", root / "trainer"),
                              result)
