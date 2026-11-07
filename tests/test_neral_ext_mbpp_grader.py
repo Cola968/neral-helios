@@ -93,6 +93,19 @@ class MBPPTests(unittest.TestCase):
         for word in ("def add","Implement add","assert add","test_setup_code"):
             self.assertNotIn(word,dump)
 
+    def test_timed_out_code_is_accounted_for_not_mislabeled_or_hidden(self):
+        def time_out(argv,*,capture_output,timeout,check):
+            if argv[:2]==["docker","image"]:
+                return subprocess.CompletedProcess(argv,0,b"[]",b"")
+            raise subprocess.TimeoutExpired(argv,timeout)
+        variants={name:{CASE["id"]:GOOD} for name in
+                  ("base","base_fewshot","neral_v5")}
+        with patch("subprocess.run",side_effect=time_out):
+            report=score_saved_mbpp([CASE],[META],variants)
+        self.assertEqual(report["by_variant"]["base"]["timeout"],1)
+        self.assertEqual(report["by_variant"]["base"]["passed"],0)
+        self.assertTrue(report["by_variant"]["base"]["scoring_complete"])
+
     def test_untrusted_source_not_passed_to_docker_argv(self):
         with patch("subprocess.run",side_effect=fake_docker) as spy:
             grade_one(CASE,META,{"text":"def f():\n __import__('os').system('id')","complete":True})
