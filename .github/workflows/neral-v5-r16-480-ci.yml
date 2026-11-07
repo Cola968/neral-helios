@@ -1,0 +1,26 @@
+name: NERAL v5 rank16 480-step Windows training safety CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'tests/test_neral_v5_r16_workflow.py'
+      - '.github/workflows/neral-v5-r16-480-training.yml'
+      - '.github/workflows/neral-v5-r16-480-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/test_neral_v5_r16_workflow.py'
+      - '.github/workflows/neral-v5-r16-480-training.yml'
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_neral_v5_r16_workflow.py -v
+      - name: Validate manual workflow YAML
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -ignore 'label "neral-gpu" is unknown' .github/workflows/neral-v5-r16-480-training.yml

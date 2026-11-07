@@ -1,0 +1,177 @@
+name: NERAL v5 experimental rank16 480-step local QLoRA (manual only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Explicit experiment only: TRAIN_NERAL_V5_R16_480_TRANSFER'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  local_experimental_train:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'TRAIN_NERAL_V5_R16_480_TRANSFER'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout latest approved pipeline (not weights)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout exact pinned original QLoRA source
+        uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+
+      - name: Reproduce source pins and build isolated training candidate
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or -not(Test-Path -LiteralPath $base -PathType Container)){
+            throw 'Pinned local training environment or model not present'
+          }
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          foreach($path in @($control,$trainer)){
+            & git -C $path -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Scratch source normalization failed'}
+          }
+          & $py -B (Join-Path $control 'scripts\neral_math_v2_restore.py') --root $trainer
+          if($LASTEXITCODE -ne 0){throw 'Pinned original source integrity failed'}
+          $generator=Join-Path $trainer 'scripts\neral_v5_transfer_curriculum.py'
+          if(Test-Path -LiteralPath $generator){throw 'Pinned source collision'}
+          Copy-Item -LiteralPath (Join-Path $control 'scripts\neral_v5_transfer_curriculum.py') -Destination $generator -ErrorAction Stop
+          $trial=Join-Path $trainer 'scripts\neral_qlora_v5_r16_480.py'
+          if(Test-Path -LiteralPath $trial){throw 'Trainer scratch file collision'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v4_full_epoch_patcher --source (Join-Path $trainer 'scripts\neral_qlora_pilot.py') --out $trial
+            if($LASTEXITCODE -ne 0){throw 'Exact trainer patch denied'}
+            foreach($test in @('test_neral_v5_transfer_curriculum.py','test_neral_v5_trainer_bridge.py','test_neral_v5_token_preflight.py','test_neral_v4_train_patcher.py','test_neral_v4_full_epoch.py')){
+              & $py -B -m unittest discover -s tests -p $test -v
+              if($LASTEXITCODE -ne 0){throw 'CPU correctness contract failed'}
+            }
+          } finally {Pop-Location}
+          $run=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\v5-r16-480-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $run){throw 'Never overwrite existing experiment'}
+          New-Item -ItemType Directory -Path $run -ErrorAction Stop|Out-Null
+          $data=Join-Path $run 'candidate'
+          $converted=Join-Path $run 'trainer-data'
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v5_transfer_curriculum --out $data
+            if($LASTEXITCODE -ne 0){throw 'Generator failed'}
+            & $py -B -m scripts.neral_v5_trainer_bridge --source $data --out $converted
+            if($LASTEXITCODE -ne 0){throw 'Trainer format / test exclusion failed'}
+            foreach($split in @('train','validation')){
+              & $py -B $trial --dataset (Join-Path $converted ($split+'.jsonl')) --review-manifest (Join-Path $converted ($split+'.review.json')) --check-review --steps 480 --max-length 512 --lora-rank 16
+              if($LASTEXITCODE -ne 0){throw 'Original pinned trainer rejected reviewed source'}
+            }
+            $tokenSummary=Join-Path $run 'tokenizer-scalar.json'
+            $env:PYTHONPATH=$trainer
+            & $py -B -m scripts.neral_v5_token_preflight --data $data --trainer-root $trainer --model-dir $base --summary $tokenSummary
+            if($LASTEXITCODE -ne 0){throw 'Local Qwen tokenizer contract rejected corpus'}
+            $token=Get-Content -LiteralPath $tokenSummary -Raw | ConvertFrom-Json
+            if($token.local_qwen_tokenizer_verified -ne $true -or $token.completion_only_mask_checked -ne $true -or
+               $token.total_rows -ne 2560 -or $token.trainable_examples -ne 1920 -or $token.training_performed -ne $false){
+              throw 'Unverified Qwen tokenizer report'
+            }
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"V5_RUN_ROOT=$run"+[Environment]::NewLine+"V5_MODEL=$base"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+
+      - name: Check free GPU memory; never train with busy RTX 4070
+        run: |
+          $ErrorActionPreference='Stop'
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU memory sensor unavailable'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 10000 -or [int]$fields[1].Trim() -gt 20){
+            throw 'RTX 4070 busy or free VRAM <10000 MiB: no training'
+          }
+
+      - name: Train separate experimental NERAL v5 rank16 adapter for exactly 480 steps
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $script=Join-Path $trainer 'scripts\neral_qlora_v5_r16_480.py'
+          $data=Join-Path $env:V5_RUN_ROOT 'trainer-data'
+          $out=Join-Path $env:V5_RUN_ROOT 'adapter'
+          if(Test-Path -LiteralPath $out){throw 'Adapter output already exists'}
+          $env:PYTHONPATH=$trainer
+          Push-Location $trainer
+          try {
+            & $py -B $script --dataset (Join-Path $data 'train.jsonl') --review-manifest (Join-Path $data 'train.review.json') --model-dir $env:V5_MODEL --output-dir $out --steps 480 --max-length 512 --adapter-version 0.5.0-pilot.1 --lora-rank 16 --run-local-gpu
+            if($LASTEXITCODE -ne 0){throw 'NERAL v5 experimental training failed; never promote'}
+          } finally {Pop-Location}
+
+      - name: Verify sealed adapter and print scalar-only experimental results
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:V5_RUN_ROOT
+          $folder=Join-Path $root 'adapter'
+          $report=Get-Content -LiteralPath (Join-Path $folder 'training-report.json') -Raw | ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath (Join-Path $folder 'neral-adapter.json') -Raw | ConvertFrom-Json
+          $config=Get-Content -LiteralPath (Join-Path $folder 'adapter_config.json') -Raw | ConvertFrom-Json
+          $weight=Join-Path $folder 'adapter_model.safetensors'
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath $weight).Hash.ToLowerInvariant()
+          $review=Get-Content -LiteralPath (Join-Path $root 'trainer-data\train.review.json') -Raw | ConvertFrom-Json
+          if($report.status -ne 'completed' -or $report.steps -ne 480 -or
+             $report.optimizer_steps_completed -ne 480 -or $report.lora_rank -ne 16 -or
+             $report.neral_trainable_parameters -ne 40370176 -or
+             $config.r -ne 16 -or $config.lora_alpha -ne 16 -or
+             $manifest.release_validated -ne $false -or
+             $manifest.dataset_sha256 -ne $review.dataset_sha256 -or
+             $manifest.files.'adapter_model.safetensors' -ne $sha){
+            throw 'Unverified adapter weights or incomplete optimizer steps'
+          }
+          $result=[ordered]@{
+            schema=1
+            status='NERAL_V5_R16_480_TRAINED_NOT_DEPLOYED'
+            steps_completed=480
+            lora_rank=16
+            trainable_parameters=40370176
+            adapter_sha256=$sha
+            data_sha256=$review.dataset_sha256
+            release_validated=$false
+            quality_improvement_proven=$false
+            adapter_promoted=$false
+            no_weights_or_prompts_uploaded=$true
+          }
+          $dest=Join-Path $env:GITHUB_WORKSPACE 'control\v5_training_scalar'
+          if(Test-Path -LiteralPath $dest){throw 'Report already exists'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop|Out-Null
+          ($result|ConvertTo-Json -Compress) | Set-Content -LiteralPath (Join-Path $dest 'summary.json') -Encoding utf8
+          Write-Output 'NERAL V5 rank16 480 optimizer steps completed and SHA-256 sealed locally; not deployed.'
+
+      - name: Upload ONLY allowlisted scalar experiment report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v5-r16-480-scalar
+          path: control/v5_training_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
