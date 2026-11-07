@@ -17,7 +17,9 @@ import re
 import subprocess
 import time
 
-from scripts.neral_v6_compositional import generate as compositional_data
+from scripts.neral_v6_compositional import (
+    FAMILIES, PER_FAMILY, make_case, generate as compositional_data
+)
 from scripts.neral_reasoning_train_candidate import candidate, verify_case
 
 AUTH = "TRAIN_NERAL_V6_R16_120_EXPERIMENTAL"
@@ -59,8 +61,16 @@ def build_experiment() -> tuple[list[dict], list[dict], dict]:
         raise ValueError("Unreviewed split counts")
     if sources["training_allowed"] is not False:
         raise ValueError("Source data unexpectedly marked approved")
-    train = [json.loads(line) for line in data["train"].decode("utf8").splitlines()]
-    validation = [json.loads(line) for line in data["validation"].decode("utf8").splitlines()]
+    def verified_messages(split):
+        originals = [json.loads(line)
+                     for line in data[split].decode("utf8").splitlines()]
+        expected = [make_case(family, split, i) for family in FAMILIES
+                    for i in range(PER_FAMILY[split])]
+        if originals != expected:
+            raise ValueError("Generator examples or source hashes were modified")
+        return [{"messages":record["messages"]} for record in originals]
+    train = verified_messages("train")
+    validation = verified_messages("validation")
     reason_rows, proofs = candidate()
     if len(reason_rows) != 128 or len(proofs) != 128:
         raise ValueError("Counterfactual reasoning source changed")
