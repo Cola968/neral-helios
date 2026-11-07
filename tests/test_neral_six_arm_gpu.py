@@ -88,10 +88,18 @@ class SixArmGPUContracts(unittest.TestCase):
             folder=Path(t)/"six";folder.mkdir()
             from scripts.neral_v6_fresh_dev_eval import suite_fingerprint
             (folder/"cases.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in cases),encoding="utf8")
+            from hashlib import sha256
+            hashes={}
+            for arm in REUSED:
+                response_path=folder/(arm+".jsonl")
+                response_path.write_text("".join(json.dumps(row)+"\\n" for row in answers(cases)).replace("\\n","\n"),encoding="utf8")
+                hashes[arm]=sha256(response_path.read_bytes()).hexdigest()
             (folder/"manifest.json").write_text(json.dumps({
                 "status":"NERAL_6ARM_REUSE_CONSUMED_DEV72",
                 "suite_sha256":suite_fingerprint(cases),
                 "reused":sorted(REUSED),
+                "reused_files_sha256":hashes,
+                "candidate_adapter_sha256":"33e939f6063d4215807f593816a057e88d8938b30615c6000d6a0bf8c7965279",
                 "new_gpu_arms":sorted(MISSING),
                 "release_validated":False,
             }),encoding="utf8")
