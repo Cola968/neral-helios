@@ -237,6 +237,21 @@ def prepare_fewshot_messages(case:dict,variant:str)->list[dict]:
     return msgs
 
 
+def messages_for_protocol(case:dict, variant:str, protocol:str="historical")->list[dict]:
+    """historical keeps the unequal Qwen-only examples.
+
+    matched_fewshot and matched_zeroshot give every model the same messages.
+    The historical 29/24/21 run stays reproducible when protocol is omitted.
+    """
+    if protocol == "historical":
+        return prepare_fewshot_messages(case, variant)
+    if protocol == "matched_fewshot":
+        return prepare_fewshot_messages(case, "qwen_fewshot")
+    if protocol == "matched_zeroshot":
+        return prepare_fewshot_messages(case, "neral_v5")
+    raise ValueError("Unknown prompt protocol")
+
+
 def validate_variant_output(cases:list[dict],records:list[dict]):
     if (not isinstance(records,list) or len(cases)!=len(records)
             or len(cases)!=72): raise ValueError("Expected exactly 72 responses")
@@ -362,7 +377,8 @@ def _gpu_variant(cases:list[dict],args):
                 model,str(folder),is_trainable=False,local_files_only=True)
         model.eval()
         for case in cases:
-            texts=prepare_fewshot_messages(case,args.variant)
+            texts=messages_for_protocol(
+                case, args.variant, getattr(args, "prompt_protocol", "historical"))
             inputs=tokenizer.apply_chat_template(
                 texts,chat_template=CHAT_TEMPLATE,tokenize=True,
                 add_generation_prompt=True,return_tensors="pt").to("cuda:0")
@@ -399,6 +415,9 @@ def main(argv=None):
     p.add_argument("--v5-adapter",type=Path)
     p.add_argument("--v6-adapter",type=Path)
     p.add_argument("--out",type=Path)
+    p.add_argument("--prompt-protocol",
+                   choices=("historical","matched_fewshot","matched_zeroshot"),
+                   default="historical")
     a=p.parse_args(argv)
     if a.mode=="build":
         if a.run_dir.exists() or a.run_dir.is_symlink() or not a.run_dir.parent.is_dir():

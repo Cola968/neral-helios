@@ -23,6 +23,7 @@ from scripts.neral_v6_compositional import (
 from scripts.neral_reasoning_train_candidate import candidate, verify_case
 
 AUTH = "TRAIN_NERAL_V6_R16_120_EXPERIMENTAL"
+VERIFIED_STEPS_AUTH = "TRAIN_NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL"
 SEED = 20261107
 STEPS = 120
 MAX_LENGTH = 768
@@ -54,8 +55,73 @@ def _compact_trace(proof: dict, raw: dict) -> str:
             "FINAL_ANSWER: " + proof["answer"])
 
 
-def build_experiment() -> tuple[list[dict], list[dict], dict]:
-    """Generate train/val only; never train on the synthetic 100-case holdout."""
+def _verified_step_target(proof: dict, raw: dict) -> str:
+    """Use the assistant text that verify_case already locked.
+
+    The compact form keeps the same final number but deletes every
+    multiplication and addition the proof rendered. This target puts
+    those checked operations back. It does not change the answer.
+    """
+    if not verify_case(proof, raw):
+        raise ValueError("Verified step target failed independent replay")
+    text = raw["messages"][2]["content"]
+    if text.count("FINAL_ANSWER:") != 1 or "*" not in text:
+        raise ValueError("Verified trace has no single answer or no multiplication")
+    final = text.split("FINAL_ANSWER:", 1)[1].strip()
+    if final != proof["answer"]:
+        raise ValueError("Verified final answer drifted from the proof")
+    compact = _compact_trace(proof, raw)
+    if compact.split("FINAL_ANSWER:", 1)[1].strip() != final or text == compact:
+        raise ValueError("Compact control does not match this verified answer")
+    return text
+
+
+def _screen_prompts() -> list[str]:
+    """Development screens. The composition holdout is checked exactly, below."""
+    from scripts.neral_v6_fresh_dev_eval import build_cases
+    from scripts.neral_v61_new_dev_eval import cases72
+    return ([row["prompt"] for row in build_cases()]
+            + [row["prompt"] for row in cases72()])
+
+
+def _holdout_prompts() -> list[str]:
+    return [
+        make_case(family, "holdout", index)["messages"][1]["content"]
+        for family in FAMILIES
+        for index in range(PER_FAMILY["holdout"])
+    ]
+
+
+def _reject_protected_overlap(rows: list[dict]) -> None:
+    """Block screens by exact text and 10-grams.
+
+    The composition holdout reuses family boilerplate, so a 10-gram check
+    false-alarms on hundreds of legal train rows. Exact prompt identity is
+    the split the generator already enforces.
+    """
+    from scripts.neral_decontamination import normalize, shingles
+    screens = _screen_prompts()
+    screen_exact = {normalize(text) for text in screens}
+    screen_grams = set().union(*(shingles(text, n=10) for text in screens))
+    holdout_exact = {normalize(text) for text in _holdout_prompts()}
+    for row in rows:
+        prompt = row["messages"][1]["content"]
+        key = normalize(prompt)
+        if (key in screen_exact or key in holdout_exact
+                or (shingles(prompt, n=10) & screen_grams)):
+            raise ValueError("Training prompt overlaps a screen or the composition holdout")
+
+
+def build_experiment(*, counterfactual_target: str = "compact"
+                     ) -> tuple[list[dict], list[dict], dict]:
+    """Generate train/val only; never train on the synthetic 100-case holdout.
+
+    ``compact`` is the shipped v6 recipe. ``verified_steps`` changes only the
+    128 counterfactual assistant texts. Prompts, final answers, learning rate
+    and step count stay the same. Neither target is a claimed score gain.
+    """
+    if counterfactual_target not in {"compact", "verified_steps"}:
+        raise ValueError("Unknown counterfactual target")
     data, sources = compositional_data()
     if sources["counts"] != {"train": 600, "validation": 100, "holdout": 100}:
         raise ValueError("Unreviewed split counts")
@@ -75,9 +141,12 @@ def build_experiment() -> tuple[list[dict], list[dict], dict]:
     if len(reason_rows) != 128 or len(proofs) != 128:
         raise ValueError("Counterfactual reasoning source changed")
     for original, proof in zip(reason_rows, proofs):
-        compact = _compact_trace(proof, original)
+        if counterfactual_target == "compact":
+            content = _compact_trace(proof, original)
+        else:
+            content = _verified_step_target(proof, original)
         train.append({"messages":[*original["messages"][:2],
-                                   {"role": "assistant", "content": compact}]})
+                                   {"role": "assistant", "content": content}]})
     rng = random.Random(SEED)
     rng.shuffle(train)
     users = [row["messages"][1]["content"] for row in train + validation]
@@ -118,16 +187,27 @@ def build_experiment() -> tuple[list[dict], list[dict], dict]:
         "release_validated": False,
         "adapter_promoted": False,
     }
+    if counterfactual_target == "verified_steps":
+        _reject_protected_overlap(train + validation)
+        meta = {
+            **meta,
+            "status": "NERAL_V6_VERIFIED_STEP_TARGET_NOT_TRAINED",
+            "counterfactual_target": "verified_steps",
+            "isolated_change": "restore_verified_arithmetic_in_128_counterfactual_targets",
+            "learning_rate_unchanged": True,
+            "replay_ratio_unchanged": True,
+            "claimed_score_gain": False,
+        }
     return train, validation, meta
 
 
-def training_contract(output: Path) -> dict:
+def training_contract(output: Path, *, counterfactual_target: str = "compact") -> dict:
     """Materialize deterministic training candidate, create-only and private."""
     output = Path(output)
     if (output.is_symlink() or output.exists() or
             not output.parent.is_dir() or output.parent.is_symlink()):
         raise ValueError("New, isolated training-data directory required")
-    train, val, meta = build_experiment()
+    train, val, meta = build_experiment(counterfactual_target=counterfactual_target)
     paths = {
         "train.jsonl": _jsonl_bytes(train),
         "validation.jsonl": _jsonl_bytes(val),
@@ -370,16 +450,32 @@ def main(argv=None):
     parser.add_argument("--base",type=Path)
     parser.add_argument("--v5-adapter",type=Path)
     parser.add_argument("--authorize",default="")
+    parser.add_argument("--counterfactual-target",
+                        choices=("compact","verified_steps"), default="compact")
     args=parser.parse_args(argv)
     if args.mode=="cpu-data":
-        report=training_contract(args.out)
+        report=training_contract(
+            args.out, counterfactual_target=args.counterfactual_target)
         print(json.dumps({"status":report["status"],"train_rows":report["train_rows"],
                           "validation_rows":report["validation_rows"],
                           "training_performed":False},sort_keys=True))
     else:
         if args.base is None or args.v5_adapter is None:
             parser.error("Explicit pinned local Qwen and v5 adapter required")
-        result=_gpu_train(args)
+        if args.counterfactual_target == "verified_steps":
+            if args.authorize != VERIFIED_STEPS_AUTH:
+                parser.error("Verified-step training requires its own permit")
+            result=_gpu_train(
+                args,
+                data_factory=lambda: build_experiment(
+                    counterfactual_target="verified_steps"),
+                authorize=VERIFIED_STEPS_AUTH,
+                status="NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL",
+            )
+        else:
+            if args.authorize != AUTH:
+                parser.error("Compact v6 training requires its own permit")
+            result=_gpu_train(args)
         print(json.dumps({
             "status":result["status"],"steps_completed":result["steps_completed"],
             "adapter_sha256":result["candidate_adapter_sha256"],

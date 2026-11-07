@@ -261,6 +261,9 @@ def main(argv=None):
     p.add_argument("--candidate-adapter",type=Path)
     p.add_argument("--candidate-receipt",type=Path)
     p.add_argument("--out",type=Path)
+    p.add_argument("--prompt-protocol",
+                   choices=("historical","matched_fewshot","matched_zeroshot"),
+                   default="historical")
     args=p.parse_args(argv)
     folder=args.run_dir
     if args.mode=="build":
@@ -306,7 +309,8 @@ def main(argv=None):
         original.V6_SHA=candidate_sha
         old_label="neral_v6" if args.variant=="neral_v61" else args.variant
         gpu_args=SimpleNamespace(base=args.base,v5_adapter=args.v5_adapter,
-                 v6_adapter=args.candidate_adapter,variant=old_label,out=args.out)
+                 v6_adapter=args.candidate_adapter,variant=old_label,out=args.out,
+                 prompt_protocol=args.prompt_protocol)
         report=original._gpu_variant(cases,gpu_args)
         print(json.dumps({**report,"variant":args.variant,
                           "candidate_sha256":candidate_sha},sort_keys=True))

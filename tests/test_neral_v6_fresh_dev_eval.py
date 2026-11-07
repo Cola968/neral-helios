@@ -9,7 +9,7 @@ from pathlib import Path
 from scripts.neral_v6_fresh_dev_eval import (
     build_cases, suite_fingerprint, parse_answer, score_three_way, 
     check_source_isolation, validate_variant_output,
-    prepare_fewshot_messages, BASE_SHA, V5_SHA, V6_SHA,
+    prepare_fewshot_messages, messages_for_protocol, BASE_SHA, V5_SHA, V6_SHA,
 )
 
 
@@ -102,6 +102,13 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertEqual(len(plain),2)
         self.assertEqual(plain,v6)
         self.assertEqual(plain[-1],msgs[-1])
+        matched=messages_for_protocol(case,"neral_v6","matched_fewshot")
+        zero=messages_for_protocol(case,"qwen_fewshot","matched_zeroshot")
+        self.assertEqual(matched, messages_for_protocol(case,"neral_v5","matched_fewshot"))
+        self.assertEqual(matched, msgs)
+        self.assertEqual(zero, messages_for_protocol(case,"neral_v6","matched_zeroshot"))
+        self.assertEqual(zero, plain)
+        self.assertEqual(messages_for_protocol(case,"qwen_fewshot"), msgs)
         self.assertEqual(len(V5_SHA),64)
         self.assertEqual(len(V6_SHA),64)
         self.assertEqual(len(BASE_SHA),40)

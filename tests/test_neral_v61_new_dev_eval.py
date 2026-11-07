@@ -102,6 +102,13 @@ class NewV61DevTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_local_candidate(p,candidate,v5,expected_v5_sha=expected_v5)
 
+    def test_matched_protocol_is_opt_in_and_historical_stays_default(self):
+        import inspect
+        from scripts.neral_v61_new_dev_eval import main
+        source=inspect.getsource(main)
+        self.assertIn('default="historical"', source)
+        self.assertIn("prompt_protocol=args.prompt_protocol", source)
+
     def test_evaluation_workflow_uses_python_receipt_validator(self):
         from pathlib import Path
         workflow=(Path(__file__).resolve().parents[1]/

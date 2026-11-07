@@ -7,7 +7,7 @@ import unittest
 
 from scripts.neral_v6_r16_gpu import (
     build_experiment, training_contract, require_explicit_gpu_authorization,
-    tokenized_completion, _compact_trace,
+    tokenized_completion, _compact_trace, VERIFIED_STEPS_AUTH, AUTH,
 )
 from scripts.neral_reasoning_train_candidate import candidate, verify_case
 
@@ -96,6 +96,67 @@ class V6ExperimentContracts(unittest.TestCase):
         self.assertEqual(cfg["lora_rank"],16)
         self.assertEqual(cfg["adapter_lineage"],"v5-r16-480")
         self.assertEqual(cfg["optimizer"],"paged_adamw_8bit")
+        self.assertNotIn("counterfactual_target", cfg)
+
+    def test_verified_steps_restore_arithmetic_and_keep_answers(self):
+        compact_train, compact_val, compact_meta = build_experiment()
+        full_train, full_val, full_meta = build_experiment(
+            counterfactual_target="verified_steps")
+        self.assertEqual(
+            [row["messages"][1]["content"] for row in compact_train],
+            [row["messages"][1]["content"] for row in full_train])
+        self.assertEqual(compact_val, full_val)
+        self.assertEqual(compact_meta["learning_rate"], full_meta["learning_rate"])
+        self.assertEqual(compact_meta["steps"], full_meta["steps"])
+        self.assertEqual(compact_meta["train_rows"], full_meta["train_rows"])
+        self.assertNotEqual(compact_meta["train_sha256"], full_meta["train_sha256"])
+        self.assertFalse(full_meta["claimed_score_gain"])
+        self.assertFalse(full_meta["training_performed"])
+        changed = 0
+        for old, new in zip(compact_train, full_train):
+            old_text = old["messages"][2]["content"]
+            new_text = new["messages"][2]["content"]
+            self.assertEqual(
+                old_text.split("FINAL_ANSWER:")[-1].strip(),
+                new_text.split("FINAL_ANSWER:")[-1].strip())
+            if old_text != new_text:
+                changed += 1
+                self.assertNotIn("*", old_text)
+                self.assertIn("*", new_text)
+                self.assertIn("+", new_text)
+        self.assertEqual(changed, 128)
+        self.assertEqual((full_train, full_val, full_meta), build_experiment(
+            counterfactual_target="verified_steps"))
+
+    def test_verified_step_permit_is_not_the_compact_permit(self):
+        import contextlib
+        import io
+        from scripts.neral_v6_r16_gpu import main
+        for target, permit in (
+                ("verified_steps", AUTH),
+                ("compact", VERIFIED_STEPS_AUTH)):
+            with self.subTest(target=target):
+                with self.assertRaises(SystemExit):
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        main(["--mode","train-local-gpu","--out","/tmp/unused-neral-out",
+                              "--base","/tmp","--v5-adapter","/tmp",
+                              "--counterfactual-target", target,
+                              "--authorize", permit])
+        self.assertNotEqual(AUTH, VERIFIED_STEPS_AUTH)
+
+    def test_verified_step_workflow_cannot_start_from_a_pull_request(self):
+        workflow = Path(__file__).resolve().parents[1].joinpath(
+            ".github","workflows","neral-v6-verified-steps-train.yml"
+        ).read_text(encoding="utf8")
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("\n  push:", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn(VERIFIED_STEPS_AUTH, workflow)
+        self.assertIn("--counterfactual-target verified_steps", workflow)
+        self.assertIn("v6-verified-steps-120-", workflow)
+        self.assertNotIn("v6-r16-120-$env:GITHUB_RUN_ID", workflow)
+        self.assertNotIn("--authorize " + AUTH, workflow)
 
 
 if __name__=="__main__":
