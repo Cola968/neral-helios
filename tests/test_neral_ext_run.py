@@ -90,23 +90,52 @@ class ExtRunTests(unittest.TestCase):
                            case_sha="a"*64, base_revision="b"*40, adapter_sha="c"*64)
 
 
-    def test_pinned_trainer_modules_precede_qwen_runtime_import(self):
-        """Fail when repository shim model_catalog shadows the pinned trainer."""
+    def test_pinned_runtime_identity_works_with_shadowed_model_catalog(self):
+        """Regression for real Windows run 42394712562 (wrong control catalog)."""
+        import sys
+        import types
+        from unittest.mock import patch
+        from neral_hf_identity import (
+            CHAT_TEMPLATE, validate_hf_snapshot, validate_adapter,
+        )
+        from scripts.neral_ext_run import pinned_runtime_identity
+
+        fake = types.ModuleType("model_catalog")
+        fake.catalog = lambda: None  # intentionally lacks HF_BASE
+        with patch.dict(sys.modules, {"model_catalog": fake}):
+            template, base_validator, adapter_validator = pinned_runtime_identity()
+        self.assertEqual(template, CHAT_TEMPLATE)
+        self.assertIs(base_validator, validate_hf_snapshot)
+        self.assertIs(adapter_validator, validate_adapter)
+
+    def test_gpu_inference_never_imports_ambiguous_trainer_modules(self):
+        """No hidden PYTHONPATH shadowing, and no sys.path mutation."""
         import ast
-        from pathlib import Path
+        source = Path("scripts/neral_ext_run.py").read_text(encoding="utf8")
+        module = ast.parse(source)
+        fn = next(node for node in module.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "_gpu_run")
+        for node in ast.walk(fn):
+            if isinstance(node, ast.ImportFrom):
+                self.assertNotIn(node.module,
+                    {"qwen_local_runtime", "model_catalog", "neral_adapter_candidate"})
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                self.assertFalse(
+                    isinstance(node.func.value, ast.Attribute)
+                    and isinstance(node.func.value.value, ast.Name)
+                    and node.func.value.value.id == "sys"
+                    and node.func.value.attr == "path"
+                    and node.func.attr in {"insert", "append"})
+
+    def test_pinned_source_checkout_still_required(self):
+        """Local GPU evaluation keeps the exact immutable trainer checkout gate."""
+        import ast
         source = Path("scripts/neral_ext_run.py").read_text(encoding="utf8")
         tree = ast.parse(source)
-        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_gpu_run")
-        imports = [n.lineno for n in ast.walk(fn)
-                   if isinstance(n, ast.ImportFrom) and n.module == "qwen_local_runtime"]
-        paths = [n.lineno for n in ast.walk(fn)
-                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                 and n.func.attr == "insert" and isinstance(n.func.value, ast.Attribute)
-                 and n.func.value.attr == "path" and isinstance(n.func.value.value, ast.Name)
-                 and n.func.value.value.id == "sys"]
-        self.assertEqual(len(imports), 1)
-        self.assertEqual(len(paths), 1)
-        self.assertLess(paths[0], imports[0], "Trainer import root must win over control model_catalog shim")
+        fn = next(node for node in tree.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "_gpu_run")
+        self.assertIn("args.trainer_root.resolve(strict=True)",
+                      ast.unparse(fn))
 
 
 if __name__ == "__main__":
