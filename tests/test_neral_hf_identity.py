@@ -4,6 +4,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from neral_hf_identity import (
@@ -119,6 +120,21 @@ class LocalHFIdentityTests(unittest.TestCase):
             (adapter/"extra.txt").write_text("bad")
             with self.assertRaises(ValueError):
                 validate_adapter(adapter,validate_hf_snapshot(base,verify_hashes=True))
+
+    def test_quarantined_v6_weight_sha_rejected_even_when_seal_is_consistent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base, adapter = seal(Path(tmp))
+            snapshot = validate_hf_snapshot(base, verify_hashes=True)
+            manifest_path = adapter / "neral-adapter.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["files"]["adapter_model.safetensors"] = "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd"
+            manifest_path.write_text(json.dumps(manifest))
+            genuine_sha = sha
+            with patch("neral_hf_identity._sha", side_effect=lambda path:
+                       "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd" if path.name == "adapter_model.safetensors"
+                       else genuine_sha(path)):
+                with self.assertRaisesRegex(ValueError, "gesperrt"):
+                    validate_adapter(adapter, snapshot)
 
     def test_runtime_backend_does_not_import_missing_legacy_module(self):
         code=Path("neral_agent_hf.py").read_text(encoding="utf8")
