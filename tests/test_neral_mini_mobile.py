@@ -195,6 +195,11 @@ def test_mobile_start_scripts_and_tls_package_are_present():
         assert (project/file).is_file()
     script=(project/"Start-NERAL-Mini-Mobile.ps1").read_text()
     assert "mini.mobile_gateway" in script
+    # Windows PowerShell 5.1 removes embedded quotes in -c arguments to native programs.
+    # The Python dependency probe must never embed a print("...") string there.
+    assert "-c 'import cryptography, torch, transformers, peft, bitsandbytes'" in script
+    assert 'print("GPU-Python-Abhaengigkeiten vorhanden.")' not in script
+    assert "Write-Host 'GPU-Python-Abhaengigkeiten vorhanden.'" in script
     assert "http://127.0.0.1:9691" not in script or "https://" in script
     gateway=(project/"mini/mobile_gateway.py").read_text()
     assert "ssl.SSLContext" in gateway
