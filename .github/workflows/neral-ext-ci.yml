@@ -8,15 +8,15 @@ on:
       - 'scripts/neral_ext_dataset.py'
       - 'scripts/neral_decontamination.py'
       - 'tests/test_neral_ext_data.py'
-      - 'scripts/neral_ext_dataset.py'
-      - 'scripts/neral_decontamination.py'
-      - 'tests/test_neral_ext_data.py'
       - 'docs/NERAL_EXT.md'
       - '.github/workflows/neral-ext-ci.yml'
   push:
     paths:
       - 'scripts/neral_ext.py'
       - 'tests/test_neral_ext.py'
+      - 'scripts/neral_ext_dataset.py'
+      - 'scripts/neral_decontamination.py'
+      - 'tests/test_neral_ext_data.py'
       - '.github/workflows/neral-ext-ci.yml'
 
 permissions:
