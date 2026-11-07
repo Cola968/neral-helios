@@ -18,6 +18,8 @@ def test_explicit_lab_uses_existing_gpu_python_and_never_downloads_weights():
     assert "$env:NERAL_AGENT_BACKEND='hf_adapter'" in source
     assert "$env:NERAL_AGENT_ADAPTER_CHANNEL='v5'" in source
     assert "training-env-py312" in source
+    assert "torch.cuda.is_available()" in source
+    assert "import torch, transformers, peft, bitsandbytes" in source
     assert "$env:CUDA_VISIBLE_DEVICES='0'" in source
     assert "$env:CUDA_VISIBLE_DEVICES=''" in source
     assert "NERAL v5" in source
