@@ -56,7 +56,7 @@ jobs:
           TRAIN_STEPS: ${{ inputs.train_steps }}
         run: |
           $ErrorActionPreference='Stop'
-          if($env:TRAIN_RUN_ID -notmatch '^[0-9]{8,14}
+          if($env:TRAIN_RUN_ID -match '[^0-9]' -or $env:TRAIN_RUN_ID.Length -lt 8 -or $env:TRAIN_RUN_ID.Length -gt 14 -or $env:TRAIN_STEPS -notin @('200','480')){throw 'Only approved numeric run IDs and exact 200/480 steps allowed'}
           $control=Join-Path $env:GITHUB_WORKSPACE 'control'
           $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
           foreach($folder in @($control,$trainer)){
