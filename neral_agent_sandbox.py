@@ -6,6 +6,7 @@ Copy only explicitly allowed .py files into an ephemeral directory.
 """
 from __future__ import annotations
 
+import secrets
 import subprocess
 import tempfile
 from pathlib import Path
@@ -156,7 +157,15 @@ def run_isolated_unit_test(engine: AgentEngine, file_path: str, cases: list[str]
     with tempfile.TemporaryDirectory(prefix="neral-unit-sandbox-") as folder:
         work=Path(folder)
         (work/"subject.py").write_bytes(raw)
-        harness=("from subject import *\n"+'\n'.join(tests)+"\n").encode("utf-8")
+        completion_marker = "NERAL_ASSERTIONS_COMPLETED:" + secrets.token_hex(16)
+        # An exit code of zero can also mean the subject exited before tests.
+        # This marker detects accidental early exits, not a malicious subject
+        # deliberately forging the runner's output from inside the container.
+        harness=("try:\n    from subject import *\n"+
+                 ''.join("    "+test+"\n" for test in tests)+
+                 "except BaseException:\n    import traceback\n    traceback.print_exc()\n"
+                 "    raise SystemExit(1)\n"
+                 "print()\n"+f"print({completion_marker!r}, flush=True)\n").encode("utf-8")
         (work/"runner.py").write_bytes(harness)
         for name in ("subject.py","runner.py"):
             try:(work/name).chmod(0o644)
@@ -181,6 +190,9 @@ def run_isolated_unit_test(engine: AgentEngine, file_path: str, cases: list[str]
     # Truncate untrusted error output. The agent can use this for local repair,
     # never for automatic execution on the Windows host.
     trace=(proc.stderr+proc.stdout).decode("utf-8",errors="replace")[-1800:]
-    return {"status":"PASSED" if proc.returncode==0 else "FAILED",
-            "passed":proc.returncode==0,"sandboxed":True,
-            "assertions":len(tests),"traceback":trace}
+    completed = proc.stdout.splitlines().count(completion_marker.encode("ascii")) == 1
+    passed = proc.returncode == 0 and completed
+    return {"status":"PASSED" if passed else "FAILED",
+            "passed":passed,"sandboxed":True,"assertions_completed":completed,
+            "assertions":len(tests),"traceback":trace,
+            "source_sha256":engine._digest(raw)}
