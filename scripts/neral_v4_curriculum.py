@@ -121,14 +121,20 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
         task = f"Berechne exakt: ({a}/{b}) {op} ({c}/{d})."
         answer, fmt = str(result), "gekürzten Bruch oder ganze Zahl"
     elif category == "percent":
-        price = (index+1)*100
+        # Intentionally use cent-level source prices: rounding half-up is
+        # a real task, not an implicit floor-to-cent label.
+        price_cents = 135 + index*37
         discount, surcharge = rng.randint(5,35), rng.randint(3,21)
-        cents = price*(100-discount)*(100+surcharge)//100
-        assert cents % 1 == 0
-        assert Fraction(cents,100) == (Fraction(price)*(100-discount)*(100+surcharge)/10000)
+        exact_cents = Fraction(price_cents*(100-discount)*(100+surcharge),10_000)
+        final_cents = (exact_cents.numerator*2 + exact_cents.denominator) // (
+            2*exact_cents.denominator)
+        assert abs(Fraction(final_cents)-exact_cents) <= Fraction(1,2)
+        price = f"{price_cents//100},{price_cents%100:02d}"
         task = (f"Artikelpreis {price} EUR; erst {discount}% Rabatt, "
-                f"dann {surcharge}% Zuschlag auf den reduzierten Preis. Endpreis?")
-        answer, fmt = f"{cents//100},{cents%100:02d} EUR", "EUR-Betrag mit zwei Dezimalstellen"
+                f"dann {surcharge}% Zuschlag auf den reduzierten Preis. "
+                "Endpreis kaufmännisch auf Cent gerundet?")
+        answer, fmt = (f"{final_cents//100},{final_cents%100:02d} EUR",
+                       "EUR-Betrag mit zwei Dezimalstellen")
     elif category == "timezone":
         hour, minute = rng.randint(0,23), 15*rng.randint(0,3)
         src, dest = rng.randint(-7,5), rng.randint(-2,11)
@@ -151,18 +157,55 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
                 f"Reserve {reserve} min, Taxi {taxi} kg. Gesamttreibstoff?")
         answer, fmt = f"{value} kg", "Kilogrammwert"
     elif category == "python_debug":
-        name = f"adjust_{style}_{index}"
-        multiplier, offset = rng.randint(2,15), rng.randint(1,75)
-        bad = f"def {name}(value):\n    return value * {multiplier} - {offset}\n"
-        fixed = f"def {name}(value):\n    return value * {multiplier} + {offset}\n"
-        task = (f"Korrigiere den Vorzeichenfehler, Ziel ist "
-                f"value*{multiplier}+{offset}:\n{bad}")
+        # Eight different kinds of repairs, rather than training the model
+        # on the same +/- operator correction in every coding example.
+        name = f"repair_{style}_{index}"
+        bug = index % 8
+        if bug == 0:
+            multiplier, offset = rng.randint(2,15), rng.randint(1,75)
+            bad = f"def {name}(value):\n    return value * {multiplier} - {offset}\n"
+            fixed = f"def {name}(value):\n    return value * {multiplier} + {offset}\n"
+            goal = f"das Ergebnis value*{multiplier}+{offset}"
+        elif bug == 1:
+            bad = f"def {name}(limit):\n    return sum(range(limit + 1))\n"
+            fixed = f"def {name}(limit):\n    return sum(range(limit))\n"
+            goal = "die Summe aller Ganzzahlen 0 bis limit EXKLUSIVE, bei limit=0 also 0"
+        elif bug == 2:
+            bad = f"def {name}(value, lo, hi):\n    return min(lo, max(value, hi))\n"
+            fixed = f"def {name}(value, lo, hi):\n    return max(lo, min(value, hi))\n"
+            goal = "value auf das Intervall [lo, hi] begrenzen (lo <= hi)"
+        elif bug == 3:
+            bad = f"def {name}(items):\n    return items[1] if items else None\n"
+            fixed = f"def {name}(items):\n    return items[0] if items else None\n"
+            goal = "das erste Element zurückgeben, sonst None bei leerer Liste"
+        elif bug == 4:
+            bad = f"def {name}(value, threshold):\n    return value > threshold\n"
+            fixed = f"def {name}(value, threshold):\n    return value >= threshold\n"
+            goal = "True zurückgeben, wenn value mindestens threshold erreicht"
+        elif bug == 5:
+            bad = f"def {name}(values):\n    return min(values) if values else 0\n"
+            fixed = f"def {name}(values):\n    return max(values) if values else 0\n"
+            goal = "den größten Wert zurückgeben; bei leerer Liste 0"
+        elif bug == 6:
+            bad = f"def {name}(text):\n    return text == text[::1]\n"
+            fixed = f"def {name}(text):\n    return text == text[::-1]\n"
+            goal = "ein Palindrom erkennen (exakter Vergleich mit Umkehrung)"
+        else:
+            divisor = rng.randint(2,19)
+            bad = f"def {name}(value):\n    return value % {divisor} == 1\n"
+            fixed = f"def {name}(value):\n    return value % {divisor} == 0\n"
+            goal = f"True zurückgeben, wenn value durch {divisor} teilbar ist"
+        task = f"Behebe genau den Fehler. Korrekte Funktion: {goal}.\n{bad}"
         answer, fmt = fixed, "eine Python-Funktionsdefinition"
         tree = ast.parse(answer)
         fn = tree.body[0]
-        assert isinstance(fn, ast.FunctionDef) and fn.name == name
-        assert len(fn.body) == 1 and isinstance(fn.body[0], ast.Return)
-        assert isinstance(fn.body[0].value,ast.BinOp) and isinstance(fn.body[0].value.op,ast.Add)
+        if (len(tree.body) != 1 or not isinstance(fn, ast.FunctionDef)
+                or fn.name != name or len(fn.body) != 1
+                or not isinstance(fn.body[0], ast.Return)
+                or any(isinstance(node, (ast.Import, ast.ImportFrom, ast.Attribute,
+                                          ast.Lambda, ast.While, ast.For))
+                       for node in ast.walk(tree))):
+            raise ValueError("Generated repair violates exact reviewed AST shape")
     elif category == "sql":
         floor = index+1
         if index % 2 == 0:
