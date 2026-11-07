@@ -193,8 +193,8 @@ def score_saved_mbpp(cases: list[dict], metadata: list[dict],
         out["gradable_completed"] = out["passed"] + out["failed"]
         out["functional_attempted"] = (out["passed"] + out["failed"]
                                        + out["timeout"])
-        out["scoring_complete"] = not any(out[s] for s in ("unavailable",
-                                              "bad_contract", "timeout"))
+        out["scoring_complete"] = not any(out[s] for s in ("unavailable", "bad_contract"))
+        out["timeout_count_explicit"] = out["timeout"]
         if sum(out[s] for s in STATUS) != len(subset):
             raise ValueError("Inconsistent MBPP status partition")
         summary[variant] = out
