@@ -16,7 +16,7 @@ import re
 from scripts.neral_e1_pair_miner import _answer_value
 from scripts.neral_v6_compositional import FAMILIES, make_case
 from scripts.neral_v6_r16_gpu import build_experiment
-from scripts.neral_v5_transfer_curriculum import _generated, SEED as V5_SEED
+from scripts.neral_v5_transfer_curriculum import _generated, CATEGORIES as V5_FAMILIES, SEED as V5_SEED
 from scripts.neral_decontamination import normalize, shingles
 
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -168,21 +168,19 @@ def build_candidate(v6_rows: list[dict], v5_rows: list[dict],
     correction_prompts = {
         p["prompt"] for p in pairs
     }
+    # Origin is reconstructed from pinned generators, not guessed from words.
+    family_by_prompt = {
+        make_case(family, "train", index)["messages"][1]["content"]: family
+        for family in FAMILIES for index in range(120)
+    }
     clean = [{"messages": [dict(t) for t in r["messages"]],
               "source": "v6_clean",
-              "source_family": (
-                  next((name for name in FAMILIES if _prompt(r) ==
-                        make_case(name, "train", j)["messages"][1]["content"]
-                        for j in range(120)), "reasoning_counterfactual")
-              )} for r in v6 if _prompt(r) not in correction_prompts]
+              "source_family": family_by_prompt.get(_prompt(r), "reasoning_counterfactual")}
+             for r in v6 if _prompt(r) not in correction_prompts]
     legacy = [{"messages": [dict(t) for t in r["messages"]],
                "source": "v5_replay",
-               "source_family": "v5-" + next((
-                   family for family in
-                   ("affine","fractions","money","fuel","timezone","quantities",
-                    "python_trace","python_debug")
-                   if family in _prompt(r).lower()
-               ), "original")} for r in v5]
+               "source_family": "v5-" + V5_FAMILIES[index // 240]}
+              for index, r in enumerate(v5)]
     new_sel = _balanced(clean, new_count, seed, lambda r: r["source_family"])
     old_sel = _balanced(legacy, old_count, seed, lambda r: r["source_family"])
     combined = new_sel + old_sel + correction
