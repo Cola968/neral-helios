@@ -1,6 +1,8 @@
 # Trainingsvorbereitung: geprüfte Rechenschritte wieder in die Zieltexte
 
 PR 365 bleibt die Messkorrektur und enthält diese Änderung nicht.
+Diese Vorbereitung ist https://github.com/Cola968/neral-helios/pull/366,
+Commit `4a160e42`, Zweig `cursor/verified-step-targets-f78c`.
 Dies ist kein Training und kein neues Modellergebnis. Es gibt keine
 erwartete Punktzahl.
 
