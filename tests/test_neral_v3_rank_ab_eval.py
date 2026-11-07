@@ -39,5 +39,59 @@ class RankABEvalTests(unittest.TestCase):
             summarize(rows,{'holdout20':20})
 
 
+    def test_paired_scores_track_true_wins_and_regressions(self):
+        base = [True, True, True, False, False, False, False, False]
+        r16  = [True, False, True, True, True, False, False, False]
+        r32  = [True, True, True, True, True, True, True, False]
+
+        def records(flags):
+            return [
+                {'id': f'case-{i}', 'correct': ok, 'format_valid': ok,
+                 'local_raw': 'PRIVATE_MODEL_OUTPUT_MUST_NOT_LEAK'}
+                for i, ok in enumerate(flags)
+            ]
+
+        rows = {
+            'base': {'holdout20': records(base)},
+            'rank16_v3': {'holdout20': list(reversed(records(r16)))},
+            'rank32_v3': {'holdout20': records(r32)},
+        }
+        result = summarize(rows, {'holdout20': 8})
+        p16 = result['paired_vs_base']['rank16_v3']['holdout20']
+        p32 = result['paired_vs_base']['rank32_v3']['holdout20']
+        self.assertEqual(p16['improvements'], 2)
+        self.assertEqual(p16['regressions'], 1)
+        self.assertEqual(p16['net_gain'], 1)
+        self.assertEqual(p16['discordant'], 3)
+        self.assertEqual(p16['exact_mcnemar_p'], 1.0)
+        self.assertEqual(p32['improvements'], 4)
+        self.assertEqual(p32['regressions'], 0)
+        self.assertEqual(p32['net_gain'], 4)
+        self.assertAlmostEqual(p32['exact_mcnemar_p'], 0.125)
+        self.assertNotIn('PRIVATE_MODEL_OUTPUT_MUST_NOT_LEAK', repr(result))
+
+    def test_small_development_set_cannot_prove_general_improvement(self):
+        from scripts.neral_v3_rank_ab_eval import exact_mcnemar_p
+        self.assertAlmostEqual(exact_mcnemar_p(8, 0), 0.0078125)
+        self.assertEqual(exact_mcnemar_p(0, 0), 1.0)
+        self.assertEqual(exact_mcnemar_p(2, 1), 1.0)
+
+    def test_paired_scoring_rejects_missing_case_ids(self):
+        base = [{'id': 'a', 'correct': True, 'format_valid': True},
+                {'id': 'b', 'correct': False, 'format_valid': True}]
+        rows = {key: {'holdout20': [dict(z) for z in base]} for key in MODEL_KEYS}
+        rows['rank16_v3']['holdout20'][1]['id'] = 'unpaired'
+        with self.assertRaisesRegex(ValueError, 'matched case ids'):
+            summarize(rows, {'holdout20': 2})
+
+    def test_paired_scoring_rejects_non_boolean_scores(self):
+        cases = [{'id': 'a', 'correct': True, 'format_valid': True}]
+        rows = {key: {'holdout20': [dict(z) for z in cases]} for key in MODEL_KEYS}
+        rows['rank32_v3']['holdout20'][0]['correct'] = 1
+        with self.assertRaisesRegex(ValueError, 'boolean'):
+            summarize(rows, {'holdout20': 1})
+
+
+
 if __name__=='__main__':
     unittest.main()

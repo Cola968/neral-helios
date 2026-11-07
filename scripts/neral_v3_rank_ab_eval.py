@@ -13,6 +13,7 @@ from fractions import Fraction
 import gc
 import hashlib
 import json
+from math import comb
 from pathlib import Path
 import re
 
@@ -82,6 +83,47 @@ def suite_score(row,raw):
     return raw==row['expected'],raw==row['expected']
 
 
+
+def exact_mcnemar_p(improvements: int, regressions: int) -> float:
+    """Two-sided exact paired sign/McNemar test, without external dependencies.
+
+    Scores are evidence for this *development* set only. A low p-value alone
+    cannot establish general improvement, independence or release quality.
+    """
+    if (type(improvements) is not int or type(regressions) is not int
+            or improvements < 0 or regressions < 0):
+        raise ValueError('Paired discordant counts must be nonnegative integers')
+    discordant = improvements + regressions
+    if not discordant:
+        return 1.0
+    tail = sum(comb(discordant, i) for i in range(min(improvements, regressions) + 1))
+    return min(1.0, (2 * tail) / (2 ** discordant))
+
+
+def _paired_counts(baseline: list[dict], candidate: list[dict]) -> dict:
+    """Compare matched case IDs, never different case order or aggregate totals."""
+    base = {r['id']: r for r in baseline}
+    other = {r['id']: r for r in candidate}
+    if set(base) != set(other):
+        raise ValueError('Paired comparison requires matched case ids')
+    improvements = sum(not base[i]['correct'] and other[i]['correct'] for i in base)
+    regressions = sum(base[i]['correct'] and not other[i]['correct'] for i in base)
+    format_gains = sum(not base[i]['format_valid'] and other[i]['format_valid'] for i in base)
+    format_losses = sum(base[i]['format_valid'] and not other[i]['format_valid'] for i in base)
+    return {
+        'total': len(base),
+        'improvements': improvements,
+        'regressions': regressions,
+        'net_gain': improvements - regressions,
+        'discordant': improvements + regressions,
+        'unchanged_correct': sum(base[i]['correct'] and other[i]['correct'] for i in base),
+        'unchanged_incorrect': sum(not base[i]['correct'] and not other[i]['correct'] for i in base),
+        'format_improvements': format_gains,
+        'format_regressions': format_losses,
+        'exact_mcnemar_p': exact_mcnemar_p(improvements, regressions),
+    }
+
+
 def summarize(results,counts):
     if set(results)!=set(MODEL_KEYS):
         raise ValueError('All three model variants required')
@@ -92,13 +134,24 @@ def summarize(results,counts):
         out[model]={}
         for suite,n in counts.items():
             rows=results[model][suite]
-            if len(rows)!=n or len({r['id'] for r in rows})!=n:
+            if (not isinstance(rows, list) or len(rows)!=n or
+                    any(not isinstance(r, dict) or not isinstance(r.get('id'), str)
+                        or not r['id'] or len(r['id']) > 128 for r in rows)):
+                raise ValueError('Incomplete or malformed inference results')
+            if len({r['id'] for r in rows})!=n:
                 raise ValueError('Incomplete or duplicate inference results')
-            out[model][suite]={'correct':sum(x.get('correct') is True for x in rows),
-                               'format_valid':sum(x.get('format_valid') is True for x in rows),
+            if any(type(r.get('correct')) is not bool or
+                   type(r.get('format_valid')) is not bool for r in rows):
+                raise ValueError('Paired evaluation requires boolean scores')
+            out[model][suite]={'correct':sum(x['correct'] for x in rows),
+                               'format_valid':sum(x['format_valid'] for x in rows),
                                'total':n}
+    paired={model: {suite: _paired_counts(results['base'][suite], results[model][suite])
+                    for suite in counts}
+            for model in ('rank16_v3','rank32_v3')}
     return {'schema':1,'status':'NERAL_V3_RANK16_RANK32_DEV_COMPARISON',
             'scores':out,
+            'paired_vs_base':paired,
             'development_suite_80':True,'prior_used_suite_36':True,
             'within_generator_validation':True,
             'fresh_in_repo_heldout20':True,
