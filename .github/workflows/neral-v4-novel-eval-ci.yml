@@ -25,4 +25,4 @@ jobs:
       - run: python -m unittest discover -s tests -p test_neral_v4_novel_eval.py -v
       - run: python -m compileall -q scripts/neral_v4_novel_eval.py
       - name: Validate GitHub workflow schema
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color .github/workflows/neral-v4-novel-eval.yml
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -ignore 'label "neral-gpu" is unknown' .github/workflows/neral-v4-novel-eval.yml
