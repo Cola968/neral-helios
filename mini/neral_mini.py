@@ -23,10 +23,11 @@ import webbrowser
 
 BASE_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_REVISION = "c03e6d358207e414f1eca0bb1891e29f1db0e242"
-# Proven-bad experimental weights may still be evaluated in isolated research jobs,
-# but must never be loaded through normal sealed runtime adapter validation.
+# Regressed v6 and unvalidated v6.1 remain research-only: NEVER select
+# them in the offline Mini runtime, even if the user supplies a matching seal.
 QUARANTINED_ADAPTER_SHA256 = frozenset({
     "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd",
+    "33e939f6063d4215807f593816a057e88d8938b30615c6000d6a0bf8c7965279",
 })
 MAX_PROMPT_BYTES = 4096
 MAX_HISTORY = 12
@@ -160,7 +161,7 @@ def verify_assets(base: Path, adapter: Path) -> dict:
         if _sha256(file) != expected:
             raise MiniError("Adapter-Integritaet fehlgeschlagen.")
     if seal["files"]["adapter_model.safetensors"] in QUARANTINED_ADAPTER_SHA256:
-        raise MiniError("NERAL-Adapter wegen gemessener Regression gesperrt.")
+        raise MiniError("NERAL-Adapter nicht freigegeben oder wegen Regression gesperrt.")
     config = _bounded_json(adapter / "adapter_config.json")
     rank = config.get("r")
     if (config.get("peft_type") != "LORA" or config.get("task_type") != "CAUSAL_LM"
