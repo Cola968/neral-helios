@@ -335,6 +335,7 @@ def main(argv=None) -> int:
         str(home/"NERAL-QLoRA-Research"/"actions-r32-42078722575-1"/"adapter"))
     desktop=create_server(NeralModel(base,adapter),port=args.mini_port)
     gateway=None
+    worker=None
     try:
         gateway=create_mobile_gateway(config,desktop)
         gateway.socket=context.wrap_socket(gateway.socket,server_side=True)
@@ -352,7 +353,9 @@ def main(argv=None) -> int:
     finally:
         if gateway is not None:
             gateway.server_close()
-        desktop.shutdown()
+        if worker is not None:
+            desktop.shutdown()
+            worker.join(timeout=4)
         desktop.server_close()
     return 0
 
