@@ -23,6 +23,32 @@ class NewV61DevTests(unittest.TestCase):
         self.assertTrue(all(c["answer"].lstrip("-").isdigit() for c in cases))
         self.assertEqual(cases,cases72())
 
+    def test_python_trace_oracles_replayed_by_independent_cpu_formulas(self):
+        # Hand-executable CPU reference checks, not model-generated code.
+        cases=cases72()
+        by_family={}
+        for row in cases:
+            by_family.setdefault(row["family"],[]).append(row)
+        for i,case in enumerate(by_family["python_mutable_aliasing"]):
+            p,q=4+i,7+i
+            expected=p+q+4*i+6  # appended item 3 AND shared list length 3
+            self.assertEqual(int(case["answer"]),expected)
+        self.assertEqual([int(x["answer"]) for x in by_family["python_recursion_fib"]],
+                         [5,8,13,21,34,55])
+        for i,case in enumerate(by_family["python_set_comprehension"]):
+            numbers=[3+i,5+i,6+2*i,12+i,15+3*i,20+i]
+            divisor=3+i%3
+            unique=set()
+            for number in numbers:
+                if number%2==0: unique.add(number%divisor)
+            self.assertEqual(int(case["answer"]),sum(unique))
+        for i,case in enumerate(by_family["python_enumerate_weight"]):
+            numbers=[1+i,4+i,6+2*i,9+i,12+i]
+            total=0
+            for index in range(0,len(numbers),2):
+                total+=(index+1)*numbers[index]
+            self.assertEqual(int(case["answer"]),total)
+
     def test_decon_against_v61_train_and_old_72_holdout(self):
         self.assertTrue(decontaminate_cases(cases72()))
 
