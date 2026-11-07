@@ -1,0 +1,68 @@
+"""New 72-case *development* comparison v61 vs v5 and fixed few-shot Qwen."""
+from collections import Counter
+import json
+import unittest
+from fractions import Fraction
+
+from scripts.neral_v61_new_dev_eval import (
+    cases72, decontaminate_cases, score_result, validate_candidate_receipt,
+)
+
+
+class NewV61DevTests(unittest.TestCase):
+    def test_72_diverse_problems_and_structurally_new_domains(self):
+        cases=cases72()
+        self.assertEqual(len(cases),72)
+        self.assertEqual(Counter(c["domain"] for c in cases),
+                         {"math":24,"reasoning":24,"code_trace":24})
+        self.assertEqual(len({c["id"] for c in cases}),72)
+        self.assertEqual(len({c["prompt"] for c in cases}),72)
+        self.assertEqual(len({(c["domain"],c["family"]) for c in cases}),12)
+        self.assertEqual(len({(c["family"],c["language"]) for c in cases}),24)
+        self.assertTrue(all(c["kind"]=="integer" for c in cases))
+        self.assertTrue(all(c["answer"].lstrip("-").isdigit() for c in cases))
+        self.assertEqual(cases,cases72())
+
+    def test_decon_against_v61_train_and_old_72_holdout(self):
+        self.assertTrue(decontaminate_cases(cases72()))
+
+    def test_grades_unambiguous_and_no_promotable_release_claim(self):
+        cases=cases72()
+        results={v:[{"id":r["id"],"text":"FINAL_ANSWER: "+r["answer"],
+                     "complete":True,"new_tokens":8} for r in cases]
+                 for v in ("qwen_fewshot","neral_v5","neral_v6")}
+        results["neral_v6"][0]["text"]="I cannot tell"
+        results["neral_v5"][1]["text"]="FINAL_ANSWER: 999999"
+        result=score_result(cases,results,candidate_sha="e"*64)
+        self.assertEqual(result["scores"]["neral_v61"]["correct"],71)
+        self.assertEqual(result["scores"]["neral_v5"]["correct"],71)
+        self.assertEqual(result["scores"]["qwen_fewshot"]["correct"],72)
+        self.assertFalse(result["release_validated"])
+        self.assertFalse(result["independent_generalization_proven"])
+        self.assertFalse(result["adapter_promoted"])
+        self.assertEqual(result["paired"]["v61_vs_v5"]["regressions"],1)
+        self.assertEqual(result["paired"]["v61_vs_v5"]["improvements"],1)
+        self.assertNotIn(cases[0]["prompt"],json.dumps(result))
+
+    def test_reject_candidate_receipt_from_unrelated_run_or_model(self):
+        good={
+            "status":"NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL",
+            "steps_completed":120,"train_rows":800,"validation_rows":140,
+            "source_counts":{"v5_train_replay":560,"v6_train_multistep":240},
+            "predecessor_adapter_sha256":"2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5",
+            "candidate_adapter_sha256":"e"*64,
+            "release_validated":False,"adapter_promoted":False,
+        }
+        self.assertEqual(validate_candidate_receipt(good),"e"*64)
+        for bad in (
+            dict(good,steps_completed=119),
+            dict(good,release_validated=True),
+            dict(good,source_counts={}),
+            dict(good,predecessor_adapter_sha256="a"*64),
+        ):
+            with self.assertRaises(ValueError):
+                validate_candidate_receipt(bad)
+
+
+if __name__=="__main__":
+    unittest.main()
