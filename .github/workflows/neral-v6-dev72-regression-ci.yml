@@ -1,0 +1,30 @@
+name: NERAL v6 dev72 regression blocker CPU tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v6_dev72_regression_gate.py'
+      - 'tests/test_neral_v6_dev72_regression_gate.py'
+      - 'docs/NERAL_V6_DEV72_ACTUAL_RESULT.md'
+      - '.github/workflows/neral-v6-dev72-regression-ci.yml'
+  push:
+    paths:
+      - 'scripts/neral_v6_dev72_regression_gate.py'
+      - 'tests/test_neral_v6_dev72_regression_gate.py'
+
+permissions:
+  contents: read
+
+jobs:
+  cpu_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enforce regression veto and do not mislabel ungraded answers
+        run: python -m unittest discover -s tests -p test_neral_v6_dev72_regression_gate.py -v
+      - name: Check CPU report parser syntax
+        run: python -m py_compile scripts/neral_v6_dev72_regression_gate.py
