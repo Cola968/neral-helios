@@ -1,0 +1,34 @@
+name: NERAL v6 fresh 72-case three-way development contracts (CPU)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'tests/test_neral_v6_fresh_dev_eval.py'
+      - 'docs/NERAL_V6_FRESH_DEV72.md'
+      - '.github/workflows/neral-v6-dev72-cpu-ci.yml'
+      - '.github/workflows/neral-v6-dev72-gpu.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'tests/test_neral_v6_fresh_dev_eval.py'
+      - '.github/workflows/neral-v6-dev72-cpu-ci.yml'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert 72 novel CPU task oracles, scoring & leakage checks
+        run: python -m unittest discover -s tests -p test_neral_v6_fresh_dev_eval.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_v6_fresh_dev_eval.py

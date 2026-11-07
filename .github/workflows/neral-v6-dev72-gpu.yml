@@ -1,0 +1,139 @@
+name: NERAL v6 NEW dev72 three-way GPU compare (manual read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Exact GPU evaluation permit: EVALUATE_NERAL_V6_NEW_DEV72_READONLY'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  dev_eval:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V6_NEW_DEV72_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Lock 72 new development tasks and verify no v6 training prompt overlap (CPU)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $folder=Join-Path $research "v6-new-dev72-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if((Test-Path -LiteralPath $folder) -or (-not(Test-Path -LiteralPath $py -PathType Leaf))){
+            throw 'Untrusted or pre-existing local dev run'
+          }
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v6_fresh_dev_eval.py -v
+            if($LASTEXITCODE -ne 0){throw 'Novelty/graders CPU regression test failed'}
+            & $py -B -m scripts.neral_v6_fresh_dev_eval --mode build --run-dir $folder
+            if($LASTEXITCODE -ne 0){throw 'Dev suite construction/decontamination failed'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "V6_DEV_CONTROL=$control"+[Environment]::NewLine+
+            "V6_DEV_PY=$py"+[Environment]::NewLine+
+            "V6_DEV_FOLDER=$folder"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Verify original v5 and newly trained v6 weights are both local and immutable
+        run: |
+          $ErrorActionPreference='Stop'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $v5=Join-Path $research 'v5-r16-480-42378021782-1\adapter'
+          $v6=Join-Path $research 'v6-r16-120-42407667120-1\candidate-adapter'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          foreach($path in @($base,$v5,$v6)){
+            if(-not(Test-Path -LiteralPath $path -PathType Container)){throw 'Missing verified private Qwen, v5 or v6 model'}
+          }
+          $v5sha=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $v5 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+          $v6sha=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $v6 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+          if($v5sha -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5' -or
+             $v6sha -ne '8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd'){
+            throw 'Different or untrusted LoRA weights; evaluation denied'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'CUDA GPU not found'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 9000 -or [int]$fields[1].Trim() -gt 20){
+            throw 'GPU currently occupied'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "V6_DEV_BASE=$base"+[Environment]::NewLine+
+            "V6_DEV_V5=$v5"+[Environment]::NewLine+
+            "V6_DEV_V6=$v6"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: GPU 1 of 3 - Qwen plus fixed few-shot - fresh process
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V6_DEV_CONTROL
+          try{
+            $env:PYTHONPATH=$env:V6_DEV_CONTROL
+            & $env:V6_DEV_PY -B -m scripts.neral_v6_fresh_dev_eval --mode run --variant qwen_fewshot --run-dir $env:V6_DEV_FOLDER --base $env:V6_DEV_BASE --v5-adapter $env:V6_DEV_V5 --v6-adapter $env:V6_DEV_V6 --out (Join-Path $env:V6_DEV_FOLDER 'qwen_fewshot.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'Qwen baseline incomplete'}
+          } finally {Pop-Location}
+      - name: GPU 2 of 3 - NERAL v5 - fresh process
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V6_DEV_CONTROL
+          try{
+            $env:PYTHONPATH=$env:V6_DEV_CONTROL
+            & $env:V6_DEV_PY -B -m scripts.neral_v6_fresh_dev_eval --mode run --variant neral_v5 --run-dir $env:V6_DEV_FOLDER --base $env:V6_DEV_BASE --v5-adapter $env:V6_DEV_V5 --v6-adapter $env:V6_DEV_V6 --out (Join-Path $env:V6_DEV_FOLDER 'neral_v5.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'NERAL v5 baseline incomplete'}
+          } finally {Pop-Location}
+      - name: GPU 3 of 3 - experimental NERAL v6 - fresh process
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V6_DEV_CONTROL
+          try{
+            $env:PYTHONPATH=$env:V6_DEV_CONTROL
+            & $env:V6_DEV_PY -B -m scripts.neral_v6_fresh_dev_eval --mode run --variant neral_v6 --run-dir $env:V6_DEV_FOLDER --base $env:V6_DEV_BASE --v5-adapter $env:V6_DEV_V5 --v6-adapter $env:V6_DEV_V6 --out (Join-Path $env:V6_DEV_FOLDER 'neral_v6.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'NERAL v6 inference incomplete'}
+          } finally {Pop-Location}
+      - name: CPU aggregate paired scores with no raw responses in public artifact
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V6_DEV_CONTROL
+          try{
+            $env:PYTHONPATH=$env:V6_DEV_CONTROL
+            & $env:V6_DEV_PY -B -m scripts.neral_v6_fresh_dev_eval --mode combine --run-dir $env:V6_DEV_FOLDER
+            if($LASTEXITCODE -ne 0){throw 'Pairwise score aggregation failed'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath (Join-Path $env:V6_DEV_FOLDER 'summary.json') -Raw|ConvertFrom-Json
+          if($report.total -ne 72 -or $report.task_families -ne 12 -or
+             $report.v5_adapter_sha256 -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5' -or
+             $report.v6_adapter_sha256 -ne '8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd' -or
+             $report.release_validated -ne $false -or $report.weights_promoted -ne $false){
+            throw 'Reject incomplete or falsely promoted development report'
+          }
+          $public=Join-Path $env:V6_DEV_CONTROL 'dev72_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Scalar export already exists'}
+          New-Item -Path $public -ItemType Directory -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:V6_DEV_FOLDER 'summary.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_V6_NEW_DEV72_THREE_WAY_COMPLETED: raw responses remain locally private'
+      - name: Upload only nonpromotable aggregate counts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v6-fresh-dev72-three-way-scalar
+          path: control/dev72_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
