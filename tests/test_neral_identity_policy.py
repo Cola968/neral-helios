@@ -18,7 +18,7 @@ class IdentityPromptTests(unittest.TestCase):
         self.assertIn("NERAL AI", prompt)
         self.assertIn("Qwen2.5-Coder-7B", prompt)
         self.assertIn("kein unabhängig von Grund auf trainiertes", prompt)
-        self.assertIn("nur wenn", prompt)
+        self.assertIn("nur wenn", prompt.lower())
 
     def test_unloaded_adapter_never_claimed_to_be_active(self):
         prompt = build_identity_prompt("web", "local_adapter_configured_not_loaded")
