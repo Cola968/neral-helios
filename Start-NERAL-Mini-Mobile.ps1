@@ -11,10 +11,13 @@ if (-not $python) {
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw 'Lokale NERAL-GPU-Python-Umgebung fehlt. NERAL_MINI_PYTHON auf python.exe mit torch, peft, transformers, bitsandbytes und cryptography setzen.'
 }
-& $python -B -c 'import cryptography, torch, transformers, peft, bitsandbytes; print("GPU-Python-Abhaengigkeiten vorhanden.")'
+# Windows PowerShell 5.1 strips nested quotes in native -c arguments.
+# Keep Python source quote-free and print status with PowerShell instead.
+& $python -B -c 'import cryptography, torch, transformers, peft, bitsandbytes'
 if ($LASTEXITCODE -ne 0) {
-    throw 'Mindestens ein lokales Python-Paket fehlt. Bitte in deiner vorhandenen GPU-Umgebung nachinstallieren; keine automatische Installation oder Cloud-API.'
+    throw 'Mindestens ein lokales Python-Paket fehlt. Der Traceback oben zeigt, welches. Keine automatische Installation oder Cloud-API.'
 }
+Write-Host 'GPU-Python-Abhaengigkeiten vorhanden.' -ForegroundColor Green
 $env:HF_HUB_OFFLINE = '1'
 $env:TRANSFORMERS_OFFLINE = '1'
 $env:HF_DATASETS_OFFLINE = '1'
