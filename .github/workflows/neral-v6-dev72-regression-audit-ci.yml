@@ -1,0 +1,33 @@
+name: NERAL v6 dev72 regression audit (CPU contracts)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v6_dev72_regression_audit.py'
+      - 'tests/test_neral_v6_dev72_regression_audit.py'
+      - '.github/workflows/neral-v6-dev72-regression-audit-ci.yml'
+      - '.github/workflows/neral-v6-dev72-regression-cpu-manual.yml'
+      - 'docs/NERAL_V6_DEV72_REGRESSION_TRIAGE.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v6_dev72_regression_audit.py'
+      - 'tests/test_neral_v6_dev72_regression_audit.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test original score preserved, diagnostic extraction and private-only samples
+        run: python -m unittest discover -s tests -p test_neral_v6_dev72_regression_audit.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_v6_dev72_regression_audit.py
