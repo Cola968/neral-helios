@@ -136,6 +136,59 @@ class ExtRunTests(unittest.TestCase):
         self.assertIsNone(report["quantitative_A_B"]["gap_percentage_points"])
         self.assertEqual(report["python_A_B"]["total"], 2)
 
+    def test_duplicate_tasks_are_counted_without_exporting_case_data(self):
+        cases = [
+            {"id": "A-private-1", "domain": "math", "kind": "integer",
+             "prompt": "Calculate seven.", "answer": "7"},
+            {"id": "B-private-1", "domain": "math", "kind": "integer",
+             "prompt": " CALCULATE   seven.\n", "answer": "7"},
+            {"id": "B-private-2", "domain": "math", "kind": "integer",
+             "prompt": "Unique task.", "answer": "8"},
+            {"id": "B-private-3", "domain": "math", "kind": "integer",
+             "prompt": "\tUnique task.  ", "answer": "8"},
+        ]
+        meta = [{"id": c["id"], "stratum": c["id"][0]} for c in cases]
+        wrong = {c["id"]: {"text": "0", "complete": True} for c in cases}
+        right = {c["id"]: {"text": c["answer"], "complete": True} for c in cases}
+        report = combine_scores(
+            cases, meta, wrong, wrong, right,
+            case_sha="a" * 64, base_revision="b" * 40, adapter_sha="c" * 64)
+
+        clusters = report["task_clusters"]
+        self.assertEqual(clusters["normalization"], "casefold_whitespace")
+        self.assertEqual(clusters["overall"], {
+            "total_cases": 4, "distinct_tasks": 2, "duplicate_extra_cases": 2,
+            "repeated_clusters": 2, "max_multiplicity": 2,
+        })
+        self.assertEqual(clusters["per_stratum"]["A"]["distinct_tasks"], 1)
+        self.assertEqual(clusters["per_stratum"]["B"]["distinct_tasks"], 2)
+        self.assertEqual(clusters["per_stratum"]["B"]["duplicate_extra_cases"], 1)
+        self.assertEqual(clusters["per_stratum"]["C"]["max_multiplicity"], 0)
+        paired = report["overall"]["paired_fewshot_vs_neral"]
+        self.assertEqual(paired["improvements"], 4)  # Existing row scores stay intact.
+        self.assertEqual(paired["exact_mcnemar_p"], 0.125)
+        self.assertEqual(paired["independence"], "duplicate_tasks_not_independent")
+        self.assertTrue(paired["exploratory"])
+        self.assertFalse(paired["significance_claim_allowed"])
+        self.assertEqual(report["quantitative_A_B"]["paired"]["independence"],
+                         "duplicate_tasks_not_independent")
+        self.assertFalse(report["significance_claim_allowed"])
+        exported = json.dumps(report)
+        for case in cases:
+            self.assertNotIn(case["id"], exported)
+            self.assertNotIn(case["prompt"], exported)
+
+    def test_distinct_tasks_do_not_prove_independence(self):
+        responses = {c["id"]: {"text": c["answer"], "complete": True} for c in CASES}
+        report = combine_scores(
+            CASES, META, responses, responses, responses,
+            case_sha="a" * 64, base_revision="b" * 40, adapter_sha="c" * 64)
+        self.assertEqual(report["task_clusters"]["overall"]["distinct_tasks"], 4)
+        paired = report["overall"]["paired_fewshot_vs_neral"]
+        self.assertEqual(paired["independence"], "unverified")
+        self.assertTrue(paired["exploratory"])
+        self.assertFalse(paired["significance_claim_allowed"])
+
     def test_unmatched_manifest_ids_are_rejected(self):
         with self.assertRaises(ValueError):
             combine_scores(CASES, META[:-1], {}, {}, {},

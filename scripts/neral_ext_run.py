@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -104,6 +105,25 @@ def _statistics(cases: list[dict], scored: dict, responses: dict) -> dict:
     }
 
 
+def _task_cluster_stats(cases: list[dict]) -> dict:
+    """Count repeated target inputs locally; export no inputs, IDs or hashes.
+
+    Matching ignores case and whitespace only. Different texts can still share
+    an underlying problem, so distinct strings do not establish independence.
+    """
+    counts = Counter(
+        " ".join(build_messages(case, "base")[-1]["content"].casefold().split())
+        for case in cases
+    )
+    return {
+        "total_cases": len(cases),
+        "distinct_tasks": len(counts),
+        "duplicate_extra_cases": len(cases) - len(counts),
+        "repeated_clusters": sum(count > 1 for count in counts.values()),
+        "max_multiplicity": max(counts.values(), default=0),
+    }
+
+
 def combine_scores(cases: list[dict], meta: list[dict], base: dict, few: dict, neral: dict,
                    *, case_sha: str, base_revision: str, adapter_sha: str) -> dict:
     """Aggregate three aligned evaluations. Never publish raw responses or prompts."""
@@ -125,6 +145,7 @@ def combine_scores(cases: list[dict], meta: list[dict], base: dict, few: dict, n
     def subset(chunk: list[dict]) -> dict:
         stats = {name: _statistics(chunk, results[name], responses[name])
                  for name in results}
+        clusters = _task_cluster_stats(chunk)
         improved = sum(results["base_fewshot"][c["id"]]["semantic"] != "correct"
                        and results["neral_v5"][c["id"]]["semantic"] == "correct"
                        for c in chunk)
@@ -134,7 +155,11 @@ def combine_scores(cases: list[dict], meta: list[dict], base: dict, few: dict, n
         return {**stats, "paired_fewshot_vs_neral": {
             "improvements": improved, "regressions": regressions,
             "net_gain": improved - regressions,
-            "exact_mcnemar_p": _mcnemar(improved, regressions)}}
+            "exact_mcnemar_p": _mcnemar(improved, regressions),
+            "independence": ("duplicate_tasks_not_independent"
+                             if clusters["duplicate_extra_cases"] else "unverified"),
+            "exploratory": True,
+            "significance_claim_allowed": False}}
 
     full = subset(cases)
     strata = {part: subset([c for c in cases if label[c["id"]] == part])
@@ -172,6 +197,13 @@ def combine_scores(cases: list[dict], meta: list[dict], base: dict, few: dict, n
         "total": len(cases), "case_sha256": case_sha,
         "base_revision": base_revision, "adapter_sha256": adapter_sha,
         "overall": full, "strata": strata,
+        "task_clusters": {
+            "normalization": "casefold_whitespace",
+            "overall": _task_cluster_stats(cases),
+            "per_stratum": {part: _task_cluster_stats(
+                [c for c in cases if label[c["id"]] == part]) for part in "ABCD"},
+        },
+        "significance_claim_allowed": False,
         "format_adjusted_gap_A_B": round(gap, 4),
         "format_adjusted_gap_A_B_legacy_denominator": len(transfer),
         "quantitative_A_B": numeric_report,
