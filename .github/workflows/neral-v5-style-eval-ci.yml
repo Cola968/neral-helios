@@ -4,6 +4,8 @@ on:
     paths:
       - 'scripts/neral_v5_style_eval.py'
       - 'tests/test_neral_v5_style_eval.py'
+      - 'tests/test_neral_v5_gpu_wait.py'
+      - 'scripts/neral_v5_gpu_wait.py'
       - '.github/workflows/neral-v5-style-eval.yml'
       - '.github/workflows/neral-v5-style-eval-ci.yml'
   push:
@@ -23,6 +25,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -p test_neral_v5_style_eval.py -v
-      - run: python -m compileall -q scripts/neral_v5_style_eval.py
+      - run: python -m unittest discover -s tests -p test_neral_v5_gpu_wait.py -v
+      - run: python -m compileall -q scripts/neral_v5_style_eval.py scripts/neral_v5_gpu_wait.py
       - name: Static security lint of manual GPU-only workflow
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -ignore 'label "neral-gpu" is unknown' .github/workflows/neral-v5-style-eval.yml
