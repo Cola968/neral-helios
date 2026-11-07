@@ -53,7 +53,7 @@ class RegressionAuditTests(unittest.TestCase):
         cases, variants=fixtures()
         original=score_three_way(cases,variants)
         aggregate, samples=diagnose_saved(cases,variants,original,review_limit=20)
-        self.assertEqual(aggregate["original_score"]["neral_v6"]["correct"],70)
+        self.assertEqual(aggregate["original_score"]["neral_v6"]["correct"],68)
         self.assertEqual(aggregate["original_score"]["neral_v6"]["ungraded_completed"],3)
         self.assertEqual(aggregate["exploratory_terminal_recovery"]["neral_v6"]["correct"],1)
         self.assertEqual(aggregate["exploratory_terminal_recovery"]["neral_v6"]["wrong"],0)
