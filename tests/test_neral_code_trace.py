@@ -24,7 +24,7 @@ d['red'] = 18
 d['green'] = 3
 print(sum(d.values()))""", 32),
             ("""text = 'abcabacaba'
-print(text[::2].count('a'))""", 4),
+print(text[::2].count('a'))""", 1),
             ("""hits = 0
 for x in range(1, 7):
     for y in range(2, 9):
@@ -119,7 +119,7 @@ print(n)""", 13),
         self.assertEqual(out["final_answer"],"7")
         self.assertEqual(out["verification_status"],"tool_fallback")
         self.assertEqual(out["verification_method"],"bounded_python_ast_trace")
-        self.assertEqual(out["tool_used"],"neral_math_exact")
+        self.assertEqual(out["tool_used"],"neral_code_trace_safe")
         self.assertEqual(out["calls_used"],2)
 
     def test_think_correct_model_answer_is_verified_without_extra_call(self):
