@@ -84,6 +84,58 @@ class ExtRunTests(unittest.TestCase):
         for token in ("Wie viel", "Wetter", "Write a function", "text", "prompt"):
             self.assertNotIn(token, json.dumps(score))
 
+
+    def test_quantitative_transfer_gap_excludes_ungraded_python_cases(self):
+        cases = [
+            {"id": "A-num", "domain": "math", "kind": "integer",
+             "prompt": "Find the integer.", "answer": "7"},
+            {"id": "A-code", "domain": "code", "kind": "python",
+             "prompt": "Implement the function.", "answer": "def f(): return 1"},
+            {"id": "B-eur", "domain": "money", "kind": "eur",
+             "prompt": "Convert cents to euros.", "answer": "1,05 EUR"},
+            {"id": "C-code", "domain": "code", "kind": "python",
+             "prompt": "Add the return.", "answer": "def g(): return 1"},
+            {"id": "D-num", "domain": "math", "kind": "integer",
+             "prompt": "Find the integer again.", "answer": "4"},
+        ]
+        meta = [{"id": c["id"], "stratum": c["id"][0]} for c in cases]
+        base = {c["id"]: {"text": "?", "complete": True} for c in cases}
+        few = {c["id"]: {"text": c["answer"], "complete": True} for c in cases}
+        candidate = {c["id"]: {"text": c["answer"], "complete": True} for c in cases}
+        candidate["A-num"]["text"] = "8"
+
+        report = combine_scores(
+            cases, meta, base, few, candidate,
+            case_sha="a" * 64, base_revision="b" * 40, adapter_sha="c" * 64)
+        numeric = report["quantitative_A_B"]
+        self.assertEqual(numeric["total"], 2)
+        self.assertEqual(numeric["base_fewshot_correct"], 2)
+        self.assertEqual(numeric["neral_v5_correct"], 1)
+        self.assertEqual(numeric["gap_percentage_points"], -50.0)
+        self.assertEqual(numeric["paired"]["regressions"], 1)
+        self.assertEqual(report["python_A_B"]["total"], 1)
+        self.assertIs(report["python_A_B"]["functional_correctness_evaluated"], False)
+        self.assertEqual(report["python_A_B"]["verified_correct"], None)
+        self.assertEqual(report["format_adjusted_gap_A_B"], -33.3333)
+        self.assertNotIn("Implement the function.", json.dumps(report))
+
+    def test_no_numeric_transfer_cases_is_unscored_not_zero_gap(self):
+        cases = [
+            {"id": "A-code", "domain": "code", "kind": "python",
+             "prompt": "Implement.", "answer": "def f(): return 1"},
+            {"id": "B-code", "domain": "code", "kind": "python",
+             "prompt": "Implement too.", "answer": "def g(): return 1"},
+        ]
+        meta = [{"id": c["id"], "stratum": c["id"][0]} for c in cases]
+        responses = {c["id"]: {"text": c["answer"], "complete": True}
+                     for c in cases}
+        report = combine_scores(
+            cases, meta, responses, responses, responses,
+            case_sha="a" * 64, base_revision="b" * 40, adapter_sha="c" * 64)
+        self.assertEqual(report["quantitative_A_B"]["total"], 0)
+        self.assertIsNone(report["quantitative_A_B"]["gap_percentage_points"])
+        self.assertEqual(report["python_A_B"]["total"], 2)
+
     def test_unmatched_manifest_ids_are_rejected(self):
         with self.assertRaises(ValueError):
             combine_scores(CASES, META[:-1], {}, {}, {},
