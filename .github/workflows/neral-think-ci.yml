@@ -1,0 +1,34 @@
+name: NERAL THINK CPU contracts (offline)
+
+on:
+  pull_request:
+    paths:
+      - 'neral_think.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_think.py'
+      - 'tests/test_neral_think_api.py'
+      - '.github/workflows/neral-think-ci.yml'
+  push:
+    paths:
+      - 'neral_think.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_think.py'
+      - 'tests/test_neral_think_api.py'
+      - '.github/workflows/neral-think-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cpu_think:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run pure CPU THINK contract tests
+        run: python -m unittest discover -s tests -p test_neral_think.py -v
+      - name: Check module syntax
+        run: python -m py_compile neral_think.py
