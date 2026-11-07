@@ -1,0 +1,93 @@
+name: NERAL v5 local error audit (read-only CPU on GPU runner)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v5_error_audit.py'
+      - 'tests/test_neral_v5_error_audit.py'
+      - '.github/workflows/neral-v5-local-error-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  audit_saved_results:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify saved 320-case run and audit response classes offline
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Saved NERAL Python missing'}
+          Push-Location $control
+          try {
+            & $py -B -m unittest discover -s tests -p test_neral_v5_error_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU error diagnosis contracts failed'}
+            $run=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+            $saved=Join-Path $run 'style-eval-42383240688-1'
+            $previous=Join-Path $saved 'summary\summary.json'
+            if(-not(Test-Path -LiteralPath $previous -PathType Leaf)){
+              throw 'Original sealed local A/B report not found: never rerun GPU without manual approval'
+            }
+            $old=Get-Content -LiteralPath $previous -Raw | ConvertFrom-Json
+            if($old.status -ne 'NERAL_V5_STYLE_DISJOINT_IN_DISTRIBUTION_HOLDOUT' -or
+               $old.total -ne 320 -or $old.base.correct -ne 32 -or $old.neral_v5.correct -ne 91 -or
+               $old.adapter_sha256 -notmatch '^[a-f0-9]{64}$' -or
+               $old.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242'){
+              throw 'Saved paired benchmark has unexpected provenance or counts'
+            }
+            $folder=Join-Path $control 'v5_error_scalar'
+            if(Test-Path -LiteralPath $folder){throw 'Do not overwrite audit output'}
+            New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+            & $py -B -m scripts.neral_v5_error_audit --saved $saved --adapter-sha $old.adapter_sha256 --out (Join-Path $folder 'summary.json')
+            if($LASTEXITCODE -ne 0){throw 'Error audit failed; nothing is published'}
+          } finally {Pop-Location}
+      - name: Fail closed on non-scalar output
+        id: approve
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'control\v5_error_scalar'
+          $files=@(Get-ChildItem -LiteralPath $root -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 12000){
+            throw 'Only a small scalar JSON report may leave the Windows runner'
+          }
+          $report=Get-Content -LiteralPath $files[0].FullName -Raw | ConvertFrom-Json
+          $keys=@($report.PSObject.Properties.Name)
+          $allow=@('schema','status','total','base','neral_v5','per_category','paired','case_hash','base_revision','adapter_sha256','independent_external_benchmark','general_improvement_proven','release_validated','limitations')
+          if($keys.Count -ne $allow.Count -or @($keys|Where-Object{$_ -notin $allow}).Count -ne 0 -or
+             $report.status -ne 'NERAL_V5_LOCAL_ERROR_AUDIT' -or $report.total -ne 320 -or
+             $report.independent_external_benchmark -ne $false -or
+             $report.general_improvement_proven -ne $false -or $report.release_validated -ne $false -or
+             $report.adapter_sha256 -notmatch '^[a-f0-9]{64}$'){
+            throw 'Unexpected diagnostic schema'
+          }
+          $raw=Get-Content -LiteralPath $files[0].FullName -Raw
+          foreach($bad in @('local_raw','answer_sha256','"prompt"','"completion"')){
+            if($raw.Contains($bad)){throw 'Private text-related field in scalar output'}
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Export only aggregate counts
+        if: success() && steps.approve.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v5-local-error-audit
+          path: control/v5_error_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
