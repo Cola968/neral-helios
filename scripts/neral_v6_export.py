@@ -40,6 +40,10 @@ def _expected(source: Path) -> tuple[dict[str, bytes], dict]:
     actual_manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
     if actual_manifest != manifest or actual_manifest.get("training_allowed") is not False:
         raise ValueError("Untrusted candidate manifest")
+    generator_path = Path(__file__).with_name("neral_v6_compositional.py")
+    if generator_path.is_symlink() or not generator_path.is_file():
+        raise ValueError("Untrusted generator source")
+    generator_sha = _digest(generator_path.read_bytes())
     outputs = {}
     revisions = {}
     for split in ("train", "validation"):
@@ -67,7 +71,7 @@ def _expected(source: Path) -> tuple[dict[str, bytes], dict]:
         outputs[split + ".jsonl"] = raw
         outputs[split + ".review.json"] = _encoded({
             "schema": 1, "rows": review_rows, "dataset_sha256": _digest(raw),
-            "source_sha256": manifest["sha256"][split],
+            "sources": {"scripts/neral_v6_compositional.py": generator_sha},
             "reviewer": "CPU-oracle only; no human approval",
             "training_allowed": False,
         })
@@ -77,6 +81,7 @@ def _expected(source: Path) -> tuple[dict[str, bytes], dict]:
         "rows": {"train": 600, "validation": 100},
         "holdout_rows_excluded": 100,
         "data_sha256": revisions,
+        "generator_sha256": generator_sha,
         "training_allowed": False,
         "human_quality_reviewed": False,
         "tokenizer_verified": False,
