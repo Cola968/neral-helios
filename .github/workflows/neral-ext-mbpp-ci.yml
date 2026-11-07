@@ -1,0 +1,31 @@
+name: NERAL-EXT MBPP isolated grader CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_ext_mbpp_grader.py'
+      - 'tests/test_neral_ext_mbpp_grader.py'
+      - 'tests/test_neral_ext_mbpp_workflow.py'
+      - '.github/workflows/neral-ext-mbpp-ci.yml'
+      - '.github/workflows/neral-ext-mbpp-cpu-manual.yml'
+  push:
+    paths:
+      - 'scripts/neral_ext_mbpp_grader.py'
+      - 'tests/test_neral_ext_mbpp_grader.py'
+      - 'tests/test_neral_ext_mbpp_workflow.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test sandbox security and MBPP correctness contracts
+        run: python -m unittest discover -s tests -p test_neral_ext_mbpp_grader.py -v
+      - name: Verify protected manual workflow contracts
+        run: python -m unittest discover -s tests -p test_neral_ext_mbpp_workflow.py -v
+      - name: Compile module
+        run: python -m py_compile scripts/neral_ext_mbpp_grader.py

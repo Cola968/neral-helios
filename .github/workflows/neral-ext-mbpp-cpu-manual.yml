@@ -1,0 +1,103 @@
+name: NERAL-EXT MBPP Docker CPU-only replay (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Explicit read-only CPU replay: AUDIT_NERAL_EXT_MBPP_DOCKER_CPU_ONLY'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  mbpp:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_EXT_MBPP_DOCKER_CPU_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify sealed original 400-case research files and Docker image
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+          $saved=Join-Path $root 'ext-400-42395097203-1'
+          $data=Join-Path $saved 'dataset'
+          $cases=Join-Path $data 'neral-ext-400.jsonl'
+          $manifest=Join-Path $data 'neral-ext-400-manifest.json'
+          $previous=Join-Path $saved 'summary-local.json'
+          $hash='47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1'
+          $adapter='2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5'
+          $files=@($cases,$manifest,$previous,(Join-Path $saved 'base.jsonl'),(Join-Path $saved 'base_fewshot.jsonl'),(Join-Path $saved 'neral_v5.jsonl'))
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          foreach($item in $files){if(-not(Test-Path -LiteralPath $item -PathType Leaf)){throw 'Original private 400-case response missing'}}
+          if((Get-FileHash -Algorithm SHA256 -LiteralPath $cases).Hash.ToLowerInvariant() -ne $hash){throw 'Pinned 400-case dataset SHA mismatch'}
+          $old=Get-Content -LiteralPath $previous -Raw|ConvertFrom-Json
+          if($old.case_sha256 -ne $hash -or $old.adapter_sha256 -ne $adapter -or $old.total -ne 400 -or $old.release_validated -ne $false){throw 'Untrusted original result'}
+          & docker image inspect python:3.11-alpine 1>$null
+          if($LASTEXITCODE -ne 0){throw 'Preinstalled Docker image missing; NEVER execute on Windows host'}
+          & docker version --format '{{.Server.Version}}' 1>$null
+          if($LASTEXITCODE -ne 0){throw 'Docker engine not running'}
+          $target=Join-Path $root "ext-400-mbpp-cpu-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $target){throw 'Refuse overwrite'}
+          New-Item -ItemType Directory -Path $target -ErrorAction Stop|Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "MBPP_PY=$py"+[Environment]::NewLine+
+            "MBPP_CONTROL=$control"+[Environment]::NewLine+
+            "MBPP_SAVED=$saved"+[Environment]::NewLine+
+            "MBPP_TARGET=$target"+[Environment]::NewLine+
+            "MBPP_CASE_SHA=$hash"+[Environment]::NewLine+
+            "MBPP_ADAPTER_SHA=$adapter"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Run existing saved MBPP answers inside isolated Docker only
+        run: |
+          $ErrorActionPreference='Stop'
+          $saved=$env:MBPP_SAVED
+          $target=$env:MBPP_TARGET
+          Push-Location $env:MBPP_CONTROL
+          try {
+            & $env:MBPP_PY -B -m unittest discover -s tests -p test_neral_ext_mbpp_grader.py -v
+            if($LASTEXITCODE -ne 0){throw 'MBPP scorer contract tests failed'}
+            & $env:MBPP_PY -B -m unittest discover -s tests -p test_neral_ext_mbpp_workflow.py -v
+            if($LASTEXITCODE -ne 0){throw 'MBPP workflow contract tests failed'}
+            & $env:MBPP_PY -B -m scripts.neral_ext_mbpp_grader --cases (Join-Path $saved 'dataset\neral-ext-400.jsonl') --case-sha256 $env:MBPP_CASE_SHA --manifest (Join-Path $saved 'dataset\neral-ext-400-manifest.json') --base (Join-Path $saved 'base.jsonl') --fewshot (Join-Path $saved 'base_fewshot.jsonl') --neral (Join-Path $saved 'neral_v5.jsonl') --adapter-sha256 $env:MBPP_ADAPTER_SHA --out (Join-Path $target 'mbpp-summary.json')
+            if($LASTEXITCODE -ne 0){throw 'MBPP local Docker scoring failed'}
+          } finally {Pop-Location}
+          $summary=Get-Content -LiteralPath (Join-Path $target 'mbpp-summary.json') -Raw|ConvertFrom-Json
+          if($summary.status -ne 'NERAL_EXT_MBPP_FUNCTIONAL_DIAGNOSTIC' -or $summary.python_cases -ne 50 -or $summary.case_sha256 -ne $env:MBPP_CASE_SHA -or $summary.adapter_sha256 -ne $env:MBPP_ADAPTER_SHA -or $summary.release_validated -ne $false -or $summary.general_improvement_proven -ne $false -or $summary.model_inference -ne $false){throw 'Untrusted scalar output'}
+          foreach($name in @('base','base_fewshot','neral_v5')){
+            $row=$summary.by_variant.$name
+            if($row.total -ne 50 -or $row.unavailable -ne 0 -or $row.scoring_complete -ne $true){throw "MBPP $name: sandbox unavailable or scoring incomplete"}
+          }
+          $public=Join-Path $env:MBPP_CONTROL 'mbpp_scalar'
+          if(Test-Path $public){throw 'Unexpected prior export'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $target 'mbpp-summary.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_EXT_MBPP_SCALAR_ONLY: private Python source remains on original Windows runner'
+      - name: Upload scalar MBPP counts only
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-ext-mbpp-functional-scalar-only
+          path: control/mbpp_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
