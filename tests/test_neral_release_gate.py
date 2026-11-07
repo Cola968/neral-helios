@@ -82,6 +82,8 @@ class ReleaseGateContract(unittest.TestCase):
         self.assertEqual(report["total"], 600)
         self.assertEqual(report["paired"]["improvements"], 120)
         self.assertEqual(report["paired"]["regressions"], 0)
+        self.assertTrue(report["gate_checks"]["family_cluster_bootstrap_lower_positive"])
+        self.assertGreater(report["paired"]["domain_cluster_bootstrap_95_ci_pp"][0], 0)
         self.assertAlmostEqual(report["paired"]["gap_pp"], 20.0)
         self.assertEqual(set(report["by_domain"]), set(DOMAINS))
         self.assertEqual(report["by_domain"]["math"]["neral_strict_correct"], 40)
