@@ -1,0 +1,33 @@
+name: NERAL verified reasoning training candidate
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_reasoning_train_candidate.py'
+      - 'tests/test_neral_reasoning_train_candidate.py'
+      - 'docs/NERAL_REASONING_TRAIN_CANDIDATE.md'
+      - '.github/workflows/neral-reasoning-candidate-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_reasoning_train_candidate.py'
+      - 'tests/test_neral_reasoning_train_candidate.py'
+      - '.github/workflows/neral-reasoning-candidate-ci.yml'
+permissions:
+  contents: read
+jobs:
+  independent-oracles:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify arithmetic traces and adversarial mutations without a model
+        run: python -m unittest discover -s tests -p 'test_neral_reasoning_train_candidate.py' -v
+      - name: Compile candidate builder
+        run: python -m py_compile scripts/neral_reasoning_train_candidate.py
