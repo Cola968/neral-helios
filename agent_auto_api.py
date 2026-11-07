@@ -8,36 +8,55 @@ from agent_mode import AgentError
 from neral_agent_autonomy import AutonomousAgent, OllamaLocalBackend, AgentModelError
 
 
+def resolve_local_adapter_paths(home: Path, env) -> tuple[Path, Path, bool]:
+    """Select only preexisting local weights. v5 is an explicit experimental opt-in."""
+    channel=env.get("NERAL_AGENT_ADAPTER_CHANNEL","legacy")
+    if channel not in ("legacy","v5"):
+        raise ValueError("Unbekannter NERAL-Adapterkanal.")
+    for name in ("NERAL_AGENT_BASE_PATH","NERAL_AGENT_ADAPTER_PATH"):
+        if name in env and (not isinstance(env[name],str) or not env[name].strip()):
+            raise ValueError("Leerer lokaler Modellpfad.")
+    base=Path(env.get("NERAL_AGENT_BASE_PATH") or
+              (home/".cache"/"neral"/"qwen25-smoke"/
+               "c03e6d358207e414f1eca0bb1891e29f1db0e242"/
+               "installed_models"/"hf-qwen25-coder-7b"))
+    adapter_name=("v5-r16-480-42378021782-1" if channel=="v5"
+                  else "actions-r32-42078722575-1")
+    adapter=Path(env.get("NERAL_AGENT_ADAPTER_PATH") or
+                 (home/"NERAL-QLoRA-Research"/adapter_name/"adapter"))
+    return base,adapter,(channel=="v5")
+
+
 def register_autonomous_agent_api(app, workspace, backend=None):
     name = os.environ.get("NERAL_AGENT_OLLAMA_MODEL", "qwen3.5:9b")
     if backend is None:
         engine = os.environ.get("NERAL_AGENT_BACKEND", "auto")
         if engine == "auto":
-            home = Path.home()
-            base = Path(os.environ.get("NERAL_AGENT_BASE_PATH") or
-                        (home / ".cache" / "neral" / "qwen25-smoke" /
-                         "c03e6d358207e414f1eca0bb1891e29f1db0e242" /
-                         "installed_models" / "hf-qwen25-coder-7b"))
-            adapter = Path(os.environ.get("NERAL_AGENT_ADAPTER_PATH") or
-                           (home / "NERAL-QLoRA-Research" / "actions-r32-42078722575-1" / "adapter"))
-            if base.is_dir() and (adapter / "adapter_model.safetensors").is_file():
+            base,adapter,explicit_v5=resolve_local_adapter_paths(Path.home(),os.environ)
+            if explicit_v5:
+                # A user explicitly requested v5. Never mislabel Ollama as v5 on failure.
+                if not base.is_dir() or not (adapter/"adapter_model.safetensors").is_file():
+                    raise ValueError("NERAL v5 ist lokal nicht vollständig vorhanden.")
+                from neral_agent_hf import HFAdapterLocalBackend
+                backend=HFAdapterLocalBackend(base,adapter)
+            elif base.is_dir() and (adapter/"adapter_model.safetensors").is_file():
                 from neral_agent_hf import HFAdapterLocalBackend
                 try:
                     backend = HFAdapterLocalBackend(base, adapter)
                 except (AgentModelError, OSError, ValueError):
-                    # Auto mode must not prevent the existing local Helios app
-                    # from booting if experimental adapter files are invalid.
-                    # Provenance will truthfully show foundation-only Ollama.
+                    # Preserve the previous legacy-auto Ollama fallback.
                     backend = OllamaLocalBackend(name)
             else:
                 backend = OllamaLocalBackend(name)
         elif engine == "hf_adapter":
             from neral_agent_hf import HFAdapterLocalBackend
-            base = os.environ.get("NERAL_AGENT_BASE_PATH")
-            adapter = os.environ.get("NERAL_AGENT_ADAPTER_PATH")
-            if not base or not adapter:
-                # Do not silently switch models when a trained adapter is requested.
-                raise ValueError("Für HF-Adapter sind lokale Modellpfade erforderlich.")
+            if os.environ.get("NERAL_AGENT_ADAPTER_CHANNEL")=="v5":
+                base,adapter,_=resolve_local_adapter_paths(Path.home(),os.environ)
+            else:
+                base = os.environ.get("NERAL_AGENT_BASE_PATH")
+                adapter = os.environ.get("NERAL_AGENT_ADAPTER_PATH")
+                if not base or not adapter:
+                    raise ValueError("Für HF-Adapter sind lokale Modellpfade erforderlich.")
             backend = HFAdapterLocalBackend(base, adapter)
         elif engine == "ollama":
             backend = OllamaLocalBackend(name)
