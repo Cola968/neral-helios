@@ -180,7 +180,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
     if not callable(respond) or type(max_seconds) is not int or not 1 <= max_seconds <= 300:
         raise ThinkInputError("Ungültiger lokaler THINK-Modus.")
     initial = clock()
-    oracle = trusted_math_question(messages[-1]["content"])
+    # Never override an ongoing conversation with a one-turn math oracle.
+    oracle = trusted_math_question(messages[-1]["content"]) if len(messages) == 2 else None
     turns = [dict(row) for row in messages]
     turns[0]["content"] += _THINK_SUFFIX
 
