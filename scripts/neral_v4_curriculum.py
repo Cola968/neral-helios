@@ -78,7 +78,9 @@ def make_case(category: str, style: int, index: int, seed: int = SEED) -> dict:
             or type(seed) is not int or not 0 <= seed <= 2**63-1):
         raise ValueError("Invalid example coordinates")
     rng = _rng(seed, category, style, index)
-    # One independent numerical coordinate per template slot prevents\n    # accidental duplicate prompts in otherwise random synthetic families.\n    if category == "linear":
+    # One independent numerical coordinate per template slot prevents
+    # accidental duplicate prompts in otherwise random synthetic families.
+    if category == "linear":
         a, x, b = index+2, rng.randint(-50,50), rng.randint(-90,90)
         rhs = a*x+b
         task = f"Bestimme x: {a}x {_signed(b)} = {rhs}."
