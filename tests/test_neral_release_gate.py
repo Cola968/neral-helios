@@ -40,17 +40,26 @@ class ReleaseGateContract(unittest.TestCase):
                 exact_mcnemar_p(*invalid)
 
     def test_newcombe_is_paired_and_has_correct_direction(self):
-        lower, upper = paired_newcombe_ci(60, 0, 600)
+        lower, upper = paired_newcombe_ci(60, 0, 600, both_correct=0)
         self.assertGreater(lower, 0)
         self.assertLess(lower, upper)
-        low2, high2 = paired_newcombe_ci(0, 60, 600)
+        low2, high2 = paired_newcombe_ci(0, 60, 600, both_correct=0)
         self.assertAlmostEqual(lower, -high2)
         self.assertAlmostEqual(upper, -low2)
-        tie_lower, tie_upper = paired_newcombe_ci(0, 0, 600)
+        tie_lower, tie_upper = paired_newcombe_ci(0, 0, 600, both_correct=0)
         self.assertLessEqual(tie_lower, 0)
         self.assertGreaterEqual(tie_upper, 0)
         with self.assertRaises(ValueError):
-            paired_newcombe_ci(20, 20, 30)
+            paired_newcombe_ci(20, 20, 30, both_correct=0)
+
+    def test_paired_newcombe_method10_uses_corrected_phi_and_marginals(self):
+        # Independent hand calculation: a=180 both correct, b=100 NERAL only,
+        # c=52 Qwen only, d=268 both incorrect, n=600.
+        lo, hi = paired_newcombe_ci(100, 52, 600, both_correct=180)
+        self.assertAlmostEqual(lo, 0.03997911306656971, places=12)
+        self.assertAlmostEqual(hi, 0.11953936105670329, places=12)
+        with self.assertRaises(ValueError):
+            paired_newcombe_ci(100, 52, 600, both_correct=500)
 
     def test_stratified_cluster_bootstrap_deterministic_and_family_aware(self):
         rows = samples(600, 35)
