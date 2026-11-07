@@ -1,0 +1,80 @@
+name: NERAL v6 dev72 regression root-cause CPU-only (manual, private raw)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only CPU diagnostic: AUDIT_NERAL_V6_DEV72_REGRESSION_READONLY'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_V6_DEV72_REGRESSION_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Audit 72 stored answers on CPU; never load model weights or publish raw outputs
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $source=Join-Path $research 'v6-new-dev72-42409458549-1'
+          $folder=Join-Path $research "v6-dev72-regression-audit-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $source -PathType Container) -or
+             (Test-Path -LiteralPath $folder)){
+            throw 'Historical saved 72-case source or Python missing; never overwrite existing audit'
+          }
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v6_dev72_regression_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU verifier tests failed'}
+            & $py -B -m scripts.neral_v6_dev72_regression_audit --run-dir $source --out-scalar (Join-Path $folder 'scalar.json') --out-private (Join-Path $folder '20-private-samples-per-model.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'Original answer audit did not complete'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath (Join-Path $folder 'scalar.json') -Raw|ConvertFrom-Json
+          if($report.status -ne 'NERAL_V6_DEV72_CPU_POSTHOC_AUDIT' -or
+             $report.total -ne 72 -or
+             $report.original_score.qwen_fewshot.correct -ne 29 -or
+             $report.original_score.neral_v5.correct -ne 24 -or
+             $report.original_score.neral_v6.correct -ne 21 -or
+             $report.original_score.neral_v5.ungraded_completed -ne 7 -or
+             $report.original_score.neral_v6.ungraded_completed -ne 19 -or
+             $report.sample_count_per_variant.neral_v6 -ne 20 -or
+             $report.release_validated -ne $false -or
+             $report.actual_generalization_improved -ne $false){
+            throw 'Reject changed historical source or false results'
+          }
+          $public=Join-Path $control 'v6_dev72_regression_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Public scalar path already exists'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $folder 'scalar.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_V6_DEV72_REGRESSION_CPU_AUDIT_COMPLETE; local private raw review remains on own Windows runner.'
+      - name: Upload scalar counters only – no prompts, model outputs or code
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v6-dev72-regression-cpu-scalar
+          path: control/v6_dev72_regression_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
