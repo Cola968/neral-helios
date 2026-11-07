@@ -1,0 +1,38 @@
+name: NERAL true prompt-parity 6-arm CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_six_arm_gpu.py'
+      - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'tests/test_neral_six_arm_gpu.py'
+      - '.github/workflows/neral-sixarm-live-cpu.yml'
+      - '.github/workflows/neral-sixarm-live-gpu.yml'
+      - 'docs/NERAL_SIXARM_GPU_RUN.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_six_arm_gpu.py'
+      - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'tests/test_neral_six_arm_gpu.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: CPU test genuine six-arm paired-input comparison, existing grader and regression contracts
+        run: |
+          python -m unittest discover -s tests -p test_neral_six_arm_gpu.py -v
+          python -m unittest discover -s tests -p test_neral_six_arm_eval.py -v
+          python -m unittest discover -s tests -p test_neral_v6_fresh_dev_eval.py -v
+      - name: Compile scripts without GPU
+        run: python -m py_compile scripts/neral_six_arm_gpu.py scripts/neral_six_arm_eval.py scripts/neral_v6_fresh_dev_eval.py
