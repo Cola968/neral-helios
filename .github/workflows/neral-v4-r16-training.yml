@@ -175,3 +175,101 @@ jobs:
           path: control/v4_training_scalar/summary.json
           retention-days: 14
           if-no-files-found: error
+
+
+      - name: Compare Qwen base and saved NERAL on 128 novel tasks
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $adapter=Join-Path $env:V4_RUN_ROOT 'adapter'
+          $data=Join-Path $env:V4_RUN_ROOT 'candidate'
+          $evalroot=Join-Path $env:V4_RUN_ROOT 'novel-128'
+          if(Test-Path -LiteralPath $evalroot){throw 'Never overwrite a prior evaluation'}
+          New-Item -ItemType Directory -Path $evalroot -ErrorAction Stop|Out-Null
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v4_novel_eval.py -v
+            if($LASTEXITCODE -ne 0){throw 'Heldout safety contracts failed'}
+            & $py -B -c "from scripts.neral_v4_novel_eval import verify_prompt_isolation;from pathlib import Path;import sys;assert verify_prompt_isolation(Path(sys.argv[1]))" $data
+            if($LASTEXITCODE -ne 0){throw 'Heldout data overlap or source drift'}
+          } finally {Pop-Location}
+          $env:PYTHONPATH=$trainer
+          foreach($variant in @('base','neral_v4')){
+            $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+            if($LASTEXITCODE -ne 0){throw 'No GPU sensor for read-only evaluation'}
+            $fields=($raw|Select-Object -First 1)-split ','
+            if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 9000 -or [int]$fields[1].Trim() -gt 20){
+              throw "GPU busy or under 9000 MiB before $variant"
+            }
+            Push-Location $control
+            try {
+              & $py -B -m scripts.neral_v4_novel_eval --base $env:V4_MODEL --adapter $adapter --trainer-root $trainer --source-root $data --out (Join-Path $evalroot $variant) --variant $variant
+              if($LASTEXITCODE -ne 0){throw "Novel A/B inference failed for $variant"}
+            } finally {Pop-Location}
+          }
+          Push-Location $control
+          try {
+            & $py -B -m scripts.neral_v4_novel_eval --base $env:V4_MODEL --adapter $adapter --trainer-root $trainer --source-root $data --out (Join-Path $evalroot 'summary') --combine
+            if($LASTEXITCODE -ne 0){throw 'Paired 128-case evaluation invalid'}
+          } finally {Pop-Location}
+          $dest=Join-Path $control 'novel_eval_scalar'
+          if(Test-Path -LiteralPath $dest){throw 'Existing summary cannot be overwritten'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $evalroot 'summary\summary.json') -Destination (Join-Path $dest 'summary.json') -ErrorAction Stop
+
+      - name: Verify ONLY paired scalar results are exportable
+        id: novel_guard
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\novel_eval_scalar'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 12000){
+            throw 'Unexpected local results or potential raw model data'
+          }
+          $p=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          $allowed=@('schema','status','total','base','neral_v4','per_category','paired','base_revision','adapter_sha256','case_hash','trained_adapter_evaluated','independent_external_benchmark','general_improvement_proven','release_validated','weights_promoted','limitations')
+          $keys=@($p.PSObject.Properties.Name)
+          $data=Join-Path $env:V4_RUN_ROOT 'adapter\neral-adapter.json'
+          if(-not(Test-Path -LiteralPath $data -PathType Leaf)){exit 0}
+          $manifest=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json
+          if($keys.Count -ne $allowed.Count -or @($keys|Where-Object{$_ -notin $allowed}).Count -ne 0 -or
+             $p.status -ne 'NERAL_V4_NOVEL_REPO_HOLDOUT_DIAGNOSTIC' -or $p.total -ne 128 -or
+             $p.adapter_sha256 -ne $manifest.files.'adapter_model.safetensors' -or
+             $p.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
+             $p.case_hash -notmatch '^[a-f0-9]{64}$' -or
+             $p.release_validated -ne $false -or $p.weights_promoted -ne $false -or
+             $p.general_improvement_proven -ne $false -or $p.independent_external_benchmark -ne $false){
+            throw 'Illegal status, provenance, or unexpected top-level keys'
+          }
+          $cats=@('algebra','fractions','money','timezone','fuel','python_trace','sql','tool')
+          if(@($p.per_category.PSObject.Properties.Name).Count -ne $cats.Count){throw 'Invalid benchmark categories'}
+          $totalBase=0;$totalNew=0
+          foreach($cat in $cats){
+            $row=$p.per_category.$cat
+            if($null -eq $row -or $row.total -ne 16 -or
+               $row.base_correct -lt 0 -or $row.base_correct -gt 16 -or
+               $row.neral_correct -lt 0 -or $row.neral_correct -gt 16 -or
+               $row.net_gain -ne ($row.neral_correct - $row.base_correct)){throw 'Bad per-skill metric'}
+            $totalBase+=$row.base_correct;$totalNew+=$row.neral_correct
+          }
+          if($totalBase -ne $p.base.correct -or $totalNew -ne $p.neral_v4.correct -or
+             $p.paired.net_gain -ne ($totalNew-$totalBase) -or
+             $p.paired.discordant -ne ($p.paired.improvements+$p.paired.regressions) -or
+             $p.paired.exact_mcnemar_p -lt 0 -or $p.paired.exact_mcnemar_p -gt 1){
+            throw 'Paired total inconsistent with domain outcomes'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+
+      - name: Upload novel-128-paired-scores without model responses
+        if: always() && steps.novel_guard.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v4-novel-128-paired-scores
+          path: control/novel_eval_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
