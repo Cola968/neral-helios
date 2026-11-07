@@ -69,16 +69,24 @@ jobs:
           $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
           $sha=(Get-FileHash -LiteralPath (Join-Path $v61 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
           $v5sha=(Get-FileHash -LiteralPath (Join-Path $v5 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($report.status -ne 'NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL' -or
-             $report.steps_completed -ne 120 -or $report.train_rows -ne 800 -or
-             $report.validation_rows -ne 140 -or
-             $report.source_counts.v5_train_replay -ne 560 -or
-             $report.source_counts.v6_train_multistep -ne 240 -or
-             $report.candidate_adapter_sha256 -ne $sha -or
-             $v5sha -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d' -or
-             $report.release_validated -ne $false -or $report.adapter_promoted -ne $false){
-            throw 'Wrong original v5 or experimental v6.1 weights; comparison rejected'
+          # Fail closed with *names only* of failed scalar checks, no private data.
+          $checks=[ordered]@{
+            receipt_status=($report.status -eq 'NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL')
+            optimizer_steps=($report.steps_completed -eq 120)
+            train_rows=($report.train_rows -eq 800)
+            validation_rows=($report.validation_rows -eq 140)
+            v5_replay_rows=($report.source_counts.v5_train_replay -eq 560)
+            v6_new_rows=($report.source_counts.v6_train_multistep -eq 240)
+            candidate_sha=($report.candidate_adapter_sha256 -eq $sha)
+            original_v5_sha=($v5sha -eq '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5')
+            release_false=($null -ne $report.release_validated -and $report.release_validated -eq $false)
+            promotion_false=($null -ne $report.adapter_promoted -and $report.adapter_promoted -eq $false)
           }
+          $failed=@($checks.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object { $_.Key })
+          if($failed.Count -gt 0){
+            throw ("NERAL_V61_PINNED_RECEIPT_REJECTED: " + ($failed -join ', '))
+          }
+          Write-Host 'NERAL_V61_EXACT_LOCAL_WEIGHTS_VERIFIED'
           $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
           if($LASTEXITCODE -ne 0){throw 'CUDA GPU not found'}
           $gpu=($raw|Select-Object -First 1)-split ','
