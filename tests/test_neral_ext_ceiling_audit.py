@@ -114,5 +114,27 @@ class CeilingAuditTests(unittest.TestCase):
                             expected_adapter_sha256="a"*64,review_samples=3)
 
 
+    def test_heuristic_last_number_is_diagnostic_only_never_new_accuracy(self):
+        """The last number can be right by accident: never treat as verified."""
+        case={"id":"A-gsm-001","domain":"gsm8k","kind":"integer",
+              "prompt":"A word math problem","answer":"29"}
+        meta={"id":"A-gsm-001","stratum":"A"}
+        variants={
+            "base":[{"id":case["id"],"text":"Started with 30; then 29.","complete":True}],
+            "base_fewshot":[{"id":case["id"],"text":"Could be 29 or 30.","complete":True}],
+            "neral_v5":[{"id":case["id"],"text":"I am not certain.","complete":True}],
+        }
+        report,_=diagnose([case],[meta],variants,review_samples=0)
+        a=report["by_stratum"]["A"]
+        self.assertEqual(a["base"]["unverified_last_number_matches_reference"],1)
+        self.assertEqual(a["base_fewshot"]["unverified_last_number_differs"],1)
+        self.assertEqual(a["neral_v5"]["unverified_no_numeric_tail"],1)
+        self.assertEqual(a["base"]["new_lenient_correct"],0)
+        self.assertEqual(a["base"]["recovered_correct"],0)
+        self.assertFalse(report["general_improvement_proven"])
+        self.assertTrue(report["last_number_is_unverified_diagnostic_only"])
+
+
+
 if __name__=="__main__":
     unittest.main()
