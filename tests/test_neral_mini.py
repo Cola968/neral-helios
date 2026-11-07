@@ -238,6 +238,22 @@ def test_quarantined_v6_adapter_not_loaded_even_with_matching_seal(tmp_path, mon
         verify_assets(base, adapter)
 
 
+def test_v61_experimental_sha_quarantined_from_mini_even_if_seal_matches(tmp_path,monkeypatch):
+    from mini import neral_mini as module
+    v61 = "33e939f6063d4215807f593816a057e88d8938b30615c6000d6a0bf8c7965279"
+    assert v61 in module.QUARANTINED_ADAPTER_SHA256
+    base,adapter = _fake_sealed_local_files(tmp_path)
+    seal_path=adapter/"neral-adapter.json"
+    seal=json.loads(seal_path.read_text())
+    seal["files"]["adapter_model.safetensors"]=v61
+    _write_json(seal_path,seal)
+    genuine_hash=module._sha256
+    monkeypatch.setattr(module,"_sha256",lambda path:
+        v61 if path.name=="adapter_model.safetensors" else genuine_hash(path))
+    with pytest.raises(MiniError,match="gesperrt"):
+        verify_assets(base,adapter)
+
+
 def test_no_cloud_endpoint_or_insecure_model_downloads():
     source=(Path(__file__).parents[1]/"mini"/"neral_mini.py").read_text()
     assert "HF_HUB_OFFLINE" in source
