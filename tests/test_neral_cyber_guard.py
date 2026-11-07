@@ -67,6 +67,10 @@ class LocalCyberGuardTests(unittest.TestCase):
             {**snapshot(), "network_categories": ["???"]},
             {**snapshot(), "firewall_profiles": [
                 {"name": "Private", "enabled": "yes", "inbound": "Block"}]},
+            {**snapshot(), "firewall_profiles": [
+                {"name": ["Private"], "enabled": True, "inbound": "Block"}]},
+            {**snapshot(), "firewall_profiles": [
+                {"name": "Private", "enabled": True, "inbound": ["Allow"]}]},
         ):
             with self.subTest(data=str(data)[:100]):
                 with self.assertRaises(GuardError):
