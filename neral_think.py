@@ -14,6 +14,7 @@ import time
 from typing import Callable
 
 from neral_agent_math import MathInputError, eval_python_expr, solve_math_symbolic
+from neral_agent_python_trace import trusted_python_trace_question
 
 MAX_RESPONSE = 32768
 MAX_THINK_SECONDS = 120
@@ -181,7 +182,12 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
         raise ThinkInputError("Ungültiger lokaler THINK-Modus.")
     initial = clock()
     # Never override an ongoing conversation with a one-turn math oracle.
-    oracle = trusted_math_question(messages[-1]["content"]) if len(messages) == 2 else None
+    oracle = None
+    if len(messages) == 2:
+        user_question = messages[-1]["content"]
+        oracle = trusted_math_question(user_question)
+        if oracle is None:
+            oracle = trusted_python_trace_question(user_question)
     turns = [dict(row) for row in messages]
     turns[0]["content"] += _THINK_SUFFIX
 
@@ -208,7 +214,9 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
         "mode": "THINK", "calls_used": used,
         "seconds": round(elapsed, 3),
         "hard_timeout_enforced": False,
-        "verification_scope": "numeric_final_only" if oracle is not None else "none",
+        "verification_scope": (
+            "code_trace_integer" if oracle and oracle["method"] == "python_trace_ast"
+            else "numeric_final_only" if oracle is not None else "none"),
         "extractor_success": extracted is not None,
     }
     if checked:
@@ -227,7 +235,9 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
             "verification_status": "tool_fallback",
             "final_answer": oracle["answer"],
             "verification_method": oracle["method"],
-            "tool_used": "neral_math_exact",
+            "tool_used": ("neral_python_trace_static"
+                          if oracle["method"] == "python_trace_ast"
+                          else "neral_math_exact"),
         }
     return {
         **common, "text": raw, "model_generated": True,
