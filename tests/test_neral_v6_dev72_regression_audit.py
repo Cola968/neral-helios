@@ -95,8 +95,8 @@ class RegressionAuditTests(unittest.TestCase):
             self.assertFalse(aggregate["release_validated"])
             self.assertEqual(aggregate["original_score"]["neral_v5"]["correct"],72)
             self.assertEqual(aggregate["original_score"]["neral_v6"]["correct"],68)
-            self.assertNotIn(cases[0]["prompt"],(root/"audit-agg.json").read_text())
-            self.assertIn(cases[0]["prompt"],(root/"audit-private.jsonl").read_text())
+            self.assertNotIn(cases[0]["prompt"],(root/"audit-agg.json").read_text(encoding="utf8"))
+            self.assertIn(cases[0]["prompt"],(root/"audit-private.jsonl").read_text(encoding="utf8"))
             with self.assertRaises(ValueError):
                 audit_private_files(root,root/"audit-agg.json",root/"audit-private.jsonl")
 
