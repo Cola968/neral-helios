@@ -1,0 +1,28 @@
+name: NERAL quantitative exact local tool CPU tests
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_quantitative.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_quant_exact.py'
+      - '.github/workflows/neral-quant-exact-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_agent_quantitative.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_quant_exact.py'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'flask>=3,<4'
+      - run: python -m unittest discover -s tests -p test_neral_quant_exact.py -v
+      - run: python -m compileall -q neral_agent_quantitative.py neral_local_chat_api.py
