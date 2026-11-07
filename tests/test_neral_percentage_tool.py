@@ -44,6 +44,70 @@ class PercentageToolTests(unittest.TestCase):
         self.assertEqual(calculate_percentage('Reduziere 0 um 5%')['text'], '0')
         self.assertEqual(calculate_percentage('Berechne 10% von 0,01')['text'], '0,001')
 
+    def test_many_parameter_combinations(self):
+        import random
+        from decimal import Decimal
+        from fractions import Fraction
+
+        rng = random.Random(20261107)
+        for _ in range(150):
+            basis = rng.randint(0, 100_000)
+            tenths = rng.randint(0, 9999)
+            prompt = f"Berechne {tenths//10},{tenths%10}% von {basis}"
+            result = calculate_percentage(prompt)
+            exact = Fraction(Decimal(result["text"].replace(",", ".")))
+            self.assertEqual(exact, Fraction(basis * tenths, 1000))
+
+
+class ChatIntegrationTests(unittest.TestCase):
+    def test_chat_routes_exact_without_model_and_preserves_history(self):
+        from flask import Flask
+        from neral_local_chat_api import register_neral_local_chat_api
+
+        class FakeBackend:
+            model = "local-test-model"
+
+            def __init__(self):
+                self.calls = []
+
+            def respond(self, messages):
+                self.calls.append(messages)
+                return "Modellantwort"
+
+        backend = FakeBackend()
+        app = Flask("percentage-tool-chat-test")
+        register_neral_local_chat_api(app, backend)
+        client = app.test_client()
+
+        exact = client.post("/api/neral/chat/generate", json={
+            "prompt": "Wie viel sind 12,5 % von 80?"
+        })
+        self.assertEqual(exact.status_code, 200)
+        self.assertEqual(exact.json["text"], "10")
+        self.assertIs(exact.json["exact"], True)
+        self.assertIs(exact.json["model_generated"], False)
+        self.assertEqual(exact.json["tool_used"], "neral_quant_exact")
+        self.assertIs(exact.json["quality_improvement_proven"], False)
+        self.assertEqual(backend.calls, [])
+
+        with_history = client.post("/api/neral/chat/generate", json={
+            "prompt": "Wie viel sind 12,5 % von 80?",
+            "history": [
+                {"role": "user", "content": "Hallo"},
+                {"role": "assistant", "content": "Hallo!"},
+            ],
+        })
+        self.assertEqual(with_history.json["text"], "Modellantwort")
+        self.assertIs(with_history.json["model_generated"], True)
+        self.assertEqual(len(backend.calls), 1)
+
+        ambiguous = client.post("/api/neral/chat/generate", json={
+            "prompt": "Wie viel sind 20 % von 50 EUR?"
+        })
+        self.assertEqual(ambiguous.json["text"], "Modellantwort")
+        self.assertIs(ambiguous.json["model_generated"], True)
+        self.assertEqual(len(backend.calls), 2)
+
 
 if __name__ == '__main__':
     unittest.main()
