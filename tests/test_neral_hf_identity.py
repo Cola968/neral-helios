@@ -136,6 +136,26 @@ class LocalHFIdentityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "gesperrt"):
                     validate_adapter(adapter, snapshot)
 
+    def test_unvalidated_v61_replay_adapter_blocked_in_sealed_runtime(self):
+        # v6.1 was genuinely trained but did not beat v5 or Qwen on dev72.
+        # Its exact experiment SHA is NOT authorized for production.
+        v61 = "33e939f6063d4215807f593816a057e88d8938b30615c6000d6a0bf8c7965279"
+        from neral_hf_identity import QUARANTINED_ADAPTER_SHA256
+        self.assertIn(v61, QUARANTINED_ADAPTER_SHA256)
+        with tempfile.TemporaryDirectory() as tmp:
+            base, adapter = seal(Path(tmp))
+            snapshot = validate_hf_snapshot(base, verify_hashes=True)
+            manifest_path = adapter / "neral-adapter.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["files"]["adapter_model.safetensors"] = v61
+            manifest_path.write_text(json.dumps(manifest))
+            genuine_sha = sha
+            with patch("neral_hf_identity._sha",
+                       side_effect=lambda path: v61 if path.name == "adapter_model.safetensors"
+                       else genuine_sha(path)):
+                with self.assertRaisesRegex(ValueError,"gesperrt"):
+                    validate_adapter(adapter,snapshot)
+
     def test_agent_backend_refuses_quarantined_weight_sha_before_gpu_init(self):
         from neral_agent_hf import HFAdapterLocalBackend
         from neral_agent_autonomy import AgentModelError
