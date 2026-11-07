@@ -1,0 +1,37 @@
+name: NERAL identity prompt CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_identity.py'
+      - 'scripts/neral_identity_curriculum.py'
+      - 'tests/test_neral_identity_curriculum.py'
+      - 'neral_local_chat_api.py'
+      - 'mini/neral_mini.py'
+      - 'tests/test_neral_identity_policy.py'
+      - '.github/workflows/neral-identity-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_identity.py'
+      - 'neral_local_chat_api.py'
+      - 'mini/neral_mini.py'
+      - 'scripts/neral_identity_curriculum.py'
+      - 'tests/test_neral_identity_curriculum.py'
+      - 'tests/test_neral_identity_policy.py'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test brand and provenance requirements without GPU
+        run: python -m unittest discover -s tests -p test_neral_identity_policy.py -v
+      - name: Validate identity SFT candidates on CPU
+        run: python -m unittest discover -s tests -p test_neral_identity_curriculum.py -v
+      - name: Syntax checks
+        run: python -m compileall -q neral_identity.py neral_local_chat_api.py mini/neral_mini.py scripts/neral_identity_curriculum.py

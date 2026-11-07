@@ -13,13 +13,9 @@ import time
 
 from flask import jsonify, request
 
-SYSTEM = ("Du bist NERAL. Du antwortest natürlich, präzise und sachlich auf "
-          "Deutsch, soweit der Nutzer nichts anderes möchte. "
-          "Du benutzt lokal ausgeführte Modellgewichte, keine Cloud-Inferenz. "
-          "Gib Unsicherheit zu und erfinde keine Quellen, Resultate oder "
-          "ausgeführten Werkzeuge. Stelle dich als NERAL mit einer "
-          "Qwen-Foundation dar, sofern ein verifizierter Adapter aktiv ist. "
-          "Ein Adapter ist kein Beleg für überlegene Modellqualität.")
+from neral_identity import build_identity_prompt
+
+SYSTEM = build_identity_prompt("web", "local_foundation_not_neral_adapter")
 BASE_MODEL = "Qwen2.5-Coder-7B-Instruct"
 MAX_PROMPT_BYTES = 4096
 MAX_HISTORY_MESSAGES = 12
@@ -138,6 +134,10 @@ def register_neral_local_chat_api(app, backend):
             return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
         try:
             data = _messages(request.get_json(silent=True))
+            # Tell the model the actual runtime origin; UI provenance stays explicit.
+            data[0]["content"] = build_identity_prompt(
+                "web", _provenance(backend)["model_origin"]
+            )
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
