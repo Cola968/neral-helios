@@ -114,6 +114,12 @@ if($GpuLab){
     if(-not(Test-Python311 $env:NERAL_PYTHON)){
         throw 'NERAL v5 GPU-Lab braucht die bereits vorhandene QLoRA-Python-Umgebung mit CUDA, Transformers, PEFT und bitsandbytes. Keine automatische Installation.'
     }
+    # Verify real CUDA Python before starting the protected local app.
+    $env:CUDA_VISIBLE_DEVICES='0'
+    & $env:NERAL_PYTHON -B -c 'import torch, transformers, peft, bitsandbytes; raise SystemExit(0 if torch.cuda.is_available() else 1)'
+    if($LASTEXITCODE -ne 0){
+        throw 'NERAL v5 GPU-Lab: CUDA oder die vorhandenen GPU-Python-Pakete fehlen. Kein CPU-Modell als v5 ausgeben.'
+    }
     $v5Adapter=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1\adapter'
     if(-not(Test-Path -LiteralPath (Join-Path $v5Adapter 'adapter_model.safetensors') -PathType Leaf) -or
        -not(Test-Path -LiteralPath (Join-Path $v5Adapter 'neral-adapter.json') -PathType Leaf)){
