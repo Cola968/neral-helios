@@ -78,5 +78,77 @@ class VerifiedCurriculumV4Tests(unittest.TestCase):
                 build(Path(t), seed="random")
 
 
+    def test_debug_examples_cover_eight_different_correct_behaviors(self):
+        import ast
+        from scripts.neral_v4_curriculum import make_case
+        for style in (0, 6, 7):
+            for index in range(40):
+                row=make_case("python_debug",style,index)
+                source=row["completion"][0]["content"]
+                tree=ast.parse(source)
+                self.assertEqual(len(tree.body),1)
+                fn=tree.body[0]
+                self.assertIsInstance(fn,ast.FunctionDef)
+                self.assertEqual(len(fn.body),1)
+                self.assertFalse(any(isinstance(n,(ast.Import,ast.ImportFrom,ast.Attribute))
+                                     for n in ast.walk(tree)))
+                # Only execute these static, locally generated templates. Never
+                # execute model-generated output or user-supplied Python here.
+                allowed={"sum":sum,"range":range,"min":min,"max":max}
+                scope={"__builtins__":allowed}
+                exec(compile(tree,"<trusted-v4-test>","exec"),scope)
+                func=scope[fn.name]
+                variant=index%8
+                if variant==0:
+                    m,o=fn.body[0].value.left.right.value,fn.body[0].value.right.value
+                    for v in (-5,0,3):
+                        self.assertEqual(func(v),v*m+o)
+                elif variant==1:
+                    for n in (0,1,2,9):
+                        self.assertEqual(func(n),sum(range(n)))
+                elif variant==2:
+                    for v in (-20,0,10,90):
+                        self.assertEqual(func(v,-3,12),max(-3,min(v,12)))
+                elif variant==3:
+                    for v in ([],[4],[5,6,7]):
+                        self.assertEqual(func(v),v[0] if v else None)
+                elif variant==4:
+                    for v,t in ((1,1),(0,1),(2,1),(-4,-4)):
+                        self.assertEqual(func(v,t),v>=t)
+                elif variant==5:
+                    for v in ([],[-2,-7],[3,5,1],[0]):
+                        self.assertEqual(func(v),max(v) if v else 0)
+                elif variant==6:
+                    for v in ("","a","aa","abcba","abca"):
+                        self.assertEqual(func(v),v==v[::-1])
+                else:
+                    divisor=fn.body[0].value.left.right.value
+                    for v in (-divisor,0,1,2*divisor,2*divisor+1):
+                        self.assertEqual(func(v),v%divisor==0)
+
+    def test_money_data_uses_explicit_cent_rounding(self):
+        import re
+        from decimal import Decimal, ROUND_HALF_UP
+        from scripts.neral_v4_curriculum import make_case
+        observed_fractional_cent=False
+        for i in range(40):
+            row=make_case("percent",0,i)
+            user=row["prompt"][1]["content"]
+            result=row["completion"][0]["content"]
+            self.assertIn("auf Cent",user)
+            m=re.search(r"Artikelpreis (\d+,\d{2}) EUR; erst (\d+)% Rabatt, "
+                        r"dann (\d+)% Zuschlag",user)
+            self.assertIsNotNone(m)
+            price,discount,surcharge=m.groups()
+            exact=(Decimal(price.replace(",","."))*
+                   (Decimal(100)-Decimal(discount))/Decimal(100)*
+                   (Decimal(100)+Decimal(surcharge))/Decimal(100))
+            expected=exact.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+            self.assertEqual(result,f"{expected:.2f} EUR".replace(".",","))
+            observed_fractional_cent |= exact!=expected
+        self.assertTrue(observed_fractional_cent,
+                        "Dataset must contain genuinely nontrivial rounding examples")
+
+
 if __name__ == "__main__":
     unittest.main()
