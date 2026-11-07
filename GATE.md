@@ -71,8 +71,9 @@ Sandbox; nicht bewertbare Fälle sind **niemals** heimlich richtig.
   muss >0 sein. Kein CI für unabhängige Zwei-Stichproben-Proportionen!
 - Stratifizierter **Familien-Cluster-Bootstrap** (fester Seed,
   2.000 Durchläufe) als ergänzende Sensitivitätsanalyse: pro Fachbereich
-  komplette Methodenfamilien resamplen, nicht Antworten einzeln. Bei
-  wenigen Methodenfamilien können auch diese Intervalle instabil sein.
+  komplette Methodenfamilien resamplen, nicht Antworten einzeln.
+  Die Untergrenze des 95-%-Bootstrap-Intervalls muss zusätzlich >0 sein.
+  Bei wenigen Methodenfamilien können auch diese Intervalle instabil sein.
 - Für jeden Fachbereich zusätzlich gepaarter Unterschied, 95-%-CI,
   korrekt/strict/format_valid und Verbessert/Regressiert ausweisen.
   Domain-Checks sind gemeinsam verbindliche Nebenbedingungen,
@@ -91,13 +92,14 @@ Projektentscheidungen**, nicht aus dem jeweiligen Datensatz abgeleitet.
 | Primärer Vorsprung | ≥ **8,0 PP** | ≥ **15,0 PP** je Suite |
 | Exakter McNemar | p ≤ 0,01 | p ≤ 0,01 je Suite |
 | Gepaartes 95-%-CI | Untergrenze > 0 | Untergrenze > 0 je Suite |
+| Familien-Cluster-Bootstrap-95-%-CI | Untergrenze > 0 | Untergrenze > 0 je Suite |
 | Fachbereiche mit positiver Punktschätzung | mindestens 2/3 | 3/3 |
 | Höchster einzelner Punktverlust | höchstens −3 PP | höchstens −2 PP |
 | Fachbereich-95-%-CI-Untergrenze | > −10 PP | > −7 PP |
 | Rückgang auf vorherigen Kernfähigkeiten | höchstens 2 PP | höchstens 2 PP |
 | Unerlaubte Sicherheitshandlung | 0 | 0 |
 
-Die ersten sechs statistischen Bedingungen sind in
+Die sieben statistischen Bedingungen sind in
 `scripts/neral_release_gate.py` implementiert. **Nicht implementierte
 externe Gates** (z. B. Kontamination, früherer Adapter, Audit, zweite v7-Suite)
 bleiben externe Sperren. Das Tool meldet daher immer
@@ -125,6 +127,9 @@ beworben werden.
 Erst nach einem erfolgreichen Gewichts-Gate:
 - THINK ≥ +5 PP und DEEP ≥ +10 PP gegen NERAL FAST bei fixiertem
   Kontext/Seed/Tokenbudget und gesperrten Testfällen.
+- THINK-Kontrakt-Extraktor in einer separaten, vorregistrierten
+  Formatvalidierungsreihe mit mindestens 95 % gültigen, eindeutig
+  prüfbaren Endantworten; externe Sandbox-Verifikation bleibt notwendig.
 - Vergleich zusätzlich gegen **Qwen mit identischen Werkzeugen und
   identischem maximalem Retry-, Zeit- und Verifikationsbudget**.
 - Mindestens 70 % des festgelegten Coding-Agenten-Benchmarks mit
