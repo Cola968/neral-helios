@@ -150,6 +150,9 @@ def register_neral_local_chat_api(app, backend):
                 exact = calculate_explicit(data[-1]["content"])
                 if exact is None:
                     exact = _verified_math_request(data[-1]["content"])
+                if exact is None:
+                    from neral_percentage_tool import calculate_percentage
+                    exact = calculate_percentage(data[-1]["content"])
             else:
                 exact = None
             if exact is not None:
