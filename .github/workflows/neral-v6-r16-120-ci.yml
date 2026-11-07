@@ -1,0 +1,34 @@
+name: NERAL v6 original math and proof QLoRA CPU training contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'tests/test_neral_v6_r16_gpu.py'
+      - 'docs/NERAL_V6_R16_TRAINING.md'
+      - '.github/workflows/neral-v6-r16-120-train.yml'
+      - '.github/workflows/neral-v6-r16-120-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'tests/test_neral_v6_r16_gpu.py'
+      - '.github/workflows/neral-v6-r16-120-ci.yml'
+permissions:
+  contents: read
+jobs:
+  data_and_trainer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate 728 deterministic training examples and 100 isolated validation examples
+        run: python -m unittest discover -s tests -p test_neral_v6_r16_gpu.py -v
+      - name: Compile the guarded local CUDA trainer
+        run: python -m py_compile scripts/neral_v6_r16_gpu.py
