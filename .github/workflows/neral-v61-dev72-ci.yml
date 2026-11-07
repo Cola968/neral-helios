@@ -1,0 +1,33 @@
+name: NERAL v6.1 new 72-case development GPU comparator CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v61_new_dev_eval.py'
+      - 'tests/test_neral_v61_new_dev_eval.py'
+      - 'docs/NERAL_V61_NEW_DEV72.md'
+      - '.github/workflows/neral-v61-dev72-ci.yml'
+      - '.github/workflows/neral-v61-dev72-gpu.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v61_new_dev_eval.py'
+      - 'tests/test_neral_v61_new_dev_eval.py'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate 72 fresh oracles, source isolation, and nonpromotion
+        run: python -m unittest discover -s tests -p test_neral_v61_new_dev_eval.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_v61_new_dev_eval.py
