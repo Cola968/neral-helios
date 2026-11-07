@@ -6,6 +6,7 @@
   if (!el('neralLocalChatForm')) return;
   let messages = [];
   let busy = false;
+  let compareAvailable = false;
   const encoder = new TextEncoder();
 
   const identity = el('neralLocalChatIdentity');
@@ -13,8 +14,15 @@
   const transcript = el('neralLocalChatAnswer');
   const form = el('neralLocalChatForm');
   const prompt = el('neralLocalChatPrompt');
+  const compareButton = el('neralLocalChatCompare');
+  const comparePanel = el('neralComparePanel');
+  const compareBase = el('neralCompareBase');
+  const compareNeral = el('neralCompareNeral');
+  const compareStatus = el('neralCompareStatus');
 
   function updateIdentity(data) {
+    compareAvailable = data.compare_available === true;
+    compareButton.disabled = busy || !compareAvailable;
     if (data.adapter_loaded === true) {
       identity.textContent = 'NERAL-LoRA lokal geladen (experimentell) · Qwen2.5-Coder-7B-Foundation · Adapter SHA-256: ' +
         (data.adapter_sha256 || 'unbekannt') + ' · kein nachgewiesener Qualitätsvorsprung.';
@@ -69,6 +77,7 @@
     }
     busy = true;
     el('neralLocalChatSend').disabled = true;
+    compareButton.disabled = true;
     error.textContent = '';
     transcript.setAttribute('aria-busy','true');
     try {
@@ -97,6 +106,51 @@
       transcript.removeAttribute('aria-busy');
       busy = false;
       el('neralLocalChatSend').disabled = false;
+      compareButton.disabled = !compareAvailable;
+    }
+  });
+
+  compareButton.addEventListener('click', async () => {
+    if (busy || !compareAvailable) return;
+    const text = prompt.value.trim();
+    if (!text || encoder.encode(text).length > 4096) {
+      error.textContent = 'Für den A/B-Vergleich eine Eingabe mit höchstens 4096 UTF-8-Bytes eintragen.';
+      return;
+    }
+    busy = true;
+    compareButton.disabled = true;
+    el('neralLocalChatSend').disabled = true;
+    error.textContent = '';
+    comparePanel.hidden = false;
+    compareBase.textContent = 'Lokale Foundation berechnet …';
+    compareNeral.textContent = 'NERAL-LoRA berechnet …';
+    compareStatus.textContent = 'Die beiden Varianten werden nacheinander auf derselben GPU berechnet.';
+    comparePanel.setAttribute('aria-busy', 'true');
+    try {
+      // One-shot A/B: no previous chat turns, tools or different system prompts.
+      const result = await req('compare', {prompt:text});
+      if (result.model_generated !== true || result.same_prompt !== true ||
+          result.same_decoding !== true || result.adapter_loaded !== true ||
+          typeof result.base !== 'string' || typeof result.neral !== 'string') {
+        throw new Error('Vergleich ohne nachgewiesene Adapter-Herkunft abgelehnt.');
+      }
+      compareBase.textContent = result.base;
+      compareNeral.textContent = result.neral;
+      compareStatus.textContent = result.base === result.neral
+        ? 'Identische Antworten. Kein Unterschied nachgewiesen; keine Qualitätsbewertung.'
+        : 'Unterschiedliche Antworten. Welche besser ist, muss unabhängig geprüft werden.';
+      updateIdentity(result);
+    } catch (cause) {
+      comparePanel.hidden = true;
+      compareBase.textContent = '';
+      compareNeral.textContent = '';
+      compareStatus.textContent = '';
+      error.textContent = cause.message || 'A/B-Vergleich fehlgeschlagen.';
+    } finally {
+      comparePanel.removeAttribute('aria-busy');
+      busy = false;
+      el('neralLocalChatSend').disabled = false;
+      compareButton.disabled = !compareAvailable;
     }
   });
 
@@ -105,6 +159,10 @@
     messages = [];
     prompt.value = '';
     error.textContent = '';
+    comparePanel.hidden = true;
+    compareBase.textContent = '';
+    compareNeral.textContent = '';
+    compareStatus.textContent = '';
     render();
   });
 
