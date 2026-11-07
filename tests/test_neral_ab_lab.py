@@ -163,6 +163,18 @@ def test_ui_exposes_actual_same_prompt_comparison_without_html_injection():
     assert "gleicher prompt" in html.lower() or "gleicher Prompt" in js
 
 
+def test_helios_evidence_is_versioned_and_honestly_shows_non_generalization():
+    html = (Path(__file__).resolve().parents[1] / "templates/index.html").read_text(encoding="utf-8")
+    assert 'id="neralV5Evidence"' in html
+    assert "NERAL v5 Rank 16" in html
+    assert "32/320" in html and "91/320" in html
+    assert "13/120" in html
+    assert "40/40" in html
+    assert "42383240688" in html and "42389017163" in html
+    assert "nicht unabhängig" in html
+    assert "nicht automatisch" in html
+
+
 def test_ab_endpoint_inherits_local_session_origin_protection(monkeypatch):
     import app as runtime
     client = runtime.app.test_client()
