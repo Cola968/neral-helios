@@ -21,7 +21,7 @@ def rows():
     manifest = [{"id":r["id"],"stratum":r["id"][0]} for r in cases]
     base = [
         {"id":cases[0]["id"],"text":"","complete":False},
-        {"id":cases[1]["id"],"text":"We compute.\\n\\boxed{2/7}","complete":True},
+        {"id":cases[1]["id"],"text":"We compute.\n\\boxed{2/7}","complete":True},
         {"id":cases[2]["id"],"text":"def f(x): return x+1","complete":True},
         {"id":cases[3]["id"],"text":"The final bill is 1,25 €.","complete":True},
         {"id":cases[4]["id"],"text":"Answer: 12","complete":True},
@@ -39,20 +39,20 @@ class CeilingAuditTests(unittest.TestCase):
         rational={"kind":"rational"}
         eur={"kind":"eur"}
         cases=[
-            (integer, "Calculation 37-8=29\\nFINAL: 29",29),
-            (integer, "We computed carefully.\\n\\boxed{29}",29),
+            (integer, "Calculation 37-8=29\nFINAL: 29",29),
+            (integer, "We computed carefully.\n\\boxed{29}",29),
             (integer, "The answer is **29**.",29),
             (integer, "Das Ergebnis ist 29.",29),
-            (rational, "We compute 4/14.\\nFinal answer: 2/7",__import__("fractions").Fraction(2,7)),
+            (rational, "We compute 4/14.\nFinal answer: 2/7",__import__("fractions").Fraction(2,7)),
             (eur, "Das Ergebnis ist 1,25 €.",__import__("fractions").Fraction(5,4)),
             (eur, "FINAL_ANSWER: 1,25 EUR",__import__("fractions").Fraction(5,4)),
         ]
         for case,response,expected in cases:
             with self.subTest(raw=response):
                 self.assertEqual(extract_terminal_numeric(case,response),expected)
-        for raw in ("We had 13 apples and 29 left.", "Step 1: 2\\nStep 2: 29",
-                    "FINAL: 29\\nFINAL: 30", "I think 29, or maybe 30",
-                    "FINAL: 29\\nextra", "29\\x00", "\\boxed{29} and \\boxed{30}"):
+        for raw in ("We had 13 apples and 29 left.", "Step 1: 2\nStep 2: 29",
+                    "FINAL: 29\nFINAL: 30", "I think 29, or maybe 30",
+                    "FINAL: 29\nextra", "29\x00", "\\boxed{29} and \\boxed{30}"):
             with self.subTest(raw=raw):
                 self.assertIsNone(extract_terminal_numeric(integer,raw))
 
@@ -93,13 +93,13 @@ class CeilingAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)
             cp=root/"cases.jsonl"
-            cp.write_text("".join(json.dumps(r)+"\\n" for r in cases),encoding="utf8")
+            cp.write_text("".join(json.dumps(r)+"\n" for r in cases),encoding="utf8")
             mp=root/"manifest.json"
             mp.write_text(json.dumps({"cases":meta,"dataset_sha256":hashlib.sha256(cp.read_bytes()).hexdigest()}),encoding="utf8")
             paths=[]
             for label,rr in (("base",base),("base_fewshot",few),("neral_v5",neral)):
                 p=root/(label+".jsonl")
-                p.write_text("".join(json.dumps(x)+"\\n" for x in rr),encoding="utf8")
+                p.write_text("".join(json.dumps(x)+"\n" for x in rr),encoding="utf8")
                 paths.append(p)
             summary=root/"scalar.json"; private=root/"review-local.jsonl"
             result=audit_files(cp,mp,*paths,summary,private,
