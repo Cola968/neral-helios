@@ -361,7 +361,8 @@ def _gpu_smoke(args, precheck: dict) -> dict:
     # Only save an experimental checkpoint, never update or seal the v5 adapter.
     runner.model.save_pretrained(str(out / "candidate-adapter"), safe_serialization=True)
     info = {
-        **precheck, "status": "NERAL_E1_30_STEP_GPU_SMOKE_NOT_RELEASED",
+        **precheck, "run_gpu": True,
+        "status": "NERAL_E1_30_STEP_GPU_SMOKE_NOT_RELEASED",
         "train_method": args.method, "steps_completed": steps,
         "train_loss": loss, "eval_loss": evaluation_loss,
         "peak_allocated_vram_mib": peak_mib, "total_vram_mib": total_mib,
