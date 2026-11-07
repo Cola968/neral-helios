@@ -8,6 +8,7 @@ import unittest
 from scripts.neral_v6_r16_gpu import (
     build_experiment, training_contract, require_explicit_gpu_authorization,
     tokenized_completion, _compact_trace, VERIFIED_STEPS_AUTH, AUTH,
+    assert_verified_steps_fit_max_length, prove_qwen_completion_bound,
 )
 from scripts.neral_reasoning_train_candidate import candidate, verify_case
 
@@ -175,6 +176,170 @@ class V6ExperimentContracts(unittest.TestCase):
         self.assertIn("v6-verified-steps-120-", workflow)
         self.assertNotIn("v6-r16-120-$env:GITHUB_RUN_ID", workflow)
         self.assertNotIn("--authorize " + AUTH, workflow)
+
+    def test_verified_steps_byte_bound_fits_and_records_the_prior_overflow(self):
+        train, val, meta = build_experiment(counterfactual_target="verified_steps")
+        report = assert_verified_steps_fit_max_length(train + val)
+        self.assertEqual(report["method"], "qwen2_byte_bpe_upper_bound")
+        self.assertFalse(report["offline_qwen_tokenizer"])
+        self.assertEqual(report["rows"], 828)
+        self.assertEqual(report["rows_over_max_length"], 0)
+        self.assertLessEqual(report["max_upper_bound_tokens"], 768)
+        self.assertGreaterEqual(report["min_assistant_pieces"], 2)
+        self.assertFalse(report["claimed_score_gain"])
+        self.assertFalse(report["release_validated"])
+        self.assertFalse(report["training_authorized"])
+        stored = dict(meta["length_preflight"])
+        before = stored.pop("before_boilerplate_trim")
+        self.assertEqual(report, stored)
+        self.assertEqual(before["counterfactual_rows"], 128)
+        self.assertEqual(before["rows_over_max_length"], 70)
+        self.assertEqual(before["max_upper_bound_tokens"], 933)
+        self.assertEqual(before["by_family"], {
+            "ordered_price": 6, "segmented_fuel": 64})
+        self.assertEqual(before["boilerplate_trim_levels"], {
+            "verified_text": 58,
+            "drop_rounding_sentence": 6,
+            "drop_intermediate_units": 0,
+            "drop_node_labels": 6,
+            "drop_parentheses": 42,
+            "squeeze_operator_spaces": 16,
+        })
+        self.assertEqual(report["max_upper_bound_tokens"], 768)
+        self.assertEqual(report["rows_at_max_length"], 2)
+        rows, proofs = candidate()
+        over = {}
+        highest = 0
+        for row, proof in zip(rows, proofs):
+            bound = prove_qwen_completion_bound(row)["upper_bound_tokens"]
+            highest = max(highest, bound)
+            if bound > 768:
+                over[proof["family"]] = over.get(proof["family"], 0) + 1
+        self.assertEqual(highest, 933)
+        self.assertEqual(over, {"ordered_price": 6, "segmented_fuel": 64})
+        with self.assertRaises(ValueError) as caught:
+            assert_verified_steps_fit_max_length(rows)
+        self.assertIn("70 row(s)", str(caught.exception))
+        self.assertIn("933", str(caught.exception))
+
+    def test_verified_trim_keeps_numbers_operators_and_finals(self):
+        import re
+        rows, _proofs = candidate()
+        train, _val, meta = build_experiment(counterfactual_target="verified_steps")
+        fitted = {row["messages"][1]["content"]: row["messages"][2]["content"]
+                  for row in train}
+        self.assertFalse(meta["claimed_score_gain"])
+        self.assertFalse(meta["release_validated"])
+        self.assertNotIn("length_preflight", build_experiment()[2])
+        for raw in rows:
+            original = raw["messages"][2]["content"]
+            new = fitted[raw["messages"][1]["content"]]
+            self.assertEqual(
+                original.split("FINAL_ANSWER:", 1)[1].strip(),
+                new.split("FINAL_ANSWER:", 1)[1].strip())
+            self.assertEqual(re.findall(r"\d+", original), re.findall(r"\d+", new))
+            self.assertEqual(original.count("*"), new.count("*"))
+            self.assertEqual(original.count("+"), new.count("+"))
+            self.assertEqual(original.count("-"), new.count("-"))
+            self.assertEqual(
+                original.replace(" kg/min", "").count("/"),
+                new.replace(" kg/min", "").count("/"))
+            self.assertIn("*", new)
+            self.assertIn("+", new)
+
+    def test_pinned_chat_byte_bound_and_oversized_assistant_fails(self):
+        tiny = {"messages": [
+            {"role": "system", "content": "S"},
+            {"role": "user", "content": "U"},
+            {"role": "assistant", "content": "A"},
+        ]}
+        proof = prove_qwen_completion_bound(tiny)
+        self.assertEqual(proof["upper_bound_tokens"], 34)
+        self.assertGreaterEqual(proof["assistant_pieces"], 2)
+        huge = {"messages": [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "1+" * 2000},
+        ]}
+        with self.assertRaises(ValueError) as caught:
+            assert_verified_steps_fit_max_length([huge])
+        self.assertIn("1 row(s)", str(caught.exception))
+        self.assertIn("other", str(caught.exception))
+        passed = assert_verified_steps_fit_max_length([tiny])
+        self.assertLessEqual(passed["max_upper_bound_tokens"], 768)
+        self.assertFalse(passed["training_authorized"])
+
+    def test_injected_tokenizer_uses_tokenized_completion_rules(self):
+        row = {"messages": [
+            {"role": "system", "content": "S"},
+            {"role": "user", "content": "U"},
+            {"role": "assistant", "content": "1+1"},
+        ]}
+
+        class Aligned:
+            def apply_chat_template(self, messages, **kwargs):
+                if kwargs.get("add_generation_prompt"):
+                    return [7, 8]
+                return [7, 8, 9, 10]
+
+        class Misaligned:
+            def apply_chat_template(self, messages, **kwargs):
+                if kwargs.get("add_generation_prompt"):
+                    return [1, 2, 3]
+                return [4, 5, 6, 7]
+
+        class LongerThanBound:
+            def apply_chat_template(self, messages, **kwargs):
+                if kwargs.get("add_generation_prompt"):
+                    return list(range(4))
+                return list(range(100))
+
+        class OverBudget:
+            def apply_chat_template(self, messages, **kwargs):
+                if kwargs.get("add_generation_prompt"):
+                    return list(range(4))
+                return list(range(900))
+
+        report = assert_verified_steps_fit_max_length([row], tokenizer=Aligned())
+        self.assertEqual(report["method"], "offline_qwen_tokenizer")
+        self.assertEqual(report["max_upper_bound_tokens"], 4)
+        self.assertFalse(report["claimed_score_gain"])
+        self.assertFalse(report["training_authorized"])
+        with self.assertRaises(ValueError):
+            assert_verified_steps_fit_max_length([row], tokenizer=Misaligned())
+        with self.assertRaises(ValueError) as under:
+            assert_verified_steps_fit_max_length([row], tokenizer=LongerThanBound())
+        self.assertIn("under-estimated", str(under.exception))
+        with self.assertRaises(ValueError):
+            assert_verified_steps_fit_max_length([row], tokenizer=OverBudget())
+
+    def test_verified_contract_materializes_length_preflight_without_training(self):
+        with tempfile.TemporaryDirectory() as directory:
+            dest = Path(directory) / "verified"
+            report = training_contract(dest, counterfactual_target="verified_steps")
+            self.assertFalse(report["training_performed"])
+            self.assertFalse(report["release_validated"])
+            self.assertFalse(report["claimed_score_gain"])
+            self.assertEqual(report["length_preflight"]["rows_over_max_length"], 0)
+            self.assertLessEqual(report["length_preflight"]["max_upper_bound_tokens"], 768)
+            manifest = json.loads((dest / "manifest.json").read_text(encoding="utf8"))
+            self.assertEqual(manifest["length_preflight"]["max_length"], 768)
+            self.assertFalse(manifest["length_preflight"]["training_authorized"])
+
+    def test_missing_snapshot_env_does_not_download(self):
+        import os
+        from scripts.neral_v6_r16_gpu import _load_offline_qwen_tokenizer
+        old = os.environ.get("NERAL_QWEN_SNAPSHOT")
+        os.environ["NERAL_QWEN_SNAPSHOT"] = "/tmp/neral-no-such-qwen-snapshot"
+        try:
+            with self.assertRaises(ValueError):
+                _load_offline_qwen_tokenizer()
+        finally:
+            if old is None:
+                os.environ.pop("NERAL_QWEN_SNAPSHOT", None)
+            else:
+                os.environ["NERAL_QWEN_SNAPSHOT"] = old
+        self.assertIsNone(_load_offline_qwen_tokenizer())
 
 
 if __name__=="__main__":

@@ -16,6 +16,7 @@ import random
 import re
 import subprocess
 import time
+import unicodedata
 
 from scripts.neral_v6_compositional import (
     FAMILIES, PER_FAMILY, make_case, generate as compositional_data
@@ -74,6 +75,427 @@ def _verified_step_target(proof: dict, raw: dict) -> str:
     if compact.split("FINAL_ANSWER:", 1)[1].strip() != final or text == compact:
         raise ValueError("Compact control does not match this verified answer")
     return text
+
+
+_PINNED_CHAT_TEMPLATE = (
+    "{% for message in messages %}"
+    "{{ '<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>\n' }}"
+    "{% endfor %}{% if add_generation_prompt %}"
+    "{{ '<|im_start|>assistant\n' }}{% endif %}"
+)
+_QWEN_SPECIALS = ("<|im_start|>", "<|im_end|>")
+_CONTRACTIONS = ("'s", "'t", "'re", "'ve", "'m", "'ll", "'d")
+_LENGTH_APPROXIMATION = (
+    "No network tokenizer download. <|im_start|> and <|im_end|> count as one "
+    "token each, the pinned Qwen added tokens. Every other UTF-8 byte counts "
+    "as one token. Qwen2 byte-level BPE merges only shorten that count, so "
+    "this does not under-estimate tokenized_completion; it can over-estimate. "
+    "The pinned chat template is assumed to add no extra BOS."
+)
+
+
+def _is_letter(ch: str) -> bool:
+    return unicodedata.category(ch).startswith("L")
+
+
+def _is_number(ch: str) -> bool:
+    return unicodedata.category(ch).startswith("N")
+
+
+def _is_space(ch: str) -> bool:
+    return ch in "\t\n\r\f\v" or unicodedata.category(ch) in ("Zs", "Zl", "Zp")
+
+
+def _render_pinned_chat(messages, *, add_generation_prompt: bool) -> str:
+    """Render the repo-pinned Qwen chat template without Jinja or a model."""
+    from neral_hf_identity import CHAT_TEMPLATE
+    if CHAT_TEMPLATE != _PINNED_CHAT_TEMPLATE:
+        raise ValueError("Pinned Qwen chat template changed; refuse the length model")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("Chat messages required")
+    parts = []
+    for message in messages:
+        if not isinstance(message, dict):
+            raise ValueError("Chat message is not an object")
+        role, content = message.get("role"), message.get("content")
+        if not isinstance(role, str) or not isinstance(content, str):
+            raise ValueError("Chat message is not text")
+        parts.append("<|im_start|>" + role + "\n" + content + "<|im_end|>\n")
+    if add_generation_prompt:
+        parts.append("<|im_start|>assistant\n")
+    return "".join(parts)
+
+
+def _qwen_match_at(text: str, index: int):
+    """One isolated Qwen2 pretoken, or None. Same alternation order as the regex."""
+    size = len(text)
+    if index >= size:
+        return None
+    lowered = text[index:index + 3].lower()
+    for contraction in _CONTRACTIONS:
+        if lowered.startswith(contraction):
+            return index + len(contraction)
+
+    def letters_from(start):
+        if start < size and _is_letter(text[start]):
+            end = start + 1
+            while end < size and _is_letter(text[end]):
+                end += 1
+            return end
+        return None
+
+    ch = text[index]
+    if ch not in "\r\n" and not _is_letter(ch) and not _is_number(ch):
+        with_prefix = letters_from(index + 1)
+        if with_prefix is not None:
+            return with_prefix
+    letters = letters_from(index)
+    if letters is not None:
+        return letters
+    if _is_number(ch):
+        return index + 1
+    punct = index + 1 if ch == " " else index
+    if (punct < size and not _is_space(text[punct])
+            and not _is_letter(text[punct]) and not _is_number(text[punct])):
+        end = punct + 1
+        while (end < size and not _is_space(text[end])
+               and not _is_letter(text[end]) and not _is_number(text[end])):
+            end += 1
+        while end < size and text[end] in "\r\n":
+            end += 1
+        if end > punct:
+            return end
+    end = index
+    while end < size and _is_space(text[end]) and text[end] not in "\r\n":
+        end += 1
+    if end < size and text[end] in "\r\n":
+        while end < size and text[end] in "\r\n":
+            end += 1
+        return end
+    if _is_space(ch):
+        end = index + 1
+        while end < size and _is_space(text[end]):
+            end += 1
+        return end
+    return None
+
+
+def _qwen_text_pieces(segment: str) -> list[str]:
+    parts = []
+    index = 0
+    while index < len(segment):
+        end = _qwen_match_at(segment, index)
+        if end is None or end <= index:
+            raise ValueError("Qwen pretokenizer left unmatched text; refuse length proof")
+        parts.append(segment[index:end])
+        index = end
+    if "".join(parts) != segment:
+        raise ValueError("Qwen pretokenizer partition is not exact")
+    return parts
+
+
+def _qwen_pieces(text: str) -> list[tuple[str, str]]:
+    """Split atomic chat specials first, then the Qwen2 pretokenizer."""
+    pieces = []
+    index = 0
+    size = len(text)
+    while index < size:
+        special = next((token for token in _QWEN_SPECIALS
+                        if text.startswith(token, index)), None)
+        if special is not None:
+            pieces.append(("special", special))
+            index += len(special)
+            continue
+        nxt = size
+        for token in _QWEN_SPECIALS:
+            found = text.find(token, index)
+            if found != -1:
+                nxt = min(nxt, found)
+        for part in _qwen_text_pieces(text[index:nxt]):
+            pieces.append(("text", part))
+        index = nxt
+    if "".join(part for _, part in pieces) != text:
+        raise ValueError("Chat text was not partitioned")
+    return pieces
+
+
+def _piece_upper_bound(pieces: list[tuple[str, str]]) -> int:
+    total = 0
+    for kind, part in pieces:
+        total += 1 if kind == "special" else len(part.encode("utf-8"))
+    return total
+
+
+def prove_qwen_completion_bound(row: dict) -> dict:
+    """Same acceptance rules as tokenized_completion, as a byte upper bound.
+
+    Prompt token ids are a prefix when the rendered prompt's pieces are a
+    prefix of the full rendering: the Qwen pretokenizer is isolated, so BPE
+    does not merge across those pieces. The assistant span is at least the
+    number of suffix pieces, and each piece is at least one token.
+    """
+    messages = row.get("messages") if isinstance(row, dict) else None
+    if (not isinstance(messages, list) or len(messages) != 3 or
+            [m.get("role") for m in messages if isinstance(m, dict)] !=
+            ["system", "user", "assistant"]):
+        raise ValueError("Completion row is not system, user, assistant")
+    prompt = _render_pinned_chat(messages[:2], add_generation_prompt=True)
+    full = _render_pinned_chat(messages, add_generation_prompt=False)
+    if not full.startswith(prompt):
+        raise ValueError("Prompt is not a prefix of the rendered chat")
+    prompt_pieces = _qwen_pieces(prompt)
+    full_pieces = _qwen_pieces(full)
+    if full_pieces[:len(prompt_pieces)] != prompt_pieces:
+        raise ValueError("Qwen completion-mask boundary mismatch or truncation")
+    suffix = full_pieces[len(prompt_pieces):]
+    if len(suffix) < 2:
+        raise ValueError("No assistant answer for loss")
+    return {
+        "upper_bound_tokens": _piece_upper_bound(full_pieces),
+        "assistant_pieces": len(suffix),
+    }
+
+
+def _arithmetic_slashes(text: str) -> int:
+    return text.replace(" kg/min", "").count("/")
+
+
+def _assert_arithmetic_preserved(original: str, fitted: str) -> None:
+    if "FINAL_ANSWER:" not in original or "FINAL_ANSWER:" not in fitted:
+        raise ValueError("Verified assistant lost FINAL_ANSWER")
+    if (original.split("FINAL_ANSWER:", 1)[1].strip()
+            != fitted.split("FINAL_ANSWER:", 1)[1].strip()):
+        raise ValueError("Boilerplate trim changed the final answer")
+    if re.findall(r"\d+", original) != re.findall(r"\d+", fitted):
+        raise ValueError("Boilerplate trim changed a verified number")
+    for operator in ("*", "+", "-"):
+        if original.count(operator) != fitted.count(operator):
+            raise ValueError("Boilerplate trim dropped a verified operator")
+    if _arithmetic_slashes(original) != _arithmetic_slashes(fitted):
+        raise ValueError("Boilerplate trim dropped a verified division")
+
+
+def _drop_rounding_sentence(text: str) -> str:
+    return "\n".join(line for line in text.split("\n")
+                     if not line.startswith("Erst jetzt"))
+
+
+def _drop_intermediate_units(text: str) -> str:
+    lines = []
+    for line in _drop_rounding_sentence(text).split("\n"):
+        if not line.startswith("FINAL_ANSWER:"):
+            for suffix in (" kg/min", " kg", " Cent"):
+                if line.endswith(suffix):
+                    line = line[:-len(suffix)]
+                    break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _drop_node_labels(text: str) -> str:
+    lines = []
+    for line in _drop_intermediate_units(text).split("\n"):
+        if (": " in line and not line.startswith("FINAL_ANSWER:")
+                and line != "CHECK:" and not line.startswith("Erst jetzt")):
+            line = line.split(": ", 1)[1]
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _drop_parentheses(text: str) -> str:
+    return _drop_node_labels(text).replace("(", "").replace(")", "")
+
+
+def _squeeze_operator_spaces(text: str) -> str:
+    return re.sub(r"[ \t]*([*/+=-])[ \t]*", r"\1", _drop_parentheses(text))
+
+
+_BOILERPLATE_LADDER = (
+    ("verified_text", lambda text: text),
+    ("drop_rounding_sentence", _drop_rounding_sentence),
+    ("drop_intermediate_units", _drop_intermediate_units),
+    ("drop_node_labels", _drop_node_labels),
+    ("drop_parentheses", _drop_parentheses),
+    ("squeeze_operator_spaces", _squeeze_operator_spaces),
+)
+
+
+def _fit_verified_assistant(prefix: list, text: str, *,
+                            max_length: int = MAX_LENGTH) -> tuple[str, str]:
+    """Drop non-operator boilerplate only until the byte bound fits.
+
+    The ladder stops at the first rendering that still carries every
+    verified number, sign and final answer. Rows that already fit keep
+    the locked assistant text.
+    """
+    if not isinstance(prefix, list) or len(prefix) != 2:
+        raise ValueError("Verified prefix must be system and user")
+    for name, transform in _BOILERPLATE_LADDER:
+        fitted = transform(text)
+        _assert_arithmetic_preserved(text, fitted)
+        bound = prove_qwen_completion_bound(
+            {"messages": [*prefix, {"role": "assistant", "content": fitted}]})
+        if bound["upper_bound_tokens"] <= max_length:
+            return fitted, name
+    raise ValueError(
+        "Verified assistant still exceeds the token budget after boilerplate trim")
+
+
+def _trace_family(text: str) -> str:
+    if "kg/min" in text or ("CHECK:" in text and " kg" in text and "EUR" not in text):
+        return "segmented_fuel"
+    if "CHECK:" in text and ("Cent" in text or "EUR" in text):
+        return "ordered_price"
+    return "other"
+
+
+def _load_offline_qwen_tokenizer():
+    """Use a local pinned snapshot when one is already on disk. Never download."""
+    from neral_hf_identity import BASE_MODEL, BASE_REVISION, validate_hf_snapshot
+    explicit = os.environ.get("NERAL_QWEN_SNAPSHOT", "").strip()
+    candidates = []
+    if explicit:
+        candidates.append((Path(explicit), True))
+    candidates.append((
+        Path.home() / ".cache" / "neral" / "qwen25-smoke" / BASE_REVISION
+        / "installed_models" / "hf-qwen25-coder-7b",
+        False,
+    ))
+    for folder, required in candidates:
+        if folder.is_symlink() or not folder.is_dir():
+            if required:
+                raise ValueError("NERAL_QWEN_SNAPSHOT is not a local model directory")
+            continue
+        if not ((folder / "tokenizer.json").is_file()
+                and (folder / "tokenizer_config.json").is_file()):
+            if required:
+                raise ValueError("NERAL_QWEN_SNAPSHOT has no local tokenizer")
+            continue
+        os.environ.update({
+            "HF_HUB_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1",
+        })
+        try:
+            snapshot = validate_hf_snapshot(folder, verify_hashes=False)
+        except ValueError:
+            if required:
+                raise
+            continue
+        if (snapshot["base_model"] != BASE_MODEL
+                or snapshot["revision"] != BASE_REVISION):
+            raise ValueError("Offline snapshot is not the pinned Qwen revision")
+        from transformers import AutoTokenizer
+        return AutoTokenizer.from_pretrained(
+            str(folder), use_fast=True, local_files_only=True,
+            trust_remote_code=False)
+    return None
+
+
+def assert_verified_steps_fit_max_length(rows, *, max_length: int = MAX_LENGTH,
+                                         tokenizer=None, chat_template: str | None = None
+                                         ) -> dict:
+    """Fail closed unless every row would pass tokenized_completion.
+
+    With a local tokenizer this calls that function unchanged. Otherwise it
+    uses the byte upper bound, which must not be shorter than a real Qwen
+    tokenization of the same rendered chat.
+    """
+    if type(max_length) is not int or max_length < 2:
+        raise ValueError("Invalid completion max length")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("Verified-step corpus is empty")
+    if tokenizer is not None:
+        if chat_template is None:
+            from neral_hf_identity import CHAT_TEMPLATE as chat_template
+        lengths = []
+        for index, row in enumerate(rows):
+            try:
+                encoded = tokenized_completion(
+                    row, tokenizer, chat_template=chat_template,
+                    max_length=max_length)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Verified-step row {index} rejected by tokenized_completion: {exc}"
+                ) from exc
+            exact = len(encoded["input_ids"])
+            upper = prove_qwen_completion_bound(row)["upper_bound_tokens"]
+            if upper < exact:
+                raise ValueError(
+                    "Byte length model under-estimated the offline Qwen tokenizer "
+                    f"at row {index}: bound {upper}, tokenizer {exact}"
+                )
+            lengths.append(exact)
+        return {
+            "method": "offline_qwen_tokenizer",
+            "offline_qwen_tokenizer": True,
+            "max_length": max_length,
+            "rows": len(rows),
+            "max_upper_bound_tokens": max(lengths),
+            "min_upper_bound_tokens": min(lengths),
+            "rows_over_max_length": 0,
+            "rows_at_max_length": sum(length == max_length for length in lengths),
+            "min_assistant_pieces": None,
+            "approximation": (
+                "Exact local tokenizer via tokenized_completion. The byte "
+                "bound was at least that long on every row."
+            ),
+            "training_authorized": False,
+            "claimed_score_gain": False,
+            "release_validated": False,
+        }
+    bounds = []
+    spans = []
+    over = []
+    for index, row in enumerate(rows):
+        proof = prove_qwen_completion_bound(row)
+        bounds.append(proof["upper_bound_tokens"])
+        spans.append(proof["assistant_pieces"])
+        if proof["upper_bound_tokens"] > max_length:
+            content = row["messages"][2]["content"]
+            over.append((proof["upper_bound_tokens"], _trace_family(content)))
+    if over:
+        families = {}
+        for _bound, family in over:
+            families[family] = families.get(family, 0) + 1
+        raise ValueError(
+            "verified_steps corpus exceeds "
+            f"{max_length} tokens under the Qwen byte upper bound: "
+            f"{len(over)} row(s), max {max(bound for bound, _family in over)}, "
+            f"families {families}"
+        )
+    return {
+        "method": "qwen2_byte_bpe_upper_bound",
+        "offline_qwen_tokenizer": False,
+        "max_length": max_length,
+        "rows": len(rows),
+        "max_upper_bound_tokens": max(bounds),
+        "min_upper_bound_tokens": min(bounds),
+        "rows_over_max_length": 0,
+        "rows_at_max_length": sum(bound == max_length for bound in bounds),
+        "min_assistant_pieces": min(spans),
+        "approximation": _LENGTH_APPROXIMATION,
+        "training_authorized": False,
+        "claimed_score_gain": False,
+        "release_validated": False,
+    }
+
+
+def _summarize_verified_trim(notes: list[dict]) -> dict:
+    over = [note for note in notes if note["upper_bound_before_trim"] > MAX_LENGTH]
+    families = {}
+    for note in over:
+        family = note["family"]
+        families[family] = families.get(family, 0) + 1
+    levels = {name: 0 for name, _transform in _BOILERPLATE_LADDER}
+    for note in notes:
+        levels[note["level"]] += 1
+    return {
+        "counterfactual_rows": len(notes),
+        "rows_over_max_length": len(over),
+        "max_upper_bound_tokens": max(note["upper_bound_before_trim"] for note in notes),
+        "by_family": families,
+        "boilerplate_trim_levels": levels,
+    }
 
 
 def _screen_prompts() -> list[str]:
@@ -140,11 +562,21 @@ def build_experiment(*, counterfactual_target: str = "compact"
     reason_rows, proofs = candidate()
     if len(reason_rows) != 128 or len(proofs) != 128:
         raise ValueError("Counterfactual reasoning source changed")
+    verified_trim_notes = []
     for original, proof in zip(reason_rows, proofs):
         if counterfactual_target == "compact":
             content = _compact_trace(proof, original)
         else:
-            content = _verified_step_target(proof, original)
+            verified = _verified_step_target(proof, original)
+            pre_row = {"messages": [*original["messages"][:2],
+                                    {"role": "assistant", "content": verified}]}
+            pre_bound = prove_qwen_completion_bound(pre_row)["upper_bound_tokens"]
+            content, level = _fit_verified_assistant(original["messages"][:2], verified)
+            verified_trim_notes.append({
+                "family": proof["family"],
+                "upper_bound_before_trim": pre_bound,
+                "level": level,
+            })
         train.append({"messages":[*original["messages"][:2],
                                    {"role": "assistant", "content": content}]})
     rng = random.Random(SEED)
@@ -189,6 +621,10 @@ def build_experiment(*, counterfactual_target: str = "compact"
     }
     if counterfactual_target == "verified_steps":
         _reject_protected_overlap(train + validation)
+        length_preflight = assert_verified_steps_fit_max_length(
+            train + validation, tokenizer=_load_offline_qwen_tokenizer())
+        length_preflight["before_boilerplate_trim"] = _summarize_verified_trim(
+            verified_trim_notes)
         meta = {
             **meta,
             "status": "NERAL_V6_VERIFIED_STEP_TARGET_NOT_TRAINED",
@@ -197,6 +633,7 @@ def build_experiment(*, counterfactual_target: str = "compact"
             "learning_rate_unchanged": True,
             "replay_ratio_unchanged": True,
             "claimed_score_gain": False,
+            "length_preflight": length_preflight,
         }
     return train, validation, meta
 
