@@ -1,0 +1,32 @@
+name: NERAL six-arm prompt-matched baseline CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_six_arm_eval.py'
+      - 'tests/test_neral_six_arm_eval.py'
+      - '.github/workflows/neral-six-arm-cpu.yml'
+      - 'docs/NERAL_SIX_ARM_FAIR_EVALUATION.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_six_arm_eval.py'
+      - 'tests/test_neral_six_arm_eval.py'
+permissions:
+  contents: read
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Six-arm matched-input, no cross-shot score and paired count integrity
+        run: python -m unittest discover -s tests -p test_neral_six_arm_eval.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_six_arm_eval.py
