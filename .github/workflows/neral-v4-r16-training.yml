@@ -87,7 +87,7 @@ jobs:
             & $py -B -m scripts.neral_v4_trainer_bridge --source $data --out $converted
             if($LASTEXITCODE -ne 0){throw 'Trainer format / test exclusion failed'}
             foreach($split in @('train','validation')){
-              & $py -B $trial --dataset (Join-Path $converted ($split+'.jsonl')) --review-manifest (Join-Path $converted ($split+'.review.json')) --check-review
+              & $py -B $trial --dataset (Join-Path $converted ($split+'.jsonl')) --review-manifest (Join-Path $converted ($split+'.review.json')) --check-review --steps 200 --max-length 512 --lora-rank 16
               if($LASTEXITCODE -ne 0){throw 'Original pinned trainer rejected reviewed source'}
             }
             $tokenSummary=Join-Path $run 'tokenizer-scalar.json'
