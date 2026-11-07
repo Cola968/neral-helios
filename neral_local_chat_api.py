@@ -82,20 +82,20 @@ def _verified_math_request(prompt: str) -> dict | None:
     """
     from neral_agent_math import MathInputError, eval_python_expr, solve_math_symbolic
 
-    if not isinstance(prompt, str) or len(prompt) > 200 or "\\n" in prompt:
+    if not isinstance(prompt, str) or len(prompt) > 200 or "\n" in prompt:
         return None
     clean = prompt.strip()
     if clean.endswith("?"):
         clean = clean[:-1].rstrip()
-    chars = r"[-+*/().0-9x=^−×÷ \\t]{1,160}"
+    chars = r"[-+*/().0-9x=^−×÷ \t]{1,160}"
     equation = re.fullmatch(
-        r"(?:bitte\\s+)?(?:löse|solve)(?:\\s+bitte)?(?:\\s+die\\s+gleichung)?"
-        r"\\s*:?\\s*(?P<expr>" + chars + r")", clean, re.IGNORECASE)
+        r"(?:bitte\s+)?(?:löse|solve)(?:\s+bitte)?(?:\s+die\s+gleichung)?"
+        r"\s*:?\s*(?P<expr>" + chars + r")", clean, re.IGNORECASE)
     arithmetic = None
     if equation is None:
         arithmetic = re.fullmatch(
-            r"(?:bitte\\s+)?(?:berechne|calculate)(?:\\s+bitte)?"
-            r"\\s*:?\\s*(?P<expr>" + chars + r")", clean, re.IGNORECASE)
+            r"(?:bitte\s+)?(?:berechne|calculate)(?:\s+bitte)?"
+            r"\s*:?\s*(?P<expr>" + chars + r")", clean, re.IGNORECASE)
     try:
         if equation is not None:
             expr = equation.group("expr").strip().lower()
