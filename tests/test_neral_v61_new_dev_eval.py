@@ -68,10 +68,13 @@ class NewV61DevTests(unittest.TestCase):
             p=root/"receipt.json";p.write_text(json.dumps(receipt),encoding="utf8")
             with self.assertRaises(ValueError):
                 validate_local_candidate(p,candidate,v5)
+            expected_v5=hashlib.sha256(b"old-v5").hexdigest()
+            self.assertEqual(validate_local_candidate(
+                p,candidate,v5,expected_v5_sha=expected_v5),sha)
             # Candidate bytes changed -> never trust metadata alone.
             (candidate/"adapter_model.safetensors").write_bytes(b"tampered")
             with self.assertRaises(ValueError):
-                validate_local_candidate(p,candidate,v5)
+                validate_local_candidate(p,candidate,v5,expected_v5_sha=expected_v5)
 
     def test_reject_candidate_receipt_from_unrelated_run_or_model(self):
         good={
