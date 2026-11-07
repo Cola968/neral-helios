@@ -84,7 +84,7 @@ def build_cases() -> list[dict]:
         p=(f"Wie viele durch {div} teilbare ganze Zahlen liegen einschließlich der Grenzen zwischen {low} und {high}?"
            if de else
            f"Count integers divisible by {div} in the inclusive interval from {low} through {high}.")
-        cases.append(_case("math","interval_divisibility",i,ans if False else p,ans,lang))
+        cases.append(_case("math","interval_divisibility",i,p,ans,lang))
 
         # M4: nonnegative integer solutions to 3a+5b=total.
         total=29+8*i
@@ -167,11 +167,14 @@ def build_cases() -> list[dict]:
         p=(f"Was druckt Python 3 für folgenden Code?\n```python\n{code}\n```"
            if de else f"What integer is printed by Python 3 for this code?\n```python\n{code}\n```")
         cases.append(_case("code_trace","python_string_stride",i,p,ans,lang))
-    if (len(cases)!=72 or len({c["id"] for c in cases})!=72
-            or Counter(c["domain"] for c in cases)!=dict.fromkeys(DOMAINS,24)
-            or len({c["prompt"] for c in cases})!=72
-            or len({(c["domain"],c["family"]) for c in cases})!=12):
-        raise ValueError("New development suite coverage failure")
+    coverage = {"total":len(cases),"unique_id":len({c["id"] for c in cases}),
+                "domain_counts":dict(Counter(c["domain"] for c in cases)),
+                "unique_prompts":len({c["prompt"] for c in cases}),
+                "unique_families":len({(c["domain"],c["family"]) for c in cases})}
+    if (coverage["total"]!=72 or coverage["unique_id"]!=72 or
+            coverage["domain_counts"]!=dict.fromkeys(DOMAINS,24) or
+            coverage["unique_prompts"]!=72 or coverage["unique_families"]!=12):
+        raise ValueError("New development suite coverage failure: "+str(coverage))
     return cases
 
 
