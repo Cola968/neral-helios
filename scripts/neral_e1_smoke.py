@@ -159,6 +159,37 @@ def preflight(pairs_path: Path, dev_path: Path, release_path: Path,
     }
 
 
+def validate_review_manifest(manifest: dict, precheck: dict) -> bool:
+    """Require an explicit independent QA attestation before spending GPU time.
+
+    The signature and actual human review remain external responsibilities;
+    never present a JSON boolean as independently proven by this script.
+    """
+    required = {
+        "schema", "status", "pairs_sha256", "pairs_reviewed",
+        "reviewer", "reviewed_at_utc", "verifiers_independently_executed",
+        "suite_exclusion_reviewed", "review_evidence_sha256",
+    }
+    if not isinstance(manifest, dict) or set(manifest) != required:
+        raise ValueError("Missing or extra pair-review manifest fields")
+    if (type(manifest["schema"]) is not int or manifest["schema"] != 1 or
+            manifest["status"] != "APPROVED_FOR_LOCAL_GPU_SMOKE_ONLY" or
+            manifest["pairs_sha256"] != precheck["pairs_sha256"] or
+            type(manifest["pairs_reviewed"]) is not int or
+            manifest["pairs_reviewed"] != precheck["pairs"] or
+            not isinstance(manifest["reviewer"], str) or
+            not IDENT.fullmatch(manifest["reviewer"]) or
+            not isinstance(manifest["reviewed_at_utc"], str) or
+            not re.fullmatch(r"20\\d{2}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+                             manifest["reviewed_at_utc"]) or
+            manifest["verifiers_independently_executed"] is not True or
+            manifest["suite_exclusion_reviewed"] is not True or
+            not isinstance(manifest["review_evidence_sha256"], str) or
+            not SHA.fullmatch(manifest["review_evidence_sha256"])):
+        raise ValueError("Human/verifier review not approved for local smoke")
+    return True
+
+
 def _trainer_rows(rows: list[dict], split: str) -> list[dict]:
     # Format accepted by current TRL DPOTrainer/ORPOTrainer, with fixed ChatML.
     return [{
@@ -188,6 +219,22 @@ def _gpu_availability() -> None:
 def _gpu_smoke(args, precheck: dict) -> dict:
     """Actual local, manual, bounded optimization; NEVER callable from CI."""
     require_gpu_opt_in(args.method, args.authorize)
+    if not args.review_manifest:
+        raise ValueError("Human QA approval manifest is mandatory before GPU smoke")
+    review_path = Path(args.review_manifest)
+    if (review_path.is_symlink() or not review_path.is_file() or
+            not 0 < review_path.stat().st_size <= 100000):
+        raise ValueError("Untrusted or missing local review manifest")
+    def _no_duplicate_keys(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("Duplicate review-manifest property")
+            obj[key] = value
+        return obj
+    manifest = json.loads(review_path.read_text(encoding="utf8"),
+                          object_pairs_hook=_no_duplicate_keys)
+    validate_review_manifest(manifest, precheck)
     if not args.base or not args.adapter:
         raise ValueError("Explicit local Qwen and sealed v5 adapter required")
     base_path, adapter_path = Path(args.base), Path(args.adapter)
@@ -343,6 +390,7 @@ def main(argv=None):
     p.add_argument("--base", type=Path)
     p.add_argument("--adapter", type=Path)
     p.add_argument("--authorize", default="")
+    p.add_argument("--review-manifest", type=Path)
     args = p.parse_args(argv)
     checked = preflight(args.pairs, args.dev_suite, args.release_suite, method=args.method)
     if args.mode == "preflight":
