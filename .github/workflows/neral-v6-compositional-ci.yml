@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - scripts/neral_v6_compositional.py
+      - scripts/neral_v6_export.py
+      - tests/test_neral_v6_export.py
       - tests/test_neral_v6_compositional.py
       - .github/workflows/neral-v6-compositional-ci.yml
       - docs/NERAL_V6_TRANSFER.md
@@ -24,6 +26,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Validate original CPU-only synthetic candidate
-        run: python -m unittest discover -s tests -p test_neral_v6_compositional.py -v
+        run: |
+          python -m unittest discover -s tests -p test_neral_v6_compositional.py -v
+          python -m unittest discover -s tests -p test_neral_v6_export.py -v
       - name: Bytecode compile
-        run: python -m py_compile scripts/neral_v6_compositional.py
+        run: python -m py_compile scripts/neral_v6_compositional.py scripts/neral_v6_export.py
