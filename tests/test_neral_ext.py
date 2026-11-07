@@ -97,5 +97,26 @@ class NeralExtTests(unittest.TestCase):
                 write_report(file, {"schema": 1})
 
 
+    def test_mbpp_python_is_never_counted_correct_without_sandbox(self):
+        """Identical source is not evidence that a generated program passes tests."""
+        case = {"id": "mbpp-001", "domain": "mbpp", "kind": "python",
+                "prompt": "Implement a function.", "answer": "def f(x):\\n    return x + 1"}
+        from scripts.neral_ext import evaluate
+        scored = evaluate([case], {"mbpp-001": {"text": case["answer"], "complete": True}})
+        self.assertEqual(scored["mbpp-001"]["semantic"], "ungraded")
+        self.assertFalse(scored["mbpp-001"]["strict"])
+
+    def test_400_case_contract_accepts_pinned_mbpp_as_ungraded(self):
+        from scripts.neral_ext import read_cases
+        code = "def f(x):\\n    return x + 1\\n" + "# preserved benchmark reference\\n" * 5
+        case = {"id": "mbpp-001", "domain": "mbpp", "kind": "python",
+                "prompt": "Implement a function.", "answer": code}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "cases.jsonl"
+            path.write_text(json.dumps(case) + "\\n", encoding="utf8")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(read_cases(path, digest)[0]["kind"], "python")
+
+
 if __name__ == "__main__":
     unittest.main()
