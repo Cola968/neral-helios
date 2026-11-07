@@ -6,6 +6,9 @@ on:
       - 'tests/test_neral_v5_transfer_curriculum.py'
       - 'scripts/neral_v5_trainer_bridge.py'
       - 'tests/test_neral_v5_trainer_bridge.py'
+      - 'scripts/neral_v5_token_preflight.py'
+      - 'tests/test_neral_v5_token_preflight.py'
+      - '.github/workflows/neral-v5-token-preflight.yml'
       - '.github/workflows/neral-v5-curriculum-ci.yml'
   push:
     branches: [main]
@@ -25,4 +28,5 @@ jobs:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -p test_neral_v5_transfer_curriculum.py -v
       - run: python -m unittest discover -s tests -p test_neral_v5_trainer_bridge.py -v
-      - run: python -m compileall -q scripts/neral_v5_transfer_curriculum.py scripts/neral_v5_trainer_bridge.py
+      - run: python -m unittest discover -s tests -p test_neral_v5_token_preflight.py -v
+      - run: python -m compileall -q scripts/neral_v5_transfer_curriculum.py scripts/neral_v5_trainer_bridge.py scripts/neral_v5_token_preflight.py
