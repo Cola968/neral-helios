@@ -1,0 +1,160 @@
+name: NERAL v4 heldout 128-case A/B GPU (manual, no training)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only GPU check: EVALUATE_NERAL_V4_R16_SAVED'
+      train_run_id:
+        type: string
+        required: true
+        description: 'Completed v4 rank16 training GitHub run ID'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  eval:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V4_R16_SAVED'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Verify pinned saved adapter and benchmark contracts
+        env:
+          TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:TRAIN_RUN_ID -notmatch '^[0-9]{8,14}$'){throw 'Only numeric completed training IDs allowed'}
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          foreach($folder in @($control,$trainer)){
+            & git -C $folder -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Pinned scratch source normalization failed'}
+          }
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $run=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\v4-r16-200-$env:TRAIN_RUN_ID-1"
+          $adapter=Join-Path $run 'adapter'
+          $data=Join-Path $run 'candidate'
+          foreach($folder in @($control,$trainer,$run,$adapter,$data,$base)){
+            if(-not(Test-Path -LiteralPath $folder -PathType Container)){throw 'Saved local training artifact/model not found'}
+          }
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python unavailable'}
+          $tr=Get-Content -LiteralPath (Join-Path $adapter 'training-report.json') -Raw|ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath (Join-Path $adapter 'neral-adapter.json') -Raw|ConvertFrom-Json
+          $cfg=Get-Content -LiteralPath (Join-Path $adapter 'adapter_config.json') -Raw|ConvertFrom-Json
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $adapter 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+          if($tr.status -ne 'completed' -or $tr.steps -ne 200 -or $tr.optimizer_steps_completed -ne 200 -or
+             $tr.lora_rank -ne 16 -or $tr.neral_trainable_parameters -ne 40370176 -or
+             $cfg.r -ne 16 -or $manifest.release_validated -ne $false -or
+             $manifest.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
+             $manifest.files.'adapter_model.safetensors' -ne $sha){
+            throw 'Sealed experimental adapter proof failed'
+          }
+          Push-Location $control
+          try {
+            & $py -B -m unittest discover -s tests -p test_neral_v4_novel_eval.py -v
+            if($LASTEXITCODE -ne 0){throw 'Evaluation CPU contracts failed'}
+            $env:PYTHONPATH=$control
+            & $py -B -c "from pathlib import Path;from scripts.neral_v4_novel_eval import verify_prompt_isolation;import sys;assert verify_prompt_isolation(Path(sys.argv[1]))" $data
+            if($LASTEXITCODE -ne 0){throw 'Unverified or overlapping holdout'}
+          } finally {Pop-Location}
+          $result=Join-Path $run "novel-eval-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $result){throw 'Evaluation result must be new'}
+          New-Item -ItemType Directory -Path $result -ErrorAction Stop|Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "V4_EVAL_RESULT=$result"+[Environment]::NewLine+
+            "V4_EVAL_DATA=$data"+[Environment]::NewLine+
+            "V4_EVAL_ADAPTER=$adapter"+[Environment]::NewLine+
+            "V4_EVAL_BASE=$base"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Evaluate Qwen and NERAL v4 in separate fresh GPU processes
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          foreach($variant in @('base','neral_v4')){
+            $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+            if($LASTEXITCODE -ne 0){throw 'GPU memory sensor unavailable'}
+            $values=($raw|Select-Object -First 1)-split ','
+            if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 9000 -or [int]$values[1].Trim() -gt 20){
+              throw "GPU busy / under 9000 MiB before $variant"
+            }
+            Push-Location $control
+            try {
+              $env:PYTHONPATH=$trainer
+              & $py -B -m scripts.neral_v4_novel_eval --base $env:V4_EVAL_BASE --adapter $env:V4_EVAL_ADAPTER --trainer-root $trainer --source-root $env:V4_EVAL_DATA --out (Join-Path $env:V4_EVAL_RESULT $variant) --variant $variant
+              if($LASTEXITCODE -ne 0){throw "Variant $variant inference failed; weights unchanged"}
+            } finally {Pop-Location}
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$trainer
+            & $py -B -m scripts.neral_v4_novel_eval --base $env:V4_EVAL_BASE --adapter $env:V4_EVAL_ADAPTER --trainer-root $trainer --source-root $env:V4_EVAL_DATA --out (Join-Path $env:V4_EVAL_RESULT 'summary') --combine
+            if($LASTEXITCODE -ne 0){throw 'Paired combine failed'}
+          } finally {Pop-Location}
+          $dir=Join-Path $control 'novel_eval_scalar'
+          if(Test-Path -LiteralPath $dir){throw 'Refuse summary overwrite'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:V4_EVAL_RESULT 'summary\summary.json') -Destination (Join-Path $dir 'summary.json') -ErrorAction Stop
+      - name: Validate scalar-only paired report before export
+        id: approve
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'control\novel_eval_scalar'
+          if(-not(Test-Path -LiteralPath $dir -PathType Container)){exit 0}
+          $files=@(Get-ChildItem -LiteralPath $dir -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 12000){
+            throw 'Unexpected private/oversized summary output'
+          }
+          $p=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          $allowed=@('schema','status','total','base','neral_v4','per_category','paired','base_revision','adapter_sha256','case_hash','trained_adapter_evaluated','independent_external_benchmark','general_improvement_proven','release_validated','weights_promoted','limitations')
+          $keys=@($p.PSObject.Properties.Name)
+          if($keys.Count -ne $allowed.Count -or @($keys|Where-Object{$_ -notin $allowed}).Count -ne 0 -or
+             $p.status -ne 'NERAL_V4_NOVEL_REPO_HOLDOUT_DIAGNOSTIC' -or $p.total -ne 128 -or
+             $p.general_improvement_proven -ne $false -or $p.independent_external_benchmark -ne $false -or
+             $p.release_validated -ne $false -or $p.weights_promoted -ne $false -or
+             $p.adapter_sha256 -notmatch '^[a-f0-9]{64}$' -or $p.case_hash -notmatch '^[a-f0-9]{64}$' -or
+             $p.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242'){
+            throw 'Unverified aggregate benchmark schema'
+          }
+          if($p.base.correct -lt 0 -or $p.base.correct -gt 128 -or
+             $p.neral_v4.correct -lt 0 -or $p.neral_v4.correct -gt 128 -or
+             $p.paired.net_gain -ne ($p.neral_v4.correct - $p.base.correct) -or
+             $p.paired.discordant -ne ($p.paired.improvements + $p.paired.regressions) -or
+             $p.paired.exact_mcnemar_p -lt 0 -or $p.paired.exact_mcnemar_p -gt 1){
+            throw 'Paired metric inconsistency'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload numbers only, never raw responses or model bytes
+        if: always() && steps.approve.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v4-novel-128-paired-score
+          path: control/novel_eval_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
