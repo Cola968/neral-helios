@@ -36,6 +36,25 @@ class IdentityPromptTests(unittest.TestCase):
         self.assertIn("NERAL AI", messages[0]["content"])
         self.assertIn("nicht unaufgefordert", messages[0]["content"])
 
+    def test_standalone_mini_zip_entrypoint_does_not_require_repo_root(self):
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        source = Path(__file__).resolve().parents[1] / "mini" / "neral_mini.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "mini" / "neral_mini.py"
+            target.parent.mkdir()
+            shutil.copy2(source, target)
+            result = subprocess.run(
+                [sys.executable, "-B", str(target), "--help"],
+                cwd=tmp, capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("NERAL Mini", result.stdout)
+
     def test_rejects_unrecognized_contexts(self):
         for mode, origin in (("unknown", "local_neral_lora_experimental"),
                              ("web", "unrecognized")):
