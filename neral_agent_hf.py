@@ -92,6 +92,30 @@ class HFAdapterLocalBackend:
         with self._inference_lock:
             return self._respond_once(messages)
 
+    def compare_with_base(self, messages: list[dict]) -> dict[str, str]:
+        """Paired, same-prompt comparison using PEFT's real adapter switch.
+
+        No second 7B copy and no GPU overlap. The existing _respond_once
+        method applies identical greedy generation parameters in both modes.
+        This measures weight-level differences, NOT system-tool advantages.
+        """
+        with self._inference_lock:
+            self._load()
+            switch = getattr(self._model, "disable_adapter", None)
+            if not callable(switch):
+                raise AgentModelError("PEFT-Adapter kann nicht sicher deaktiviert werden.")
+            try:
+                with switch():
+                    foundation = self._respond_once(messages)
+                adapted = self._respond_once(messages)
+            except AgentModelError:
+                raise
+            except Exception as exc:
+                raise AgentModelError("Lokaler Adapter-A/B-Vergleich fehlgeschlagen.") from exc
+            if not all(isinstance(x, str) and x.strip() for x in (foundation, adapted)):
+                raise AgentModelError("Ungültige A/B-Modellantwort.")
+            return {"base": foundation, "neral": adapted}
+
     def _respond_once(self, messages: list[dict]) -> str:
         try:
             self._load()
