@@ -175,8 +175,14 @@ def _gpu_is_free() -> tuple[int, int]:
     return free, busy
 
 
-def _gpu_train(args) -> dict:
-    require_explicit_gpu_authorization(args.authorize)
+def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
+               lr=1e-5, authorize=AUTH,
+               status="NERAL_V6_120_STEPS_TRAINED_EXPERIMENT_ONLY") -> dict:
+    # Keep the original v6 defaults unchanged; allow explicit reviewed
+    # experiments to supply a different provenance-checked data factory.
+    if (args.authorize != authorize or type(steps) is not int or
+            not 1 <= steps <= 120 or not 0 < lr <= 1e-5):
+        raise ValueError("Unsafe training authorization, step count or LR")
     root = Path(__file__).resolve().parents[1]
     dest = Path(args.out)
     model_dir = Path(args.base)
@@ -205,7 +211,12 @@ def _gpu_train(args) -> dict:
     expected_sha = "2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5"
     if old_sha != expected_sha:
         raise ValueError("Wrong v5 predecessor SHA; refuse unreviewed lineage")
-    train, val, meta = build_experiment()
+    train, val, meta = data_factory()
+    if (len(train) != meta.get("train_rows") or
+            len(val) != meta.get("validation_rows") or
+            meta.get("release_validated") is not False or
+            meta.get("training_performed") is not False):
+        raise ValueError("Untrusted experimental training dataset")
     import torch
     from datasets import Dataset
     from peft import PeftModel, prepare_model_for_kbit_training
@@ -284,9 +295,9 @@ def _gpu_train(args) -> dict:
     dest.mkdir(exist_ok=False)
     output_temp=dest/"trainer-temp"
     config=TrainingArguments(
-        output_dir=str(output_temp), max_steps=STEPS,
+        output_dir=str(output_temp), max_steps=steps,
         per_device_train_batch_size=1, per_device_eval_batch_size=1,
-        gradient_accumulation_steps=4, learning_rate=1e-5,
+        gradient_accumulation_steps=4, learning_rate=lr,
         bf16=True, fp16=False,
         optim="paged_adamw_8bit",
         gradient_checkpointing=True,
@@ -304,8 +315,8 @@ def _gpu_train(args) -> dict:
     )
     before=time.monotonic()
     result=trainer.train()
-    if trainer.state.global_step != STEPS or not math.isfinite(result.training_loss):
-        raise ValueError("Incomplete/nonfinite 120 optimizer steps")
+    if trainer.state.global_step != steps or not math.isfinite(result.training_loss):
+        raise ValueError("Incomplete/nonfinite requested optimizer steps")
     evals=trainer.evaluate()
     eval_loss=float(evals.get("eval_loss",float("nan")))
     if not math.isfinite(eval_loss):
@@ -325,7 +336,7 @@ def _gpu_train(args) -> dict:
     if sha256((adapter_dir/"adapter_model.safetensors").read_bytes()).hexdigest()!=old_sha:
         raise ValueError("Existing v5 adapter unexpectedly mutated")
     report={
-        **meta,"status":"NERAL_V6_120_STEPS_TRAINED_EXPERIMENT_ONLY",
+        **meta,"status":status,
         "predecessor_adapter_sha256":old_sha,
         "candidate_adapter_sha256":new_sha,
         "foundation_revision":snapshot["revision"],

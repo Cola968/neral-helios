@@ -1,0 +1,37 @@
+name: NERAL v6.1 replay and low-learning-rate CPU checks
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v61_replay_train.py'
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'tests/test_neral_v61_replay_train.py'
+      - '.github/workflows/neral-v61-replay-ci.yml'
+      - '.github/workflows/neral-v61-replay-gpu.yml'
+      - 'docs/NERAL_V61_REPLAY_EXPERIMENT.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v61_replay_train.py'
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'tests/test_neral_v61_replay_train.py'
+permissions:
+  contents: read
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Replay split, provenance, anti-forgetting and no dev72 leakage
+        run: python -m unittest discover -s tests -p test_neral_v61_replay_train.py -v
+      - name: Original v6 trainer backward compatibility
+        run: python -m unittest discover -s tests -p test_neral_v6_r16_gpu.py -v
+      - name: Python compile
+        run: python -m py_compile scripts/neral_v61_replay_train.py scripts/neral_v6_r16_gpu.py

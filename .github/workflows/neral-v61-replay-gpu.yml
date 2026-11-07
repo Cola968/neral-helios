@@ -1,0 +1,133 @@
+name: NERAL v6.1 anti-forgetting replay 120-step QLoRA (manual GPU)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Explicit manual approval TRAIN_NERAL_V61_R16_120_REPLAY_EXPERIMENTAL'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  train:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'TRAIN_NERAL_V61_R16_120_REPLAY_EXPERIMENTAL'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify original and new train-only data integrity before touching GPU (CPU)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned offline local Python absent'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v61_replay_train.py -v
+            if($LASTEXITCODE -ne 0){throw 'Replay/no-leak contract failed'}
+            & $py -B -m unittest discover -s tests -p test_neral_v6_r16_gpu.py -v
+            if($LASTEXITCODE -ne 0){throw 'Original trainer regression failed'}
+          } finally {Pop-Location}
+      - name: RTX4070 limited 120-step v5-replay plus v6-train only
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1\adapter'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $out=Join-Path $root "v61-replay-120-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(-not(Test-Path -LiteralPath $base -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container) -or
+             (Test-Path -LiteralPath $out)){throw 'Pinned base/v5 not found or output already exists'}
+          $old=(Get-FileHash -LiteralPath (Join-Path $v5 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($old -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5'){
+            throw 'Original verified v5 adapter SHA changed; training aborted'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU missing'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 10000 -or [int]$fields[1].Trim() -gt 20){
+            throw 'RTX 4070 busy; fail closed'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v61_replay_train --mode gpu-train --out $out --base $base --v5-adapter $v5 --authorize TRAIN_NERAL_V61_R16_120_REPLAY_EXPERIMENTAL
+            if($LASTEXITCODE -ne 0){throw 'v6.1 candidate optimizer failed: no promotion'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "V61_REPLAY_LOCAL=$out"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Verify 120 optimizer steps, LoRA hash, old v5 unchanged and no promotion
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:V61_REPLAY_LOCAL
+          $report=Get-Content -LiteralPath (Join-Path $root 'scalar-private.json') -Raw|ConvertFrom-Json
+          $weights=Join-Path $root 'candidate-adapter\adapter_model.safetensors'
+          $sha=(Get-FileHash -LiteralPath $weights -Algorithm SHA256).Hash.ToLowerInvariant()
+          $v5=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1\adapter\adapter_model.safetensors'
+          $v5sha=(Get-FileHash -LiteralPath $v5 -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($report.status -ne 'NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL' -or
+             $report.train_rows -ne 800 -or $report.validation_rows -ne 140 -or
+             $report.source_counts.v5_train_replay -ne 560 -or
+             $report.source_counts.v6_train_multistep -ne 240 -or
+             $report.steps_completed -ne 120 -or
+             $report.learning_rate -ne 0.000002 -or
+             $report.lora_trainable_parameters -ne 40370176 -or
+             $report.candidate_adapter_sha256 -ne $sha -or
+             $v5sha -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5' -or
+             $sha -eq $v5sha -or $report.adapter_promoted -ne $false -or
+             $report.release_validated -ne $false){
+            throw 'Invalid v6.1 experimental outcome or v5 overwrite; deny promotion'
+          }
+          $safe=[ordered]@{
+            status=$report.status
+            source_counts=$report.source_counts
+            train_rows=$report.train_rows
+            validation_rows=$report.validation_rows
+            steps_completed=$report.steps_completed
+            learning_rate=$report.learning_rate
+            candidate_adapter_sha256=$report.candidate_adapter_sha256
+            predecessor_adapter_sha256=$report.predecessor_adapter_sha256
+            train_sha256=$report.train_sha256
+            validation_loss=$report.validation_loss
+            training_loss=$report.training_loss
+            peak_reserved_vram_mib=$report.peak_reserved_vram_mib
+            total_vram_mib=$report.total_vram_mib
+            elapsed_seconds=$report.elapsed_seconds
+            release_validated=$false
+            general_improvement_proven=$false
+            adapter_promoted=$false
+          }
+          $public=Join-Path $env:GITHUB_WORKSPACE 'control\v61_replay_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Refuse to overwrite public aggregate'}
+          New-Item -Path $public -ItemType Directory -ErrorAction Stop|Out-Null
+          ($safe|ConvertTo-Json -Depth 7 -Compress)|Set-Content -LiteralPath (Join-Path $public 'summary.json') -Encoding utf8
+          Write-Host 'NERAL_V61_TRAINED_EXPERIMENTAL_ONLY; weights and raw data private on Windows PC.'
+      - name: Share scalar-only experimental report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v61-r16-120-replay-scalar-only
+          path: control/v61_replay_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
