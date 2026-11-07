@@ -90,11 +90,8 @@ class ReleaseGateContract(unittest.TestCase):
             [rows[0], *rows],
             [dict(rows[0], neral_correct=1), *rows[1:]],
             [dict(rows[0], base_strict=True), *rows[1:]],
-            [dict(rows[0], family="math-method-0"), *rows[1:]],
+            [dict(r, family="math-identical") if r["domain"] == "math" else r for r in rows],
         ):
-            if len(altered) == len(rows) and altered[0]["family"] == rows[0]["family"]:
-                # Ignore one identical row in family test case.
-                continue
             with self.assertRaises(ValueError):
                 analyze_trial(altered, "v6", draws=1000)
         with self.assertRaises(ValueError):
