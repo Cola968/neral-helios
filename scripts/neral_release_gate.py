@@ -64,22 +64,38 @@ def _wilson(successes: int, total: int) -> tuple[float, float]:
     return max(0., center - radius), min(1., center + radius)
 
 
-def paired_newcombe_ci(improved: int, regressed: int, total: int) -> tuple[float, float]:
-    """Newcombe paired-proportions method 10 using discordant Wilson bounds.
+def paired_newcombe_ci(
+    improved: int, regressed: int, total: int, *, both_correct: int,
+) -> tuple[float, float]:
+    """Newcombe (1998) METHOD 10 for paired binary proportions, with corrected phi.
 
-    Returns fraction difference (NERAL correct - baseline correct), 95% interval.
-    Does not assume two independent model score samples.
+    Table: a=both correct, b=NERAL only, c=baseline only, d=both wrong.
+    Unlike a Wilson interval on the discordant proportions alone, this uses
+    BOTH marginal success proportions and their corrected correlation.
     """
     if (type(total) is not int or not 1 <= total <= 10000 or
-            type(improved) is not int or type(regressed) is not int or
-            min(improved, regressed) < 0 or improved + regressed > total):
-        raise ValueError("Invalid paired counts")
-    d = (improved - regressed) / total
-    ib, iu = _wilson(improved, total)
-    rb, ru = _wilson(regressed, total)
-    i, r = improved / total, regressed / total
-    lower = d - math.sqrt((i - ib)**2 + (ru - r)**2)
-    upper = d + math.sqrt((iu - i)**2 + (r - rb)**2)
+            any(type(z) is not int or z < 0 for z in
+                (improved, regressed, both_correct)) or
+            improved + regressed + both_correct > total):
+        raise ValueError("Invalid paired contingency table")
+    a, b, c = both_correct, improved, regressed
+    d = total - a - b - c
+    p1 = (a + b) / total
+    p2 = (a + c) / total
+    l1, u1 = _wilson(a + b, total)
+    l2, u2 = _wilson(a + c, total)
+    num = a * d - b * c
+    denominator = math.sqrt((a + b) * (c + d) * (a + c) * (b + d))
+    if denominator == 0:
+        phi = 0.0
+    else:
+        # Newcombe's half-observation continuity correction for positive phi.
+        phi = (max(0, num - total / 2) if num > 0 else num) / denominator
+    diff = p1 - p2
+    lower = diff - math.sqrt(max(0.0,
+        (p1 - l1)**2 - 2*phi*(p1 - l1)*(u2 - p2) + (u2 - p2)**2))
+    upper = diff + math.sqrt(max(0.0,
+        (u1 - p1)**2 - 2*phi*(u1 - p1)*(p2 - l2) + (p2 - l2)**2))
     return max(-1.0, lower), min(1.0, upper)
 
 
@@ -161,7 +177,8 @@ def _domain_report(group: list[dict]) -> dict:
     n = len(group)
     better = sum(not r["base_correct"] and r["neral_correct"] for r in group)
     worse = sum(r["base_correct"] and not r["neral_correct"] for r in group)
-    lower, upper = paired_newcombe_ci(better, worse, n)
+    both = sum(r["base_correct"] and r["neral_correct"] for r in group)
+    lower, upper = paired_newcombe_ci(better, worse, n, both_correct=both)
     return {
         "total": n,
         "base_correct": sum(r["base_correct"] for r in group),
@@ -187,7 +204,8 @@ def analyze_trial(
     better = sum(not r["base_correct"] and r["neral_correct"] for r in rows)
     worse = sum(r["base_correct"] and not r["neral_correct"] for r in rows)
     pvalue = exact_mcnemar_p(better, worse)
-    lower, upper = paired_newcombe_ci(better, worse, len(rows))
+    both = sum(r["base_correct"] and r["neral_correct"] for r in rows)
+    lower, upper = paired_newcombe_ci(better, worse, len(rows), both_correct=both)
     bootstrap_lower, bootstrap_upper = stratified_cluster_bootstrap_ci(
         rows, seed=seed, draws=draws,
     )
