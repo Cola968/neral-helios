@@ -180,7 +180,7 @@ def validate_review_manifest(manifest: dict, precheck: dict) -> bool:
             not isinstance(manifest["reviewer"], str) or
             not IDENT.fullmatch(manifest["reviewer"]) or
             not isinstance(manifest["reviewed_at_utc"], str) or
-            not re.fullmatch(r"20\\d{2}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+            not re.fullmatch(r"20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
                              manifest["reviewed_at_utc"]) or
             manifest["verifiers_independently_executed"] is not True or
             manifest["suite_exclusion_reviewed"] is not True or
