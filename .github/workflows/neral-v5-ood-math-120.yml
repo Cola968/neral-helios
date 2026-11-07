@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   evaluate:
-    if: github.ref == 'refs/heads/main' && ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'feat(NERAL v5): novel math 120 GPU comparison')) || (github.event_name == 'workflow_dispatch' && inputs.authorize == 'EVALUATE_NERAL_V5_OOD_120'))
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'feat-NERAL-v5-novel-math-120')) || (github.event_name == 'workflow_dispatch' && inputs.authorize == 'EVALUATE_NERAL_V5_OOD_120'))
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 90
     defaults:
