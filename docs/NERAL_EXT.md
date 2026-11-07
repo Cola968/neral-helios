@@ -185,3 +185,29 @@ unabhängigen Modellvergleiche bleiben unverändert; es erfolgt keine
 automatische Gewichtspromotion oder GPU-Ausführung auf GitHub.
 
 CPU-Regression: `python -m unittest discover -s tests -p 'test_neral_ext_resume.py' -v`.
+
+## Zahlen- und Python-Scores korrekt auseinanderhalten
+
+Die dreiwegige Auswertung (`scripts/neral_ext_run.py --mode combine`)
+enthält jetzt zwei getrennte A/B-Bewertungen:
+
+- `quantitative_A_B`: ausschließlich exakt numerisch prüfbare
+  Integer-, Bruch- und EUR-Aufgaben. Der Nenner ist die Anzahl dieser
+  Fälle. `gap_percentage_points` misst NERAL minus Qwen-Fewshot.
+  Bei **null** passenden Fällen wird der Gap als `null` ausgegeben,
+  nicht als scheinbarer Gleichstand von 0 Prozentpunkten.
+- `python_A_B`: die Anzahl funktional **noch nicht geprüfter**
+  MBPP-Python-Aufgaben; `functional_correctness_evaluated=false` und
+  `verified_correct=null`. Eine erfolgreiche Syntaxprüfung ist
+  kein Beweis für korrektes Programmverhalten.
+
+Das bisherige Feld `format_adjusted_gap_A_B` bleibt zur Kompatibilität
+erhalten. Dessen Nenner enthält jedoch alle A/B-Aufgaben, auch die
+Python-Fälle ohne funktionales Grading, und darf nicht als reiner
+Mathematikvergleich interpretiert werden. Der separate
+`format_adjusted_gap_A_B_legacy_denominator` macht das explizit.
+
+Die neue Aufteilung ändert weder die Antworten, noch die
+Holdout-Aufgaben, die Decodingparameter oder die Modellgewichte. Sie
+erzeugt **keinen** zusätzlichen Qualitätsnachweis. Alle veröffentlichten
+Berichte bleiben ausschließlich aggregiert.
