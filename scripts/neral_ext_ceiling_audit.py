@@ -34,6 +34,22 @@ DIRECT = re.compile(
 )
 MAX_SAMPLES = 20
 
+# Deliberately unreliable: diagnostic only, NEVER counted as a true answer.
+TAIL_NUMBER = re.compile(r"(?<![\w/])([+-]?\d{1,20}(?:[.,]\d{1,20})?(?:/\d{1,20})?)(?![\w/])")
+
+
+def unverified_last_number(case: dict, raw: str) -> Fraction | None:
+    """Return an untrusted numeric hint; NOT a semantic correctness grade."""
+    if (case.get("kind") not in ("integer", "rational", "eur")
+            or not isinstance(raw, str) or len(raw) > 4096):
+        return None
+    matches = TAIL_NUMBER.findall(raw)
+    if not matches:
+        return None
+    # This intentionally ignores currency/units; it is unsafe for grading.
+    return _value("rational", matches[-1])
+
+
 
 def _candidate_value(case: dict, candidate: str) -> Fraction | None:
     """Exact value with very limited unit/typography normalization."""
@@ -122,6 +138,15 @@ def _stats(cases: list[dict], response_map: dict) -> dict:
             raise ValueError("Invalid pinned reference answer")
         if parsed is None:
             out["numeric_ungraded_completed"] += 1
+            # A last number that coincides with the reference may still be an
+            # intermediate, an example, or an unrelated quantity.
+            hint = unverified_last_number(case, entry["text"])
+            if hint is None:
+                out["unverified_no_numeric_tail"] += 1
+            elif hint == expected:
+                out["unverified_last_number_matches_reference"] += 1
+            else:
+                out["unverified_last_number_differs"] += 1
         elif parsed == expected:
             out["new_lenient_correct"] += 1
             if old != "correct":
@@ -134,11 +159,16 @@ def _stats(cases: list[dict], response_map: dict) -> dict:
                 "incomplete_censored", "numeric_incomplete_censored",
                 "numeric_complete", "old_semantic_correct", "old_semantic_wrong",
                 "old_ungraded_completed", "numeric_ungraded_completed",
-                "new_lenient_correct", "new_lenient_wrong", "recovered_correct"):
+                "new_lenient_correct", "new_lenient_wrong", "recovered_correct",
+                "unverified_last_number_matches_reference",
+                "unverified_last_number_differs", "unverified_no_numeric_tail"):
         out.setdefault(key, 0)
     assert out["numeric_complete"] + out["numeric_incomplete_censored"] == out["numeric_total"]
     assert (out["new_lenient_correct"] + out["new_lenient_wrong"] +
             out["numeric_ungraded_completed"] == out["numeric_complete"])
+    assert (out["unverified_last_number_matches_reference"] +
+            out["unverified_last_number_differs"] +
+            out["unverified_no_numeric_tail"] == out["numeric_ungraded_completed"])
     return dict(out)
 
 
@@ -215,6 +245,7 @@ def diagnose(cases: list[dict], meta: list[dict], raw_variants: dict,
             "does NOT infer arbitrary last numbers; numerical exactness checked."
         ),
         "completed_but_ungraded_separated_from_incomplete": True,
+        "last_number_is_unverified_diagnostic_only": True,
         "incomplete_raw_erased_in_original_run": True,
         "python_functional_tests_executed": False,
         "semantically_independent_test_proven": False,
