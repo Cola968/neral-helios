@@ -8,6 +8,8 @@ on:
       - 'scripts/neral_ext_dataset.py'
       - 'scripts/neral_decontamination.py'
       - 'tests/test_neral_ext_data.py'
+      - 'scripts/neral_ext_run.py'
+      - 'tests/test_neral_ext_run.py'
       - 'docs/NERAL_EXT.md'
       - '.github/workflows/neral-ext-ci.yml'
   push:
@@ -17,6 +19,8 @@ on:
       - 'scripts/neral_ext_dataset.py'
       - 'scripts/neral_decontamination.py'
       - 'tests/test_neral_ext_data.py'
+      - 'scripts/neral_ext_run.py'
+      - 'tests/test_neral_ext_run.py'
       - '.github/workflows/neral-ext-ci.yml'
 
 permissions:
@@ -35,5 +39,6 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_neral_ext.py' -v
           python -m unittest discover -s tests -p 'test_neral_ext_data.py' -v
+          python -m unittest discover -s tests -p 'test_neral_ext_run.py' -v
       - name: Compile scorer
-        run: python -m py_compile scripts/neral_ext.py scripts/neral_ext_dataset.py scripts/neral_decontamination.py
+        run: python -m py_compile scripts/neral_ext.py scripts/neral_ext_dataset.py scripts/neral_decontamination.py scripts/neral_ext_run.py
