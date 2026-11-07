@@ -44,6 +44,35 @@ class NewV61DevTests(unittest.TestCase):
         self.assertEqual(result["paired"]["v61_vs_v5"]["improvements"],1)
         self.assertNotIn(cases[0]["prompt"],json.dumps(result))
 
+    def test_local_weights_and_receipt_sha_validated_without_powershell_coercion(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from scripts.neral_v61_new_dev_eval import validate_local_candidate
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t)
+            v5=root/"v5";candidate=root/"candidate"
+            v5.mkdir();candidate.mkdir()
+            b=b"model-candidate"
+            (candidate/"adapter_model.safetensors").write_bytes(b)
+            (v5/"adapter_model.safetensors").write_bytes(b"old-v5")
+            sha=hashlib.sha256(b).hexdigest()
+            receipt={
+                "status":"NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL",
+                "steps_completed":120,"train_rows":800,"validation_rows":140,
+                "source_counts":{"v5_train_replay":560,"v6_train_multistep":240},
+                "predecessor_adapter_sha256":"2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5",
+                "candidate_adapter_sha256":sha,
+                "release_validated":False,"adapter_promoted":False,
+            }
+            p=root/"receipt.json";p.write_text(json.dumps(receipt),encoding="utf8")
+            with self.assertRaises(ValueError):
+                validate_local_candidate(p,candidate,v5)
+            # Candidate bytes changed -> never trust metadata alone.
+            (candidate/"adapter_model.safetensors").write_bytes(b"tampered")
+            with self.assertRaises(ValueError):
+                validate_local_candidate(p,candidate,v5)
+
     def test_reject_candidate_receipt_from_unrelated_run_or_model(self):
         good={
             "status":"NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL",
