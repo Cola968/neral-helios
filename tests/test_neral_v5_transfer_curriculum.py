@@ -81,14 +81,30 @@ class TransferV5CurriculumTests(unittest.TestCase):
                 d=Decimal(money["discount"])
                 t=Decimal(money["surcharge"])
                 price=(p*(100-d)/100*(100+t)/100).quantize(Decimal(".01"),rounding=ROUND_HALF_UP)
-                self.assertEqual(money["answer"],f"{price:.2f}".replace(".",",")+" EUR")
+                bare=f"{price:.2f}".replace(".",",")
+                expected=bare+(" EUR" if style in (1,4,5,7) else "")
+                self.assertEqual(money["answer"],expected)
                 fuel=solve_case("fuel",style,index)
                 amount=Fraction(fuel["burn"]*(fuel["duration"]+fuel["reserve"]),60)+fuel["taxi"]
-                self.assertEqual(fuel["answer"],str(amount)+" kg")
+                expected=str(amount)+(" kg" if style in (1,4,5,7) else "")
+                self.assertEqual(fuel["answer"],expected)
                 tz=solve_case("timezone",style,index)
                 minutes=tz["hour"]*60+tz["minute"]+tz["duration"]+(tz["dst"]-tz["src"])*60
                 day,minute=divmod(minutes,1440)
-                self.assertEqual(tz["answer"],f"{minute//60:02d}:{minute%60:02d} Tag {day:+d}")
+                bare=f"{minute//60:02d}:{minute%60:02d} Tag {day:+d}"
+                expected=bare.replace(" Tag "," (Tag ")+")" if style in (1,4,5,7) else bare
+                self.assertEqual(tz["answer"],expected)
+
+    def test_format_instructions_have_semantically_equal_bare_and_labeled_answers(self):
+        from scripts.neral_v5_transfer_curriculum import solve_case
+        for cat in CATEGORIES[:6]:
+            for i in (0,5,15,28):
+                plain=solve_case(cat,0,i)["answer"]
+                labeled=solve_case(cat,1,i)["answer"]
+                self.assertTrue(plain)
+                self.assertTrue(labeled)
+                self.assertNotIn("FINAL_ANSWER:",plain)
+                self.assertNotIn("FINAL_ANSWER:",labeled)
 
     def test_static_traces_and_repairs_are_safe_verified_code(self):
         from scripts.neral_v5_transfer_curriculum import solve_case
