@@ -25,6 +25,46 @@ META = [{"id": c["id"], "stratum": c["id"][0]} for c in CASES]
 
 
 class ExtRunTests(unittest.TestCase):
+    def test_pinned_identity_survives_same_named_helios_model_catalog(self):
+        """Regression: Windows runner imported control/model_catalog before trainer."""
+        import sys
+        import types
+        from unittest.mock import patch
+        from neral_hf_identity import CHAT_TEMPLATE, validate_hf_snapshot, validate_adapter
+        import scripts.neral_ext_run as runner
+
+        # Reproduces the conflicting module that caused GPU run 42394712562
+        # to fail before a single model inference.
+        shadow = types.ModuleType("model_catalog")
+        shadow.catalog = lambda: None
+        with patch.dict(sys.modules, {"model_catalog": shadow}):
+            template, base_check, adapter_check = runner.pinned_runtime_identity()
+            self.assertEqual(template, CHAT_TEMPLATE)
+            self.assertIs(base_check, validate_hf_snapshot)
+            self.assertIs(adapter_check, validate_adapter)
+
+    def test_gpu_runner_never_modifies_python_module_search_path(self):
+        """Frozen source import must not depend on cwd/PYTHONPATH collisions."""
+        import ast
+        source = (Path(__file__).resolve().parents[1] /
+                  "scripts" / "neral_ext_run.py").read_text(encoding="utf-8")
+        module = ast.parse(source)
+        fn = next(x for x in module.body
+                  if isinstance(x, ast.FunctionDef) and x.name == "_gpu_run")
+        for node in ast.walk(fn):
+            if isinstance(node, ast.ImportFrom):
+                self.assertNotIn(node.module, {
+                    "qwen_local_runtime", "model_catalog",
+                    "neral_adapter_candidate"
+                })
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                self.assertFalse(
+                    isinstance(node.func.value, ast.Attribute)
+                    and isinstance(node.func.value.value, ast.Name)
+                    and node.func.value.value.id == "sys"
+                    and node.func.value.attr == "path"
+                    and node.func.attr in {"insert", "append"})
+
     def test_base_and_neral_have_identical_prompts(self):
         base = build_messages(CASES[0], "base")
         candidate = build_messages(CASES[0], "neral_v5")
