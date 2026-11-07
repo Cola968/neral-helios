@@ -85,6 +85,18 @@ class E1VerifiedPairMiningTests(unittest.TestCase):
         self.assertEqual({p["family"] for p in selected}, set(FAMILIES))
         self.assertTrue(all(p["chosen_verified"] and not p["rejected_verified"] for p in selected))
 
+    def test_unbalanced_on_policy_errors_are_rebalanced_without_fake_pairs(self):
+        rows = candidate_responses()
+        rows.extend(response("inventory_flow", "train", i) for i in range(6, 12))
+        selected, stats = assess_responses(rows, ADAPTER_SHA, DECODING_SHA)
+        smoke = validate_pairs(selected)
+        self.assertEqual(smoke["train"], 30)
+        self.assertEqual(smoke["validation"], 10)
+        self.assertEqual(stats["verified_wrong"], 46)
+        self.assertEqual(stats["balanced_discarded"], 6)
+        self.assertEqual(stats["eligible_pairs"], 40)
+        self.assertEqual(selected, assess_responses(rows, ADAPTER_SHA, DECODING_SHA)[0])
+
     def test_semantically_equivalent_formats_are_not_false_failures(self):
         money = make_case("money_order","train",0)["messages"][2]["content"]
         # The generator's chosen response may contain CHECK+FINAL; only final is graded.
