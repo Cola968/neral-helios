@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.neral_e1_smoke import validate_pairs, smoke_plan, preflight, require_gpu_opt_in
+from scripts.neral_e1_smoke import validate_pairs, smoke_plan, preflight, require_gpu_opt_in, validate_review_manifest
 
 
 def pairs():
@@ -113,6 +113,29 @@ class E1SmokeTests(unittest.TestCase):
             write_jsonl(pair_file,changed)
             with self.assertRaises(ValueError):
                 preflight(pair_file,dev,release,method="dpo")
+
+    def test_gpu_smoke_requires_review_manifest_with_matching_data_digest(self):
+        report={"pairs_sha256":"a"*64,"pairs":60}
+        approved={
+            "schema":1,"status":"APPROVED_FOR_LOCAL_GPU_SMOKE_ONLY",
+            "pairs_sha256":"a"*64,"pairs_reviewed":60,
+            "reviewer":"independent-qa",
+            "reviewed_at_utc":"2026-11-07T17:00:00Z",
+            "verifiers_independently_executed":True,
+            "suite_exclusion_reviewed":True,
+            "review_evidence_sha256":"b"*64,
+        }
+        self.assertTrue(validate_review_manifest(approved,report))
+        for modified in (
+            dict(approved,pairs_sha256="c"*64),
+            dict(approved,pairs_reviewed=59),
+            dict(approved,verifiers_independently_executed=False),
+            dict(approved,suite_exclusion_reviewed=False),
+            dict(approved,review_evidence_sha256=""),
+            dict(approved,reviewer=""),
+        ):
+            with self.assertRaises(ValueError):
+                validate_review_manifest(modified,report)
 
     def test_gpu_training_denied_without_explicit_authorization(self):
         for method in ("dpo","orpo"):
