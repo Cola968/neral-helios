@@ -136,6 +136,24 @@ class LocalHFIdentityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "gesperrt"):
                     validate_adapter(adapter, snapshot)
 
+    def test_agent_backend_refuses_quarantined_weight_sha_before_gpu_init(self):
+        from neral_agent_hf import HFAdapterLocalBackend
+        from neral_agent_autonomy import AgentModelError
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / "base"
+            adapter = root / "adapter"
+            base.mkdir()
+            adapter.mkdir()
+            (adapter / "adapter_model.safetensors").write_bytes(b"standin-not-real-weights")
+            (adapter / "adapter_config.json").write_text(
+                json.dumps({"r": 16, "peft_type": "LORA"}), encoding="utf-8")
+            with patch("neral_agent_hf.hashlib.file_digest",
+                       return_value=Mock(hexdigest=lambda: "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd")):
+                with self.assertRaisesRegex(AgentModelError, "gesperrt"):
+                    HFAdapterLocalBackend(base, adapter)
+
     def test_runtime_backend_does_not_import_missing_legacy_module(self):
         code=Path("neral_agent_hf.py").read_text(encoding="utf8")
         self.assertIn("from neral_hf_identity import",code)
