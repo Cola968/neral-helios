@@ -95,11 +95,13 @@ def cases72():
 
         # Count finite assignments without using a model or string grader.
         target=i%2
-        count=sum(((a^b)==target and (b or c) and not(a and c))
+        maximum=1+i%3
+        count=sum(((a^b)==target and (b or c) and not(a and c)
+                   and a+b+c<=maximum)
                  for a in (0,1) for b in (0,1) for c in (0,1))
         results.append(_one("reasoning","boolean_assignments",i,
-            txt(f"Boolesche A,B,C sind 0 oder 1. Wie viele Belegungen erfüllen (A XOR B)={target}, (B ODER C)=1 und NICHT(A UND C)?",
-                f"Boolean A,B,C can each be 0 or 1. Count assignments satisfying (A XOR B)={target}, (B OR C)=1 and NOT(A AND C)."),
+            txt(f"Boolesche A,B,C sind 0 oder 1. Wie viele Belegungen erfüllen (A XOR B)={target}, (B ODER C)=1, NICHT(A UND C) und A+B+C höchstens {maximum}?",
+                f"Boolean A,B,C can each be 0 or 1. Count assignments satisfying (A XOR B)={target}, (B OR C)=1, NOT(A AND C) and A+B+C at most {maximum}."),
             count))
 
         costs=(4+i,8+i%3,6+2*i,2+i,3+i,17+i//2)
