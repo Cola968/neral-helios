@@ -41,6 +41,8 @@ textarea::placeholder{color:#81898a}
 .send{border:0;border-radius:9px;background:#cedace;color:#16241c;padding:12px 17px;font-weight:650;white-space:nowrap}
 .send:hover:not(:disabled){background:#e1e8dc}
 .send:disabled{opacity:.45;cursor:not-allowed}
+.stop{border:1px solid #72564e;background:#3b2927;color:#ffd5c9;padding:12px 11px;border-radius:9px;white-space:nowrap}
+.stop:disabled{opacity:.45;cursor:not-allowed}
 .footer-note{display:flex;gap:10px;justify-content:space-between;color:#788083;font-size:11px;margin:9px 2px 0;line-height:1.45}
 @media(max-width:580px){header{padding:15px 17px;height:70px}.statusbar{padding:11px 17px}.provenance{font-size:10px}.message.user{max-width:95%}.intro{margin-top:10vh}.footer-note span:last-child{display:none}}
 @media(prefers-reduced-motion:reduce){main{scroll-behavior:auto}}
@@ -71,6 +73,7 @@ textarea::placeholder{color:#81898a}
     <form id="form" autocomplete="off">
       <div class="composer">
         <textarea id="prompt" placeholder="Schreibe eine Nachricht …" rows="2" maxlength="4096" aria-label="Nachricht an NERAL"></textarea>
+        <button class="stop" id="cancel" type="button" hidden>Abbrechen</button>
         <button class="send" id="send" type="submit">Senden</button>
       </div>
     </form>
@@ -85,8 +88,9 @@ textarea::placeholder{color:#81898a}
   const $ = id => document.getElementById(id);
   const form = $("form"), prompt = $("prompt"), feed = $("conversation");
   const status = $("status"), dot = $("dot"), send = $("send"), error = $("error");
+  const cancel = $("cancel");
   const encoder = new TextEncoder();
-  let history = [], busy = false;
+  let history = [], busy = false, cancelling = false;
 
   function draw(role, value) {
     const intro = $("intro");
@@ -152,6 +156,9 @@ textarea::placeholder{color:#81898a}
       return;
     }
     busy = true;
+    cancelling = false;
+    cancel.hidden = false;
+    cancel.disabled = false;
     send.disabled = true;
     send.textContent = "Denkt …";
     error.textContent = "";
@@ -166,7 +173,11 @@ textarea::placeholder{color:#81898a}
         body: JSON.stringify({prompt:question, history:boundedHistory()})
       });
       const payload = await response.json();
-      if (!response.ok) throw Error(payload.error || "Modell nicht verfügbar.");
+      if (!response.ok) {
+        const failure = Error(payload.error || "Modell nicht verfügbar.");
+        failure.cancelled = payload.cancelled === true;
+        throw failure;
+      }
       pending.remove();
       draw("assistant", payload.text);
       history.push({role:"user",content:question},{role:"assistant",content:payload.text});
@@ -175,12 +186,38 @@ textarea::placeholder{color:#81898a}
     } catch (cause) {
       pending.remove();
       error.textContent = cause.message || "Lokale Inferenz fehlgeschlagen.";
+      if (cause.cancelled) prompt.value = question;
       // Do not insert failed requests into conversation history.
     } finally {
       busy = false;
+      cancelling = false;
+      cancel.hidden = true;
+      cancel.disabled = false;
       send.textContent = "Senden";
       await statusCheck();
       prompt.focus();
+    }
+  });
+
+  cancel.addEventListener("click", async () => {
+    if (!busy || cancelling) return;
+    cancelling = true;
+    cancel.disabled = true;
+    error.textContent = "Abbruch angefordert …";
+    try {
+      const response = await fetch("/api/cancel", {
+        method:"POST",
+        headers:{"X-Neral-Session":TOKEN},
+        credentials:"same-origin"
+      });
+      const result = await response.json();
+      if (!response.ok || result.cancel_requested !== true) {
+        throw Error(result.error || "Abbruch fehlgeschlagen.");
+      }
+    } catch (cause) {
+      error.textContent = cause.message || "Abbruch konnte nicht angefordert werden.";
+      cancel.disabled = false;
+      cancelling = false;
     }
   });
 
