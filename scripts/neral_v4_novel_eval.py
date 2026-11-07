@@ -149,6 +149,9 @@ def _row(category:str,index:int)->dict:
                     "eine Textstelle über einen Suchbegriff finden. Wähle genau eines: "
                     "read, python, inventory, search.")
             answer="search"
+    if category=="sql":
+        # Keep each case independently identifiable even for shared clauses.
+        prompt=f"SQL-Prüffall {index}: "+prompt
     return {"id":f"{category}-{index:02d}","category":category,
             "prompt":prompt,"answer":answer}
 
