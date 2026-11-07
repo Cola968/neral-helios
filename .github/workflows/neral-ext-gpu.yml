@@ -1,0 +1,174 @@
+name: NERAL-EXT 400-case three-way GPU (manual, read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Explicit GPU evaluation: EVALUATE_NERAL_EXT_400_READONLY'
+      train_run_id:
+        type: string
+        required: true
+        default: '42378021782'
+        description: 'Pinned v5 480-step training run ID'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_EXT_400_READONLY' && inputs.train_run_id == '42378021782'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      WANDB_DISABLED: 'true'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a082738f9145722dec443141e5d7801a3ead93af
+          path: trainer
+          clean: true
+          persist-credentials: false
+      - name: Verify sealed v5, pinned benchmark, and prepare private files
+        env:
+          TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:TRAIN_RUN_ID -ne '42378021782'){throw 'Pinned v5 480-step run only'}
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
+          foreach($folder in @($control,$trainer)){
+            & git -C $folder -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+            if($LASTEXITCODE -ne 0){throw 'Source normalization failed'}
+          }
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $run=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+          $adapter=Join-Path $run 'adapter'
+          $candidate=Join-Path $run 'candidate'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python missing'}
+          foreach($dir in @($base,$adapter,$candidate,$trainer,$control)){
+            if(-not(Test-Path -LiteralPath $dir -PathType Container)){throw 'Pinned local research snapshot unavailable'}
+          }
+          $trainReport=Get-Content -LiteralPath (Join-Path $adapter 'training-report.json') -Raw|ConvertFrom-Json
+          $adapterManifest=Get-Content -LiteralPath (Join-Path $adapter 'neral-adapter.json') -Raw|ConvertFrom-Json
+          $adapterCfg=Get-Content -LiteralPath (Join-Path $adapter 'adapter_config.json') -Raw|ConvertFrom-Json
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $adapter 'adapter_model.safetensors')).Hash.ToLowerInvariant()
+          if($sha -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5' -or
+             $trainReport.status -ne 'completed' -or $trainReport.optimizer_steps_completed -ne 480 -or
+             $adapterCfg.r -ne 16 -or $adapterManifest.release_validated -ne $false -or
+             $adapterManifest.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
+             $adapterManifest.files.'adapter_model.safetensors' -ne $sha){
+            throw 'v5 sealed adapter identity mismatch'
+          }
+          Push-Location $control
+          try{
+            & $py -B -m unittest discover -s tests -p test_neral_ext.py -v
+            if($LASTEXITCODE -ne 0){throw 'Scoring contracts failed'}
+            & $py -B -m unittest discover -s tests -p test_neral_ext_data.py -v
+            if($LASTEXITCODE -ne 0){throw 'Dataset contracts failed'}
+            & $py -B -m unittest discover -s tests -p test_neral_ext_run.py -v
+            if($LASTEXITCODE -ne 0){throw 'GPU runner CPU contracts failed'}
+            & $py -B -c "from pathlib import Path;from scripts.neral_v5_transfer_curriculum import verify;import sys;assert verify(Path(sys.argv[1]))['valid']" $candidate
+            if($LASTEXITCODE -ne 0){throw 'Saved v5 source splits not verified'}
+          } finally{Pop-Location}
+          $out=Join-Path $run "ext-400-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'Refuse overwrite'}
+          New-Item -Path $out -ItemType Directory -ErrorAction Stop|Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "EXT_PY=$py"+[Environment]::NewLine+
+            "EXT_CONTROL=$control"+[Environment]::NewLine+
+            "EXT_TRAINER=$trainer"+[Environment]::NewLine+
+            "EXT_BASE=$base"+[Environment]::NewLine+
+            "EXT_ADAPTER=$adapter"+[Environment]::NewLine+
+            "EXT_SOURCE=$candidate"+[Environment]::NewLine+
+            "EXT_OUT=$out"+[Environment]::NewLine+
+            "EXT_SHA=$sha"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Generate SHA-pinned 400 public cases and compare to all v5 splits
+        env:
+          HF_HUB_OFFLINE: '0'
+          HF_DATASETS_OFFLINE: '0'
+        run: |
+          $ErrorActionPreference='Stop'
+          $data=Join-Path $env:EXT_OUT 'dataset'
+          New-Item -Path $data -ItemType Directory -ErrorAction Stop|Out-Null
+          Push-Location $env:EXT_CONTROL
+          try {
+            & $env:EXT_PY -B -m scripts.neral_ext_dataset --out-dir $data
+            if($LASTEXITCODE -ne 0){throw 'Pinned 400 dataset download/build failed'}
+            $manifest=Get-Content -LiteralPath (Join-Path $data 'neral-ext-400-manifest.json') -Raw|ConvertFrom-Json
+            if($manifest.dataset_sha256 -ne '47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1'){
+              throw 'Unexpected 400-case benchmark dataset SHA'
+            }
+            $combined=Join-Path $env:EXT_OUT 'v5-all-2560.jsonl'
+            & $env:EXT_PY -B -c "from pathlib import Path;import sys;r=Path(sys.argv[1]);Path(sys.argv[2]).write_bytes(b''.join((r/(s+'.jsonl')).read_bytes() for s in ('train','val','test')))" $env:EXT_SOURCE $combined
+            if($LASTEXITCODE -ne 0){throw 'Source concatenation failed'}
+            & $env:EXT_PY -B -m scripts.neral_decontamination --cases (Join-Path $data 'neral-ext-400.jsonl') --manifest (Join-Path $data 'neral-ext-400-manifest.json') --train-jsonl $combined --out (Join-Path $env:EXT_OUT 'decontam-local.json')
+            if($LASTEXITCODE -ne 0){throw 'Holdout 10-gram contamination detected'}
+          } finally{Pop-Location}
+      - name: Run three fresh GPU inference processes sequentially, never train
+        env:
+          HF_HUB_OFFLINE: '1'
+          HF_DATASETS_OFFLINE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $data=Join-Path $env:EXT_OUT 'dataset'
+          foreach($variant in @('base','base_fewshot','neral_v5')){
+            $gpuVariant=if($variant -eq 'neral_v5'){'neral_v5'}else{'base'}
+            & $env:EXT_PY -B (Join-Path $env:EXT_CONTROL 'scripts\neral_v5_gpu_wait.py') --variant $gpuVariant
+            if($LASTEXITCODE -ne 0){throw "GPU not ready for $variant"}
+            Push-Location $env:EXT_CONTROL
+            try{
+              $env:PYTHONPATH=$env:EXT_TRAINER
+              & $env:EXT_PY -B -m scripts.neral_ext_run --mode run --cases (Join-Path $data 'neral-ext-400.jsonl') --case-sha256 '47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1' --out (Join-Path $env:EXT_OUT "$variant.jsonl") --variant $variant --base $env:EXT_BASE --adapter $env:EXT_ADAPTER --trainer-root $env:EXT_TRAINER --max-new-tokens 256 --max-seconds 21600
+              if($LASTEXITCODE -ne 0){throw "Read-only local generation failed: $variant"}
+            } finally{Pop-Location}
+          }
+      - name: Compute matched aggregates only; preserve raw responses locally
+        env:
+          HF_HUB_OFFLINE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $data=Join-Path $env:EXT_OUT 'dataset'
+          Push-Location $env:EXT_CONTROL
+          try{
+            $env:PYTHONPATH=$env:EXT_TRAINER
+            & $env:EXT_PY -B -m scripts.neral_ext_run --mode combine --cases (Join-Path $data 'neral-ext-400.jsonl') --case-sha256 '47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1' --base-responses (Join-Path $env:EXT_OUT 'base.jsonl') --fewshot-responses (Join-Path $env:EXT_OUT 'base_fewshot.jsonl') --neral-responses (Join-Path $env:EXT_OUT 'neral_v5.jsonl') --manifest (Join-Path $data 'neral-ext-400-manifest.json') --adapter-sha $env:EXT_SHA --out (Join-Path $env:EXT_OUT 'summary-local.json')
+            if($LASTEXITCODE -ne 0){throw 'Three-way aggregation failed'}
+          } finally{Pop-Location}
+          $summary=Get-Content -LiteralPath (Join-Path $env:EXT_OUT 'summary-local.json') -Raw|ConvertFrom-Json
+          if($summary.status -ne 'NERAL_EXT_THREE_WAY_UNVERIFIED_HOLDOUT' -or
+             $summary.total -ne 400 -or $summary.case_sha256 -ne '47258a911ce0beb96635a34137a634556f364457487fb18a160a892302124cb1' -or
+             $summary.general_improvement_proven -ne $false -or
+             $summary.release_validated -ne $false -or
+             $summary.weights_promoted -ne $false -or
+             $summary.adapter_sha256 -ne $env:EXT_SHA){
+            throw 'Unverified scalar summary'
+          }
+          $dir=Join-Path $env:EXT_CONTROL 'ext_scalar'
+          if(Test-Path $dir){throw 'Unexpected prior scalar output'}
+          New-Item -Path $dir -ItemType Directory -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:EXT_OUT 'summary-local.json') -Destination (Join-Path $dir 'summary.json')
+      - name: Upload aggregate counts only, never prompts or model answers
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-ext-400-three-way-scalar
+          path: control/ext_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
