@@ -84,10 +84,34 @@ class NovelV4Eval(unittest.TestCase):
             build(root)
             self.assertTrue(verify_prompt_isolation(root,CASES))
             copied=list(CASES)
-            row=json.loads((root/"train.jsonl").read_text().splitlines()[0])
+            row=json.loads((root/"train.jsonl").read_text(encoding="utf8").splitlines()[0])
             copied[0]={**copied[0],"prompt":row["prompt"][1]["content"]}
             with self.assertRaisesRegex(ValueError,"overlap"):
                 verify_prompt_isolation(root,copied)
+
+    def test_windows_encoding_regression_has_non_ascii_prompts(self):
+        from scripts.neral_v4_curriculum import build
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t)
+            build(root)
+            raw=(root/'train.jsonl').read_bytes()
+            utf=json.loads(raw.decode('utf8').splitlines()[0])
+            wrong=json.loads(raw.decode('cp1252').splitlines()[0])
+            self.assertNotEqual(utf['prompt'][1]['content'],wrong['prompt'][1]['content'])
+            self.assertTrue(verify_prompt_isolation(root,CASES))
+            modified=list(CASES)
+            modified[0]={**modified[0],'prompt':utf['prompt'][1]['content']}
+            with self.assertRaisesRegex(ValueError,'overlap'):
+                verify_prompt_isolation(root,modified)
+
+    def test_saved_480_step_eval_workflow_contract(self):
+        flow=Path('.github/workflows/neral-v4-novel-eval.yml').read_text(encoding='utf8')
+        self.assertIn('train_steps:',flow)
+        self.assertIn('v4-r16-',flow)
+        self.assertIn('optimizer_steps_completed',flow)
+        self.assertIn('TRAIN_STEPS',flow)
+        self.assertIn('EVALUATE_NERAL_V4_R16_SAVED',flow)
+        self.assertNotIn('--run-local-gpu',flow)
 
     def test_only_local_results_combine_with_pinned_sha(self):
         with tempfile.TemporaryDirectory() as t:

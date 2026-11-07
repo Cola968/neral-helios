@@ -10,6 +10,14 @@ on:
         type: string
         required: true
         description: 'Completed v4 rank16 training GitHub run ID'
+      train_steps:
+        type: choice
+        required: true
+        default: '480'
+        options:
+          - '480'
+          - '200'
+        description: 'Saved candidate step count; this workflow never trains'
 permissions:
   contents: read
 concurrency:
@@ -45,9 +53,10 @@ jobs:
       - name: Verify pinned saved adapter and benchmark contracts
         env:
           TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+          TRAIN_STEPS: ${{ inputs.train_steps }}
         run: |
           $ErrorActionPreference='Stop'
-          if($env:TRAIN_RUN_ID -notmatch '^[0-9]{8,14}$'){throw 'Only numeric completed training IDs allowed'}
+          if($env:TRAIN_RUN_ID -match '[^0-9]' -or $env:TRAIN_RUN_ID.Length -lt 8 -or $env:TRAIN_RUN_ID.Length -gt 14 -or $env:TRAIN_STEPS -notin @('200','480')){throw 'Only approved numeric run IDs and exact 200/480 steps allowed'}
           $control=Join-Path $env:GITHUB_WORKSPACE 'control'
           $trainer=Join-Path $env:GITHUB_WORKSPACE 'trainer'
           foreach($folder in @($control,$trainer)){
@@ -56,7 +65,7 @@ jobs:
           }
           $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
           $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
-          $run=Join-Path $env:USERPROFILE "NERAL-QLoRA-Research\v4-r16-200-$env:TRAIN_RUN_ID-1"
+          $run=Join-Path $env:USERPROFILE ('NERAL-QLoRA-Research\v4-r16-{0}-{1}-1' -f $env:TRAIN_STEPS,$env:TRAIN_RUN_ID)
           $adapter=Join-Path $run 'adapter'
           $data=Join-Path $run 'candidate'
           foreach($folder in @($control,$trainer,$run,$adapter,$data,$base)){
@@ -67,7 +76,7 @@ jobs:
           $manifest=Get-Content -LiteralPath (Join-Path $adapter 'neral-adapter.json') -Raw|ConvertFrom-Json
           $cfg=Get-Content -LiteralPath (Join-Path $adapter 'adapter_config.json') -Raw|ConvertFrom-Json
           $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $adapter 'adapter_model.safetensors')).Hash.ToLowerInvariant()
-          if($tr.status -ne 'completed' -or $tr.steps -ne 200 -or $tr.optimizer_steps_completed -ne 200 -or
+          if($tr.status -ne 'completed' -or $tr.steps -ne [int]$env:TRAIN_STEPS -or $tr.optimizer_steps_completed -ne [int]$env:TRAIN_STEPS -or
              $tr.lora_rank -ne 16 -or $tr.neral_trainable_parameters -ne 40370176 -or
              $cfg.r -ne 16 -or $manifest.release_validated -ne $false -or
              $manifest.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
