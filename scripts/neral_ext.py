@@ -15,7 +15,7 @@ import math
 from pathlib import Path
 import re
 
-CATEGORIES = frozenset({"integer", "rational", "eur"})
+CATEGORIES = frozenset({"integer", "rational", "eur", "python"})
 SHAS = re.compile(r"[0-9a-f]{64}\Z")
 REV = re.compile(r"[0-9a-f]{40}\Z")
 VALUE = re.compile(r"[+-]?\d{1,20}(?:[.,]\d{1,20})?(?:/\d{1,20})?\Z")
@@ -71,10 +71,10 @@ def read_cases(path: Path, expected_sha: str) -> list[dict]:
                 not isinstance(kind, str) or kind not in CATEGORIES or
                 not isinstance(prompt, str) or
                 not 1 <= len(prompt.strip()) <= 2000 or not isinstance(answer, str) or
-                not 1 <= len(answer) <= 80):
+                not 1 <= len(answer) <= (4096 if kind == "python" else 80)):
             raise ValueError("Untrusted, duplicate or invalid holdout case")
         used.add(key)
-        if _value(kind, answer) is None:
+        if kind != "python" and _value(kind, answer) is None:
             raise ValueError("Reference answer is not safely gradeable")
     return rows
 
@@ -121,6 +121,8 @@ def _value(kind: str, text: str) -> Fraction | None:
 
 def semantic_grade(case: dict, response: str, *, complete: bool = True) -> str:
     """correct/incorrect/ungraded. Never guess last number or execute code."""
+    if case.get("kind") == "python":
+        return "ungraded"  # Until isolated Docker tests are independently verified.
     if not complete or not isinstance(response, str) or len(response) > 4096:
         return "ungraded"
     raw = response.strip()
@@ -156,7 +158,7 @@ def evaluate(cases: list[dict], responses: dict[str, dict]) -> dict[str, dict]:
         raw = entry["text"]
         if not isinstance(raw, str) or len(raw) > 4096:
             raise ValueError("Invalid response text")
-        strict = bool(entry["complete"] and raw.strip() == case["answer"])
+        strict = bool(case["kind"] != "python" and entry["complete"] and raw.strip() == case["answer"])
         out[case["id"]] = {
             "strict": strict,
             "semantic": semantic_grade(case, raw, complete=entry["complete"]),
