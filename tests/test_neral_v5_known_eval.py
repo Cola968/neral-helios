@@ -1,4 +1,4 @@
-"""NERAL v4 novel in-repo holdout: paired scores, no raw inference upload."""
+"""NERAL v5 known regression in-repo holdout: paired scores, no raw inference upload."""
 import json
 import tempfile
 import unittest
@@ -107,7 +107,7 @@ class KnownV5Eval(unittest.TestCase):
                 verify_prompt_isolation(root,modified)
 
     def test_saved_480_step_eval_workflow_contract(self):
-        flow=Path('.github/workflows/neral-v4-known-eval.yml').read_text(encoding='utf8')
+        flow=Path('.github/workflows/neral-v5-known-eval.yml').read_text(encoding='utf8')
         self.assertIn('train_steps:',flow)
         self.assertIn('v4-r16-',flow)
         self.assertIn('optimizer_steps_completed',flow)
@@ -141,7 +141,7 @@ class KnownV5Eval(unittest.TestCase):
                         case_hash="c"*64)
 
     def test_workflow_is_manual_no_training_and_sequential_gpu_variants(self):
-        src=Path(".github/workflows/neral-v4-known-eval.yml").read_text()
+        src=Path(".github/workflows/neral-v5-known-eval.yml").read_text()
         self.assertIn("EVALUATE_NERAL_V5_R16_480_SAVED",src)
         self.assertIn("workflow_dispatch",src)
         self.assertIn("runs-on: [self-hosted, windows, x64, neral-gpu]",src)
