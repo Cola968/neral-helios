@@ -14,10 +14,13 @@ import re
 
 BASE_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_REVISION = "c03e6d358207e414f1eca0bb1891e29f1db0e242"
-# Proven-bad experimental weights may still be evaluated in isolated research jobs,
-# but must never be loaded through normal sealed runtime adapter validation.
+# Regressed or not independently improved experiments may still be assessed in
+# isolated research jobs, but never through the normal sealed runtime path.
+# v6: measured degradation 21/72 vs v5 24/72.
+# v6.1: no measured gain 16/72 vs v5 16/72; not release validated.
 QUARANTINED_ADAPTER_SHA256 = frozenset({
     "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd",
+    "33e939f6063d4215807f593816a057e88d8938b30615c6000d6a0bf8c7965279",
 })
 HF_CONFIG = {
     "model_type": "qwen2",
@@ -177,7 +180,7 @@ def validate_adapter(folder, base) -> dict:
                 path.stat().st_size > 512*1024**2 or _sha(path) != digest):
             raise ValueError("Adapter integrity failed")
     if files["adapter_model.safetensors"] in QUARANTINED_ADAPTER_SHA256:
-        raise ValueError("NERAL-Adapter wegen gemessener Regression gesperrt")
+        raise ValueError("NERAL-Adapter nicht freigegeben oder wegen Regression gesperrt")
     config = _json(folder/"adapter_config.json")
     if not isinstance(config, dict):
         raise ValueError("Adapter config malformed")
