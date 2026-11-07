@@ -46,8 +46,9 @@ def analyze_snapshot(snapshot: object) -> dict:
         if not isinstance(raw, dict):
             raise GuardError("Ungültige Windows-Firewall-Einstellung.")
         name, enabled, inbound = raw.get("name"), raw.get("enabled"), raw.get("inbound")
-        if (name not in _ALLOWED_NAMES or name in profiles
-                or type(enabled) is not bool or inbound not in _ALLOWED_INBOUND):
+        if (type(name) is not str or name not in _ALLOWED_NAMES or name in profiles
+                or type(enabled) is not bool or type(inbound) is not str
+                or inbound not in _ALLOWED_INBOUND):
             raise GuardError("Ungültiges oder mehrfaches Firewall-Profil.")
         profiles[name] = {"enabled": enabled, "inbound": inbound}
     if set(profiles) != _ALLOWED_NAMES:
