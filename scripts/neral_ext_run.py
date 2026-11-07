@@ -166,7 +166,6 @@ def _gpu_run(cases: list[dict], variant: str, args) -> dict:
     from peft import PeftModel
     from scripts.neral_math_eval import _load_model
     from scripts.neral_v3_eval_isolation import prepare_cuda, clean_cuda
-    from qwen_local_runtime import CHAT_TEMPLATE
 
     for env in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
         os.environ[env] = "1"
@@ -174,6 +173,9 @@ def _gpu_run(cases: list[dict], variant: str, args) -> dict:
     if not root.is_dir() or root.is_symlink():
         raise ValueError("Pinned trainer missing")
     sys.path.insert(0, str(root))
+    # The trainer's qwen_local_runtime imports HF_BASE from its own model_catalog.
+    # Import it only after the pinned trainer checkout leads sys.path.
+    from qwen_local_runtime import CHAT_TEMPLATE
     from model_catalog import validate_hf_snapshot
     from neral_adapter_candidate import validate_adapter
     snapshot = validate_hf_snapshot(args.base, verify_hashes=True)

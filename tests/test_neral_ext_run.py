@@ -90,5 +90,24 @@ class ExtRunTests(unittest.TestCase):
                            case_sha="a"*64, base_revision="b"*40, adapter_sha="c"*64)
 
 
+    def test_pinned_trainer_modules_precede_qwen_runtime_import(self):
+        """Fail when repository shim model_catalog shadows the pinned trainer."""
+        import ast
+        from pathlib import Path
+        source = Path("scripts/neral_ext_run.py").read_text(encoding="utf8")
+        tree = ast.parse(source)
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_gpu_run")
+        imports = [n.lineno for n in ast.walk(fn)
+                   if isinstance(n, ast.ImportFrom) and n.module == "qwen_local_runtime"]
+        paths = [n.lineno for n in ast.walk(fn)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "insert" and isinstance(n.func.value, ast.Attribute)
+                 and n.func.value.attr == "path" and isinstance(n.func.value.value, ast.Name)
+                 and n.func.value.value.id == "sys"]
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(len(paths), 1)
+        self.assertLess(paths[0], imports[0], "Trainer import root must win over control model_catalog shim")
+
+
 if __name__ == "__main__":
     unittest.main()
