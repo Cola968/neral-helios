@@ -160,7 +160,7 @@ def test_ui_exposes_actual_same_prompt_comparison_without_html_injection():
     assert "req('compare'" in js
     assert "textContent" in js
     assert "innerHTML" not in js
-    assert "gleicher Prompt" in html.lower() or "gleicher Prompt" in js
+    assert "gleicher prompt" in html.lower() or "gleicher Prompt" in js
 
 
 def test_ab_endpoint_inherits_local_session_origin_protection(monkeypatch):
