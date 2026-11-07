@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>NERAL Mini – lokal</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#eaeceb;background:#131518;font-size:15px}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh}
+button,textarea{font:inherit}
+button{cursor:pointer}
+.shell{width:min(860px,100%);height:100dvh;min-height:550px;margin:auto;display:flex;flex-direction:column;border-left:1px solid #292d31;border-right:1px solid #292d31}
+header{height:78px;flex:none;padding:18px 26px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #292d31}
+.brand{display:flex;gap:12px;align-items:center}
+.symbol{width:36px;height:36px;display:grid;place-items:center;border-radius:11px;background:#e1e5dd;color:#202724;font-weight:800;font-size:18px;letter-spacing:-2px}
+.name{font-weight:700;letter-spacing:.05em;font-size:17px}
+.sub{font-size:12px;color:#929a9c;margin-top:3px}
+.new{border:1px solid #40464a;background:transparent;color:#d7dfdc;padding:9px 12px;border-radius:9px}
+.new:hover{background:#252a2d}
+.statusbar{padding:12px 26px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #292d31;font-size:12px;color:#a6adae}
+.dot{width:7px;height:7px;flex:none;background:#bdae7d;border-radius:50%}
+.dot.ready{background:#8bac98}.dot.bad{background:#c88f81}
+.provenance{margin-left:auto;text-align:right;color:#858d90}
+main{overflow-y:auto;flex:1;padding:23px clamp(16px,4.5vw,42px);scroll-behavior:smooth}
+.intro{margin-top:13vh;max-width:550px}
+.intro h1{font-size:clamp(26px,4vw,34px);letter-spacing:-.035em;line-height:1.14;margin:0 0 15px;font-weight:600}
+.intro p{color:#a7adae;line-height:1.6;margin:0}
+.hint{margin-top:22px;color:#89918e;font-size:13px;line-height:1.5}
+.message{margin:0 0 22px;max-width:94%;line-height:1.63;white-space:pre-wrap;overflow-wrap:anywhere}
+.message.user{background:#252a2c;border:1px solid #383e40;border-radius:14px 14px 4px 14px;padding:13px 16px;margin-left:auto;max-width:83%;color:#f2f4f3}
+.message.assistant{padding:1px 4px 4px;color:#dce0de}
+.role{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#88948d;display:block;margin-bottom:9px;font-weight:650}
+.error{color:#edb4a9;font-size:13px;line-height:1.4;padding:6px 1px 0;min-height:24px}
+footer{border-top:1px solid #292d31;padding:17px clamp(16px,4.5vw,42px) 15px;background:#17191c}
+.composer{display:flex;align-items:end;gap:12px;padding:12px;border-radius:13px;border:1px solid #3c4243;background:#222629}
+.composer:focus-within{border-color:#819b8b}
+textarea{color:#e8edeb;flex:1;resize:none;min-height:48px;max-height:150px;background:transparent;border:0;outline:0;padding:10px 7px;line-height:1.45}
+textarea::placeholder{color:#81898a}
+.send{border:0;border-radius:9px;background:#cedace;color:#16241c;padding:12px 17px;font-weight:650;white-space:nowrap}
+.send:hover:not(:disabled){background:#e1e8dc}
+.send:disabled{opacity:.45;cursor:not-allowed}
+.footer-note{display:flex;gap:10px;justify-content:space-between;color:#788083;font-size:11px;margin:9px 2px 0;line-height:1.45}
+@media(max-width:580px){header{padding:15px 17px;height:70px}.statusbar{padding:11px 17px}.provenance{font-size:10px}.message.user{max-width:95%}.intro{margin-top:10vh}.footer-note span:last-child{display:none}}
+@media(prefers-reduced-motion:reduce){main{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <div class="symbol" aria-hidden="true">N</div>
+      <div><div class="name">NERAL</div><div class="sub">Mini · Lokale Vorschau</div></div>
+    </div>
+    <button class="new" id="reset" type="button">Neuer Chat</button>
+  </header>
+  <div class="statusbar">
+    <span class="dot" id="dot" aria-hidden="true"></span>
+    <span id="status" role="status">Lokales Modell wird geprüft …</span>
+    <span class="provenance" id="origin">Qwen2.5-Coder-7B + NERAL-LoRA</span>
+  </div>
+  <main id="conversation" role="log" aria-live="polite">
+    <div class="intro" id="intro">
+      <h1>Was möchtest du herausfinden?</h1>
+      <p>Frag NERAL nach Python, Mathematik, Ideen oder Erklärungen. Die Berechnung findet auf deinem PC statt – mit einem experimentellen NERAL-Adapter auf einer lokalen Qwen-Foundation.</p>
+      <div class="hint">Keine Cloud-KI. Keine automatische Websuche. Keine Ausführung von Code oder Computeraktionen in dieser Mini-Version.</div>
+    </div>
+  </main>
+  <footer>
+    <form id="form" autocomplete="off">
+      <div class="composer">
+        <textarea id="prompt" placeholder="Schreibe eine Nachricht …" rows="2" maxlength="4096" aria-label="Nachricht an NERAL"></textarea>
+        <button class="send" id="send" type="submit">Senden</button>
+      </div>
+    </form>
+    <div class="error" id="error" role="alert"></div>
+    <div class="footer-note"><span>Enter = senden · Shift+Enter = Zeilenumbruch</span><span>Verlauf nur in diesem Fenster · Experimentelles Modell</span></div>
+  </footer>
+</div>
+<script>
+"use strict";
+(() => {
+  const TOKEN = "%%NERAL_SESSION%%";
+  const $ = id => document.getElementById(id);
+  const form = $("form"), prompt = $("prompt"), feed = $("conversation");
+  const status = $("status"), dot = $("dot"), send = $("send"), error = $("error");
+  const encoder = new TextEncoder();
+  let history = [], busy = false;
+
+  function draw(role, value) {
+    const intro = $("intro");
+    if (intro) intro.remove();
+    const card = document.createElement("div");
+    card.className = "message " + role;
+    if (role === "assistant") {
+      const heading = document.createElement("span");
+      heading.className = "role";
+      heading.textContent = "NERAL";
+      card.append(heading);
+    }
+    const body = document.createElement("span");
+    body.textContent = value;
+    card.append(body);
+    feed.append(card);
+    feed.scrollTop = feed.scrollHeight;
+    return card;
+  }
+
+  function identity(data) {
+    const configured = data.adapter_configured === true;
+    const loaded = data.adapter_loaded === true;
+    dot.className = "dot " + (loaded ? "ready" : configured ? "" : "bad");
+    status.textContent = loaded ? "NERAL-LoRA geladen · lokal" :
+      configured ? "NERAL-LoRA gefunden · lädt bei erster Frage" :
+      "Lokale Modellgewichte fehlen – Startanleitung prüfen";
+    $("origin").textContent = loaded && data.rank ?
+      "Qwen-Foundation + eigener LoRA (Rang " + data.rank + ")" :
+      "Qwen2.5-Coder-7B · Nur lokaler Adapter";
+    send.disabled = !configured || busy;
+  }
+
+  function boundedHistory() {
+    let items = history.slice(-12).map(x => ({ role:x.role, content:x.content }));
+    for (const entry of items) {
+      while (encoder.encode(entry.content).length > 1700) entry.content = entry.content.slice(0,-1);
+    }
+    while (items.length && encoder.encode(JSON.stringify(items)).length > 8500) {
+      items = items.slice(2);
+    }
+    return items;
+  }
+
+  async function statusCheck() {
+    try {
+      const response = await fetch("/api/status", {cache:"no-store"});
+      if (!response.ok) throw Error("Status konnte nicht gelesen werden");
+      identity(await response.json());
+    } catch {
+      dot.className = "dot bad";
+      status.textContent = "Lokaler NERAL-Server nicht erreichbar";
+      send.disabled = true;
+    }
+  }
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (busy || send.disabled) return;
+    const question = prompt.value.trim();
+    if (!question || encoder.encode(question).length > 4096) {
+      error.textContent = "Bitte eine Nachricht mit höchstens 4096 UTF-8-Bytes eingeben.";
+      return;
+    }
+    busy = true;
+    send.disabled = true;
+    send.textContent = "Denkt …";
+    error.textContent = "";
+    draw("user", question);
+    prompt.value = "";
+    const pending = draw("assistant", "NERAL berechnet die Antwort lokal …");
+    try {
+      const response = await fetch("/api/chat", {
+        method:"POST",
+        headers:{"Content-Type":"application/json", "X-Neral-Session":TOKEN},
+        credentials:"same-origin",
+        body: JSON.stringify({prompt:question, history:boundedHistory()})
+      });
+      const payload = await response.json();
+      if (!response.ok) throw Error(payload.error || "Modell nicht verfügbar.");
+      pending.remove();
+      draw("assistant", payload.text);
+      history.push({role:"user",content:question},{role:"assistant",content:payload.text});
+      history = history.slice(-12);
+      identity(payload);
+    } catch (cause) {
+      pending.remove();
+      error.textContent = cause.message || "Lokale Inferenz fehlgeschlagen.";
+      // Do not insert failed requests into conversation history.
+    } finally {
+      busy = false;
+      send.textContent = "Senden";
+      await statusCheck();
+      prompt.focus();
+    }
+  });
+
+  prompt.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  $("reset").addEventListener("click", () => {
+    if (busy) return;
+    history = [];
+    feed.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "intro";
+    empty.textContent = "Neuer Chat. Deine bisherigen Nachrichten wurden aus diesem Fenster entfernt.";
+    feed.append(empty);
+    error.textContent = "";
+    prompt.focus();
+  });
+  statusCheck();
+})();
+</script>
+</body>
+</html>
