@@ -66,7 +66,7 @@ class RegressionAuditTests(unittest.TestCase):
         self.assertFalse(aggregate["release_validated"])
         self.assertFalse(aggregate["actual_generalization_improved"])
         self.assertNotIn(cases[0]["prompt"],json.dumps(aggregate))
-        self.assertIn(cases[0]["prompt"],json.dumps(samples))
+        self.assertIn(cases[0]["prompt"],json.dumps(samples,ensure_ascii=False))
 
     def test_never_rewrite_original_or_upload_private_raw(self):
         cases, variants=fixtures()
