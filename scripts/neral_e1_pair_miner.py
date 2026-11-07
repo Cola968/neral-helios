@@ -149,8 +149,28 @@ def assess_responses(rows: list[dict], adapter_sha256: str,
             "verifier_type": "numeric_oracle",
             "split": split,
         })
-    selected.sort(key=lambda x: (x["split"], x["family"], x["id"]))
+    # The E1 smoke contract caps any one family at 20% in *each* split.
+    # Choose only genuine observed failures, never invent missing examples.
+    # Hash-ranking is deterministic and does not favor early generator indices.
+    balanced = []
+    for split, max_per_family in (("train", 40), ("validation", 20)):
+        buckets = {family: [] for family in FAMILIES}
+        for pair in selected:
+            if pair["split"] == split:
+                buckets[pair["family"]].append(pair)
+        per_family = min(max_per_family, *(len(v) for v in buckets.values()))
+        for family in FAMILIES:
+            ranked = sorted(
+                buckets[family],
+                key=lambda pair: sha256(
+                    (adapter_sha256 + "|" + pair["id"]).encode("utf8")
+                ).digest(),
+            )
+            balanced.extend(ranked[:per_family])
+    selected = sorted(balanced, key=lambda x: (x["split"], x["family"], x["id"]))
     summary.update({
+        "eligible_pairs": len(selected),
+        "balanced_discarded": summary["verified_wrong"] - len(selected),
         "schema": 1,
         "status": "NERAL_E1_ORIGINAL_TRAIN_MATH_PAIRS_CANDIDATE_ONLY",
         "adapter_sha256": adapter_sha256,
