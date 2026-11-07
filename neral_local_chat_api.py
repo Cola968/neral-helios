@@ -145,7 +145,13 @@ def register_neral_local_chat_api(app, backend):
         try:
             started = time.monotonic()
             # Empty history only: never override an ongoing conversation.
-            exact = _verified_math_request(data[-1]["content"]) if len(data) == 2 else None
+            if len(data) == 2:
+                from neral_agent_quantitative import calculate_explicit
+                exact = calculate_explicit(data[-1]["content"])
+                if exact is None:
+                    exact = _verified_math_request(data[-1]["content"])
+            else:
+                exact = None
             if exact is not None:
                 return jsonify({**exact, "model_generated": False,
                                 "seconds": round(time.monotonic() - started, 3),
