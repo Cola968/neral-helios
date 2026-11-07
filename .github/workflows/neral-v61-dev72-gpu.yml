@@ -1,0 +1,151 @@
+name: NERAL v6.1 new 72-case three-way GPU evaluation (manual read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Exact opt-in: EVALUATE_NERAL_V61_NEW_DEV72_READONLY'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V61_NEW_DEV72_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify CPU suite and freeze fresh 72 tasks, exclude v5/v6 training and old dev72
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $folder=Join-Path $root "v61-new-dev72-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if((Test-Path -LiteralPath $folder) -or
+             (-not(Test-Path -LiteralPath $py -PathType Leaf))){throw 'Unsafe or preexisting eval output'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v61_new_dev_eval.py -v
+            if($LASTEXITCODE -ne 0){throw 'New dev suite integrity failed'}
+            & $py -B -m scripts.neral_v61_new_dev_eval --mode build --run-dir $folder
+            if($LASTEXITCODE -ne 0){throw 'New dev suite decontamination failed'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "V61_EVAL_CONTROL=$control"+[Environment]::NewLine+
+            "V61_EVAL_PY=$py"+[Environment]::NewLine+
+            "V61_EVAL_FOLDER=$folder"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Pin Qwen, v5, and TRAINED v6.1 receipt; abort if GPU occupied
+        run: |
+          $ErrorActionPreference='Stop'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $research 'v5-r16-480-42378021782-1\adapter'
+          $train=Join-Path $research 'v61-replay-120-42411765250-1'
+          $v61=Join-Path $train 'candidate-adapter'
+          $receipt=Join-Path $train 'scalar-private.json'
+          foreach($file in @($base,$v5,$v61)){
+            if(-not(Test-Path -LiteralPath $file -PathType Container)){throw 'Pinned model/adapter missing'}
+          }
+          if(-not(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'Training not completed, no evaluation'}
+          $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          $sha=(Get-FileHash -LiteralPath (Join-Path $v61 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $v5sha=(Get-FileHash -LiteralPath (Join-Path $v5 'adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($report.status -ne 'NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL' -or
+             $report.steps_completed -ne 120 -or $report.train_rows -ne 800 -or
+             $report.validation_rows -ne 140 -or
+             $report.source_counts.v5_train_replay -ne 560 -or
+             $report.source_counts.v6_train_multistep -ne 240 -or
+             $report.candidate_adapter_sha256 -ne $sha -or
+             $v5sha -ne '2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d' -or
+             $report.release_validated -ne $false -or $report.adapter_promoted -ne $false){
+            throw 'Wrong original v5 or experimental v6.1 weights; comparison rejected'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'CUDA GPU not found'}
+          $gpu=($raw|Select-Object -First 1)-split ','
+          if($gpu.Count -ne 2 -or [int]$gpu[0].Trim() -lt 9000 -or [int]$gpu[1].Trim() -gt 20){
+            throw 'GPU in use; defer evaluation'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "V61_EVAL_BASE=$base"+[Environment]::NewLine+
+            "V61_EVAL_V5=$v5"+[Environment]::NewLine+
+            "V61_EVAL_CAND=$v61"+[Environment]::NewLine+
+            "V61_EVAL_RECEIPT=$receipt"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: GPU A – original Qwen + fixed 3-shot
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V61_EVAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:V61_EVAL_CONTROL
+            & $env:V61_EVAL_PY -B -m scripts.neral_v61_new_dev_eval --mode run --variant qwen_fewshot --run-dir $env:V61_EVAL_FOLDER --base $env:V61_EVAL_BASE --v5-adapter $env:V61_EVAL_V5 --candidate-adapter $env:V61_EVAL_CAND --candidate-receipt $env:V61_EVAL_RECEIPT --out (Join-Path $env:V61_EVAL_FOLDER 'qwen_fewshot.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'Pinned Qwen baseline incomplete'}
+          } finally {Pop-Location}
+      - name: GPU B – original v5 adapter from fresh process
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V61_EVAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:V61_EVAL_CONTROL
+            & $env:V61_EVAL_PY -B -m scripts.neral_v61_new_dev_eval --mode run --variant neral_v5 --run-dir $env:V61_EVAL_FOLDER --base $env:V61_EVAL_BASE --v5-adapter $env:V61_EVAL_V5 --candidate-adapter $env:V61_EVAL_CAND --candidate-receipt $env:V61_EVAL_RECEIPT --out (Join-Path $env:V61_EVAL_FOLDER 'neral_v5.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'Pinned NERAL v5 baseline incomplete'}
+          } finally {Pop-Location}
+      - name: GPU C – newly trained NERAL v6.1 adapter from fresh process
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V61_EVAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:V61_EVAL_CONTROL
+            & $env:V61_EVAL_PY -B -m scripts.neral_v61_new_dev_eval --mode run --variant neral_v61 --run-dir $env:V61_EVAL_FOLDER --base $env:V61_EVAL_BASE --v5-adapter $env:V61_EVAL_V5 --candidate-adapter $env:V61_EVAL_CAND --candidate-receipt $env:V61_EVAL_RECEIPT --out (Join-Path $env:V61_EVAL_FOLDER 'neral_v6.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'New NERAL v6.1 candidate inference incomplete'}
+          } finally {Pop-Location}
+      - name: Score paired correctness & format separately; deny automatic promotion
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V61_EVAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:V61_EVAL_CONTROL
+            & $env:V61_EVAL_PY -B -m scripts.neral_v61_new_dev_eval --mode combine --run-dir $env:V61_EVAL_FOLDER --candidate-receipt $env:V61_EVAL_RECEIPT
+            if($LASTEXITCODE -ne 0){throw 'Pairwise report failed'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath (Join-Path $env:V61_EVAL_FOLDER 'summary.json') -Raw|ConvertFrom-Json
+          if($report.status -ne 'NERAL_V61_NEW_72_STRUCTURAL_DEV_NOT_RELEASE' -or
+             $report.total -ne 72 -or
+             $report.scores.neral_v5.total -ne 72 -or
+             $report.scores.neral_v61.total -ne 72 -or
+             $report.scores.qwen_fewshot.total -ne 72 -or
+             $report.release_validated -ne $false -or
+             $report.adapter_promoted -ne $false){
+            throw 'Wrong dev comparator labels or attempted promotion'
+          }
+          $public=Join-Path $env:V61_EVAL_CONTROL 'v61_new_dev_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Scalar export path already exists'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:V61_EVAL_FOLDER 'summary.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_V61_NEW_DEV72_SCORED: no automatic promotion and only scalar counts published'
+      - name: Publish aggregate counts only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v61-new-dev72-three-way-scalar
+          path: control/v61_new_dev_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
