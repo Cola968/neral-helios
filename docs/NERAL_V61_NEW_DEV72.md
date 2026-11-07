@@ -4,6 +4,16 @@ Die neue v6.1-Replay-QLoRA startete am 07.11.2026 auf der RTX 4070 als
 [GPU-Job #42411765250](https://github.com/Cola968/neral-helios/actions/runs/42411765250).
 **Kein Erfolg/Intelligenzgewinn darf aus Trainings-Loss abgeleitet werden.**
 
+**Qualitätssicherung vom 07.11.2026:** Der erste GPU-Vergleich
+[#42413078181](https://github.com/Cola968/neral-helios/actions/runs/42413078181)
+wurde angehalten, weil die sechs Referenzlösungen für Python-Listenaliasing
+den Beitrag von `len(b)=3` vergaßen. Dieser Fehler ist im neuen Datensatz
+korrigiert. Der CPU-Test berechnet unabhängig für alle 24 Python-Tracing-
+Aufgaben die erwarteten Ausgaben, bevor ein neuer Vergleich startet.
+Die ursprünglichen inkorrekten Benchmarkpunkte dürfen **niemals**
+als Leistungsclaim veröffentlicht werden. Die Aufgaben bleiben
+nicht unabhängig oder releasevalidiert.
+
 Dieser Vergleich ist NUR ein Entwicklerdiagnostikum:
 72 originell programmatisch erzeugte Fälle, 3 Domänen à 24 und insgesamt
 12 Familien à 6, jeweils deutsche/englische Prompts. Keine Beispiele
