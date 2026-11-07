@@ -97,7 +97,7 @@ def build_cases() -> list[dict]:
         # L1: truth table propositional semantics.
         a=(i%2==0)
         b=(i%3==0)
-        c=(i%4==0)
+        c=(i in (0,4,5))  # i=1 and i=5 must not duplicate the truth table
         ans=int((a and not b) or c)
         p=(f"Wahrheitswerte: A={int(a)}, B={int(b)}, C={int(c)}. Ist (A UND NICHT B) ODER C wahr? 1=ja, 0=nein."
            if de else
