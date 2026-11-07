@@ -151,3 +151,37 @@ Ohne externe tatsächliche Scores bleiben
   externe Commits und darf nicht stillschweigend mit dem hier geprüften
   400-Fälle-SHA vermischt werden.
 
+
+
+## Lokaler Wiederanlauf der 400-Fälle-Modellbewertung
+
+Beim manuellen Aufruf `python -m scripts.neral_ext_run --mode run ...`
+schreibt die GPU-Auswertung nach **jeder** abgeschlossenen Antwort eine
+synchronisierte, ausschließlich lokale `<ausgabedatei>.progress`-Datei.
+Der endgültige JSONL-Ausgabepfad bleibt bis zum Abschluss unverändert.
+Ein Abbruch, eine Zeitüberschreitung oder ein PC-Neustart erzwingt nicht mehr
+die Neuberechnung aller bereits gesicherten Antworten.
+
+Zum Fortsetzen **exakt denselben** Aufruf mit identischem Modell und identischen
+Parametern erneut ausführen. Der Wiederanlauf prüft vor dem ersten Modellaufruf
+den Fingerprint aus dem kompletten Datensatz, den tatsächlich verwendeten
+Nachrichten, Foundation-Manifest, Adapter-Gewichts-SHA (bei `neral_v5`) und
+Decoding-Einstellungen. Außerdem kontrolliert er vollständig die vorhandenen
+JSONL-Zeilen, Reihenfolge, Antwort-Limits und Tokenzahlen. Bei Widerspruch wird
+ohne erneute Inferenz abgebrochen. Das ist eine **Kompatibilitätsprüfung**, kein
+Beweis, dass eine Antwort richtig ist.
+
+**Datenschutz:** `.progress` enthält ungefilterte Modellantworten und
+gehört wie `base.jsonl` und `neral.jsonl` ausschließlich in einen privaten
+lokalen Ordner. Niemals in Git committen oder als Actions-Artefakt hochladen.
+Ein kaputter oder unvollständiger letzter JSONL-Eintrag wird bewusst nicht
+automatisch repariert. Nur nach unabhängiger Prüfung bzw. bewusstem Neustart
+solche Dateien selbst entfernen.
+
+Die finale Ausgabedatei wird erst nach vollständiger Bearbeitung atomar als
+neuer Dateiname veröffentlicht und niemals überschrieben. Anschließend wird
+die lokale `.progress`-Datei gelöscht. Der `combine`-Modus und die
+unabhängigen Modellvergleiche bleiben unverändert; es erfolgt keine
+automatische Gewichtspromotion oder GPU-Ausführung auf GitHub.
+
+CPU-Regression: `python -m unittest discover -s tests -p 'test_neral_ext_resume.py' -v`.
