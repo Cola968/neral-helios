@@ -224,6 +224,20 @@ def test_local_sha_manifest_integrity_contract(tmp_path):
         verify_assets(base,adapter)
 
 
+def test_quarantined_v6_adapter_not_loaded_even_with_matching_seal(tmp_path, monkeypatch):
+    base, adapter = _fake_sealed_local_files(tmp_path)
+    seal_path = adapter / "neral-adapter.json"
+    seal = json.loads(seal_path.read_text())
+    seal["files"]["adapter_model.safetensors"] = "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd"
+    _write_json(seal_path, seal)
+    from mini import neral_mini as module
+    genuine_hash = module._sha256
+    monkeypatch.setattr(module, "_sha256", lambda path:
+        "8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd" if path.name == "adapter_model.safetensors" else genuine_hash(path))
+    with pytest.raises(MiniError, match="gesperrt"):
+        verify_assets(base, adapter)
+
+
 def test_no_cloud_endpoint_or_insecure_model_downloads():
     source=(Path(__file__).parents[1]/"mini"/"neral_mini.py").read_text()
     assert "HF_HUB_OFFLINE" in source
