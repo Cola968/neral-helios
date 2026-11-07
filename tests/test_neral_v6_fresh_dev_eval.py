@@ -81,16 +81,17 @@ class Fresh72DevTests(unittest.TestCase):
         records=[{"id":c["id"],"text":c["answer"],"complete":True,
                   "new_tokens":5} for c in cases]
         validate_variant_output(cases,records)
-        for corrupted in (
+        for index,corrupted in enumerate((
             records[:-1],
             [*records,records[-1]],
             [records[1],records[0],*records[2:]],
             [dict(records[0],new_tokens=999),*records[1:]],
             [dict(records[0],complete=1),*records[1:]],
             [dict(records[0],text="12\\x00"),*records[1:]],
-        ):
-            with self.assertRaises(ValueError):
-                validate_variant_output(cases,corrupted)
+        )):
+            with self.subTest(corruption=index):
+                with self.assertRaises(ValueError):
+                    validate_variant_output(cases,corrupted)
 
     def test_reference_prompts_include_locked_three_shots(self):
         case=build_cases()[0]
