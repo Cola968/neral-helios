@@ -190,6 +190,33 @@ def validate_candidate_receipt(receipt):
     return sha
 
 
+def validate_local_candidate(receipt_path:Path,candidate_dir:Path,v5_dir:Path,
+                             *,expected_v5_sha:str=V5_SHA):
+    """CPU SHA check from the same JSON parser used by the GPU runner.
+
+    Do not rely on implicit PowerShell PSCustomObject conversions for
+    numerical/bool schema fields or nested source count checks.
+    """
+    receipt_path=Path(receipt_path)
+    candidate_dir=Path(candidate_dir)
+    v5_dir=Path(v5_dir)
+    candidate_file=candidate_dir/"adapter_model.safetensors"
+    v5_file=v5_dir/"adapter_model.safetensors"
+    if (receipt_path.is_symlink() or not receipt_path.is_file() or
+            receipt_path.stat().st_size>100_000 or
+            any(d.is_symlink() or not d.is_dir() for d in (candidate_dir,v5_dir)) or
+            any(p.is_symlink() or not p.is_file() for p in (candidate_file,v5_file)) or
+            not isinstance(expected_v5_sha,str) or len(expected_v5_sha)!=64):
+        raise ValueError("Unsafe or missing local training receipt or adapter files")
+    receipt=json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+    sha=validate_candidate_receipt(receipt)
+    if sha256(candidate_file.read_bytes()).hexdigest()!=sha:
+        raise ValueError("Trained candidate adapter SHA differs from training receipt")
+    if sha256(v5_file.read_bytes()).hexdigest()!=expected_v5_sha:
+        raise ValueError("Original v5 predecessor adapter has changed")
+    return sha
+
+
 def score_result(cases,outputs,*,candidate_sha):
     raw=original.score_three_way(cases,outputs)
     scores=dict(raw["scores"])
@@ -225,7 +252,7 @@ def _identity(folder):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
-    p.add_argument("--mode",choices=("build","run","combine"),required=True)
+    p.add_argument("--mode",choices=("build","verify","run","combine"),required=True)
     p.add_argument("--run-dir",type=Path,required=True)
     p.add_argument("--variant",choices=("qwen_fewshot","neral_v5","neral_v61"))
     p.add_argument("--base",type=Path)
@@ -250,19 +277,28 @@ def main(argv=None):
         (folder/"manifest.json").write_text(json.dumps(manifest,sort_keys=True)+"\n",encoding="utf8")
         print(json.dumps({"status":STATUS,"count":72,"cpu_only":True}))
         return
+    if args.mode=="verify":
+        if not all((args.candidate_receipt,args.candidate_adapter,args.v5_adapter)):
+            p.error("Exact v6.1 receipt and two local adapters required")
+        sha=validate_local_candidate(args.candidate_receipt,
+                                    args.candidate_adapter,args.v5_adapter)
+        print(json.dumps({"status":"LOCAL_V61_RECEIPT_AND_SHA_VERIFIED",
+                          "candidate_adapter_sha256":sha,
+                          "release_validated":False},sort_keys=True))
+        return
     cases,manifest=_identity(folder)
     if not args.candidate_receipt or not args.candidate_receipt.is_file():
         p.error("Exact local v6.1 receipt required")
-    receipt=json.loads(args.candidate_receipt.read_text(encoding="utf8-sig"))
+    receipt=json.loads(args.candidate_receipt.read_text(encoding="utf-8-sig"))
     candidate_sha=validate_candidate_receipt(receipt)
     if args.mode=="run":
         if not all((args.variant,args.out,args.base,args.v5_adapter,args.candidate_adapter)):
             p.error("Pinned original base and local adapters required")
         if args.out.exists() or args.out.is_symlink():
             p.error("Do not overwrite private original inference")
-        candidate_file=args.candidate_adapter/"adapter_model.safetensors"
-        if not candidate_file.is_file() or sha256(candidate_file.read_bytes()).hexdigest()!=candidate_sha:
-            raise ValueError("New adapter bytes do not match pinned local training receipt")
+        if validate_local_candidate(args.candidate_receipt,args.candidate_adapter,
+                                    args.v5_adapter)!=candidate_sha:
+            raise ValueError("New adapter hash differs from receipt")
         # Run the same, already regression-tested 4-bit Qwen evaluator.
         # Only substitute the SHA-verified locally trained v6.1 adapter as
         # neral_v6 internal slot; public output calls it neral_v61.
