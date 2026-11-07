@@ -76,6 +76,14 @@ class NewV61DevTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_local_candidate(p,candidate,v5,expected_v5_sha=expected_v5)
 
+    def test_evaluation_workflow_uses_python_receipt_validator(self):
+        from pathlib import Path
+        workflow=(Path(__file__).resolve().parents[1]/
+                  ".github"/"workflows"/"neral-v61-dev72-gpu.yml").read_text(encoding="utf8")
+        self.assertIn("--mode verify",workflow)
+        self.assertIn("Python verification rejected local v6.1 receipt or adapter SHA",workflow)
+        self.assertNotIn("$report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json",workflow)
+
     def test_reject_candidate_receipt_from_unrelated_run_or_model(self):
         good={
             "status":"NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL",
