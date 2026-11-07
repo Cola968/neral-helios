@@ -106,7 +106,7 @@ class V5Style320Contract(unittest.TestCase):
         for item in ("workflow_dispatch","EVALUATE_NERAL_V5_STYLE_320",
                      "neral-qwen7b-r32-gpu-exclusive","self-hosted",
                      "neral_v5_style_eval","--variant $variant","--combine",
-                     "320","upload-artifact","known","v5-r16-480"):
+                     "320","upload-artifact","style-disjoint","v5-r16-{0}-{1}-1"):
             self.assertIn(item,workflow)
         for item in ("--run-local-gpu","schedule:","workflow_run:","git push"):
             self.assertNotIn(item,workflow)
