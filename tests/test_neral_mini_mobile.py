@@ -202,3 +202,38 @@ def test_mobile_start_scripts_and_tls_package_are_present():
     assert "create_mobile_gateway" in gateway
     assert "upload-artifact" not in gateway
     assert "requests.post(" not in gateway
+
+
+def test_real_tls_verifies_ca_and_ip(tmp_path):
+    import socket
+    import ssl
+    from setup_phone import setup
+    config = setup("192.168.17.3", tmp_path / "tls", port=9444)
+    desktop = MiniServer(("127.0.0.1", 0), Fake(), "mini")
+    gateway = create_mobile_gateway(config, desktop, bind_host="127.0.0.1", bind_port=0)
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(config["certificate"], config["key"])
+    gateway.socket = server_context.wrap_socket(gateway.socket, server_side=True)
+    worker = threading.Thread(target=gateway.serve_forever, daemon=True)
+    worker.start()
+    client_context = ssl.create_default_context(cafile=str(tmp_path / "tls" / "Neral-Android-CA.crt"))
+    try:
+        with socket.create_connection(gateway.server_address, timeout=3) as raw:
+            with client_context.wrap_socket(raw, server_hostname="192.168.17.3") as conn:
+                conn.sendall(b"GET / HTTP/1.1\r\nHost: 192.168.17.3:9444\r\nConnection: close\r\n\r\n")
+                assert b"200 OK" in conn.recv(4096)
+        with socket.create_connection(gateway.server_address, timeout=3) as raw:
+            with pytest.raises(ssl.SSLCertVerificationError):
+                client_context.wrap_socket(raw, server_hostname="192.168.17.4")
+    finally:
+        gateway.shutdown()
+        gateway.server_close()
+        desktop.server_close()
+        worker.join(timeout=3)
+
+
+def test_changed_ip_requires_explicit_new_setup(tmp_path):
+    from mini.mobile_gateway import _setup_config
+    _setup_config("192.168.17.3", 9444, tmp_path / "tls")
+    with pytest.raises(ValueError, match="IP oder Port"):
+        _setup_config("192.168.17.4", 9444, tmp_path / "tls")

@@ -13,7 +13,9 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 & $python -B -c 'import cryptography, torch, transformers, peft, bitsandbytes; print("GPU-Python-Abhaengigkeiten vorhanden.")'
 if ($LASTEXITCODE -ne 0) {
-    throw 'Mindestens ein lokales Python-Paket fehlt. Bitte in deiner vorhandenen GPU-Umgebung nachinstallieren; keine automatische Installation oder Cloud-API.'
+    Write-Host 'Wenn nur cryptography fehlt, im PowerShell-Fenster ausfuehren:' -ForegroundColor Yellow
+    Write-Host ('& "{0}" -m pip install cryptography' -f $python)
+    throw 'Lokale Python-Abhaengigkeit fehlt. Keine automatische Installation erfolgt.'
 }
 $env:HF_HUB_OFFLINE = '1'
 $env:TRANSFORMERS_OFFLINE = '1'
