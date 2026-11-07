@@ -1,0 +1,28 @@
+name: NERAL v4 trainer bridge CPU safety tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v4_trainer_bridge.py'
+      - 'scripts/neral_v4_curriculum.py'
+      - 'tests/test_neral_v4_trainer_bridge.py'
+      - '.github/workflows/neral-v4-trainer-bridge-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v4_trainer_bridge.py'
+      - 'tests/test_neral_v4_trainer_bridge.py'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reject any source drift, train/test mixing, or unauthorized training
+        run: python -m unittest discover -s tests -p test_neral_v4_trainer_bridge.py -v
+      - name: Verify Python syntax
+        run: python -m compileall -q scripts/neral_v4_trainer_bridge.py tests/test_neral_v4_trainer_bridge.py
