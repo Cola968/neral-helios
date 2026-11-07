@@ -1,0 +1,27 @@
+name: NERAL v5 saved error audit CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v5_error_audit.py'
+      - 'tests/test_neral_v5_error_audit.py'
+      - '.github/workflows/neral-v5-local-error-audit.yml'
+      - '.github/workflows/neral-v5-local-error-audit-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v5_error_audit.py'
+      - 'tests/test_neral_v5_error_audit.py'
+      - '.github/workflows/neral-v5-local-error-audit.yml'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m compileall -q scripts/neral_v5_error_audit.py tests/test_neral_v5_error_audit.py
+      - run: python -m unittest discover -s tests -p test_neral_v5_error_audit.py -v
