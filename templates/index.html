@@ -63,10 +63,20 @@
       <textarea id="neralLocalChatPrompt" rows="3" maxlength="4000" required placeholder="Frage NERAL nach Code, Mathe, Planung oder einer Erklärung."></textarea>
     </label>
     <div class="agent-toolbar"><button id="neralLocalChatSend" type="submit">Lokal antworten lassen</button>
-      <button id="neralLocalChatClear" type="button">Verlauf aus diesem Fenster löschen</button></div>
+      <button id="neralLocalChatClear" type="button">Verlauf aus diesem Fenster löschen</button>
+      <button id="neralLocalChatCompare" type="button" disabled>NERAL vs. Qwen vergleichen</button></div>
   </form>
   <p id="neralLocalChatError" role="alert"></p>
   <div id="neralLocalChatAnswer" class="agent-evidence" role="log" aria-live="polite">Noch keine Nachricht. Der Gesprächsverlauf wird ausschließlich im Arbeitsspeicher dieses Browserfensters gehalten.</div>
+  <section id="neralComparePanel" class="neral-compare-panel" aria-label="NERAL-Adapter-Labor" hidden>
+    <h3>Adapter-Labor: Tatsächlicher Modellvergleich</h3>
+    <p>Gleicher Prompt, gleiche deterministische Generierung, identische Basismodellgewichte. Links wird der LoRA-Adapter deaktiviert, rechts aktiviert. Keine Werkzeuge oder unterschiedlichen Systemprompts. <strong>Ein Unterschied bedeutet nicht automatisch eine Verbesserung.</strong></p>
+    <div class="neral-compare-grid">
+      <article><h4>Qwen-Foundation · Adapter AUS</h4><pre id="neralCompareBase" tabindex="0"></pre></article>
+      <article><h4>NERAL AI · Adapter AN</h4><pre id="neralCompareNeral" tabindex="0"></pre></article>
+    </div>
+    <p id="neralCompareStatus" role="status" aria-live="polite"></p>
+  </section>
 </details>
 <details id="computerUseSection" class="computer-use-section"><summary>Computer Use – PC lokal steuern (Opt-in)</summary>
 <p>Standardmäßig deaktiviert. Nur direkt auf dem Windows-PC, niemals über gekoppelte Geräte. Bildschirmaufnahme und jede Einzelaktion müssen freigegeben werden. Kein autonomer Modellzugriff.</p>
