@@ -1,0 +1,121 @@
+name: NERAL v5 Helios real local LoRA chat smoke (read-only GPU)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'neral_hf_identity.py'
+      - 'neral_agent_hf.py'
+      - 'scripts/neral_v5_helios_smoke.py'
+      - '.github/workflows/neral-v5-helios-smoke.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Read-only v5 local adapter smoke: SMOKE_NERAL_V5_HELIOS_LOCAL'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  local-neral-v5-smoke:
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'fix-NERAL-v5-Helios-GPU-smoke')) || (github.event_name == 'workflow_dispatch' && inputs.authorize == 'SMOKE_NERAL_V5_HELIOS_LOCAL'))
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Validate saved original v5 adapter, code and GPU readiness
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $run=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1'
+          $adapter=Join-Path $run 'adapter'
+          foreach($directory in @($control,$base,$run,$adapter)){
+            if(-not(Test-Path -LiteralPath $directory -PathType Container)){
+              throw 'Verified model/adapter/control folder missing'
+            }
+          }
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Pinned Windows 3.12 QLoRA runtime missing'
+          }
+          & git -C $control -c core.autocrlf=false -c core.eol=lf checkout-index --force --all
+          if($LASTEXITCODE -ne 0){throw 'Source file normalization failed'}
+          $training=Get-Content -LiteralPath (Join-Path $adapter 'training-report.json') -Raw|ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath (Join-Path $adapter 'neral-adapter.json') -Raw|ConvertFrom-Json
+          if($training.status -ne 'completed' -or $training.steps -ne 480 -or
+             $training.optimizer_steps_completed -ne 480 -or $training.lora_rank -ne 16 -or
+             $manifest.release_validated -ne $false -or
+             $manifest.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242'){
+             throw 'Saved v5 experimental rank-16 training integrity mismatch'
+          }
+          Push-Location $control
+          try {
+            & $py -B -m unittest discover -s tests -p test_neral_hf_identity.py -v
+            if($LASTEXITCODE -ne 0){throw 'Pinned local identity contracts failed'}
+            & $py -B -m unittest discover -s tests -p test_neral_v5_helios_smoke.py -v
+            if($LASTEXITCODE -ne 0){throw 'Scalar-only live chat contracts failed'}
+            & $py -B (Join-Path $control 'scripts\neral_v5_gpu_wait.py') --variant neral_v5
+            if($LASTEXITCODE -ne 0){throw 'GPU not free for a safe local adapter load'}
+          } finally {Pop-Location}
+          $folder=Join-Path $control 'v5_helios_smoke_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Refuse scalar overwrite'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_V5_SMOKE_PY=$py"+[Environment]::NewLine+
+            "NERAL_V5_SMOKE_BASE=$base"+[Environment]::NewLine+
+            "NERAL_V5_SMOKE_ADAPTER=$adapter"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Load v5 adapter through real Helios backend and generate one private reply
+        working-directory: control
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:NERAL_V5_SMOKE_PY -B -m scripts.neral_v5_helios_smoke --base $env:NERAL_V5_SMOKE_BASE --adapter $env:NERAL_V5_SMOKE_ADAPTER --out v5_helios_smoke_scalar/summary.json
+          if($LASTEXITCODE -ne 0){throw 'Real Helios v5 LoRA load/inference failed; weights unchanged'}
+      - name: Fail closed on private fields or missing load proof
+        id: safe
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\v5_helios_smoke_scalar'
+          $files=@(Get-ChildItem -LiteralPath $folder -Recurse -File)
+          if($files.Count -ne 1 -or $files[0].Name -ne 'summary.json' -or $files[0].Length -gt 3200){
+            throw 'Only one small scalar JSON can be exported'
+          }
+          $r=Get-Content -LiteralPath $files[0].FullName -Raw|ConvertFrom-Json
+          $allow=@('schema','status','foundation','base_revision','adapter_sha256','adapter_loaded','model_origin','response_nonempty','response_length','elapsed_seconds','release_validated','general_improvement_proven','training_performed','gpu_inference_performed')
+          $keys=@($r.PSObject.Properties.Name)
+          if($keys.Count -ne $allow.Count -or @($keys|Where-Object{$_ -notin $allow}).Count -ne 0 -or
+             $r.status -ne 'NERAL_V5_HELIOS_LOCAL_ADAPTER_LOADED' -or
+             $r.adapter_loaded -ne $true -or $r.release_validated -ne $false -or
+             $r.training_performed -ne $false -or $r.gpu_inference_performed -ne $true -or
+             $r.base_revision -ne 'c03e6d358207e414f1eca0bb1891e29f1db0e242' -or
+             $r.adapter_sha256 -notmatch '^[0-9a-f]{64}$' -or $r.response_length -lt 1 -or
+             $r.response_length -gt 1024){
+            throw 'Scalar LoRA proof not verified'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT,"safe=true"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Upload proof only, never Qwen/LoRA weights or raw chat text
+        if: success() && steps.safe.outputs.safe == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v5-helios-local-chat-smoke
+          path: control/v5_helios_smoke_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error

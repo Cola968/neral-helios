@@ -12,6 +12,7 @@ import threading
 from pathlib import Path
 
 from neral_agent_autonomy import AgentModelError
+from neral_hf_identity import CHAT_TEMPLATE, BASE_REVISION, validate_hf_snapshot, validate_adapter
 
 
 def enforce_offline():
@@ -59,14 +60,18 @@ class HFAdapterLocalBackend:
         import torch
         from transformers import BitsAndBytesConfig, Qwen2ForCausalLM, Qwen2TokenizerFast
         from peft import PeftModel
-        from model_catalog import validate_hf_snapshot
 
         if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
             raise AgentModelError("Keine unterstützte lokale CUDA-GPU verfügbar.")
         free, _ = torch.cuda.mem_get_info(0)
         if free < 9 * 1024**3:
             raise AgentModelError("Zu wenig freier GPU-Speicher für den lokalen Adapter.")
-        validate_hf_snapshot(self.base, verify_hashes=True)
+        foundation = validate_hf_snapshot(self.base, verify_hashes=True)
+        if foundation["revision"] != BASE_REVISION:
+            raise AgentModelError("Nicht freigegebene Qwen-Foundation.")
+        proof = validate_adapter(self.adapter, foundation)
+        if proof["files"]["adapter_model.safetensors"] != self.adapter_sha256:
+            raise AgentModelError("Adapter wurde seit Helios-Start verändert.")
         tokenizer = Qwen2TokenizerFast.from_pretrained(str(self.base),
                           local_files_only=True, trust_remote_code=False, token=False)
         if tokenizer.pad_token is None:
@@ -91,7 +96,6 @@ class HFAdapterLocalBackend:
         try:
             self._load()
             import torch
-            from qwen_local_runtime import CHAT_TEMPLATE
             tokens = self._tokenizer.apply_chat_template(
                 messages, chat_template=CHAT_TEMPLATE, tokenize=True,
                 add_generation_prompt=True, return_tensors="pt").to("cuda:0")
