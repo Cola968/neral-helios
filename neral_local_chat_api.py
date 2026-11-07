@@ -17,6 +17,14 @@ from neral_identity import build_identity_prompt
 
 SYSTEM = build_identity_prompt("web", "local_foundation_not_neral_adapter")
 BASE_MODEL = "Qwen2.5-Coder-7B-Instruct"
+# Exactly the same neutral conditioning is sent to both weight variants.
+# NERAL identity prompts, web search, SQL tools and exact-math tools stay OFF
+# in this model-only A/B lab, so they cannot inflate the adapter result.
+COMPARE_SYSTEM = (
+    "Du bist ein hilfreicher lokaler Assistent. Antworte präzise, "
+    "erfinde keine Fakten, Werkzeuge oder Tests. "
+    "Befolge die vom Nutzer gewünschte Antwortform."
+)
 MAX_PROMPT_BYTES = 4096
 MAX_HISTORY_MESSAGES = 12
 MAX_HISTORY_BYTES = 12000
@@ -36,6 +44,8 @@ def _provenance(backend) -> dict:
                          else "local_adapter_configured_not_loaded" if is_adapter
                          else "local_foundation_not_neral_adapter"),
         "quality_improvement_proven": False,
+        "compare_available": bool(is_adapter and callable(
+            getattr(backend, "compare_with_base", None))),
         "no_remote_qwen_service_configured": True,
         "response_mode": "local_non_streaming",
     }
@@ -127,6 +137,49 @@ def register_neral_local_chat_api(app, backend):
     @app.get("/api/neral/chat/status")
     def local_chat_status():
         return jsonify(_provenance(backend))
+
+    @app.post("/api/neral/chat/compare")
+    def local_chat_compare():
+        """Local only: equal prompt and decoding, real PEFT adapter OFF vs ON."""
+        if not request.is_json:
+            return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {"prompt"}:
+            return jsonify(error="A/B-Test erlaubt ausschließlich einen Prompt ohne Verlauf."), 400
+        try:
+            data = _messages(payload)
+        except (TypeError, ValueError, UnicodeError):
+            return jsonify(error="Ungültiger oder zu langer Vergleichs-Prompt."), 400
+        origin = _provenance(backend)
+        compare = getattr(backend, "compare_with_base", None)
+        if not origin["compare_available"] or not callable(compare):
+            return jsonify(error="A/B-Vergleich nur mit lokalem NERAL-LoRA verfügbar."), 409
+        if not busy.acquire(blocking=False):
+            return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        try:
+            data[0]["content"] = COMPARE_SYSTEM
+            started = time.monotonic()
+            try:
+                result = compare(data)
+            except Exception:
+                # Never expose local GPU paths, exception traces, or private text.
+                return jsonify(error="Lokaler Adapter-A/B-Vergleich fehlgeschlagen."), 503
+            if (not isinstance(result, dict) or set(result) != {"base", "neral"}
+                    or any(not isinstance(value, str) or not value.strip()
+                           or len(value.encode("utf-8")) > 32768
+                           for value in result.values())):
+                return jsonify(error="Lokales Modell lieferte ungültige A/B-Antworten."), 503
+            return jsonify({
+                **result,
+                "model_generated": True,
+                "same_prompt": True,
+                "same_decoding": True,
+                "tools_used": False,
+                "seconds": round(time.monotonic() - started, 3),
+                **_provenance(backend),
+            })
+        finally:
+            busy.release()
 
     @app.post("/api/neral/chat/generate")
     def local_chat_generate():
