@@ -1,0 +1,30 @@
+name: NERAL v6/v7 paired release gate CPU contracts
+on:
+  pull_request:
+    paths:
+      - scripts/neral_release_gate.py
+      - tests/test_neral_release_gate.py
+      - GATE.md
+      - .github/workflows/neral-release-gate-ci.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/neral_release_gate.py
+      - tests/test_neral_release_gate.py
+      - GATE.md
+      - .github/workflows/neral-release-gate-ci.yml
+permissions:
+  contents: read
+jobs:
+  release_gate_cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run preregistered paired-statistics contracts
+        run: python -m unittest discover -s tests -p test_neral_release_gate.py -v
+      - name: Compile release evaluator
+        run: python -m py_compile scripts/neral_release_gate.py
