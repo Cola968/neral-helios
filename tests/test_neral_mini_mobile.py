@@ -34,7 +34,7 @@ def running():
     desktop=MiniServer(("127.0.0.1",0),model,
        '<html><script>const TOKEN="%%NERAL_SESSION%%";</script><p>NERAL</p></html>')
     config={"host":"192.168.17.3","port":9444,
-            "pair_hash":hashlib.sha256(b"sample-pair-code").hexdigest()}
+            "pair_hash":hashlib.sha256(b"a1b2c3d4e5f60718").hexdigest()}
     gateway=create_mobile_gateway(config,desktop,bind_host="127.0.0.1",bind_port=0)
     gateway_thread=threading.Thread(target=gateway.serve_forever,daemon=True)
     gateway_thread.start()
@@ -65,7 +65,7 @@ def request(running,path="/",method="GET",data=None,headers=None):
     return result
 
 
-def pair(running,code="sample-pair-code"):
+def pair(running,code="a1b2c3d4e5f60718"):
     status,headers,text=request(running,"/pair","POST",
         data=urlencode({"code":code}).encode(),
         headers={"Content-Type":"application/x-www-form-urlencoded",
@@ -139,7 +139,7 @@ def test_bad_pairing_limited_to_five_attempts_per_minute(running):
     for _ in range(5):
         assert pair(running,code="wrong")[0]==403
     assert pair(running,code="wrong")[0]==429
-    assert pair(running,code="sample-pair-code")[0]==429
+    assert pair(running,code="a1b2c3d4e5f60718")[0]==429
 
 
 def test_generated_model_errors_do_not_leak_local_paths(running):
