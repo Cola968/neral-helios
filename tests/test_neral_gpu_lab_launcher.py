@@ -30,3 +30,8 @@ def test_regular_start_preserves_disabled_gpu_default():
     cpu_placement = source.index("$env:CUDA_VISIBLE_DEVICES=''")
     assert gpu_placement < cpu_placement
     assert "if($GpuLab)" in source
+
+def test_lab_panel_tells_user_how_to_activate_v5():
+    html = (ROOT / "templates/index.html").read_text(encoding="utf-8")
+    assert "Start NERAL v5 Lab.cmd" in html
+    assert "nicht automatisch" in html
