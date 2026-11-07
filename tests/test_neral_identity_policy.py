@@ -29,6 +29,13 @@ class IdentityPromptTests(unittest.TestCase):
         prompt = build_identity_prompt("web", "local_foundation_not_neral_adapter")
         self.assertIn("kein verifizierter NERAL-Adapter", prompt)
 
+    def test_mini_chat_actually_uses_the_neral_first_prompt(self):
+        from mini.neral_mini import parse_chat
+        messages = parse_chat({"prompt": "Wer bist du?"})
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("NERAL AI", messages[0]["content"])
+        self.assertIn("nicht unaufgefordert", messages[0]["content"])
+
     def test_rejects_unrecognized_contexts(self):
         for mode, origin in (("unknown", "local_neral_lora_experimental"),
                              ("web", "unrecognized")):
