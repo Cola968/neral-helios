@@ -36,7 +36,8 @@
     for (const item of messages) {
       const line = document.createElement('p');
       const role = document.createElement('strong');
-      role.textContent = item.role === 'user' ? 'Du: ' : 'NERAL: ';
+      role.textContent = item.role === 'user' ? 'Du: ' :
+        item.tool_used === 'neral_math_exact' ? 'NERAL (exakte lokale Berechnung): ' : 'NERAL: ';
       const content = document.createElement('span');
       content.textContent = item.content;
       line.append(role, content);
@@ -82,7 +83,9 @@
         history = history.slice(2);
       }
       const answer = await req('generate',{prompt:text,history});
-      messages.push({role:'user',content:text},{role:'assistant',content:answer.text});
+      messages.push({role:'user',content:text},{role:'assistant',content:answer.text,
+        tool_used: answer.model_generated === false && answer.tool_used === 'neral_math_exact'
+          ? 'neral_math_exact' : null});
       // Keep memory bounded and keep alternating user-assistant turns.
       if (messages.length > 12) messages = messages.slice(-12);
       updateIdentity(answer);
