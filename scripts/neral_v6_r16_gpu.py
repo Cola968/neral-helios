@@ -279,6 +279,9 @@ def _gpu_train(args) -> dict:
                 raise FloatingPointError("Nonfinite training loss/metric")
             if len(run_logs) < 160:
                 run_logs.append({"step":state.global_step,**entry})
+    # Hugging Face Trainer may create output_dir during initialization.
+    # Reserve our private root once, BEFORE TrainingArguments/Trainer exist.
+    dest.mkdir(exist_ok=False)
     output_temp=dest/"trainer-temp"
     config=TrainingArguments(
         output_dir=str(output_temp), max_steps=STEPS,
@@ -299,7 +302,6 @@ def _gpu_train(args) -> dict:
         eval_dataset=Dataset.from_list(val_tokens),
         data_collator=collate,callbacks=[Guard()],
     )
-    dest.mkdir(exist_ok=False)
     before=time.monotonic()
     result=trainer.train()
     if trainer.state.global_step != STEPS or not math.isfinite(result.training_loss):

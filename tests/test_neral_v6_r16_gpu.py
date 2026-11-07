@@ -72,6 +72,18 @@ class V6ExperimentContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 training_contract(dest)
 
+    def test_output_dir_is_reserved_before_hf_trainer_may_autocreate_subdirectory(self):
+        # Real Windows run 42407216024 failed because TrainingArguments/Trainer
+        # created dest/trainer-temp *before* dest.mkdir(exist_ok=False).
+        import inspect
+        from scripts.neral_v6_r16_gpu import _gpu_train
+        source=inspect.getsource(_gpu_train)
+        self.assertIn("dest.mkdir(exist_ok=False)",source)
+        self.assertIn("config=TrainingArguments(",source)
+        self.assertLess(source.index("dest.mkdir(exist_ok=False)"),
+                        source.index("config=TrainingArguments("))
+        self.assertEqual(source.count("dest.mkdir(exist_ok=False)"),1)
+
     def test_manual_120_step_gpu_only_and_strict_identity(self):
         with self.assertRaises(ValueError):
             require_explicit_gpu_authorization("")
