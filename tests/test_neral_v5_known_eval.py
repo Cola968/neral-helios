@@ -109,7 +109,7 @@ class KnownV5Eval(unittest.TestCase):
     def test_saved_480_step_eval_workflow_contract(self):
         flow=Path('.github/workflows/neral-v5-known-eval.yml').read_text(encoding='utf8')
         self.assertIn('train_steps:',flow)
-        self.assertIn('v5-r16-480-',flow)
+        self.assertIn('v5-r16-{0}-{1}-1',flow)
         self.assertIn('optimizer_steps_completed',flow)
         self.assertIn('TRAIN_STEPS',flow)
         self.assertIn('EVALUATE_NERAL_V5_R16_480_SAVED',flow)
@@ -147,7 +147,7 @@ class KnownV5Eval(unittest.TestCase):
         self.assertIn("runs-on: [self-hosted, windows, x64, neral-gpu]",src)
         self.assertIn("train_run_id",src)
         self.assertIn("neral-qwen7b-r32-gpu-exclusive",src)
-        self.assertIn("v5-r16-480-",src)
+        self.assertIn("v5-r16-{0}-{1}-1",src)
         self.assertIn("480",src)
         self.assertNotIn("--run-local-gpu",src)
         self.assertIn("--variant $variant",src)
