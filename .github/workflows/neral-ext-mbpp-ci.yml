@@ -4,12 +4,14 @@ on:
     paths:
       - 'scripts/neral_ext_mbpp_grader.py'
       - 'tests/test_neral_ext_mbpp_grader.py'
+      - 'tests/test_neral_ext_mbpp_workflow.py'
       - '.github/workflows/neral-ext-mbpp-ci.yml'
       - '.github/workflows/neral-ext-mbpp-cpu-manual.yml'
   push:
     paths:
       - 'scripts/neral_ext_mbpp_grader.py'
       - 'tests/test_neral_ext_mbpp_grader.py'
+      - 'tests/test_neral_ext_mbpp_workflow.py'
 permissions:
   contents: read
 jobs:
@@ -23,5 +25,7 @@ jobs:
           python-version: '3.12'
       - name: Test sandbox security and MBPP correctness contracts
         run: python -m unittest discover -s tests -p test_neral_ext_mbpp_grader.py -v
+      - name: Verify protected manual workflow contracts
+        run: python -m unittest discover -s tests -p test_neral_ext_mbpp_workflow.py -v
       - name: Compile module
         run: python -m py_compile scripts/neral_ext_mbpp_grader.py
