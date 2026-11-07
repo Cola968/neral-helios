@@ -88,8 +88,14 @@ privates Verzeichnis mit `pairs.jsonl` und `manifest.json`.
 Die Paare entsprechen dem bereits integrierten
 `scripts/neral_e1_smoke.py`-Schema. Pro Split müssen mindestens fünf
 Familien repräsentiert sein, und **keine Familie darf mehr als 20 %**
-ausmachen. Deshalb können einseitige Fehlersammlungen nicht heimlich
-durch den Smoke-Test gelangen.
+ausmachen. Der Miner wählt dazu je Split aus jeder Familie gleich viele
+**tatsächlich beobachtete** falsche Antworten aus, bei Überhang
+reproduzierbar nach einer SHA-basierten Reihenfolge. `verified_wrong`
+erfasst alle bewertbaren Fehlantworten, `eligible_pairs` die
+balanciert exportierten Kandidaten und `balanced_discarded` die
+abgewählten Überschüsse. Fehlen einer Familie genügend echte Fehler,
+bleibt die Ausgabe unter der Mindestzahl und der gesamte Smoke-Export
+wird abgelehnt – es werden **keine** künstlichen Fehlantworten erfunden.
 
 Die private Dev-/Release-Suite muss zuvor wirklich erstellt,
 unabhängig kontrolliert und gegen ALLE Trainingsquellen abgeglichen
