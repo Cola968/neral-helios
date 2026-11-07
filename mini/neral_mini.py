@@ -28,13 +28,9 @@ MAX_HISTORY = 12
 MAX_BODY = 16000
 MAX_TOKENS = 224
 TOKEN_LIMIT = 3072
-SYSTEM = (
-    "Du bist NERAL, ein experimenteller, lokal ausgefuehrter Assistent "
-    "mit einem eigenen NERAL-LoRA-Adapter auf Qwen2.5-Coder-7B als Foundation. "
-    "Antworte klar und praezise. Gib Unsicherheit zu. "
-    "Erfinde weder Quellen noch ausgefuehrte Werkzeuge. "
-    "Du hast in diesem Mini-Chat keine Websuche und keinen Computerzugriff."
-)
+from neral_identity import build_identity_prompt
+
+SYSTEM = build_identity_prompt("mini", "local_neral_lora_experimental")
 CHAT_TEMPLATE = (
     "{% for message in messages %}"
     "{{ '<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>\n' }}"
