@@ -3,15 +3,20 @@ on:
   pull_request:
     paths:
       - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'scripts/neral_v6_regression_gate.py'
       - 'tests/test_neral_v6_fresh_dev_eval.py'
+      - 'tests/test_neral_v6_regression_gate.py'
       - 'docs/NERAL_V6_FRESH_DEV72.md'
+      - 'docs/NERAL_V6_REGRESSION_QUARANTINE.md'
       - '.github/workflows/neral-v6-dev72-cpu-ci.yml'
       - '.github/workflows/neral-v6-dev72-gpu.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/neral_v6_fresh_dev_eval.py'
+      - 'scripts/neral_v6_regression_gate.py'
       - 'tests/test_neral_v6_fresh_dev_eval.py'
+      - 'tests/test_neral_v6_regression_gate.py'
       - '.github/workflows/neral-v6-dev72-cpu-ci.yml'
 permissions:
   contents: read
@@ -30,5 +35,7 @@ jobs:
           python-version: '3.12'
       - name: Assert 72 novel CPU task oracles, scoring & leakage checks
         run: python -m unittest discover -s tests -p test_neral_v6_fresh_dev_eval.py -v
+      - name: Fail closed on candidate regression / fabricated promotion flags
+        run: python -m unittest discover -s tests -p test_neral_v6_regression_gate.py -v
       - name: Compile
-        run: python -m py_compile scripts/neral_v6_fresh_dev_eval.py
+        run: python -m py_compile scripts/neral_v6_fresh_dev_eval.py scripts/neral_v6_regression_gate.py
