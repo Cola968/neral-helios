@@ -33,7 +33,7 @@ jobs:
       - name: Build 400 cases from resolved immutable public HF revisions
         run: |
           mkdir -p "$RUNNER_TEMP/neral-ext"
-          python -m scripts.neral_ext_dataset --out-dir "$RUNNER_TEMP/neral-ext" --resolve-public-revisions
+          python -m scripts.neral_ext_dataset --out-dir "$RUNNER_TEMP/neral-ext"
       - name: Verify 400 rows, manifest SHA, and 2560-case train/val/test overlap
         run: |
           python - <<'PY'
