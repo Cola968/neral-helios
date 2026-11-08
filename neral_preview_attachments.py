@@ -113,7 +113,7 @@ def _filename(file):
     original = str(file.filename or "")
     name = re.split(r"[/\\]", original)[-1]
     if (not name or len(name) > 100 or not re.fullmatch(
-            r"[A-Za-z0-9ÄÖÜäöüß][A-Za-z0-9ÄÖÜäöüß_. -]*", name)):
+            r"[A-Za-z0-9ÄÖÜäöüß][A-Za-z0-9ÄÖÜäöüß_. ()-]*", name)):
         raise AttachmentError("Ungültiger Anhangname.")
     return name
 
