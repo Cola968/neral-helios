@@ -46,7 +46,11 @@ class FreshGateTests(unittest.TestCase):
         self.assertFalse(report["independent_holdout_verified"])
         self.assertFalse(report["neural_improvement_proven"])
         self.assertFalse(report["release_validated"])
-        self.assertNotIn("prompt", str(report).lower())
+        # The report may contain privacy field *names*, but no question data.
+        serialized = json.dumps(report, sort_keys=True)
+        self.assertNotIn('"prompt":', serialized)
+        self.assertNotIn('"raw_private":', serialized)
+        self.assertNotIn('"text":', serialized)
 
     def test_fresh_workflow_runs_after_successful_72_and_shares_gpu_lock(self):
         path = Path(__file__).resolve().parents[1] / ".github/workflows/neral-low-high-fresh-gpu.yml"
