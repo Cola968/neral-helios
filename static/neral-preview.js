@@ -480,11 +480,28 @@
     const userNode=append("user",text+(selectedAttachments.length?
       "\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""),undefined,true);
     prompt.value="";
-    let partialNode=null;
+    let partialNode=null, painter=null, partialBody=null;
     let completedTurn=false;
     const deadline=AbortSignal.timeout(selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
     const signal=AbortSignal.any([controller.signal,deadline]);
+    function makePartial(){
+      partialNode=document.createElement("div");
+      partialNode.className="message assistant neral-live-partial";
+      const label=document.createElement("strong");
+      label.textContent="NERAL";
+      partialBody=document.createElement("p");
+      partialBody.className="neral-live-body";
+      partialNode.append(label,partialBody);
+      messages.append(partialNode);
+      messages.scrollTop=messages.scrollHeight;
+      const create=browser.NeralLiveStream?.createPainter;
+      if(typeof create==="function")painter=create(partialBody,{
+        signal,
+        isCurrent:()=>activeRequest===controller&&startedEpoch===conversationEpoch,
+        onPaint:()=>{messages.scrollTop=messages.scrollHeight;}
+      });
+    }
     try {
       let modelPrompt=text;
       let sources=[];
@@ -546,19 +563,12 @@
       if(useLive){
         const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...options});
         if(response.ok){
-          partialNode=document.createElement("div");
-          partialNode.className="message assistant neral-live-partial";
-          const label=document.createElement("strong");
-          label.textContent="NERAL";
-          const body=document.createElement("p");
-          body.className="neral-live-body";
-          partialNode.append(label,body);
-          messages.append(partialNode);
-          messages.scrollTop=messages.scrollHeight;
+          makePartial();
           result=await browser.NeralLiveStream.read(response,{onDelta:piece=>{
             if(controller.signal.aborted||startedEpoch!==conversationEpoch ||
                activeRequest!==controller)return;
-            body.textContent+=piece;
+            if(painter)painter.push(piece);
+            else partialBody.textContent+=piece;
             partialNode.className="message assistant neral-live-partial neral-has-tokens";
             messages.scrollTop=messages.scrollHeight;
           }});
@@ -575,6 +585,17 @@
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       if(selectedAttachments.length)motionActivity("files-done",mode);
+      // HIGH (and non-streamed attachments) have already finished inference.
+      // Reveal only the *final* verified text, gradually, with the same painter.
+      if(!useLive && typeof browser.NeralLiveStream?.createPainter==="function"){
+        makePartial();
+        partialNode.className="message assistant neral-live-partial neral-has-tokens";
+        painter.push(result.text);
+      }
+      if(painter){
+        const shown=await painter.finish();
+        if(!shown||controller.signal.aborted||startedEpoch!==conversationEpoch)return;
+      }
       motionActivity("done",mode);
       // The provisional display is replaced by the verified complete answer.
       partialNode?.remove();
@@ -643,6 +664,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
+      painter?.cancel();
       partialNode?.remove();
       if(!completedTurn)motionActivity(startedEpoch!==conversationEpoch||controller.signal.aborted?"cancelled":"error",mode);
       if(activeRequest===controller){

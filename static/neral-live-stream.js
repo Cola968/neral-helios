@@ -73,7 +73,89 @@
       reader.releaseLock?.();
     }
   }
-  const api={read};
+  function createPainter(target,options={}){
+    // Visual pacing is separate from inference: LOW uses actual incoming
+    // Ollama text, HIGH only starts after its final checked answer exists.
+    // No synthetic model tokens, no artificial progress percentages.
+    const schedule=options.schedule||((fn)=>requestAnimationFrame(fn));
+    const cancelFrame=options.cancelFrame||((id)=>cancelAnimationFrame(id));
+    const current=options.isCurrent||(()=>true);
+    const signal=options.signal;
+    const reduced=()=>options.reducedMotion===true ||
+      (options.reducedMotion!==false &&
+       typeof matchMedia==="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const hidden=()=>options.isHidden?.() ||
+      (typeof document!=="undefined"&&document.hidden===true);
+    let pending=[],offset=0,scheduled=null,finalRequested=false;
+    let stopped=false,completed=false,resolveFinish=null,finished=null;
+
+    function finishPromise(result){
+      if(completed)return;
+      completed=true;
+      if(scheduled!==null){cancelFrame(scheduled);scheduled=null;}
+      if(resolveFinish){resolveFinish(result);resolveFinish=null;}
+    }
+    function valid(){
+      if(stopped||signal?.aborted||!current()){
+        stopped=true;finishPromise(false);return false;
+      }
+      return true;
+    }
+    function paintAll(){
+      if(!valid())return;
+      if(offset<pending.length){
+        target.textContent+=pending.slice(offset).join("");
+        offset=pending.length;
+        options.onPaint?.(target.textContent);
+      }
+      if(finalRequested)finishPromise(true);
+    }
+    function frame(){
+      scheduled=null;
+      if(!valid())return;
+      if(reduced()||hidden()){paintAll();return;}
+      const backlog=pending.length-offset;
+      if(backlog){
+        // One frame should show a fragment, not an entire 100-word block.
+        // Increase pace under backlog to avoid delaying long answers.
+        const amount=Math.min(backlog,96,Math.max(3,Math.ceil(backlog/90)));
+        target.textContent+=pending.slice(offset,offset+amount).join("");
+        offset+=amount;
+        options.onPaint?.(target.textContent);
+      }
+      if(finalRequested&&offset===pending.length){finishPromise(true);return;}
+      if(offset<pending.length)scheduled=schedule(frame);
+    }
+    function kick(){
+      if(!valid())return;
+      if(reduced()||hidden()){paintAll();return;}
+      if(scheduled===null&&offset<pending.length)scheduled=schedule(frame);
+      if(finalRequested&&offset===pending.length)finishPromise(true);
+    }
+    function push(text){
+      if(completed||finalRequested||!valid()||typeof text!=="string"||!text)return;
+      const pieces=typeof Intl!=="undefined"&&Intl.Segmenter?
+        [...new Intl.Segmenter("de",{granularity:"grapheme"}).segment(text)].map(x=>x.segment):
+        Array.from(text);
+      pending.push(...pieces);
+      kick();
+    }
+    function finish(){
+      if(completed)return Promise.resolve(!stopped);
+      if(finished)return finished;
+      if(!valid())return Promise.resolve(false);
+      finalRequested=true;
+      finished=new Promise(resolve=>{resolveFinish=resolve;});
+      kick();
+      return finished;
+    }
+    function cancel(){
+      stopped=true;finishPromise(false);
+    }
+    if(signal?.addEventListener)signal.addEventListener("abort",cancel,{once:true});
+    return {push,finish,cancel};
+  }
+  const api={read,createPainter};
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
   if(root)root.NeralLiveStream=api;
 })(typeof window!=="undefined"?window:undefined);

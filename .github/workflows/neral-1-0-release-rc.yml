@@ -98,6 +98,7 @@ on:
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_live_stream_client.cjs'
+      - 'tests/test_neral_1_0_progressive_render.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_reference_ui.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -208,6 +209,7 @@ on:
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_live_stream_client.cjs'
+      - 'tests/test_neral_1_0_progressive_render.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_reference_ui.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -282,6 +284,7 @@ jobs:
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-live-stream.js
       - run: node --test tests/test_neral_1_0_live_stream_client.cjs
+      - run: node --test tests/test_neral_1_0_progressive_render.cjs
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-dynamic-ui.js
       - run: node --check static/neral-math.js
