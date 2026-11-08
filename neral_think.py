@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
+import json
 import re
 import time
 from typing import Callable
@@ -60,6 +61,61 @@ _HIGH_REVIEW_FEEDBACK = (
     "den ursprünglichen Nutzer aus, nicht eine Beschreibung dieser "
     "Prüfrunde. Falls unsicher, benenne die Unsicherheit."
 )
+
+# Guard only explicitly requested structural formats. A second model pass
+# cannot prove semantic accuracy; reject it if it deletes clearly requested
+# code fences or turns valid requested JSON into prose.
+_CODE_REQUEST = re.compile(
+    r"\\b(?:schreibe|schreib|erstelle|implementiere|implementier|erzeuge|"
+    r"write|create|implement)\\b[^.\\n]{0,130}"
+    r"\\b(?:python|code|funktion|function|script|javascript|typescript|js|programm)\\b",
+    re.IGNORECASE,
+)
+_JSON_ONLY_REQUEST = re.compile(
+    r"\\b(?:nur|ausschließlich|only|als|as|gültigem|gültiges|valid)\\b"
+    r"[^.\\n]{0,60}\\bjson\\b"
+    r"|\\bjson\\b[^.\\n]{0,60}\\b(?:nur|ausschließlich|only)\\b",
+    re.IGNORECASE,
+)
+_FENCE = re.compile(r"[ \\t]*```([A-Za-z0-9_+-]{0,25})[ \\t]*")
+
+
+def _code_fence_languages(reply: str) -> tuple[str, ...]:
+    fences = []
+    for line in reply.splitlines():
+        matched = _FENCE.fullmatch(line)
+        if matched is not None:
+            fences.append(matched.group(1).lower())
+    if len(fences) < 2 or len(fences) % 2:
+        return ()
+    if any(fences[index] for index in range(1, len(fences), 2)):
+        return ()
+    return tuple(fences[::2])
+
+
+def _valid_json_document(reply: str) -> bool:
+    try:
+        decoded = json.loads(reply)
+    except (ValueError, TypeError):
+        return False
+    return type(decoded) in (dict, list)
+
+
+def _review_preserves_format(question: str, draft: str, revised: str) -> bool:
+    if _CODE_REQUEST.search(question):
+        original_fences = _code_fence_languages(draft)
+        if original_fences:
+            new_fences = _code_fence_languages(revised)
+            if len(new_fences) < len(original_fences):
+                return False
+            if any(before and before != after
+                   for before, after in zip(original_fences, new_fences)):
+                return False
+    if (_JSON_ONLY_REQUEST.search(question) and _valid_json_document(draft)
+            and not _valid_json_document(revised)):
+        return False
+    return True
+
 
 class ThinkInputError(ValueError):
     """Only public generic messages; never include a model response or path."""
@@ -255,10 +311,13 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
                 # traceback, private checkpoint, or untrusted partial output.
                 review_status = "review_failed"
             else:
-                raw = revised
-                extracted = extract_final(raw)
                 review_passes = 1
-                review_status = "completed_unverified"
+                if _review_preserves_format(messages[-1]["content"], raw, revised):
+                    raw = revised
+                    extracted = extract_final(raw)
+                    review_status = "completed_unverified"
+                else:
+                    review_status = "review_rejected_format"
 
     elapsed = max(0.0, clock() - initial)
     common = {
