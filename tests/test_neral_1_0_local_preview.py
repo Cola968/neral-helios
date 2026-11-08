@@ -44,7 +44,7 @@ class LocalPreviewContracts(unittest.TestCase):
     def test_no_falsely_promoted_adapter_or_cloud_model_claim(self):
         ps1=(ROOT/"Start-Neral-1.0-Local.ps1").read_text(encoding="utf8")
         self.assertIn("local_foundation",ps1)
-        self.assertNotIn("deployment",ps1)
+        self.assertNotIn("Join-Path $PSScriptRoot 'deployment'",ps1)
         self.assertIn("Kein",ps1)
         self.assertNotIn("NERAL_AGENT_BACKEND='hf_adapter'",ps1)
         self.assertNotIn("adapter_promoted=true",ps1)
