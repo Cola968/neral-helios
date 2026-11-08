@@ -61,6 +61,7 @@
     }
     messages.append(item);
     messages.scrollTop=messages.scrollHeight;
+    return item;
   }
   async function json(path,init={}) {
     const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...init});
@@ -446,7 +447,17 @@
       }
       if(Array.isArray(result.vision_models)&&result.vision_models.length)
         origin+=" · Bildmodell "+result.vision_models.join(", ");
-      append("assistant",result.text,origin);
+      const answerNode=append("assistant",result.text,origin);
+      // Progressive enhancement: interactive components are built only from
+      // data already present in this reply or locally verified tool results.
+      // Never fail the underlying conversation because of a UI widget.
+      const ui=browser.NeralDynamicUI;
+      if(ui && typeof ui.plan==="function" && typeof ui.mount==="function"){
+        try{
+          const spec=ui.plan({prompt:text,text:result.text,result});
+          if(spec)ui.mount(answerNode,spec);
+        }catch{/* Keep the original text answer. */}
+      }
       // Only successfully received, current local chat answers are offered
       // to the SEPARATE opt-in Piper renderer; no automatic cloud audio.
       if(typeof browser.dispatchEvent==="function" &&
