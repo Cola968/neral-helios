@@ -16,6 +16,10 @@ on:
       - 'static/neral-dynamic-ui.css'
       - 'static/neral-dynamic-ui.js'
       - 'tests/test_neral_dynamic_ui.cjs'
+      - 'tests/test_neral_math.cjs'
+      - 'static/neral-math.js'
+      - 'static/neral-math.css'
+      - 'static/helios-core.js'
       - 'tests/test_neral_dynamic_ui_app.cjs'
       - 'static/neral.js'
       - 'static/neral-local-chat.js'
@@ -37,6 +41,10 @@ on:
       - 'static/neral-dynamic-ui.css'
       - 'static/neral-dynamic-ui.js'
       - 'tests/test_neral_dynamic_ui.cjs'
+      - 'tests/test_neral_math.cjs'
+      - 'static/neral-math.js'
+      - 'static/neral-math.css'
+      - 'static/helios-core.js'
       - 'tests/test_neral_dynamic_ui_app.cjs'
       - 'static/neral.js'
       - 'static/neral-local-chat.js'
@@ -56,6 +64,7 @@ jobs:
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-modern.js
       - run: node --check static/neral-dynamic-ui.js
+      - run: node --check static/neral-math.js
       - run: node --check static/neral-local-chat.js
       - run: node --check static/neral.js
-      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_dynamic_ui_app.cjs tests/test_neral_motion_v4.cjs
+      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_dynamic_ui_app.cjs tests/test_neral_motion_v4.cjs tests/test_neral_math.cjs
