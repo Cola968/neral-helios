@@ -48,6 +48,8 @@ jobs:
         run: python -m pip install -r requirements-neral-preview.txt
       - name: LOW/HIGH on current main without losing plugins
         run: python -m unittest discover -s tests -p test_neral_low_high_main_merge.py -v
+      - name: Regression - identity and no stale HIGH context
+        run: python -m unittest discover -s tests -p test_neral_chat_stale_context.py -v
       - name: Existing legacy THINK contracts unchanged
         run: python -m unittest discover -s tests -p test_neral_think.py -v
       - name: Existing HTTP THINK adapter contracts unchanged
@@ -63,4 +65,6 @@ jobs:
       - name: Browser JS and frontend multi-tool regressions
         run: |
           node --check static/neral-preview.js
+          node --test tests/test_neral_chat_search_relevance.cjs
+          node --test tests/test_neral_chat_markdown.cjs
           node --test tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_project_files.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_preview_cancel_v2.cjs
