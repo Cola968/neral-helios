@@ -6,6 +6,7 @@ No eval, exec, network, model loading or arbitrary natural-language guessing.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from fractions import Fraction
 import re
 
@@ -104,13 +105,70 @@ def _fractions(s:str)->dict|None:
     return _result(str(value),"rational_arithmetic")
 
 
+# Each factor converts an exact unit quantity to a common SI base unit.
+# Case matters: m (metre), min (minute), Pa (pascal), kPa (kilopascal).
+# No temperature offsets: incompatible/unsupported dimensions fail closed.
+_UNITS = {
+    "mm": ("length", Fraction(1, 1000)),
+    "cm": ("length", Fraction(1, 100)),
+    "m": ("length", Fraction(1)),
+    "km": ("length", Fraction(1000)),
+    "ms": ("time", Fraction(1, 1000)),
+    "s": ("time", Fraction(1)),
+    "min": ("time", Fraction(60)),
+    "h": ("time", Fraction(3600)),
+    "g": ("mass", Fraction(1, 1000)),
+    "kg": ("mass", Fraction(1)),
+    "t": ("mass", Fraction(1000)),
+    "m/s": ("speed", Fraction(1)),
+    "km/h": ("speed", Fraction(5, 18)),
+    "kt": ("speed", Fraction(1852, 3600)),
+    "mph": ("speed", Fraction(1609344, 3600000)),
+    "Pa": ("pressure", Fraction(1)),
+    "hPa": ("pressure", Fraction(100)),
+    "kPa": ("pressure", Fraction(1000)),
+    "bar": ("pressure", Fraction(100000)),
+    "J": ("energy", Fraction(1)),
+    "Wh": ("energy", Fraction(3600)),
+    "kWh": ("energy", Fraction(3600000)),
+    "W": ("power", Fraction(1)),
+    "kW": ("power", Fraction(1000)),
+    "N": ("force", Fraction(1)),
+    "kN": ("force", Fraction(1000)),
+}
+_UNIT_REQUEST = re.compile(
+    r"(?i:wandle|konvertiere|rechne|convert)\\s+"
+    r"(?P<amount>[+-]?\\d{1,8}(?:[.,]\\d{1,6})?)\\s+"
+    r"(?P<source>[A-Za-z/]{1,5})\\s+(?i:in|to)\\s+"
+    r"(?P<target>[A-Za-z/]{1,5})(?:\\s+(?i:um))?[?.]?\\Z"
+)
+
+
+def _convert_units(s: str) -> dict | None:
+    """Independent, bounded SI conversion, no inference or user code."""
+    match = _UNIT_REQUEST.fullmatch(s)
+    if match is None:
+        return None
+    source = _UNITS.get(match["source"])
+    target = _UNITS.get(match["target"])
+    if source is None or target is None or source[0] != target[0]:
+        return None
+    # Decimal -> rational retains exact user-entered decimal values.
+    amount = Fraction(Decimal(match["amount"].replace(",", ".")))
+    result = amount * source[1] / target[1]
+    if max(result.numerator.bit_length(), result.denominator.bit_length()) > 128:
+        return None
+    return _result(_decimal_fraction(result) + " " + match["target"],
+                   "dimensional_rational_conversion")
+
+
 def calculate_explicit(prompt:str)->dict|None:
     if (not isinstance(prompt,str) or not 1<=len(prompt)<=200
             or "\n" in prompt or "\r" in prompt):
         return None
     s=prompt.strip()
     if not s:return None
-    for calculator in (_money,_fuel,_arrival,_fractions):
+    for calculator in (_money,_fuel,_arrival,_fractions,_convert_units):
         answer=calculator(s)
         if answer is not None:
             return answer
