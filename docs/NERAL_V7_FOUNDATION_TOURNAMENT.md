@@ -36,8 +36,11 @@ Es gibt jeweils dieselben 72 Fragen, denselben Systemprompt,
 `num_predict`-Budget für jedes Modell. **OFF** verwendet 512
 Generierungstokens, **ON** 2048 und den Ollama-`think`-Parameter.
 Beide Einstellungen müssen **getrennt** berichtet werden. Nicht alle
-Modelle unterstützen denselben Denkmodus; in diesem Fall wird abgebrochen
-statt eine Einstellung still zu ignorieren.
+Modelle unterstützen denselben Denkmodus: Wenn der lokale Ollama-Dienst
+diese Anfrage ablehnt, schlägt der Lauf fehl. Ein Modell kann den
+Denkparameter aber auch ignorieren; die bloße Einstellung `thinking=on`
+ist deshalb **kein Nachweis**, dass alle Modelle denselben Denkmodus
+benutzt haben. Der erste Vergleich sollte `thinking=off` verwenden.
 
 Beispiel für die Ausführung am lokalen Windows-PC:
 
