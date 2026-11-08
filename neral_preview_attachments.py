@@ -31,7 +31,10 @@ TEXT_TYPES = {".txt", ".md", ".csv", ".json", ".py", ".js", ".ts",
               ".tsx", ".html", ".css", ".log", ".yml", ".yaml"}
 DOCUMENT_TYPES = {".pdf", ".docx"}
 SUPPORTED_TYPES = IMAGE_TYPES | TEXT_TYPES | DOCUMENT_TYPES
-VISION_MODELS = ("qwen3-vl:2b", "qwen2.5vl:3b")
+# Explicitly supported local multimodal tags only. Qwen3:8B is text-only.
+# Qwen3.5:9B is already available on many NERAL PCs and accepts images.
+VISION_MODELS = ("qwen3.5:9b", "qwen3-vl:4b", "qwen3-vl:2b",
+                 "qwen3.5:4b", "qwen2.5vl:3b")
 OLLAMA_ROOT = "http://127.0.0.1:11434"
 
 
@@ -87,7 +90,10 @@ def _local_vision(raw: bytes, question: str) -> tuple[str, str]:
                           "Nutzerfrage: " + question[:600]
                       ), "images": [base64.b64encode(raw).decode("ascii")]}],
         "stream": False,
-        "options": {"temperature": 0, "num_predict": 700, "num_ctx": 3072},
+        # Qwen3.5 can spend most of a short budget in hidden thinking.
+        # For image extraction prefer a complete visible answer.
+        "think": False,
+        "options": {"temperature": 0, "num_predict": 1200, "num_ctx": 4096},
         "keep_alive": 0,  # Free GPU RAM before text reasoning.
     }
     post = urllib.request.Request(
@@ -97,7 +103,7 @@ def _local_vision(raw: bytes, question: str) -> tuple[str, str]:
         method="POST",
     )
     try:
-        result = _local_open(post, 95)
+        result = _local_open(post, 130)
         text = result["message"]["content"]
         if (result.get("done") is not True or
                 result.get("done_reason", "stop") != "stop" or

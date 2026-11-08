@@ -4,6 +4,7 @@ from __future__ import annotations
 from io import BytesIO
 import json
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from neral_preview_server import create_preview_app
@@ -285,8 +286,13 @@ class AttachmentPreviewTests(unittest.TestCase):
 
         self.assertFalse(verify_live_vision_attachment(self.client, self.csrf, {}))
         self.assertEqual(self.vision_calls, [])
-        self.assertTrue(verify_live_vision_attachment(
-            self.client, self.csrf, {"qwen3-vl:2b": "sha256:test"}))
+        # The protocol fixture has no visual intelligence; inject an
+        # explicitly grounded red response for this transport test.
+        # A separate negative regression proves generic replies must fail.
+        with patch.object(self.backend, "respond_chat",
+                          return_value="Die dominante Farbe ist rot."):
+            self.assertTrue(verify_live_vision_attachment(
+                self.client, self.csrf, {"qwen3-vl:2b": "sha256:test"}))
         self.assertEqual(len(self.vision_calls), 1)
         raw = self.vision_calls[0][0]
         self.assertTrue(raw.startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))))
