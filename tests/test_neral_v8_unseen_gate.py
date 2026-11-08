@@ -188,5 +188,67 @@ class V8UnseenContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_v8_receipt(receipt,adapter)
 
+
+    def test_rejects_single_retention_regression_even_with_strong_transfer(self):
+        # Existing gate wrongly tolerates two errors in retained abilities.
+        retention=[
+            {"id":f"ret-{i}","family":f"r{i//8}",
+             "baseline_correct":True,"candidate_correct":i!=0}
+            for i in range(64)
+        ]
+        transfer=[
+            {"id":f"tra-{i}","family":f"t{i//8}",
+             "baseline_correct":False,"candidate_correct":i<20}
+            for i in range(64)
+        ]
+        gate=evaluate_candidate_gate(retention,transfer,pilot=False)
+        self.assertEqual(gate["retention"]["regressions"],1)
+        self.assertFalse(gate["eligible_for_review"])
+        self.assertIn("zero_retention_regressions",gate["failed_checks"])
+
+    def test_rejects_single_transfer_regression_despite_significant_net_gain(self):
+        retention=[
+            {"id":f"ret-{i}","family":f"r{i//8}",
+             "baseline_correct":True,"candidate_correct":True}
+            for i in range(64)
+        ]
+        transfer=[
+            {"id":f"tra-{i}","family":f"t{i//8}",
+             "baseline_correct":i==0,
+             "candidate_correct":1<=i<=20}
+            for i in range(64)
+        ]
+        gate=evaluate_candidate_gate(retention,transfer,pilot=False)
+        self.assertEqual(gate["transfer"]["regressions"],1)
+        self.assertGreaterEqual(gate["transfer"]["net"],10)
+        self.assertLess(gate["transfer_exact_mcnemar_p_exploratory"],0.05)
+        self.assertFalse(gate["eligible_for_review"])
+        self.assertIn("zero_transfer_regressions",gate["failed_checks"])
+
+    def test_comparator_wins_in_qwen_or_v7_must_block_v8_review(self):
+        cases=all_cases()
+        first_transfer=next(i for i,c in enumerate(cases) if c["part"]=="transfer")
+        for protected in ("qwen","v7"):
+            with self.subTest(protected=protected):
+                answers={arm:_answers(cases) for arm in ARMS}
+                indices=[i for i,c in enumerate(cases) if c["part"]=="transfer"][:20]
+                for i in indices:
+                    answers["v5"][i]["text"]="unparseable"
+                answers["v8"][first_transfer]["text"]="unparseable"
+                if protected=="v7":
+                    answers["qwen"][first_transfer]["text"]="unparseable"
+                else:
+                    answers["v7"][first_transfer]["text"]="unparseable"
+                report=report_scores(cases,answers,"full")
+                self.assertEqual(report["paired"]["v8_minus_v5"]["regressions"],0)
+                self.assertGreater(report["gate"]["transfer"]["net"],10)
+                self.assertFalse(report["gate"]["eligible_for_review"])
+                check="zero_regressions_vs_"+protected
+                self.assertIn(check,report["gate"]["failed_checks"])
+                self.assertTrue(report["gate"]["checks"]["zero_retention_regressions"])
+                self.assertTrue(report["gate"]["checks"]["zero_transfer_regressions"])
+                self.assertFalse(report["weights_promoted"])
+                self.assertFalse(report["release_validated"])
+
 if __name__=="__main__":
     unittest.main()
