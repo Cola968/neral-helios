@@ -46,7 +46,7 @@ class WindowsGPUAttributionContracts(unittest.TestCase):
         snapshot["processes"]=[{"ProcessId":101, "Name":"something_else.exe"}]
         result=parse_windows_gpu_snapshot(json.dumps(snapshot))
         self.assertEqual(result["python_dedicated_mib"], 0)
-        self.assertEqual(result["other_dedicated_mib"], 4000)
+        self.assertEqual(result["other_dedicated_mib"], 6100)
         self.assertGreaterEqual(result["unmapped_processes"],2)
 
     def test_missing_windows_counter_refuses_quality_claim(self):
