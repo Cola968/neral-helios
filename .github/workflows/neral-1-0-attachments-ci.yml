@@ -12,6 +12,7 @@ on:
       - 'scripts/build_neral_1_0_preview.py'
       - 'requirements-neral-preview.txt'
       - 'tests/test_neral_1_0_attachments.py'
+      - 'tests/test_neral_chat_reaudit.py'
       - 'tests/test_neral_vision_qwen35.py'
       - 'scripts/neral_1_0_local_live_smoke.py'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -42,6 +43,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
       - name: Qwen3.5 installed-vision regression (no GPU)
         run: python -m unittest discover -s tests -p test_neral_vision_qwen35.py -v
+      - name: Re-audit image context and LOW/HIGH true provenance
+        run: python -m unittest discover -s tests -p test_neral_chat_reaudit.py -v
       - name: Existing standalone release security contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: Existing codecheck security contracts

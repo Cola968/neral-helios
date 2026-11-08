@@ -453,7 +453,12 @@
     try {
       let modelPrompt=text;
       let sources=[];
-      if($("useWebSearch").checked && !skipWebForLocalBasics(text)) {
+      // A selected image is not a web query. The automatic placeholder is
+      // local-only even when the separate web toggle remains enabled.
+      const genericAttachmentOnly=selectedAttachments.length>0 &&
+        /^analysiere die anhänge[.!?]?$/i.test(text);
+      if($("useWebSearch").checked && !skipWebForLocalBasics(text) &&
+         !genericAttachmentOnly) {
         motionActivity("searching",mode);
         if(text.length>160 || /[\r\n]/.test(text))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
@@ -511,9 +516,12 @@
         ? "NERAL · lokal geprüft" : verified
         ? "NERAL HIGH · Endwert geprüft" : mode==="think"
         ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
+      if(typeof result.model==="string" &&
+         /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
+        origin+=" · Modell "+result.model;
       if(sources.length) origin+=" · mit Suchtreffern";
       if(selectedAttachments.length) {
-        origin+=" · Anhänge ausgewertet";
+        origin+=" · Anhänge verarbeitet";
         if(Array.isArray(result.attachments)&&result.attachments.some(a=>a.truncated===true))
           origin+=" · Auszüge gekürzt";
       }
