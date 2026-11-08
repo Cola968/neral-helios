@@ -25,6 +25,20 @@ test("Fenced code is parsed as text, never HTML or executable markup", () => {
   assert.equal(ui.splitFences("plain")[0].text, "plain");
 });
 
+test("Markdown tables are parsed into structured text cells",()=>{
+  const rows=ui.splitTables("| Ziel | Flüge |\n| --- | --- |\n| BER | 4 |\n| HAM | 2 |");
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].type,"table");
+  assert.deepEqual(rows[0].headers,["Ziel","Flüge"]);
+  assert.deepEqual(rows[0].rows,[["BER","4"],["HAM","2"]]);
+  assert.equal(ui.splitTables("plain")[0].type,"text");
+});
+test("Chart widgets require a strict numeric schema and never accept executable data",()=>{
+  const valid=ui.parseChartSpec(JSON.stringify({title:"Vergleich",labels:["BER","HAM"],values:[4,2]}));
+  assert.deepEqual(valid.rows,[{label:"BER",value:4},{label:"HAM",value:2}]);
+  assert.equal(ui.parseChartSpec('{"title":"bad","labels":["a","b"],"values":[1,"alert(1)"]}'),null);
+  assert.equal(ui.parseChartSpec('{"title":"bad","labels":["a","b"],"values":[-1,2]}'),null);
+});
 test("The local release includes the Smart UI assets and keeps real tool controls", () => {
   const root=path.join(__dirname,"..");
   const html=fs.readFileSync(path.join(root,"templates/neral_preview.html"),"utf8");
