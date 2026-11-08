@@ -36,3 +36,11 @@ gradle --no-daemon -p android-offline :app:testDebugUnitTest :app:assembleDebug
 ```
 
 Die App führt keine Modellgewichte im Git-Repository. Android-Abnahme: reales Gerät, Download, Flugmodus, erster Prompt, zweiter Prompt, Abbruch, App-Neustart, Speicher/Hitze.
+
+## Android-Startabsturz – Recovery v0.3
+
+In v0.3 startet zuerst eine native, bewusst ohne Compose und ohne Modellbibliothek realisierte Recovery-Oberfläche. **NERAL Chat öffnen** startet erst dann die Compose-Chatanwendung. Ein von Android/Kotlin ausgelöster unbehandelter Fehler wird im privaten App-Speicher abgelegt und bei einem erneuten Start als kopierbare **Fehlerdiagnose** angeboten; nichts wird automatisch hochgeladen. JNI-`UnsatisfiedLinkError` beim Modellstart wird im Chat abgefangen.
+
+Die neue Testversion nutzt vorübergehend `applicationId = ai.neral.offline.recovery` und das sichtbare Label **NERAL Offline 0.3**, weil GitHub-Actions-Debug-APKs früherer Läufe nicht zwingend dieselbe Android-Signatur haben. Sie kann daher neben der alten defekten Preview installiert werden. Das bedeutet einen eigenen privaten Speicher und einmaliges erneutes Herunterladen der Modellgewichte; keine automatisierte Migration. Nicht als signierte Release-/Store-Version verwenden.
+
+Das Starten der Recovery-Oberfläche im Android-Emulator und auf dem konkret betroffenen Handy ist noch nicht bestätigt. **Build-Erfolg ist keine reale Crash-Reproduktion.** Wenn „NERAL Chat öffnen“ abstürzt, die neue App erneut öffnen und über „Fehlerdiagnose kopieren“ den Stacktrace bereitstellen.
