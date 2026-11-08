@@ -31,6 +31,8 @@ MODELS=("qwen3:8b","qwen3.5:9b")
 DOMAINS=("math","reasoning","code_trace")
 STATUS="NERAL_FRESH_CROSSMODEL_APP_36_DEVELOPMENT_ONLY"
 PROFILE="measured_nonthinking_2048"
+SAFE_FAILURE_CODES=frozenset(("token_limit","timeout","incomplete",
+                              "empty_answer","invalid_response","unclassified"))
 BASE_URL="http://127.0.0.1:9690"
 
 class PilotError(ValueError):
@@ -115,11 +117,15 @@ def summarize_pairs(cases:list[dict],observations:dict,
                    for d in DOMAINS}
         elapsed=[]
         ok_set=set()
+        failure_codes=Counter()
         complete=errors=0
         for cid,case in source.items():
             row=arm[cid]
+            allowed={"text","finished","seconds","http_error","error_code"}
+            required=allowed-{"error_code"}
             if (type(row) is not dict or
-                set(row)!={"text","finished","seconds","http_error"} or
+                not required.issubset(set(row)) or
+                not set(row).issubset(allowed) or
                 type(row["text"]) is not str or
                 len(row["text"].encode("utf8"))>32768 or
                 type(row["finished"]) is not bool or
@@ -130,6 +136,13 @@ def summarize_pairs(cases:list[dict],observations:dict,
                 not math.isfinite(row["seconds"]) or
                 not 0<=row["seconds"]<=360):
                 raise PilotError("Malformed, truncated or untrustworthy app response")
+            failure_code=row.get("error_code",
+                "unclassified" if row["http_error"] else None)
+            if ((row["http_error"] and failure_code not in SAFE_FAILURE_CODES) or
+                    (not row["http_error"] and failure_code is not None)):
+                raise PilotError("Invalid private or unsupported failure code")
+            if failure_code:
+                failure_codes[failure_code]+=1
             d=by_domain[case["domain"]]
             d["count"]+=1
             d["finished"]+=int(row["finished"])
@@ -150,6 +163,7 @@ def summarize_pairs(cases:list[dict],observations:dict,
             "correct":len(ok_set),
             "finished":complete,
             "api_failures":errors,
+            "api_failure_codes":dict(sorted(failure_codes.items())),
             "by_domain":by_domain,
             "mean_seconds":round(statistics.mean(elapsed),3),
             "median_seconds":round(statistics.median(elapsed),3),
@@ -237,12 +251,17 @@ def _run_arm(model:str,cases:list[dict],private_file)->tuple[dict,dict]:
                         not packet["text"].strip()):
                         raise PilotError("Unexpected tool override, provenance, or app output")
                     raw=packet["text"]
-                    item={"text":raw,"finished":True,
+                    item={"text":raw,"finished":True,"error_code":None,
                           "http_error":False,"seconds":round(seconds,3)}
                 elif response.status_code==503:
                     # A partial model answer MUST NOT be scored as a final.
+                    # Only fixed local backend codes are allowed in scalar
+                    # metrics; never include exception strings or raw output.
                     raw=""
-                    item={"text":"","finished":False,
+                    code=(packet.get("error_code") if type(packet) is dict
+                          else None)
+                    code=code if code in SAFE_FAILURE_CODES else "unclassified"
+                    item={"text":"","finished":False,"error_code":code,
                           "http_error":True,"seconds":round(seconds,3)}
                 else:
                     raise PilotError("App security, route, or protocol unexpectedly failed")
