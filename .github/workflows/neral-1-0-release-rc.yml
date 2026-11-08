@@ -20,6 +20,7 @@ on:
       - 'neral_preview_server.py'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
+      - 'neral_high_verified_first.py'
       - 'neral_web_api.py'
       - 'neral_web_search.py'
       - 'requirements-neral-preview.txt'
@@ -39,6 +40,8 @@ on:
       - 'tests/test_neral_1_0_extracted_http.py'
       - 'tests/test_neral_1_0_voice_client.cjs'
       - 'tests/test_neral_1_0_voice_plugins.py'
+      - 'tests/test_neral_high_verified_first.py'
+      - 'tests/test_neral_high_package.py'
       - 'tests/test_neral_logic_transfer.py'
   push:
     branches: [main]
@@ -61,6 +64,7 @@ on:
       - 'neral_preview_server.py'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
+      - 'neral_high_verified_first.py'
       - 'neral_web_api.py'
       - 'neral_web_search.py'
       - 'requirements-neral-preview.txt'
@@ -80,6 +84,8 @@ on:
       - 'tests/test_neral_1_0_extracted_http.py'
       - 'tests/test_neral_1_0_voice_client.cjs'
       - 'tests/test_neral_1_0_voice_plugins.py'
+      - 'tests/test_neral_high_verified_first.py'
+      - 'tests/test_neral_high_package.py'
       - 'tests/test_neral_logic_transfer.py'
 permissions:
   contents: read
@@ -108,6 +114,10 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_voice_plugins.py -v
       - name: Python syntax safety and file-context contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
+      - name: HIGH safe zero-inference exact reasoning and installed bundle
+        run: |
+          python -m unittest discover -s tests -p test_neral_high_verified_first.py -v
+          python -m unittest discover -s tests -p test_neral_high_package.py -v
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Syntax and browser JS
