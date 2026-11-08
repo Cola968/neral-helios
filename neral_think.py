@@ -161,7 +161,7 @@ def _without_spurious_final(question: str, answer: str) -> str:
     not a claim that the remaining explanation is fact-checked.
     """
     if (len(answer) < 220 or not isinstance(question, str) or
-            re.search(r"\\b(?:final|berechne|berechnen|solve|calculate|rechne|bestimme)\\b",
+            re.search(r"\b(?:final|berechne|berechnen|solve|calculate|rechne|bestimme)\b",
                       question, re.IGNORECASE)):
         return answer
     rows = answer.rstrip().splitlines()
@@ -169,12 +169,12 @@ def _without_spurious_final(question: str, answer: str) -> str:
         return answer
     footer = rows[-1].strip()
     if re.fullmatch(
-        r"(?:\\*\\*)?FINAL(?:_ANSWER)?:\\s*(?:x\\s*=\\s*)?"
-        r"[-+]?\\d+(?:[.,]\\d+)?(?:\\s*[A-Za-zΩ]+)?(?:\\*\\*)?",
+        r"(?:\*\*)?FINAL(?:_ANSWER)?:\s*(?:x\s*=\s*)?"
+        r"[-+]?\d+(?:[.,]\d+)?(?:\s*[A-Za-zΩ]+)?(?:\*\*)?",
         footer, re.IGNORECASE
     ) is None:
         return answer
-    return "\\n".join(rows[:-1]).rstrip()
+    return "\n".join(rows[:-1]).rstrip()
 
 
 
