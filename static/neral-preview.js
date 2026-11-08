@@ -230,14 +230,15 @@
           method:"POST",
           headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
           body:JSON.stringify(journeyRequest),
-          signal:AbortSignal.any([signal,AbortSignal.timeout(40000)])
+          signal:AbortSignal.any([signal,AbortSignal.timeout(65000)])
         });
         railPending.remove();
         if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
         if(!railway.validate(railData))throw new Error("Ungültige BahnConnections-Daten.");
         append("user",text);
-        const answer=append("assistant",railway.summary(railData),
-          "BahnConnections · externe Fahrplandaten");
+        const answer=append("assistant","","NERAL");
+        answer.classList.add("rail-standalone-answer");
+        answer.querySelector(".message-body")?.remove();
         railway.render(answer,railData);
         memory.push({role:"user",content:text},
           {role:"assistant",content:railway.summary(railData)});
