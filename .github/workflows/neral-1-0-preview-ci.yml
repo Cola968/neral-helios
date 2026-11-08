@@ -1,0 +1,67 @@
+name: NERAL 1.0 one-click local preview launch and navigation contracts
+on:
+  pull_request:
+    paths:
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'Start NERAL 1.0 Local.cmd'
+      - 'templates/index.html'
+      - 'static/neral-local-chat.js'
+      - 'static/neral.css'
+      - 'tests/test_neral_1_0_local_preview.py'
+      - '.github/workflows/neral-1-0-preview-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'Start NERAL 1.0 Local.cmd'
+      - 'templates/index.html'
+      - 'static/neral-local-chat.js'
+      - 'static/neral.css'
+      - 'tests/test_neral_1_0_local_preview.py'
+permissions:
+  contents: read
+jobs:
+  preview:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cross-platform preview contracts without model invocation
+        run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
+      - name: Check local chat JavaScript
+        run: node --check static/neral-local-chat.js
+  windows-preflight:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Powershell local Ollama inventory using fake CLI, no server or downloads
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $fake=Join-Path $env:RUNNER_TEMP 'neral_1_0_fake_ollama'
+          New-Item -ItemType Directory -Path $fake | Out-Null
+          @'
+          @echo off
+          echo NAME         ID          SIZE      MODIFIED
+          echo qwen3:8b     500a1f067a9f 5.2 GB  now
+          echo qwen3.5:9b   56671c2ab938 6.6 GB  now
+          '@ | Set-Content -LiteralPath (Join-Path $fake 'ollama.cmd') -Encoding Ascii
+          $env:PATH="$fake;$env:PATH"
+          & .\Start-Neral-1.0-Local.ps1 -CheckOnly -Model qwen3:8b
+          if(-not $?) {throw 'qwen3:8b local preflight failed'}
+          & .\Start-Neral-1.0-Local.ps1 -CheckOnly -Model qwen3.5:9b
+          if(-not $?) {throw 'qwen3.5:9b local preflight failed'}
+          try {
+            & .\Start-Neral-1.0-Local.ps1 -CheckOnly -Model untrusted:latest
+            throw 'Disallowed model unexpectedly accepted'
+          } catch [System.Management.Automation.ParameterBindingValidationException] {
+            Write-Host 'Unknown model refused as expected.'
+          }
