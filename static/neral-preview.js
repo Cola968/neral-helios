@@ -283,7 +283,11 @@
         ? "NERAL THINK · Endwert geprüft" : mode==="think"
         ? "NERAL THINK · ungeprüft" : "NERAL FAST";
       if(sources.length) origin+=" · mit Suchtreffern";
-      if(selectedAttachments.length) origin+=" · Anhänge ausgewertet";
+      if(selectedAttachments.length) {
+        origin+=" · Anhänge ausgewertet";
+        if(Array.isArray(result.attachments)&&result.attachments.some(a=>a.truncated===true))
+          origin+=" · Auszüge gekürzt";
+      }
       if(Array.isArray(result.vision_models)&&result.vision_models.length)
         origin+=" · Bildmodell "+result.vision_models.join(", ");
       append("assistant",result.text,origin);
