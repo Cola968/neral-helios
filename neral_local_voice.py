@@ -78,6 +78,17 @@ class LocalVoiceService:
                     and not self.tts_model.with_suffix(".onnx.json").is_symlink())
 
     def status(self) -> dict:
+        # The one-file Windows EXE bundles the Flask preview, NOT optional
+        # faster-whisper/Piper native libraries or the voice installer.
+        # Files added beside NERAL.exe cannot extend its frozen interpreter.
+        if getattr(sys, "frozen", False):
+            return {"ready":False,"stt_ready":False,"tts_ready":False,
+                    "execution":"local_cpu","audio_leaves_pc":False,
+                    "automatic_download":False,"full_duplex":False,
+                    "turn_based":True,"installation":"zip_required",
+                    "reason":"NERAL.exe enthält die Offline-Sprachpakete nicht. "
+                             "Die entpackte NERAL-ZIP-Version starten und "
+                             "Install NERAL Voice.cmd ausführen."}
         stt, tts = self._stt_available(), self._tts_available()
         return {"ready":stt and tts, "stt_ready":stt, "tts_ready":tts,
                 "execution":"local_cpu", "audio_leaves_pc":False,
