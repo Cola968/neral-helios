@@ -297,7 +297,12 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None)
                     responder = (getattr(backend, "respond_think", None) or
                                  getattr(backend, "respond_chat", None) or
                                  backend.respond)
-                    result = think_reply(turns, responder)
+                    from neral_agent_autonomy import OllamaLocalBackend
+                    # Keep HIGH parity with the regular localhost chat:
+                    # opt into the bounded second review only for real Ollama
+                    # backends, never for experimental adapter/mocked backends.
+                    deep_review = isinstance(backend, OllamaLocalBackend)
+                    result = think_reply(turns, responder, deep_review=deep_review)
                     if not isinstance(result, dict) or not isinstance(result.get("text"), str):
                         raise ValueError("Unvollständiges THINK-Ergebnis")
                 else:
