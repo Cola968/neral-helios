@@ -125,7 +125,7 @@ def verify_live_vision_attachment(client, csrf: str, installed: dict) -> bool:
         or not data["text"].strip()
         # The fixture contains actual red pixels. A generic acknowledgment
         # cannot count as evidence that the picture was understood.
-        or re.search(r"\\b(?:rot|rote|roter|rotes|roten|rotem|red|rötlich)\\b",
+        or re.search(r"\b(?:rot|rote|roter|rotes|roten|rotem|red|rötlich)\b",
                      data["text"].casefold()) is None
         or data.get("vision_models") != [model]
         or data.get("mode") != "LOW"
