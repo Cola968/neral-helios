@@ -4,6 +4,16 @@ Stand: 8. November 2026. **Es wurde noch keine stabile 1.0
 freigegeben**, und kein experimenteller NERAL-v7/v8-LoRA-Adapter wurde
 für den Release freigeschaltet.
 
+## Schnellstart ohne GitHub Actions
+
+1. [NERAL-Downloads auf GitHub Releases](https://github.com/Cola968/neral-helios/releases) öffnen und beim neuesten **NERAL 1.0 Local Preview** die Datei `NERAL-1.0-Local-Preview.zip` herunterladen. **Nicht** `Source code.zip` wählen. Nur durch die echten Windows-PC- und CPU-Tests geprüfte Pakete werden hier als Vorschau veröffentlicht.
+2. ZIP-Datei vollständig entpacken, im Ordner `NERAL-1.0-Local` auf **Start NERAL 1.0 Local.cmd** doppelklicken. Beim ersten Start die Einrichtung der eigenen Python-Webserverumgebung mit `J` erlauben.
+3. NERAL öffnet sich automatisch im Browser. Bei Bedarf ein lokales Konto erstellen; später reicht derselbe Doppelklick.
+
+Voraussetzung: **Ollama läuft bereits, `qwen3:8b` ist installiert und Python 3.11+ ist auf dem PC vorhanden.** Der Starter lädt keine Modellgewichte automatisch und verändert weder vorhandene LoRA-Gewichte noch die Trainingsumgebung. Eine kurze Anleitung liegt auch als `START HIER.txt` direkt im ZIP.
+
+Die Vorschau ist lokal, kostenlos und noch keine stabile öffentliche 1.0.
+
 ## Was dieses Paket ist
 
 Ein eigenständiger, lokaler NERAL-KI-Chat, der das bereits installierte
@@ -28,7 +38,7 @@ Das Modell ist auf dem bisherigen NERAL-Windows-PC bereits in
 `ollama list` nachgewiesen; künftige Installationen müssen es
 erneut prüfen.
 
-1. Unter GitHub Actions das Artefakt des **aktuellen** Main-Commits herunterladen.
+1. Bevorzugt den oben beschriebenen direkten Download unter **GitHub Releases** verwenden. Für Entwickler gibt es unter GitHub Actions weiterhin das Artefakt des aktuellen Main-Commits.
    `NERAL-1.0-Local-Preview-CPU-TESTED-NOT-PC-VERIFIED` ist nur für
    **manuelle Tests**, auch wenn der GPU-Runner noch beschäftigt ist.
    Erst `NERAL-1.0-Local-Preview-RELEASE-CANDIDATE` setzt zusätzlich
