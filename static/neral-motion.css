@@ -258,3 +258,19 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
   }
   .neral-activity-history summary,.neral-activity-disclosure summary{transition:none!important}
 }
+
+/* Minimal active status also applies to the embedded local-chat surface. */
+.neral-status-symbol{position:relative;display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;flex:0 0 16px}
+.neral-activity[data-phase="thinking"] .neral-status-symbol::before{
+  content:"✧";font-size:19px;opacity:.65}
+.neral-activity[data-phase="searching"] .neral-status-symbol::before{
+  content:"";position:absolute;top:1px;left:1px;width:9px;height:9px;
+  border:1.5px solid currentColor;border-radius:50%}
+.neral-activity[data-phase="searching"] .neral-status-symbol::after{
+  content:"";position:absolute;width:6px;height:1.5px;top:12px;left:10px;
+  background:currentColor;transform:rotate(45deg);transform-origin:left center}
+.neral-activity[data-phase="checking"] .neral-status-symbol::before{content:"⌁";font-size:20px}
+.neral-activity[data-phase="uploading"] .neral-status-symbol::before{content:"▤";font-size:17px}
+.neral-search-count{font-size:11px;opacity:.8;padding-left:9px;margin-left:3px;
+  border-left:1px solid currentColor}

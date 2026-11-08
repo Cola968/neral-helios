@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from flask import jsonify, request
-from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError
+from concurrent.futures import ThreadPoolExecutor
+from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url
 
 
 def register_web_search_api(app, service=None):
@@ -21,10 +22,25 @@ def register_web_search_api(app, service=None):
         if not request.is_json:
             return jsonify(error="Nur JSON erlaubt."), 415
         data = request.get_json(silent=True)
-        if not isinstance(data, dict) or set(data) != {"query"}:
+        if (not isinstance(data, dict) or "query" not in data or
+                not set(data).issubset({"query", "verify_links"}) or
+                ("verify_links" in data and data["verify_links"] is not True)):
             return jsonify(error="Nur ein expliziter Suchbegriff ist erlaubt."), 400
         try:
-            return jsonify(search.search(data["query"]))
+            result = search.search(data["query"])
+            if data.get("verify_links") is True:
+                candidates = result.get("results", [])[:5]
+                # Bound both worker count and per-link socket timeout.
+                def verify(hit):
+                    if not isinstance(hit, dict):
+                        return None
+                    checked_url = verify_public_https_url(hit.get("url"))
+                    return {**hit, "url": checked_url, "reachable": True} if checked_url else None
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    checked = list(pool.map(verify, candidates))
+                result = {**result, "results": [hit for hit in checked if hit],
+                          "link_check": "public_https_tls_and_http_only"}
+            return jsonify(result)
         except WebSearchInputError as exc:
             return jsonify(error=str(exc)), 400
         except WebSearchRateLimitError as exc:

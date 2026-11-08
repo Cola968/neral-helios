@@ -12,6 +12,8 @@ from html import unescape
 from xml.etree import ElementTree
 from ipaddress import ip_address
 import re
+import socket
+import ssl
 import threading
 import time
 from urllib.error import HTTPError, URLError
@@ -87,6 +89,75 @@ def safe_result_url(value: str) -> str | None:
         return value
     except ValueError:
         return None
+
+
+# Link checks use pinned public IPs, authenticated TLS and no implicit redirects.
+# Search previews are not treated as independent verification of page content.
+def _probe_https(url: str, address: str, method: str = "HEAD") -> tuple[int, str | None]:
+    import http.client
+    import socket
+    import ssl
+    from urllib.parse import urlsplit
+    target = urlsplit(url)
+
+    class _PinnedHTTPS(http.client.HTTPSConnection):
+        def connect(self):
+            raw = socket.create_connection((address, 443), timeout=2.5)
+            try:
+                self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+            except Exception:
+                raw.close()
+                raise
+
+    connection = _PinnedHTTPS(target.hostname, timeout=2.5, context=ssl.create_default_context())
+    try:
+        path = target.path or "/"
+        if target.query:
+            path += "?" + target.query
+        connection.request(method, path, headers={
+            "User-Agent": "NERAL-LinkCheck/1.0", "Accept": "text/html, application/xhtml+xml, application/pdf",
+            "Range": "bytes=0-255" if method == "GET" else "bytes=0-0",
+        })
+        response = connection.getresponse()
+        return response.status, response.getheader("Location")
+    finally:
+        connection.close()
+
+
+def verify_public_https_url(value: str) -> str | None:
+    """Return a publicly reachable HTTPS URL, or nothing. Not content verification.
+
+    Never contact IP addresses supplied by an untrusted result directly, DNS
+    must resolve only to globally routable addresses, and the checked socket is
+    pinned to the validated address while the TLS hostname remains authenticated.
+    """
+    import socket
+    from urllib.parse import urljoin, urlsplit
+    url = safe_result_url(value)
+    for _ in range(3):  # at most two redirects
+        if not url:
+            return None
+        host = urlsplit(url).hostname
+        try:
+            entries = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM,
+                                         proto=socket.IPPROTO_TCP)
+            ips = {entry[4][0] for entry in entries}
+            if not ips or any(not ip_address(ip).is_global for ip in ips):
+                return None
+            # Use the first resolved public socket address; avoid DNS rebinding.
+            address = sorted(ips, key=lambda ip: (":" in ip, ip))[0]
+            status, location = _probe_https(url, address)
+            if status == 405:  # Some real sites reject HEAD.
+                status, location = _probe_https(url, address, "GET")
+            if 200 <= status < 300:
+                return url
+            if status in (301, 302, 303, 307, 308) and location:
+                url = safe_result_url(urljoin(url, location))
+                continue
+            return None
+        except (OSError, TimeoutError, ValueError, ssl.SSLError):
+            return None
+    return None
 
 
 def _clean(text: str, length: int) -> str:
