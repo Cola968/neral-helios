@@ -202,12 +202,14 @@
        ? "think":"generate";
     busy=true;
     submit.disabled=true;
+    window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"thinking",mode}}));
     errors.textContent="";
     stopAudio();
     try {
       let modelPrompt=text;
       let sources=[];
       if($("useWebSearch").checked) {
+        window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"searching"}}));
         if(text.length>160 || /[\r\n]/.test(text))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         const search=await json("/api/web/search",{
@@ -239,6 +241,7 @@
           throw new Error("Frage mit Dateikontext überschreitet das 4096-Byte-Limit.");
         modelPrompt=augmented;
       }
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"thinking",mode}}));
       const result=await json("/api/neral/chat/"+mode,{
         method:"POST",
         headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
@@ -273,6 +276,7 @@
         ? "Zeitlimit für die lokale Anfrage oder Websuche überschritten."
         : String(e.message||"Anfrage fehlgeschlagen.");
     } finally {
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done"}}));
       busy=false;
       submit.disabled=false;
       prompt.focus();
@@ -280,6 +284,7 @@
   }
   form.addEventListener("submit",sendMessage);
   $("clear").addEventListener("click",()=>{
+    window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done"}}));
     stopAudio();
     if(recognizer && listening) recognizer.abort();
     setListening(false);
