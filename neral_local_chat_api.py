@@ -52,6 +52,46 @@ def _provenance(backend) -> dict:
     }
 
 
+def _runtime_identity_reply(prompt: str, backend) -> dict | None:
+    """Answer narrowly recognized identity questions using runtime metadata.
+
+    A generated reply must never substitute an older conversational answer
+    for the backend's identity. This reports the configured model, not a
+    successful weight-level inference or an improvement claim.
+    """
+    if not isinstance(prompt, str) or len(prompt) > 180:
+        return None
+    clean = " ".join(re.sub(r"[!?.,:;]", " ", prompt.casefold()).split())
+    if clean not in {
+        "wer bist du", "wie heißt du", "wie heisst du",
+        "welches modell bist du", "welches modell verwendest du",
+        "wie heißt du welches modell bist du",
+        "wie heisst du welches modell bist du",
+        "nein wie heißt du welches modell bist du",
+        "nein wie heisst du welches modell bist du",
+        "who are you", "what model are you",
+    }:
+        return None
+    origin = _provenance(backend)
+    name = str(origin["model"])
+    if origin["adapter_loaded"]:
+        detail = ("Ein experimenteller NERAL-LoRA-Adapter ist geladen; "
+                  "eine Qualitätsüberlegenheit ist nicht nachgewiesen.")
+    elif origin["model_origin"] == "local_adapter_configured_not_loaded":
+        detail = ("Ein NERAL-LoRA-Adapter ist konfiguriert, "
+                  "aber derzeit nicht geladen.")
+    else:
+        detail = "Kein verifizierter NERAL-LoRA-Adapter ist derzeit geladen."
+    return {
+        "text": f"Ich bin NERAL AI. Für diesen Chat ist das lokale Modell {name} konfiguriert. {detail}",
+        "model_generated": False,
+        "verified": True,
+        "verification_scope": "runtime_metadata",
+        "verification_status": "runtime_metadata",
+        "tool_used": "runtime_identity",
+    }
+
+
 def _messages(payload: object, *, max_prompt_bytes: int = MAX_PROMPT_BYTES) -> list[dict]:
     if not isinstance(payload, dict) or not {"prompt"} <= set(payload) or not set(payload) <= {"prompt", "history"}:
         raise ValueError("Nur prompt und history sind zulässig.")
@@ -229,6 +269,11 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
+            identity = _runtime_identity_reply(data[-1]["content"], backend)
+            if identity is not None:
+                return jsonify({**identity, "mode": "LOW",
+                                "seconds": round(time.monotonic() - started, 3),
+                                **_provenance(backend)})
             # Empty history only: never override an ongoing conversation.
             if len(data) == 2:
                 from neral_agent_quantitative import calculate_explicit
@@ -284,6 +329,12 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
+            started = time.monotonic()
+            identity = _runtime_identity_reply(data[-1]["content"], backend)
+            if identity is not None:
+                return jsonify({**identity, "mode": "HIGH",
+                                "seconds": round(time.monotonic() - started, 3),
+                                **_provenance(backend)})
             from neral_think import think_reply
             # Dedicated Ollama reasoning only for explicit THINK requests;
             # other HF backends keep their existing verified response path.
