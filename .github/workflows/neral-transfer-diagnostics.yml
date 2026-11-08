@@ -1,0 +1,93 @@
+name: NERAL regression error audit and transfer pilot (CPU only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_transfer_diagnostics.py'
+      - 'tests/test_neral_transfer_diagnostics.py'
+      - '.github/workflows/neral-transfer-diagnostics.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_transfer_diagnostics.py'
+      - 'tests/test_neral_transfer_diagnostics.py'
+      - '.github/workflows/neral-transfer-diagnostics.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Exact permission RUN_NERAL_ERROR_AUDIT_READONLY'
+permissions:
+  contents: read
+
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove scalar error classification and review-only split gates
+        run: python -B -m unittest discover -s tests -p test_neral_transfer_diagnostics.py -v
+
+  local-sealed-dev72-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'RUN_NERAL_ERROR_AUDIT_READONLY'
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 20
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Read original SHA-checked answers and produce scalar-only diagnosis
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $py=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          $src=Join-Path $root 'sixarm-parity-42470178641-1'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $outdir=Join-Path $control 'neral_error_scalar'
+          if(-not(Test-Path -LiteralPath $src -PathType Container) -or
+             -not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             (Test-Path -LiteralPath $outdir)){
+             throw 'Original sealed six-arm local source missing or output already exists'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_transfer_diagnostics.py -v
+            if($LASTEXITCODE -ne 0){throw 'Scalar diagnostic CPU contract failed'}
+            New-Item -ItemType Directory -Path $outdir -ErrorAction Stop|Out-Null
+            & $py -B -m scripts.neral_transfer_diagnostics --mode sixarm --folder $src --out (Join-Path $outdir 'summary.json')
+            if($LASTEXITCODE -ne 0){throw 'Private six-arm audit refused'}
+            $report=Get-Content -LiteralPath (Join-Path $outdir 'summary.json') -Raw|ConvertFrom-Json
+            if($report.status -ne 'NERAL_SIXARM_ERROR_AUDIT_CONSUMED_DEV72' -or
+               $report.training_authorized -ne $false -or
+               $report.release_validated -ne $false -or
+               $report.transfer_evidence -ne $false){
+               throw 'Unsafe/misrepresented diagnostic report'
+            }
+          } finally {Pop-Location}
+      - name: Upload aggregate-only diagnostic (no prompts, raw answers, or weights)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-dev72-sixarm-errors-aggregate-only
+          path: control/neral_error_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
