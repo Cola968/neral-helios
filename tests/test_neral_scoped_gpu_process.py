@@ -54,6 +54,22 @@ class ScopedProcessTests(unittest.TestCase):
         proc=fake_process(args=[EXPECTED,"-c","print('hi')"])
         self.assertFalse(classify_neral_candidate(proc,EXPECTED,now=10000)["verified"])
 
+    def test_windows_venv_launcher_resolves_to_base_python_binary(self):
+        base=r"C:\Users\test\AppData\Local\Programs\Python\Python312\python.exe"
+        proc=fake_process(path=base,args=[EXPECTED,"-m","neral_local_chat_api"])
+        result=classify_neral_candidate(proc,EXPECTED,now=10000)
+        self.assertFalse(result["pinned_executable"])
+        self.assertTrue(result["pinned_launch_argv0"])
+        self.assertTrue(result["compatible_python_binary"])
+        self.assertTrue(result["verified"])
+        malicious=fake_process(path=r"C:\Windows\System32\cmd.exe",
+                               args=[EXPECTED,"-m","neral_local_chat_api"])
+        self.assertFalse(classify_neral_candidate(
+            malicious,EXPECTED,now=10000)["verified"])
+        unrelated=fake_process(path=base,args=[base,"-m","neral_local_chat_api"])
+        self.assertFalse(classify_neral_candidate(
+            unrelated,EXPECTED,now=10000)["verified"])
+
     def test_recent_busy_or_training_python_not_eligible(self):
         self.assertFalse(classify_neral_candidate(fake_process(age=10),EXPECTED,now=10000)["verified"])
         self.assertFalse(classify_neral_candidate(fake_process(cpu=20),EXPECTED,now=10000)["verified"])
