@@ -17,11 +17,15 @@
 - Native CPU-Inferenz durch [llama.kt](https://github.com/tensai-app/llama.kt) / llama.cpp, auf Commit `47dde2d0f2b423707cb43e43b62d2aee09309680` gepinnt.
 - **Modell:** Unverändertes [Qwen3-0.6B-GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF), Q8_0, Apache-2.0. Bei der Installation nur die App; nach ausdrücklichem Tippen wird die offizielle GGUF-Datei via HTTPS geladen.
 - Dies ist **nicht** das trainierte NERAL-LoRA-Modell vom PC und keine Überlegenheit über Qwen. Es ist deutlich kleiner und bei schwierigen Aufgaben schwächer.
-- Chats bleiben während dieser Vorschau im Arbeitsspeicher der App; noch kein lokaler Chat-Export, kein Kontosystem, kein Vision-/Sprachmodus.
+- Der Chatverlauf wird begrenzt im privaten App-Speicher gesichert und beim Neustart wiederhergestellt. Antworten lassen sich kopieren; „Neuer Chat“ löscht den gespeicherten Verlauf. Noch kein Export, Kontosystem, Vision- oder Sprachmodus.
 - Das Modell liegt ausschließlich im privaten App-Dateiverzeichnis. Kein Verbindungsversuch zu einem Inferenzserver, keine bezahlte Cloud; die Android-INTERNET-Berechtigung wird ausschließlich beim **expliziten** GGUF-Download verwendet.
-- Die App prüft vor dem Laden Dateigröße und GGUF-Header. **SHA256-Pinning und vollständiger Android-Gerätetest sind noch offen**; keine sicherheitstechnische Produktfreigabe.
+- Die App prüft Dateigröße, GGUF-Header und die vom Modellhersteller veröffentlichte SHA-256-Prüfsumme `9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031` vor dem Laden. Die vollständige Android-Geräteabnahme ist weiter offen; keine sicherheitstechnische Produktfreigabe.
 - CPU-Inferenz kann auf älteren Handys langsam sein oder bei knappen RAM scheitern. Akkuverbrauch ist nicht gemessen.
-- Downloads sind nicht resumierbar; Abbruch/Verbindungsfehler entfernt die unvollständige Datei. Bereits fertig heruntergeladene Modelle bleiben erhalten.
+- Downloads sind noch nicht fortsetzbar; bei Verbindungsfehlern muss der Download wiederholt werden. Bereits fertig heruntergeladene und verifizierte Modelle bleiben erhalten. Für eine neue APK aus GitHub Actions muss möglicherweise die alte Debug-APK wegen unterschiedlicher Debug-Signaturen deinstalliert werden; das löscht auch deren lokale Chats und Modell und ist eine Preview-Einschränkung.
+
+## Status der tatsächlichen Funktionalität
+
+Diese Android-Preview bietet einen lokalen Chat mit Antworten, Speicherung, Kopieren und Abbruch. Sie hat **keine** vollständige Funktionsparität mit der Windows-NERAL-App (keine Websuche, keine Datei-/Bildanalyse, keine Plugins, kein Sprachchat, kein trainierter NERAL-LoRA). Ein bestandenes APK-Build beweist noch nicht, dass das Modell auf jedem Android-Handy korrekt antwortet. Test auf echtem Gerät mit mindestens zwei aufeinanderfolgenden Antworten und Flugmodus ist weiterhin erforderlich.
 
 ## Entwickeln / testen
 
