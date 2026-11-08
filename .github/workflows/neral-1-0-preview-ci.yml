@@ -62,6 +62,6 @@ jobs:
           try {
             & .\Start-Neral-1.0-Local.ps1 -CheckOnly -Model untrusted:latest
             throw 'Disallowed model unexpectedly accepted'
-          } catch [System.Management.Automation.ParameterBindingValidationException] {
+          } catch [System.Management.Automation.ParameterBindingException] {
             Write-Host 'Unknown model refused as expected.'
           }
