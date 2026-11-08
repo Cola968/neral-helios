@@ -15,7 +15,8 @@ test("Smart UI suggests only relevant, explicitly triggered actions", () => {
 });
 
 test("Fenced code is parsed as text, never HTML or executable markup", () => {
-  const parts = ui.splitFences("Text\n\`\`\`python\nprint('<script>')\n\`\`\`\nEnde");
+  const fence=String.fromCharCode(96).repeat(3);
+  const parts=ui.splitFences("Text\n"+fence+"python\nprint('<script>')\n"+fence+"\nEnde");
   assert.equal(parts.length, 3);
   assert.equal(parts[1].type, "code");
   assert.equal(parts[1].language, "python");
@@ -33,9 +34,9 @@ test("The local release includes the Smart UI assets and keeps real tool control
       "voiceInput","stopRequest","submit","prompt","messages","chatForm"]) {
     assert.ok(html.includes('id="'+id+'"'), "Missing control: "+id);
   }
-  assert.match(html,/neral-smart-ui\\.js/);
-  assert.match(html,/neral-smart-ui\\.css/);
-  assert.match(build,/static\\/neral-smart-ui\\.js/);
-  assert.match(build,/static\\/neral-smart-ui\\.css/);
+  assert.match(html,/neral-smart-ui\.js/);
+  assert.match(html,/neral-smart-ui\.css/);
+  assert.match(build,/static\/neral-smart-ui\.js/);
+  assert.match(build,/static\/neral-smart-ui\.css/);
   assert.match(html,/Kein freigegebener NERAL-LoRA-Adapter/);
 });
