@@ -206,6 +206,10 @@ def build_selfverify_experiment():
     old_train,old_val,_=build_logic_experiment()
     if len(old_train)!=800 or len(old_val)!=128:
         raise ValueError("Pinned v7 precursor dataset drift")
+    from scripts.neral_v61_replay_train import build_replay_experiment
+    legacy_train,legacy_val,_=build_replay_experiment()
+    if len(legacy_train)!=800 or len(legacy_val)!=140:
+        raise ValueError("Pinned original replay source drift")
     from scripts.neral_v7_logic_pilot import cases as original_cases
     direct_train=original_cases("train")
     direct_val=original_cases("val")
@@ -242,8 +246,11 @@ def build_selfverify_experiment():
             new_val.append(_format(row["prompt"],row["answer"],row["check"]))
     # The older v7 val was [80 general replay, 48 direct logic].
     # Retain general capabilities without silently training on validation.
-    train=old_train[:560]+old_logic+new_train
-    val=old_val[:48]+old_logic_val+new_val
+    # v7 shuffles its combined SFT. Taking its first 560 entries would
+    # silently select both replay and logic rows; use the PRE-shuffle
+    # original replay source instead.
+    train=legacy_train[:560]+old_logic+new_train
+    val=legacy_val[:48]+old_logic_val+new_val
     if len(train)!=960 or len(val)!=128:
         raise ValueError("Unexpected SFT proportions")
     rng=random.Random(202611081610)
