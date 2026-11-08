@@ -52,13 +52,16 @@ class FreshGateTests(unittest.TestCase):
         self.assertNotIn('"raw_private":', serialized)
         self.assertNotIn('"text":', serialized)
 
-    def test_fresh_workflow_runs_after_successful_72_and_shares_gpu_lock(self):
+    def test_fresh_gpu_requires_explicit_manual_dispatch_and_shares_lock(self):
         path = Path(__file__).resolve().parents[1] / ".github/workflows/neral-low-high-fresh-gpu.yml"
         wf = path.read_text(encoding="utf8")
-        self.assertIn("workflow_run:", wf)
-        self.assertIn("NERAL LOW/HIGH 72 paired real RTX 4070 development quality gate", wf)
-        self.assertIn("github.event.workflow_run.conclusion == 'success'", wf)
-        self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", wf)
+        self.assertIn("workflow_dispatch:", wf)
+        # An automatic workflow_run after 72 could evict a pending release job
+        # because GitHub concurrency groups allow only one pending job.
+        self.assertNotIn("workflow_run:", wf)
+        self.assertNotIn("\n  push:", wf)
+        self.assertIn("NERAL_LOW_HIGH_FRESH_36_READONLY", wf)
+        self.assertIn("github.ref == 'refs/heads/main'", wf)
         self.assertIn("neral-qwen7b-r32-gpu-exclusive", wf)
         self.assertIn("cancel-in-progress: false", wf)
         self.assertIn("scripts.neral_low_high_fresh --out", wf)
