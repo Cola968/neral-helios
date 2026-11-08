@@ -153,3 +153,19 @@ CSRF, Host- und Origin-Prüfungen gelten auch für die Suche.
 dem Gesamtsystem bei konkreten Aufgaben helfen, bedeuten aber **nicht**,
 dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
 über Qwen erfordert einen neuen, unbekannten, reproduzierbaren A/B-Test.
+
+
+## Code Check und ausdruecklich gewaehlte Dateien
+
+- Python Code Check analysiert den gerade eingegebenen Python-Quelltext nur mit
+  `ast.parse`. Kein Benutzer-Code wird ausgefuehrt, kein Shellprozess
+  gestartet, keine Laufzeit-, Semantik- oder Sicherheitstests behauptet.
+- Datei-Kontext liest im Browser nach ausdruecklicher Dateiauswahl bis zu zwei
+  Textdateien (je maximal 1200 Byte, zugelassene Quelltext-Endungen). Nur beim
+  naechsten aktiven Senden wird ihr Inhalt mit in den lokalen Modellprompt
+  aufgenommen. Dateiinhalte werden danach aus dem Browser-Zwischenspeicher
+  geloescht. Kein genereller Verzeichniszugriff oder Zugriff auf vertrauliche
+  Projektdateien ohne Nutzerauswahl.
+- `project_files` (automatischer Dateisystem-Agent) und
+  `local_code_execution` (Codeausfuehrung) bleiben deaktiviert.
+  Der begrenzte Datei-Kontext und der AST-Syntaxcheck sind getrennte Tools.
