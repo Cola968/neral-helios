@@ -1,0 +1,35 @@
+name: NERAL 1.0 EXTRACTED ZIP HTTP boot and localhost security
+on:
+  pull_request:
+    paths:
+      - 'tests/test_neral_1_0_extracted_http.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'neral_preview_server.py'
+      - 'Start-Neral-1.0-Local.ps1'
+      - '.github/workflows/neral-1-0-extracted-http-ci.yml'
+      - '.github/workflows/neral-1-0-release-rc.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/test_neral_1_0_extracted_http.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'neral_preview_server.py'
+      - '.github/workflows/neral-1-0-extracted-http-ci.yml'
+permissions:
+  contents: read
+jobs:
+  localhost-server:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Start extracted Waitress on loopback and verify real HTTP security
+        run: python -m unittest discover -s tests -p test_neral_1_0_extracted_http.py -v
