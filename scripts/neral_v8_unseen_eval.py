@@ -329,6 +329,10 @@ def report_scores(cases:list[dict],responses:dict,sample:str)->dict:
             "universal no-regression guarantee on untested tasks."
         ),
     }
+    # A scalar-only negative-transfer audit is attached to every report.
+    # This cannot authorize weight promotion, releases or further training.
+    from scripts.neral_v8_experiment_policy import evaluate_experiment
+    result["experiment_policy"]=evaluate_experiment(result)
     return result
 
 
