@@ -117,7 +117,7 @@
       if(backlog){
         // One frame should show a fragment, not an entire 100-word block.
         // Increase pace under backlog to avoid delaying long answers.
-        const amount=Math.min(96,Math.max(3,Math.ceil(backlog/90)));
+        const amount=Math.min(backlog,96,Math.max(3,Math.ceil(backlog/90)));
         target.textContent+=pending.slice(offset,offset+amount).join("");
         offset+=amount;
       }
