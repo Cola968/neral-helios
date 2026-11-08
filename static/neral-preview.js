@@ -413,6 +413,15 @@
       if(Array.isArray(result.vision_models)&&result.vision_models.length)
         origin+=" · Bildmodell "+result.vision_models.join(", ");
       append("assistant",result.text,origin);
+      // Inform the separately opted-in LOCAL speech renderer only after the
+      // secured chat route accepted a current non-aborted model answer.
+      // Other clients without CustomEvent retain their normal chat path.
+      if(typeof browser.dispatchEvent==="function" &&
+         typeof CustomEvent==="function") {
+        browser.dispatchEvent(new CustomEvent("neral:voice-answer",{
+          detail:{text:result.text}
+        }));
+      }
       if(sources.length) append("assistant",sources.map((s,i)=>
         "["+(i+1)+"] "+s.title+": "+s.url).join("\n"),
         "Webquellen · externe Treffer ungeprüft");
