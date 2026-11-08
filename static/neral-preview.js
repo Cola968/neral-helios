@@ -444,6 +444,14 @@
       if(Array.isArray(result.vision_models)&&result.vision_models.length)
         origin+=" · Bildmodell "+result.vision_models.join(", ");
       append("assistant",result.text,origin);
+      // Only successfully received, current local chat answers are offered
+      // to the SEPARATE opt-in Piper renderer; no automatic cloud audio.
+      if(typeof browser.dispatchEvent==="function" &&
+         typeof CustomEvent==="function") {
+        browser.dispatchEvent(new CustomEvent("neral:voice-answer",{
+          detail:{text:result.text}
+        }));
+      }
       motionActivity("archive",mode);
       if(sources.length) append("assistant",sources.map((s,i)=>
         "["+(i+1)+"] "+s.title+": "+s.url).join("\n"),
