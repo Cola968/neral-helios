@@ -46,8 +46,8 @@
     function apply(value,source){
       if(!Number.isFinite(value))return;
       const next=clamp(value,config.min,config.max);
-      if(source!==range)range.value=String(next);
-      if(source!==number)number.value=String(next);
+      range.value=String(next);
+      number.value=String(next);
       onChange(next);
     }
     range.addEventListener("input",()=>apply(Number(range.value),range));
