@@ -251,6 +251,7 @@ jobs:
           if($report.status -ne 'NERAL_1_0_LOCAL_PC_SMOKE_PASSED' -or
              $report.fast_actual_inference -ne $true -or
              $report.think_actual_inference -ne $true -or
+             $report.attachment_actual_inference -ne $true -or
              $report.csrf_and_origin_blocked -ne $true -or
              $report.foundation_provenance_preserved -ne $true -or
              $report.release_validated -ne $false -or
