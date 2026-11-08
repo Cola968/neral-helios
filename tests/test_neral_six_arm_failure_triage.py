@@ -31,7 +31,8 @@ class SixArmFailureTriage(unittest.TestCase):
         # Qwen correct: both adapters wrong on first math, v5 only wrong on reasoning.
         rows["v5_zero"][0]["text"] = wrong(cases[0])
         rows["v61_zero"][0]["text"] = wrong(cases[0])
-        rows["v5_zero"][1]["text"] = "Reasoning text without final: confidential"
+        reasoning_index=next(i for i,c in enumerate(cases) if c["domain"]=="reasoning")
+        rows["v5_zero"][reasoning_index]["text"] = "Reasoning text without final: confidential"
         # Model-only correct when Qwen is incorrect.
         rows["qwen_zero"][2]["text"] = wrong(cases[2])
         original = evaluate_six_arms(cases,rows)
