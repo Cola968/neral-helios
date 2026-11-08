@@ -65,16 +65,21 @@ def _row(family:str,index:int,part:str):
         check=f"CHECK: reachable={sorted(seen)}; excluding start={answer}."
     elif family=="boolean_four":
         parity=rnd.randrange(2)
-        limit=rnd.randint(1,4)
-        params={"parity":parity,"limit":limit}
+        weights=[rnd.randint(1,4) for _ in range(4)]
+        limit=rnd.randint(2,10)
+        params={"parity":parity,"weights":weights,"limit":limit}
         solutions=[(a,b,c,d) for a,b,c,d in product((0,1),repeat=4)
-                   if (not a or b) and ((c^d)==parity) and a+b+c+d<=limit]
+                   if (not a or b) and ((c^d)==parity)
+                   and sum(x*w for x,w in zip((a,b,c,d),weights))<=limit]
         answer=len(solutions)
+        wa,wb,wc,wd=weights
         prompt=(f"A,B,C,D sind Bits. Wie viele Belegungen erfüllen gleichzeitig "
-                f"A impliziert B, C XOR D={parity} und A+B+C+D höchstens {limit}?"
+                f"A impliziert B, C XOR D={parity} und "
+                f"{wa}A+{wb}B+{wc}C+{wd}D höchstens {limit}?"
                 if language=="de" else
                 f"A,B,C,D are bits. Count assignments satisfying both "
-                f"A implies B, C XOR D={parity}, and A+B+C+D at most {limit}.")
+                f"A implies B, C XOR D={parity}, and weighted total "
+                f"{wa}A+{wb}B+{wc}C+{wd}D at most {limit}.")
         check=f"CHECK: satisfying assignments={solutions}; count={answer}."
     elif family=="minimum_four":
         paths=[[rnd.randint(1,75) for _ in range(rnd.randint(2,3))]
@@ -188,7 +193,7 @@ def independent_answer(r:dict)->int:
         return len(seen)-1
     if f=="boolean_four":
         return sum((not a or b) and (c^d)==p["parity"]
-                   and a+b+c+d<=p["limit"]
+                   and sum(x*w for x,w in zip((a,b,c,d),p["weights"]))<=p["limit"]
                    for a,b,c,d in product((0,1),repeat=4))
     if f=="minimum_four":
         return min(map(sum,p["paths"]))
