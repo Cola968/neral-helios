@@ -29,6 +29,7 @@
     item.append(heading,body);
     messages.append(item);
     messages.scrollTop=messages.scrollHeight;
+    return item;
   }
   async function json(path,init={}) {
     const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...init});
@@ -202,6 +203,8 @@
     }
     const mode=form.querySelector('input[name="mode"]:checked')?.value==="think"
        ? "think":"generate";
+    const dynamic=typeof window!=="undefined"?window.NERALDynamicUI:null;
+    const uiIntent=dynamic?.intentFor?.(text)||null;
     busy=true;
     submit.disabled=true;
     stopRequest.disabled=false;
@@ -252,7 +255,8 @@
       const result=await json("/api/neral/chat/"+mode,{
         method:"POST",
         headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
-        body:JSON.stringify({prompt:modelPrompt,history:safeHistory()}),
+        body:JSON.stringify({prompt:modelPrompt,history:safeHistory(),
+          ...(uiIntent?{ui_intent:uiIntent}:{})}),
         signal
       });
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
@@ -268,17 +272,22 @@
         ? "NERAL THINK · Endwert geprüft" : mode==="think"
         ? "NERAL THINK · ungeprüft" : "NERAL FAST";
       if(sources.length) origin+=" · mit Suchtreffern";
-      append("assistant",result.text,origin);
+      const parsed=dynamic?.extract?.(result.text);
+      const widget=parsed?.widget||dynamic?.fallbackFor?.(text)||null;
+      const displayText=(parsed?.text??result.text).trim()||
+        (widget?"Interaktive Ansicht mit lokalen Bedienelementen.":result.text);
+      const assistantItem=append("assistant",displayText,origin);
+      if(widget&&typeof dynamic?.mount==="function")dynamic.mount(assistantItem,widget);
       if(sources.length) append("assistant",sources.map((s,i)=>
         "["+(i+1)+"] "+s.title+": "+s.url).join("\n"),
         "Webquellen · externe Treffer ungeprüft");
-      memory.push({role:"user",content:text},{role:"assistant",content:result.text});
+      memory.push({role:"user",content:text},{role:"assistant",content:displayText});
       if(memory.length>12) memory.splice(0,memory.length-12);
       prompt.value="";
       attachments=[];
       fileInput.value="";
       fileStatus.textContent="Keine Dateien ausgewählt.";
-      speak(result.text);
+      speak(displayText);
     } catch(e) {
       if(startedEpoch===conversationEpoch){
         errors.textContent=controller.signal.aborted
