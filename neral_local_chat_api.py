@@ -160,6 +160,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             other.unload()
             active_model[0] = selected.model
 
+    # Shared by the attachment chat route, which acquires the same busy lock.
+    app._neral_prepare_model = prepare_model
+
     @app.get("/api/neral/chat/status")
     def local_chat_status():
         return jsonify({**_provenance(backend),
