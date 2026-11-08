@@ -43,9 +43,9 @@ erneut prüfen.
 3. In PowerShell `ollama list` aufrufen. Qwen3-8B muss dort stehen.
 4. `Start NERAL 1.0 Local.cmd` doppelklicken. Beim ersten
    Start fragt NERAL, ob eine isolierte Python-Umgebung unter
-   `local_state/preview-venv` mit Flask und Waitress eingerichtet
-   werden darf. **Nur nach Zustimmung** werden diese zwei
-   Webserver-Abhängigkeiten über pip installiert. Keine Modellgewichte
+   `local_state/preview-venv` mit Flask, Waitress und pypdf eingerichtet
+   werden darf. **Nur nach Zustimmung** werden diese Python-Abhängigkeiten
+   über pip installiert. Keine Modellgewichte
    werden heruntergeladen; die QLoRA-/PyTorch-Trainingsumgebung
    und das System-Python bleiben unverändert.
 5. Nach dem Start öffnet sich NERAL. Der Starter prüft den Ollama-Modellnamen und lokale Python-Laufzeit,
