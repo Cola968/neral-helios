@@ -89,5 +89,21 @@ class CollectorPolicy(unittest.TestCase):
             self.assertIsNone(route_extra_arithmetic("What is print(open('secret'))?"))
             solve.assert_not_called()
 
+    def test_pilot_contains_six_fresh_tool_eligible_math_cases_not_a_blind_holdout(self):
+        from scripts.neral_same_base_live import generate_pilot_cases
+        cases = generate_pilot_cases(20261108)
+        self.assertEqual(len(cases), 36)
+        self.assertEqual(len({item["id"] for item in cases}), 36)
+        self.assertEqual([sum(item["domain"] == domain for item in cases)
+                          for domain in ("math", "reasoning", "code_trace")], [12, 12, 12])
+        routed = [item for item in cases if item["family"] == "arithmetic_affine_integer"]
+        self.assertEqual(len(routed), 6)
+        for item in routed:
+            with self.subTest(id=item["id"]):
+                route = route_extra_arithmetic(item["prompt"])
+                self.assertIsNotNone(route)
+                self.assertEqual(int(route["text"]), item["answer"])
+                self.assertEqual(route["tool_used"], "neral_math_exact")
+
 if __name__=="__main__":
     unittest.main()
