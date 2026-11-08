@@ -66,4 +66,5 @@ jobs:
         run: |
           node --check static/neral-preview.js
           node --test tests/test_neral_chat_search_relevance.cjs
+          node --test tests/test_neral_chat_markdown.cjs
           node --test tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_project_files.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_preview_cancel_v2.cjs
