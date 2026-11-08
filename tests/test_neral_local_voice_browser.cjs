@@ -81,7 +81,7 @@ test("missing offline models fail closed without microphone or cloud fallback",a
   const s=setup({ready:false});await flush();
   await s.events.get("localVoiceStart:click")();
   assert.equal(s.micCount(),0);
-  assert.match(s.element("localVoiceStatus").textContent,/installier|fehlt/i);
+  assert.match(s.element("localVoiceStatus").textContent,/install|fehl/i);
 });
 
 test("silence finalizes one turn, posts PCM to localhost with CSRF, uses chat UI",async()=>{
