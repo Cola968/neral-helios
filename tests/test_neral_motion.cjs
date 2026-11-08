@@ -15,8 +15,11 @@ function harness(){
     constructor(tag="div"){
       this.tagName=tag.toUpperCase(); this.children=[]; this.dataset={};
       this.attributes={}; this.className=""; this.textContent="";
-      this.parentNode=null; this.scrollTop=0; this.scrollHeight=100;
+      this.parentNode=null; this.scrollTop=0; this.scrollHeight=100; this.events=new Map();
     }
+    addEventListener(type,fn){this.events.set(type,fn);}
+    click(){this.events.get("click")?.({type:"click"});}
+    get classList(){return {add:cls=>{if(!this.className.split(/\s+/).includes(cls))this.className+=" "+cls;}};}
     append(...nodes){
       for(const node of nodes){node.parentNode=this;this.children.push(node);}
       this.notify("childList");
@@ -62,11 +65,12 @@ function harness(){
   const transcript=new Element();
   area.append(transcript);
   const thinkSwitch={checked:false};
+  const stop=new Element("button");
   const comparePanel=new Element();
   area.append(comparePanel);
   const elements={
     messages:preview,log,neralLocalChatAnswer:transcript,
-    neralLocalChatThink:thinkSwitch,neralComparePanel:comparePanel
+    neralLocalChatThink:thinkSwitch,neralComparePanel:comparePanel,stop
   };
   class MutationObserver{
     constructor(callback){this.callback=callback;}
@@ -88,7 +92,7 @@ function harness(){
   const fire=(phase,mode="fast")=> {
     for(const fn of listeners.get("neral:activity")||[])fn({detail:{phase,mode}});
   };
-  return {preview,log,transcript,area,thinkSwitch,comparePanel,Element,fire};
+  return {preview,log,transcript,area,thinkSwitch,comparePanel,stop,Element,fire};
 }
 
 function activity(container){
@@ -126,6 +130,20 @@ test("Helios pending status clears glyph on first actual streaming text",()=>{
   assert.equal(pending.querySelectorAll(".neral-pending-glyph").length,1);
   ui.log.append(new ui.Element("p"));
   assert.equal(pending.querySelectorAll(".neral-pending-glyph").length,1);
+});
+test("Stop immediately freezes pending animation without altering streamed text",()=>{
+  const ui=harness();
+  const pending=new ui.Element("article");
+  pending.className="message assistant pending";
+  const content=new ui.Element("div");content.className="content";content.textContent="Actual partial reply";
+  pending.dataset.partial="Actual partial reply";
+  pending.append(content);
+  ui.log.append(pending);
+  ui.stop.click();
+  assert.match(pending.className,/neral-cancel-requested/);
+  assert.equal(content.textContent,"Actual partial reply","stop must preserve existing partial text");
+  const css=fs.readFileSync(path.join(root,"static/neral-motion.css"),"utf8");
+  assert.match(css,/\.message\.pending\.neral-cancel-requested\[data-partial\] \.content::after/);
 });
 test("embedded local model activity follows actual aria-busy, without fake percentages",()=>{
   const ui=harness();
