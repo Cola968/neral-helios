@@ -1,0 +1,30 @@
+name: NERAL 1.0 release artifact freshness invariant CPU
+on:
+  pull_request:
+    paths:
+      - 'scripts/build_neral_1_0_preview.py'
+      - '.github/workflows/neral-1-0-release-rc.yml'
+      - 'tests/test_neral_1_0_release_artifact_freshness.py'
+      - '.github/workflows/neral-1-0-artifact-freshness-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/build_neral_1_0_preview.py'
+      - '.github/workflows/neral-1-0-release-rc.yml'
+      - 'tests/test_neral_1_0_release_artifact_freshness.py'
+permissions:
+  contents: read
+jobs:
+  audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p test_neral_1_0_release_artifact_freshness.py -v
