@@ -72,8 +72,8 @@ class HighMustBeBetter(unittest.TestCase):
         for case, row in zip(cases, pairs):
             row["high"]["text"] = (
                 "Schrittweise Prüfung: " + ("Aussage korrekt geordnet. " * 230)
-                + "\\nFINAL: " + str(case["answer"])
-            ).replace("\\\\nFINAL:", "\\nFINAL:")
+                + "\nFINAL: " + str(case["answer"])
+            )
         report = score_paired(cases, pairs, model_digest=DIGEST)
         self.assertEqual(report["high_correct"], 72)
         self.assertEqual(report["low_correct"], 72)
@@ -82,10 +82,10 @@ class HighMustBeBetter(unittest.TestCase):
         cases, pairs = benchmark(improved=0)
         for case, row in zip(cases, pairs):
             row["high"]["text"] = (
-                "FINAL: " + str(case["answer"]) + "\\n"
+                "FINAL: " + str(case["answer"]) + "\n"
                 + ("Vollständige Herleitung. " * 210)
-                + "\\nFINAL: " + str(case["answer"])
-            ).replace("\\\\n", "\\n")
+                + "\nFINAL: " + str(case["answer"])
+            )
         report = score_paired(cases, pairs, model_digest=DIGEST)
         self.assertEqual(report["high_correct"], 0)
 
