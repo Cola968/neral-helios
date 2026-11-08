@@ -2,6 +2,7 @@ param(
     [ValidateSet('qwen3:8b','qwen3.5:9b')]
     [string]$Model='qwen3:8b',
     [switch]$ExperimentalSampling,
+    [switch]$ExperimentalHighQwen35,
     [switch]$CheckOnly,
     [switch]$PrepareOnly,
     [switch]$NoBrowser
@@ -27,6 +28,14 @@ foreach($line in $listing | Select-Object -Skip 1){
 }
 if($Model -notin $installed){
     throw "Lokales Modell $Model ist nicht installiert. ollama list pruefen; kein automatischer Download."
+}
+if($ExperimentalHighQwen35){
+    if($Model -ne 'qwen3:8b'){
+        throw 'Experimentelles Qwen3.5-HIGH erfordert qwen3:8b als LOW. Kein stiller Modellwechsel.'
+    }
+    if('qwen3.5:9b' -notin $installed){
+        throw 'Qwen3.5:9b nicht installiert. Experimentelles HIGH bleibt aus; kein automatischer Download.'
+    }
 }
 if($CheckOnly){
     Write-Host "NERAL 1.0: $Model verfuegbar, lokale Vorpruefung bestanden. Kein Release-Gate."
@@ -93,8 +102,11 @@ if($PrepareOnly){
 $err=Join-Path $state 'neral-preview-error.log'
 $out=Join-Path $state 'neral-preview.log'
 $profile=if($ExperimentalSampling){'measured_nonthinking_2048'}else{'legacy'}
-Write-Host "NERAL 1.0 Local Preview: $Model, Profil $profile (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
-$proc=Start-Process -FilePath $py -ArgumentList @('-B','-m','neral_preview_server','--model',$Model,'--inference-profile',$profile) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardError $err -RedirectStandardOutput $out -PassThru
+$highLabel=if($ExperimentalHighQwen35){'qwen3.5:9b (EXPERIMENTELL)'}else{$Model}
+Write-Host "NERAL 1.0 Local Preview: LOW=$Model HIGH=$highLabel, Profil $profile (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
+$startArgs=@('-B','-m','neral_preview_server','--model',$Model,'--inference-profile',$profile)
+if($ExperimentalHighQwen35){$startArgs+=@('--experimental-high-qwen35')}
+$proc=Start-Process -FilePath $py -ArgumentList $startArgs -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardError $err -RedirectStandardOutput $out -PassThru
 $ready=$false
 for($attempt=0;$attempt -lt 60;$attempt++){
     Start-Sleep -Milliseconds 300
