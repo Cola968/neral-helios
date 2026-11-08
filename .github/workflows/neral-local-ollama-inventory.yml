@@ -1,0 +1,42 @@
+name: NERAL local Ollama foundation inventory (manual, read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permission: AUDIT_NERAL_LOCAL_MODELS_READONLY'
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  inventory:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_LOCAL_MODELS_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Read exact localhost Ollama model tags only; no inference or downloads
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v7_foundation_tournament --mode inventory
+            if($LASTEXITCODE -ne 0){throw 'Localhost Ollama unavailable'}
+          } finally {Pop-Location}
+          Write-Host 'READ_ONLY_INVENTORY_FINISHED; no model was loaded, downloaded, modified or promoted.'
