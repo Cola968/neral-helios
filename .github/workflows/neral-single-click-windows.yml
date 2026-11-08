@@ -55,8 +55,12 @@ jobs:
       - name: Execute bundled EXE and verify actual local HTTP assets
         shell: powershell
         run: |
-          & ./dist/NERAL.exe --smoke-test
-          if($LASTEXITCODE -ne 0){throw "Frozen NERAL.exe smoke failed: $LASTEXITCODE"}
+          # GUI/--windowed executables do not set PowerShell's LASTEXITCODE reliably.
+          $exe=(Resolve-Path -LiteralPath './dist/NERAL.exe').Path
+          $probe=Start-Process -FilePath $exe -ArgumentList '--smoke-test' -Wait -PassThru
+          if($null -eq $probe -or $probe.ExitCode -ne 0){
+            throw "Frozen NERAL.exe smoke failed: $($probe.ExitCode)"
+          }
       - name: Hash verified Windows executable
         shell: powershell
         run: |
