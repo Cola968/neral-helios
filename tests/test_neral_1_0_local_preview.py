@@ -41,6 +41,19 @@ class LocalPreviewContracts(unittest.TestCase):
         self.assertIn("panel.open = true",js)
         self.assertIn("prompt.focus()",js)
 
+    def test_first_run_uses_isolated_python_with_explicit_dependency_consent(self):
+        ps1=(ROOT/"Start-Neral-1.0-Local.ps1").read_text(encoding="utf8")
+        self.assertIn("[switch]$PrepareOnly",ps1)
+        self.assertIn("preview-venv",ps1)
+        self.assertIn("Read-Host",ps1)
+        self.assertIn("NERAL_PREVIEW_INSTALL_CONSENT",ps1)
+        self.assertIn("-m venv",ps1)
+        self.assertIn("-m pip install",ps1)
+        self.assertIn("requirements-neral-preview.txt",ps1)
+        self.assertIn("Isolation",ps1)
+        self.assertNotIn("pip install --user",ps1)
+        self.assertNotIn("pip install -U torch",ps1)
+
     def test_no_falsely_promoted_adapter_or_cloud_model_claim(self):
         ps1=(ROOT/"Start-Neral-1.0-Local.ps1").read_text(encoding="utf8")
         self.assertIn("local_foundation",ps1)
