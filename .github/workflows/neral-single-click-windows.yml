@@ -18,6 +18,7 @@ on:
       - 'templates/**'
       - 'static/**'
       - 'tests/test_neral_oneclick.py'
+      - 'tests/test_neral_ollama_completion_diagnostics.py'
   push:
     branches: [main]
     paths:
@@ -62,6 +63,8 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements-neral-preview.txt pyinstaller==6.16.0
       - name: RED-to-GREEN single-click safety and assets tests
         run: python -m unittest discover -s tests -p test_neral_oneclick.py -v
+      - name: Safe Ollama completion error classifications and fail-closed output
+        run: python -m unittest discover -s tests -p test_neral_ollama_completion_diagnostics.py -v
       - name: Offline updater and supply-chain security contracts
         run: python -m unittest discover -s tests -p test_neral_auto_update.py -v
       - name: Embed immutable build source
