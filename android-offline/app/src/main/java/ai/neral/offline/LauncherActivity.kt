@@ -59,12 +59,23 @@ class LauncherActivity : Activity() {
         }
 
         Button(this).apply {
-            text = "NERAL Chat öffnen"
+            text = "NERAL Chat starten (einfacher Modus)"
+            setOnClickListener {
+                try { startActivity(Intent(this@LauncherActivity, NativeChatActivity::class.java)) }
+                catch (error: Throwable) {
+                    CrashLog.save(filesDir, error)
+                    Toast.makeText(this@LauncherActivity, "Start fehlgeschlagen. App erneut öffnen und Diagnose kopieren.", Toast.LENGTH_LONG).show()
+                }
+            }
+            root.addView(this)
+        }
+        Button(this).apply {
+            text = "Moderne Oberfläche (optional)"
             setOnClickListener {
                 try { startActivity(Intent(this@LauncherActivity, MainActivity::class.java)) }
                 catch (error: Throwable) {
                     CrashLog.save(filesDir, error)
-                    Toast.makeText(this@LauncherActivity, "Start fehlgeschlagen. App erneut öffnen und Diagnose kopieren.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@LauncherActivity, "Modernes UI fehlgeschlagen", Toast.LENGTH_LONG).show()
                 }
             }
             root.addView(this)
