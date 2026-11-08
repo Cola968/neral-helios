@@ -45,6 +45,7 @@ REQUIRED_FILES = (
     "neral_percentage_tool.py",
     "neral_think.py",
     "neral_high_verified_first.py",
+    "neral_tir_experimental.py",
     "neral_web_search.py",
     "neral_web_api.py",
     "agent_mode.py",
