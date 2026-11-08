@@ -58,8 +58,8 @@
       const role = document.createElement('strong');
       role.textContent = item.role === 'user' ? 'Du: ' :
         item.tool_used === 'neral_math_exact' ? 'NERAL (exakte lokale Berechnung): ' :
-        item.mode === 'THINK' && item.verified === true ? 'NERAL THINK (Endwert geprüft): ' :
-        item.mode === 'THINK' ? 'NERAL THINK (ungeprüft): ' : 'NERAL: ';
+        item.mode === 'HIGH' && item.verified === true ? 'NERAL HIGH (Endwert geprüft): ' :
+        item.mode === 'HIGH' ? 'NERAL HIGH (nicht verifiziert): ' : 'NERAL LOW: ';
       const content = document.createElement('span');
       content.textContent = item.content;
       line.append(role, content);
@@ -109,7 +109,7 @@
         ? await req('think',{prompt:text,history})
         : await req('generate',{prompt:text,history});
       messages.push({role:'user',content:text},{role:'assistant',content:answer.text,
-        mode: answer.mode === 'THINK' ? 'THINK' : null,
+        mode: answer.mode === 'HIGH' ? 'HIGH' : null,
         verified: answer.verified === true && answer.verification_scope === 'numeric_final_only',
         tool_used: answer.model_generated === false && answer.tool_used === 'neral_math_exact'
           ? 'neral_math_exact' : null});
