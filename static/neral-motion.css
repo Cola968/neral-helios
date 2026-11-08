@@ -20,6 +20,9 @@
   background:currentColor;vertical-align:-.12em;
   animation:neral-caret 1s steps(2,end) infinite
 }
+/* Microfeedback only during actual microphone listening and A/B comparison. */
+#voiceInput[aria-pressed="true"]{animation:neral-listening 2s ease-in-out infinite}
+#neralComparePanel[aria-busy="true"]{animation:neral-comparing 2s ease-in-out infinite}
 /* The JSON preview never simulates token-by-token writing: one entrance only. */
 #messages>.message{animation:neral-arrive 170ms ease-out both}
 
@@ -45,6 +48,14 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
   50%{opacity:1;transform:scale(1)}
 }
 @keyframes neral-caret{50%{opacity:0}}
+@keyframes neral-listening{
+  0%,100%{box-shadow:0 0 0 0 transparent}
+  50%{box-shadow:0 0 0 3px #9acc8c22}
+}
+@keyframes neral-comparing{
+  0%,100%{border-color:var(--line)}
+  50%{border-color:var(--muted)}
+}
 @keyframes neral-arrive{
   from{opacity:0;transform:translateY(5px)}
   to{opacity:1;transform:translateY(0)}
@@ -65,7 +76,8 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
   .neral-activity,.neral-motion-glyph,.neral-pending-glyph,
   .message.pending[data-partial] .content::after,#messages>.message,
   #modelPicker[open] .model-menu,#chatActions[open] .action-menu,
-  dialog[open],.sidebar.open{animation:none!important;transform:none!important}
+  dialog[open],.sidebar.open,#voiceInput[aria-pressed="true"],
+  #neralComparePanel[aria-busy="true"]{animation:none!important;transform:none!important}
   #send,#submit,#stop,#stopRequest,.view-switch button,.mode-row button,.modes label,
   #modelPicker>summary,.chat-actions>summary,.new-chat,.chat-item>button,
   .actions button{transition:none!important}
