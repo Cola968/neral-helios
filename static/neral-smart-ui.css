@@ -157,3 +157,20 @@ svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-wi
   .smart-sidebar{transition:none}
   .smart-messages{scroll-behavior:auto}
 }
+
+/* Optional structured answers, kept entirely client-side and text-only. */
+.smart-table-wrap{max-width:100%;overflow-x:auto;margin:12px 0 18px}
+.smart-table{width:100%;border-collapse:collapse;border-spacing:0;font-size:13px}
+.smart-table th,.smart-table td{border-bottom:1px solid var(--line);text-align:left;padding:9px 12px;min-width:80px}
+.smart-table th{background:var(--side);font-weight:600;white-space:nowrap}
+.smart-table th button{font-weight:inherit;font-size:12px;text-align:left}
+.smart-table th button:hover{color:var(--muted)}
+.smart-table-copy{font-size:11px;color:var(--muted);margin:7px 0;padding:4px 6px;border-radius:6px}
+.smart-table-copy:hover{background:var(--soft)}
+.smart-chart{border:1px solid var(--line);border-radius:10px;margin:14px 0 18px;padding:16px 18px}
+.smart-chart figcaption{font-weight:600;font-size:13px;margin-bottom:12px}
+.smart-chart-row{display:grid;grid-template-columns:minmax(55px,100px) minmax(40px,1fr) auto;gap:12px;align-items:center;margin:9px 0;font-size:12px}
+.smart-chart-row>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smart-chart-track{height:13px;border-radius:3px;background:var(--soft);overflow:hidden}
+.smart-chart-bar{height:100%;background:var(--muted);border-radius:2px;min-width:0}
+.smart-chart-note{margin-top:12px;font-size:11px;color:var(--muted)}
