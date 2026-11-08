@@ -40,9 +40,9 @@ test("catalog formulas genuinely render with pinned locally bundled KaTeX and mh
 });
 test("formula picker inserts at caret without sending, deleting draft or exceeding 4000 characters",()=>{
   const api=load();
-  const snippet=api.insertText("Erkläre: Ende",8,8,"$E=mc^2$",4000);
+  const snippet=api.insertText("Erkläre: Ende",9,9,"$E=mc^2$",4000);
   assert.equal(snippet.text,"Erkläre: $E=mc^2$Ende");
-  assert.ok(snippet.caret>8);
+  assert.ok(snippet.caret>9);
   assert.equal(api.insertText("x".repeat(3999),3999,3999,"$E=mc^2$",4000),null);
   assert.equal(api.insertText("<script>",0,0,"$E=mc^2$",4000).text,
                "$E=mc^2$<script>");
