@@ -16,6 +16,8 @@ on:
       - 'tests/test_neral_1_0_standalone_release.py'
       - 'tests/test_neral_1_0_voice_plugins.py'
       - 'tests/test_neral_1_0_voice_client.cjs'
+      - 'tests/test_neral_1_0_codecheck_files.py'
+      - 'tests/test_neral_1_0_project_files.cjs'
       - 'neral_web_api.py'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - '.github/workflows/neral-1-0-release-rc.yml'
@@ -54,6 +56,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: New voice and web plugin security/readiness contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_voice_plugins.py -v
+      - name: Python syntax safety and file-context contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Syntax and browser JS
@@ -61,6 +65,7 @@ jobs:
       - run: node --check static/neral-preview.js
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --test tests/test_neral_1_0_voice_client.cjs
+      - run: node --test tests/test_neral_1_0_project_files.cjs
       - run: node --check static/neral-local-chat.js
   local-windows-pc:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
