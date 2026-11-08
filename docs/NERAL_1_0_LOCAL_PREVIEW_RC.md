@@ -133,11 +133,20 @@ Beide Ergebnisse werden getrennt veröffentlicht.
 `Mikrofon`. Die Aufnahme startet nur nach einem Klick und Browser-Freigabe.
 Die Browser-Spracherkennung überträgt je nach Browser und Systemeinstellung
 Ton an einen **externen Browseranbieter**. Das ist **nicht garantiert
-offline** und kein rein lokales STT. Die erkannte Nachricht kann nach Wahl
-direkt an den lokal laufenden NERAL-Chat gesendet oder vorher geprüft werden.
-Die Option `Vorlesen` gibt Antworten über die Sprachsynthese des Browsers
-wieder. `Stopp Audio` beendet diese Wiedergabe. Nicht unterstützte
-Browserfunktionen werden deaktiviert, nicht als verfügbar vorgetäuscht.
+offline** und kein rein lokales STT. Beim Sprechen werden vorläufige
+Wörter angezeigt, aber niemals automatisch gesendet. Nur das endgültige
+Erkennungsergebnis kann bei aktivierter Option `Sprache direkt senden` an
+den lokal laufenden NERAL-Chat übergeben werden. Wenn im Eingabefeld bereits
+eigener Text steht, wird das Diktat angehängt und **nicht** ungefragt
+abgeschickt. `Mikrofon` erneut anklicken oder `Verlauf löschen` bricht die
+Erkennung ab und verwirft auch verspätet eintreffende Erkennungsereignisse.
+Die Option `Vorlesen` gibt Antworten über die Browser-Sprachsynthese in
+Abschnitten wieder (maximal die ersten 8000 Zeichen). `Tempo` bietet
+0,85-fach, normal oder 1,15-fach. Eine bevorzugte deutschsprachige
+Systemstimme wird verwendet, falls verfügbar; Stimme und Qualität bleiben
+vom Browser abhängig. `Stopp Audio` beendet auch die weitere Segmentfolge.
+Ein automatisches, dauerhaft eingeschaltetes Mikrofon gibt es absichtlich
+nicht. Nicht unterstützte Browserfunktionen werden deaktiviert.
 
 **Websuche:** Standardmäßig aus. Erst nach expliziter Aktivierung pro
 Nachricht wird **nur der Suchbegriff** an DuckDuckGo HTML gesendet,
