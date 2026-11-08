@@ -1,0 +1,1222 @@
+{
+  "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "base_revision": "c03e6d358207e414f1eca0bb1891e29f1db0e242",
+  "bound_compacted_corpus": {
+    "histogram_width_64": {
+      "128-191": 555,
+      "192-255": 132,
+      "256-319": 43,
+      "320-383": 85,
+      "64-127": 13
+    },
+    "max": 383,
+    "min": 122,
+    "p50": 165,
+    "p90": 320,
+    "p99": 378,
+    "percentile_index": "round(p/100*(n-1))",
+    "rows": 828,
+    "rows_at_768": 0,
+    "rows_over_768": 0
+  },
+  "bound_compacted_counterfactual": {
+    "histogram_width_64": {
+      "256-319": 43,
+      "320-383": 85
+    },
+    "max": 383,
+    "min": 293,
+    "p50": 355,
+    "p90": 376,
+    "p99": 382,
+    "percentile_index": "round(p/100*(n-1))",
+    "rows": 128,
+    "rows_at_768": 0,
+    "rows_over_768": 0
+  },
+  "bound_decision": {
+    "boilerplate_trim_levels": {
+      "drop_intermediate_units": 0,
+      "drop_node_labels": 6,
+      "drop_parentheses": 42,
+      "drop_rounding_sentence": 6,
+      "squeeze_operator_spaces": 16,
+      "verified_text": 58
+    },
+    "length_source": "bound",
+    "max_tokens_after_fit": 768,
+    "max_tokens_before_fit": 933,
+    "rows_over_768_before_fit": 70
+  },
+  "byte_bound_on_untouched_counterfactual": {
+    "max": 933,
+    "min_bound_minus_exact": 426,
+    "rows_over_768": 70,
+    "rows_where_bound_underestimates_exact": 0
+  },
+  "capability_effect": "unconfirmed until a controlled matched_fewshot model comparison",
+  "chat_template_sha256": "f950548988e50713a9975a11be0eaf1d29c4fe4be0ba22a57daeebbc27a7adb9",
+  "chat_template_source": "neral_hf_identity.CHAT_TEMPLATE",
+  "claimed_score_gain": false,
+  "counterfactual_rows": [
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 749,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-000-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 749,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-000-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 754,
+      "exact_tokens": 315,
+      "family": "ordered_price",
+      "id": "ordered_price-001-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 756,
+      "exact_tokens": 317,
+      "family": "ordered_price",
+      "id": "ordered_price-001-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 758,
+      "exact_tokens": 321,
+      "family": "ordered_price",
+      "id": "ordered_price-002-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 750,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-002-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 767,
+      "exact_tokens": 319,
+      "family": "ordered_price",
+      "id": "ordered_price-003-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 767,
+      "exact_tokens": 319,
+      "family": "ordered_price",
+      "id": "ordered_price-003-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 739,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-004-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 735,
+      "exact_tokens": 309,
+      "family": "ordered_price",
+      "id": "ordered_price-004-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 762,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-005-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 766,
+      "exact_tokens": 327,
+      "family": "ordered_price",
+      "id": "ordered_price-005-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 757,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-006-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 753,
+      "exact_tokens": 316,
+      "family": "ordered_price",
+      "id": "ordered_price-006-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_rounding_sentence",
+      "byte_bound": 775,
+      "exact_tokens": 327,
+      "family": "ordered_price",
+      "id": "ordered_price-007-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_rounding_sentence",
+      "byte_bound": 771,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-007-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 740,
+      "exact_tokens": 314,
+      "family": "ordered_price",
+      "id": "ordered_price-008-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 744,
+      "exact_tokens": 318,
+      "family": "ordered_price",
+      "id": "ordered_price-008-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 759,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-009-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 759,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-009-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 739,
+      "exact_tokens": 302,
+      "family": "ordered_price",
+      "id": "ordered_price-010-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 745,
+      "exact_tokens": 308,
+      "family": "ordered_price",
+      "id": "ordered_price-010-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 768,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-011-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 768,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-011-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 746,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-012-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 746,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-012-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 743,
+      "exact_tokens": 304,
+      "family": "ordered_price",
+      "id": "ordered_price-013-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 752,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-013-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 747,
+      "exact_tokens": 310,
+      "family": "ordered_price",
+      "id": "ordered_price-014-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 750,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-014-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 763,
+      "exact_tokens": 315,
+      "family": "ordered_price",
+      "id": "ordered_price-015-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_rounding_sentence",
+      "byte_bound": 771,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-015-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 738,
+      "exact_tokens": 312,
+      "family": "ordered_price",
+      "id": "ordered_price-016-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 742,
+      "exact_tokens": 316,
+      "family": "ordered_price",
+      "id": "ordered_price-016-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 752,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-017-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 752,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-017-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 754,
+      "exact_tokens": 317,
+      "family": "ordered_price",
+      "id": "ordered_price-018-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 753,
+      "exact_tokens": 316,
+      "family": "ordered_price",
+      "id": "ordered_price-018-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_rounding_sentence",
+      "byte_bound": 770,
+      "exact_tokens": 322,
+      "family": "ordered_price",
+      "id": "ordered_price-019-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 765,
+      "exact_tokens": 317,
+      "family": "ordered_price",
+      "id": "ordered_price-019-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 719,
+      "exact_tokens": 293,
+      "family": "ordered_price",
+      "id": "ordered_price-020-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 719,
+      "exact_tokens": 293,
+      "family": "ordered_price",
+      "id": "ordered_price-020-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 762,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-021-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 762,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-021-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 749,
+      "exact_tokens": 312,
+      "family": "ordered_price",
+      "id": "ordered_price-022-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 757,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-022-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 767,
+      "exact_tokens": 319,
+      "family": "ordered_price",
+      "id": "ordered_price-023-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 767,
+      "exact_tokens": 319,
+      "family": "ordered_price",
+      "id": "ordered_price-023-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 748,
+      "exact_tokens": 322,
+      "family": "ordered_price",
+      "id": "ordered_price-024-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 744,
+      "exact_tokens": 318,
+      "family": "ordered_price",
+      "id": "ordered_price-024-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 765,
+      "exact_tokens": 326,
+      "family": "ordered_price",
+      "id": "ordered_price-025-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 765,
+      "exact_tokens": 326,
+      "family": "ordered_price",
+      "id": "ordered_price-025-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 734,
+      "exact_tokens": 297,
+      "family": "ordered_price",
+      "id": "ordered_price-026-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 751,
+      "exact_tokens": 314,
+      "family": "ordered_price",
+      "id": "ordered_price-026-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 765,
+      "exact_tokens": 317,
+      "family": "ordered_price",
+      "id": "ordered_price-027-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_rounding_sentence",
+      "byte_bound": 773,
+      "exact_tokens": 325,
+      "family": "ordered_price",
+      "id": "ordered_price-027-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 741,
+      "exact_tokens": 315,
+      "family": "ordered_price",
+      "id": "ordered_price-028-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 749,
+      "exact_tokens": 323,
+      "family": "ordered_price",
+      "id": "ordered_price-028-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 750,
+      "exact_tokens": 311,
+      "family": "ordered_price",
+      "id": "ordered_price-029-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 749,
+      "exact_tokens": 310,
+      "family": "ordered_price",
+      "id": "ordered_price-029-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 757,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-030-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 757,
+      "exact_tokens": 320,
+      "family": "ordered_price",
+      "id": "ordered_price-030-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "verified_text",
+      "byte_bound": 761,
+      "exact_tokens": 313,
+      "family": "ordered_price",
+      "id": "ordered_price-031-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_rounding_sentence",
+      "byte_bound": 769,
+      "exact_tokens": 321,
+      "family": "ordered_price",
+      "id": "ordered_price-031-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 889,
+      "exact_tokens": 429,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-000-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 897,
+      "exact_tokens": 437,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-000-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 897,
+      "exact_tokens": 424,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-001-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 911,
+      "exact_tokens": 438,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-001-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 903,
+      "exact_tokens": 432,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-002-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 905,
+      "exact_tokens": 434,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-002-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 915,
+      "exact_tokens": 433,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-003-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 914,
+      "exact_tokens": 432,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-003-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_node_labels",
+      "byte_bound": 879,
+      "exact_tokens": 419,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-004-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_node_labels",
+      "byte_bound": 878,
+      "exact_tokens": 418,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-004-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 905,
+      "exact_tokens": 432,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-005-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 900,
+      "exact_tokens": 427,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-005-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 910,
+      "exact_tokens": 439,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-006-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 903,
+      "exact_tokens": 432,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-006-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 924,
+      "exact_tokens": 442,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-007-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 924,
+      "exact_tokens": 442,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-007-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 883,
+      "exact_tokens": 423,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-008-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_node_labels",
+      "byte_bound": 873,
+      "exact_tokens": 413,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-008-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 920,
+      "exact_tokens": 447,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-009-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 921,
+      "exact_tokens": 448,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-009-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 890,
+      "exact_tokens": 419,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-010-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 895,
+      "exact_tokens": 424,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-010-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 928,
+      "exact_tokens": 446,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-011-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 933,
+      "exact_tokens": 451,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-011-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 890,
+      "exact_tokens": 430,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-012-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 884,
+      "exact_tokens": 424,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-012-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 891,
+      "exact_tokens": 418,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-013-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 892,
+      "exact_tokens": 419,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-013-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 894,
+      "exact_tokens": 423,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-014-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 895,
+      "exact_tokens": 424,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-014-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 926,
+      "exact_tokens": 444,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-015-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 918,
+      "exact_tokens": 436,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-015-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_node_labels",
+      "byte_bound": 875,
+      "exact_tokens": 415,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-016-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_node_labels",
+      "byte_bound": 880,
+      "exact_tokens": 420,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-016-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 891,
+      "exact_tokens": 418,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-017-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 900,
+      "exact_tokens": 427,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-017-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 898,
+      "exact_tokens": 427,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-018-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 896,
+      "exact_tokens": 425,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-018-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 911,
+      "exact_tokens": 429,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-019-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 922,
+      "exact_tokens": 440,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-019-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 883,
+      "exact_tokens": 423,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-020-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_node_labels",
+      "byte_bound": 876,
+      "exact_tokens": 416,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-020-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 911,
+      "exact_tokens": 438,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-021-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 904,
+      "exact_tokens": 431,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-021-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 906,
+      "exact_tokens": 435,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-022-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 911,
+      "exact_tokens": 440,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-022-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 911,
+      "exact_tokens": 429,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-023-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 912,
+      "exact_tokens": 430,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-023-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 902,
+      "exact_tokens": 442,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-024-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 895,
+      "exact_tokens": 435,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-024-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 901,
+      "exact_tokens": 428,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-025-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 902,
+      "exact_tokens": 429,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-025-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 898,
+      "exact_tokens": 427,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-026-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 907,
+      "exact_tokens": 436,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-026-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 915,
+      "exact_tokens": 433,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-027-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 917,
+      "exact_tokens": 435,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-027-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 902,
+      "exact_tokens": 442,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-028-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 902,
+      "exact_tokens": 442,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-028-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 901,
+      "exact_tokens": 428,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-029-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 904,
+      "exact_tokens": 431,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-029-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "drop_parentheses",
+      "byte_bound": 909,
+      "exact_tokens": 438,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-030-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 914,
+      "exact_tokens": 443,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-030-1",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 917,
+      "exact_tokens": 435,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-031-0",
+      "kept_verbatim_on_exact_path": true
+    },
+    {
+      "bound_trim_level": "squeeze_operator_spaces",
+      "byte_bound": 920,
+      "exact_tokens": 438,
+      "family": "segmented_fuel",
+      "id": "segmented_fuel-031-1",
+      "kept_verbatim_on_exact_path": true
+    }
+  ],
+  "exact_decision": {
+    "boilerplate_trim_levels": {
+      "drop_intermediate_units": 0,
+      "drop_node_labels": 0,
+      "drop_parentheses": 0,
+      "drop_rounding_sentence": 0,
+      "squeeze_operator_spaces": 0,
+      "verified_text": 128
+    },
+    "kept_verbatim": 128,
+    "length_source": "exact",
+    "max_tokens_before_fit": 451,
+    "rows_compacted": 0,
+    "rows_over_768_before_fit": 0,
+    "tokenizer_pinned": true
+  },
+  "max_length": 768,
+  "model_chat_template_matches_training_template": false,
+  "release_validated": false,
+  "rendered_chat_matches_pinned_template_rows": 956,
+  "schema": 1,
+  "status": "NERAL_V6_VERIFIED_STEP_TOKEN_AUDIT",
+  "tokenizer_files_sha256": {
+    "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+    "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+    "tokenizer_config.json": "959e7f1d9a1b7641a6d6ce05ca97b75c7894fcb66cbe5a040406458fb1128ee4",
+    "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  "tokenizers_version": "0.20.3",
+  "training_authorized": false,
+  "training_performed": false,
+  "training_tokenization": "tokenized_completion, apply_chat_template(tokenize=True, chat_template=neral_hf_identity.CHAT_TEMPLATE)",
+  "transformers_version": "4.46.3",
+  "untouched": {
+    "histogram_width_64": {
+      "128-191": 555,
+      "192-255": 132,
+      "256-319": 37,
+      "320-383": 27,
+      "384-447": 62,
+      "448-511": 2,
+      "64-127": 13
+    },
+    "max": 451,
+    "min": 122,
+    "p50": 165,
+    "p90": 320,
+    "p99": 442,
+    "percentile_index": "round(p/100*(n-1))",
+    "rows": 828,
+    "rows_at_768": 0,
+    "rows_over_768": 0
+  },
+  "untouched_by_split": {
+    "composition_train": {
+      "histogram_width_64": {
+        "128-191": 488,
+        "192-255": 112
+      },
+      "max": 237,
+      "min": 129,
+      "p50": 149,
+      "p90": 202,
+      "p99": 235,
+      "percentile_index": "round(p/100*(n-1))",
+      "rows": 600,
+      "rows_at_768": 0,
+      "rows_over_768": 0
+    },
+    "counterfactual": {
+      "histogram_width_64": {
+        "256-319": 37,
+        "320-383": 27,
+        "384-447": 62,
+        "448-511": 2
+      },
+      "max": 451,
+      "min": 293,
+      "p50": 413,
+      "p90": 439,
+      "p99": 448,
+      "percentile_index": "round(p/100*(n-1))",
+      "rows": 128,
+      "rows_at_768": 0,
+      "rows_over_768": 0
+    },
+    "validation": {
+      "histogram_width_64": {
+        "128-191": 67,
+        "192-255": 20,
+        "64-127": 13
+      },
+      "max": 246,
+      "min": 122,
+      "p50": 152,
+      "p90": 206,
+      "p99": 244,
+      "percentile_index": "round(p/100*(n-1))",
+      "rows": 100,
+      "rows_at_768": 0,
+      "rows_over_768": 0
+    }
+  },
+  "untouched_counterfactual_by_family": {
+    "ordered_price": {
+      "histogram_width_64": {
+        "256-319": 37,
+        "320-383": 27
+      },
+      "max": 327,
+      "min": 293,
+      "p50": 318,
+      "p90": 323,
+      "p99": 327,
+      "percentile_index": "round(p/100*(n-1))",
+      "rows": 64,
+      "rows_at_768": 0,
+      "rows_over_768": 0
+    },
+    "segmented_fuel": {
+      "histogram_width_64": {
+        "384-447": 62,
+        "448-511": 2
+      },
+      "max": 451,
+      "min": 413,
+      "p50": 432,
+      "p90": 442,
+      "p99": 448,
+      "percentile_index": "round(p/100*(n-1))",
+      "rows": 64,
+      "rows_at_768": 0,
+      "rows_over_768": 0
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 PR 365 bleibt die Messkorrektur und enthält diese Änderung nicht.
 Diese Vorbereitung ist https://github.com/Cola968/neral-helios/pull/366,
-Commit `4a160e42`, Zweig `cursor/verified-step-targets-f78c`.
+Zweig `cursor/verified-step-targets-f78c`.
 Dies ist kein Training und kein neues Modellergebnis. Es gibt keine
 erwartete Punktzahl.
 
@@ -48,36 +48,53 @@ Kompakt-Freigabe startet dieses Rezept nicht, und umgekehrt.
 `tokenized_completion` nimmt eine Zeile nur an, wenn die Chat-Vorlage
 als Prefix der vollen Sequenz tokenisiert, der Assistant-Anteil nicht
 leer ist und `len(full) <= 768`. Sonst bricht Phase 2 ab, bevor ein
-Adapter geschrieben wird. Auf dieser Maschine liegt kein Offline-Qwen-
-Tokenizer, und es wird keiner heruntergeladen. `assert_verified_steps_fit_max_length`
-prüft dieselben Grenzen mit einer Obergrenze, die Qwen2-BPE nicht
-unterschreitet: `<|im_start|>` und `<|im_end|>` zählen als je ein Token,
-jedes übrige UTF-8-Byte als eines. Merges machen die echte Tokenzahl
-nur kürzer. Ein BOS außerhalb der gepinnten Vorlage ist nicht
-eingerechnet. Die Schranke kann daher zu hoch liegen. Sie kann die
-echte Länge nicht zu niedrig schätzen.
+Adapter geschrieben wird. Die Vorlage ist `neral_hf_identity.CHAT_TEMPLATE`,
+nicht die längere Tool-Vorlage in `tokenizer_config.json`.
 
-Die 128 unveränderten Zieltexte passen unter dieser Schranke nicht
-alle. 70 liegen darüber, Maximum 933: 64 `segmented_fuel` und 6
-`ordered_price`. Die 600 Kompositionszeilen und die 100
-Validierungszeilen lagen schon darunter.
+Die Basis ist `Qwen/Qwen2.5-Coder-7B-Instruct`, Revision
+`c03e6d358207e414f1eca0bb1891e29f1db0e242`. Für die Messung liegen nur
+die öffentlichen Tokenizer-Dateien lokal, keine Gewichte:
+`tokenizer.json`, `tokenizer_config.json`, `vocab.json`, `merges.txt`.
+Ihre SHA-256 stehen in `PINNED_TOKENIZER_SHA256` und in
+`docs/v6_verified_steps_token_audit.json`. Der Download kam vom
+öffentlichen Hugging-Face-Endpunkt dieser Revision (`X-Repo-Commit`
+gleich der Revision). Ein Lauf ohne diese Dateien lädt sie nicht nach.
 
-Nur diese 70 Zeilen verlieren nicht-operatorischen Ballast, und nur
-bis die Schranke 768 erreicht. 58 Preiszeilen bleiben wörtlich. 6
-Preiszeilen verlieren den Satz zum kaufmännischen Runden. Alle 64
-Treibstoffzeilen verlieren Zwischen-Einheiten und Knotennamen. 6 davon
-behalten die Klammern. 42 verlieren die Klammern. 16 verlieren die
-Klammern und die Leerzeichen unmittelbar an `*`, `+`, `-` und `/`.
-Jede Ziffer, jedes Rechenzeichen und die `FINAL_ANSWER`-Zeile bleiben.
-Danach ist das Maximum 768. Zwei Zeilen liegen genau auf dem Budget.
+Dieselbe Funktion `tokenized_completion` zählt jede unveränderte Zeile.
+Von 828 Zeilen (600 Komposition, 100 Validierung, 128 Gegenbeispiele)
+liegt keine über 768. Das Maximum ist 451, bei `segmented_fuel`.
+`ordered_price` endet bei 327. Die Byte-Schranke bleibt eine Obergrenze:
+70 der 128 Gegenbeispiele liegen dort über 768, Maximum 933, und in
+keiner Zeile ist die Schranke kürzer als die echte Tokenzahl. Der
+kleinste Abstand ist 426 Token. Die Schranke hat den Überlauf also
+nicht belegt.
+
+Verdichtung läuft nur, wenn die gewählte Länge über 768 liegt.
+`length_source=exact` behält alle 128 Zieltexte wörtlich. Der
+GPU-Einstieg lädt den Tokenizer aus `--base`, prüft die vier SHA-256
+und nutzt diesen Pfad. `length_source=bound` bleibt der Pfad ohne
+Tokenizer: dieselben 70 Zeilen verlieren Ballast bis die Schranke passt.
+58 Preiszeilen bleiben wörtlich, 6 verlieren nur den Rundungssatz.
+Alle 64 Treibstoffzeilen verlieren Einheiten und Knotennamen; 6 behalten
+die Klammern, 42 verlieren sie, 16 verlieren zusätzlich die Leerzeichen
+an den Rechenzeichen. Danach ist das Byte-Maximum 768, zwei Zeilen
+liegen auf dem Budget. Tests, die
+diese Zahlen prüfen, setzen `length_source=bound` und ändern sich
+nicht, wenn zufällig ein Tokenizer auf der Maschine liegt. Fehlen die
+gepinnnten Dateien, überspringt der Exakt-Test mit dieser Begründung.
+
+Jede Verdichtung wertet jede Gleichung davor und danach aus. Erlaubt
+sind nur ganze Zahlen, `+`, `-`, `*`, `/` und Klammern, über den
+AST, ohne `eval`. Weicht ein Wert oder `FINAL_ANSWER` ab, bricht der
+Lauf ab. Die 128 echten Zeilen bleiben unter dieser Prüfung gleich.
+Ein künstliches `(2) * (3 + 4)` gegen `2 * 3 + 4` wird abgelehnt,
+obwohl Ziffern und Rechenzeichen noch übereinstimmen.
+
 Das ist eine Zulassungsprüfung, damit Phase 2 nicht an der Tokengrenze
-abbricht. Es ist kein Beleg, dass kürzere Texte besser rechnen, und
-kein Fähigkeitsgewinn.
-
-Liegt lokal ein geprüfter Qwen-Snapshot, benutzt dieselbe Prüfung
-`tokenized_completion` mit Hub-Download aus und verwirft die
-Byte-Schranke, falls sie kürzer als der Tokenizer ist. Dieser Lauf
-hatte keinen solchen Snapshot.
+abbricht. Es ist kein Beleg, dass die wörtlichen oder die verkürzten
+Texte besser rechnen, und kein Fähigkeitsgewinn. Ob sich die Fähigkeit
+ändert, bleibt offen, bis ein freigegebener `matched_fewshot`-Vergleich
+das misst.
 
 Der GPU-Vergleich mit `matched_fewshot` und das Phase-2-Training
 bleiben hier blockiert. Beides braucht eine ausdrückliche Freigabe
@@ -125,9 +142,12 @@ Checkout ist `main`. Ausgabe:
 Nicht `v6-r16-120-...` und nicht `v61-replay-120-...`. Basis ist das
 versiegelte v5, nicht ein Überschreiben davon. 120 Schritte, Lernrate
 `1e-5`, 728 Trainingszeilen, 100 Validierungszeilen. Die CPU-Prüfung
-oben verweigert das Bauen der Daten, wenn die Byte-Schranke 768
-übersteigt. Der GPU-Lauf prüft danach noch einmal mit dem echten
-Tokenizer und speichert bei einem Grenzfehler keinen Adapter.
+oben verweigert das Bauen der Daten, wenn die gewählte Länge 768
+übersteigt. Ohne gepinnten Tokenizer ist das die Byte-Schranke. Mit
+dem Tokenizer aus `--base` ist es die echte Tokenzahl, und die
+gemessenen Zeilen bleiben dann wörtlich. Der GPU-Lauf prüft danach
+noch einmal mit `tokenized_completion` und speichert bei einem
+Grenzfehler keinen Adapter.
 
 Stop und Rollback: nicht-endlicher Verlust, abweichende Schrittzahl,
 oder ein Adapter-Hash gleich v5 bedeutet keinen Kandidaten. v5 bleibt

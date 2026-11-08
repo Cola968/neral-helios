@@ -7,6 +7,8 @@ base-weight changes, release claims, adapter overwrites or auto-deployment.
 from __future__ import annotations
 
 import argparse
+import ast
+from fractions import Fraction
 from hashlib import sha256
 import json
 import math
@@ -90,8 +92,18 @@ _LENGTH_APPROXIMATION = (
     "token each, the pinned Qwen added tokens. Every other UTF-8 byte counts "
     "as one token. Qwen2 byte-level BPE merges only shorten that count, so "
     "this does not under-estimate tokenized_completion; it can over-estimate. "
-    "The pinned chat template is assumed to add no extra BOS."
+    "The pinned chat template is assumed to add no extra BOS. Compaction uses "
+    "this bound only when no exact tokenizer is selected."
 )
+# Public tokenizer files for Qwen/Qwen2.5-Coder-7B-Instruct at BASE_REVISION.
+# SHA-256 of the bytes downloaded from the unauthenticated Hugging Face
+# resolve URL. No weight shard is part of this pin.
+PINNED_TOKENIZER_SHA256 = {
+    "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+    "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+    "tokenizer_config.json": "959e7f1d9a1b7641a6d6ce05ca97b75c7894fcb66cbe5a040406458fb1128ee4",
+    "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+}
 
 
 def _is_letter(ch: str) -> bool:
@@ -260,6 +272,79 @@ def _arithmetic_slashes(text: str) -> int:
     return text.replace(" kg/min", "").count("/")
 
 
+_ARITHMETIC_CHARS = re.compile(r"[0-9+\-*/(). \t]+")
+_STEP_LABEL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_UNIT_SUFFIXES = (" kg/min", " kg", " Cent", " EUR")
+
+
+def _strip_known_unit(text: str) -> str:
+    for suffix in _UNIT_SUFFIXES:
+        if text.endswith(suffix):
+            return text[:-len(suffix)].rstrip()
+    return text
+
+
+def _evaluate_arithmetic(expression: str) -> Fraction:
+    """Exact + - * / on integers and parentheses. No names, calls, or eval."""
+    if not isinstance(expression, str) or not _ARITHMETIC_CHARS.fullmatch(expression):
+        raise ValueError("Equation has characters outside the arithmetic whitelist")
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError("Equation is not arithmetic") from exc
+
+    def walk(node):
+        if isinstance(node, ast.Expression):
+            return walk(node.body)
+        if isinstance(node, ast.Constant):
+            if type(node.value) is not int:
+                raise ValueError("Equation literal is not an integer")
+            return Fraction(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -walk(node.operand)
+        if isinstance(node, ast.BinOp):
+            left, right = walk(node.left), walk(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                if right == 0:
+                    raise ValueError("Equation divides by zero")
+                return left / right
+            raise ValueError("Equation operator is not allowed")
+        raise ValueError("Equation syntax is not allowed")
+
+    return walk(tree)
+
+
+def _equation_values(text: str) -> list[tuple[Fraction, Fraction]]:
+    """Evaluate every CHECK step. FINAL_ANSWER is compared as text elsewhere."""
+    values = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if (not line or line == "CHECK:" or line.startswith("Erst jetzt")
+                or line.startswith("FINAL_ANSWER:")):
+            continue
+        if line.count("=") != 1:
+            raise ValueError("Verified step is not one equation")
+        left, right = line.split("=", 1)
+        if ":" in left:
+            label, expression = left.split(":", 1)
+            if not _STEP_LABEL.fullmatch(label.strip()):
+                raise ValueError("Verified step label is not an identifier")
+            left = expression
+        values.append((
+            _evaluate_arithmetic(left.strip()),
+            _evaluate_arithmetic(_strip_known_unit(right.strip())),
+        ))
+    if not values:
+        raise ValueError("Verified assistant has no equation")
+    return values
+
+
 def _assert_arithmetic_preserved(original: str, fitted: str) -> None:
     if "FINAL_ANSWER:" not in original or "FINAL_ANSWER:" not in fitted:
         raise ValueError("Verified assistant lost FINAL_ANSWER")
@@ -273,6 +358,12 @@ def _assert_arithmetic_preserved(original: str, fitted: str) -> None:
             raise ValueError("Boilerplate trim dropped a verified operator")
     if _arithmetic_slashes(original) != _arithmetic_slashes(fitted):
         raise ValueError("Boilerplate trim dropped a verified division")
+    before = _equation_values(original)
+    after = _equation_values(fitted)
+    if len(before) != len(after) or any(
+            left != new_left or right != new_right or left != right
+            for (left, right), (new_left, new_right) in zip(before, after)):
+        raise ValueError("Boilerplate trim changed an equation value")
 
 
 def _drop_rounding_sentence(text: str) -> str:
@@ -320,22 +411,29 @@ _BOILERPLATE_LADDER = (
 )
 
 
-def _fit_verified_assistant(prefix: list, text: str, *,
-                            max_length: int = MAX_LENGTH) -> tuple[str, str]:
-    """Drop non-operator boilerplate only until the byte bound fits.
+def _bound_length(row: dict) -> int:
+    return prove_qwen_completion_bound(row)["upper_bound_tokens"]
 
-    The ladder stops at the first rendering that still carries every
-    verified number, sign and final answer. Rows that already fit keep
-    the locked assistant text.
+
+def _fit_verified_assistant(prefix: list, text: str, *,
+                            max_length: int = MAX_LENGTH,
+                            length_of=None) -> tuple[str, str]:
+    """Drop boilerplate only while the selected length is over the budget.
+
+    ``length_of`` is the exact tokenizer length when one was selected, and
+    the byte upper bound otherwise. The first rendering that still evaluates
+    to the same equation values and fits is kept. A transform that changes
+    a value is rejected even if it would fit.
     """
     if not isinstance(prefix, list) or len(prefix) != 2:
         raise ValueError("Verified prefix must be system and user")
+    if length_of is None:
+        length_of = _bound_length
     for name, transform in _BOILERPLATE_LADDER:
         fitted = transform(text)
         _assert_arithmetic_preserved(text, fitted)
-        bound = prove_qwen_completion_bound(
-            {"messages": [*prefix, {"role": "assistant", "content": fitted}]})
-        if bound["upper_bound_tokens"] <= max_length:
+        row = {"messages": [*prefix, {"role": "assistant", "content": fitted}]}
+        if length_of(row) <= max_length:
             return fitted, name
     raise ValueError(
         "Verified assistant still exceeds the token budget after boilerplate trim")
@@ -347,6 +445,82 @@ def _trace_family(text: str) -> str:
     if "CHECK:" in text and ("Cent" in text or "EUR" in text):
         return "ordered_price"
     return "other"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _pinned_tokenizer_dirs(directory: Path | None):
+    """Explicit directory, then local caches. Never a network location."""
+    if directory is not None:
+        yield Path(directory), True
+        return
+    explicit = os.environ.get("NERAL_QWEN_TOKENIZER_DIR", "").strip()
+    if explicit:
+        yield Path(explicit), True
+    from neral_hf_identity import BASE_REVISION
+    yield (
+        Path.home() / ".cache" / "neral" / "tokenizers"
+        / "Qwen2.5-Coder-7B-Instruct" / BASE_REVISION,
+        False,
+    )
+    yield (
+        Path.home() / ".cache" / "neral" / "qwen25-smoke" / BASE_REVISION
+        / "installed_models" / "hf-qwen25-coder-7b",
+        False,
+    )
+
+
+def _locate_pinned_tokenizer(directory: Path | None, *, required: bool) -> Path | None:
+    seen = False
+    for folder, folder_required in _pinned_tokenizer_dirs(directory):
+        seen = True
+        must = required or folder_required
+        if folder.is_symlink() or not folder.is_dir():
+            if must:
+                raise ValueError("Pinned Qwen tokenizer directory is absent")
+            continue
+        paths = [folder / name for name in PINNED_TOKENIZER_SHA256]
+        present = [path for path in paths if path.is_file() and not path.is_symlink()]
+        if not present:
+            if must:
+                raise ValueError("Pinned Qwen tokenizer files are absent")
+            continue
+        if len(present) != len(PINNED_TOKENIZER_SHA256) or any(
+                path.is_symlink() or not path.is_file() for path in paths):
+            raise ValueError("Pinned Qwen tokenizer directory is incomplete")
+        for name, digest in PINNED_TOKENIZER_SHA256.items():
+            if _sha256_file(folder / name) != digest:
+                raise ValueError(
+                    "Tokenizer SHA-256 does not match pinned "
+                    f"Qwen/Qwen2.5-Coder-7B-Instruct revision: {name}"
+                )
+        return folder
+    if required or not seen:
+        raise ValueError("Pinned Qwen tokenizer files are absent")
+    return None
+
+
+def load_pinned_qwen_tokenizer(directory: Path | None = None, *, required: bool = False):
+    """Load the hash-pinned tokenizer from local files. Never download weights."""
+    folder = _locate_pinned_tokenizer(directory, required=required)
+    if folder is None:
+        return None
+    os.environ.update({
+        "HF_HUB_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1",
+    })
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(folder), use_fast=True, local_files_only=True,
+        trust_remote_code=False)
+    tokenizer.neral_pinned_qwen = True
+    return tokenizer
 
 
 def _load_offline_qwen_tokenizer():
@@ -427,7 +601,9 @@ def assert_verified_steps_fit_max_length(rows, *, max_length: int = MAX_LENGTH,
             lengths.append(exact)
         return {
             "method": "offline_qwen_tokenizer",
+            "length_source": "exact",
             "offline_qwen_tokenizer": True,
+            "tokenizer_pinned": bool(getattr(tokenizer, "neral_pinned_qwen", False)),
             "max_length": max_length,
             "rows": len(rows),
             "max_upper_bound_tokens": max(lengths),
@@ -465,7 +641,9 @@ def assert_verified_steps_fit_max_length(rows, *, max_length: int = MAX_LENGTH,
         )
     return {
         "method": "qwen2_byte_bpe_upper_bound",
+        "length_source": "bound",
         "offline_qwen_tokenizer": False,
+        "tokenizer_pinned": False,
         "max_length": max_length,
         "rows": len(rows),
         "max_upper_bound_tokens": max(bounds),
@@ -534,7 +712,53 @@ def _reject_protected_overlap(rows: list[dict]) -> None:
             raise ValueError("Training prompt overlaps a screen or the composition holdout")
 
 
-def build_experiment(*, counterfactual_target: str = "compact"
+def _select_verified_length(tokenizer, length_source: str):
+    """Pick the length function compaction and the preflight both use.
+
+    ``bound`` ignores any tokenizer, including one that happens to be
+    installed. ``exact`` requires a tokenizer. ``auto`` uses a passed
+    tokenizer, then a hash-pinned local directory, and otherwise the bound.
+    """
+    if length_source not in {"auto", "bound", "exact"}:
+        raise ValueError("Unknown verified-step length source")
+    if length_source == "bound":
+        return None
+    selected = tokenizer
+    if selected is None:
+        selected = load_pinned_qwen_tokenizer(required=length_source == "exact")
+    if selected is None:
+        if length_source == "exact":
+            raise ValueError("Exact Qwen tokenizer required")
+        return None
+    from neral_hf_identity import CHAT_TEMPLATE
+
+    def length_of(row, tokenizer=selected, chat_template=CHAT_TEMPLATE):
+        return exact_completion_length(
+            row, tokenizer, chat_template=chat_template)
+
+    return selected, length_of
+
+
+def exact_completion_length(row: dict, tokenizer, *, chat_template: str) -> int:
+    """Token count from tokenized_completion, including rows over the budget.
+
+    The budget check stays in the caller. A byte bound shorter than this
+    count is rejected, because the bound is only valid as an upper estimate.
+    """
+    encoded = tokenized_completion(
+        row, tokenizer, chat_template=chat_template, max_length=10**9)
+    exact = len(encoded["input_ids"])
+    upper = prove_qwen_completion_bound(row)["upper_bound_tokens"]
+    if upper < exact:
+        raise ValueError(
+            "Byte length model under-estimated the offline Qwen tokenizer: "
+            f"bound {upper}, tokenizer {exact}"
+        )
+    return exact
+
+
+def build_experiment(*, counterfactual_target: str = "compact",
+                     tokenizer=None, length_source: str = "auto"
                      ) -> tuple[list[dict], list[dict], dict]:
     """Generate train/val only; never train on the synthetic 100-case holdout.
 
@@ -562,6 +786,12 @@ def build_experiment(*, counterfactual_target: str = "compact"
     reason_rows, proofs = candidate()
     if len(reason_rows) != 128 or len(proofs) != 128:
         raise ValueError("Counterfactual reasoning source changed")
+    length_tokenizer = None
+    length_of = _bound_length
+    if counterfactual_target == "verified_steps":
+        selected = _select_verified_length(tokenizer, length_source)
+        if selected is not None:
+            length_tokenizer, length_of = selected
     verified_trim_notes = []
     for original, proof in zip(reason_rows, proofs):
         if counterfactual_target == "compact":
@@ -570,11 +800,11 @@ def build_experiment(*, counterfactual_target: str = "compact"
             verified = _verified_step_target(proof, original)
             pre_row = {"messages": [*original["messages"][:2],
                                     {"role": "assistant", "content": verified}]}
-            pre_bound = prove_qwen_completion_bound(pre_row)["upper_bound_tokens"]
-            content, level = _fit_verified_assistant(original["messages"][:2], verified)
+            content, level = _fit_verified_assistant(
+                original["messages"][:2], verified, length_of=length_of)
             verified_trim_notes.append({
                 "family": proof["family"],
-                "upper_bound_before_trim": pre_bound,
+                "upper_bound_before_trim": length_of(pre_row),
                 "level": level,
             })
         train.append({"messages":[*original["messages"][:2],
@@ -622,9 +852,11 @@ def build_experiment(*, counterfactual_target: str = "compact"
     if counterfactual_target == "verified_steps":
         _reject_protected_overlap(train + validation)
         length_preflight = assert_verified_steps_fit_max_length(
-            train + validation, tokenizer=_load_offline_qwen_tokenizer())
-        length_preflight["before_boilerplate_trim"] = _summarize_verified_trim(
-            verified_trim_notes)
+            train + validation, tokenizer=length_tokenizer)
+        before_trim = _summarize_verified_trim(verified_trim_notes)
+        before_trim["length_method"] = length_preflight["method"]
+        before_trim["tokenizer_pinned"] = length_preflight["tokenizer_pinned"]
+        length_preflight["before_boilerplate_trim"] = before_trim
         meta = {
             **meta,
             "status": "NERAL_V6_VERIFIED_STEP_TARGET_NOT_TRAINED",
@@ -638,13 +870,16 @@ def build_experiment(*, counterfactual_target: str = "compact"
     return train, validation, meta
 
 
-def training_contract(output: Path, *, counterfactual_target: str = "compact") -> dict:
+def training_contract(output: Path, *, counterfactual_target: str = "compact",
+                      tokenizer=None, length_source: str = "auto") -> dict:
     """Materialize deterministic training candidate, create-only and private."""
     output = Path(output)
     if (output.is_symlink() or output.exists() or
             not output.parent.is_dir() or output.parent.is_symlink()):
         raise ValueError("New, isolated training-data directory required")
-    train, val, meta = build_experiment(counterfactual_target=counterfactual_target)
+    train, val, meta = build_experiment(
+        counterfactual_target=counterfactual_target, tokenizer=tokenizer,
+        length_source=length_source)
     paths = {
         "train.jsonl": _jsonl_bytes(train),
         "validation.jsonl": _jsonl_bytes(val),
@@ -880,6 +1115,183 @@ def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
     return report
 
 
+def _length_distribution(lengths: list[int]) -> dict:
+    ordered = sorted(lengths)
+    if not ordered:
+        raise ValueError("Empty token-length sample")
+
+    def at(percent: int) -> int:
+        index = int(round((percent / 100) * (len(ordered) - 1)))
+        return ordered[index]
+
+    buckets = {}
+    for length in ordered:
+        start = (length // 64) * 64
+        key = f"{start}-{start + 63}"
+        buckets[key] = buckets.get(key, 0) + 1
+    histogram = dict(sorted(
+        buckets.items(), key=lambda item: int(item[0].split("-", 1)[0])))
+    return {
+        "rows": len(ordered),
+        "rows_over_768": sum(length > MAX_LENGTH for length in ordered),
+        "rows_at_768": sum(length == MAX_LENGTH for length in ordered),
+        "min": ordered[0],
+        "p50": at(50),
+        "p90": at(90),
+        "p99": at(99),
+        "max": ordered[-1],
+        "histogram_width_64": histogram,
+        "percentile_index": "round(p/100*(n-1))",
+    }
+
+
+def audit_verified_step_token_lengths(tokenizer) -> dict:
+    """Measure untouched and bound-compacted rows with tokenized_completion.
+
+    The tokenizer must be the hash-pinned local Qwen tokenizer. This does
+    not train and does not download. A capability change is not claimed.
+    """
+    if not getattr(tokenizer, "neral_pinned_qwen", False):
+        raise ValueError("Token audit requires the hash-pinned Qwen tokenizer")
+    from neral_hf_identity import BASE_MODEL, BASE_REVISION, CHAT_TEMPLATE
+    import tokenizers
+    import transformers
+
+    def lengths_for(rows):
+        exact = []
+        bounds = []
+        for row in rows:
+            messages = row["messages"]
+            for add_prompt in (False, True):
+                rendered = tokenizer.apply_chat_template(
+                    messages if not add_prompt else messages[:2],
+                    chat_template=CHAT_TEMPLATE, tokenize=False,
+                    add_generation_prompt=add_prompt)
+                pinned = _render_pinned_chat(
+                    messages if not add_prompt else messages[:2],
+                    add_generation_prompt=add_prompt)
+                if rendered != pinned:
+                    raise ValueError("Training chat template render diverged")
+            exact.append(exact_completion_length(
+                row, tokenizer, chat_template=CHAT_TEMPLATE))
+            bounds.append(prove_qwen_completion_bound(row)["upper_bound_tokens"])
+            if bounds[-1] < exact[-1]:
+                raise ValueError("Byte length model under-estimated the pinned tokenizer")
+        return exact, bounds
+
+    raw_rows, proofs = candidate()
+    bound_train, bound_val, bound_meta = build_experiment(
+        counterfactual_target="verified_steps", length_source="bound")
+    exact_train, _exact_val, exact_meta = build_experiment(
+        counterfactual_target="verified_steps", tokenizer=tokenizer,
+        length_source="exact")
+    raw_by_user = {row["messages"][1]["content"]: (row, proof)
+                   for row, proof in zip(raw_rows, proofs)}
+    bound_by_user = {row["messages"][1]["content"]: row["messages"][2]["content"]
+                     for row in bound_train}
+    exact_by_user = {row["messages"][1]["content"]: row["messages"][2]["content"]
+                     for row in exact_train}
+    composition = [row for row in bound_train
+                   if row["messages"][1]["content"] not in raw_by_user]
+    if len(composition) != 600 or len(bound_val) != 100 or len(raw_rows) != 128:
+        raise ValueError("Verified-step audit split counts changed")
+    composition_exact, _composition_bound = lengths_for(composition)
+    validation_exact, _validation_bound = lengths_for(bound_val)
+    raw_exact, raw_bound = lengths_for(raw_rows)
+    compacted_rows = []
+    per_row = []
+    family_exact = {}
+    for raw, proof, exact, bound in zip(raw_rows, proofs, raw_exact, raw_bound):
+        user = raw["messages"][1]["content"]
+        original = raw["messages"][2]["content"]
+        fitted = bound_by_user[user]
+        level = next(name for name, transform in _BOILERPLATE_LADDER
+                     if transform(original) == fitted)
+        compacted = {"messages": [*raw["messages"][:2],
+                                  {"role": "assistant", "content": fitted}]}
+        compacted_rows.append(compacted)
+        per_row.append({
+            "id": proof["id"],
+            "family": proof["family"],
+            "exact_tokens": exact,
+            "byte_bound": bound,
+            "bound_trim_level": level,
+            "kept_verbatim_on_exact_path": exact_by_user[user] == original,
+        })
+        family_exact.setdefault(proof["family"], []).append(exact)
+    compacted_exact, _compacted_bound = lengths_for(compacted_rows)
+    untouched = composition_exact + validation_exact + raw_exact
+    bound_levels = bound_meta["length_preflight"]["before_boilerplate_trim"]
+    exact_levels = exact_meta["length_preflight"]["before_boilerplate_trim"]
+    return {
+        "schema": 1,
+        "status": "NERAL_V6_VERIFIED_STEP_TOKEN_AUDIT",
+        "base_model": BASE_MODEL,
+        "base_revision": BASE_REVISION,
+        "tokenizer_files_sha256": dict(PINNED_TOKENIZER_SHA256),
+        "chat_template_source": "neral_hf_identity.CHAT_TEMPLATE",
+        "chat_template_sha256": sha256(CHAT_TEMPLATE.encode("utf8")).hexdigest(),
+        "training_tokenization": (
+            "tokenized_completion, apply_chat_template(tokenize=True, "
+            "chat_template=neral_hf_identity.CHAT_TEMPLATE)"
+        ),
+        "model_chat_template_matches_training_template": (
+            getattr(tokenizer, "chat_template", None) == CHAT_TEMPLATE),
+        "rendered_chat_matches_pinned_template_rows": (
+            len(composition) + len(bound_val) + len(raw_rows) + len(compacted_rows)),
+        "max_length": MAX_LENGTH,
+        "transformers_version": transformers.__version__,
+        "tokenizers_version": tokenizers.__version__,
+        "untouched": _length_distribution(untouched),
+        "untouched_by_split": {
+            "composition_train": _length_distribution(composition_exact),
+            "validation": _length_distribution(validation_exact),
+            "counterfactual": _length_distribution(raw_exact),
+        },
+        "untouched_counterfactual_by_family": {
+            family: _length_distribution(values)
+            for family, values in sorted(family_exact.items())
+        },
+        "bound_compacted_corpus": _length_distribution(
+            composition_exact + validation_exact + compacted_exact),
+        "bound_compacted_counterfactual": _length_distribution(compacted_exact),
+        "byte_bound_on_untouched_counterfactual": {
+            "rows_over_768": sum(bound > MAX_LENGTH for bound in raw_bound),
+            "max": max(raw_bound),
+            "rows_where_bound_underestimates_exact": sum(
+                bound < exact for bound, exact in zip(raw_bound, raw_exact)),
+            "min_bound_minus_exact": min(
+                bound - exact for bound, exact in zip(raw_bound, raw_exact)),
+        },
+        "exact_decision": {
+            "length_source": exact_meta["length_preflight"]["length_source"],
+            "tokenizer_pinned": exact_meta["length_preflight"]["tokenizer_pinned"],
+            "rows_compacted": sum(
+                1 for row in per_row if not row["kept_verbatim_on_exact_path"]),
+            "kept_verbatim": sum(
+                1 for row in per_row if row["kept_verbatim_on_exact_path"]),
+            "rows_over_768_before_fit": exact_levels["rows_over_max_length"],
+            "max_tokens_before_fit": exact_levels["max_upper_bound_tokens"],
+            "boilerplate_trim_levels": exact_levels["boilerplate_trim_levels"],
+        },
+        "bound_decision": {
+            "length_source": bound_meta["length_preflight"]["length_source"],
+            "rows_over_768_before_fit": bound_levels["rows_over_max_length"],
+            "max_tokens_before_fit": bound_levels["max_upper_bound_tokens"],
+            "max_tokens_after_fit": bound_meta["length_preflight"]["max_upper_bound_tokens"],
+            "boilerplate_trim_levels": bound_levels["boilerplate_trim_levels"],
+        },
+        "counterfactual_rows": per_row,
+        "claimed_score_gain": False,
+        "training_performed": False,
+        "training_authorized": False,
+        "release_validated": False,
+        "capability_effect": (
+            "unconfirmed until a controlled matched_fewshot model comparison"
+        ),
+    }
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     parser.add_argument("--mode",choices=("cpu-data","train-local-gpu"),required=True)
@@ -902,10 +1314,13 @@ def main(argv=None):
         if args.counterfactual_target == "verified_steps":
             if args.authorize != VERIFIED_STEPS_AUTH:
                 parser.error("Verified-step training requires its own permit")
+            pinned_tokenizer = load_pinned_qwen_tokenizer(args.base, required=True)
             result=_gpu_train(
                 args,
                 data_factory=lambda: build_experiment(
-                    counterfactual_target="verified_steps"),
+                    counterfactual_target="verified_steps",
+                    tokenizer=pinned_tokenizer,
+                    length_source="exact"),
                 authorize=VERIFIED_STEPS_AUTH,
                 status="NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL",
             )
