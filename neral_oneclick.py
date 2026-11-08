@@ -32,7 +32,7 @@ HOST = "127.0.0.1"
 PORT = 9690
 URL = f"http://{HOST}:{PORT}/"
 OLLAMA_TAGS = "http://127.0.0.1:11434/api/tags"
-MODELS = ("qwen3:8b", "qwen3.5:9b")
+MODELS = ("qwen3.5:9b", "qwen3:8b")
 
 
 def _update_state() -> Path:
@@ -132,6 +132,20 @@ def ensure_existing_local_model() -> tuple[str, subprocess.Popen | None]:
     raise RuntimeError("Das lokale Modell qwen3:8b oder qwen3.5:9b fehlt in Ollama.")
 
 
+def backend_for_model(tag: str):
+    """Create an approved local backend using the matching measured profile.
+
+    The stronger Qwen3.5 release is opt-in in source ZIP, and preferred for
+    the one-click EXE only if its weights are already installed. This is
+    not evidence of a newly trained NERAL foundation model.
+    """
+    if tag not in MODELS:
+        raise ValueError("Nur geprüfte lokale Modellnamen sind zulässig.")
+    from neral_agent_autonomy import OllamaLocalBackend
+    profile = "measured_nonthinking_2048" if tag == "qwen3.5:9b" else "legacy"
+    return OllamaLocalBackend(tag, timeout=90, inference_profile=profile)
+
+
 def _port_taken() -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.3)
@@ -184,8 +198,6 @@ def start_app() -> None:
     from tkinter import messagebox
     from waitress import create_server
     from neral_preview_server import create_preview_app
-    from neral_agent_autonomy import OllamaLocalBackend
-
     root = tk.Tk()
     root.title("NERAL")
     root.geometry("420x210")
@@ -231,11 +243,12 @@ def start_app() -> None:
             return
         try:
             tag, owned = ensure_existing_local_model()
-            app = create_preview_app(OllamaLocalBackend(tag, timeout=90))
+            app = create_preview_app(backend_for_model(tag))
             server = create_server(app, host=HOST, port=PORT, threads=4)
             worker = threading.Thread(target=server.run, name="neral-local-http", daemon=True)
             worker.start()
-            status.set("NERAL läuft lokal · " + tag)
+            status.set("NERAL läuft lokal · " + tag +
+                       (" · starkes Testprofil" if tag == "qwen3.5:9b" else " · Standard"))
             open_button.configure(state="normal")
             root.after(250, lambda: webbrowser.open(URL))
         except Exception as exc:
