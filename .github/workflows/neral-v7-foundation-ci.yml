@@ -1,0 +1,34 @@
+name: NERAL v7 offline foundation tournament CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v7_foundation_tournament.py'
+      - 'tests/test_neral_v7_foundation_tournament.py'
+      - '.github/workflows/neral-v7-foundation-ci.yml'
+      - '.github/workflows/neral-v7-foundation-local-gpu.yml'
+      - 'docs/NERAL_V7_FOUNDATION_TOURNAMENT.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v7_foundation_tournament.py'
+      - 'tests/test_neral_v7_foundation_tournament.py'
+      - '.github/workflows/neral-v7-foundation-ci.yml'
+permissions:
+  contents: read
+jobs:
+  cpu_contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline tournament contracts, real oracle tests and security refusal
+        run: python -m unittest discover -s tests -p test_neral_v7_foundation_tournament.py -v
+      - name: Python syntax and imported modules
+        run: python -m py_compile scripts/neral_v7_foundation_tournament.py
