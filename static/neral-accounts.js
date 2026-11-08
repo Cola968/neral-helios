@@ -30,14 +30,31 @@
     const data=await api("/api/neral/account/chats");
     list.replaceChildren();
     for(const chat of data.chats){
+      const row=document.createElement("div");
+      row.className="saved-chat-row";
       const button=document.createElement("button");
       button.type="button";
+      button.className="saved-chat-open";
       button.textContent=chat.title;
       button.title=chat.title;
       button.setAttribute("aria-current",activeId===chat.id?"page":"false");
       button.addEventListener("click",()=>openChat(chat.id));
-      list.append(button);
+      const remove=document.createElement("button");
+      remove.type="button";remove.className="saved-chat-delete";
+      remove.textContent="×";remove.title="Chat löschen";
+      remove.setAttribute("aria-label",chat.title+" löschen");
+      remove.addEventListener("click",async()=>{
+        if(!window.confirm("Diesen gespeicherten Chat endgültig löschen?"))return;
+        try{
+          await mutate("/api/neral/account/chats/"+chat.id,"DELETE");
+          if(activeId===chat.id){activeId=null;turns=[];clearChat();}
+          await refresh();
+        }catch(e){$("error").textContent=e.message;}
+      });
+      row.append(button,remove);
+      list.append(row);
     }
+    applyFilter();
   }
   async function openChat(id){
     try{
@@ -102,13 +119,19 @@
     }catch(e){$("error").textContent=e.message;}
   });
   $("newSavedChat").addEventListener("click",startNew);
+  const searchInput=$("chatSearchInput");
   $("searchChats").addEventListener("click",()=>{
     if(!username){dlg.showModal();return;}
-    const term=window.prompt("Gespeicherte Chats durchsuchen")?.trim().toLocaleLowerCase("de");
-    if(term===undefined)return;
-    for(const button of list.querySelectorAll("button"))
-      button.hidden=!button.textContent.toLocaleLowerCase("de").includes(term);
+    searchInput.hidden=!searchInput.hidden;
+    if(!searchInput.hidden)searchInput.focus();
+    else{searchInput.value="";applyFilter();}
   });
+  function applyFilter(){
+    const term=searchInput.value.trim().toLocaleLowerCase("de");
+    for(const row of list.querySelectorAll(".saved-chat-row"))
+      row.hidden=!row.querySelector(".saved-chat-open").textContent.toLocaleLowerCase("de").includes(term);
+  }
+  searchInput.addEventListener("input",applyFilter);
   window.addEventListener("neral:turn-complete",async event=>{
     if(!username)return;
     const user=event.detail?.user, assistant=event.detail?.assistant;
@@ -116,7 +139,7 @@
     if(saving)return; // reject overlapping persistence instead of mixing chats.
     saving=true;
     const originalId=activeId;
-    const next=turns.concat({role:"user",content:user},{role:"assistant",content:assistant});
+    const next=turns.concat({role:"user",content:user},{role:"assistant",content:assistant}).slice(-80);
     const title=(turns.length?list.querySelector('[aria-current="page"]')?.textContent:user.slice(0,75))||"Neuer Chat";
     try{
       let cid=originalId;
