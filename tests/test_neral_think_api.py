@@ -63,7 +63,7 @@ class ThinkHTTPTests(unittest.TestCase):
         self.assertEqual(len(model.calls), 2)
 
     def test_new_python_trace_route_reaches_real_think_http_api(self):
-        q = "Which integer does this Python program print?\\n```python\\nn = 4\\nprint(n * 7)\\n```"
+        q = "Which integer does this Python program print?\n```python\nn = 4\nprint(n * 7)\n```"
         client, model = setup(["FINAL: 999999", "FINAL: 999999"])
         response = client.post("/api/neral/chat/think", json={"prompt": q})
         self.assertEqual(response.status_code, 200, response.json)
