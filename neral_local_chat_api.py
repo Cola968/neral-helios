@@ -496,7 +496,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         except Exception as exc:
             # TEMPORARY CI-only diagnostic: exception class, never paths or payload.
             return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden.",
-                           diagnostic_type=type(exc).__name__), 503
+                           diagnostic_type=type(exc).__name__,
+                           diagnostic_symbol=getattr(exc, "name", None)), 503
         finally:
             busy.release()
 
