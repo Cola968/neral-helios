@@ -86,7 +86,8 @@ def _validate(cases: list[dict], responses: list[dict], digest: str) -> dict:
                     type(item["seconds"]) not in (int, float) or
                     not math.isfinite(item["seconds"]) or
                     item["seconds"] < 0 or item["seconds"] > 86400 or
-                    item["tool_used"] not in _TOOLS):
+                    (not isinstance(item["tool_used"], (str, type(None))) or
+                     item["tool_used"] not in _TOOLS)):
                 raise QualityGateError("Invalid mode, origin or observation")
             if not item["complete"] and item["text"]:
                 raise QualityGateError("Incomplete output must not be scored")
@@ -117,7 +118,11 @@ def score_paired(cases: list[dict], responses: list[dict], *,
             # The independent exact grader rejects missing finals, long
             # outputs, errors, and unsupported syntax. Never extract an
             # arbitrary number from a model's answer.
-            grade = semantic_grade(case, item["text"], complete=item["complete"])
+            # Tournament reference answers are integers, while the shared
+            # semantic grader requires canonical textual reference values.
+            # Preserve the original held-out task; normalize only for grading.
+            grade = semantic_grade({**case, "answer": str(case["answer"])},
+                                   item["text"], complete=item["complete"])
             grades.append(grade == "correct")
             latencies[mode].append(item["seconds"])
         low_ok, high_ok = grades
