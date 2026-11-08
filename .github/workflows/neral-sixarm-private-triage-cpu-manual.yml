@@ -1,0 +1,81 @@
+name: NERAL six-arm private answer failure triage (manual CPU only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Read-only local answer audit: AUDIT_NERAL_6ARM_PRIVATE_FAILURES_CPU'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_6ARM_PRIVATE_FAILURES_CPU'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Read and regrade pinned private six-arm responses on CPU only
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $source=Join-Path $research 'sixarm-parity-42470178641-1'
+          $target=Join-Path $research "sixarm-private-triage-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $source -PathType Container) -or
+             (Test-Path -LiteralPath $target)){
+            throw 'Pinned private benchmark or Python missing; no overwrite permitted'
+          }
+          New-Item -ItemType Directory -Path $target -ErrorAction Stop|Out-Null
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_six_arm_failure_triage.py -v
+            if($LASTEXITCODE -ne 0){throw 'Private triage CPU contracts failed'}
+            & $py -B -m scripts.neral_six_arm_failure_triage --run-dir $source --out-scalar (Join-Path $target 'scalar.json') --out-private (Join-Path $target 'private-cases.jsonl')
+            if($LASTEXITCODE -ne 0){throw 'Pinned six-arm response regrade failed'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath (Join-Path $target 'scalar.json') -Raw | ConvertFrom-Json
+          if($report.status -ne 'NERAL_6ARM_PRIVATE_FAILURE_TRIAGE_CPU' -or
+             $report.total -ne 72 -or
+             $report.observed_status_by_arm.qwen_zero.correct -ne 19 -or
+             $report.observed_status_by_arm.qwen_three.correct -ne 19 -or
+             $report.observed_status_by_arm.v5_zero.correct -ne 16 -or
+             $report.observed_status_by_arm.v5_three.correct -ne 17 -or
+             $report.observed_status_by_arm.v61_zero.correct -ne 16 -or
+             $report.observed_status_by_arm.v61_three.correct -ne 17 -or
+             $report.release_validated -ne $false -or
+             $report.adapter_promoted -ne $false -or
+             $report.raw_responses_exported -ne $false){
+            throw 'Scalar source not verified or false release flags'
+          }
+          $public=Join-Path $control 'sixarm_private_triage_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Scalar already exists; never overwrite'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $target 'scalar.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_6ARM_PRIVATE_FAILURE_TRIAGE_READY; raw 72x6 private on Windows only.'
+      - name: Upload scalar counters only, never tasks, answers or raw model text
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-sixarm-private-failure-triage-scalar
+          path: control/sixarm_private_triage_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14

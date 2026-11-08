@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'scripts/neral_six_arm_gpu.py'
+      - 'scripts/neral_six_arm_failure_triage.py'
+      - 'tests/test_neral_six_arm_failure_triage.py'
+      - 'docs/NERAL_SIXARM_PRIVATE_TRIAGE.md'
       - 'scripts/neral_v6_fresh_dev_eval.py'
       - 'tests/test_neral_six_arm_gpu.py'
       - '.github/workflows/neral-sixarm-live-cpu.yml'
@@ -12,6 +15,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/neral_six_arm_gpu.py'
+      - 'scripts/neral_six_arm_failure_triage.py'
+      - 'tests/test_neral_six_arm_failure_triage.py'
+      - 'docs/NERAL_SIXARM_PRIVATE_TRIAGE.md'
       - 'scripts/neral_v6_fresh_dev_eval.py'
       - 'tests/test_neral_six_arm_gpu.py'
 permissions:
@@ -32,7 +38,8 @@ jobs:
       - name: CPU test genuine six-arm paired-input comparison, existing grader and regression contracts
         run: |
           python -m unittest discover -s tests -p test_neral_six_arm_gpu.py -v
+          python -m unittest discover -s tests -p test_neral_six_arm_failure_triage.py -v
           python -m unittest discover -s tests -p test_neral_six_arm_eval.py -v
           python -m unittest discover -s tests -p test_neral_v6_fresh_dev_eval.py -v
       - name: Compile scripts without GPU
-        run: python -m py_compile scripts/neral_six_arm_gpu.py scripts/neral_six_arm_eval.py scripts/neral_v6_fresh_dev_eval.py
+        run: python -m py_compile scripts/neral_six_arm_gpu.py scripts/neral_six_arm_eval.py scripts/neral_v6_fresh_dev_eval.py scripts/neral_six_arm_failure_triage.py
