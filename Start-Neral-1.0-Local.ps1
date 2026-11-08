@@ -6,54 +6,77 @@ param(
 )
 $ErrorActionPreference='Stop'
 
-# Release preview: deliberately use a declared local_foundation, never claim
-# an experimental adapter passed the still-pending independent release gate.
-$main=Join-Path $PSScriptRoot 'Start-Neral.ps1'
-if(-not(Test-Path -LiteralPath $main -PathType Leaf)){
-    throw 'Komplette Helios-App fehlt: Start-Neral.ps1 im Projektordner erforderlich.'
+# Standalone 1.0 Local Preview; no dependency on historic 50M deployment.
+$server=Join-Path $PSScriptRoot 'neral_preview_server.py'
+if(-not(Test-Path -LiteralPath $server -PathType Leaf)){
+    throw 'NERAL 1.0 Local Preview unvollstaendig: neral_preview_server.py fehlt.'
 }
 $ollama=Get-Command ollama -CommandType Application -ErrorAction SilentlyContinue
-if(-not $ollama){
-    throw 'Ollama ist nicht installiert oder nicht in PATH. Keine Modell-Downloads gestartet.'
-}
+if(-not $ollama){throw 'Ollama fehlt. Bitte eine vorhandene Ollama-Installation verwenden.'}
 $listing=@(& $ollama.Source list)
 if($LASTEXITCODE -ne 0 -or $listing.Count -lt 2){
-    throw 'Der lokale Ollama-Dienst ist nicht bereit. Ollama starten und erneut versuchen.'
+    throw 'Lokaler Ollama-Dienst nicht bereit. Ollama starten. Keine Modelldownloads.'
 }
 $installed=@()
-foreach($line in $listing|Select-Object -Skip 1){
-    $text=[string]$line
-    if($text -match '^\s*([^\s]+)\s+'){
-        $installed+= $Matches[1]
+foreach($line in $listing | Select-Object -Skip 1){
+    if(([string]$line) -match '^\s*([^\s]+)\s+'){
+        $installed += $Matches[1]
     }
 }
 if($Model -notin $installed){
-    throw "Das bereits installierte lokale Modell '$Model' wurde nicht gefunden. Bitte 'ollama list' prüfen. Kein automatischer Download."
+    throw "Lokales Modell $Model ist nicht installiert. ollama list pruefen; kein automatischer Download."
 }
 if($CheckOnly){
-    Write-Host "NERAL 1.0 Local Preview: lokales Modell $Model installiert; Start nicht ausgeführt."
+    Write-Host "NERAL 1.0: $Model verfuegbar, lokale Vorpruefung bestanden. Kein Release-Gate."
     return
 }
-
-# The existing Helios app may have been launched with a different backend.
-# Never reuse it silently while claiming Qwen3/3.5 is selected.
+$port=9690
 $socket=New-Object System.Net.Sockets.TcpClient
 try {
-    $socket.Connect('127.0.0.1',9686)
-    throw 'Helios läuft bereits auf Port 9686. Bitte die bestehende App vollständig beenden und erneut starten.'
+    $socket.Connect('127.0.0.1',$port)
+    throw "Port $port ist bereits belegt. Bestehende NERAL-Instanz kontrolliert beenden; kein stilles Wiederverwenden."
 } catch [System.Net.Sockets.SocketException] {
-    # Connection refused: port is not occupied; proceed.
+    # No listener; safe to start our new instance.
 } finally {
     $socket.Dispose()
 }
-
-$env:NERAL_AGENT_BACKEND='ollama'
-$env:NERAL_AGENT_OLLAMA_MODEL=$Model
-Remove-Item Env:NERAL_AGENT_ADAPTER_CHANNEL -ErrorAction SilentlyContinue
-
-Write-Host "NERAL 1.0 Local Preview: $Model (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
-Write-Host 'Nach dem Start oben auf NERAL AI klicken. Der alte 50M-Hauptchat bleibt separat.' -ForegroundColor Cyan
-& $main -NoBrowser:$NoBrowser
-if(-not $?){
-    throw 'Der lokale NERAL/Helios-Start ist fehlgeschlagen. Bitte local_state/app-error.log prüfen.'
+$preferred=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+if(Test-Path -LiteralPath $preferred -PathType Leaf){
+    $py=$preferred
+}else{
+    $candidate=Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if(-not $candidate){throw 'Python fehlt. Python 3.12 mit Flask und Waitress wird benoetigt.'}
+    $py=$candidate.Source
 }
+& $py -B -c 'import sys,flask,waitress; assert sys.version_info >= (3,11)'
+if($LASTEXITCODE -ne 0){
+    throw 'Python-Abhaengigkeiten fehlen. Einmalig bewusst installieren: python -m pip install -r requirements-neral-preview.txt'
+}
+$state=Join-Path $PSScriptRoot 'local_state'
+New-Item -ItemType Directory -Path $state -Force | Out-Null
+$err=Join-Path $state 'neral-preview-error.log'
+$out=Join-Path $state 'neral-preview.log'
+Write-Host "NERAL 1.0 Local Preview: $Model (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
+$proc=Start-Process -FilePath $py -ArgumentList @('-B','-m','neral_preview_server','--model',$Model) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardError $err -RedirectStandardOutput $out -PassThru
+$ready=$false
+for($attempt=0;$attempt -lt 60;$attempt++){
+    Start-Sleep -Milliseconds 300
+    if($proc.HasExited){throw "NERAL Preview ist fehlgeschlagen. Details: $err"}
+    $probe=New-Object System.Net.Sockets.TcpClient
+    try{
+        $probe.Connect('127.0.0.1',$port)
+        $ready=$true
+        break
+    }catch [System.Net.Sockets.SocketException] {
+    }finally{
+        $probe.Dispose()
+    }
+}
+if(-not $ready){
+    try{$proc.Kill()}catch{}
+    throw "NERAL reagiert auf Port $port nicht. Details: $err"
+}
+$url="http://127.0.0.1:$port/"
+Write-Host "NERAL ist lokal erreichbar: $url" -ForegroundColor Green
+Write-Host 'Eigenes Ollama-Modell ohne Cloud; Modellqualitaet noch nicht releasevalidiert.'
+if(-not $NoBrowser){Start-Process -FilePath $url}
