@@ -52,10 +52,14 @@ on:
       - 'static/neral-modern.js'
       - 'static/neral-dynamic-ui.js'
       - 'static/neral-math.js'
+      - 'static/neral-formulas.js'
+      - 'static/neral-formulas.css'
+      - 'tests/test_neral_formula_library.cjs'
       - 'static/neral-math.css'
       - 'static/vendor/katex/katex.min.js'
       - 'static/vendor/katex/katex.min.css'
       - 'static/vendor/katex/auto-render.min.js'
+      - 'static/vendor/katex/mhchem.min.js'
       - 'static/vendor/katex/LICENSE.txt'
       - 'static/vendor/katex/VERSION.txt'
       - 'static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2'
@@ -163,10 +167,14 @@ on:
       - 'static/neral-modern.js'
       - 'static/neral-dynamic-ui.js'
       - 'static/neral-math.js'
+      - 'static/neral-formulas.js'
+      - 'static/neral-formulas.css'
+      - 'tests/test_neral_formula_library.cjs'
       - 'static/neral-math.css'
       - 'static/vendor/katex/katex.min.js'
       - 'static/vendor/katex/katex.min.css'
       - 'static/vendor/katex/auto-render.min.js'
+      - 'static/vendor/katex/mhchem.min.js'
       - 'static/vendor/katex/LICENSE.txt'
       - 'static/vendor/katex/VERSION.txt'
       - 'static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2'
@@ -289,6 +297,7 @@ jobs:
       - run: node --check static/neral-dynamic-ui.js
       - run: node --check static/neral-math.js
       - run: node --test tests/test_neral_math.cjs
+      - run: node --test tests/test_neral_formula_library.cjs
       - run: node --test tests/test_neral_dynamic_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --check static/neral-reference-ui.js
