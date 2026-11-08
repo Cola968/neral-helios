@@ -20,6 +20,8 @@
   background:currentColor;vertical-align:-.12em;
   animation:neral-caret 1s steps(2,end) infinite
 }
+.message.pending.neral-cancel-requested .neral-pending-glyph{animation:none;opacity:.45}
+.message.pending.neral-cancel-requested[data-partial] .content::after{display:none}
 /* Microfeedback only during actual microphone listening and A/B comparison. */
 #voiceInput[aria-pressed="true"]{animation:neral-listening 2s ease-in-out infinite}
 #neralComparePanel[aria-busy="true"]{animation:neral-comparing 2s ease-in-out infinite}
