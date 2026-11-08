@@ -161,6 +161,10 @@
     if(!source.trim() || encoder.encode(source).length>4096) {
       errors.textContent="Python-Code fehlt oder ist zu lang.";return;
     }
+    const checkButton=$("codeCheck");
+    const startedEpoch=conversationEpoch;
+    busy=true;submit.disabled=true;checkButton.disabled=true;
+    window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"checking"}}));
     try {
       const reply=await json("/api/neral/preview/codecheck",{
         method:"POST",
@@ -168,13 +172,18 @@
         body:JSON.stringify({source}),
         signal:AbortSignal.timeout(5000)
       });
+      if(startedEpoch!==conversationEpoch)return;
       append("assistant",reply.syntax_ok
         ? "Python-Syntax gültig. Keine Ausführung oder Laufzeitprüfung vorgenommen."
         : "Python-Syntaxfehler in Zeile "+reply.line+", Spalte "+reply.column+
           ": "+reply.message+". Code wurde nicht ausgeführt.",
         "Code Check · Python-Syntax ohne Ausführung");
     } catch(e) {
-      errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
+      if(startedEpoch===conversationEpoch)
+        errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
+    } finally {
+      busy=false;submit.disabled=false;checkButton.disabled=false;
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done"}}));
     }
   });
 
