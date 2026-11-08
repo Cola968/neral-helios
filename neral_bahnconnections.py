@@ -260,18 +260,33 @@ def plan_journeys(payload: object, *, fetch_json=None) -> dict:
     if not valid_name(start) or not valid_name(target) or normalize_name(start) == normalize_name(target):
         raise ValueError("Zwei unterschiedliche, gültige Bahnhöfe erforderlich.")
     base = provider_base()
+    departure = _departure(payload)
+    allow_fallback = fetch_json is None
     fetch_json = fetch_json or fetch_provider_json
     # Pure station lookup; no full conversation, model data, files or browser tokens sent.
-    from_station = _resolve_station(start, fetch_json, base)
-    to_station = _resolve_station(target, fetch_json, base)
-    if from_station["name"] == to_station["name"]:
-        raise ValueError("Start und Ziel müssen verschieden sein.")
-    departure = _departure(payload)
-    raw = fetch_json(base + "/api/journeys", body={
-        "from": from_station, "to": to_station, "departure": departure,
-        "arriveBy": False, "bike": False, "wheelchair": False,
-        "maxTransfers": 4, "minTransferMinutes": 0, "categories": CATEGORIES,
-    }, timeout=27)
+    try:
+        from_station = _resolve_station(start, fetch_json, base)
+        to_station = _resolve_station(target, fetch_json, base)
+        if from_station["name"] == to_station["name"]:
+            raise ValueError("Start und Ziel müssen verschieden sein.")
+        raw = fetch_json(base + "/api/journeys", body={
+            "from": from_station, "to": to_station, "departure": departure,
+            "arriveBy": False, "bike": False, "wheelchair": False,
+            "maxTransfers": 4, "minTransferMinutes": 0, "categories": CATEGORIES,
+        }, timeout=27)
+    except RuntimeError:
+        if not allow_fallback:
+            raise
+        # Real timetable from BahnConnections' own primary provider.
+        # Never fabricate a route when either upstream is unavailable.
+        from neral_transitous_fallback import plan_transitous_direct
+        from_label = station_for_name(start)
+        to_label = station_for_name(target)
+        return plan_transitous_direct(
+            from_label["name"] if from_label else start,
+            to_label["name"] if to_label else target,
+            departure,
+        )
     journeys_raw = raw.get("journeys", [])
     if not isinstance(journeys_raw, list):
         raise RuntimeError("BahnConnections lieferte kein Reiseergebnis.")
