@@ -46,16 +46,20 @@ class OllamaLocalBackend:
 
     ENDPOINT = "http://127.0.0.1:11434/api/chat"
 
-    def __init__(self, model: str, endpoint: str = ENDPOINT, timeout: float = 55.0):
+    def __init__(self, model: str, endpoint: str = ENDPOINT, timeout: float = 55.0,
+                 inference_profile: str = "legacy"):
         if endpoint != self.ENDPOINT:
             raise ValueError("Nur die lokale Ollama-Schnittstelle ist erlaubt.")
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}", model):
             raise ValueError("Ungültige lokale Modellkennung.")
         if not 1 <= timeout <= 90:
             raise ValueError("Ungültiges Modell-Zeitlimit.")
+        if inference_profile not in ("legacy", "measured_nonthinking_2048"):
+            raise ValueError("Unbekanntes Inferenzprofil; keine stille Standardänderung.")
         self.model = model
         self.endpoint = endpoint
         self.timeout = timeout
+        self.inference_profile = inference_profile
         self._inference_lock = threading.Lock()
 
     def respond(self, messages: list[dict]) -> str:
@@ -79,13 +83,26 @@ class OllamaLocalBackend:
                  thinking: bool = False) -> str:
         if require_json and thinking:
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
-        budget = 512 if require_json else (2048 if thinking else 1024)
+        # Only an explicitly selected experiment uses the exact decoder
+        # from the successful Qwen3/Qwen3.5 development comparison. HIGH
+        # remains a system-level checked/review mode: the neural generator
+        # is non-thinking in this profile, matching what was actually tested.
+        measured = (self.inference_profile == "measured_nonthinking_2048"
+                    and not require_json)
+        budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
+        options = (
+            {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
+             "min_p": 0.0, "presence_penalty": 1.5,
+             "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": 4096}
+            if measured else
+            {"temperature": 0, "num_predict": budget, "num_ctx": 4096}
+        )
         request_data = {
             "model": self.model,
             "messages": messages,
-            "think": thinking,
+            "think": False if measured else thinking,
             "stream": False,
-            "options": {"temperature": 0, "num_predict": budget, "num_ctx": 4096},
+            "options": options,
             "keep_alive": "5m",
         }
         if require_json:
@@ -96,7 +113,7 @@ class OllamaLocalBackend:
         # The proxy handler is explicitly disabled. No cloud inference fallback.
         opener = local_only_opener()
         try:
-            with opener.open(request, timeout=90.0 if thinking else self.timeout) as response:
+            with opener.open(request, timeout=90.0 if (thinking or measured) else self.timeout) as response:
                 raw = response.read(128 * 1024 + 1)
             if len(raw) > 128 * 1024:
                 raise AgentModelError("Modellantwort zu groß.")

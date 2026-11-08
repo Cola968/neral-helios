@@ -1,0 +1,29 @@
+name: NERAL measured inference profile regression (CPU only)
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_autonomy.py'
+      - 'neral_local_chat_api.py'
+      - 'neral_preview_server.py'
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'tests/test_neral_optional_measured_inference.py'
+      - '.github/workflows/neral-measured-inference-ci.yml'
+permissions:
+  contents: read
+jobs:
+  measured-profile:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - run: python -B -m unittest discover -s tests -p test_neral_optional_measured_inference.py -v
+      - run: python -B -m unittest discover -s tests -p test_neral_1_0_ollama_mode_contracts.py -v
+      - run: python -B -m py_compile neral_agent_autonomy.py neral_preview_server.py neral_local_chat_api.py

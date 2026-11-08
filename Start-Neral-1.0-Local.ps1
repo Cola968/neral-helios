@@ -1,6 +1,7 @@
 param(
     [ValidateSet('qwen3:8b','qwen3.5:9b')]
     [string]$Model='qwen3:8b',
+    [switch]$ExperimentalSampling,
     [switch]$CheckOnly,
     [switch]$PrepareOnly,
     [switch]$NoBrowser
@@ -91,8 +92,9 @@ if($PrepareOnly){
 }
 $err=Join-Path $state 'neral-preview-error.log'
 $out=Join-Path $state 'neral-preview.log'
-Write-Host "NERAL 1.0 Local Preview: $Model (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
-$proc=Start-Process -FilePath $py -ArgumentList @('-B','-m','neral_preview_server','--model',$Model) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardError $err -RedirectStandardOutput $out -PassThru
+$profile=if($ExperimentalSampling){'measured_nonthinking_2048'}else{'legacy'}
+Write-Host "NERAL 1.0 Local Preview: $Model, Profil $profile (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
+$proc=Start-Process -FilePath $py -ArgumentList @('-B','-m','neral_preview_server','--model',$Model,'--inference-profile',$profile) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardError $err -RedirectStandardOutput $out -PassThru
 $ready=$false
 for($attempt=0;$attempt -lt 60;$attempt++){
     Start-Sleep -Milliseconds 300

@@ -176,11 +176,16 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     parser.add_argument("--model",choices=ALLOWED_MODELS,default="qwen3:8b")
+    parser.add_argument("--inference-profile", choices=("legacy", "measured_nonthinking_2048"),
+                        default="legacy",
+                        help="Experimental measured profile; default stays legacy.")
     args=parser.parse_args(argv)
     from neral_agent_autonomy import OllamaLocalBackend
     from waitress import serve
-    app=create_preview_app(OllamaLocalBackend(args.model,timeout=90))
+    app=create_preview_app(OllamaLocalBackend(
+        args.model,timeout=90,inference_profile=args.inference_profile))
     print(f"NERAL 1.0 Local Preview: {ORIGIN} | {args.model} | "
+          f"inference_profile={args.inference_profile} | "
           "local foundation only | no promoted LoRA",flush=True)
     serve(app,host=HOST,port=PORT,threads=4)
 
