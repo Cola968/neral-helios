@@ -34,6 +34,7 @@
     if(context){const previous=context;context=null;previous.close().catch(()=>{});}
     $("voiceInput").disabled=false;
     $("voiceOutput").disabled=false;
+    $("useWebSearch").disabled=false;
     button.setAttribute("aria-pressed","false");
     button.textContent="Lokaler Sprachmodus";
     resetVAD();
@@ -197,6 +198,10 @@
   }
   async function start(){
     if(active||starting){turnOff();return;}
+    if($("useWebSearch")?.checked){
+      say("Websuche deaktivieren, bevor der vollständig lokale Sprachmodus startet.");
+      return;
+    }
     if(!csrf&&!(browser.AudioContext||browser.webkitAudioContext)){
       say("WebAudio ist in diesem Browser nicht verfügbar.");
       return;
@@ -244,6 +249,7 @@
       active=true;
       $("voiceInput").disabled=true; // prevent browser-provider STT overlap
       $("voiceOutput").disabled=true;
+      $("useWebSearch").disabled=true; // never send spoken text to a search provider
       button.setAttribute("aria-pressed","true");
       button.textContent="Lokalen Sprachmodus beenden";
       rearm();
