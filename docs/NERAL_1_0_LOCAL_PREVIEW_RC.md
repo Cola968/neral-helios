@@ -173,3 +173,44 @@ dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
 - `project_files` (automatischer Dateisystem-Agent) und
   `local_code_execution` (Codeausfuehrung) bleiben deaktiviert.
   Der begrenzte Datei-Kontext und der Python-Syntaxcheck sind getrennte Tools.
+
+## Dynamic UI v1 – interaktive Antworten (experimentell)
+
+Die eigenständige NERAL-1.0-Weboberfläche kann neben normalem Antworttext
+einen **deklarierten UI-Block** darstellen. Das lokale Modell kann bei
+interaktiven Aufgaben auf Anweisung des Servers ein begrenztes
+`neral-ui`-JSON-Objekt vorschlagen. Erst der feste Browser-Renderer prüft
+die Struktur und baut bekannte HTML/SVG-Elemente daraus auf.
+
+Unterstützt:
+- **Rechner:** 1–5 Schieberegler/Zahlenfelder und ein Ausdruck mit
+  begrenzter Arithmetik, niemals JavaScript-`eval`;
+- **Diagramm:** 2–12 numerische Datenpunkte, Umschaltung Balken/Linie;
+- **Tabelle:** 2–8 Spalten, bis zu 40 Zeilen, Sortieren und Filtern;
+- **Quiz:** 1–6 Fragen, begrenzte Auswahloptionen, Punktezählung;
+- **Simulation:** idealisierte Wurfparabel mit Geschwindigkeit, Winkel,
+  Schwerkraft und veränderlichem Zeitpunkt.
+
+**Zum manuellen Prüfen:** „Zeige einen interaktiven Coulomb-Rechner“
+und „Simuliere einen schrägen Wurf“ besitzen lokale, deterministische
+Fallback-Komponenten. Bei Quiz-, Tabellen- oder Diagrammanfragen schlägt
+Qwen optional Daten im `neral-ui`-Format vor; die reale Erfolgsquote
+dieser Modellgenerierung ist noch nicht auf dem Windows-PC abgenommen.
+
+Ungültige oder unbekannte Schemas werden als unformatierter Antworttext
+behandelt. Die Darstellung verwendet `textContent` statt Modell-HTML;
+es gibt keine dynamische Skriptausführung und keine zusätzlichen
+Internet- oder Dateizugriffe durch die Widgets. Interaktionen wie
+Regleränderungen finden nur im Browser statt und senden keine
+weiteren Modellanfragen.
+
+**Begrenzung:** Die Modellformel und Quizantworten können sachlich falsch
+sein, auch bei gültigem JSON. Das UI-Rendering ist keine mathematische
+Verifikation und kein Nachweis verbesserter Modellgewichte. Der
+experimentelle Preview-Release bleibt bis zum echten GPU-/Browser-Gate
+nicht freigegeben.
+
+CI prüft die pure JavaScript-Schema-/Formelauswertung, die UI-Intent-
+und CSRF-Verträge sowie den Release-Paket-Inhalt. Ein eigener
+Headless-Browser-Smoke wurde mit einem simulierten lokalen Qwen-Backend
+für alle fünf UI-Typen durchgeführt.
