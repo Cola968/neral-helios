@@ -22,7 +22,19 @@
       <input id="chatSearchInput" class="sidebar-search" type="search" placeholder="Chats suchen" aria-label="Gespeicherte Chats filtern" hidden>
       <div class="sidebar-label">Gespräche</div>
       <nav id="savedChatList" aria-label="Gespeicherte Chats"></nav>
-      <div id="accountSection" class="sidebar-account"><span id="accountName">Gast · lokal</span><button id="showLogin" class="sidebar-login" type="button">Anmelden</button><button id="logout" class="sidebar-login" type="button" hidden>Abmelden</button></div>
+      <div id="accountSection" class="sidebar-account">
+        <span id="accountName">Gast · lokal</span>
+        <button id="showLogin" class="sidebar-login" type="button">Anmelden</button>
+        <button id="logout" class="sidebar-login" type="button" hidden>Abmelden</button>
+        <details id="accountSettings" hidden>
+          <summary aria-label="Kontoeinstellungen">⚙ <span>Einstellungen</span></summary>
+          <div class="account-settings-actions">
+            <a id="exportChats" href="/api/neral/account/export" download="neral-chats.json">Chats exportieren</a>
+            <button id="changePassword" type="button">Passwort ändern</button>
+            <button id="deleteAccount" type="button">Konto löschen</button>
+          </div>
+        </details>
+      </div>
     </aside>
     <div class="shell">
     <header class="masthead">
@@ -76,6 +88,23 @@
       <input id="accountPassword" type="password" autocomplete="current-password" required minlength="12" maxlength="128">
       <p id="accountError" role="alert"></p>
       <div class="dialog-buttons"><button id="accountSubmit" type="submit">Anmelden</button><button id="accountRegister" type="button" class="secondary">Konto erstellen</button><button id="accountCancel" type="button" class="secondary">Abbrechen</button></div>
+    </form>
+  </dialog>
+  <dialog id="accountManageDialog" aria-labelledby="accountManageTitle">
+    <form id="accountManageForm" method="dialog">
+      <h2 id="accountManageTitle">Kontoeinstellungen</h2>
+      <p id="accountManageDescription">Kontoverwaltung auf diesem Gerät.</p>
+      <label for="accountCurrentPassword">Aktuelles Passwort</label>
+      <input id="accountCurrentPassword" type="password" autocomplete="current-password" required maxlength="128">
+      <div id="accountNewPasswordGroup">
+        <label for="accountNewPassword">Neues Passwort (mindestens 12 Zeichen)</label>
+        <input id="accountNewPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128">
+      </div>
+      <p id="accountManageError" role="alert"></p>
+      <div class="dialog-buttons">
+        <button id="accountManageSubmit" type="submit">Bestätigen</button>
+        <button id="accountManageCancel" type="button" class="secondary">Abbrechen</button>
+      </div>
     </form>
   </dialog>
 </body>
