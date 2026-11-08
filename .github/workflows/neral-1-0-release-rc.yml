@@ -53,7 +53,7 @@ jobs:
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --check static/neral-local-chat.js
   local-windows-pc:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'release/neral-1-0-standalone-preview-20261108'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'fix/neral-1-0-runtime-identity-20261108')
     needs: [cpu-contracts]
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 22
