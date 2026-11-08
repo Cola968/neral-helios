@@ -56,3 +56,7 @@ dialog{color:var(--text);background:var(--side);border:1px solid var(--line);bor
 .neral-v5-evidence table{border-collapse:collapse;width:100%;font-size:12px;margin:9px 0}
 .neral-v5-evidence th,.neral-v5-evidence td{border-bottom:1px solid var(--line);padding:7px;text-align:left}
 .neral-v5-evidence td{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* NERAL 1.0 Local Preview: accessible direct entry without mobile header overflow. */
+#neralAIQuickOpen{font-weight:650}
+@media(max-width:730px){.view-switch{gap:1px}.view-switch button{padding:6px 7px;font-size:12px}}

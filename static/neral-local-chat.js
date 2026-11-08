@@ -15,6 +15,17 @@
   const form = el('neralLocalChatForm');
   const prompt = el('neralLocalChatPrompt');
   const thinkSwitch = el('neralLocalChatThink');
+
+  const quickOpen = el('neralAIQuickOpen');
+  if (quickOpen) {
+    quickOpen.addEventListener('click', () => {
+      // The local model chat lives in the existing guarded Agent surface.
+      el('agentView')?.click();
+      const panel = el('neralLocalChatPanel');
+      if (panel) panel.open = true;
+      prompt.focus();
+    });
+  }
   const compareButton = el('neralLocalChatCompare');
   const comparePanel = el('neralComparePanel');
   const compareBase = el('neralCompareBase');
