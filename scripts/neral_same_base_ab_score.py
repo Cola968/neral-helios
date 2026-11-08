@@ -25,7 +25,8 @@ CASE_ID = re.compile(r"[a-zA-Z0-9_-]{1,80}\Z")
 INTEGER = re.compile(r"[+-]?\d{1,15}\Z")
 FINAL = re.compile(r"FINAL(?:_ANSWER)?\s*:\s*([+-]?\d{1,15})\Z", re.I)
 TOOLS = frozenset({None, "neral_math_exact", "neral_logic_exact",
-                   "neral_python_trace_static", "neral_quant_exact"})
+                   "neral_python_trace_static", "neral_quant_exact",
+                   "neral_python_sandbox"})
 
 class SameBaseError(ValueError):
     """Never include prompt text or model responses in external errors."""
