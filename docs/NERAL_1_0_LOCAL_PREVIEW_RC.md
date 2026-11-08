@@ -214,3 +214,36 @@ CI prüft die pure JavaScript-Schema-/Formelauswertung, die UI-Intent-
 und CSRF-Verträge sowie den Release-Paket-Inhalt. Ein eigener
 Headless-Browser-Smoke wurde mit einem simulierten lokalen Qwen-Backend
 für alle fünf UI-Typen durchgeführt.
+
+## BahnConnections im NERAL-Chat (experimentell)
+
+NERAL erkennt ausdrücklich formulierte Reiseanfragen wie
+`Zeig mir eine Verbindung von Berlin Hauptbahnhof nach Stuttgart`
+oder `Suche eine Zugverbindung von Berlin Hbf nach Stuttgart Hbf morgen um 09:30`.
+Der Chat-Client ruft in diesem Fall mit Sitzungs-/CSRF-Schutz
+`POST /api/neral/preview/journeys` auf. Das Sprachmodell wird für die
+Verbindungssuche nicht verwendet und kann keine Abfahrtszeiten erfinden.
+
+Die Abfrage geht zunächst an den bestehenden BahnConnections-Reiseplaner
+auf `bahnconnections-de.a-stad.chatgpt.site`. Ist die Seite nicht erreichbar,
+nutzt NERAL die gleiche Transitous/MOTIS-Datenbasis direkt mit ausdrücklich
+gekennzeichneter Fallback-Quelle. Pro Anfrage werden nur Startbahnhof,
+Zielbahnhof, Abfahrtszeit und Verkehrsfilter extern übertragen; keine
+Gesprächsverläufe, Anhänge oder Modellinformationen. Die Transitous-Nutzung
+ist bei späterem kommerziellem Einsatz gesondert lizenzrechtlich zu prüfen.
+
+Die Antwort enthält eine kompakte Liste von bis zu fünf Verbindungen.
+Beim Anklicken wechseln Kartenübersicht, Zugabschnitte, Gleise, Uhrzeiten,
+Umstiege und Echtzeitkennzeichnung. Die Karte verwendet ausschließlich
+vorhandene geografische Linienpunkte; fehlende Streckenstücke werden
+ausdrücklich nicht durch gerade Luftlinien ergänzt. Es gibt keine
+externen Kartenkacheln und keine zusätzliche Karten-Telemetrie.
+
+Ohne bestätigte Fahrplandaten zeigt NERAL keine Fahrt an. Ein Ausfall
+beider Quellen führt zu einem Fehlerhinweis, nicht zu Demo-Verbindungen.
+Die Browser-Smoke-Tests arbeiten mit unmissverständlich als Testdaten
+gekennzeichneten Musterfahrten; ein separater Direktabruf bei Transitous
+lieferte echte Fahrpläne und Streckengeometrien für Berlin–Stuttgart.
+Die Erfolgsrate des öffentlichen BahnConnections-Webendpunkts ist noch
+nicht freigegeben. PR und Release bleiben bis zur Windows-PC-Abnahme
+experimentell.
