@@ -7,6 +7,7 @@ stored or sent to GitHub. This preview does NOT promote NERAL adapter weights.
 from __future__ import annotations
 
 import argparse
+import ast
 import hmac
 import secrets
 from pathlib import Path
@@ -106,9 +107,36 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
             "browser_voice": {"configured": True, "live_verified": False,
                               "requires_user_consent": True,
                               "may_use_browser_provider": True},
+            "python_syntax_check": {"available": True, "scope": "python_ast_only",
+                                    "executes_code": False},
+            "selected_file_context": {"available": True,
+                                      "requires_user_selection": True,
+                                      "persistent_filesystem_access": False},
             "local_code_execution": {"available": False},
             "project_files": {"available": False},
         })
+    @app.post("/api/neral/preview/codecheck")
+    def preview_codecheck():
+        # Parse only. This does not run or import user code, write files,
+        # invoke a shell, or send anything over a network.
+        if not request.is_json:
+            return jsonify(error="Nur JSON erlaubt."), 415
+        data=request.get_json(silent=True)
+        if (not isinstance(data, dict) or set(data)!={"source"} or
+                not isinstance(data["source"], str) or not data["source"].strip() or
+                len(data["source"].encode("utf-8"))>4096):
+            return jsonify(error="Nur Python-Quelltext bis 4096 Bytes erlaubt."), 400
+        try:
+            ast.parse(data["source"], mode="exec")
+        except SyntaxError as exc:
+            return jsonify(syntax_ok=False, scope="python_ast_only",
+                           code_executed=False, line=exc.lineno or 1,
+                           column=exc.offset or 0, message=str(exc.msg)[:120])
+        except (ValueError, RecursionError):
+            return jsonify(error="Ungültiger Python-Quelltext."), 400
+        return jsonify(syntax_ok=True, scope="python_ast_only",
+                       code_executed=False)
+
     return app
 
 
