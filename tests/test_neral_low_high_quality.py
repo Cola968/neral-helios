@@ -92,6 +92,48 @@ class HighMustBeBetter(unittest.TestCase):
         with self.assertRaises(QualityGateError):
             score_paired(cases, pairs, model_digest=DIGEST)
 
+    def test_local_http_probe_uses_same_prompt_and_keeps_only_aggregate(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from scripts.neral_low_high_quality import run_local_probe
+
+        calls = []
+        class FakeInventory:
+            def inventory(self):
+                return {"qwen3:8b": DIGEST}
+        class FakeBackend:
+            model = "qwen3:8b"
+            def __init__(self, *_args, **_kwargs):
+                pass
+            def respond_chat(self, messages):
+                calls.append(("LOW", messages[-1]["content"]))
+                return "FINAL_ANSWER: 0"
+            def respond_think(self, messages):
+                calls.append(("HIGH", messages[-1]["content"]))
+                return "FINAL_ANSWER: 0"
+
+        with tempfile.TemporaryDirectory() as td, \
+             patch("scripts.neral_low_high_quality.OllamaLocal", FakeInventory), \
+             patch("neral_agent_autonomy.OllamaLocalBackend", FakeBackend):
+            output = Path(td) / "aggregate.json"
+            report = run_local_probe(count=12, output=output)
+            self.assertEqual(report["case_count"], 12)
+            self.assertFalse(report["development_gate_passed"])
+            self.assertTrue(output.is_file())
+            content = output.read_text(encoding="utf8")
+            self.assertNotIn("FINAL_ANSWER", content)
+            self.assertNotIn("Gib das Ergebnis", content)
+            self.assertNotIn("prompt", content)
+            self.assertEqual(json.loads(content)["case_count"], 12)
+        self.assertEqual(calls[0][0], "LOW")
+        self.assertEqual(calls[1][0], "HIGH")
+        self.assertEqual(calls[0][1], calls[1][1])
+        self.assertEqual(calls[3][0], "HIGH")
+        self.assertEqual(calls[5][0], "LOW")
+        self.assertEqual(calls[3][1], calls[5][1])
+
     def test_identical_question_prompt_for_both_modes(self):
         case = generate_cases()[0]
         prompt = make_prompt(case)
