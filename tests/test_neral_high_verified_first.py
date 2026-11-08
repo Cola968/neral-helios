@@ -2,6 +2,7 @@
 from __future__ import annotations
 import unittest
 from neral_high_verified_first import direct_high_reply
+from neral_agent_autonomy import OllamaLocalBackend
 from neral_preview_server import create_preview_app
 
 HOST = "http://127.0.0.1:9690"
@@ -14,10 +15,9 @@ def messages(question):
     ]
 
 
-class StubBackend:
-    model = "qwen3:8b"
-
+class StubBackend(OllamaLocalBackend):
     def __init__(self):
+        super().__init__("qwen3:8b")
         self.calls = 0
 
     def respond_think(self, turns):
