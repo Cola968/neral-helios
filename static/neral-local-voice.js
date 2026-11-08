@@ -13,6 +13,14 @@
   const SAMPLE_RATE=16000, MAX_SPEECH=12, END_SILENCE=.8;
 
   function say(text){status.textContent=text;}
+  function setVoiceButtonLabel(text){
+    // Keep the icon during responsive voice state changes.
+    const label=typeof button.querySelector==="function"
+      ? button.querySelector(".voice-label") : null;
+    if(label)label.textContent=text;
+    else button.textContent=text; // Test doubles have no DOM children.
+    button.setAttribute("aria-label",text);
+  }
   function resetVAD(){
     preRoll=[];blocks=[];heard=0;silence=0;seconds=0;
   }
@@ -36,7 +44,7 @@
     $("voiceOutput").disabled=false;
     $("useWebSearch").disabled=false;
     button.setAttribute("aria-pressed","false");
-    button.textContent="Lokaler Sprachmodus";
+    setVoiceButtonLabel("Lokaler Sprachmodus");
     resetVAD();
     say("Lokaler Sprachmodus aus · Audio bleibt auf diesem PC");
   }
@@ -251,7 +259,7 @@
       $("voiceOutput").disabled=true;
       $("useWebSearch").disabled=true; // never send spoken text to a search provider
       button.setAttribute("aria-pressed","true");
-      button.textContent="Lokalen Sprachmodus beenden";
+      setVoiceButtonLabel("Lokalen Sprachmodus beenden");
       rearm();
     }catch(e){if(current===version)fail(e.message||"Lokales Mikrofon konnte nicht gestartet werden.");}
     finally{starting=false;button.disabled=false;}
