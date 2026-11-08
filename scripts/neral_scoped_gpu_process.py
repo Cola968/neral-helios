@@ -55,7 +55,22 @@ def classify_neral_candidate(proc,expected:str,*,now:float)->dict:
         if type(args) is not list:
             args=[]
         pinned_launch=bool(args) and _normalize(args[0])==_normalize(expected)
-        compatible_python=ntpath.basename(_normalize(exe_path)) in ("python.exe","pythonw.exe")
+        # Accept only the user's *standard local Python install* as the
+        # resolved executable of the exact pinned NERAL venv launcher.
+        # Do not trust arbitrary python.exe paths or a forged argv[0].
+        home=_normalize(expected)
+        for _ in range(4):
+            home=ntpath.dirname(home)
+        base_prefix=_normalize(ntpath.join(home,"AppData","Local","Programs","Python"))+"\\"
+        normalized_exe=_normalize(exe_path)
+        relative=(normalized_exe[len(base_prefix):]
+                  if normalized_exe.startswith(base_prefix) else "")
+        segments=relative.split("\\")
+        compatible_python=bool(
+            len(segments)==2 and segments[0].startswith("python")
+            and segments[0][6:].isdigit()
+            and segments[1] in ("python.exe","pythonw.exe")
+        )
         trusted_interpreter=bool(same or (pinned_launch and compatible_python))
         tail=" ".join(args[1:]).casefold()
         from_neral=("neral" in tail or "helios" in tail)
