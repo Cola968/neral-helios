@@ -198,32 +198,19 @@ private fun OfflineScreen() {
                         busy = true
                         status = "Antwort wird lokal berechnet …"
                         scope.launch(Dispatchers.IO) {
-                            val answer = StringBuilder()
                             try {
-                                val conversation = OfflineModel.window(previous).map {
-                                    ChatMessage(it.role, it.content)
-                                }
-                                localEngine.resetInterrupt()
-                                val prompt = localEngine.formatChat(conversation, enableThinking = false)
-                                val cap = 384
-                                val count = localEngine.completion(
-                                    prompt,
-                                    SamplingParams(nPredict = cap, temperature = 0.65f),
-                                    TokenCallback { token ->
-                                        answer.append(token)
-                                        val current = answer.toString()
+                                val result = OfflineGenerator.generate(
+                                    localEngine, previous,
+                                    onText = { current ->
                                         handler.post {
                                             if (responseIndex < turns.size)
                                                 turns[responseIndex] = ChatTurn("assistant", current)
                                         }
+                                    },
+                                    onRetry = {
+                                        handler.post { status = "Antwort wiederholt sich – neuer Versuch ohne alten Kontext …" }
                                     }
                                 )
-                                val result = when {
-                                    count < 0 -> "Fehler bei der lokalen Modellberechnung."
-                                    count == 0 && answer.isEmpty() -> "Keine Antwort erzeugt."
-                                    count >= cap -> answer.toString() + "\n\n[Antwort durch Tokenlimit abgeschnitten]"
-                                    else -> answer.toString()
-                                }
                                 handler.post {
                                     if (responseIndex < turns.size)
                                         turns[responseIndex] = ChatTurn("assistant", result)
