@@ -51,12 +51,12 @@ def _provenance(backend) -> dict:
     }
 
 
-def _messages(payload: object) -> list[dict]:
+def _messages(payload: object, *, max_prompt_bytes: int = MAX_PROMPT_BYTES) -> list[dict]:
     if not isinstance(payload, dict) or not {"prompt"} <= set(payload) or not set(payload) <= {"prompt", "history"}:
         raise ValueError("Nur prompt und history sind zulässig.")
     prompt = payload.get("prompt")
     history = payload.get("history", [])
-    if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > max_prompt_bytes:
         raise ValueError("Eingabe muss 1 bis 4096 UTF-8-Bytes enthalten.")
     if not isinstance(history, list) or len(history) > MAX_HISTORY_MESSAGES:
         raise ValueError("Verlauf zu lang.")
@@ -209,7 +209,7 @@ def register_neral_local_chat_api(app, backend):
             else:
                 exact = None
             if exact is not None:
-                return jsonify({**exact, "model_generated": False,
+                return jsonify({**exact, "mode": "LOW", "model_generated": False,
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(backend)})
             try:
@@ -224,6 +224,7 @@ def register_neral_local_chat_api(app, backend):
                 return jsonify(error="Lokales Modell lieferte eine ungültige Antwort."), 503
             return jsonify({
                 "text": text,
+                "mode": "LOW",
                 "model_generated": True,
                 "seconds": round(time.monotonic() - started, 3),
                 **_provenance(backend),
@@ -258,7 +259,11 @@ def register_neral_local_chat_api(app, backend):
                 local_respond = getattr(backend, "respond_chat", None)
             if not callable(local_respond):
                 local_respond = backend.respond
-            result = think_reply(data, local_respond)
+            from neral_agent_autonomy import OllamaLocalBackend
+            # Second review is opt-in only for real local Ollama.
+            # Retain the historic adapter THINK semantics and its tests.
+            deep_review = isinstance(backend, OllamaLocalBackend)
+            result = think_reply(data, local_respond, deep_review=deep_review)
             return jsonify({**result, **_provenance(backend)})
         except Exception:
             # Never leak local paths, checkpoints, prompts or model outputs.

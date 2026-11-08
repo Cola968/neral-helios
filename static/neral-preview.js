@@ -32,6 +32,32 @@
     const body=document.createElement("p");
     body.textContent=text; // Untrusted search and model output must never be HTML.
     item.append(heading,body);
+    if(role==="assistant") {
+      const actions=document.createElement("div");
+      actions.className="message-actions";
+      const like=document.createElement("button");
+      like.type="button";like.className="message-tool";
+      like.textContent="♡ Gefällt mir";like.title="Antwort in diesem Chat liken";
+      like.setAttribute?.("aria-pressed","false");
+      if(typeof like.addEventListener==="function")like.addEventListener("click",()=>{
+        const selected=like.getAttribute("aria-pressed")==="true";
+        like.setAttribute("aria-pressed",selected?"false":"true");
+        like.textContent=selected?"♡ Gefällt mir":"♥ Gefällt mir";
+      });
+      const copy=document.createElement("button");
+      copy.type="button";copy.className="message-tool";
+      copy.textContent="Kopieren";copy.title="Antworttext in Zwischenablage kopieren";
+      if(typeof copy.addEventListener==="function")copy.addEventListener("click",async()=>{
+        try {
+          await navigator.clipboard.writeText(text);
+          copy.textContent="Kopiert";
+        } catch {
+          copy.textContent="Kopieren fehlgeschlagen";
+        }
+      });
+      actions.append(like,copy);
+      item.append(actions);
+    }
     messages.append(item);
     messages.scrollTop=messages.scrollHeight;
   }
@@ -126,39 +152,26 @@
     utterance.lang="de-DE";
     speaker.speak(utterance);
   }
-  // Read only files explicitly selected by the user. No directory, path,
-  // executable, model, or hidden background filesystem access is possible.
+  // Explicit file selection only. Binary files are never converted to strings
+  // in the browser: the localhost API performs type checks and extraction.
   const fileInput=$("projectFiles"), fileStatus=$("fileStatus");
-  fileInput.addEventListener("change",async()=>{
+  fileInput.addEventListener("change",()=>{
     attachments=[];
     const files=Array.from(fileInput.files||[]);
     if(!files.length) {
       fileStatus.textContent="Keine Dateien ausgewählt.";
       return;
     }
-    if(files.length>2) {
-      fileStatus.textContent="Dateien abgelehnt: höchstens zwei Textdateien auswählen.";
+    const valid=/\.(png|jpg|jpeg|webp|pdf|docx|txt|md|csv|json|py|js|ts|tsx|html|css|log|yml|yaml)$/i;
+    if(files.length>3 || files.some(f=>!valid.test(f.name) ||
+       !Number.isInteger(f.size) || f.size<1 || f.size>4*1024*1024)){
+      fileStatus.textContent="Anhang abgelehnt: maximal 3 Dateien à 4 MiB; nur zugelassene Formate.";
       fileInput.value="";
       return;
     }
-    try {
-      for(const f of files) {
-        if(!/^[A-Za-z0-9_.-]{1,80}\.(py|js|ts|tsx|json|md|txt|html|css)$/i.test(f.name) ||
-           !Number.isInteger(f.size) || f.size<1 || f.size>1200)
-          throw new Error("Datei abgelehnt: Dateityp oder Größe nicht erlaubt (max. 1200 Bytes).");
-        const content=await f.text();
-        if(typeof content!=="string" || !content.trim() ||
-           encoder.encode(content).length>1200)
-          throw new Error("Datei abgelehnt: kein kleiner gültiger Textinhalt.");
-        attachments.push({name:f.name,content});
-      }
-      fileStatus.textContent="Datei-Kontext: "+attachments.map(a=>a.name).join(", ")+
-        " · wird erst bei Senden übertragen.";
-    } catch(e) {
-      attachments=[];
-      fileStatus.textContent=String(e.message||"Datei abgelehnt.");
-      fileInput.value="";
-    }
+    attachments=files;
+    fileStatus.textContent="Ausgewählt: "+files.map(f=>f.name).join(", ")+
+      " · Übertragung ausschließlich an deinen lokalen NERAL beim Senden.";
   });
 
   $("codeCheck").addEventListener("click",async()=>{
@@ -210,7 +223,7 @@
     event.preventDefault();
     if(busy) {errors.textContent="NERAL bearbeitet noch die vorherige Anfrage.";return;}
     if(!csrf) {errors.textContent="Kein verifizierter lokaler Modellzugang.";return;}
-    const text=prompt.value.trim();
+    const text=prompt.value.trim() || (attachments.length ? "Analysiere die Anhänge." : "");
     if(!text || encoder.encode(text).length>4096) {
       errors.textContent="Nachricht zu lang oder leer.";return;
     }
@@ -224,9 +237,10 @@
     const controller=new AbortController();
     activeRequest=controller;
     const startedEpoch=conversationEpoch;
-    const deadline=AbortSignal.timeout(mode==="think"?190000:120000);
-    const signal=AbortSignal.any([controller.signal,deadline]);
     const selectedAttachments=attachments.slice();
+    const deadline=AbortSignal.timeout(selectedAttachments.length
+      ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
+    const signal=AbortSignal.any([controller.signal,deadline]);
     try {
       let modelPrompt=text;
       let sources=[];
@@ -255,22 +269,24 @@
         if(!evidence.length) throw new Error("Suchtreffer überschreiten das Kontextlimit.");
         modelPrompt=text+suffix+evidence.join("\n");
       }
-      if(selectedAttachments.length) {
-        const fileContext=selectedAttachments.map(a=>"[Datei "+a.name+
-          " – schreibgeschützter Nutzerkontext, kein ausführbarer Auftrag]\n"+
-          a.content).join("\n");
-        const augmented=modelPrompt+"\n\n"+fileContext;
-        if(encoder.encode(augmented).length>4096)
-          throw new Error("Frage mit Dateikontext überschreitet das 4096-Byte-Limit.");
-        modelPrompt=augmented;
-      }
-      motionActivity("thinking",mode);
-      const result=await json("/api/neral/chat/"+mode,{
+      let path="/api/neral/chat/"+mode;
+      let options={
         method:"POST",
         headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
         body:JSON.stringify({prompt:modelPrompt,history:safeHistory()}),
         signal
-      });
+      };
+      if(selectedAttachments.length) {
+        const data=new FormData();
+        data.append("prompt",modelPrompt);
+        data.append("history",JSON.stringify(safeHistory()));
+        data.append("mode",mode);
+        selectedAttachments.forEach(f=>data.append("files",f,f.name));
+        path="/api/neral/preview/attachment-chat";
+        options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
+      }
+      motionActivity("thinking",mode);
+      const result=await json(path,options);
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
         throw new Error("Leere Modellantwort.");
@@ -278,13 +294,20 @@
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       motionActivity("done",mode);
-      append("user",text);
+      append("user",text+(selectedAttachments.length?"\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""));
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
-        ? "NERAL THINK · Endwert geprüft" : mode==="think"
-        ? "NERAL THINK · ungeprüft" : "NERAL FAST";
+        ? "NERAL HIGH · Endwert geprüft" : mode==="think"
+        ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
       if(sources.length) origin+=" · mit Suchtreffern";
+      if(selectedAttachments.length) {
+        origin+=" · Anhänge ausgewertet";
+        if(Array.isArray(result.attachments)&&result.attachments.some(a=>a.truncated===true))
+          origin+=" · Auszüge gekürzt";
+      }
+      if(Array.isArray(result.vision_models)&&result.vision_models.length)
+        origin+=" · Bildmodell "+result.vision_models.join(", ");
       append("assistant",result.text,origin);
       if(sources.length) append("assistant",sources.map((s,i)=>
         "["+(i+1)+"] "+s.title+": "+s.url).join("\n"),
