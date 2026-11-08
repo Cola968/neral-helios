@@ -21,7 +21,7 @@ PORT = 9690
 ORIGIN = f"http://{HOST}:{PORT}"
 
 
-def create_preview_app(backend=None, *, secret_key=None, search_service=None):
+def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None):
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -93,7 +93,7 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
     from neral_local_chat_api import register_neral_local_chat_api
     chat_busy = register_neral_local_chat_api(app,backend)
     from neral_preview_attachments import register_preview_attachment_api
-    register_preview_attachment_api(app, backend, chat_busy)
+    register_preview_attachment_api(app, backend, chat_busy, vision_analyzer=vision_analyzer)
 
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same
