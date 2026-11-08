@@ -108,6 +108,11 @@ v5 und den vorhandenen v6-Adapter. Dafür gibt es
 `--prompt-protocol matched_fewshot`. Ohne dieses Flag bleibt der alte
 ungleiche Vergleich (nur Qwen sieht Beispiele).
 
+Der gemeinsame GPU-Aufruf behält die injizierte `messages_factory` aus
+dem Sechs-Arm-Lauf. Diese Factory ist die geprüfte Vorlage dieses
+Laufs und wird nicht vom Protokoll umgeschrieben. Fehlt sie, gilt
+`--prompt-protocol`. Der Standard bleibt `historical`.
+
 Die Auswertung nennt jetzt vier Zähler, die zusammen die Suite ergeben:
 `strict_correct`, `wrong_readable_number`, `unreadable`, `incomplete`.
 Nur `wrong_readable_number` ist ein Rechenbefund. `unreadable` ist
@@ -141,7 +146,11 @@ Checkout ist `main`. Ausgabe:
 
 Nicht `v6-r16-120-...` und nicht `v61-replay-120-...`. Basis ist das
 versiegelte v5, nicht ein Überschreiben davon. 120 Schritte, Lernrate
-`1e-5`, 728 Trainingszeilen, 100 Validierungszeilen. Die CPU-Prüfung
+`1e-5`, 728 Trainingszeilen, 100 Validierungszeilen. Der gemeinsame
+Trainer kann seit main optionale Validierungs-Checkpoints wählen und
+den besten Adapter vor dem Speichern zurücksetzen. Dieser Lauf übergibt
+kein Intervall. Ohne Intervall bleiben `eval_strategy=no` und
+`save_strategy=no`, also der bisherige letzte Schritt. Die CPU-Prüfung
 oben verweigert das Bauen der Daten, wenn die gewählte Länge 768
 übersteigt. Ohne gepinnten Tokenizer ist das die Byte-Schranke. Mit
 dem Tokenizer aus `--base` ist es die echte Tokenzahl, und die

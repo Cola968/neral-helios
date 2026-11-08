@@ -252,6 +252,23 @@ def messages_for_protocol(case:dict, variant:str, protocol:str="historical")->li
     raise ValueError("Unknown prompt protocol")
 
 
+def resolve_messages_factory(args, messages_factory=None):
+    """Keep both the three-way protocol and the six-arm prompt injection.
+
+    An explicit factory is the reviewed prompt for that call and is not
+    rewritten. With no factory, ``prompt_protocol`` selects the messages.
+    Missing protocol stays ``historical``, which is the unequal Qwen-only
+    few-shot path.
+    """
+    if messages_factory is None:
+        protocol = getattr(args, "prompt_protocol", "historical")
+        return lambda case, variant, _protocol=protocol: messages_for_protocol(
+            case, variant, _protocol)
+    if not callable(messages_factory):
+        raise ValueError("Missing reviewed prompt factory")
+    return messages_factory
+
+
 def validate_variant_output(cases:list[dict],records:list[dict]):
     if (not isinstance(records,list) or len(cases)!=len(records)
             or len(cases)!=72): raise ValueError("Expected exactly 72 responses")
@@ -428,7 +445,7 @@ def _gpu_ready():
     if len(v)!=2 or v[0]<9000 or v[1]>20: raise ValueError("GPU occupied")
 
 
-def _gpu_variant(cases:list[dict],args):
+def _gpu_variant(cases:list[dict],args,*,messages_factory=None):
     if args.variant not in VARIANTS: raise ValueError("Not a permitted comparator")
     if args.out.exists() or args.out.is_symlink() or not args.out.parent.is_dir():
         raise ValueError("New private response file required")
@@ -453,6 +470,9 @@ def _gpu_variant(cases:list[dict],args):
             }):
         raise ValueError("Experimental v6 LoRA configuration changed")
 
+    messages_factory=resolve_messages_factory(args, messages_factory)
+    if not callable(messages_factory):
+        raise ValueError("Missing reviewed prompt factory")
     _gpu_ready()
     os.environ.update(HF_HUB_OFFLINE="1",HF_DATASETS_OFFLINE="1",
                       TRANSFORMERS_OFFLINE="1",WANDB_DISABLED="true")
@@ -477,8 +497,7 @@ def _gpu_variant(cases:list[dict],args):
                 model,str(folder),is_trainable=False,local_files_only=True)
         model.eval()
         for case in cases:
-            texts=messages_for_protocol(
-                case, args.variant, getattr(args, "prompt_protocol", "historical"))
+            texts=messages_factory(case,args.variant)
             inputs=tokenizer.apply_chat_template(
                 texts,chat_template=CHAT_TEMPLATE,tokenize=True,
                 add_generation_prompt=True,return_tensors="pt").to("cuda:0")

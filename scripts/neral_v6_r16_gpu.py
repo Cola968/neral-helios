@@ -929,12 +929,17 @@ def _gpu_is_free() -> tuple[int, int]:
 
 def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
                lr=1e-5, authorize=AUTH,
-               status="NERAL_V6_120_STEPS_TRAINED_EXPERIMENT_ONLY") -> dict:
+               status="NERAL_V6_120_STEPS_TRAINED_EXPERIMENT_ONLY",
+               checkpoint_interval=None) -> dict:
     # Keep the original v6 defaults unchanged; allow explicit reviewed
     # experiments to supply a different provenance-checked data factory.
     if (args.authorize != authorize or type(steps) is not int or
             not 1 <= steps <= 120 or not 0 < lr <= 1e-5):
         raise ValueError("Unsafe training authorization, step count or LR")
+    from scripts.neral_training_checkpoint_policy import (
+        options_for_training, validate_best_checkpoint,
+    )
+    checkpoint_options=options_for_training(steps=steps,interval=checkpoint_interval)
     root = Path(__file__).resolve().parents[1]
     dest = Path(args.out)
     model_dir = Path(args.base)
@@ -1055,7 +1060,7 @@ def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant":False},
         max_grad_norm=1.0, lr_scheduler_type="cosine", warmup_ratio=0.05,
-        eval_strategy="no",save_strategy="no",logging_steps=5,
+        **checkpoint_options, logging_steps=5,
         seed=SEED,dataloader_num_workers=0,
         remove_unused_columns=False,report_to="none",push_to_hub=False,
         disable_tqdm=True,
@@ -1069,6 +1074,17 @@ def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
     result=trainer.train()
     if trainer.state.global_step != steps or not math.isfinite(result.training_loss):
         raise ValueError("Incomplete/nonfinite requested optimizer steps")
+    # In checkpointed experiments Trainer restores the best validation
+    # checkpoint BEFORE final evaluation and before saving candidate weights.
+    best_step=steps
+    best_loss=None
+    if checkpoint_interval is not None:
+        best_step=validate_best_checkpoint(
+            trainer.state.best_model_checkpoint,
+            trainer.state.best_metric,
+            output_temp,steps=steps,interval=checkpoint_interval,
+        )
+        best_loss=float(trainer.state.best_metric)
     evals=trainer.evaluate()
     eval_loss=float(evals.get("eval_loss",float("nan")))
     if not math.isfinite(eval_loss):
@@ -1097,6 +1113,10 @@ def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
         "steps_completed":int(trainer.state.global_step),
         "training_loss":float(result.training_loss),
         "validation_loss":eval_loss,
+        "checkpoint_mode":"best_validation_loss" if checkpoint_interval is not None else "original_final_only",
+        "checkpoint_interval":checkpoint_interval,
+        "checkpoint_selected_step":best_step,
+        "checkpoint_best_validation_loss":best_loss,
         "peak_reserved_vram_mib":peak,
         "total_vram_mib":total_vram,
         "elapsed_seconds":round(time.monotonic()-before,2),

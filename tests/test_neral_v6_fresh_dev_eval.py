@@ -6,11 +6,13 @@ from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 
+from types import SimpleNamespace
+
 from scripts.neral_v6_fresh_dev_eval import (
     build_cases, suite_fingerprint, parse_answer, score_three_way, 
     check_source_isolation, validate_variant_output,
     prepare_fewshot_messages, messages_for_protocol, phase2_training_gate,
-    BASE_SHA, V5_SHA, V6_SHA,
+    resolve_messages_factory, BASE_SHA, V5_SHA, V6_SHA,
 )
 
 
@@ -177,6 +179,38 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertEqual(len(V5_SHA),64)
         self.assertEqual(len(V6_SHA),64)
         self.assertEqual(len(BASE_SHA),40)
+
+    def test_prompt_factory_keeps_protocol_and_six_arm_override(self):
+        import inspect
+        from scripts.neral_v6_fresh_dev_eval import _gpu_variant
+        case=build_cases()[0]
+        historical=SimpleNamespace()
+        for variant in ("qwen_fewshot","neral_v5","neral_v6"):
+            self.assertEqual(
+                resolve_messages_factory(historical)(case, variant),
+                prepare_fewshot_messages(case, variant))
+        matched=SimpleNamespace(prompt_protocol="matched_fewshot")
+        fewshot=prepare_fewshot_messages(case, "qwen_fewshot")
+        for variant in ("qwen_fewshot","neral_v5","neral_v6"):
+            self.assertEqual(
+                resolve_messages_factory(matched)(case, variant), fewshot)
+        zero=SimpleNamespace(prompt_protocol="matched_zeroshot")
+        plain=prepare_fewshot_messages(case, "neral_v5")
+        self.assertEqual(resolve_messages_factory(zero)(case, "qwen_fewshot"), plain)
+        seen=[]
+        explicit=lambda row, variant: seen.append((row["id"], variant)) or ["kept"]
+        factory=resolve_messages_factory(
+            SimpleNamespace(prompt_protocol="matched_fewshot"), explicit)
+        self.assertIs(factory, explicit)
+        self.assertEqual(factory(case, "neral_v6"), ["kept"])
+        self.assertEqual(seen, [(case["id"], "neral_v6")])
+        with self.assertRaises(ValueError):
+            resolve_messages_factory(historical, messages_factory=object())
+        source=inspect.getsource(_gpu_variant)
+        self.assertIn("texts=messages_factory(case,args.variant)", source)
+        self.assertEqual(
+            inspect.signature(_gpu_variant).parameters["messages_factory"].default,
+            None)
 
 
 if __name__=="__main__":

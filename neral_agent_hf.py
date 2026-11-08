@@ -49,7 +49,7 @@ class HFAdapterLocalBackend:
         with file.open("rb") as stream:
             self.adapter_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
         if self.adapter_sha256 in QUARANTINED_ADAPTER_SHA256:
-            raise AgentModelError("NERAL-Adapter wegen gemessener Regression gesperrt.")
+            raise AgentModelError("NERAL-Adapter nicht freigegeben oder wegen Regression gesperrt.")
         self.max_new_tokens = max_new_tokens
         self._model = None
         self._tokenizer = None

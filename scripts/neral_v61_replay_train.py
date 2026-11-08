@@ -164,6 +164,8 @@ def main(argv=None):
     ap.add_argument("--base",type=Path)
     ap.add_argument("--v5-adapter",type=Path)
     ap.add_argument("--authorize",default="")
+    ap.add_argument("--checkpoint-interval",type=int,default=None,
+                    help="Optional research-only eval/save and best model select, e.g. 20")
     a=ap.parse_args(argv)
     if a.mode=="cpu-data":
         x=materialize_replay(a.out)
@@ -174,7 +176,8 @@ def main(argv=None):
         from scripts.neral_v6_r16_gpu import _gpu_train
         result=_gpu_train(a,data_factory=build_replay_experiment,steps=TRAIN_STEPS,
                           lr=LEARNING_RATE,authorize=AUTH,
-                          status="NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL")
+                          status="NERAL_V61_R16_REPLAY_120_STEPS_EXPERIMENTAL",
+                          checkpoint_interval=a.checkpoint_interval)
         print(json.dumps({"status":result["status"],
                           "steps":result["steps_completed"],
                           "adapter_sha256":result["candidate_adapter_sha256"],

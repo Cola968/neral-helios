@@ -1,0 +1,90 @@
+name: NERAL v5 vs v6.1 effective LoRA weight drift (CPU only manual)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: 'Authorize read-only CPU audit: AUDIT_NERAL_V61_EFFECTIVE_LORA_READONLY'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_V61_EFFECTIVE_LORA_READONLY'
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Unit-test effective rank-16 change formula without CUDA
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Sealed local research Python missing'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_lora_drift_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'LoRA Gram audit proof failed'}
+          } finally {Pop-Location}
+      - name: Read-only SHA-pinned v5/v6.1 effective LoRA norm audit (CPU)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $research=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $v5=Join-Path $research 'v5-r16-480-42378021782-1\adapter'
+          $v61=Join-Path $research 'v61-replay-120-42411765250-1\candidate-adapter'
+          $outdir=Join-Path $research "v61-effective-lora-drift-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if((Test-Path -LiteralPath $outdir) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container) -or
+             -not(Test-Path -LiteralPath $v61 -PathType Container)){
+            throw 'Pinned v5/v6.1 local sources missing or output exists'
+          }
+          New-Item -ItemType Directory -Path $outdir -ErrorAction Stop|Out-Null
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_lora_drift_audit --v5-adapter $v5 --v61-adapter $v61 --out (Join-Path $outdir 'scalar.json')
+            if($LASTEXITCODE -ne 0){throw 'Local effective weight drift audit denied'}
+          } finally {Pop-Location}
+          $s=Get-Content -LiteralPath (Join-Path $outdir 'scalar.json') -Raw|ConvertFrom-Json
+          if($s.status -ne 'NERAL_V61_EXACT_EFFECTIVE_LORA_DRIFT_CPU' -or
+             $s.module_pairs -ne 196 -or
+             $s.no_gpu_used -ne $true -or
+             $s.training_performed -ne $false -or
+             $s.release_validated -ne $false -or
+             $s.adapter_promoted -ne $false -or
+             $s.general_improvement_proven -ne $false){
+            throw 'Untrusted or overstated LoRA drift report'
+          }
+          $public=Join-Path $control 'v61_effective_lora_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Public summary directory exists'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $outdir 'scalar.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_V61_EFFECTIVE_LORA_DRIFT_CPU_ONLY: no raw tensors published'
+      - name: Upload scalar-only audit, never private adapters
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v61-effective-lora-drift-scalar
+          path: control/v61_effective_lora_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
