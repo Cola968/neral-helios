@@ -7,6 +7,8 @@ on:
       - 'Start NERAL 1.0 Local.cmd'
       - 'neral_agent_autonomy.py'
       - 'neral_local_chat_api.py'
+      - 'neral_preview_attachments.py'
+      - 'tests/test_neral_1_0_attachments.py'
       - 'templates/neral_preview.html'
       - 'static/neral-preview.css'
       - 'static/neral-preview.js'
@@ -56,12 +58,14 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: New voice and web plugin security/readiness contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_voice_plugins.py -v
+      - name: Offline multimodal and multipart security contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
       - name: Python syntax safety and file-context contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Syntax and browser JS
-        run: python -m py_compile neral_preview_server.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
+        run: python -m py_compile neral_preview_server.py neral_preview_attachments.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
       - run: node --check static/neral-preview.js
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --test tests/test_neral_1_0_voice_client.cjs
