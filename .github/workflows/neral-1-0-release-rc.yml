@@ -27,6 +27,17 @@ on:
       - 'tests/test_neral_1_0_account_client.cjs'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
+      - 'neral_local_voice.py'
+      - 'static/neral-local-voice.js'
+      - 'static/neral-local-voice-worklet.js'
+      - 'requirements-neral-local-voice.txt'
+      - 'Install-Neral-Local-Voice.ps1'
+      - 'Install NERAL Voice.cmd'
+      - 'scripts/neral_local_voice_install.py'
+      - 'docs/NERAL_LOCAL_VOICE.md'
+      - 'tests/test_neral_local_voice.py'
+      - 'tests/test_neral_local_voice_browser.cjs'
+      - '.github/workflows/neral-offline-voice-ci.yml'
       - 'neral_web_api.py'
       - 'neral_web_search.py'
       - 'requirements-neral-preview.txt'
@@ -79,6 +90,17 @@ on:
       - 'tests/test_neral_1_0_account_client.cjs'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
+      - 'neral_local_voice.py'
+      - 'static/neral-local-voice.js'
+      - 'static/neral-local-voice-worklet.js'
+      - 'requirements-neral-local-voice.txt'
+      - 'Install-Neral-Local-Voice.ps1'
+      - 'Install NERAL Voice.cmd'
+      - 'scripts/neral_local_voice_install.py'
+      - 'docs/NERAL_LOCAL_VOICE.md'
+      - 'tests/test_neral_local_voice.py'
+      - 'tests/test_neral_local_voice_browser.cjs'
+      - '.github/workflows/neral-offline-voice-ci.yml'
       - 'neral_web_api.py'
       - 'neral_web_search.py'
       - 'requirements-neral-preview.txt'
@@ -134,6 +156,12 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
       - name: Python syntax safety and file-context contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
+      - name: NERAL local speech WAV and CSRF contracts
+        run: python -m unittest discover -s tests -p test_neral_local_voice.py -v
+      - name: Offline speech browser handshake and cancel contracts
+        run: |
+          node --check static/neral-local-voice.js
+          node --test tests/test_neral_local_voice_browser.cjs
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Real extracted Windows launcher, live HTTP and safe port refusal
