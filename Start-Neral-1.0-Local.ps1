@@ -90,6 +90,21 @@ if($PrepareOnly){
     Write-Host 'NERAL Preview: isolierte Python-Abhaengigkeiten sind installiert. Kein Server gestartet.'
     return
 }
+# Before starting the HTTP service, refresh only the tested source files of
+# a managed extracted release. Offline/error: keep the installed version.
+# No git checkout, models, local_state or QLoRA training files are changed.
+if($env:NERAL_AUTO_UPDATE -ne '0' -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'RELEASE-MANIFEST.json') -PathType Leaf) -and
+   (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'neral_auto_update.py') -PathType Leaf)){
+    Push-Location -LiteralPath $PSScriptRoot
+    try {
+        & $py -B -m neral_auto_update --root $PSScriptRoot
+        if($LASTEXITCODE -ne 0){Write-Host 'Auto-Update nicht abgeschlossen. Die installierte Version wird gestartet.' -ForegroundColor Yellow}
+    } catch {
+        Write-Host 'Update derzeit nicht verfügbar. Die installierte Version wird gestartet.' -ForegroundColor Yellow
+    } finally {
+        Pop-Location
+    }
+}
 $err=Join-Path $state 'neral-preview-error.log'
 $out=Join-Path $state 'neral-preview.log'
 $profile=if($ExperimentalSampling){'measured_nonthinking_2048'}else{'legacy'}
