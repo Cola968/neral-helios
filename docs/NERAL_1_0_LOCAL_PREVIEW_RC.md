@@ -1,87 +1,116 @@
-# NERAL 1.0 Local Preview – Release-Kandidat am 10.11.2026
+# NERAL 1.0 Local Preview – Release Candidate / Windows
 
-**Produktziel:** Ein tatsächlich benutzbarer lokaler NERAL-Assistent mit
-Chat, optionalem THINK, verifizierten Werkzeugen und expliziter
-Modellherkunft. Der nächste öffentliche Termin ist **10. November 2026**.
-Dies ist ein Plan und ein Startprofil, **kein bestätigter Release**.
+Stand: 8. November 2026. **Es wurde noch keine stabile 1.0
+freigegeben**, und kein experimenteller NERAL-v7/v8-LoRA-Adapter wurde
+für den Release freigeschaltet.
 
-## Was sofort startbar sein soll
+## Was dieses Paket ist
 
-1. Auf dem Windows-PC **Ollama starten**. `ollama list` muss
-   `qwen3:8b` zeigen (alternativ das ausdrücklich gewählte
-   `qwen3.5:9b`). Das Startprofil lädt *kein Modell* nach.
-2. Vollständige Helios-Dateien inklusive `deployment/` und des
-   bestehenden CPU-App-Starts bereitstellen. `Start NERAL 1.0 Local.cmd`
-   doppelklicken. Bei bereits belegtem Port 9686 die alte App vorher
-   schließen, damit der Launcher nicht still ein anderes Backend verwendet.
-3. In Helios oben **NERAL AI** auswählen. Der Direkteinstieg öffnet den
-   vorhandenen, session- und origin-geschützten lokalen KI-Chat und setzt
-   den Fokus in das Nachrichtenfeld. **Der alte Hauptchat mit 50M bleibt
-   bis zur eigenständigen UI-Migration separat erhalten.**
-4. **FAST** arbeitet über das bestehende lokale Ollama-Backend mit
-   explizitem `think=false` und 1.024 Tokens. Optionales **THINK**
-   nutzt `think=true` und maximal 2.048 Tokens; die bestehende
-   separate Werkzeugverifikation bleibt bestehen. Tool-JSON-Aufrufe
-   bleiben auf 512 Tokens und `think=false`.
-5. Modellherkunft bleibt sichtbar: Das lokale Qwen3-8B ist eine
-   **Qwen-Foundation**, keine durch LoRA trainierte und geprüfte
-   NERAL-Eigengewichtsversion. Es darf nicht als unabhängiges Modell
-   oder höheres GPT-/Claude-Level ausgegeben werden.
+Ein eigenständiger, lokaler NERAL-KI-Chat, der das bereits installierte
+**Qwen3-8B** über die loopback-gebundene Ollama-Schnittstelle nutzt.
+Die alte 50M-Helios-App, deren `deployment/`-Ordner und CPU-Checkpoint
+werden **nicht mehr benötigt**. Installierte Qwen-Gewichte sind
+**nicht im ZIP enthalten** und werden nicht automatisch geladen.
 
-Ein manuelles Startprofil kann mit
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Neral-1.0-Local.ps1 -CheckOnly`
-*ohne App-Start* prüfen, ob die lokalen Modelldateien via `ollama list`
-sichtbar sind. Für Qwen3.5-9B die Option `-Model qwen3.5:9b` angeben.
-Vorhandene Legacy-App-Abhängigkeiten können durch den **bestehenden**
-`Start-Neral.ps1` eingerichtet werden, wenn sie fehlen. Der neue
-Startweg führt selbst keine Modell-Downloads aus.
+NERAL 1.0 Local Preview stellt bereit: FAST-Chat, optionalen THINK-
+Modus, eingeschränkte lokal verifizierte Mathematik-/Logik-/Python-
+Ergebnisse, Herkunftskennzeichnung, CSRF-geschützten localhost-Chat
+und einen leichten Windows-Starter.
 
-## Aktuell gemessene Grenzen
+Die **NERAL**-Oberfläche nutzt ein fremdes Qwen-Grundmodell. Das ist
+**kein** Nachweis eines eigenständigen neuronalen Intelligenzgewinns.
 
-- [Qwen3-8B gegen Qwen3.5-9B](https://github.com/Cola968/neral-helios/actions/runs/42482092860):
-  Qwen3-8B erreichte 29/72, Qwen3.5-9B 8/72 bei 512 Tokens;
-  31 bzw. 62 Antworten waren unvollständig. Das ist ein
-  **synthetischer Entwicklungsvergleich** und stark budgetabhängig.
-  Es rechtfertigt Qwen3-8B als ersten Offline-Startkandidaten,
-  nicht als allgemein überlegenes Modell.
-- [Qwen/v5/experimenteller Kandidat](https://github.com/Cola968/neral-helios/actions/runs/42481342450):
-  4/24 gegenüber 5/24 und 8/24 in einem 24er-Pilot mit 512 Tokens.
-  Transferteil nur 1/12 beim Kandidaten. Die Gewichte sind
-  **nicht zur Promotion freigegeben**.
-- Die Korrektur des lokalen Ollama-Backendlimits ist durch Tests
-  verifiziert; die **tatsächliche Qualitätsverbesserung auf einer neuen
-  Testmenge** ist weiterhin offen.
+## Installation auf Windows
 
-## Verbindliche Release-Entscheidung
+Voraussetzungen: Windows, Python 3.11+ mit `flask` und `waitress`,
+Ollama lokal gestartet und **bereits installiertes** `qwen3:8b`.
+Das Modell ist auf dem bisherigen NERAL-Windows-PC bereits in
+`ollama list` nachgewiesen; künftige Installationen müssen es
+erneut prüfen.
 
-**1.0 als lokales System** kann nur verantwortbar freigegeben werden,
-wenn alle folgenden Funktionen durch echte End-to-End-Abnahmen
-belegt sind:
+1. Das geprüfte Release-Candidate-Artefakt aus GitHub Actions herunterladen.
+   Die enthaltene ZIP und `SHA256SUMS.txt` gehören zusammen. SHA
+   in PowerShell gegen `Get-FileHash <ZIP> -Algorithm SHA256` prüfen.
+2. ZIP in einen eigenen Ordner entpacken. `local_state/` und
+   persönliche Chats werden von diesem Paket nicht überschrieben
+   oder mitgeliefert.
+3. In PowerShell `ollama list` aufrufen. Qwen3-8B muss dort stehen.
+4. Im Paketverzeichnis `python -m pip install -r requirements-neral-preview.txt`
+   **nur bei fehlenden Python-Abhängigkeiten selbst** ausführen.
+   Dieser Schritt benötigt Internet zum Installieren von Flask/Waitress;
+   die Modellinferenz selbst arbeitet ohne Cloud-KI.
+5. `Start NERAL 1.0 Local.cmd` doppelklicken.
+   Der Starter prüft den Ollama-Modellnamen und lokale Python-Laufzeit,
+   verweigert eine zweite Instanz auf Port **9690** und startet
+   den lokalen Waitress-Server. Browser-Adresse:
+   **http://127.0.0.1:9690/**.
+6. Zuerst eine kurze Frage im Modus FAST testen, dann optional THINK.
+   Für neue Nutzer steht `-CheckOnly` im PowerShell-Starter bereit.
+   Das führt keine Modellinferenz aus.
 
-- Windows-Start `Start NERAL 1.0 Local.cmd` auf echtem Nutzer-PC,
-  OLLAMA-Runtime und geladenes Modelldigest; keine falsche
-  LoRA-Anzeige oder stiller Backendwechsel.
-- Mindestens einfache und mehrschrittige Nutzerfragen über **FAST**
-  und **THINK** mit sinnvollen Antworten und klaren Fehlerhinweisen,
-  einschließlich Tokenlimit- und Zeitüberschreitungsfällen.
-- Gegenprüfung von bereits implementierten exakten Rechen-/Logikwerkzeugen
-  mit nachvollziehbarem Herkunftshinweis, ohne dass ungeprüfte
-  Ergebnisse als verifiziert erscheinen.
-- Sicherheitsprüfung: Session/Host/Origin, kein externer Modellprovider,
-  Agenten-Schreibfreigabe und isolierte Testausführung weiterhin intakt.
-- Browser-Test auf Windows Desktop und schmalem Mobilformat,
-  besonders die neue **NERAL AI**-Schaltfläche und die
-  Modellherkunftsanzeige.
-- Releaseartefakt/Installationspaket mit reproduzierbarem Stand,
-  lokaler Datensicherung und geprüften Lizenzhinweisen.
+**Wichtig:** Der bestehende lokale Python-Trainings-Interpreter in
+`NERAL-QLoRA-Research\\training-env-py312` wird bevorzugt, sonst
+ein vorhandenes System-Python. Beide sind zulässig, wenn sie Flask und
+Waitress enthalten. Es werden keine Python- oder Modellinstallationen
+ungefragt durchgeführt.
 
-**NICHT als 1.0-Gewichtsrelease behaupten:** Ein eigenständiger
-Intelligenzvorsprung des v7/v8-LoRA. Der statistische Releaseprozess
-in `GATE.md` bleibt dafür unverändert verbindlich; kein Adapter
-wird durch das 1.0-Startprofil automatisch ausgewählt, freigegeben,
-trainiert oder in einen Modellvergleich geschmuggelt.
+Alternativ vor dem Start:
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\\Start-Neral-1.0-Local.ps1 -CheckOnly`
 
-Falls die End-to-End-Abnahmen bis zum 10. November nicht bestehen,
-ist die korrekte Kennzeichnung **NERAL 1.0 Local Preview**
-anstatt einer als stabil angepriesenen 1.0. Fehlgeschlagene Tests
-werden nicht durch geänderte Versionslabels behoben.
+## Sicherheit und Daten
+
+Der Server ist ausschließlich an `127.0.0.1:9690` gebunden,
+nicht öffentlich oder im WLAN erreichbar. HTTP ist nur auf Loopback
+vorgesehen. Der Browser erhält ein zufälliges Sitzungs-Cookie und
+ein per separatem Endpoint ausgegebenes CSRF-Token. Anfragen an
+unerlaubte Hosts oder aus anderen Web-Ursprüngen werden blockiert.
+Strikte SameSite/HttpOnly-Cookies, CSP und eine begrenzte Eingabegröße
+sollen Cross-Site- und Skript-Injektionen erschweren.
+
+Gesprächsverlauf liegt nur im Arbeitsspeicher des Browser-Tabs;
+keine Cloud-Chatdatenbank. Lokale Start- und Fehlerlogs werden in
+`local_state/` geschrieben, aber die Web-App speichert standardmäßig
+keine Chat-Nachrichten und exponiert keine Tracebacks in der API.
+
+Für andere Geräte, Remotezugriff, öffentlichen Internetbetrieb und
+Mehrbenutzer-Sitzungen ist dieser Preview-Server **nicht freigegeben**.
+Die bisherige separat abgesicherte Android-Gateway-Lösung ist davon
+nicht automatisch betroffen.
+
+## Harte Release-Kriterien
+
+Die GitHub-Workflowdatei
+`.github/workflows/neral-1-0-release-rc.yml` überprüft:
+
+- echte Windows- und Linux-Tests der eigenständigen App;
+- CSRF-/Origin-/Host-Ablehnung, Modellherkunft, FAST- und THINK-
+  Routen ohne falsch freigegebene NERAL-LoRA;
+- reproduzierbaren, inhaltsbegrenzten ZIP-Build inklusive Datei-SHA;
+- die tatsächliche lokale Qwen3-8B-Inferenz **auf dem privaten
+  Windows-Runner**: FAST-Beispielfrage, THINK mit unabhängig geprüfter
+  Antwort und HTTP-Sicherheit;
+- Ausgabe eines ZIP-Artefakts **nur**, wenn sowohl CPU-Tests als auch
+  der echte Windows-PC-Smoke grün sind.
+
+Der Live-PC-Test greift nicht auf private Chats oder Projektdateien zu.
+GitHub erhält ausschließlich den JSON-Skalarbericht, keine Prompts
+und keine generierten Texte.
+
+## Keine voreilige Leistungsbehauptung
+
+Der alte 72-Fälle-Vergleich mit 512 Tokens hatte für Qwen3-8B 29/72
+korrekte Antworten und 31 abgeschnittene Ausgaben; für Qwen3.5-9B
+8/72 korrekte und 62 abgeschnittene Ausgaben.
+Diese Zahl ist stark abhängig vom Tokenbudget und darf **nicht** als
+allgemeiner Modellvergleich ausgegeben werden.
+
+Auch der experimentelle v7-Kandidat mit 8/24 in einem kleinen Pilot
+hat das unabhängige 600-Fälle-Gate aus `GATE.md` nicht bestanden.
+Der neue v8-Forschungsworkflow enthält keine automatisch freigegebenen
+Gewichte. Daher ist es **NERAL 1.0 Local Preview**, bis die
+weiteren Originalholdout-, Browser-, Lizenz- und Nutzerabnahmen
+separat bestanden sind.
+
+Eine getestete lokale Anwendung ist ein Software-Release. Ein
+nachgewiesener neuronaler Intelligenzsprung ist ein anderer Maßstab.
+Beide Ergebnisse werden getrennt veröffentlicht.
