@@ -23,6 +23,29 @@
   const speaker=browser.speechSynthesis;
   const mic=$("voiceInput"), voiceStatus=$("voiceStatus");
 
+
+  function renderReadableModelText(container,value) {
+    // Small, deliberately limited Markdown subset. Never inject model HTML.
+    const clean=String(value).replace(/&#(?:x20|32);|&nbsp;/gi," ")
+      .replace(/\\\\\\*/g,"*");
+    const tokens=/\\*\\*([^*\\n]{1,300})\\*\\*|`([^`\\n]{1,240})`/g;
+    let index=0,parts=0;
+    const plain=piece=>{
+      if(!piece)return;
+      const span=document.createElement("span");
+      span.textContent=piece;
+      container.append(span);
+    };
+    for(const match of clean.matchAll(tokens)) {
+      if(++parts>250){container.textContent=clean;return;}
+      plain(clean.slice(index,match.index));
+      const node=document.createElement(match[1]?"b":"code");
+      node.textContent=match[1]||match[2];
+      container.append(node);
+      index=match.index+match[0].length;
+    }
+    plain(clean.slice(index));
+  }
   function append(role,text,origin) {
     const empty=messages.querySelector(".welcome");
     if(empty) empty.remove();
@@ -31,7 +54,8 @@
     const heading=document.createElement("strong");
     heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
     const body=document.createElement("p");
-    body.textContent=text; // Untrusted search and model output must never be HTML.
+    if(role==="assistant")renderReadableModelText(body,text);
+    else body.textContent=text; // All text remains inert, never model-controlled HTML.
     item.append(heading,body);
     if(role==="assistant") {
       const actions=document.createElement("div");
