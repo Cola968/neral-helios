@@ -27,7 +27,11 @@
   function renderReadableModelText(container,value) {
     // Small, deliberately limited Markdown subset. Never inject model HTML.
     const clean=String(value).replace(/&#(?:x20|32);|&nbsp;/gi," ")
-      .replace(/\\\*/g,"*");
+      // Model replies sometimes contain escaped Markdown copied from HTML.
+      // Decode common Markdown punctuation only, never turn it into HTML.
+      .replace(/\\([*#.\-])/g,"$1")
+      .replace(/(^|\n)[ \t]{0,3}#{1,6}[ \t]+/g,"$1")
+      .replace(/(^|\n)[ \t]*-{3,}[ \t]*(?=\n|$)/g,"$1");
     // Plain responses remain plain text, including in screen readers.
     if(!clean.includes("**") && !clean.includes("`")) {
       container.textContent=clean;
@@ -104,10 +108,13 @@
       .replace(/[\u0300-\u036f]/g,"").match(/[a-z0-9]{4,}/g)||[]);
     const stop=new Set(["welche","welches","welcher","einem","einer","einen",
        "oder","diese","dieser","what","which","where","about","eine","eines",
-       "sind","wird","werden","kann","this","that","from","with","uber"]);
+       "sind","wird","werden","kann","this","that","from","with","uber",
+       "erklaren","erklare","erklarst","kannst","konnen","mochtest","bitte",
+       "schwieriges","kompliziertes","schrittweise","wieso","warum"]);
     const wanted=terms(question).filter(t=>!stop.has(t));
     if(!wanted.length)return false;
-    const provided=new Set(terms(hit.title+" "+String(hit.snippet||"")+" "+hit.url));
+    // A matching URL parameter alone is not evidence. Use page title and snippet.
+    const provided=new Set(terms(hit.title+" "+String(hit.snippet||"")));
     return wanted.some(word=>provided.has(word));
   }
   function appendSources(sources) {
