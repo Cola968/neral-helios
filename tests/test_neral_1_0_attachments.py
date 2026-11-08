@@ -289,7 +289,7 @@ class AttachmentPreviewTests(unittest.TestCase):
             self.client, self.csrf, {"qwen3-vl:2b": "sha256:test"}))
         self.assertEqual(len(self.vision_calls), 1)
         raw = self.vision_calls[0][0]
-        self.assertTrue(raw.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertTrue(raw.startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))))
         self.assertGreater(len(raw), 50)
 
     def test_regular_json_chat_preserves_existing_contract(self):
