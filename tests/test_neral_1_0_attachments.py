@@ -138,19 +138,19 @@ class AttachmentPreviewTests(unittest.TestCase):
         stream = b"BT /F1 14 Tf 50 780 Td (NERAL PDF 42) Tj ET"
         objects.append(
             b"<< /Length " + str(len(stream)).encode() +
-            b" >>\\nstream\\n" + stream + b"\\nendstream"
+            b" >>\nstream\n" + stream + b"\nendstream"
         )
-        pdf = b"%PDF-1.4\\n"
+        pdf = b"%PDF-1.4\n"
         offsets = [0]
         for number, body in enumerate(objects, 1):
             offsets.append(len(pdf))
-            pdf += f"{number} 0 obj\\n".encode() + body + b"\\nendobj\\n"
+            pdf += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
         xref_offset = len(pdf)
-        pdf += b"xref\\n0 6\\n0000000000 65535 f \\n"
-        pdf += b"".join(f"{offset:010d} 00000 n \\n".encode()
+        pdf += b"xref\n0 6\n0000000000 65535 f \n"
+        pdf += b"".join(f"{offset:010d} 00000 n \n".encode()
                         for offset in offsets[1:])
-        pdf += (b"trailer\\n<< /Size 6 /Root 1 0 R >>\\nstartxref\\n" +
-                str(xref_offset).encode() + b"\\n%%EOF\\n")
+        pdf += (b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" +
+                str(xref_offset).encode() + b"\n%%EOF\n")
         result = self.post([(BytesIO(pdf), "example.pdf")],
                            prompt="Welche Zahl steht in der PDF?")
         self.assertEqual(result.status_code, 200, result.get_json())
