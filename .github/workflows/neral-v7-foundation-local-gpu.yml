@@ -1,0 +1,119 @@
+name: NERAL v7 local Qwen foundation tournament (manual GPU, offline)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permission: BENCHMARK_NERAL_V7_LOCAL_FOUNDATIONS_ONLY'
+        required: true
+        type: string
+      installed_models:
+        description: '2-3 comma-separated EXISTING Ollama tags, e.g. qwen3:8b,qwen3.5:9b'
+        required: true
+        type: string
+      thinking:
+        description: 'One fixed policy for all models'
+        required: true
+        default: 'off'
+        type: choice
+        options:
+          - 'off'
+          - 'on'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'BENCHMARK_NERAL_V7_LOCAL_FOUNDATIONS_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      V7_MODELS: ${{ inputs.installed_models }}
+      V7_THINK: ${{ inputs.thinking }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: CPU preflight and exact local Ollama inventory (no pulls)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Pinned private Python 3.12 environment not found'
+          }
+          if($env:V7_THINK -notin @('on','off')){
+            throw 'Unknown thinking mode'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v7_foundation_tournament.py -v
+            if($LASTEXITCODE -ne 0){throw 'Foundation benchmark contracts failed'}
+            & $py -B -m scripts.neral_v7_foundation_tournament --mode inventory
+            if($LASTEXITCODE -ne 0){throw 'Ollama localhost unavailable or model digests missing; no download allowed'}
+          } finally {Pop-Location}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'CUDA GPU absent'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 7000 -or
+             [int]$fields[1].Trim() -gt 20){
+            throw 'GPU occupied or insufficient free memory; refuse model comparison'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_V7_PY=$py"+[Environment]::NewLine+
+            "NERAL_V7_CONTROL=$control"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Fair same-prompt model tournament on locally installed Qwen models
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $out=Join-Path $root "v7-foundation-local-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'Refuse to overwrite prior benchmark'}
+          Push-Location $env:NERAL_V7_CONTROL
+          try {
+            $env:PYTHONPATH=$env:NERAL_V7_CONTROL
+            & $env:NERAL_V7_PY -B -m scripts.neral_v7_foundation_tournament --mode compare --models $env:V7_MODELS --thinking $env:V7_THINK --out $out
+            if($LASTEXITCODE -ne 0){throw 'Local model tournament incomplete; no public success'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_V7_OUTPUT=$out"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Export only bounded aggregate data, never prompts or responses
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Get-Content -LiteralPath (Join-Path $env:NERAL_V7_OUTPUT 'scalar-summary.json') -Raw | ConvertFrom-Json
+          if($report.status -ne 'NERAL_V7_FOUNDATION_DEV_ONLY' -or
+             $report.count_per_model -ne 72 -or
+             $report.no_model_downloads -ne $true -or
+             $report.raw_responses_uploaded -ne $false -or
+             $report.model_trained -ne $false -or
+             $report.release_validated -ne $false -or
+             $report.adapter_promoted -ne $false){
+            throw 'Failed frozen 72-case dev model tournament contract'
+          }
+          $dest=Join-Path $env:NERAL_V7_CONTROL 'v7_foundation_scalar'
+          if(Test-Path -LiteralPath $dest){throw 'Scalar path already exists'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:NERAL_V7_OUTPUT 'scalar-summary.json') -Destination (Join-Path $dest 'summary.json')
+          Write-Host 'NERAL_V7_FOUNDATIONS_COMPARE_FINISHED; raw outputs remain local/private; no release.'
+      - name: Share scalar-only developer report
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v7-foundation-scalar-only
+          path: control/v7_foundation_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
