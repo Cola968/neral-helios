@@ -37,6 +37,7 @@ def _provenance(backend) -> dict:
     loaded = bool(is_adapter and getattr(backend, "_model", None) is not None)
     return {
         "model": getattr(backend, "model", "local_model"),
+        "inference_profile": getattr(backend, "inference_profile", "legacy"),
         "foundation": BASE_MODEL if is_adapter else "local_model_see_name",
         "adapter_loaded": loaded,
         "adapter_sha256": verified_sha if loaded else None,
