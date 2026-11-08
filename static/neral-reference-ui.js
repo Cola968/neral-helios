@@ -78,6 +78,86 @@
     input.click();
   });
 
+  // Model replies are inert text. Recognized fenced code gets a local,
+  // copyable block. No model HTML, styles or scripts are executed.
+  const timeline=$("messages");
+  const codeFence=String.fromCharCode(96).repeat(3);
+  function enhance(item){
+    if(!item.classList?.contains("assistant")||item.dataset.referenceReady)return;
+    item.dataset.referenceReady="true";
+    const heading=item.querySelector(":scope > strong");
+    if(heading && /^NERAL(?:\b|$)/i.test(heading.textContent||"")){
+      const full=heading.textContent;
+      heading.title=full;heading.textContent="NERAL";
+      heading.setAttribute("aria-label",full);
+    }
+    const body=item.querySelector(":scope > p");
+    if(!body)return;
+    const original=body.textContent||"";
+    if(!original.includes(codeFence))return;
+    const pattern=/\x60{3}([A-Za-z0-9_+#.-]{0,24})\r?\n([\s\S]*?)\x60{3}/g;
+    const result=document.createElement("div");
+    result.className="reference-answer-body";
+    let last=0,match,found=false;
+    while((match=pattern.exec(original))){
+      if(match.index>last){
+        const prose=document.createElement("div");
+        prose.className="reference-prose";
+        prose.textContent=original.slice(last,match.index);
+        result.append(prose);
+      }
+      const block=document.createElement("section");
+      block.className="reference-code";
+      block.setAttribute("aria-label","Codeblock "+(match[1]||"Code"));
+      const header=document.createElement("div");
+      header.className="reference-code-head";
+      const lang=document.createElement("span");
+      lang.textContent=match[1]||"Code";
+      const button=document.createElement("button");
+      button.type="button";button.className="reference-code-copy";
+      button.textContent="Kopieren";
+      button.setAttribute("aria-label","Code kopieren");
+      const codeText=match[2];
+      button.addEventListener("click",async()=>{
+        try{
+          await navigator.clipboard.writeText(codeText);
+          button.textContent="Kopiert";
+        }catch{button.textContent="Kopieren fehlgeschlagen";}
+      });
+      header.append(lang,button);
+      const pre=document.createElement("pre"),code=document.createElement("code");
+      // Deliberately avoid an HTML parser. A small optional text-only
+      // lexer colors Python-like keywords without treating input as markup.
+      const tokens=codeText.split(/(\b(?:def|return|for|in|if|else|elif|while|class|from|import|True|False|None|async|await|raise)\b)/g);
+      for(const token of tokens){
+        if(/^(?:def|return|for|in|if|else|elif|while|class|from|import|True|False|None|async|await|raise)$/.test(token)){
+          const span=document.createElement("span");
+          span.className="reference-code-keyword";span.textContent=token;
+          code.append(span);
+        }else code.append(document.createTextNode(token));
+      }
+      pre.append(code);block.append(header,pre);result.append(block);
+      last=pattern.lastIndex;found=true;
+    }
+    if(!found)return;
+    if(last<original.length){
+      const tail=document.createElement("div");tail.className="reference-prose";
+      tail.textContent=original.slice(last);result.append(tail);
+    }
+    body.replaceWith(result);
+  }
+  if(timeline){
+    timeline.querySelectorAll(".message.assistant").forEach(enhance);
+    if(typeof MutationObserver!=="undefined")
+      new MutationObserver(records=>{
+        for(const record of records)for(const node of record.addedNodes)
+          if(node.nodeType===1){
+            if(node.matches?.(".message.assistant"))enhance(node);
+            node.querySelectorAll?.(".message.assistant").forEach(enhance);
+          }
+      }).observe(timeline,{childList:true,subtree:false});
+  }
+
   // Dark mode is optional and local; no remote CSS/font/theme dependencies.
   const theme=$("themeToggle");
   if(theme){
