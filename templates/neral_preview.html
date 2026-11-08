@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/neral-accounts.css">
   <link rel="stylesheet" href="/static/neral-motion.css">
   <script src="/static/neral-preview.js" defer></script>
+  <script src="/static/neral-local-voice.js" defer></script>
   <script src="/static/neral-motion.js" defer></script>
   <script src="/static/neral-accounts.js" defer></script>
 </head>
@@ -63,6 +64,7 @@
           </div>
           <div class="actions">
             <button id="voiceInput" type="button" class="secondary" aria-label="Mikrofon einschalten">🎙 Mikrofon</button>
+            <button id="localVoiceStart" type="button" class="secondary" aria-pressed="false" aria-describedby="localVoiceStatus">Lokaler Sprachmodus</button>
             <button id="stopVoice" type="button" class="secondary" aria-label="Sprachausgabe stoppen">Stopp Audio</button>
             <button id="codeCheck" type="button" class="secondary">Python prüfen</button>
             <button id="clear" type="button" class="secondary">Verlauf löschen</button>
@@ -72,10 +74,11 @@
         </div>
       </form>
       <p id="voiceStatus" role="status" aria-live="polite">Mikrofon nicht aktiv.</p>
+      <p id="localVoiceStatus" role="status" aria-live="polite">Offline-Sprachmodus aus · separat installierte lokale Modelle benötigt.</p>
       <p id="pluginStatus" role="status">Websuche: nicht geprüft.</p>
       <p id="fileStatus" role="status">Keine Dateien ausgewählt.</p>
       <p id="error" role="alert" aria-live="assertive"></p>
-      <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen und funktioniert nicht in jedem Browser. Das Mikrofon öffnet sich nur nach Anklicken. Während der Aufnahme erscheinen vorläufige Wörter, gesendet wird nur endgültig erkannter Text. Vorlesen nutzt die Browser-/Systemstimme und kann längere Antworten abschnittsweise wiedergeben. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Anhänge werden nur beim Senden lokal verarbeitet und nicht gespeichert. Bilder benötigen ein separat installiertes lokales Vision-Modell. Likes verbleiben im Browser-Tab. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
+      <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen und funktioniert nicht in jedem Browser. Der separate **Lokale Sprachmodus** nutzt nach einmaliger ausdrücklicher Installation Faster-Whisper und Piper auf diesem PC und sendet keine Audiodaten an einen externen Sprachanbieter. Er wechselt nach einer Sprechpause zwischen Zuhören und Antworten, ist aber noch kein gleichzeitiges Echtzeitgespräch. Das Mikrofon öffnet sich nur nach Anklicken. Während der Aufnahme erscheinen vorläufige Wörter, gesendet wird nur endgültig erkannter Text. Vorlesen nutzt die Browser-/Systemstimme und kann längere Antworten abschnittsweise wiedergeben. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Anhänge werden nur beim Senden lokal verarbeitet und nicht gespeichert. Bilder benötigen ein separat installiertes lokales Vision-Modell. Likes verbleiben im Browser-Tab. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
     </section>
   </div>
   </div>
