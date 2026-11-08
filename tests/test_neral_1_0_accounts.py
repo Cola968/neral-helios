@@ -104,5 +104,63 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(self.call(self.a, "GET", "/api/neral/account/chats/" + cid).json["messages"], [])
 
 
+    def test_export_contains_only_own_chats_never_credentials(self):
+        a = self.register(self.a, self.ready(self.a), "alice")
+        self.register(self.b, self.ready(self.b), "bob")
+        created = self.call(self.a, "POST", "/api/neral/account/chats", a,
+                            {"title": "Mein Export"})
+        cid = created.json["id"]
+        self.assertEqual(self.call(self.a, "PUT", "/api/neral/account/chats/" + cid,
+                                   a, {"title": "Mein Export", "messages": [
+                                       {"role": "user", "content": "Nur Alice"}]}).status_code, 200)
+        own = self.call(self.a, "GET", "/api/neral/account/export")
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(own.json["username"], "alice")
+        self.assertEqual(own.json["chats"][0]["messages"][0]["content"], "Nur Alice")
+        self.assertNotIn("password", own.get_data(as_text=True).lower())
+        other = self.call(self.b, "GET", "/api/neral/account/export")
+        self.assertEqual(other.status_code, 200)
+        self.assertEqual(other.json["chats"], [])
+        self.assertNotIn("Nur Alice", other.get_data(as_text=True))
+        self.assertIn("attachment;", own.headers["Content-Disposition"])
+
+    def test_deleting_account_requires_password_and_cascades_its_chats(self):
+        a = self.register(self.a, self.ready(self.a), "alice")
+        chat = self.call(self.a, "POST", "/api/neral/account/chats", a,
+                         {"title": "Löschen"}).json["id"]
+        wrong = self.call(self.a, "DELETE", "/api/neral/account", a,
+                          {"password": "incorrect-passphrase"})
+        self.assertEqual(wrong.status_code, 401)
+        deleted = self.call(self.a, "DELETE", "/api/neral/account", a,
+                            {"password": "strong-local-password-123"})
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(self.call(self.a, "GET", "/api/neral/account/me").json["authenticated"])
+        self.assertEqual(self.call(self.a, "GET", "/api/neral/account/chats/" + chat).status_code, 401)
+        new_csrf = {"X-Neral-CSRF": deleted.json["csrf"]}
+        new_account = self.call(self.a, "POST", "/api/neral/account/register",
+                                new_csrf, {"username": "alice", "password": "new-password-long-123"})
+        self.assertEqual(new_account.status_code, 201)
+        self.assertEqual(self.call(self.a, "GET", "/api/neral/account/chats/" + chat).status_code, 404)
+
+    def test_password_change_requires_old_password_and_invalidates_login(self):
+        a = self.register(self.a, self.ready(self.a), "alice")
+        bad = self.call(self.a, "POST", "/api/neral/account/password", a, {
+            "current_password": "wrong-password", "new_password": "new-password-long-123"})
+        self.assertEqual(bad.status_code, 401)
+        changed = self.call(self.a, "POST", "/api/neral/account/password", a, {
+            "current_password": "strong-local-password-123",
+            "new_password": "new-password-long-123"})
+        self.assertEqual(changed.status_code, 200)
+        self.assertFalse(self.call(self.a, "GET", "/api/neral/account/me").json["authenticated"])
+        next_csrf = {"X-Neral-CSRF": changed.json["csrf"]}
+        old = self.call(self.a, "POST", "/api/neral/account/login", next_csrf, {
+            "username": "alice", "password": "strong-local-password-123"})
+        self.assertEqual(old.status_code, 401)
+        good = self.call(self.a, "POST", "/api/neral/account/login", next_csrf, {
+            "username": "alice", "password": "new-password-long-123"})
+        self.assertEqual(good.status_code, 200)
+
+
+
 if __name__ == "__main__":
     unittest.main()
