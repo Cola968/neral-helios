@@ -16,7 +16,7 @@ test("assistant Markdown is readable and escaped HTML remains inert",async()=>{
   const fetch=async(url)=>({ok:true,json:async()=>{
     if(url.endsWith("/session"))return {csrf:"TEST",model:"qwen3:8b"};
     if(url.endsWith("/status"))return {model:"qwen3:8b",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false};
-    return {text:"**Stockholm** &#x20; <img src=x onerror=alert(1)>",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false,model_generated:true};
+    return {text:"\\\\### \\\\*\\\\*Stockholm\\\\*\\\\* &#x20; <img src=x onerror=alert(1)>\\n1\\\\. Beispiel",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false,model_generated:true};
   }});
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8"),{
     document:{getElementById:element,createElement:tag=>{
@@ -32,4 +32,7 @@ test("assistant Markdown is readable and escaped HTML remains inert",async()=>{
   assert.equal(created.find(n=>n.tag==="img"),undefined,"HTML injection must never create an image");
   assert.ok(created.some(n=>n.tag==="span" && n.textContent.includes("<img src=x")),"literal HTML should remain text");
   assert.ok(!created.some(n=>n.tag==="span" && n.textContent.includes("&#x20;")),"space entities should be cleaned");
+  assert.ok(!created.some(n=>n.tag==="span" && /\\\\###|\\\\\\\\\\\\\\\\\\\\\\\\\\*/.test(n.textContent)),
+    "escaped heading and Markdown escapes should be stripped from rendered text");
+
 });
