@@ -216,7 +216,35 @@
     const deadline=AbortSignal.timeout(mode==="think"?190000:120000);
     const signal=AbortSignal.any([controller.signal,deadline]);
     const selectedAttachments=attachments.slice();
+    let railPending=null;
     try {
+      // Explicit rail request: use BahnConnections data, never ask Qwen to invent departures.
+      const railway=typeof window==="undefined"?null:window.NERALJourneyUI;
+      const journeyRequest=!selectedAttachments.length?railway?.parse?.(text):null;
+      if(journeyRequest){
+        railPending=document.createElement("div");
+        railPending.className="rail-map-missing";
+        railPending.textContent="Verbindungen werden bei BahnConnections gesucht …";
+        messages.append(railPending);
+        const railData=await json("/api/neral/preview/journeys",{
+          method:"POST",
+          headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
+          body:JSON.stringify(journeyRequest),
+          signal:AbortSignal.any([signal,AbortSignal.timeout(40000)])
+        });
+        railPending.remove();
+        if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
+        if(!railway.validate(railData))throw new Error("Ungültige BahnConnections-Daten.");
+        append("user",text);
+        const answer=append("assistant",railway.summary(railData),
+          "BahnConnections · externe Fahrplandaten");
+        railway.render(answer,railData);
+        memory.push({role:"user",content:text},
+          {role:"assistant",content:railway.summary(railData)});
+        if(memory.length>12)memory.splice(0,memory.length-12);
+        prompt.value="";
+        return;
+      }
       let modelPrompt=text;
       let sources=[];
       if($("useWebSearch").checked) {
@@ -297,6 +325,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
+      if(railPending)railPending.remove();
       if(activeRequest===controller){
         activeRequest=null;busy=false;submit.disabled=false;
         stopRequest.disabled=true;prompt.focus();
