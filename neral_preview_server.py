@@ -107,7 +107,7 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
             "browser_voice": {"configured": True, "live_verified": False,
                               "requires_user_consent": True,
                               "may_use_browser_provider": True},
-            "python_syntax_check": {"available": True, "scope": "python_ast_only",
+            "python_syntax_check": {"available": True, "scope": "python_parse_compile_only",
                                     "executes_code": False},
             "selected_file_context": {"available": True,
                                       "requires_user_selection": True,
@@ -127,14 +127,20 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
                 len(data["source"].encode("utf-8"))>4096):
             return jsonify(error="Nur Python-Quelltext bis 4096 Bytes erlaubt."), 400
         try:
+            # Parsing alone accepts e.g. top-level "return", "break" or
+            # "await". Python's compiler rejects them. Compilation creates
+            # an in-memory code object only; it does NOT execute, import,
+            # write or evaluate the supplied program.
             ast.parse(data["source"], mode="exec")
+            compile(data["source"], "<neral-codecheck>", "exec",
+                    dont_inherit=True, optimize=0)
         except SyntaxError as exc:
-            return jsonify(syntax_ok=False, scope="python_ast_only",
+            return jsonify(syntax_ok=False, scope="python_parse_compile_only",
                            code_executed=False, line=exc.lineno or 1,
                            column=exc.offset or 0, message=str(exc.msg)[:120])
         except (ValueError, RecursionError):
             return jsonify(error="Ungültiger Python-Quelltext."), 400
-        return jsonify(syntax_ok=True, scope="python_ast_only",
+        return jsonify(syntax_ok=True, scope="python_parse_compile_only",
                        code_executed=False)
 
     return app
