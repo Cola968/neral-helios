@@ -56,6 +56,13 @@ test("keyboard shortcuts and sidebar escape work without automatic submission",(
   assert.match(s,/dataset\.prompt/);
   assert.doesNotMatch(s,/innerHTML\s*=/);
 });
+test("local voice keeps a responsive icon and updates only its accessible label",()=>{
+  const h=html();
+  const source=read("static/neral-local-voice.js");
+  assert.match(h,/class="voice-label"/);
+  assert.match(source,/function setVoiceButtonLabel/);
+  assert.doesNotMatch(source,/button\.textContent\s*=\s*"Lokalen Sprachmodus beenden"/);
+});
 test("local release includes the CSS and JS and offline checks are wired",()=>{
   const builder=read("scripts/build_neral_1_0_preview.py");
   const workflow=read(".github/workflows/neral-1-0-release-rc.yml");
