@@ -51,12 +51,12 @@ def _provenance(backend) -> dict:
     }
 
 
-def _messages(payload: object) -> list[dict]:
+def _messages(payload: object, *, max_prompt_bytes: int = MAX_PROMPT_BYTES) -> list[dict]:
     if not isinstance(payload, dict) or not {"prompt"} <= set(payload) or not set(payload) <= {"prompt", "history"}:
         raise ValueError("Nur prompt und history sind zulässig.")
     prompt = payload.get("prompt")
     history = payload.get("history", [])
-    if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > max_prompt_bytes:
         raise ValueError("Eingabe muss 1 bis 4096 UTF-8-Bytes enthalten.")
     if not isinstance(history, list) or len(history) > MAX_HISTORY_MESSAGES:
         raise ValueError("Verlauf zu lang.")
