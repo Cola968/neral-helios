@@ -70,6 +70,7 @@ class AttachmentPreviewTests(unittest.TestCase):
         )
         self.assertEqual(result.status_code, 200, result.get_json())
         self.assertEqual(result.json["attachments"][0]["kind"], "document")
+        self.assertEqual(result.json["mode"], "LOW")
         self.assertFalse(result.json["file_bytes_persisted"])
         self.assertFalse(result.json["adapter_loaded"])
         self.assertEqual(len(self.backend.calls), 1)
