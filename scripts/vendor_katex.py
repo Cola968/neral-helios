@@ -41,6 +41,7 @@ ASSETS = (
     "katex.min.js",
     "katex.min.css",
     "auto-render.min.js",
+    "mhchem.min.js",
     "LICENSE.txt",
     "VERSION.txt",
 ) + tuple("fonts/" + name + ".woff2" for name in FONT_NAMES)
@@ -92,6 +93,7 @@ def vendor(root: Path) -> None:
             "katex.min.js": base / "dist/katex.min.js",
             "katex.min.css": base / "dist/katex.min.css",
             "auto-render.min.js": base / "dist/contrib/auto-render.min.js",
+            "mhchem.min.js": base / "dist/contrib/mhchem.min.js",
             "LICENSE.txt": base / "LICENSE",
         }
         for name in FONT_NAMES:
