@@ -37,7 +37,8 @@ if(-not(Test-Path -LiteralPath $selftest -PathType Leaf)){
     throw 'Offline-Sprachinstallation unvollstaendig: Sprach-Selbsttest fehlt.'
 }
 Write-Host 'Pruefe jetzt ECHTE lokale Whisper- und Piper-Audioverarbeitung ...'
-& $py -B $selftest
+# Run as module from the NERAL root so neral_local_voice can import.
+& $py -B -m scripts.neral_local_voice_selftest
 if($LASTEXITCODE -ne 0){
     throw 'Offline-Sprachmodus ist nicht funktionsfaehig. Python-Paket/Modell/Sprachstimme pruefen; kein Erfolg vorgetaeuscht.'
 }
