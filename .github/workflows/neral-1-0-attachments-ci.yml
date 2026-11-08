@@ -12,6 +12,8 @@ on:
       - 'scripts/build_neral_1_0_preview.py'
       - 'requirements-neral-preview.txt'
       - 'tests/test_neral_1_0_attachments.py'
+      - 'tests/test_neral_vision_qwen35.py'
+      - 'scripts/neral_1_0_local_live_smoke.py'
       - 'tests/test_neral_1_0_project_files.cjs'
       - '.github/workflows/neral-1-0-attachments-ci.yml'
   workflow_dispatch:
@@ -38,6 +40,8 @@ jobs:
         run: python -m py_compile neral_preview_attachments.py neral_preview_server.py neral_local_chat_api.py
       - name: Upload and multimodal security contracts without GPU
         run: python -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
+      - name: Qwen3.5 installed-vision regression (no GPU)
+        run: python -m unittest discover -s tests -p test_neral_vision_qwen35.py -v
       - name: Existing standalone release security contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: Existing codecheck security contracts
