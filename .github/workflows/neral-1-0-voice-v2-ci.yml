@@ -1,0 +1,36 @@
+name: NERAL 1.0 voice conversation v2 browser contracts
+on:
+  pull_request:
+    paths:
+      - 'static/neral-preview.js'
+      - 'templates/neral_preview.html'
+      - 'static/neral-preview.css'
+      - 'tests/test_neral_1_0_voice_v2.cjs'
+      - '.github/workflows/neral-1-0-voice-v2-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'static/neral-preview.js'
+      - 'templates/neral_preview.html'
+      - 'static/neral-preview.css'
+      - 'tests/test_neral_1_0_voice_v2.cjs'
+      - '.github/workflows/neral-1-0-voice-v2-ci.yml'
+permissions:
+  contents: read
+jobs:
+  browser-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: JS syntax and new browser voice simulation
+        run: |
+          node --check static/neral-preview.js
+          node --test tests/test_neral_1_0_voice_v2.cjs
+      - name: Existing voice, attachments, cancellation and history contracts
+        run: |
+          node --test tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_project_files.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_preview_cancel_v2.cjs
