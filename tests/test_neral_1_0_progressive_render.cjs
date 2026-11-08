@@ -38,6 +38,14 @@ test("large Ollama chunk is painted in steps, and later chunks are appended in c
   assert.equal(await finished,true);
   assert.equal(target.textContent,"Abschnitt A ".repeat(40)+"🛤️ Abschnitt B");
 });
+test("progressive paint updates the chat scroll position while text grows",async()=>{
+  const f=frames(),target={textContent:""},updates=[];
+  const p=createPainter(target,{schedule:f.frame,cancelFrame:f.cancel,onPaint:shown=>updates.push(shown)});
+  p.push("Eine längere Antwort, die nach und nach erscheint.");
+  const done=p.finish();await f.drain();assert.equal(await done,true);
+  assert.ok(updates.length>=2);
+  assert.equal(updates.at(-1),target.textContent);
+});
 test("abort cancels frame updates and never reveals discarded private chunks",async()=>{
   const f=frames(),target={textContent:""},active={value:true};
   const p=createPainter(target,{schedule:f.frame,cancelFrame:f.cancel,isCurrent:()=>active.value});
