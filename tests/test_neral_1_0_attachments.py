@@ -167,6 +167,14 @@ class AttachmentPreviewTests(unittest.TestCase):
         result = self.post(four)
         self.assertEqual(result.status_code, 400)
 
+    def test_three_near_maximum_size_files_fit_total_multipart_budget(self):
+        # The documented 3 x 4 MiB allowance must also fit request limit.
+        almost_max = b"Z" * (4 * 1024 * 1024 - 50)
+        files = [(BytesIO(almost_max), f"large{i}.txt") for i in range(3)]
+        result = self.post(files, prompt="Fasse zusammen")
+        self.assertEqual(result.status_code, 200, result.get_json())
+        self.assertEqual(len(result.json["attachments"]), 3)
+
     def test_regular_json_chat_preserves_existing_contract(self):
         result = self.client.post(
             "/api/neral/chat/generate",
