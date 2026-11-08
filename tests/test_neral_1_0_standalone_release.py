@@ -1,8 +1,12 @@
 """RED: the 1.0 preview must run without historic 50M model/export."""
 from __future__ import annotations
+import ast
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -122,6 +126,62 @@ class PreviewStandaloneTests(unittest.TestCase):
                 self.assertIn("NERAL-1.0-Local/templates/neral_preview.html",names)
                 self.assertNotIn("NERAL-1.0-Local/local_state/chats.sqlite3",names)
                 self.assertFalse(any("safetensors" in n or "adapter_model" in n for n in names))
+
+    def test_every_local_python_import_is_present_in_shipped_source_allowlist(self):
+        """Protect all lazy agent and THINK imports, not only a single use case."""
+        included=set(REQUIRED_FILES)
+        for relative in REQUIRED_FILES:
+            if not relative.endswith(".py") or relative.startswith("scripts/"):
+                continue
+            code=(ROOT/relative).read_text(encoding="utf-8")
+            tree=ast.parse(code,filename=relative)
+            for node in ast.walk(tree):
+                names=[]
+                if isinstance(node,ast.ImportFrom) and node.module:
+                    names.append(node.module.split(".")[0])
+                elif isinstance(node,ast.Import):
+                    names.extend(alias.name.split(".")[0] for alias in node.names)
+                for module in names:
+                    source=ROOT/(module+".py")
+                    if source.is_file():
+                        self.assertIn(
+                            module+".py",included,
+                            f"{relative} imports a first-party Python module "
+                            f"{module!r} that the installable ZIP omits",
+                        )
+
+    def test_extracted_zip_supports_real_think_logic_transfer_in_isolation(self):
+        """Run an actual nontrivial logic tool from the ZIP, not from git checkout."""
+        with tempfile.TemporaryDirectory() as td:
+            out=Path(td)/"release.zip"
+            build_preview(ROOT,out)
+            import zipfile
+            with zipfile.ZipFile(out) as bundle:
+                member_names=set(bundle.namelist())
+                self.assertIn(
+                    "NERAL-1.0-Local/neral_logic_transfer.py",
+                    member_names,
+                    "The exact reasoning engine's lazy import is missing from the ZIP",
+                )
+                bundle.extractall(Path(td)/"extract")
+            isolated=Path(td)/"extract"/"NERAL-1.0-Local"
+            question=(
+                "A DAG on vertices 0 to 3 contains only these directed edges "
+                "[(0, 1), (0, 2), (1, 3), (2, 3)]. "
+                "Count different directed paths from 0 to 3."
+            )
+            code=(
+                "from neral_logic_engine import trusted_logic_question; "
+                f"result=trusted_logic_question({question!r}); "
+                "assert result is not None and result['answer']=='2', result; "
+                "assert result['certificate']['rule']=='dag_path_count', result"
+            )
+            env={**os.environ,"PYTHONPATH":str(isolated),"PYTHONDONTWRITEBYTECODE":"1"}
+            child=subprocess.run(
+                [sys.executable,"-B","-c",code],cwd=isolated,env=env,
+                capture_output=True,text=True,timeout=12,check=False
+            )
+            self.assertEqual(child.returncode,0,child.stderr[-1200:])
 
     def test_bad_bundle_output_and_symlink_must_fail(self):
         with tempfile.TemporaryDirectory() as td:
