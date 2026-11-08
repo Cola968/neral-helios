@@ -308,7 +308,7 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None)
                 else:
                     responder = getattr(backend, "respond_chat", None) or backend.respond
                     answer = responder(turns)
-                    result = {"text": answer, "model_generated": True}
+                    result = {"text": answer, "mode": "LOW", "model_generated": True}
                 if (not result["text"].strip() or
                         len(result["text"].encode("utf-8")) > 32768):
                     raise ValueError("Ungültige Modellantwort")
