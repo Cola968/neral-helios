@@ -170,4 +170,7 @@ def trusted_logic_question(prompt: str) -> dict | None:
                     "winning_path_index":totals.index(best),
                 },
             }
-    return None
+    # Independent bounded algorithm families; no claim about neural weights.
+    # The transfer parser also requires a full exact grammar match.
+    from neral_logic_transfer import trusted_transfer_logic_question
+    return trusted_transfer_logic_question(clean)
