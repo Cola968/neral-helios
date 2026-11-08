@@ -33,6 +33,7 @@ class LocalVoiceInstallTests(unittest.TestCase):
     def test_optional_installer_runs_real_stt_and_tts_check_before_success(self):
         script = (ROOT / "Install-Neral-Local-Voice.ps1").read_text("utf8")
         self.assertIn("scripts\\neral_local_voice_selftest.py", script)
+        self.assertIn("-m scripts.neral_local_voice_selftest", script)
         self.assertIn("if($LASTEXITCODE -ne 0)", script)
         self.assertIn("Read-Host", script)
         self.assertNotIn("pip install --upgrade piper-tts", script)
