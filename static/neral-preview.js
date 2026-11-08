@@ -207,6 +207,9 @@
   // Speak all reasonably bounded answer text as short sequential utterances.
   // Never start the microphone automatically after playback; no hot mic loop.
   function speak(text) {
+    // Piper owns audio while the explicitly activated LOCAL voice session
+    // is on; never speak the same answer through the browser provider.
+    if($("localVoiceStart")?.getAttribute?.("aria-pressed")==="true")return;
     if(!$("voiceOutput").checked || !speaker ||
        typeof SpeechSynthesisUtterance==="undefined") return;
     stopAudio();
