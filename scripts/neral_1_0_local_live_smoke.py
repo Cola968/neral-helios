@@ -19,6 +19,21 @@ HOST="http://127.0.0.1:9690"
 NAME="qwen3:8b"
 
 
+def valid_high_smoke(status_code: int, payload: object) -> bool:
+    """Verify the current HIGH API contract without printing private replies."""
+    if status_code != 200 or not isinstance(payload, dict):
+        return False
+    answer = payload.get("text")
+    return (
+        payload.get("mode") == "HIGH"
+        and payload.get("verified") is True
+        and isinstance(answer, str)
+        and "42" in answer
+        and payload.get("model_origin") == "local_foundation_not_neral_adapter"
+        and payload.get("adapter_loaded") is False
+    )
+
+
 def test_local_release(output: Path):
     output=Path(output)
     if (output.exists() or output.is_symlink() or not output.parent.is_dir() or
@@ -60,13 +75,8 @@ def test_local_release(output: Path):
 
     deep=client.post("/api/neral/chat/think",base_url=HOST,headers=hdr,
        json={"prompt":"Berechne schrittweise: 6*7"})
-    if (deep.status_code!=200 or
-            deep.json.get("mode")!="THINK" or
-            deep.json.get("verified") is not True or
-            "42" not in str(deep.json.get("text","")) or
-            deep.json.get("model_origin")!="local_foundation_not_neral_adapter" or
-            deep.json.get("adapter_loaded") is not False):
-        raise ValueError("REAL Qwen THINK/exact-local-tool smoke failed")
+    if not valid_high_smoke(deep.status_code, deep.get_json(silent=True)):
+        raise ValueError("REAL Qwen HIGH/exact-local-tool smoke failed")
     if OllamaLocal().inventory().get(NAME)!=digest:
         raise ValueError("Local model SHA drift during live smoke")
     report={
