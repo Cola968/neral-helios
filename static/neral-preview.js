@@ -264,8 +264,8 @@
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
-        ? "NERAL THINK · Endwert geprüft" : mode==="think"
-        ? "NERAL THINK · ungeprüft" : "NERAL FAST";
+        ? "NERAL HIGH · Endwert geprüft" : mode==="think"
+        ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
       if(sources.length) origin+=" · mit Suchtreffern";
       append("assistant",result.text,origin);
       if(sources.length) append("assistant",sources.map((s,i)=>
