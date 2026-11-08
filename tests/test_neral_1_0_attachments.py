@@ -99,6 +99,40 @@ class AttachmentPreviewTests(unittest.TestCase):
         self.assertIn("Auf dem Bild steht 42", self.backend.calls[0][-1]["content"])
         self.assertFalse(result.json["attachment_context_verified"])
 
+    def test_high_with_attachment_uses_same_two_pass_review_as_regular_high(self):
+        from neral_agent_autonomy import OllamaLocalBackend
+
+        class FakeLocalOllama(OllamaLocalBackend):
+            def __init__(self):
+                super().__init__("qwen3:8b")
+                self.high_calls = []
+
+            def respond_think(self, turns):
+                self.high_calls.append(turns)
+                return ("Erster Entwurf zu Sternen." if len(self.high_calls) == 1
+                        else "Verbesserte Erklärung zu Sternen.")
+
+        local = FakeLocalOllama()
+        client = create_preview_app(local, secret_key=b"H" * 32).test_client()
+        client.get("/", base_url=HOST)
+        csrf = client.get("/api/neral/preview/session",
+                          base_url=HOST).json["csrf"]
+        response = client.post(
+            ROUTE, base_url=HOST,
+            headers={"X-Neral-CSRF": csrf},
+            data={"prompt": "Erkläre den Lebenszyklus eines Sterns.",
+                  "mode": "think", "history": "[]",
+                  "files": [(BytesIO(b"Hydrogen fusion and red giant stages."),
+                             "stern.txt")]},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.json["mode"], "HIGH")
+        self.assertEqual(response.json["calls_used"], 2)
+        self.assertEqual(response.json["review_passes"], 1)
+        self.assertEqual(response.json["text"], "Verbesserte Erklärung zu Sternen.")
+        self.assertEqual(len(local.high_calls), 2)
+
     def test_image_without_installed_local_vision_fails_closed(self):
         app = create_preview_app(
             self.backend, secret_key=b"B" * 32,
