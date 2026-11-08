@@ -139,3 +139,19 @@ test("image-only request with web toggle never searches for generic attachment p
   assert.ok(upload,"real image bytes must still follow multipart path");
   assert.equal(upload.opts.body.get("prompt"),"Analysiere die Anhänge.");
 });
+
+test("answer provenance displays selected HIGH foundation and does not claim files were understood",async()=>{
+  const x=harness({model:"qwen3.5:9b",attachment_context_verified:false});
+  await flush();
+  x.element("chatForm").querySelector=()=>({value:"think"});
+  x.element("projectFiles").files=[{name:"scan.png",size:200}];
+  x.handlers.get("projectFiles:change")();
+  x.element("prompt").value="Was steht auf diesem Bild?";
+  await x.handlers.get("chatForm:submit")({preventDefault(){}});
+  const labels=x.created.filter(e=>e.tagName==="strong").map(e=>e.textContent);
+  const heading=labels.find(s=>s.includes("NERAL HIGH"));
+  assert.ok(heading,"HIGH response is visible");
+  assert.match(heading,/qwen3\\.5:9b/,"show real model identity, not an implicit Qwen8B label");
+  assert.match(heading,/Anhänge verarbeitet/);
+  assert.doesNotMatch(heading,/Anhänge ausgewertet/,"upload alone is not proof of content understanding");
+});
