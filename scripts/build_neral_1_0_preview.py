@@ -35,6 +35,7 @@ REQUIRED_FILES = (
     "agent_mode.py",
     "static/neral-preview.js",
     "static/neral-preview.css",
+    "static/icon.svg",
     "templates/neral_preview.html",
     "requirements-neral-preview.txt",
     "docs/NERAL_1_0_LOCAL_PREVIEW_RC.md",
