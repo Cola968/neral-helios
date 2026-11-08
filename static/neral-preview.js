@@ -516,9 +516,12 @@
         ? "NERAL · lokal geprüft" : verified
         ? "NERAL HIGH · Endwert geprüft" : mode==="think"
         ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
+      if(typeof result.model==="string" &&
+         /^(?:qwen3:8b|qwen3\\.5:9b)$/.test(result.model))
+        origin+=" · Modell "+result.model;
       if(sources.length) origin+=" · mit Suchtreffern";
       if(selectedAttachments.length) {
-        origin+=" · Anhänge ausgewertet";
+        origin+=" · Anhänge verarbeitet";
         if(Array.isArray(result.attachments)&&result.attachments.some(a=>a.truncated===true))
           origin+=" · Auszüge gekürzt";
       }
