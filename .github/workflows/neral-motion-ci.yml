@@ -8,6 +8,9 @@ on:
       - 'templates/index.html'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_motion.cjs'
+      - 'tests/test_neral_modern_ui.cjs'
+      - 'static/neral-modern.css'
+      - 'static/neral-modern.js'
       - 'tests/test_neral_activity_v3.cjs'
       - '.github/workflows/neral-motion-ci.yml'
   push:
@@ -19,6 +22,9 @@ on:
       - 'templates/index.html'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_motion.cjs'
+      - 'tests/test_neral_modern_ui.cjs'
+      - 'static/neral-modern.css'
+      - 'static/neral-modern.js'
       - 'tests/test_neral_activity_v3.cjs'
       - '.github/workflows/neral-motion-ci.yml'
 permissions:
@@ -34,4 +40,5 @@ jobs:
           node-version: '22'
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-preview.js
-      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs
+      - run: node --check static/neral-modern.js
+      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs
