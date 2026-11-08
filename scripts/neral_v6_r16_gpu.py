@@ -178,16 +178,24 @@ def _gpu_is_free() -> tuple[int, int]:
 def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
                lr=1e-5, authorize=AUTH,
                status="NERAL_V6_120_STEPS_TRAINED_EXPERIMENT_ONLY",
-               checkpoint_interval=None) -> dict:
+               checkpoint_interval=None, max_steps_limit=120) -> dict:
     # Keep the original v6 defaults unchanged; allow explicit reviewed
     # experiments to supply a different provenance-checked data factory.
-    if (args.authorize != authorize or type(steps) is not int or
-            not 1 <= steps <= 120 or not 0 < lr <= 1e-5):
+    # Historical v6/v7 authorizations remain limited to 120 steps.
+    # The reviewed v8 research gate alone may request a 240-step epoch.
+    extended=(max_steps_limit==240 and
+              authorize=="TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL" and
+              status=="NERAL_V8_SELFVERIFY_R16_240_UNRELEASED")
+    if (type(max_steps_limit) is not int or
+            (max_steps_limit!=120 and not extended) or
+            args.authorize!=authorize or type(steps) is not int or
+            not 1<=steps<=max_steps_limit or not 0<lr<=1e-5):
         raise ValueError("Unsafe training authorization, step count or LR")
     from scripts.neral_training_checkpoint_policy import (
         options_for_training, validate_best_checkpoint,
     )
-    checkpoint_options=options_for_training(steps=steps,interval=checkpoint_interval)
+    checkpoint_options=options_for_training(steps=steps,interval=checkpoint_interval,
+                                             max_steps_limit=max_steps_limit)
     root = Path(__file__).resolve().parents[1]
     dest = Path(args.out)
     model_dir = Path(args.base)
@@ -331,6 +339,7 @@ def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
             trainer.state.best_model_checkpoint,
             trainer.state.best_metric,
             output_temp,steps=steps,interval=checkpoint_interval,
+            max_steps_limit=max_steps_limit,
         )
         best_loss=float(trainer.state.best_metric)
     evals=trainer.evaluate()
