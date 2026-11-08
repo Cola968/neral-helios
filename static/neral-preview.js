@@ -347,8 +347,18 @@
   browser.addEventListener?.("neral:load-chat",event=>{
     const turns=event.detail?.messages;
     if(!Array.isArray(turns))return;
+    if(turns.length>80 || turns.some(turn=>!turn ||
+        !["user","assistant"].includes(turn.role) ||
+        typeof turn.content!=="string" || encoder.encode(turn.content).length>4096))return;
     conversationEpoch++;
     if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
+    stopAudio();
+    if(recognizer && listening) recognizer.abort();
+    setListening(false);
+    prompt.value="";
+    attachments=[];
+    fileInput.value="";
+    fileStatus.textContent="Keine Dateien ausgewählt.";
     memory.length=0;
     messages.replaceChildren();
     for(const turn of turns.slice(-80)) {
