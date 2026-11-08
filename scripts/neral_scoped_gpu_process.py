@@ -73,9 +73,17 @@ def classify_neral_candidate(proc,expected:str,*,now:float)->dict:
         training=False
         active_cpu=True
         old=False
+        same=False
+        from_neral=False
+        runner=False
+        alive=False
     return {
         "verified":checked,"training_process":bool(training),
         "older_than_5min":bool(old),"busy_cpu":bool(active_cpu),
+        "pinned_executable":bool(same),
+        "project_command":bool(from_neral),
+        "runner_process":bool(runner),
+        "alive":bool(alive),
     }
 
 
@@ -120,12 +128,14 @@ def run(mode:str,authorize:str)->dict:
         raise ValueError("psutil required for independent process identity verification") from exc
     now=time.time()
     candidates=[]
+    observations=[]
     for pid in pids:
         if pid==os.getpid() or pid==os.getppid():
             continue
         try:
             p=psutil.Process(pid)
             info=classify_neral_candidate(p,pinned,now=now)
+            observations.append(info)
             if info["verified"]:
                 candidates.append(p)
         except (psutil.NoSuchProcess,psutil.AccessDenied,
@@ -137,6 +147,12 @@ def run(mode:str,authorize:str)->dict:
         "gpu_before":initial,
         "gpu_python_process_count":len(pids),
         "verified_idle_neral_runtime_count":len(candidates),
+        "scope_evidence_counts":{
+            key:sum(bool(item[key]) for item in observations)
+            for key in ("pinned_executable","project_command",
+                        "runner_process","training_process",
+                        "older_than_5min","busy_cpu","alive")
+        },
         "unrelated_processes_terminated":0,
         "model_weights_modified":False,
         "force_kill_used":False,
