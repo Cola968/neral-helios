@@ -15,9 +15,9 @@
   const browser=typeof window==="undefined" ? {} : window;
   // Motion is progressive enhancement: headless tests and non-browser clients
   // must never fail an otherwise valid local chat request.
-  function motionActivity(phase,mode){
+  function motionActivity(phase,mode,extra={}){
     if(typeof browser.dispatchEvent!=="function" || typeof CustomEvent!=="function")return;
-    browser.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase,mode}}));
+    browser.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase,mode,...extra}}));
   }
   const Recognition=browser.SpeechRecognition || browser.webkitSpeechRecognition;
   const speaker=browser.speechSynthesis;
@@ -258,8 +258,32 @@
   // Explicit file selection only. Binary files are never converted to strings
   // in the browser: the localhost API performs type checks and extraction.
   const fileInput=$("projectFiles"), fileStatus=$("fileStatus");
+  function renderAttachmentChips(files){
+    const list=$("attachmentChips");
+    if(!list || typeof list.replaceChildren!=="function")return;
+    const chips=files.map(file=>{
+      const suffix=String(file.name).split(".").pop().toLowerCase();
+      const label=["png","jpg","jpeg","webp"].includes(suffix)?"BILD":
+        suffix==="pdf"?"PDF":suffix==="docx"?"DOCX":"DATEI";
+      const chip=document.createElement("div");
+      chip.className="neral-attachment-chip";
+      const kind=document.createElement("span");
+      kind.className="neral-attachment-chip-kind";
+      kind.textContent=label;
+      const name=document.createElement("span");
+      name.className="neral-attachment-chip-name";
+      name.textContent=file.name; // Never convert user-supplied names to HTML.
+      const size=document.createElement("span");
+      size.className="neral-attachment-chip-size";
+      size.textContent=(file.size/1024).toFixed(1)+" KB";
+      chip.append(kind,name,size);
+      return chip;
+    });
+    list.replaceChildren(...chips);
+  }
   fileInput.addEventListener("change",()=>{
     attachments=[];
+    renderAttachmentChips([]);
     const files=Array.from(fileInput.files||[]);
     if(!files.length) {
       fileStatus.textContent="Keine Dateien ausgewählt.";
@@ -273,6 +297,7 @@
       return;
     }
     attachments=files;
+    renderAttachmentChips(files);
     fileStatus.textContent="Ausgewählt: "+files.map(f=>f.name).join(", ")+
       " · Übertragung ausschließlich an deinen lokalen NERAL beim Senden.";
   });
@@ -286,6 +311,7 @@
     const checkButton=$("codeCheck");
     const startedEpoch=conversationEpoch;
     busy=true;submit.disabled=true;checkButton.disabled=true;
+    let checkResponded=false;
     motionActivity("checking");
     try {
       const reply=await json("/api/neral/preview/codecheck",{
@@ -300,12 +326,14 @@
         : "Python-Syntaxfehler in Zeile "+reply.line+", Spalte "+reply.column+
           ": "+reply.message+". Code wurde nicht ausgeführt.",
         "Code Check · Python-Syntax ohne Ausführung");
+      checkResponded=true;
     } catch(e) {
       if(startedEpoch===conversationEpoch)
         errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
     } finally {
       busy=false;submit.disabled=false;checkButton.disabled=false;
       motionActivity("done");
+      if(checkResponded)motionActivity("archive");
     }
   });
 
@@ -362,6 +390,7 @@
         sources=Array.isArray(search.results)?search.results.slice(0,3):[];
         if(!sources.length)
           throw new Error("Keine ungeprüften Suchtreffer erhalten. Websuche deaktivieren oder später erneut versuchen.");
+        motionActivity("search-done",mode,{count:sources.length});
         const evidence=sources.map((r,i)=>
           "["+(i+1)+"] "+String(r.title||"").slice(0,110)+
           " | "+String(r.url||"").slice(0,190)+
@@ -388,6 +417,7 @@
         selectedAttachments.forEach(f=>data.append("files",f,f.name));
         path="/api/neral/preview/attachment-chat";
         options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
+        motionActivity("uploading",mode,{count:selectedAttachments.length});
       }
       motionActivity("thinking",mode);
       const result=await json(path,options);
@@ -397,6 +427,7 @@
       if(result.model_origin!=="local_foundation_not_neral_adapter" ||
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
+      if(selectedAttachments.length)motionActivity("files-done",mode);
       motionActivity("done",mode);
       append("user",text+(selectedAttachments.length?"\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""));
       const verified=result.verified===true && result.verification_scope!=="none";
@@ -413,6 +444,7 @@
       if(Array.isArray(result.vision_models)&&result.vision_models.length)
         origin+=" · Bildmodell "+result.vision_models.join(", ");
       append("assistant",result.text,origin);
+      motionActivity("archive",mode);
       if(sources.length) append("assistant",sources.map((s,i)=>
         "["+(i+1)+"] "+s.title+": "+s.url).join("\n"),
         "Webquellen · externe Treffer ungeprüft");
@@ -424,6 +456,7 @@
       prompt.value="";
       attachments=[];
       fileInput.value="";
+      renderAttachmentChips([]);
       fileStatus.textContent="Keine Dateien ausgewählt.";
       speak(result.text);
     } catch(e) {
@@ -490,6 +523,7 @@
     browser.dispatchEvent?.(new CustomEvent("neral:chat-cleared"));
     attachments=[];
     fileInput.value="";
+    renderAttachmentChips([]);
     fileStatus.textContent="Keine Dateien ausgewählt.";
     messages.replaceChildren();
     append("assistant","Der Verlauf in diesem Fenster wurde gelöscht.","NERAL · lokal");
