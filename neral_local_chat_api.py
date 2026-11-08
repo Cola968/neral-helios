@@ -263,6 +263,14 @@ def register_neral_local_chat_api(app, backend):
             # Second review is opt-in only for real local Ollama.
             # Retain the historic adapter THINK semantics and its tests.
             deep_review = isinstance(backend, OllamaLocalBackend)
+            if deep_review:
+                # Exact, independently checked tasks need no expensive model
+                # sampling. Full-input parsers reject mixed instructions,
+                # context and tasks that explicitly require an explanation.
+                from neral_high_verified_first import direct_high_reply
+                direct = direct_high_reply(data)
+                if direct is not None:
+                    return jsonify({**direct, **_provenance(backend)})
             result = think_reply(data, local_respond, deep_review=deep_review)
             return jsonify({**result, **_provenance(backend)})
         except Exception:
