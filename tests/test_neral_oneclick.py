@@ -52,6 +52,8 @@ class OneClickTests(unittest.TestCase):
         self.assertIn("--onefile",wf)
         self.assertIn("NERAL.exe",wf)
         self.assertIn("--smoke-test",wf)
+        self.assertIn("Start-Process",wf)
+        self.assertIn("ExitCode",wf)
         self.assertIn("upload-artifact",wf)
         self.assertIn("neral_oneclick.py",wf)
 
