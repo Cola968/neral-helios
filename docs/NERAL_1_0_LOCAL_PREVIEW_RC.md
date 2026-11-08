@@ -169,3 +169,47 @@ dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
 - `project_files` (automatischer Dateisystem-Agent) und
   `local_code_execution` (Codeausfuehrung) bleiben deaktiviert.
   Der begrenzte Datei-Kontext und der AST-Syntaxcheck sind getrennte Tools.
+
+
+## Dateianhänge, Bildanalyse und Antwort-Feedback (Feature-PR)
+
+Die Browseroberfläche erlaubt nach ausdrücklicher Dateiauswahl höchstens
+**drei Dateien à 4 MiB** pro Anfrage. Sie werden ausschließlich an
+127.0.0.1:9690 übertragen, dort im Arbeitsspeicher verarbeitet und
+nicht dauerhaft gespeichert.
+
+- **PNG, JPEG, WebP:** Bildbeschreibung mit bereits installiertem
+  lokalem Ollama-Vision-Modell: bevorzugt qwen3-vl:2b (ca. 1,9 GB
+  quantisierte Gewichte), alternativ qwen2.5vl:3b.
+- **PDF:** Text von bis zu 15 Seiten mittels pypdf; Bildscans ohne
+  Textschicht werden abgelehnt (noch kein OCR).
+- **DOCX:** Text aus der begrenzten Office-XML-Datei.
+- **TXT, MD, CSV, JSON und ausgewählte Code-Dateien:** UTF-8-Text als
+  gekürzter, schreibgeschützter Chatkontext. Code wird nicht ausgeführt.
+
+Qwen3:8B ist das **Textmodell**. Für Bilder erstellt das Vision-Modell
+zuerst eine Beschreibung; das Textmodell erhält sie als **ungeprüfte
+Bildinformation**. Eine fehlerfreie Erkennung ist nicht garantiert.
+Kürzungen von Anhängen werden im Ergebnis gekennzeichnet.
+
+Es gibt **keine automatischen Modell-Downloads**. Nach eigener
+Entscheidung kann der Nutzer ein passendes lokales Modell mit dem
+Kommando ollama pull qwen3-vl:2b installieren. Ohne bereits installiertes
+Vision-Modell meldet der Dienst einen Fehler, statt ein Bild zu erfinden.
+Der echte Windows-GPU-Live-Test für Bildanalyse steht noch aus.
+
+PDF-Auswertung setzt pypdf aus requirements-neral-preview.txt voraus.
+Bei einer bereits vorhandenen isolierten local_state/preview-venv kann
+es fehlen. NERAL meldet das ausdrücklich. Nachinstallation nur mit
+Nutzerentscheidung in dieser isolierten Umgebung, niemals automatisch
+in der QLoRA-Trainingsumgebung.
+
+Unter jeder Assistentenantwort stehen **Gefällt mir** und **Kopieren**.
+Likes sind tablokal und werden nicht auf dem Server gespeichert;
+sie verändern die Modellgewichte nicht. Kopieren verwendet die lokale
+Browser-Zwischenablage.
+
+Multipart-Anfragen durchlaufen dieselben Host-, Origin-, CSRF- und
+Sitzungsprüfungen wie der bisherige Chat. Dateien werden nicht auf
+dem Server gespeichert. Die neue Funktion ist bis zur CI- und
+Nutzerabnahme **noch kein stabiler NERAL-1.0-Release**.
