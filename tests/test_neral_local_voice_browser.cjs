@@ -144,3 +144,15 @@ test("offline voice refuses external web search before microphone consent",async
   assert.equal(s.micCount(),0,"Search-enabled speech must not upload an implicit query");
   assert.match(s.element("localVoiceStatus").textContent,/Websuche.*deaktivier/i);
 });
+
+test("cancelling a running NERAL chat stops the offline voice session",async()=>{
+  const s=setup();await flush();
+  await s.events.get("localVoiceStart:click")();
+  await pulse(s,.1,.5);await pulse(s,0,.9);
+  assert.equal(s.element("chatForm").submitted,1);
+  s.events.get("stopRequest:click")();
+  assert.equal(s.tracks[0].stopped,true);
+  s.events.get("window:neral:voice-answer")({detail:{text:"Späte Antwort"}});
+  await flush();
+  assert.equal(s.requests.filter(x=>x.url.endsWith("/speak")).length,0);
+});
