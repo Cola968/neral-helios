@@ -1,0 +1,90 @@
+name: NERAL Qwen3 foundation 512-token private cutoff audit (CPU only)
+on:
+  pull_request:
+    paths:
+      - scripts/neral_foundation_output_audit.py
+      - tests/test_neral_foundation_output_audit.py
+      - .github/workflows/neral-foundation-output-audit.yml
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: "Exact read-only authorization: AUDIT_NERAL_FOUNDATION_512_ORIGINAL_ONLY"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  cpu-regression:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ensure source and private-data safety with deterministic tests
+        run: python -B -m unittest discover -s tests -p test_neral_foundation_output_audit.py -v
+      - name: Check module syntax
+        run: python -B -m py_compile scripts/neral_foundation_output_audit.py
+  original-private-review:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_FOUNDATION_512_ORIGINAL_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Reinspect original PRIVATE Qwen3 and Qwen3.5 answers (NO model or GPU calls)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $source=Join-Path $root 'v7-foundation-local-42499079467-1'
+          $py=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          $outDir=Join-Path $control 'foundation_512_audit_scalar'
+          $private=Join-Path $root ('foundation-private-512-review-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.jsonl')
+          if(-not (Test-Path -LiteralPath (Join-Path $source 'private-responses.jsonl') -PathType Leaf) -or
+             -not (Test-Path -LiteralPath $py -PathType Leaf) -or
+             (Test-Path -LiteralPath $outDir) -or
+             (Test-Path -LiteralPath $private)){
+             throw 'Pinned private original output missing or create-only destination occupied'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_foundation_output_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU contract failed'}
+            New-Item -ItemType Directory -Path $outDir -ErrorAction Stop | Out-Null
+            & $py -B -m scripts.neral_foundation_output_audit --run-dir $source --aggregate-out (Join-Path $outDir 'summary.json') --private-out $private
+            if($LASTEXITCODE -ne 0){throw 'Original private audit refused'}
+            $report=Get-Content -LiteralPath (Join-Path $outDir 'summary.json') -Raw | ConvertFrom-Json
+            if($report.status -ne 'NERAL_FOUNDATION_512_TRUNCATION_DIAGNOSTIC_ONLY' -or
+               $report.cases_per_model -ne 72 -or
+               $report.raw_responses_uploaded -ne $false -or
+               $report.private_review_uploaded -ne $false -or
+               $report.no_model_calls_or_training -ne $true -or
+               $report.release_validated -ne $false -or
+               $report.adapter_promoted -ne $false){
+               throw 'Unsafe or incomplete scalar-only report'
+            }
+            Write-Host 'Private review created outside Git checkout. No model calls or training performed.'
+          } finally {Pop-Location}
+      - name: Upload aggregates ONLY (never private reviews, prompts, or responses)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-foundation-512-cutoff-scalars-only
+          path: control/foundation_512_audit_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
