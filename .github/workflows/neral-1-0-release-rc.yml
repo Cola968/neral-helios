@@ -23,6 +23,7 @@ on:
       - 'static/neral-accounts.js'
       - 'static/neral-accounts.css'
       - 'tests/test_neral_1_0_accounts.py'
+      - 'tests/test_neral_1_0_account_client.cjs'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
       - 'neral_web_api.py'
@@ -73,6 +74,7 @@ on:
       - 'static/neral-accounts.js'
       - 'static/neral-accounts.css'
       - 'tests/test_neral_1_0_accounts.py'
+      - 'tests/test_neral_1_0_account_client.cjs'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
       - 'neral_web_api.py'
@@ -139,6 +141,7 @@ jobs:
       - name: Syntax and browser JS
         run: python -m py_compile neral_preview_server.py neral_local_accounts.py neral_preview_attachments.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
       - run: node --check static/neral-accounts.js
+      - run: node --test tests/test_neral_1_0_account_client.cjs
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-motion.js
       - run: node --test tests/test_neral_1_0_preview_history.cjs
