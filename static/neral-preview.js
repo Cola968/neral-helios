@@ -6,6 +6,7 @@
   const form=$("chatForm"), prompt=$("prompt"), submit=$("submit"),
         stopRequest=$("stopRequest"), errors=$("error"), messages=$("messages");
   const memory=[];
+
   const encoder=new TextEncoder();
   let csrf=null, busy=false, recognizer=null, listening=false;
   let activeRequest=null, conversationEpoch=0;
@@ -313,6 +314,9 @@
         "["+(i+1)+"] "+s.title+": "+s.url).join("\n"),
         "Webquellen · externe Treffer ungeprüft");
       memory.push({role:"user",content:text},{role:"assistant",content:result.text});
+      browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
+        detail:{user:text,assistant:result.text}
+      }));
       if(memory.length>12) memory.splice(0,memory.length-12);
       prompt.value="";
       attachments=[];
@@ -335,6 +339,26 @@
       }
     }
   }
+  // Public, bounded bridge for the separate local account UI.
+  // Never expose credentials, raw files, or backend internals.
+  browser.addEventListener?.("neral:account-csrf",event=>{
+    if(typeof event.detail?.csrf==="string") csrf=event.detail.csrf;
+  });
+  browser.addEventListener?.("neral:load-chat",event=>{
+    const turns=event.detail?.messages;
+    if(!Array.isArray(turns))return;
+    conversationEpoch++;
+    if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
+    memory.length=0;
+    messages.replaceChildren();
+    for(const turn of turns.slice(-80)) {
+      if(!turn || !["user","assistant"].includes(turn.role) || typeof turn.content!=="string")return;
+      append(turn.role,turn.content);
+      memory.push({role:turn.role,content:turn.content});
+    }
+    if(memory.length>12)memory.splice(0,memory.length-12);
+    errors.textContent="";
+  });
   form.addEventListener("submit",sendMessage);
   stopRequest.addEventListener("click",()=>{
     if(activeRequest&&!activeRequest.signal.aborted){
@@ -351,6 +375,7 @@
     if(recognizer && listening) recognizer.abort();
     setListening(false);
     memory.length=0;
+    browser.dispatchEvent?.(new CustomEvent("neral:chat-cleared"));
     attachments=[];
     fileInput.value="";
     fileStatus.textContent="Keine Dateien ausgewählt.";
