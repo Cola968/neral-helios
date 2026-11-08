@@ -4,7 +4,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const dlg=$("accountDialog"), form=$("accountForm"), list=$("savedChatList");
-  let csrf=null, username=null, activeId=null, turns=[], saving=false;
+  let csrf=null, username=null, activeId=null, turns=[], saveQueue=Promise.resolve();
   let authEpoch=0, navigationEpoch=0;
   const api=async(path,opts={})=>{
     const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...opts});
@@ -146,31 +146,41 @@
       row.hidden=!row.querySelector(".saved-chat-open").textContent.toLocaleLowerCase("de").includes(term);
   }
   searchInput.addEventListener("input",applyFilter);
-  window.addEventListener("neral:turn-complete",async event=>{
-    if(!username)return;
+  window.addEventListener("neral:turn-complete",event=>{
+    if(!username)return Promise.resolve();
     const user=event.detail?.user, assistant=event.detail?.assistant;
-    if(typeof user!=="string"||typeof assistant!=="string")return;
-    if(saving)return; // reject overlapping persistence instead of mixing chats.
-    saving=true;
+    if(typeof user!=="string"||typeof assistant!=="string")return Promise.resolve();
     const startedAuth=authEpoch, owner=username, selected=navigationEpoch;
-    const stillCurrent=()=>startedAuth===authEpoch && owner===username && selected===navigationEpoch;
-    const originalId=activeId;
-    const next=turns.concat({role:"user",content:user},{role:"assistant",content:assistant}).slice(-80);
-    const title=(turns.length?list.querySelector('[aria-current="page"]')?.textContent:user.slice(0,75))||"Neuer Chat";
-    try{
-      let cid=originalId;
-      if(!cid){
-        const created=await mutate("/api/neral/account/chats","POST",{title});
+    const stillCurrent=()=>startedAuth===authEpoch &&
+      owner===username && selected===navigationEpoch;
+    // Serialise local writes. Never discard a completed model response merely
+    // because another chat save has not finished yet.
+    saveQueue=saveQueue.catch(()=>{}).then(async()=>{
+      if(!stillCurrent())return;
+      const originalId=activeId;
+      const next=turns.concat({role:"user",content:user},
+                              {role:"assistant",content:assistant}).slice(-80);
+      const title=(turns.length
+        ? list.querySelector('[aria-current="page"]')?.textContent
+        : user.slice(0,75)) || "Neuer Chat";
+      try{
+        let cid=originalId;
+        if(!cid){
+          const created=await mutate("/api/neral/account/chats","POST",{title});
+          if(!stillCurrent())return;
+          cid=created.id;activeId=cid;
+        }
         if(!stillCurrent())return;
-        cid=created.id;activeId=cid;
+        await mutate("/api/neral/account/chats/"+cid,"PUT",{title,messages:next});
+        if(!stillCurrent())return;
+        if(activeId===cid)turns=next;
+        await refresh();
+      }catch(e){
+        if(stillCurrent())$("error").textContent=
+          "Antwort angezeigt, aber Speichern fehlgeschlagen: "+e.message;
       }
-      if(!stillCurrent())return;
-      await mutate("/api/neral/account/chats/"+cid,"PUT",{title,messages:next});
-      if(!stillCurrent())return;
-      if(activeId===cid)turns=next;
-      await refresh();
-    }catch(e){$("error").textContent="Antwort angezeigt, aber Speichern fehlgeschlagen: "+e.message;}
-    finally{saving=false;}
+    });
+    return saveQueue;
   });
   window.addEventListener("neral:chat-cleared",()=>{
     navigationEpoch++;
