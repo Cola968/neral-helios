@@ -187,5 +187,20 @@ class AccountTests(unittest.TestCase):
 
 
 
+    def test_account_settings_ui_has_real_export_password_and_delete_actions(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "templates/neral_preview.html").read_text(encoding="utf8")
+        client = (root / "static/neral-accounts.js").read_text(encoding="utf8")
+        for element_id in ("accountSettings", "exportChats", "changePassword",
+                           "deleteAccount", "accountManageDialog", "accountCurrentPassword",
+                           "accountNewPassword", "accountManageForm"):
+            self.assertIn('id="' + element_id + '"', html)
+        for suffix in ("/api/neral/account/export",
+                       "/api/neral/account/password",
+                       "/api/neral/account"):
+            self.assertIn(suffix, client)
+        self.assertNotIn("stripe.checkout", client)
+
+
 if __name__ == "__main__":
     unittest.main()
