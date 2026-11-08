@@ -16,6 +16,7 @@ from typing import Callable
 from neral_agent_math import MathInputError, eval_python_expr, solve_math_symbolic
 from neral_agent_python_trace import trusted_python_trace_question
 from neral_quantitative_oracles import trusted_quantitative_question
+from neral_logic_engine import trusted_logic_question
 
 MAX_RESPONSE = 32768
 MAX_THINK_SECONDS = 120
@@ -191,6 +192,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
             oracle = trusted_python_trace_question(user_question)
         if oracle is None:
             oracle = trusted_quantitative_question(user_question)
+        if oracle is None:
+            oracle = trusted_logic_question(user_question)
     turns = [dict(row) for row in messages]
     turns[0]["content"] += _THINK_SUFFIX
 
@@ -219,9 +222,12 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
         "hard_timeout_enforced": False,
         "verification_scope": (
             "code_trace_integer" if oracle and oracle["method"] == "python_trace_ast"
+            else "logic_integer" if oracle and oracle["method"] == "finite_logic_exact"
             else "numeric_final_only" if oracle is not None else "none"),
         "extractor_success": extracted is not None,
     }
+    if oracle is not None and oracle["method"] == "finite_logic_exact":
+        common["logic_certificate"] = oracle["certificate"]
     if checked:
         return {
             **common, "text": raw,
@@ -240,6 +246,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
             "verification_method": oracle["method"],
             "tool_used": ("neral_python_trace_static"
                           if oracle["method"] == "python_trace_ast"
+                          else "neral_logic_exact"
+                          if oracle["method"] == "finite_logic_exact"
                           else "neral_math_exact"),
         }
     return {
