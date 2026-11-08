@@ -51,6 +51,57 @@ def _provenance(backend) -> dict:
     }
 
 
+# A model's claims about its own weights are not trustworthy runtime telemetry.
+# For narrowly defined identity questions, answer from inspected backend state
+# instead of sampling a model that could invent an active NERAL-LoRA adapter.
+_IDENTITY_QUESTIONS = frozenset({
+    "wer bist du", "hallo wer bist du", "stell dich vor",
+    "stell dich bitte vor", "stelle dich vor", "stelle dich bitte vor",
+    "wie heißt du", "was bist du", "welches modell bist du",
+    "welches modell verwendest du", "welches modell nutzt du",
+    "welches basismodell verwendest du", "welches basismodell nutzt du",
+    "welche modellbasis nutzt du", "welches modell läuft gerade",
+    "welches modell antwortet mir", "welche modellherkunft hast du",
+    "was ist deine modellherkunft", "nutzt du einen neral-lora-adapter",
+    "hast du einen eigenen lora-adapter", "ist dein neral-lora-adapter geladen",
+    "ist ein neral-adapter aktiv", "who are you",
+    "what model are you", "what model are you running",
+})
+
+
+def _runtime_identity_answer(prompt: str, backend) -> dict | None:
+    normalized = " ".join(prompt.casefold().strip().rstrip("?!., ").split())
+    if normalized not in _IDENTITY_QUESTIONS:
+        return None
+    status = _provenance(backend)
+    origin = status["model_origin"]
+    if origin == "local_neral_lora_experimental":
+        text = (
+            "Ich bin NERAL AI. Hier ist Qwen2.5-Coder-7B-Instruct mit einem "
+            "tatsächlich geladenen experimentellen NERAL-LoRA-Adapter aktiv. "
+            "Das Basismodell wurde nicht von NERAL vortrainiert. Ein "
+            "Qualitätsvorsprung durch den Adapter ist nicht nachgewiesen."
+        )
+    elif origin == "local_adapter_configured_not_loaded":
+        text = (
+            "Ich bin NERAL AI. Ein experimenteller NERAL-LoRA-Adapter auf "
+            "Qwen2.5-Coder-7B-Instruct ist konfiguriert, aber aktuell nicht "
+            "geladen. Deshalb kann ich nicht behaupten, dass seine "
+            "trainierten Gewichte hier bereits antworten."
+        )
+    else:
+        text = (
+            "Ich bin NERAL AI, ein lokal ausgeführter KI-Assistent. "
+            f"Aktuell verwendet dieser Chat das lokale Basismodell "
+            f"{status['model']}. Hier ist kein NERAL-LoRA-Adapter aktiv; "
+            "die Modellgewichte stammen nicht aus einem eigenen NERAL-Training."
+        )
+    return {
+        "text": text, "model_generated": False,
+        "tool_used": "neral_model_provenance", **status,
+    }
+
+
 def _messages(payload: object) -> list[dict]:
     if not isinstance(payload, dict) or not {"prompt"} <= set(payload) or not set(payload) <= {"prompt", "history"}:
         raise ValueError("Nur prompt und history sind zulässig.")
@@ -197,6 +248,10 @@ def register_neral_local_chat_api(app, backend):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
+            identity = _runtime_identity_answer(data[-1]["content"], backend)
+            if identity is not None:
+                return jsonify({**identity,
+                    "seconds": round(time.monotonic() - started, 3)})
             # Empty history only: never override an ongoing conversation.
             if len(data) == 2:
                 from neral_agent_quantitative import calculate_explicit
@@ -250,6 +305,9 @@ def register_neral_local_chat_api(app, backend):
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
+            identity = _runtime_identity_answer(data[-1]["content"], backend)
+            if identity is not None:
+                return jsonify(identity)
             from neral_think import think_reply
             # Dedicated Ollama reasoning only for explicit THINK requests;
             # other HF backends keep their existing verified response path.
