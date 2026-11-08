@@ -51,6 +51,37 @@ on:
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
       - 'static/neral-dynamic-ui.js'
+      - 'static/neral-math.js'
+      - 'static/neral-math.css'
+      - 'static/vendor/katex/katex.min.js'
+      - 'static/vendor/katex/katex.min.css'
+      - 'static/vendor/katex/auto-render.min.js'
+      - 'static/vendor/katex/LICENSE.txt'
+      - 'static/vendor/katex/VERSION.txt'
+      - 'static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Caligraphic-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Caligraphic-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Fraktur-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Fraktur-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-BoldItalic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-Italic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Math-BoldItalic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Math-Italic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_SansSerif-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_SansSerif-Italic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_SansSerif-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Script-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size1-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size2-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size3-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2'
+      - 'static/helios-core.js'
+      - 'static/neral-local-chat.js'
+      - 'tests/test_neral_math.cjs'
+      - 'scripts/vendor_katex.py'
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-reference-ui.css'
@@ -130,6 +161,37 @@ on:
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
       - 'static/neral-dynamic-ui.js'
+      - 'static/neral-math.js'
+      - 'static/neral-math.css'
+      - 'static/vendor/katex/katex.min.js'
+      - 'static/vendor/katex/katex.min.css'
+      - 'static/vendor/katex/auto-render.min.js'
+      - 'static/vendor/katex/LICENSE.txt'
+      - 'static/vendor/katex/VERSION.txt'
+      - 'static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Caligraphic-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Caligraphic-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Fraktur-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Fraktur-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-BoldItalic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-Italic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Main-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Math-BoldItalic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Math-Italic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_SansSerif-Bold.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_SansSerif-Italic.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_SansSerif-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Script-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size1-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size2-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size3-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2'
+      - 'static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2'
+      - 'static/helios-core.js'
+      - 'static/neral-local-chat.js'
+      - 'tests/test_neral_math.cjs'
+      - 'scripts/vendor_katex.py'
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-reference-ui.css'
@@ -172,6 +234,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Vendor pinned offline KaTeX, verify local fonts
+        run: python scripts/vendor_katex.py
       - name: Install preview server dependencies for CI only
         run: python -m pip install -r requirements-neral-preview.txt
       - name: Local account creation and cross-user data isolation
@@ -217,6 +284,8 @@ jobs:
       - run: node --test tests/test_neral_1_0_live_stream_client.cjs
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-dynamic-ui.js
+      - run: node --check static/neral-math.js
+      - run: node --test tests/test_neral_math.cjs
       - run: node --test tests/test_neral_dynamic_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --check static/neral-reference-ui.js
@@ -241,6 +310,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Vendor pinned offline KaTeX, verify local fonts
+        run: python scripts/vendor_katex.py
       - name: Deterministic source-only manual QA ZIP - NOT PC VERIFIED
         run: |
           mkdir -p dist
@@ -346,6 +420,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Vendor pinned offline KaTeX, verify local fonts
+        run: python scripts/vendor_katex.py
       - name: Build deterministic verified-allowlist ZIP (NO model weights)
         run: |
           mkdir -p dist

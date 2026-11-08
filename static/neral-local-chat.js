@@ -72,11 +72,14 @@
           try{
             const spec=ui.plan({prompt:messages[index-1].content,
               text:item.content,result:item.uiResult||{model_generated:true}});
-            if(spec)ui.mount(line,spec);
+            if(spec && ui.mount(line,spec) && spec.kind==="table" &&
+               window.NeralMath?.stripDuplicateTable)
+              content.textContent=window.NeralMath.stripDuplicateTable(item.content);
           }catch{/* Dynamic UI is optional; preserve plain response. */}
         }
       }
       transcript.append(line);
+      if(item.role==="assistant")window.NeralMath?.render(line);
     }
     transcript.scrollTop = transcript.scrollHeight;
   }

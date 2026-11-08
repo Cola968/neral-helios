@@ -172,8 +172,16 @@ def inspect_preview_zip(archive: bytes, digest: str, source_sha: str) -> dict[st
                 _relative(name)
                 if name in content or (info.external_attr >> 16) & 0o170000 == 0o120000:
                     raise UpdateRejected("Doppelter Eintrag oder Symlink.")
-                if info.file_size < 1 or info.file_size > 200_000:
+                # The audited local KaTeX bundle has one JS file above
+                # the normal 200 KB source cap; no other file gets that limit.
+                size_limit = (800_000 if name=="static/vendor/katex/katex.min.js"
+                              else 200_000)
+                if info.file_size < 1 or info.file_size > size_limit:
                     raise UpdateRejected("Ungültige Dateigröße.")
+                if name.startswith("static/vendor/katex/fonts/") and (
+                        not name.endswith(".woff2") or
+                        z.read(info)[:4] != b"wOF2"):
+                    raise UpdateRejected("Ungültige lokale KaTeX-Schrift.")
                 total += info.file_size
                 if total > MAX_ZIP:
                     raise UpdateRejected("ZIP-Entpackung überschreitet Limit.")
