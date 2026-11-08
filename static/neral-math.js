@@ -56,6 +56,17 @@
     if(!removed)return text;
     return kept.join("\n").replace(/\n{3,}/g,"\n\n").trim();
   }
+  function hideRedundantMarkdownTable(message,source,redraw){
+    if(!message||typeof redraw!=="function")return false;
+    const shorter=stripDuplicateTable(source);
+    if(shorter===source)return false;
+    const body=typeof message.querySelector==="function"
+      ? message.querySelector(":scope > p") : null;
+    if(!body)return false;
+    redraw(body,shorter);
+    render(body);
+    return true;
+  }
   if(typeof window!=="undefined")
-    window.NeralMath={render,stripDuplicateTable};
+    window.NeralMath={render,stripDuplicateTable,hideRedundantMarkdownTable};
 })();
