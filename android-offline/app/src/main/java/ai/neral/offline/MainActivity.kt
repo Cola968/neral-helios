@@ -53,7 +53,7 @@ private fun OfflineScreen() {
     val store = remember { ChatStore(context.filesDir) }
     val turns = remember { mutableStateListOf<ChatTurn>().apply { addAll(store.load()) } }
     val listState = rememberLazyListState()
-    var installed by remember { mutableStateOf(OfflineModel.isReady(model)) }
+    var installed by remember { mutableStateOf(OfflineModel.isVerified(model)) }
     var engine by remember { mutableStateOf<LlamaEngine?>(null) }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -81,9 +81,10 @@ private fun OfflineScreen() {
                     installed = true
                     engine = loaded
                     status = "Offline bereit · CPU · Qwen3 0,6B"
-                } catch (e: Exception) {
-                    status = "Fehler: ${e.message ?: "Modell konnte nicht gestartet werden"}"
-                    installed = OfflineModel.isReady(model)
+                } catch (e: Throwable) {
+                    CrashLog.save(context.filesDir, e)
+                    status = "Modellstart fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}"
+                    installed = OfflineModel.isVerified(model)
                 } finally { busy = false }
             }
         }
