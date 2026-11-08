@@ -6,6 +6,7 @@ separate local data on a shared PC; this is NOT internet-ready authentication.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import re
 import secrets
 import sqlite3
@@ -27,6 +28,7 @@ def register_local_accounts(app):
                                                      "local_state" / "neral_accounts.sqlite3"))
     failures = {}
 
+    @contextmanager
     def database():
         path = Path(app.config["NERAL_ACCOUNT_DB"])
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,7 +44,11 @@ def register_local_accounts(app):
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)""")
         db.execute("CREATE INDEX IF NOT EXISTS chats_owner ON chats(user_id, updated DESC)")
         db.commit()
-        return db
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def user_id():
         value = session.get("neral_user")
