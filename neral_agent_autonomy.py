@@ -68,6 +68,32 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=True, thinking=False)
 
+    def unload(self) -> None:
+        """Safely evict this specific installed model from Ollama GPU memory.
+
+        Called under the preview's global chat lock BEFORE switching to a
+        different foundation. Local endpoint only, no download or prompt data.
+        """
+        with self._inference_lock:
+            payload = json.dumps({
+                "model": self.model, "messages": [], "stream": False,
+                "keep_alive": 0,
+            }).encode("utf-8")
+            request = urllib.request.Request(
+                self.endpoint, data=payload,
+                headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                with local_only_opener().open(
+                        request, timeout=min(self.timeout, 30.0)) as response:
+                    raw = response.read(4097)
+                if len(raw) > 4096:
+                    raise AgentModelError("Ungültige lokale Modell-Freigabe.")
+                result = json.loads(raw)
+                if not isinstance(result, dict) or result.get("done") is not True:
+                    raise AgentModelError("Lokales Modell wurde nicht freigegeben.")
+            except (OSError, ValueError, TypeError, urllib.error.URLError) as exc:
+                raise AgentModelError("Lokales Modell konnte nicht entladen werden.") from exc
+
     def respond_chat(self, messages: list[dict]) -> str:
         # FAST: avoid spending the 512-token tool budget on internal thinking.
         # Explicitly disable it; Qwen3 family defaults otherwise vary by tag.
