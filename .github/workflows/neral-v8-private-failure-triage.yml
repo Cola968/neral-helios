@@ -1,0 +1,80 @@
+name: NERAL v8 private failure diagnosis (manual CPU only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v8_private_failure_triage.py'
+      - 'tests/test_neral_v8_private_failure_triage.py'
+      - '.github/workflows/neral-v8-private-failure-triage.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v8_private_failure_triage.py'
+      - 'tests/test_neral_v8_private_failure_triage.py'
+      - '.github/workflows/neral-v8-private-failure-triage.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Exact authorization: AUDIT_NERAL_V8_PRIVATE_FAILURES_READONLY'
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test private audit contracts without models/GPU
+        run: python -B -m unittest discover -s tests -p test_neral_v8_private_failure_triage.py -v
+      - name: Syntax
+        run: python -B -m py_compile scripts/neral_v8_private_failure_triage.py
+  private-local-audit:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_V8_PRIVATE_FAILURES_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Audit only existing private v8 pilot rows (CPU)
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $folder=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v8-unseen-gate-42493500573-1'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $folder -PathType Container)){throw 'Private saved pilot or Python unavailable'}
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $python -B -m unittest discover -s tests -p test_neral_v8_private_failure_triage.py -q
+            if($LASTEXITCODE -ne 0){throw 'Private audit contracts failed'}
+            $out=Join-Path $control 'v8_failure_triage_aggregates'
+            if(Test-Path -LiteralPath $out){throw 'Existing triage report: refuse overwrite'}
+            New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
+            & $python -B -m scripts.neral_v8_private_failure_triage --private-folder $folder --sample pilot --authorize AUDIT_NERAL_V8_PRIVATE_FAILURES_READONLY --output (Join-Path $out 'summary.json')
+            if($LASTEXITCODE -ne 0){throw 'Private triage failed'}
+          } finally {Pop-Location}
+      - name: Upload aggregates only, no prompts, answers or IDs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v8-private-failure-aggregates-only
+          path: control/v8_failure_triage_aggregates/summary.json
+          retention-days: 14
+          if-no-files-found: error
