@@ -123,6 +123,34 @@ class PreviewStandaloneTests(unittest.TestCase):
         self.assertEqual(wrong_host.status_code,403)
         self.assertEqual(self.model.calls,[])
 
+    def test_too_large_requests_report_json_errors_without_model_invocation(self):
+        """Oversized JSON and multipart uploads must not break the JS JSON client."""
+        from io import BytesIO
+        from neral_preview_attachments import MAX_REQUEST_BYTES
+
+        headers=self.login()
+        too_large_json=self.client.post(
+            "/api/neral/chat/generate",
+            json={"prompt":"a"*18000}, headers=headers,
+            base_url="http://127.0.0.1:9690",
+        )
+        self.assertEqual(too_large_json.status_code,413)
+        self.assertTrue(too_large_json.is_json,
+                        "HTML 413 makes the browser's response.json() fail")
+        self.assertIn("error",too_large_json.json)
+
+        too_large_upload=self.client.post(
+            "/api/neral/preview/attachment-chat",
+            data={"prompt":"Prüfe den Anhang", "mode":"generate",
+                  "files":(BytesIO(b"z"*(MAX_REQUEST_BYTES+1)), "oversize.txt")},
+            content_type="multipart/form-data", headers=headers,
+            base_url="http://127.0.0.1:9690",
+        )
+        self.assertEqual(too_large_upload.status_code,413)
+        self.assertTrue(too_large_upload.is_json)
+        self.assertIn("error",too_large_upload.json)
+        self.assertEqual(self.model.calls,[])
+
     def test_security_headers_on_every_response(self):
         page=self.client.get("/",base_url="http://127.0.0.1:9690")
         self.assertEqual(page.headers["X-Frame-Options"],"DENY")
