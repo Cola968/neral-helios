@@ -78,7 +78,7 @@ class OutputAuditTests(unittest.TestCase):
             for arm in ("qwen","v5","candidate"):
                 with (run/(arm+".jsonl")).open("x",encoding="utf8") as f:
                     for row in rows(cases):
-                        f.write(json.dumps(row,ensure_ascii=False)+"\\n")
+                        f.write(json.dumps(row,ensure_ascii=False)+"\n")
             path=Path(checkout_output)/"summary.json"
             main(["--run-dir",str(run),"--out",str(path)])
             report=json.loads(path.read_text("utf8"))
