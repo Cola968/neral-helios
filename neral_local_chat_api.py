@@ -330,11 +330,11 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            identity = _runtime_identity_reply(data[-1]["content"], backend)
+            identity = _runtime_identity_reply(data[-1]["content"], high_backend)
             if identity is not None:
                 return jsonify({**identity, "mode": "HIGH",
                                 "seconds": round(time.monotonic() - started, 3),
-                                **_provenance(backend)})
+                                **_provenance(high_backend)})
             from neral_think import think_reply
             # Dedicated Ollama reasoning only for explicit THINK requests;
             # other HF backends keep their existing verified response path.
