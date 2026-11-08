@@ -8,7 +8,7 @@ test("assistant Markdown is readable and escaped HTML remains inert",async()=>{
   function element(id){return els[id] ||= {
     value:"",checked:false,textContent:"",disabled:false,
     addEventListener(kind,fn){handlers.set(id+":"+kind,fn)},
-    querySelector(){return {value:"fast"}},querySelectorAll(){return []},
+    querySelector(){return id==="chatForm"?{value:"fast"}:null},querySelectorAll(){return []},
     append(){},replaceChildren(){},focus(){},remove(){},setAttribute(){},
     scrollHeight:0,scrollTop:0
   }}
