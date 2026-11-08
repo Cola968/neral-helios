@@ -52,3 +52,11 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .message-actions .message-tool:hover,.message-actions .message-tool:focus-visible{border-color:var(--line);color:var(--text)}
 .message-actions .message-tool[aria-pressed="true"]{color:var(--accent)}
 #projectFiles{max-width:210px}
+
+/* Source provenance is an expandable disclosure, not a second assistant reply. */
+.message-sources{align-self:flex-start;max-width:83%;padding:5px 12px;border-left:1px solid var(--line);font-size:12px;color:var(--muted)}
+.message-sources summary{cursor:pointer;list-style:auto}
+.message-sources a{display:block;margin:7px 0;color:var(--accent);text-decoration:none;overflow-wrap:anywhere}
+.message-sources a:hover,.message-sources a:focus-visible{text-decoration:underline}
+.message p b{font-weight:700}
+.message p code{font-size:.95em;padding:1px 3px;border-radius:3px;background:rgba(128,128,128,.12)}
