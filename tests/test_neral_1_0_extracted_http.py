@@ -88,7 +88,7 @@ class RealExtractedHttpTests(unittest.TestCase):
                         status["model_origin"],"local_foundation_not_neral_adapter"
                     )
 
-                for name in ("neral-preview.js","neral-preview.css"):
+                for name in ("neral-preview.js","neral-preview.css","icon.svg"):
                     with client.open(BASE+"/static/"+name,timeout=3) as response:
                         self.assertEqual(response.status,200)
                         self.assertGreater(len(response.read(100_000)),100)

@@ -56,6 +56,26 @@ class PreviewStandaloneTests(unittest.TestCase):
             "Both initial install and existing-venv repairs require user consent")
         self.assertIn("requirements-neral-preview.txt",script)
 
+    def test_every_preview_html_static_asset_is_shipped_and_byte_identical(self):
+        """Prevent invisible logos/favicons in the installed ZIP."""
+        from zipfile import ZipFile
+        template=(ROOT/"templates/neral_preview.html").read_text(encoding="utf-8")
+        static_refs=set(re.findall(r'(?:src|href)="/static/([^"]+)"',template))
+        self.assertIn("icon.svg",static_refs)
+        self.assertIn("neral-preview.js",static_refs)
+        self.assertIn("neral-preview.css",static_refs)
+        for name in static_refs:
+            self.assertIn("static/"+name,REQUIRED_FILES,
+                          "HTML asset missing from installable ZIP: "+name)
+        with tempfile.TemporaryDirectory() as td:
+            archive=Path(td)/"preview.zip"
+            build_preview(ROOT,archive)
+            with ZipFile(archive) as bundle:
+                for name in static_refs:
+                    path="static/"+name
+                    self.assertEqual(bundle.read("NERAL-1.0-Local/"+path),
+                                     (ROOT/path).read_bytes())
+
     def test_no_legacy_50m_deployment_or_files_are_needed(self):
         self.assertFalse(any("neral50m" in x for x in REQUIRED_FILES))
         self.assertFalse(any(x.startswith("deployment/") for x in REQUIRED_FILES))
