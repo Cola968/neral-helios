@@ -6,6 +6,8 @@ separate local data on a shared PC; this is NOT internet-ready authentication.
 from __future__ import annotations
 
 import json
+import hmac
+import os
 from contextlib import contextmanager
 import re
 import secrets
@@ -13,7 +15,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from flask import jsonify, request, session, current_app
+from flask import jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 MAX_CHATS = 100
@@ -22,22 +24,36 @@ MAX_MESSAGE_BYTES = 4000
 MAX_CHAT_BYTES = 120000
 
 
+def default_account_db_path():
+    """OS user data persists when the app ZIP is replaced."""
+    if os.name == "nt":
+        root = Path(os.environ.get("LOCALAPPDATA") or
+                    Path.home() / "AppData" / "Local")
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME") or
+                    Path.home() / ".local" / "share")
+    return root / "NERAL" / "accounts.sqlite3"
+
+
 def register_local_accounts(app):
     # The database location is injectable for tests, not user-controlled via HTTP.
-    app.config.setdefault("NERAL_ACCOUNT_DB", str(Path(__file__).resolve().parent /
-                                                     "local_state" / "neral_accounts.sqlite3"))
+    app.config.setdefault("NERAL_ACCOUNT_DB", str(default_account_db_path()))
     failures = {}
 
     @contextmanager
     def database():
         path = Path(app.config["NERAL_ACCOUNT_DB"])
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         db = sqlite3.connect(path, timeout=8)
         db.execute("PRAGMA busy_timeout=8000")
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("""CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL, created INTEGER NOT NULL)""")
+            password_hash TEXT NOT NULL, created INTEGER NOT NULL,
+            auth_revision TEXT NOT NULL DEFAULT '')""")
+        columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+        if "auth_revision" not in columns:
+            db.execute("ALTER TABLE users ADD COLUMN auth_revision TEXT NOT NULL DEFAULT ''")
         db.execute("""CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
             title TEXT NOT NULL, messages TEXT NOT NULL, updated INTEGER NOT NULL,
@@ -59,7 +75,12 @@ def register_local_accounts(app):
         if not uid:
             return None
         with database() as db:
-            return db.execute("SELECT id,username FROM users WHERE id=?", (uid,)).fetchone()
+            row = db.execute("SELECT id,username,auth_revision FROM users WHERE id=?",
+                             (uid,)).fetchone()
+        revision = session.get("neral_auth_revision")
+        if not row or not isinstance(revision, str):
+            return None
+        return row if hmac.compare_digest(revision, row[2]) else None
 
     def clean_username(value):
         return isinstance(value, str) and re.fullmatch(r"[a-zA-Z0-9_.-]{3,32}", value) is not None
@@ -67,11 +88,12 @@ def register_local_accounts(app):
     def payload():
         return request.get_json(silent=True) if request.is_json else None
 
-    def rotate(user):
+    def rotate(user, revision=None):
         session.clear()
         session["csrf"] = secrets.token_urlsafe(32)
         if user:
             session["neral_user"] = user
+            session["neral_auth_revision"] = revision
 
     @app.get("/api/neral/account/me")
     def account_me():
@@ -93,11 +115,13 @@ def register_local_accounts(app):
         uid = secrets.token_hex(16)
         try:
             with database() as db:
-                db.execute("INSERT INTO users VALUES (?,?,?,?)",
-                           (uid, username.lower(), hashed, int(time.time())))
+                revision = secrets.token_hex(16)
+                db.execute("INSERT INTO users (id,username,password_hash,created,auth_revision) "
+                           "VALUES (?,?,?,?,?)",
+                           (uid, username.lower(), hashed, int(time.time()), revision))
         except sqlite3.IntegrityError:
             return jsonify(error="Dieser Benutzername ist bereits vergeben."), 409
-        rotate(uid)
+        rotate(uid, revision)
         return jsonify(authenticated=True, username=username.lower(),
                        csrf=session["csrf"]), 201
 
@@ -117,14 +141,20 @@ def register_local_accounts(app):
         if len(attempts) >= 8:
             return jsonify(error="Zu viele Versuche. Bitte später erneut versuchen."), 429
         with database() as db:
-            row = db.execute("SELECT id,password_hash FROM users WHERE username=?",
+            row = db.execute("SELECT id,password_hash,auth_revision FROM users WHERE username=?",
                              (key,)).fetchone()
         if row is None or not check_password_hash(row[1], password):
             attempts.append(now)
             failures[key] = attempts
             return jsonify(error="Ungültige Anmeldung."), 401
         failures.pop(key, None)
-        rotate(row[0])
+        revision = row[2]
+        if not revision:
+            revision = secrets.token_hex(16)
+            with database() as db:
+                db.execute("UPDATE users SET auth_revision=? WHERE id=?",
+                           (revision, row[0]))
+        rotate(row[0], revision)
         return jsonify(authenticated=True, username=key, csrf=session["csrf"])
 
     @app.post("/api/neral/account/logout")
@@ -259,8 +289,9 @@ def register_local_accounts(app):
                              (user[0],)).fetchone()
             if row is None or not check_password_hash(row[0], current):
                 return jsonify(error="Aktuelles Passwort stimmt nicht."), 401
-            db.execute("UPDATE users SET password_hash=? WHERE id=?",
-                       (generate_password_hash(new, method="scrypt"), user[0]))
+            db.execute("UPDATE users SET password_hash=?,auth_revision=? WHERE id=?",
+                       (generate_password_hash(new, method="scrypt"),
+                        secrets.token_hex(16), user[0]))
         rotate(None)
         return jsonify(changed=True, authenticated=False, csrf=session["csrf"])
 
