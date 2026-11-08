@@ -4,6 +4,10 @@ on:
     paths:
       - 'scripts/neral_same_base_ab_score.py'
       - 'scripts/neral_same_base_live.py'
+      - 'neral_high_verified_first.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_experimental_tir.py'
       - 'tests/test_neral_same_base_ab_score.py'
       - 'tests/test_neral_same_base_live.py'
       - '.github/workflows/neral-same-base-qwen35-gpu.yml'
@@ -41,8 +45,12 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_neral_same_base_ab_score.py -v
       - name: Real collector and router CPU tests
         run: python -B -m unittest discover -s tests -p test_neral_same_base_live.py -v
+      - name: Experimental TIR and strict suffix regression tests
+        run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
       - name: Syntax
         run: python -B -m py_compile scripts/neral_same_base_ab_score.py scripts/neral_same_base_live.py
+      - name: Experimental TIR static syntax
+        run: python -B -m py_compile neral_tir_experimental.py neral_high_verified_first.py neral_local_chat_api.py
   gpu-real-three-arm:
     needs: cpu-contracts
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_SAME_BASE_3ARM_36_MANUAL_ONLY'
