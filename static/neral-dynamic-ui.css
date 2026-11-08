@@ -167,3 +167,55 @@
 @media(prefers-reduced-motion:reduce){
   .neral-dui-fill,.neral-dui-card-button{animation:none!important;transition:none!important}
 }
+
+
+/* The original Helios workspace defaults to dark; use its current design tokens.
+   These styles are scoped so NERAL 1.0's light chat stays unchanged. */
+.workspace .neral-dynamic-widget{
+  background:var(--soft);
+  border-color:var(--line);
+  color:var(--text);
+  box-shadow:none;
+  margin-top:14px;
+  max-width:min(100%,760px);
+  overflow:visible;
+}
+.workspace .neral-dui-title,
+.workspace .neral-dui-result,
+.workspace .neral-dui-sort{color:var(--text)}
+.workspace .neral-dui-provenance,
+.workspace .neral-dui-bar-label,
+.workspace .neral-dui-bar-value,
+.workspace .neral-dui-card-detail{color:var(--muted)}
+.workspace .neral-dui-scroll{border-color:var(--line)}
+.workspace .neral-dui-table{background:var(--surface);color:var(--text)}
+.workspace .neral-dui-table thead{background:var(--side)}
+.workspace .neral-dui-table th,
+.workspace .neral-dui-table td{border-color:var(--line)}
+.workspace .neral-dui-sort:hover{color:var(--accent)}
+.workspace .neral-dui-search,
+.workspace .neral-dui-calculator input,
+.workspace .neral-dui-calculator select,
+.workspace .neral-dui-card-button,
+.workspace .neral-dui-event{
+  background:var(--surface);
+  color:var(--text);
+  border-color:var(--line);
+}
+.workspace .neral-dui-card-button[aria-pressed="true"]{
+  background:var(--side);color:var(--text);border-color:var(--muted)
+}
+.workspace .neral-dui-track{background:var(--line)}
+.workspace .neral-dui-fill{background:var(--muted)}
+.workspace .neral-dui-event summary{color:var(--text)}
+.workspace .neral-dui-event p{color:var(--muted)!important}
+.workspace .neral-dui-timeline{border-color:var(--line)}
+.workspace .neral-inline-answer{
+  min-width:0;
+  padding:7px 0 14px;
+  border-bottom:1px solid var(--line);
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.workspace .neral-inline-answer > span{white-space:pre-wrap;overflow-wrap:anywhere}
+.workspace .neral-inline-answer .neral-dynamic-widget{margin:12px 0 0}
