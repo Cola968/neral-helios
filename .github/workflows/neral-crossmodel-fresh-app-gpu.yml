@@ -1,0 +1,157 @@
+name: NERAL fresh 36-case real app Qwen3 vs Qwen3.5 GPU pilot
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_crossmodel_fresh_app.py'
+      - 'tests/test_neral_crossmodel_fresh_app.py'
+      - '.github/workflows/neral-crossmodel-fresh-app-gpu.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact read-only permission: NERAL_FRESH_CROSSMODEL_APP36_ONLY'
+        required: true
+        type: string
+      release_run_id:
+        description: 'Completed successful MAIN release run ID before GPU dispatch'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  cpu-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test-only preview dependencies
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Frozen fresh app cross-model and privacy contracts
+        run: python -B -m unittest discover -s tests -p test_neral_crossmodel_fresh_app.py -v
+      - name: Existing Ollama FAST/THINK contracts
+        run: python -B -m unittest discover -s tests -p test_neral_1_0_ollama_mode_contracts.py -v
+      - name: Python syntax
+        run: python -B -m py_compile scripts/neral_crossmodel_fresh_app.py
+
+  release-gate:
+    needs: cpu-test
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_FRESH_CROSSMODEL_APP36_ONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+    steps:
+      - name: Require confirmed complete green main release
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]{9,15}$ ]] || exit 1
+          receipt="$(gh api "repos/${GITHUB_REPOSITORY_NAME}/actions/runs/${RELEASE_RUN_ID}" --jq '[.name,.status,.conclusion,.head_branch,.event]|join("|")')"
+          expected='NERAL 1.0 release candidate - offline package and LIVE Windows PC smoke|completed|success|main|push'
+          if [[ "$receipt" != "$expected" ]]; then
+            echo "No successful main release receipt; refuse GPU scheduling."
+            exit 1
+          fi
+          echo "Verified successful main release; exclusive GPU may start."
+
+  local-rtx4070-pilot:
+    needs: [cpu-test,release-gate]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_FRESH_CROSSMODEL_APP36_ONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Refuse busy GPU and prepare disposable test environment
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $base=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          if(-not (Test-Path -LiteralPath $base -PathType Leaf)){throw 'Pinned local Python missing'}
+          $gpu=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'No GPU telemetry'}
+          $v=($gpu|Select-Object -First 1)-split ','
+          if($v.Count -ne 2 -or [int]$v[0].Trim() -lt 7000 -or [int]$v[1].Trim() -gt 25){
+            throw 'GPU busy or insufficient memory; do not overlap inference'
+          }
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-crossmodel-qa-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse previous temporary environment'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Cannot make disposable Python environment'}
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $code 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Test-only preview dependencies unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "CROSS36_PY=$py"+[Environment]::NewLine+
+            "CROSS36_CODE=$code"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Run exact same 36 newly randomized tasks through real local NERAL API per model
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $out=Join-Path $root ('crossmodel-fresh36-private-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $scalar=Join-Path $env:CROSS36_CODE 'neral_crossmodel_fresh36_scalar'
+          if((Test-Path -LiteralPath $out) -or (Test-Path -LiteralPath $scalar)){
+            throw 'Create-only destination occupied'
+          }
+          Push-Location $env:CROSS36_CODE
+          try {
+            $env:PYTHONPATH=$env:CROSS36_CODE
+            & $env:CROSS36_PY -B -m unittest discover -s tests -p test_neral_crossmodel_fresh_app.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU contract failed'}
+            & $env:CROSS36_PY -B -m scripts.neral_crossmodel_fresh_app --out-dir $out
+            if($LASTEXITCODE -ne 0){throw 'Fresh local app A/B incomplete'}
+            $r=Get-Content -LiteralPath (Join-Path $out 'scalar-summary.json') -Raw|ConvertFrom-Json
+            if($r.status -ne 'NERAL_FRESH_CROSSMODEL_APP_36_DEVELOPMENT_ONLY' -or
+               $r.cases_per_model -ne 36 -or
+               $r.models.'qwen3:8b'.vram_observations -lt 3 -or
+               $r.models.'qwen3.5:9b'.vram_observations -lt 3 -or
+               $r.independent_holdout_verified -ne $false -or
+               $r.release_validated -ne $false -or
+               $r.model_promotion_authorized -ne $false -or
+               $r.training_performed -ne $false -or
+               $r.raw_prompts_or_responses_uploaded -ne $false){
+              throw 'Reject false quality evidence or missing telemetry'
+            }
+            New-Item -ItemType Directory -Path $scalar -ErrorAction Stop|Out-Null
+            Copy-Item -LiteralPath (Join-Path $out 'scalar-summary.json') -Destination (Join-Path $scalar 'summary.json')
+            Write-Host 'Private random questions and responses stay on Windows PC outside checkout.'
+          } finally {Pop-Location}
+      - name: Publish only scalar paired results, not answers or random seed
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-fresh-app-crossmodel-36-scalar-only
+          path: control/neral_crossmodel_fresh36_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
