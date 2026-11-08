@@ -37,3 +37,11 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 #projectFiles{max-width:160px;font-size:11px;vertical-align:middle;color:var(--muted)}
 #fileStatus{font-size:11px;color:var(--muted);margin:5px 0 0;overflow-wrap:anywhere}
+
+
+/* Per-answer actions intentionally quiet and readable, not floating AI cards. */
+.message-actions{display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid var(--line)}
+.message-actions .message-tool{background:transparent;border:1px solid transparent;color:var(--muted);font-size:12px;font-weight:500;border-radius:7px;padding:4px 9px}
+.message-actions .message-tool:hover,.message-actions .message-tool:focus-visible{border-color:var(--line);color:var(--text)}
+.message-actions .message-tool[aria-pressed="true"]{color:var(--accent)}
+#projectFiles{max-width:210px}
