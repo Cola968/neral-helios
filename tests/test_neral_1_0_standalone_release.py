@@ -66,7 +66,9 @@ class PreviewStandaloneTests(unittest.TestCase):
                 base_url="http://127.0.0.1:9690")
         self.assertEqual(think.status_code,200)
         self.assertEqual(think.json["text"],"Eine kurze Erklärung.")
-        self.assertEqual([item[0] for item in self.model.calls],["fast","think"])
+        self.assertEqual([item[0] for item in self.model.calls],["fast","think","think"])
+        self.assertEqual(think.json["mode"],"HIGH")
+        self.assertEqual(think.json["review_passes"],1)
 
     def test_identity_response_uses_live_backend_not_model_self_claim(self):
         """A greeting cannot hallucinate a NERAL-LoRA adapter in Qwen-only 1.0."""
