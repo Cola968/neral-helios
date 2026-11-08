@@ -27,9 +27,6 @@ on:
       - 'tests/test_neral_1_0_standalone_release.py'
 permissions:
   contents: read
-concurrency:
-  group: neral-qwen7b-r32-gpu-exclusive
-  cancel-in-progress: false
 jobs:
   cpu-contracts:
     strategy:
@@ -59,6 +56,11 @@ jobs:
   local-windows-pc:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-low-high-deliberation-20261108' || github.head_ref == 'fix/neral-1-0-runtime-identity-20261108')
     needs: [cpu-contracts]
+    # Only actual GPU work shares the exclusive queue; CPU contracts must
+    # not be cancelled by unrelated GPU training workflow arrivals.
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 22
     defaults:
