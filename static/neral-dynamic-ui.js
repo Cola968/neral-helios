@@ -177,6 +177,7 @@
         cell.colSpan=spec.headers.length;empty.append(cell);nodes.push(empty);
       }
       body.replaceChildren(...nodes);
+      window.NeralMath?.render(body);
     };
     spec.headers.forEach((header,index)=>{
       const th=el("th");
@@ -219,6 +220,7 @@
     function select(item,selected){
       controls.forEach(b=>b.setAttribute("aria-pressed",b===selected?"true":"false"));
       detail.textContent=item.detail;
+      window.NeralMath?.render(detail);
     }
     host.append(tabs,detail);select(spec.items[0],controls[0]);
   }
@@ -280,6 +282,7 @@
       if(actions && typeof message.insertBefore==="function")
         message.insertBefore(widget,actions);
       else message.append(widget);
+      window.NeralMath?.render(widget);
       return true;
     }catch{return false;} // Degrade to the unmodified answer text.
   }
