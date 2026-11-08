@@ -30,11 +30,11 @@ class ReleaseArtifactFreshness(unittest.TestCase):
     def test_gpu_exclusive_lock_only_blocks_gpu_not_cpu_release_jobs(self):
         """PR CPU tests must never cancel a queued main release's PC smoke."""
         wf=WORKFLOW.read_text(encoding="utf-8")
-        header=wf.split("\\njobs:\\n",1)[0]
-        self.assertNotIn("\\nconcurrency:\\n",header,
+        header=wf.split("\njobs:\n",1)[0]
+        self.assertNotIn("\nconcurrency:\n",header,
                          "Top-level GPU lock causes CPU-only PRs to evict pending main builds")
-        gpu=wf.split("\\n  local-windows-pc:\\n",1)[1].split(
-            "\\n  package-rc:\\n",1)[0]
+        gpu=wf.split("\n  local-windows-pc:\n",1)[1].split(
+            "\n  package-rc:\n",1)[0]
         self.assertIn("    concurrency:",gpu)
         self.assertIn("group: neral-qwen7b-r32-gpu-exclusive",gpu)
         self.assertIn("cancel-in-progress: false",gpu)
