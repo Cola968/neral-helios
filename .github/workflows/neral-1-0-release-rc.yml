@@ -28,6 +28,8 @@ on:
       - 'solve.py'
       - 'static/icon.svg'
       - 'static/neral-preview.css'
+      - 'static/neral-motion.css'
+      - 'static/neral-motion.js'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_attachments.py'
@@ -72,6 +74,8 @@ on:
       - 'solve.py'
       - 'static/icon.svg'
       - 'static/neral-preview.css'
+      - 'static/neral-motion.css'
+      - 'static/neral-motion.js'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_attachments.py'
@@ -125,6 +129,7 @@ jobs:
       - name: Syntax and browser JS
         run: python -m py_compile neral_preview_server.py neral_preview_attachments.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
       - run: node --check static/neral-preview.js
+      - run: node --check static/neral-motion.js
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
       - run: node --test tests/test_neral_1_0_voice_client.cjs
