@@ -73,7 +73,7 @@ class DualModelHighContracts(unittest.TestCase):
                        headers=hdr,base_url=HOST)
         self.assertEqual(again.status_code,200)
         self.assertEqual(again.json["model"],"qwen3:8b")
-        self.assertEqual([m for a,m in events if a=="unload"],["qwen3:8b","qwen3.5:9b"])
+        self.assertEqual([m for a,m in events if a=="unload"],["qwen3.5:9b","qwen3:8b","qwen3.5:9b"])
         self.assertTrue(any(a=="think" and m=="qwen3.5:9b" for a,m in events))
 
     def test_fail_closed_when_model_cannot_unload(self):
