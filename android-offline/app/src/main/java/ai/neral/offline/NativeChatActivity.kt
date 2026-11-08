@@ -200,31 +200,19 @@ class NativeChatActivity : Activity() {
         updateControls()
 
         worker.execute {
-            val output = StringBuilder()
             try {
-                native.resetInterrupt()
-                val prompt = native.formatChat(
-                    OfflineModel.window(promptHistory).map { ChatMessage(it.role, it.content) },
-                    enableThinking = false
-                )
-                val cap = 384
-                val n = native.completion(
-                    prompt, SamplingParams(nPredict = cap, temperature = 0.65f),
-                    TokenCallback { chunk ->
-                        output.append(chunk)
-                        val reply = output.toString()
+                val finished = OfflineGenerator.generate(
+                    native, promptHistory,
+                    onText = { reply ->
                         postUpdate {
                             turns[assistantIndex] = ChatTurn("assistant", reply)
                             assistantView.text = "NERAL · lokal\n$reply"
                         }
+                    },
+                    onRetry = {
+                        postUpdate { status.text = "Wiederholte Antwort erkannt – neuer Versuch …" }
                     }
                 )
-                val finished = when {
-                    n < 0 -> output.toString() + "\n[Fehler bei der lokalen Generierung]"
-                    n == 0 && output.isEmpty() -> "Keine Antwort erzeugt."
-                    n >= cap -> output.toString() + "\n[Antwort abgeschnitten]"
-                    else -> output.toString()
-                }
                 postUpdate {
                     turns[assistantIndex] = ChatTurn("assistant", finished)
                     assistantView.text = "NERAL · lokal\n$finished"
