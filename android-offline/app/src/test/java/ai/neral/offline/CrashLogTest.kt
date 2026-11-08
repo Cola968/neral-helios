@@ -32,6 +32,7 @@ class CrashLogTest {
         val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
         assertTrue(manifest.contains("android:name=\".LauncherActivity\""))
         assertTrue(manifest.contains("android:name=\".MainActivity\""))
+        assertTrue(manifest.contains("android:name=\".NativeChatActivity\""))
         assertTrue(manifest.contains("android:name=\".NeralApplication\""))
         assertTrue(manifest.contains("android:name=\"libvulkan.so\""))
     }
