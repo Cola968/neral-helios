@@ -50,7 +50,19 @@
     if(!text||encoder.encode(text).length>4096){errors.textContent="Nachricht zu lang oder leer.";return;}
     const mode=form.querySelector('input[name="mode"]:checked')?.value==="think" ? "think":"generate";
     busy=true;submit.disabled=true;errors.textContent="";
-    const history=memory.slice(-12).map(m=>({role:m.role,content:m.content}));
+    // Preserve user/assistant pairs while keeping every sent item under
+    // the server's 2048-byte limit and total history below 12 KB.
+    // Keep the tail of long answers, where conclusions normally appear.
+    let history=memory.slice(-12).map(m=>{
+      let content=m.content;
+      while(encoder.encode(content).length>1900){
+        content=content.slice(Math.max(1,Math.floor(content.length/8)));
+      }
+      return {role:m.role,content};
+    });
+    while(history.length && encoder.encode(JSON.stringify(history)).length>9000){
+      history=history.slice(2);
+    }
     try {
       const result=await json("/api/neral/chat/"+mode,{
         method:"POST",headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
