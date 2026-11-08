@@ -12,6 +12,9 @@ on:
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
       - 'tests/test_neral_activity_v3.cjs'
+      - 'static/neral-dynamic-ui.css'
+      - 'static/neral-dynamic-ui.js'
+      - 'tests/test_neral_dynamic_ui.cjs'
       - '.github/workflows/neral-motion-ci.yml'
   push:
     branches: [main]
@@ -26,6 +29,9 @@ on:
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
       - 'tests/test_neral_activity_v3.cjs'
+      - 'static/neral-dynamic-ui.css'
+      - 'static/neral-dynamic-ui.js'
+      - 'tests/test_neral_dynamic_ui.cjs'
       - '.github/workflows/neral-motion-ci.yml'
 permissions:
   contents: read
@@ -41,4 +47,5 @@ jobs:
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-modern.js
-      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs
+      - run: node --check static/neral-dynamic-ui.js
+      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs

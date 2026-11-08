@@ -50,6 +50,9 @@ on:
       - 'static/neral-preview.css'
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
+      - 'static/neral-dynamic-ui.js'
+      - 'static/neral-dynamic-ui.css'
+      - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
@@ -120,6 +123,9 @@ on:
       - 'static/neral-preview.css'
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
+      - 'static/neral-dynamic-ui.js'
+      - 'static/neral-dynamic-ui.css'
+      - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
@@ -196,6 +202,8 @@ jobs:
       - run: node --test tests/test_neral_1_0_account_client.cjs
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-motion.js
+      - run: node --check static/neral-dynamic-ui.js
+      - run: node --test tests/test_neral_dynamic_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
       - run: node --test tests/test_neral_1_0_voice_client.cjs
