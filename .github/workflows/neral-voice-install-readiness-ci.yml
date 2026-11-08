@@ -1,0 +1,41 @@
+name: NERAL local speech installation readiness
+on:
+  pull_request:
+    paths:
+      - 'requirements-neral-local-voice.txt'
+      - 'Install-Neral-Local-Voice.ps1'
+      - 'scripts/neral_local_voice_install.py'
+      - 'scripts/neral_local_voice_selftest.py'
+      - 'tests/test_neral_voice_install_readiness.py'
+      - 'START HIER.txt'
+      - '.github/workflows/neral-voice-install-readiness-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'requirements-neral-local-voice.txt'
+      - 'Install-Neral-Local-Voice.ps1'
+      - 'scripts/neral_local_voice_install.py'
+      - 'scripts/neral_local_voice_selftest.py'
+      - 'tests/test_neral_voice_install_readiness.py'
+      - 'START HIER.txt'
+      - '.github/workflows/neral-voice-install-readiness-ci.yml'
+permissions:
+  contents: read
+jobs:
+  install-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Installer must verify real local STT and Piper instead of just files
+        run: python -m unittest discover -s tests -p test_neral_voice_install_readiness.py -v
+      - name: Existing offline API/mic checks
+        run: python -m unittest discover -s tests -p test_neral_local_voice.py -v

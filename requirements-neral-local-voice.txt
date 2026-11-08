@@ -1,5 +1,7 @@
 # Optional LOCAL speech extras, never installed by the normal NERAL launcher.
 # Explicit user consent required before package/model downloads.
 faster-whisper>=1.1,<2
-piper-tts>=1.3,<2
+# Piper 1.4+ can require external eSpeak-NG on Windows. Version 1.3
+# embeds the required phonemization resources and supports synthesize_wav.
+piper-tts==1.3.0
 huggingface_hub>=0.30,<2

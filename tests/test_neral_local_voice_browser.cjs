@@ -156,3 +156,14 @@ test("cancelling a running NERAL chat stops the offline voice session",async()=>
   await flush();
   assert.equal(s.requests.filter(x=>x.url.endsWith("/speak")).length,0);
 });
+
+test("offline voice explains its actual install step on load without touching the mic",async()=>{
+  const missing=setup({ready:false});
+  await flush();
+  assert.equal(missing.micCount(),0);
+  assert.match(missing.element("localVoiceStatus").textContent,/Install NERAL Voice\.cmd/);
+  const prepared=setup({ready:true});
+  await flush();
+  assert.equal(prepared.micCount(),0);
+  assert.match(prepared.element("localVoiceStatus").textContent,/bereit|verfuegbar|verfügbar/i);
+});

@@ -21,6 +21,7 @@ REQUIRED_FILES = (
     "Install-Neral-Local-Voice.ps1",
     "requirements-neral-local-voice.txt",
     "scripts/neral_local_voice_install.py",
+    "scripts/neral_local_voice_selftest.py",
     "neral_local_voice.py",
     "static/neral-local-voice.js",
     "static/neral-local-voice-worklet.js",
