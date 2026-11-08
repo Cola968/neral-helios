@@ -29,7 +29,11 @@ test("searchable mathematical and physical formula catalog is built into the app
 });
 test("catalog formulas genuinely render with pinned locally bundled KaTeX and mhchem",()=>{
   const katex=require(path.join(base,"static/vendor/katex/katex.min.js"));
-  require(path.join(base,"static/vendor/katex/mhchem.min.js"));
+  // Execute UMD exactly as the browser does: use its supplied KaTeX global.
+  // Requiring mhchem from node_modules would test a different install path.
+  const chemistry=read("static/vendor/katex/mhchem.min.js");
+  vm.runInNewContext(chemistry,{katex,console},{timeout:2500,
+    filename:"mhchem.min.js"});
   for(const item of load().catalog){
     const html=katex.renderToString(item.latex,{
       throwOnError:true,trust:false,strict:"warn",output:"htmlAndMathml"
