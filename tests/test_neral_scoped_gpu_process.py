@@ -36,13 +36,21 @@ class ScopedProcessTests(unittest.TestCase):
         proc=fake_process()
         info=classify_neral_candidate(proc,EXPECTED,now=10000)
         self.assertTrue(info["verified"])
+        self.assertTrue(info["pinned_executable"])
+        self.assertTrue(info["project_command"])
+        self.assertFalse(info["runner_process"])
+        self.assertTrue(info["alive"])
         self.assertFalse(info["training_process"])
         self.assertNotIn("test",str(info))
         self.assertNotIn("Scripts",str(info))
 
     def test_other_python_cannot_be_touched(self):
         proc=fake_process(path=r"C:\Users\test\unrelated\python.exe")
-        self.assertFalse(classify_neral_candidate(proc,EXPECTED,now=10000)["verified"])
+        evidence=classify_neral_candidate(proc,EXPECTED,now=10000)
+        self.assertFalse(evidence["verified"])
+        self.assertFalse(evidence["pinned_executable"])
+        self.assertTrue(evidence["project_command"])
+        self.assertNotIn("unrelated",str(evidence))
         proc=fake_process(args=[EXPECTED,"-c","print('hi')"])
         self.assertFalse(classify_neral_candidate(proc,EXPECTED,now=10000)["verified"])
 
