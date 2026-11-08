@@ -52,37 +52,7 @@ jobs:
       - name: Embed immutable build source
         shell: powershell
         run: |
-          if($env:GITHUB_SHA -notmatch '^[0-9a-f]{40}        shell: powershell
-        run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name NERAL `
-            --add-data "templates;templates" `
-            --add-data "static;static" `
-            neral_oneclick.py
-          if($LASTEXITCODE -ne 0){throw 'Single-file EXE build failed'}
-          if(-not(Test-Path -LiteralPath 'dist/NERAL.exe')){throw 'NERAL.exe not built'}
-      - name: Execute bundled EXE and verify actual local HTTP assets
-        shell: powershell
-        run: |
-          # GUI/--windowed executables do not set PowerShell's LASTEXITCODE reliably.
-          $exe=(Resolve-Path -LiteralPath './dist/NERAL.exe').Path
-          $probe=Start-Process -FilePath $exe -ArgumentList '--smoke-test' -Wait -PassThru
-          if($null -eq $probe -or $probe.ExitCode -ne 0){
-            throw "Frozen NERAL.exe smoke failed: $($probe.ExitCode)"
-          }
-      - name: Hash verified Windows executable
-        shell: powershell
-        run: |
-          (Get-FileHash ./dist/NERAL.exe -Algorithm SHA256).Hash | Out-File -Encoding ascii ./dist/NERAL.exe.sha256
-      - name: Save tested single-click executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: NERAL-Windows-Ein-Klick
-          path: |
-            dist/NERAL.exe
-            dist/NERAL.exe.sha256
-          if-no-files-found: error
-          retention-days: 14
-){throw 'Invalid commit SHA'}
+          if($env:GITHUB_SHA -notmatch '^[0-9a-f]{40}$'){throw 'Invalid commit SHA'}
           $utc=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
           "BUILD_COMMIT = '$env:GITHUB_SHA'" | Set-Content -LiteralPath neral_build_info.py -Encoding utf8
           "BUILD_UTC = '$utc'" | Add-Content -LiteralPath neral_build_info.py -Encoding utf8
