@@ -65,13 +65,13 @@ class OllamaLocalBackend:
             return self._respond(messages, require_json=True, thinking=False)
 
     def respond_chat(self, messages: list[dict]) -> str:
-        # FAST: avoid spending the 512-token tool budget on internal thinking.
+        # LOW (formerly FAST): no costly internal thinking.
         # Explicitly disable it; Qwen3 family defaults otherwise vary by tag.
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=False)
 
     def respond_think(self, messages: list[dict]) -> str:
-        # Separate, opt-in local reasoning channel. Do not return raw thoughts.
+        # HIGH (formerly THINK): opt-in model reasoning, not exposed to clients.
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=True)
 
@@ -79,13 +79,19 @@ class OllamaLocalBackend:
                  thinking: bool = False) -> str:
         if require_json and thinking:
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
-        budget = 512 if require_json else (2048 if thinking else 1024)
+        # GPU-local HIGH uses a larger bounded budget and Qwen3's published
+        # non-greedy thinking parameters. LOW and agent JSON remain unchanged.
+        budget = 512 if require_json else (4096 if thinking else 1024)
+        options = {"temperature": 0, "num_predict": budget, "num_ctx": 4096}
+        if thinking:
+            options = {"temperature": 0.6, "top_p": 0.95, "top_k": 20,
+                       "num_predict": budget, "num_ctx": 8192}
         request_data = {
             "model": self.model,
             "messages": messages,
             "think": thinking,
             "stream": False,
-            "options": {"temperature": 0, "num_predict": budget, "num_ctx": 4096},
+            "options": options,
             "keep_alive": "5m",
         }
         if require_json:

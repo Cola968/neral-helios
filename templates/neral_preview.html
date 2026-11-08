@@ -24,8 +24,8 @@
         <textarea id="prompt" rows="3" maxlength="4000" placeholder="Deine Nachricht an NERAL …" required></textarea>
         <div class="toolbar">
           <div class="modes" role="group" aria-label="Modus">
-            <label><input type="radio" name="mode" value="fast" checked> FAST</label>
-            <label><input type="radio" name="mode" value="think"> THINK</label>
+            <label><input type="radio" name="mode" value="fast" checked> LOW</label>
+            <label><input type="radio" name="mode" value="think"> HIGH</label>
           </div>
           <div class="actions">
             <button id="clear" type="button" class="secondary">Verlauf löschen</button>
@@ -33,8 +33,10 @@
           </div>
         </div>
       </form>
+      <p id="phase" class="phase" role="status" aria-live="polite"></p>
       <p id="error" role="alert" aria-live="assertive"></p>
-      <p class="fineprint">Ohne Cloud-KI · keine automatische Modellinstallation · THINK kann länger dauern · mathematische Prüfung nur, wenn ausdrücklich ausgewiesen</p>
+      <p class="fineprint">LOW: schnelle Antwort · HIGH: tieferes lokales Denken mit zweiter Kontrolle bei offenen Aufgaben. Modell-Selbstprüfung ist kein Beweis für Richtigkeit.</p>
+      <p class="fineprint">Ohne Cloud-KI · keine Modellinstallation · exakte Prüfungen werden gesondert gekennzeichnet</p>
     </section>
   </div>
 </body>

@@ -264,7 +264,7 @@ def register_neral_local_chat_api(app, backend):
             else:
                 exact = None
             if exact is not None:
-                return jsonify({**exact, "model_generated": False,
+                return jsonify({**exact, "mode": "LOW", "model_generated": False,
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(backend)})
             try:
@@ -279,6 +279,7 @@ def register_neral_local_chat_api(app, backend):
                 return jsonify(error="Lokales Modell lieferte eine ungültige Antwort."), 503
             return jsonify({
                 "text": text,
+                "mode": "LOW",
                 "model_generated": True,
                 "seconds": round(time.monotonic() - started, 3),
                 **_provenance(backend),
@@ -288,7 +289,7 @@ def register_neral_local_chat_api(app, backend):
 
     @app.post("/api/neral/chat/think")
     def local_chat_think():
-        """Opt-in local THINK: one response and at most one checked correction.
+        """Opt-in local HIGH: exact oracle verification or a bounded self-review.
 
         Shares the normal chat's busy lock. No remote APIs, generated code
         execution, automatic LoRA promotion or persistent prompt logs.
@@ -316,11 +317,11 @@ def register_neral_local_chat_api(app, backend):
                 local_respond = getattr(backend, "respond_chat", None)
             if not callable(local_respond):
                 local_respond = backend.respond
-            result = think_reply(data, local_respond)
+            result = think_reply(data, local_respond, deep_review=True)
             return jsonify({**result, **_provenance(backend)})
         except Exception:
             # Never leak local paths, checkpoints, prompts or model outputs.
-            return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden."), 503
+            return jsonify(error="Lokaler HIGH-Modus konnte nicht ausgeführt werden."), 503
         finally:
             busy.release()
 

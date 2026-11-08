@@ -12,13 +12,29 @@ Die alte 50M-Helios-App, deren `deployment/`-Ordner und CPU-Checkpoint
 werden **nicht mehr benötigt**. Installierte Qwen-Gewichte sind
 **nicht im ZIP enthalten** und werden nicht automatisch geladen.
 
-NERAL 1.0 Local Preview stellt bereit: FAST-Chat, optionalen THINK-
+NERAL 1.0 Local Preview stellt bereit: LOW-Chat, optionalen HIGH-
 Modus, eingeschränkte lokal verifizierte Mathematik-/Logik-/Python-
 Ergebnisse, Herkunftskennzeichnung, CSRF-geschützten localhost-Chat
 und einen leichten Windows-Starter.
 
 Die **NERAL**-Oberfläche nutzt ein fremdes Qwen-Grundmodell. Das ist
 **kein** Nachweis eines eigenständigen neuronalen Intelligenzgewinns.
+
+## LOW und HIGH (ab dieser Preview)
+
+- **LOW:** direkter lokaler Chat ohne modellinternes Thinking,
+  maximal 1024 Generierungstokens, Kontextbudget 4096.
+- **HIGH:** Qwen3-Think mit bis zu 4096 Generierungstokens pro Aufruf,
+  Kontextbudget 8192, Temperatur 0,6, Top-p 0,95 und Top-k 20.
+  Bei offenen Fragen folgt eine zweite lokale Modellrunde, die den ersten
+  Entwurf kritisch prüft und überarbeitet. Maximal zwei Modellaufrufe.
+- Bei sicher erkannten Rechen-, Python- und Logikaufgaben wird die exakte
+  Prüfung vorrangig eingesetzt. Modell-Selbstprüfung beweist keine
+  Richtigkeit. HIGH kann langsamer und in Einzelfällen schlechter sein.
+  Ein Qualitätsgewinn wird erst nach unbekannten Testfällen behauptet.
+
+Die angezeigten Modi heißen LOW/HIGH. Die internen Routen /generate
+und /think bleiben zur Abwärtskompatibilität erhalten.
 
 ## Installation auf Windows
 
@@ -44,7 +60,7 @@ erneut prüfen.
    verweigert eine zweite Instanz auf Port **9690** und startet
    den lokalen Waitress-Server. Browser-Adresse:
    **http://127.0.0.1:9690/**.
-6. Zuerst eine kurze Frage im Modus FAST testen, dann optional THINK.
+6. Zuerst eine kurze Frage im Modus LOW testen, dann optional HIGH.
    Für neue Nutzer steht `-CheckOnly` im PowerShell-Starter bereit.
    Das führt keine Modellinferenz aus.
 
@@ -83,7 +99,7 @@ Die GitHub-Workflowdatei
 `.github/workflows/neral-1-0-release-rc.yml` überprüft:
 
 - echte Windows- und Linux-Tests der eigenständigen App;
-- CSRF-/Origin-/Host-Ablehnung, Modellherkunft, FAST- und THINK-
+- CSRF-/Origin-/Host-Ablehnung, Modellherkunft, LOW- und HIGH-
   Routen ohne falsch freigegebene NERAL-LoRA;
 - reproduzierbaren, inhaltsbegrenzten ZIP-Build inklusive Datei-SHA;
 - die tatsächliche lokale Qwen3-8B-Inferenz **auf dem privaten

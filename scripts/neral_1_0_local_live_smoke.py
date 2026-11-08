@@ -73,12 +73,28 @@ def test_local_release(output: Path):
     deep=client.post("/api/neral/chat/think",base_url=HOST,headers=hdr,
        json={"prompt":"Berechne schrittweise: 6*7"})
     if (deep.status_code!=200 or
-            deep.json.get("mode")!="THINK" or
+            deep.json.get("mode")!="HIGH" or
             deep.json.get("verified") is not True or
             "42" not in str(deep.json.get("text","")) or
             deep.json.get("model_origin")!="local_foundation_not_neral_adapter" or
             deep.json.get("adapter_loaded") is not False):
         raise ValueError("REAL Qwen THINK/exact-local-tool smoke failed")
+    # HIGH must really run two independent local thinking generations for an
+    # open question. This is a system-depth check, not a quality score.
+    reviewed=client.post("/api/neral/chat/think",base_url=HOST,headers=hdr,
+       json={"prompt":"Erkläre den Unterschied zwischen einem Stern und einem Planeten."})
+    if (reviewed.status_code!=200 or
+            reviewed.json.get("mode")!="HIGH" or
+            reviewed.json.get("calls_used")!=2 or
+            reviewed.json.get("review_passes")!=1 or
+            reviewed.json.get("review_status")!="completed_unverified" or
+            reviewed.json.get("verified") is not False or
+            not isinstance(reviewed.json.get("text"),str) or
+            len(reviewed.json["text"])<15 or
+            reviewed.json.get("adapter_loaded") is not False or
+            reviewed.json.get("model_origin")!="local_foundation_not_neral_adapter"):
+        raise ValueError("REAL local HIGH two-pass inference failed")
+
     if OllamaLocal().inventory().get(NAME)!=digest:
         raise ValueError("Local model SHA drift during live smoke")
     report={
@@ -89,6 +105,7 @@ def test_local_release(output: Path):
         "local_windows":True,
         "fast_actual_inference":True,
         "think_actual_inference":True,
+        "high_two_pass_actual_inference":True,
         "exact_numeric_result_checked":True,
         "csrf_and_origin_blocked":True,
         "foundation_provenance_preserved":True,

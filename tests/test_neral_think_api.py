@@ -32,7 +32,7 @@ class ThinkHTTPTests(unittest.TestCase):
         reply = client.post("/api/neral/chat/think", json={
             "prompt": "Löse schrittweise: 2x+3=11"})
         self.assertEqual(reply.status_code, 200, reply.json)
-        self.assertEqual(reply.json["mode"], "THINK")
+        self.assertEqual(reply.json["mode"], "HIGH")
         self.assertEqual(reply.json["calls_used"], 2)
         self.assertTrue(reply.json["verified"])
         self.assertTrue(reply.json["model_generated"])
@@ -42,13 +42,15 @@ class ThinkHTTPTests(unittest.TestCase):
         self.assertEqual(len(model.calls), 2)
 
     def test_think_unverifiable_does_not_fake_verification(self):
-        client, model = setup(["Physik beschreibt Wechselwirkungen."])
+        client, model = setup(["Physik beschreibt Wechselwirkungen.", "Physik beschreibt Wechselwirkungen und Energieübertragung."])
         reply = client.post("/api/neral/chat/think", json={"prompt": "Erkläre Physik."})
         self.assertEqual(reply.status_code, 200)
         self.assertFalse(reply.json["verified"])
         self.assertTrue(reply.json["model_generated"])
-        self.assertEqual(reply.json["calls_used"], 1)
-        self.assertEqual(len(model.calls), 1)
+        self.assertEqual(reply.json["calls_used"], 2)
+        self.assertEqual(reply.json["review_passes"], 1)
+        self.assertFalse(reply.json["verified"])
+        self.assertEqual(len(model.calls), 2)
 
     def test_new_exact_math_route_reaches_real_think_http_api(self):
         q = "Find the remainder of 13 to the power 5 modulo 17."

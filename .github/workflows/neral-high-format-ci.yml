@@ -1,0 +1,32 @@
+name: NERAL HIGH requested output-format protection
+on:
+  pull_request:
+    paths:
+      - 'neral_think.py'
+      - 'tests/test_neral_high_response_format.py'
+      - '.github/workflows/neral-high-format-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_think.py'
+      - 'tests/test_neral_high_response_format.py'
+      - '.github/workflows/neral-high-format-ci.yml'
+permissions:
+  contents: read
+jobs:
+  high-output:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: HIGH review output preservation regression
+        run: python -m unittest discover -s tests -p test_neral_high_response_format.py -v
+      - name: Existing HIGH deep-review contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_high_depth.py -v

@@ -63,7 +63,11 @@ class NeralReleaseInferenceTests(unittest.TestCase):
         self.assertNotIn("HIDDEN_PRIVATE_COT",output)
         payload=local.calls[0][1]
         self.assertEqual(payload["think"],True)
-        self.assertEqual(payload["options"]["num_predict"],2048)
+        self.assertEqual(payload["options"]["num_predict"],4096)
+        self.assertEqual(payload["options"]["num_ctx"],8192)
+        self.assertEqual(payload["options"]["temperature"],0.6)
+        self.assertEqual(payload["options"]["top_p"],0.95)
+        self.assertEqual(payload["options"]["top_k"],20)
         self.assertNotIn("format",payload)
 
     def test_length_censored_outputs_and_nonterminal_packets_fail_closed(self):
@@ -103,7 +107,9 @@ class NeralReleaseInferenceTests(unittest.TestCase):
         self.assertEqual(normal.json["text"],"FAST_NORMAL")
         self.assertEqual(deep.status_code,200)
         self.assertEqual(deep.json["text"],"THINK_OPTIN")
-        self.assertEqual(local.calls,["fast","think"])
+        self.assertEqual(local.calls,["fast","think","think"])
+        self.assertEqual(deep.json["mode"],"HIGH")
+        self.assertEqual(deep.json["review_passes"],1)
         self.assertFalse(deep.json["verified"])
         self.assertEqual(deep.json["model_origin"],"local_foundation_not_neral_adapter")
 

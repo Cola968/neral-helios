@@ -1,0 +1,119 @@
+name: NERAL LOW vs HIGH paired local pilot (12-case, scalar only)
+on:
+  push:
+    branches:
+      - feat/neral-1-0-low-high-deliberation-20261108
+    paths:
+      - '.github/workflows/neral-low-high-paired-pilot.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Enter RUN_NERAL_LOW_HIGH_LOCAL_PILOT to authorize a read-only pilot'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contracts:
+    if: github.event_name == 'push' || inputs.authorize == 'RUN_NERAL_LOW_HIGH_LOCAL_PILOT'
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Paired scoring, prompt equality, data safety and HTTP regressions
+        run: python -m unittest discover -s tests -p test_neral_low_high_quality.py -v
+      - name: Compile benchmark and model coordinator
+        run: python -m py_compile scripts/neral_low_high_quality.py neral_think.py neral_local_chat_api.py
+
+  local-windows-pilot:
+    if: github.event_name == 'push' || inputs.authorize == 'RUN_NERAL_LOW_HIGH_LOCAL_PILOT'
+    needs: [cpu-contracts]
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 65
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+      NERAL_AGENT_BACKEND: ollama
+      NERAL_AGENT_OLLAMA_MODEL: 'qwen3:8b'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: code
+          clean: true
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Local GPU, model and isolated QA environment preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=Join-Path $env:GITHUB_WORKSPACE 'code'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Pinned local Python 3.12 interpreter missing; no run.'
+          }
+          $gpu=(& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits | Select-Object -First 1)
+          if($LASTEXITCODE -ne 0 -or -not $gpu){throw 'NVIDIA GPU preflight failed.'}
+          $metrics=$gpu -split ','
+          if($metrics.Count -ne 2 -or [int]$metrics[0].Trim() -lt 7000 -or
+             [int]$metrics[1].Trim() -gt 20){
+            throw 'GPU occupied or insufficient free memory. Refuse inference.'
+          }
+          $venv=Join-Path $env:RUNNER_TEMP "neral-low-high-qa-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $venv){throw 'Refuse preexisting QA environment.'}
+          & $py -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Isolated QA environment not created.'}
+          $qa=Join-Path $venv 'Scripts\python.exe'
+          & $qa -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $code 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'QA Python requirements unavailable.'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_QA=$qa"+[Environment]::NewLine+
+            "NERAL_CODE=$code"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Strict 12-case LOW vs HIGH local paired pilot
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:NERAL_CODE
+          $out=Join-Path $env:RUNNER_TEMP "neral-low-high-pilot-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          if(Test-Path -LiteralPath $out){throw 'Scalar output already exists.'}
+          Push-Location $env:NERAL_CODE
+          try {
+            & $env:NERAL_QA -B -m scripts.neral_low_high_quality --count 12 --out $out
+            if($LASTEXITCODE -ne 0){throw 'Paired local LOW/HIGH inference did not finish.'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($report.status -ne 'NERAL_LOW_HIGH_PAIRED_DEVELOPMENT_DIAGNOSTIC' -or
+             $report.case_count -ne 12 -or
+             $report.development_gate_passed -ne $false -or
+             $report.general_reasoning_superiority_proven -ne $false -or
+             $report.release_validated -ne $false -or
+             $report.independent_holdout_verified -ne $false){
+            throw 'Pilot scalar evidence does not satisfy nonrelease contract.'
+          }
+          $dir=Join-Path $env:NERAL_CODE 'neral_low_high_scalar'
+          if(Test-Path -LiteralPath $dir){throw 'Refuse existing scalar output folder.'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath $out -Destination (Join-Path $dir 'summary.json')
+      - name: Upload aggregate only - never private prompts or responses
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-low-high-pilot-12-scalar
+          path: code/neral_low_high_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
