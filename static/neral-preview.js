@@ -12,6 +12,12 @@
   stopRequest.disabled=true;
   let attachments=[];
   const browser=typeof window==="undefined" ? {} : window;
+  // Motion is progressive enhancement: headless tests and non-browser clients
+  // must never fail an otherwise valid local chat request.
+  function motionActivity(phase,mode){
+    if(typeof browser.dispatchEvent!=="function" || typeof CustomEvent!=="function")return;
+    browser.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase,mode}}));
+  }
   const Recognition=browser.SpeechRecognition || browser.webkitSpeechRecognition;
   const speaker=browser.speechSynthesis;
   const mic=$("voiceInput"), voiceStatus=$("voiceStatus");
@@ -164,7 +170,7 @@
     const checkButton=$("codeCheck");
     const startedEpoch=conversationEpoch;
     busy=true;submit.disabled=true;checkButton.disabled=true;
-    window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"checking"}}));
+    motionActivity("checking");
     try {
       const reply=await json("/api/neral/preview/codecheck",{
         method:"POST",
@@ -183,7 +189,7 @@
         errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
     } finally {
       busy=false;submit.disabled=false;checkButton.disabled=false;
-      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done"}}));
+      motionActivity("done");
     }
   });
 
@@ -225,7 +231,7 @@
       let modelPrompt=text;
       let sources=[];
       if($("useWebSearch").checked) {
-        window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"searching",mode}}));
+        motionActivity("searching",mode);
         if(text.length>160 || /[\r\n]/.test(text))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         const search=await json("/api/web/search",{
@@ -258,7 +264,7 @@
           throw new Error("Frage mit Dateikontext überschreitet das 4096-Byte-Limit.");
         modelPrompt=augmented;
       }
-      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"thinking",mode}}));
+      motionActivity("thinking",mode);
       const result=await json("/api/neral/chat/"+mode,{
         method:"POST",
         headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
@@ -271,7 +277,7 @@
       if(result.model_origin!=="local_foundation_not_neral_adapter" ||
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
-      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done",mode}}));
+      motionActivity("done",mode);
       append("user",text);
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
@@ -299,7 +305,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
-      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done",mode}}));
+      motionActivity("done",mode);
       if(activeRequest===controller){
         activeRequest=null;busy=false;submit.disabled=false;
         stopRequest.disabled=true;prompt.focus();
@@ -310,13 +316,13 @@
   stopRequest.addEventListener("click",()=>{
     if(activeRequest&&!activeRequest.signal.aborted){
       activeRequest.abort();
-      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"cancelled"}}));
+      motionActivity("cancelled");
       errors.textContent="Browseranfrage abgebrochen. Ollama kann lokal noch weiterrechnen.";
     }
   });
   $("clear").addEventListener("click",()=>{
     conversationEpoch++;
-    window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"cancelled"}}));
+    motionActivity("cancelled");
     if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
     stopAudio();
     if(recognizer && listening) recognizer.abort();
