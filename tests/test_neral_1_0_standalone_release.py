@@ -151,6 +151,19 @@ class PreviewStandaloneTests(unittest.TestCase):
         self.assertIn("error",too_large_upload.json)
         self.assertEqual(self.model.calls,[])
 
+    def test_live_gpu_gate_requires_current_high_mode_and_verified_result(self):
+        """Real Ollama HIGH uses HIGH, not the retired THINK API label."""
+        from scripts.neral_1_0_local_live_smoke import valid_high_smoke
+        correct = {
+            "mode": "HIGH", "verified": True, "text": "FINAL: 42",
+            "model_origin": "local_foundation_not_neral_adapter",
+            "adapter_loaded": False,
+        }
+        self.assertTrue(valid_high_smoke(200, correct))
+        self.assertFalse(valid_high_smoke(200, {**correct, "mode": "THINK"}))
+        self.assertFalse(valid_high_smoke(200, {**correct, "verified": False}))
+        self.assertFalse(valid_high_smoke(503, correct))
+
     def test_security_headers_on_every_response(self):
         page=self.client.get("/",base_url="http://127.0.0.1:9690")
         self.assertEqual(page.headers["X-Frame-Options"],"DENY")
