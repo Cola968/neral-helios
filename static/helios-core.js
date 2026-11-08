@@ -51,6 +51,9 @@
         inline(n,heading?heading[2]:bullet?'• '+bullet[1]:block.text||'\u00a0',doc);parent.append(n);
       }
     }
+    // Run only on inert text nodes already created by the safe Markdown parser.
+    // KaTeX ignores <pre> and <code> so Python/LaTeX examples stay intact.
+    if(typeof window!=="undefined")window.NeralMath?.render(parent);
   }
   function parseImport(text){
     if(bytes(text)>2*1024*1024)throw Error('Import ist größer als 2 MB.');
