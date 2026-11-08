@@ -48,8 +48,8 @@ class FreshVerifierSystemCases(unittest.TestCase):
         self.assertTrue(report["development_gate_passed"])
         self.assertFalse(report["neural_improvement_proven"])
         self.assertFalse(report["release_validated"])
-        self.assertNotIn("prompt", str(report))
-        self.assertNotIn("answer", str(report))
+        self.assertNotIn("prompt", report)
+        self.assertNotIn("answer", report)
 
     def test_missing_pair_and_fake_high_verifier_are_rejected(self):
         cases = generate_fresh_system_cases(SEED)
