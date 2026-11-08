@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/neral-1-0-release-rc.yml'
+      - 'START HIER.txt'
       - 'Start NERAL 1.0 Local.cmd'
       - 'Start-Neral-1.0-Local.ps1'
       - 'agent_mode.py'
@@ -54,6 +55,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/neral-1-0-release-rc.yml'
+      - 'START HIER.txt'
       - 'Start NERAL 1.0 Local.cmd'
       - 'Start-Neral-1.0-Local.ps1'
       - 'agent_mode.py'
@@ -281,3 +283,56 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 30
+
+  public-preview-download:
+    # A public, direct ZIP link replaces the confusing Actions artifact download.
+    # Never publish an untested PR, CPU-only build or model weights.
+    needs: [package-rc]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: write
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Fetch archive that passed CPU and live Windows-PC gates
+        uses: actions/download-artifact@v4
+        with:
+          name: NERAL-1.0-Local-Preview-RELEASE-CANDIDATE
+          path: dist
+      - name: Verify SHA256 and source-only safety before public upload
+        shell: bash
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS.txt
+          python - <<'PY'
+          import json
+          from zipfile import ZipFile
+          with ZipFile('NERAL-1.0-Local-Preview.zip') as bundle:
+              names = set(bundle.namelist())
+              assert 'NERAL-1.0-Local/START HIER.txt' in names
+              assert 'NERAL-1.0-Local/Start NERAL 1.0 Local.cmd' in names
+              manifest = json.loads(bundle.read('NERAL-1.0-Local/RELEASE-MANIFEST.json'))
+              assert manifest['model_weights_included'] is False
+              assert manifest['release_validated'] is False
+              assert manifest['weights_promoted'] is False
+              assert not any('/local_state/' in path or path.endswith('.safetensors') for path in names)
+          PY
+          printf '%s\n' "$SOURCE_SHA" > SOURCE-COMMIT.txt
+      - name: Publish unique immutable-tag prerelease download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="neral-preview-${SOURCE_SHA:0:12}"
+          gh release create "$tag" \
+            dist/NERAL-1.0-Local-Preview.zip \
+            dist/SHA256SUMS.txt \
+            dist/SOURCE-COMMIT.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "NERAL 1.0 Local Preview (${SOURCE_SHA:0:12})" \
+            --notes "Direkter Windows-Download nach Linux/Windows-CPU-Gates und lokalem Windows-Ollama-Live-Test. ZIP entpacken, START HIER.txt lesen, Start NERAL 1.0 Local.cmd doppelklicken. Dies ist ein Release-Kandidat ohne Modellgewichte, kein stabiler 1.0-Release."

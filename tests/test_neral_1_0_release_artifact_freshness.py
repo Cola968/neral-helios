@@ -63,5 +63,32 @@ class ReleaseArtifactFreshness(unittest.TestCase):
         self.assertNotIn("cancel-in-progress: true",wf)
 
 
+    def test_verified_preview_has_public_one_click_download_not_actions_artifact_only(self):
+        """No Actions sign-in or double nested artifact ZIP for end users."""
+        wf = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("\n  public-preview-download:\n", wf)
+        publish=wf.split("\n  public-preview-download:\n",1)[1]
+        self.assertIn("needs: [package-rc]", publish)
+        self.assertIn("github.event_name == 'push'", publish)
+        self.assertIn("github.ref == 'refs/heads/main'", publish)
+        self.assertIn("contents: write", publish)
+        self.assertIn("actions/download-artifact@v4", publish)
+        self.assertIn("NERAL-1.0-Local-Preview-RELEASE-CANDIDATE", publish)
+        self.assertIn("sha256sum -c SHA256SUMS.txt", publish)
+        self.assertIn("gh release create", publish)
+        self.assertIn("--prerelease", publish)
+        self.assertIn("github.sha", publish)
+        self.assertNotIn("github.event_name == 'pull_request' &&", publish)
+
+    def test_bundle_provides_three_step_start_here_file_without_manual_commands(self):
+        from scripts.build_neral_1_0_preview import REQUIRED_FILES
+        self.assertIn("START HIER.txt", REQUIRED_FILES)
+        guide=(ROOT/"START HIER.txt").read_text(encoding="utf-8")
+        self.assertIn("Start NERAL 1.0 Local.cmd", guide)
+        self.assertIn("ZIP", guide)
+        self.assertIn("Ollama", guide)
+        self.assertIn("keine", guide.lower())
+
+
 if __name__=="__main__":
     unittest.main()

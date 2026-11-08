@@ -14,6 +14,7 @@ import re
 import zipfile
 
 REQUIRED_FILES = (
+    "START HIER.txt",
     "Start NERAL 1.0 Local.cmd",
     "Start-Neral-1.0-Local.ps1",
     "neral_preview_server.py",
