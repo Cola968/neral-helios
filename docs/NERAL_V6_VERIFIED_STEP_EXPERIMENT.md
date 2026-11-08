@@ -167,4 +167,142 @@ Ein Screening ist bestanden nur, wenn unter `matched_fewshot` die
 falschen lesbaren Zahlen gegen v5 nicht zunehmen, auf der
 Validierung und auf einem noch nicht zum Trainieren benutzten Satz.
 Die verbrauchten 72 und jede externe Endsuite bleiben draußen, bis
-ein Kandidat festliegt. Auch ein besseres Screening ist kein Release.
+ein Kandidat festliegt. Der noch nicht benutzte Satz ist das
+versiegelte Holdout weiter unten. Der Phase-2-Gate und die
+Experimententscheidung dürfen seine Item-IDs nicht lesen.
+Auch ein besseres Screening ist kein Release.
+
+## Messschnitte, kein Lernschritt
+
+Vor diesem Stand gab es für das Experiment keinen eingefrorenen,
+disjunkten und getesteten Dreischnitt aus Retention, Transfer und
+versiegeltem End-Holdout.
+
+Was schon da war, ist nicht dieser Schnitt:
+
+- Komposition hat 600 Trainings-, 100 Validierungs- und 100
+  Holdout-Zeilen, fünf Familien, andere Schablonen je Split. Das
+  Holdout ist per exaktem Prompt vom Training ausgeschlossen. Der
+  Trainingsbau liest diese 100 Prompts, um dieselbe Zeile abzulehnen.
+  Item-IDs hatte der Split nicht, und er war nicht als Retention
+  beschriftet.
+- Die frische Dev72 und die v6.1-72 liegen außerhalb der
+  Trainingsfamilien. Sie sind damit transfer-ähnlich, aber verbrauchte
+  Entwicklungsscreens. Die historische 29/24/21-Auszählung bleibt kein
+  Fähigkeitsmaß und kein Transfer-Nachweis.
+- Alle 128 Gegenbeispiele aus Seed `20261107` liegen im Training.
+  Zurückgehaltene Indizes gibt es in diesem Seed nicht.
+
+Neu ist nur die Messung, in `scripts/neral_v6_measurement_slices.py`
+und `scripts/neral_v6_locked_holdout.py`. Kein Trainingsziel ändert
+sich.
+
+Die Zuordnung hängt nur von Familie und Index ab, nicht von einer
+Punktzahl. Dieselben Funktionen liefern dieselben Fälle.
+
+- Retention, 164 Fälle. Alle 100 Kompositions-Holdouts, Index 0 bis 19,
+  gleiche Familie, andere Schablone. Dazu 64 Gegenbeispiele aus Seed
+  `20261108`, Paarindex 0 bis 15, beide Varianten, `ordered_price` und
+  `segmented_fuel`.
+- Transfer, 32 Fälle. Vier Familien, die im Training und in den beiden
+  verbrauchten Screens nicht vorkommen: `inclusive_range_sum`,
+  `nesting_depth`, `inversion_pairs`, `running_maximum_changes`.
+  Index 0 bis 7. Klammertiefe steht in den Wörtern `open` und `close`,
+  damit ein Satzzeichen-Filter die Fälle nicht zusammenfallen lässt.
+- Versiegeltes Holdout, 96 Fälle, nur im zweiten Modul. Paarindex 16
+  bis 31 derselben Mess-Seed, 64 Fälle. Dazu `odd_median`,
+  `population_bitcount`, `distinct_values` und
+  `parenthesized_product_sum`, je 8. Diese vier Familien sind nicht
+  die Transfer-Familien, damit eine Auswahl auf dem Transfer-Schnitt
+  nicht dieselben Aufgaben öffnet.
+
+SHA-256 der kanonischen JSONL, sortierte Schlüssel:
+
+- Retention `333bfcb4e92a9b9d6d27c2d9a6e6181c13f9c629a3a8d2bb35885a104a319054`
+- Transfer `3a4ab9c533ed6afce8ee7214acea49f69dd04c5d34506efe8ca5ab21f7b534ee`
+- Holdout `6332c37ec3927475aba83da312f7943064d7c400be516caaf1dcf085cf9c3270`
+
+Ein späterer Vergleich, der hier nicht läuft, braucht
+`matched_fewshot`, greedy, 160 neue Tokens und dieselben Nachrichten
+für Qwen, v5 und den Kandidaten. Ohne dieses Protokoll bleibt der
+Gate bei `refuse`.
+
+Exakte normalisierte Prompts schneiden sich nicht: die drei Schnitte
+untereinander, und keiner mit Train, Validierung oder den beiden
+Dev72. 10-Gramme gegen die Dev-Screens sind 0. Die vier Transfer-
+Familien und die vier neuen Holdout-Familien haben auch gegen
+Trainingsprompts und Trainingsantworten null 10-Gramme.
+
+10-Gramme innerhalb derselben Familie trennen die Fälle nicht.
+138 der 164 Retentionsprompts und alle 64 Gegenbeispiel-Holdouts
+teilen ein 10-Gramm mit einem Trainingsprompt. Preis, Treibstoff und
+die Kompositionsschablonen verwenden dieselben Wörter. Die Prompts
+sind trotzdem nicht gleich. 74 der 100 Kompositions-Holdouts tragen
+denselben Effekt.
+
+`phase2_training_gate`, `experiment_decision`, `analyze_dev72` und
+`audit_candidate_report` lehnen einen Bericht ab, der Holdout-IDs,
+Holdout-Fälle oder ein Holdout-Aggregat enthält. Die Ablehnung
+kopiert die IDs nicht ins Ergebnis. Diese Dateien importieren das
+Holdout-Modul nicht. Der Trainingsbau importiert es nicht.
+`sealed_holdout_counts` gibt nur die vier Zähler und Hashes zurück.
+`training_authorized` und `claimed_score_gain` bleiben falsch.
+
+Das ist eine Scorer- und Protokolländerung. Kein Training, kein
+Adapter, kein Fähigkeitsgewinn. Ein grüner Test zeigt, dass der
+Schnitt stabil ist, nicht dass ein Modell besser rechnet.
+
+## Prüfung der Trainingsmischung
+
+Geprüft wurde `build_experiment` für dieses Experiment: 600
+Kompositionszeilen, 128 Gegenbeispiele, 100 Validierungszeilen.
+Der Verified-Pfad lief mit `length_source=bound`. Das v6.1-Replay
+ist eine andere Mischung und nicht dieser Lauf.
+
+Gegen die frische Dev72 und die v6.1-72 ist die Überlappung exakt 0
+und als 10-Gramm 0, in beide Richtungen. Exakt gegen das
+Kompositions-Holdout: 0. Als 10-Gramm: 74 von 100, siehe oben.
+Train gegen Validierung exakt: 0.
+
+Zwischen `compact` und `verified_steps` ändern sich genau 128
+Assistententexte. Alle stammen aus `candidate()` mit Seed
+`20261107`. Die Kompaktform hat in keiner dieser 128 Zeilen ein `*`
+oder `+`. Die von `verify_case` gesperrte Langform hat in allen 128
+beides. Die Endzahl bleibt. Die 600 Kompositionszeilen und die 100
+Validierungszeilen sind zwischen beiden Zielen gleich. Keine davon
+trägt `first=` oder `a_per_min=`.
+
+200 Trainingszeilen haben ein CHECK, das der Generator so schreibt,
+mit `×` und `+`, beim Inventar auch mit `-`. 400 Zeilen sind nur die
+Endantwort, weil `make_case` bei `index % 3 != 0` keine Prüfung
+einsetzt. Das ist keine nachträgliche Streichung einer schon
+geprüften Langform. Das Zeitzonen-CHECK nennt Minute und Tag, nicht
+die Addition als Ausdruck. Ein `+` darin ist der Tagesversatz.
+
+Die Trainingskonstruktion bleibt unverändert. Die 400
+Antwort-only-Zeilen zu füllen würde die Behandlung über die 128
+Ziele hinaus erweitern.
+
+## Verwechslung, Beobachtung, belegte Ursache
+
+Nicht als Ursache verwendet:
+
+- Die historischen 29/24/21. Sie werden hier nicht neu bewertet.
+- 10-Gramm-Treffer in derselben Familie. Sie zeigen gemeinsame
+  Wörter, nicht denselben Prompt.
+- Die 400 Antwort-only-Zeilen. Für sie gab es keine gestrichene
+  Langform der Art der 128.
+
+Beobachtet:
+
+- Genau 128 Ziele verlieren `*` und `+` in der Kompaktfassung.
+- Exakte Train/Dev-Überlappung ist 0. 10-Gramm gegen die Dev-Screens
+  ist 0.
+- 74 von 100 Kompositions-Holdout-Prompts teilen ein 10-Gramm mit
+  dem Training.
+
+Belegte Ursache der fehlenden Rechenzeichen: `_compact_trace` in
+`scripts/neral_v6_r16_gpu.py`, nur auf diesen 128 Zeilen. Nicht
+belegt ist, dass diese Streichung die historischen Dev72-Zahlen
+erzeugt hat. Ein `matched_fewshot`-Vergleich, der das messen könnte,
+ist nicht gelaufen.

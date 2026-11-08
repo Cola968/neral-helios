@@ -356,14 +356,45 @@ def score_three_way(cases:list[dict], responses:dict, *,
     return report
 
 
+_HOLDOUT_MATERIAL_KEYS=frozenset({
+    "locked_holdout_item_ids",
+    "locked_holdout_prompts",
+    "locked_holdout_cases",
+    "holdout_item_ids",
+})
+
+
+def report_exposes_locked_holdout(value) -> bool:
+    """True when a report carries sealed-holdout identities or a holdout score.
+
+    The gate and the experiment decision may see retention and transfer
+    aggregates. They must not receive the locked holdout, even as a count
+    that could be used to choose the next training run.
+    """
+    if isinstance(value, dict):
+        if "locked_holdout" in value or _HOLDOUT_MATERIAL_KEYS.intersection(value):
+            return True
+        role=value.get("role")
+        if (role=="locked_holdout" or value.get("slice")=="locked_holdout"
+                or (isinstance(role, str) and role.startswith("locked_holdout"))):
+            return True
+        return any(report_exposes_locked_holdout(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(report_exposes_locked_holdout(item) for item in value)
+    return False
+
+
 def phase2_training_gate(report:dict) -> dict:
     """Decide whether a scored report may inform the verified-step training.
 
     Unit tests never establish a capability gain. Historical Qwen-only
     few-shot is not evidence for that training. A readable wrong integer
-    is the only math comparison used here.
+    is the only math comparison used here. Locked-holdout ids and holdout
+    aggregates are refused and are not copied into the result.
     """
     reasons=[]
+    if report_exposes_locked_holdout(report):
+        reasons.append("locked_holdout_is_not_a_gate_input")
     protocol=report.get("prompt_protocol") if isinstance(report, dict) else None
     if protocol is None:
         protocol="historical"
@@ -428,6 +459,28 @@ def phase2_training_gate(report:dict) -> dict:
         "claimed_score_gain":False,
         "release_validated":False,
         "adapter_promoted":False,
+    }
+
+
+def experiment_decision(report:dict) -> dict:
+    """Protocol decision for a later verified-step comparison.
+
+    This is a scorer/protocol result, not a learning result. It does not
+    import the locked-holdout case list. A report that still contains that
+    list, or a holdout aggregate, is refused.
+    """
+    gate=phase2_training_gate(report)
+    return {
+        "decision":gate["decision"],
+        "reasons":list(gate["reasons"]),
+        "phase2_training":gate["phase2_training"],
+        "prompt_protocol":gate["prompt_protocol"],
+        "measurement_change":"scorer_protocol_not_a_learning_change",
+        "training_authorized":False,
+        "claimed_score_gain":False,
+        "claimed_capability_gain":False,
+        "release_validated":False,
+        "reads_locked_holdout_item_ids":False,
     }
 
 
