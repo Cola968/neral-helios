@@ -34,6 +34,7 @@ _TOP_FIELDS={
 _OPTIONAL_PROVENANCE={
     "v7_adapter_sha256","v8_adapter_sha256","v8_training_sha256",
     "foundation_revision","predecessor_v5_sha256",
+    "experiment_policy",
 }
 _PAIR_ARMS={
     "v8_minus_qwen":("qwen","v8"),
@@ -249,4 +250,9 @@ def evaluate_experiment(report: dict) -> dict:
         "baseline_preserved":True,
         "quality_claim_not_authorized":True,
     }
+    # Re-auditing a scalar report must be idempotent, but never accept a
+    # precomputed decision that contradicts its actual model score evidence.
+    previous=report.get("experiment_policy")
+    if previous is not None and previous != result:
+        _fail()
     return result
