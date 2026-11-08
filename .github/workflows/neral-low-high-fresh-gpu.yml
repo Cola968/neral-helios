@@ -5,10 +5,12 @@ on:
       - 'scripts/neral_low_high_fresh.py'
       - 'tests/test_neral_low_high_fresh.py'
       - '.github/workflows/neral-low-high-fresh-gpu.yml'
-  workflow_run:
-    workflows:
-      - 'NERAL LOW/HIGH 72 paired real RTX 4070 development quality gate'
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Explicit readonly after-72 permission: NERAL_LOW_HIGH_FRESH_36_READONLY'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -35,7 +37,7 @@ jobs:
 
   gpu-fresh:
     needs: cpu-contract
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_LOW_HIGH_FRESH_36_READONLY'
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
