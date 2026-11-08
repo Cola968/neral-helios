@@ -55,6 +55,33 @@ REQUIRED_FILES = (
     "static/neral-modern.js",
     "static/neral-dynamic-ui.js",
     "static/neral-dynamic-ui.css",
+    "static/neral-math.js",
+    "static/neral-math.css",
+    "static/vendor/katex/katex.min.js",
+    "static/vendor/katex/katex.min.css",
+    "static/vendor/katex/auto-render.min.js",
+    "static/vendor/katex/LICENSE.txt",
+    "static/vendor/katex/VERSION.txt",
+    "static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Caligraphic-Bold.woff2",
+    "static/vendor/katex/fonts/KaTeX_Caligraphic-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Fraktur-Bold.woff2",
+    "static/vendor/katex/fonts/KaTeX_Fraktur-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Main-Bold.woff2",
+    "static/vendor/katex/fonts/KaTeX_Main-BoldItalic.woff2",
+    "static/vendor/katex/fonts/KaTeX_Main-Italic.woff2",
+    "static/vendor/katex/fonts/KaTeX_Main-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Math-BoldItalic.woff2",
+    "static/vendor/katex/fonts/KaTeX_Math-Italic.woff2",
+    "static/vendor/katex/fonts/KaTeX_SansSerif-Bold.woff2",
+    "static/vendor/katex/fonts/KaTeX_SansSerif-Italic.woff2",
+    "static/vendor/katex/fonts/KaTeX_SansSerif-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Script-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Size1-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Size2-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Size3-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2",
+    "static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2",
     "static/neral-reference-ui.css",
     "static/neral-reference-ui.js",
     "static/neral-motion.js",
@@ -70,6 +97,10 @@ TIMESTAMP=(2026,11,8,0,0,0)
 
 def build_preview(root: Path, output: Path) -> dict:
     root=Path(root).resolve(strict=True)
+    # Build-time dependency only. End-user app and release run fully offline.
+    # The pinned, script-free npm package is converted into a reviewed allowlist.
+    from scripts.vendor_katex import vendor
+    vendor(root)
     output=Path(output)
     if (output.exists() or output.is_symlink() or not output.parent.is_dir() or
             output.parent.is_symlink() or output.suffix.lower()!=".zip"):
@@ -82,12 +113,19 @@ def build_preview(root: Path, output: Path) -> dict:
                 PurePosixPath(relative).is_absolute() or ".." in PurePosixPath(relative).parts):
             raise ValueError("Untrusted archive path")
         source=root.joinpath(*PurePosixPath(relative).parts)
+        limit=800000 if relative=="static/vendor/katex/katex.min.js" else 200000
         if (source.is_symlink() or not source.is_file() or
                 not source.resolve().is_relative_to(root) or
-                not 0<source.stat().st_size<200000):
+                not 0<source.stat().st_size<limit):
             raise ValueError("Missing, untrusted or oversized release source file")
         raw=source.read_bytes()
-        if b"\x00" in raw:
+        # The only binary data allowed are the explicitly enumerated,
+        # locally packaged WOFF2 fonts. No model weights or arbitrary binaries.
+        font=relative.startswith("static/vendor/katex/fonts/") and relative.endswith(".woff2")
+        if font:
+            if not raw.startswith(b"wOF2"):
+                raise ValueError("Unexpected KaTeX WOFF2 font format")
+        elif b"\x00" in raw:
             raise ValueError("No binary assets or models in release ZIP")
         files.append((relative,raw))
         hashes[relative]=hashlib.sha256(raw).hexdigest()
