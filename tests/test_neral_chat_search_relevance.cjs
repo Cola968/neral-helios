@@ -52,23 +52,23 @@ test("greetings and identity do not upload a web search query even with toggle e
 });
 
 test("irrelevant search hits never contaminate model prompt",async()=>{
-  const calls=await exercise("Ist PW1000 ein Turbofan oder Turboprop?",[
+  const calls=await exercise("Suche: Ist PW1000 ein Turbofan oder Turboprop?",[
     {title:"ChatGPT jailbreak prompt",url:"https://github.com/example/chatgpt",snippet:"LLM prompt engineering"}
   ]);
   assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
   const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
-  assert.equal(body.prompt,"Ist PW1000 ein Turbofan oder Turboprop?");
+  assert.equal(body.prompt,"Suche: Ist PW1000 ein Turbofan oder Turboprop?");
   assert.doesNotMatch(body.prompt,/ChatGPT jailbreak/);
 });
 
 test("electric fields follow-up rejects unrelated TV links",async()=>{
-  const calls=await exercise("Elektrische Felder und Stromkreise",[
+  const calls=await exercise("Suche elektrische Felder und Stromkreise",[
     {title:"Fernsehprogramm heute abend 20:15 Uhr",url:"https://tvspielfilm.de/tv-programm",snippet:"Fernsehen heute"},
     {title:"Das VOX TV-Programm von heute",url:"https://tvspielfilm.de/vox",snippet:"TV-Sendungen"}
   ]);
   assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
   const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
-  assert.equal(body.prompt,"Elektrische Felder und Stromkreise");
+  assert.equal(body.prompt,"Suche elektrische Felder und Stromkreise");
   assert.doesNotMatch(body.prompt,/VOX|Fernsehprogramm/);
 });
 test("generic word explain must not validate a physics search hit",async()=>{
