@@ -209,7 +209,7 @@ def register_neral_local_chat_api(app, backend):
             else:
                 exact = None
             if exact is not None:
-                return jsonify({**exact, "model_generated": False,
+                return jsonify({**exact, "mode": "LOW", "model_generated": False,
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(backend)})
             try:
@@ -224,6 +224,7 @@ def register_neral_local_chat_api(app, backend):
                 return jsonify(error="Lokales Modell lieferte eine ungültige Antwort."), 503
             return jsonify({
                 "text": text,
+                "mode": "LOW",
                 "model_generated": True,
                 "seconds": round(time.monotonic() - started, 3),
                 **_provenance(backend),
@@ -258,7 +259,11 @@ def register_neral_local_chat_api(app, backend):
                 local_respond = getattr(backend, "respond_chat", None)
             if not callable(local_respond):
                 local_respond = backend.respond
-            result = think_reply(data, local_respond)
+            from neral_agent_autonomy import OllamaLocalBackend
+            # Second review is opt-in only for real local Ollama.
+            # Retain the historic adapter THINK semantics and its tests.
+            deep_review = isinstance(backend, OllamaLocalBackend)
+            result = think_reply(data, local_respond, deep_review=deep_review)
             return jsonify({**result, **_provenance(backend)})
         except Exception:
             # Never leak local paths, checkpoints, prompts or model outputs.
