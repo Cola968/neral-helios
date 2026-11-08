@@ -71,14 +71,14 @@ def generate_cases(seed=SEED):
         choose=lambda de,en: de if language else en
 
         # Exact integer mathematics (no floating point answer oracles).
-        n=rng.randint(16,30); k=rng.randint(3,6)
+        n=17+2*i; k=3+i%4
         cases.append(_task("math","binomial",i,choose(
             f"Wie viele Möglichkeiten gibt es, {k} Objekte aus {n} verschiedenen "
             "Objekten ohne Reihenfolge auszuwählen?",
             f"How many ways can you choose {k} distinct objects from {n} "
             "without ordering?"),math.comb(n,k)))
 
-        p=rng.choice((11,13,17,19,23,29,31))
+        p=(11,13,17,19,23,29)[i]
         a=rng.randint(2,p-1)
         cases.append(_task("math","modular_inverse",i,choose(
             f"Finde die kleinste positive ganze Zahl x mit ({a} * x) modulo {p} = 1.",
@@ -109,7 +109,7 @@ def generate_cases(seed=SEED):
             f"by exactly one of {d1} or {d2}?"),amount))
 
         # Exhaustive Boolean and graph problems with independently computable oracles.
-        parity=rng.randint(0,1); threshold=rng.randint(1,3)
+        parity=i%2; threshold=1+i%3
         count=sum((not a or b) and ((c^d)==parity)
                   and (a+b+c+d<=threshold)
                   for a,b,c,d in itertools.product((0,1),repeat=4))
@@ -155,8 +155,8 @@ def generate_cases(seed=SEED):
             "First departure and all subsequent interval departures are valid. "
             "What is the earliest reachable absolute arrival minute?"),min(arrival)))
 
-        prohibited=rng.choice((0,1,2,3))
-        left=rng.choice((0,1,2))
+        prohibited=i%4
+        left=(i//2)%3
         choices=sum(p[0]!=prohibited and p.index(left)<p.index(3)
                     for p in itertools.permutations(range(4)))
         cases.append(_task("reasoning","ordering_constraints",i,choose(
