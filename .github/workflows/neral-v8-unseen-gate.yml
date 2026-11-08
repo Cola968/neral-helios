@@ -1,0 +1,57 @@
+name: NERAL v8 fresh transfer & retention gate (manual local GPU)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v8_unseen_suite.py'
+      - 'scripts/neral_v8_unseen_eval.py'
+      - 'tests/test_neral_v8_unseen_gate.py'
+      - '.github/workflows/neral-v8-unseen-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v8_unseen_suite.py'
+      - 'scripts/neral_v8_unseen_eval.py'
+      - 'tests/test_neral_v8_unseen_gate.py'
+      - '.github/workflows/neral-v8-unseen-gate.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Exact manual read-only authorization, not training'
+      source_run_id:
+        required: true
+        type: string
+        description: 'Completed v8 240-step training workflow run ID'
+      source_run_attempt:
+        required: true
+        type: string
+        default: '1'
+        description: 'Completed v8 training attempt number'
+      sample:
+        required: true
+        type: choice
+        default: pilot
+        options: [pilot, full]
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: CPU-only source, oracle, scoring and promotion guard tests
+        run: python -B -m unittest discover -s tests -p test_neral_v8_unseen_gate.py -v
+      - name: Verify all generated oracle values and no exact train/val overlap
+        run: python -B -m scripts.neral_v8_unseen_suite
+      - name: Source syntax
+        run: python -B -m py_compile scripts/neral_v8_unseen_suite.py scripts/neral_v8_unseen_eval.py
