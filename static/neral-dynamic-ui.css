@@ -219,3 +219,33 @@
 }
 .workspace .neral-inline-answer > span{white-space:pre-wrap;overflow-wrap:anywhere}
 .workspace .neral-inline-answer .neral-dynamic-widget{margin:12px 0 0}
+
+
+/* V4: data-driven reveal. Visualizes only values already present in the reply. */
+.neral-motion-enter .neral-dynamic-widget{
+  animation:neral-v4-widget 260ms cubic-bezier(.22,1,.36,1) both
+}
+@keyframes neral-v4-widget{
+  from{opacity:0;transform:translateY(6px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.neral-dui-track{position:relative}
+.neral-dui-bar-row{min-width:0}
+.neral-motion-enter .neral-dui-fill{
+  transform-origin:left center;
+  animation:neral-v4-data-fill 440ms cubic-bezier(.22,1,.36,1) 85ms both
+}
+@keyframes neral-v4-data-fill{
+  from{transform:scaleX(0);opacity:.6}
+  to{transform:scaleX(1);opacity:1}
+}
+.neral-dui-card-button{transition:background-color 165ms ease,border-color 165ms ease,transform 165ms cubic-bezier(.22,1,.36,1)}
+.neral-dui-card-button:active{transform:scale(.98)}
+.neral-dui-table tbody tr{transition:background-color 145ms ease}
+.neral-dui-table tbody tr:hover{background:rgba(120,132,120,.065)}
+.neral-dui-search:focus-visible{outline:2px solid var(--muted,#7b817c);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){
+  .neral-motion-enter .neral-dynamic-widget,
+  .neral-motion-enter .neral-dui-fill{animation:none!important;transform:none!important;opacity:1!important}
+  .neral-dui-card-button,.neral-dui-table tbody tr{transition:none!important}
+}
