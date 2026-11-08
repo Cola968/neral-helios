@@ -45,6 +45,7 @@ test("compact layout uses full-height chat and keeps mobile nav accessible",()=>
   assert.match(s,/:focus-visible/);
   assert.match(s,/prefers-reduced-motion:\s*reduce/);
   assert.match(s,/#extraTools\[open\]/);
+  assert.match(s,/\.composer-tools\{width:100%;flex:1 1 100%/,"mobile controls must wrap, not hide tools");
 });
 test("keyboard shortcuts and sidebar escape work without automatic submission",()=>{
   const s=js();
