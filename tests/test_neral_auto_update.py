@@ -149,11 +149,11 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertNotIn("shell=True", code)
         launcher = (Path(__file__).resolve().parents[1] /
                     "Start-Neral-1.0-Local.ps1").read_text("utf8")
-        self.assertIn("scripts.neral_auto_update", launcher)
+        self.assertIn("-m neral_auto_update", launcher)
         self.assertIn("local_state", launcher)
         pack = (Path(__file__).resolve().parents[1] /
                 "scripts/build_neral_1_0_preview.py").read_text("utf8")
-        self.assertIn('"scripts/neral_auto_update.py"', pack)
+        self.assertIn('"neral_auto_update.py"', pack)
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/neral-single-click-windows.yml").read_text("utf8")
         self.assertIn("Publish verified Windows release", workflow)
