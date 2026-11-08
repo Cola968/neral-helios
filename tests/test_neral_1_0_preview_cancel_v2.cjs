@@ -96,6 +96,7 @@ test("clear cannot resurrect a late model reply, leak old history, or trigger sp
 test("clear during an opt-in WEB SEARCH cannot launch a zombie model request",async()=>{
   const h=harness({ignoreAbort:true});await h.flush();
   h.element("useWebSearch").checked=true;
+  h.element("prompt").value="Suche Python-Dokumentation";
   const active=h.submit();
   assert.equal(h.pending[0].url,"/api/web/search");
   h.clear();

@@ -34,7 +34,7 @@ function browserHarness() {
     if(url.endsWith("/status")) return {ok:true,json:async()=>({model:"qwen3:8b",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false})};
     if(url==="/api/web/search/status") return {ok:true,json:async()=>({configured:true,live_verified:false})};
     if(url==="/api/web/search") return {ok:true,json:async()=>({
-      results:[{title:"Docs",snippet:"Python guide",url:"https://docs.python.org/3/"}]
+      results:[{title:"Python documentation",snippet:"Python guide",url:"https://docs.python.org/3/"}]
     })};
     if(url==="/api/neral/chat/generate") return {ok:true,json:async()=>({
       text:"Antwort aus dem lokalen Modell", model_origin:"local_foundation_not_neral_adapter",
@@ -78,14 +78,14 @@ test("web plugin stays off unless selected and searches only after submission",a
   await flush();
   assert.equal(ctx.calls.filter(x=>x.url==="/api/web/search").length,0);
   ctx.element("useWebSearch").checked=true;
-  ctx.element("prompt").value="Python documentation";
+  ctx.element("prompt").value="Suche Python documentation";
   await ctx.handlers.get("chatForm:submit")({preventDefault(){}});
   assert.equal(ctx.calls.filter(x=>x.url==="/api/web/search").length,1);
   const sent=ctx.calls.find(x=>x.url==="/api/neral/chat/generate");
   assert.ok(sent);
   const msg=JSON.parse(sent.opts.body);
   assert.ok(msg.prompt.includes("https://docs.python.org/3/"));
-  assert.ok(msg.prompt.includes("Python documentation"));
+  assert.ok(msg.prompt.includes("Suche Python documentation"));
   assert.ok(!msg.history.length);
 });
 

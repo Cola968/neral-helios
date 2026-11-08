@@ -62,8 +62,8 @@ test("only real lifecycle phases produce entries and an expandable report",()=>{
   assert.notEqual(details.getAttribute("open"),"true","history is collapsed by default");
   const history=details.querySelector(".neral-activity-history-list");
   assert.ok(history);
-  assert.ok(history.children.length>=3,"only executed phases are recorded");
-  assert.match(history.textContent+" "+history.children.map(x=>x.textContent).join(" "),/3 Treffer/);
+  assert.equal(history.children.length,2,"only web search and attachment request are recorded; model work is not a tool");
+  assert.match(history.textContent+" "+history.children.map(x=>x.textContent).join(" "),/3 relevante Treffer/);
   assert.equal(ui.preview.querySelector(".neral-activity"),null,"no waiting indicator after completion");
 });
 test("expanded live activity remains open as real tool states change",()=>{
@@ -93,10 +93,7 @@ test("no fake search step is implied when only the local model runs",()=>{
   ui.preview.append(answer);
   ui.fire("archive");
   const details=answer.querySelector(".neral-activity-history");
-  assert.ok(details);
-  const history=details.querySelector(".neral-activity-history-list");
-  const labels=history.children.map(x=>x.textContent).join(" ");
-  assert.doesNotMatch(labels,/Websuche|Datei/, "non-executed tools cannot be displayed");
+  assert.equal(details,null,"model-only turns must not fabricate an activity timeline");
 });
 test("attachment cards are user-initiated and text-only",()=>{
   const src=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
