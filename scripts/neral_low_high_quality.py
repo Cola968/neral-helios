@@ -120,7 +120,7 @@ def _strict_integer_grade(case: dict, item: dict) -> str:
         return "ungraded"
     markers = [
         i for i, line in enumerate(rows)
-        if re.match(r"FINAL(?:_ANSWER)?\\s*:", line, re.IGNORECASE)
+        if re.match(r"FINAL(?:_ANSWER)?\s*:", line, re.IGNORECASE)
     ]
     if len(markers) != 1:
         if len(rows) != 1 or markers:
@@ -130,7 +130,7 @@ def _strict_integer_grade(case: dict, item: dict) -> str:
         return "ungraded"
     else:
         last = rows[-1]
-        final = re.fullmatch(r"FINAL(?:_ANSWER)?\\s*:\\s*(.+)", last, re.IGNORECASE)
+        final = re.fullmatch(r"FINAL(?:_ANSWER)?\s*:\s*(.+)", last, re.IGNORECASE)
         if final is None:
             return "ungraded"
         candidate = "FINAL_ANSWER: " + final.group(1)
