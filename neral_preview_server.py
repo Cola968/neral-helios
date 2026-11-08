@@ -47,6 +47,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
 
     @app.before_request
     def reject_external_or_cross_origin():
+        if request.path.startswith("/api/neral/account/chats/") and request.method == "PUT":
+            request.max_content_length = 130000
         if request.path == "/api/neral/preview/attachment-chat":
             request.max_content_length = MAX_REQUEST_BYTES
         if request.host not in (f"127.0.0.1:{PORT}",):
