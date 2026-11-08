@@ -250,6 +250,48 @@ class AttachmentPreviewTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200, result.get_json())
         self.assertEqual(len(result.json["attachments"]), 3)
 
+    def test_live_pc_attachment_gate_requires_real_text_extracted_into_model(self):
+        # The real Windows-PC smoke uses the same helper but the installed
+        # Ollama backend. This fake verifies its pass/fail logic offline.
+        from scripts.neral_1_0_local_live_smoke import verify_live_text_attachment
+
+        class ContextAwareModel(FakeModel):
+            def respond_chat(self, turns):
+                self.calls.append(turns)
+                return ("RAUTE731" if "RAUTE731" in turns[-1]["content"]
+                        else "Datei nicht gelesen")
+
+        local = ContextAwareModel()
+        app = create_preview_app(local, secret_key=b"T" * 32)
+        client = app.test_client()
+        client.get("/", base_url=HOST)
+        csrf = client.get("/api/neral/preview/session",
+                          base_url=HOST).json["csrf"]
+        self.assertTrue(verify_live_text_attachment(client, csrf))
+        self.assertEqual(len(local.calls), 1)
+
+        # A 200 HTTP status without using the file's contents is NOT a pass.
+        bad = FakeModel()
+        app = create_preview_app(bad, secret_key=b"U" * 32)
+        client = app.test_client()
+        client.get("/", base_url=HOST)
+        csrf = client.get("/api/neral/preview/session",
+                          base_url=HOST).json["csrf"]
+        with self.assertRaisesRegex(ValueError, "attachment"):
+            verify_live_text_attachment(client, csrf)
+
+    def test_live_pc_optional_vision_gate_skips_missing_model_and_checks_real_pixels(self):
+        from scripts.neral_1_0_local_live_smoke import verify_live_vision_attachment
+
+        self.assertFalse(verify_live_vision_attachment(self.client, self.csrf, {}))
+        self.assertEqual(self.vision_calls, [])
+        self.assertTrue(verify_live_vision_attachment(
+            self.client, self.csrf, {"qwen3-vl:2b": "sha256:test"}))
+        self.assertEqual(len(self.vision_calls), 1)
+        raw = self.vision_calls[0][0]
+        self.assertTrue(raw.startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))))
+        self.assertGreater(len(raw), 50)
+
     def test_regular_json_chat_preserves_existing_contract(self):
         result = self.client.post(
             "/api/neral/chat/generate",

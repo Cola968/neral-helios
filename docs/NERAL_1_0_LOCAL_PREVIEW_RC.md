@@ -219,7 +219,14 @@ Es gibt **keine automatischen Modell-Downloads**. Nach eigener
 Entscheidung kann der Nutzer ein passendes lokales Modell mit dem
 Kommando ollama pull qwen3-vl:2b installieren. Ohne bereits installiertes
 Vision-Modell meldet der Dienst einen Fehler, statt ein Bild zu erfinden.
-Der echte Windows-GPU-Live-Test für Bildanalyse steht noch aus.
+Die Windows-PC-Abnahme prüft nun zusätzlich, ob das lokale Textmodell
+wirklich ein nur in einer angehängten Textdatei enthaltenes Prüfwort
+wiedergibt. Ist bereits ein unterstütztes Vision-Modell installiert,
+prüft sie auch einen im Arbeitsspeicher erzeugten gültigen PNG-Anhang
+mit der realen lokalen Bild- und Textpipeline. Ohne Vision-Modell wird
+**kein Modell heruntergeladen**; der skalare Prüfbericht markiert die
+Bildanalyse ausdrücklich als nicht live verifiziert. Ein bestandenes
+CPU-Gate allein beweist keine Bildanalyse auf dem Nutzer-PC.
 
 PDF-Auswertung setzt pypdf aus requirements-neral-preview.txt voraus.
 Bei einer bereits vorhandenen isolierten local_state/preview-venv
