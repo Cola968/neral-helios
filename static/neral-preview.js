@@ -469,6 +469,12 @@
     activeRequest=controller;
     const startedEpoch=conversationEpoch;
     const selectedAttachments=attachments.slice();
+    // Place the actual submitted message in the transcript immediately.
+    // A response is saved to memory only after its terminal success event.
+    const userNode=append("user",text+(selectedAttachments.length?
+      "\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""),undefined,true);
+    prompt.value="";
+    let partialNode=null;
     let completedTurn=false;
     const deadline=AbortSignal.timeout(selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
@@ -523,10 +529,39 @@
         path="/api/neral/preview/attachment-chat";
         options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
       }
+      const useLive=mode==="generate" && !selectedAttachments.length &&
+        typeof browser.NeralLiveStream?.read==="function" &&
+        typeof ReadableStream!=="undefined";
+      if(useLive)path="/api/neral/chat/generate-stream";
       if(selectedAttachments.length)
         motionActivity("uploading",mode,{count:selectedAttachments.length});
       else motionActivity("thinking",mode);
-      const result=await json(path,options);
+      let result;
+      if(useLive){
+        const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...options});
+        if(response.ok){
+          partialNode=document.createElement("div");
+          partialNode.className="message assistant neral-live-partial";
+          const label=document.createElement("strong");
+          label.textContent="NERAL";
+          const body=document.createElement("p");
+          body.className="neral-live-body";
+          partialNode.append(label,body);
+          messages.append(partialNode);
+          messages.scrollTop=messages.scrollHeight;
+          result=await browser.NeralLiveStream.read(response,{onDelta:piece=>{
+            if(controller.signal.aborted||startedEpoch!==conversationEpoch ||
+               activeRequest!==controller)return;
+            body.textContent+=piece;
+            partialNode.className="message assistant neral-live-partial neral-has-tokens";
+            messages.scrollTop=messages.scrollHeight;
+          }});
+        }else{
+          result=await browser.NeralLiveStream.read(response);
+        }
+      }else{
+        result=await json(path,options);
+      }
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
         throw new Error("Leere Modellantwort.");
@@ -535,7 +570,9 @@
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       if(selectedAttachments.length)motionActivity("files-done",mode);
       motionActivity("done",mode);
-      append("user",text+(selectedAttachments.length?"\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""),undefined,true);
+      // The provisional display is replaced by the verified complete answer.
+      partialNode?.remove();
+      partialNode=null;
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
@@ -579,7 +616,7 @@
         detail:{user:text,assistant:result.text}
       }));
       if(memory.length>12) memory.splice(0,memory.length-12);
-      prompt.value="";
+      // Keep any next-question draft entered while the reply was streaming.
       attachments=[];
       fileInput.value="";
       renderAttachmentChips([]);
@@ -587,6 +624,8 @@
       speak(result.text);
     } catch(e) {
       if(startedEpoch===conversationEpoch){
+        userNode.className+=" neral-message-failed";
+        if(!prompt.value.trim())prompt.value=text;
         errors.textContent=controller.signal.aborted
           ? "Browseranfrage abgebrochen. Ollama kann lokal noch weiterrechnen."
           : deadline.aborted
@@ -594,6 +633,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
+      partialNode?.remove();
       if(!completedTurn)motionActivity(startedEpoch!==conversationEpoch||controller.signal.aborted?"cancelled":"error",mode);
       if(activeRequest===controller){
         activeRequest=null;busy=false;submit.disabled=false;

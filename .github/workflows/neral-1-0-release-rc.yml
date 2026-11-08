@@ -58,12 +58,15 @@ on:
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
+      - 'static/neral-live-stream.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/test_neral_1_0_live_streaming.py'
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
+      - 'tests/test_neral_1_0_live_stream_client.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_reference_ui.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -134,12 +137,15 @@ on:
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
+      - 'static/neral-live-stream.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/test_neral_1_0_live_streaming.py'
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
+      - 'tests/test_neral_1_0_live_stream_client.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_reference_ui.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -207,6 +213,8 @@ jobs:
       - run: node --check static/neral-accounts.js
       - run: node --test tests/test_neral_1_0_account_client.cjs
       - run: node --check static/neral-preview.js
+      - run: node --check static/neral-live-stream.js
+      - run: node --test tests/test_neral_1_0_live_stream_client.cjs
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-dynamic-ui.js
       - run: node --test tests/test_neral_dynamic_ui.cjs
@@ -214,6 +222,7 @@ jobs:
       - run: node --check static/neral-reference-ui.js
       - run: node --test tests/test_neral_reference_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
+      - run: python -m unittest discover -s tests -p test_neral_1_0_live_streaming.py -v
       - run: node --test tests/test_neral_1_0_voice_client.cjs
       - run: node --test tests/test_neral_1_0_project_files.cjs
       - run: node --check static/neral-local-chat.js

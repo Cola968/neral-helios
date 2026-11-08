@@ -70,7 +70,8 @@ test("Stop aborts only the browser request and preserves input for retry",async(
   assert.equal(h.elements.stopRequest.disabled,false);
   h.stop();await req;
   assert.equal(h.calls[0].opts.signal.aborted,true);
-  assert.equal(h.rendered.length,0);
+  assert.equal(h.rendered.length,1,"Submitted user message remains after Stop");
+  assert.ok(h.rendered[0].className.includes("user"));
   assert.equal(h.elements.prompt.value,"Eine kurze Frage");
   assert.equal(h.elements.stopRequest.disabled,true);
   assert.equal(h.elements.submit.disabled,false);

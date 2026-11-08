@@ -323,3 +323,21 @@ html[data-theme=dark] .sidebar-account::before{background:var(--nr-active)}
 .reference-code code{font:inherit;font-family:Consolas,"SFMono-Regular",monospace;color:var(--nr-text)}
 .reference-code-keyword{color:#8a52b5}
 html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
+
+/* Real streamed tokens; no fake typewriter or progress percent. */
+.neral-live-partial{position:relative}
+.neral-live-body{white-space:pre-wrap;overflow-wrap:anywhere}
+.neral-live-partial.neral-has-tokens .neral-live-body::after{
+  content:"";display:inline-block;width:1.5px;height:1em;
+  background:currentColor;vertical-align:-2px;margin-left:2px;
+  animation:neral-live-caret .95s step-end infinite
+}
+.neral-message-failed{opacity:.8}
+.neral-message-failed::after{
+  content:"Nicht abgeschlossen";display:block;margin-top:4px;
+  font-size:10px;color:var(--nr-muted)
+}
+@keyframes neral-live-caret{50%{opacity:0}}
+@media(prefers-reduced-motion:reduce){
+  .neral-live-partial.neral-has-tokens .neral-live-body::after{animation:none}
+}

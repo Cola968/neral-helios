@@ -105,6 +105,75 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=True)
 
+    def respond_chat_stream(self, messages: list[dict]):
+        """Yield actual Ollama FAST content chunks, never simulated tokens.
+
+        Caller MUST close an abandoned generator. A last `done: true` packet
+        with `done_reason: stop` is required; malformed/partial output fails.
+        Ollama's private `thinking` field is never emitted.
+        """
+        with self._inference_lock:
+            measured = self.inference_profile == "measured_nonthinking_2048"
+            options = (
+                {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
+                 "min_p": 0.0, "presence_penalty": 1.5,
+                 "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": 4096}
+                if measured else
+                {"temperature": 0, "num_predict": 1024, "num_ctx": 4096}
+            )
+            payload = json.dumps({
+                "model": self.model,
+                "messages": messages,
+                "think": False,
+                "stream": True,
+                "options": options,
+                "keep_alive": "5m",
+            }, ensure_ascii=False).encode("utf-8")
+            request = urllib.request.Request(
+                self.endpoint, data=payload,
+                headers={"Content-Type": "application/json"}, method="POST")
+            done = False
+            count = 0
+            size = 0
+            packet_bytes = 0
+            written = []
+            try:
+                with local_only_opener().open(
+                        request, timeout=90.0 if measured else self.timeout) as response:
+                    for raw in response:
+                        if not isinstance(raw, bytes):
+                            raise AgentModelError("Ungültiger lokaler Modell-Datenstrom.")
+                        packet_bytes += len(raw)
+                        count += 1
+                        if len(raw) > 8192 or packet_bytes > 256 * 1024 or count > 5000:
+                            raise AgentModelError("Lokaler Datenstrom überschreitet das Limit.")
+                        packet = json.loads(raw)
+                        if not isinstance(packet, dict):
+                            raise AgentModelError("Ungültiger lokaler Modell-Datenstrom.")
+                        message = packet.get("message", {})
+                        if not isinstance(message, dict):
+                            raise AgentModelError("Ungültige lokale Modellantwort.")
+                        part = message.get("content", "")
+                        if not isinstance(part, str):
+                            raise AgentModelError("Ungültiger Antworttext.")
+                        if part:
+                            size += len(part.encode("utf-8"))
+                            if size > 32768:
+                                raise AgentModelError("Modellantwort überschreitet das Limit.")
+                            written.append(part)
+                            yield part
+                        if packet.get("done") is True:
+                            if packet.get("done_reason", "stop") != "stop":
+                                raise AgentModelError("Modellantwort wurde abgeschnitten.")
+                            done = True
+                            break
+                if not done or not "".join(written).strip():
+                    raise AgentModelError("Modellantwort nicht vollständig abgeschlossen.")
+            except AgentModelError:
+                raise
+            except (OSError, KeyError, ValueError, TypeError, urllib.error.URLError) as exc:
+                raise AgentModelError("Lokaler Modell-Datenstrom nicht verfügbar.") from exc
+
     def _respond(self, messages: list[dict], *, require_json: bool,
                  thinking: bool = False) -> str:
         if require_json and thinking:
