@@ -85,9 +85,12 @@ def _cases_folder(folder:Path)->list[dict]:
     if not folder.is_dir() or folder.is_symlink():
         raise ValueError("Missing private evaluation folder")
     expected=evaluation_cases()
+    # Tuple-valued internal parameters become JSON arrays when sealed; compare
+    # their exact canonical serialized representation, not Python tuple identity.
+    canonical=[json.loads(line) for line in _bytes(expected).decode("utf8").splitlines()]
     cases=_read_rows(folder/"cases.jsonl")
     manifest=_load_json(folder/"manifest.json")
-    if (cases!=expected or
+    if (cases!=canonical or
         manifest.get("status")!="NERAL_V7_LOGIC_PRIVATE_EVAL_SEALED" or
         manifest.get("suite_sha256")!=sha256(_bytes(expected)).hexdigest() or
         manifest.get("case_count")!=72 or
