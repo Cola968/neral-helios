@@ -42,7 +42,7 @@ object ModelDownloader {
                 }
             }
             if (expected > 0 && received != expected) error("Download unvollstaendig")
-            if (!OfflineModel.isReady(partial)) error("Ungueltiger GGUF-Download")
+            if (!OfflineModel.isVerified(partial)) error("Ungueltiger Modell-Download (Pruefsumme stimmt nicht)")
             // Only a fully downloaded GGUF replaces an existing file.
             if (destination.exists() && !destination.delete()) error("Zieldatei blockiert")
             if (!partial.renameTo(destination)) error("Modell konnte nicht gespeichert werden")
