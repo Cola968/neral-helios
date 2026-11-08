@@ -1,0 +1,28 @@
+name: NERAL 1.0 actual Windows launcher acceptance
+on:
+  pull_request:
+    paths:
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'Start NERAL 1.0 Local.cmd'
+      - 'neral_preview_server.py'
+      - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
+      - '.github/workflows/neral-1-0-windows-launcher-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
+permissions:
+  contents: read
+jobs:
+  windows-real-starter:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exercise the EXTRACTED one-click starter with simulated ollama list (no GPU)
+        shell: powershell
+        run: .\tests\neral_1_0_windows_extracted_launcher_smoke.ps1
