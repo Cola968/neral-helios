@@ -245,7 +245,7 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None)
             meta = []
             vision_models = set()
             remaining = MAX_EXTRACT_BYTES
-            for name, ext, raw in incoming:
+            for index, (name, ext, raw) in enumerate(incoming):
                 if ext in IMAGE_TYPES:
                     try:
                         analyzed_model, extracted = vision(raw, question)
@@ -263,7 +263,10 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None)
                     except AttachmentError as exc:
                         return jsonify(error=str(exc)), 422
                     kind = "document"
-                snippet, was_truncated = _truncate_utf8(extracted, min(remaining, 3400))
+                # Reserve a nonempty share for every remaining file. Otherwise
+                # two large files exhaust the entire context before file three.
+                share = min(3400, remaining // (len(incoming) - index))
+                snippet, was_truncated = _truncate_utf8(extracted, share)
                 if not snippet:
                     return jsonify(error="Kontextlimit für Anhänge erreicht."), 413
                 remaining -= len(snippet.encode("utf-8"))
