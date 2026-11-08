@@ -1,0 +1,62 @@
+name: NERAL GPU capacity diagnosis (manual, read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Exact permission: AUDIT_NERAL_GPU_CAPACITY_READONLY'
+permissions: {}
+jobs:
+  capacity:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_GPU_CAPACITY_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Inspect only GPU capacity and resident Ollama model count
+        run: |
+          $ErrorActionPreference='Stop'
+          $raw=(& nvidia-smi --query-gpu=memory.free,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits | Select-Object -First 1)
+          if($LASTEXITCODE -ne 0 -or -not $raw){throw 'nvidia-smi GPU unavailable'}
+          $parts=$raw -split ','
+          if($parts.Count -ne 4){throw 'Unrecognized resource report'}
+          $free=[int]$parts[0].Trim()
+          $used=[int]$parts[1].Trim()
+          $total=[int]$parts[2].Trim()
+          $busy=[int]$parts[3].Trim()
+          if($free -lt 0 -or $used -lt 0 -or $total -lt 1 -or $busy -lt 0 -or $busy -gt 100){
+            throw 'Invalid GPU counters'
+          }
+          Write-Host "NERAL_GPU_CAPACITY_MIB free=$free used=$used total=$total utilization_percent=$busy"
+          $safe=($free -ge 9000 -and $busy -le 20)
+          Write-Host "NERAL_GPU_BENCHMARK_READY=$safe"
+          # Only fixed 127.0.0.1 GET /api/ps; no unload, no inference,
+          # no model names, process names, user paths or private prompts.
+          try {
+            $snapshot=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 5 -ErrorAction Stop
+            if($null -eq $snapshot.models){
+              Write-Host 'NERAL_LOCAL_OLLAMA_RESIDENT_COUNT=0'
+              Write-Host 'NERAL_LOCAL_OLLAMA_RESIDENT_VRAM_MIB=0'
+            } else {
+              $resident=@($snapshot.models)
+              if($resident.Count -gt 100){throw 'Untrusted local model inventory size'}
+              $bytes=0.0
+              foreach($item in $resident){
+                if($null -ne $item -and $null -ne $item.size_vram){
+                  $bytes += [double]$item.size_vram
+                }
+              }
+              $memory=[int][math]::Round($bytes/1MB)
+              Write-Host "NERAL_LOCAL_OLLAMA_RESIDENT_COUNT=$($resident.Count)"
+              Write-Host "NERAL_LOCAL_OLLAMA_RESIDENT_VRAM_MIB=$memory"
+            }
+          } catch {
+            Write-Host 'NERAL_LOCAL_OLLAMA_RESIDENCY_UNAVAILABLE'
+          }
+          Write-Host 'READ_ONLY_CAPACITY_DIAGNOSIS_COMPLETE; no GPU memory was changed.'
