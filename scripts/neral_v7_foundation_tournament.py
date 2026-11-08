@@ -31,6 +31,23 @@ SYSTEM = (
 DOMAINS = ("math", "reasoning", "code_trace")
 MODEL_TAG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 MODEL_DIGEST = re.compile(r"sha256:[a-f0-9]{64}\Z")
+_RAW_MODEL_DIGEST = re.compile(r"[a-f0-9]{64}\Z")
+
+
+def canonical_model_digest(value: str) -> str:
+    """Normalize documented Ollama /api/tags bare 64-hex digests.
+
+    Ollama uses bare hashes in /api/tags but sha256-prefixed digests in
+    blob endpoints. Internally use a single strict canonical form.
+    """
+    if not isinstance(value, str):
+        raise Refused("Invalid local model digest")
+    if _RAW_MODEL_DIGEST.fullmatch(value):
+        return "sha256:" + value
+    if MODEL_DIGEST.fullmatch(value):
+        return value
+    raise Refused("Invalid local model digest")
+
 FINAL_LINE = re.compile(r"FINAL_ANSWER: (-?(?:0|[1-9][0-9]{0,12}))\Z")
 FAMILIES = {
     "math": ("binomial", "modular_inverse", "digit_weight", "exclusive_multiples"),
@@ -294,9 +311,9 @@ class OllamaLocal:
             if not isinstance(row,dict):
                 raise Refused("Invalid local model item")
             name,digest=row.get("name"),row.get("digest")
-            if (not isinstance(name,str) or not MODEL_TAG.fullmatch(name) or
-                    not isinstance(digest,str) or not MODEL_DIGEST.fullmatch(digest)):
-                raise Refused("Invalid model name or digest in local inventory")
+            if not isinstance(name,str) or not MODEL_TAG.fullmatch(name):
+                raise Refused("Invalid model name in local inventory")
+            digest=canonical_model_digest(digest)
             if name in installed:
                 raise Refused("Duplicate local model name")
             installed[name]=digest

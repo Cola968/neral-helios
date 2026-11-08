@@ -1,0 +1,169 @@
+name: NERAL v7 fair 512-token Qwen-v5-v7 comparison (manual read-only GPU)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v7_fair_512.py'
+      - 'tests/test_neral_v7_fair_512.py'
+      - '.github/workflows/neral-v7-fair-512.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v7_fair_512.py'
+      - 'tests/test_neral_v7_fair_512.py'
+      - '.github/workflows/neral-v7-fair-512.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permission: EVALUATE_NERAL_V7_FAIR_512_READONLY'
+        required: true
+        type: string
+      sample:
+        description: 'Small stratified pilot first; full may be much slower'
+        required: true
+        default: 'pilot'
+        type: choice
+        options:
+          - pilot
+          - full
+      source_run_id:
+        description: 'Completed sealed experimental v7 training run'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify EOS, token cap, pilot balance, paired math, privacy and safety
+        run: python -B -m unittest discover -s tests -p test_neral_v7_fair_512.py -v
+      - name: Compile new evaluator
+        run: python -B -m py_compile scripts/neral_v7_fair_512.py
+
+  gpu-readonly:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V7_FAIR_512_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+      V7_SAMPLE: ${{ inputs.sample }}
+      SRC_RUN: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+          clean: true
+      - name: Verify original local weights, available GPU and fixed 512-token task contract
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:V7_SAMPLE -notin @('pilot','full') -or $env:SRC_RUN -notmatch '^[0-9]{9,15}$'){
+            throw 'Refuse malformed sample type or source run'
+          }
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $src=Join-Path $root "v7-logic-r16-$env:SRC_RUN-1"
+          $adapter=Join-Path $src 'candidate-adapter'
+          $receipt=Join-Path $src 'scalar-private.json'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $root 'v5-r16-480-42378021782-1\adapter'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $adapter -PathType Container) -or
+             -not(Test-Path -LiteralPath $receipt -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $base -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container)){
+            throw 'All pinned and sealed local paths must exist'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'Local GPU unavailable'}
+          $values=($raw|Select-Object -First 1)-split ','
+          if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 9000 -or
+             [int]$values[1].Trim() -gt 20){
+            throw 'GPU busy or insufficient VRAM'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v7_fair_512.py -v
+            if($LASTEXITCODE -ne 0){throw 'Benchmark preflight failed'}
+            $dest=Join-Path $root "v7-fair-512-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+            if(Test-Path -LiteralPath $dest){throw 'Never reuse benchmark output'}
+            & $py -B -m scripts.neral_v7_fair_512 --mode prepare --sample $env:V7_SAMPLE --folder $dest
+            if($LASTEXITCODE -ne 0){throw 'Pinned case manifest creation failed'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_PY=$py"+[Environment]::NewLine+
+            "NERAL_CONTROL=$control"+[Environment]::NewLine+
+            "NERAL_BASE=$base"+[Environment]::NewLine+
+            "NERAL_V5=$v5"+[Environment]::NewLine+
+            "NERAL_CANDIDATE=$adapter"+[Environment]::NewLine+
+            "NERAL_RECEIPT=$receipt"+[Environment]::NewLine+
+            "NERAL_OUTPUT=$dest"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Run three pinned models with 512-token budget, same prompt, exact EOS
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:NERAL_CONTROL
+            foreach($arm in @('qwen','v5','candidate')){
+              & $env:NERAL_PY -B -m scripts.neral_v7_fair_512 --mode run --sample $env:V7_SAMPLE --folder $env:NERAL_OUTPUT --arm $arm --base $env:NERAL_BASE --v5 $env:NERAL_V5 --candidate $env:NERAL_CANDIDATE --receipt $env:NERAL_RECEIPT --authorize EVALUATE_NERAL_V7_FAIR_512_READONLY
+              if($LASTEXITCODE -ne 0){throw "Refuse success until arm $arm finished"}
+            }
+          } finally {Pop-Location}
+      - name: Paired analysis with explicit refusal of model promotion
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:NERAL_CONTROL
+            & $env:NERAL_PY -B -m scripts.neral_v7_fair_512 --mode combine --sample $env:V7_SAMPLE --folder $env:NERAL_OUTPUT --candidate $env:NERAL_CANDIDATE --receipt $env:NERAL_RECEIPT
+            if($LASTEXITCODE -ne 0){throw 'Paired scorer refused'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath (Join-Path $env:NERAL_OUTPUT 'fair-summary.json') -Raw | ConvertFrom-Json
+          $count=if($env:V7_SAMPLE -eq 'pilot'){24}else{72}
+          if($report.status -ne 'NERAL_V7_FAIR_EOS_512_DEV_DIAGNOSTIC' -or
+             $report.total -ne $count -or
+             $report.max_new_tokens -ne 512 -or
+             $report.identical_messages_all_arms -ne $true -or
+             $report.model_only_no_tools -ne $true -or
+             $report.raw_responses_uploaded -ne $false -or
+             $report.release_validated -ne $false -or
+             $report.weights_promoted -ne $false -or
+             $report.generalization_proven -ne $false){
+            throw 'Unsafe scalar research report'
+          }
+          $folder=Join-Path $env:NERAL_CONTROL 'v7_fair_512_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Refuse overwrite'}
+          New-Item -Path $folder -ItemType Directory -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:NERAL_OUTPUT 'fair-summary.json') -Destination (Join-Path $folder 'summary.json')
+      - name: Export only aggregate benchmark statistics
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v7-fair-512-scalars-only
+          path: control/v7_fair_512_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
