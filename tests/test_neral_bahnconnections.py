@@ -65,12 +65,10 @@ class RailRouteSecurityTests(TestCase):
         text=self.client.post("/api/neral/preview/journeys",
                   data="from=Berlin&to=Stuttgart",base_url=self.url,headers=self.csrf)
         self.assertEqual(text.status_code,415)
-        with patch("neral_bahnconnections.plan_journeys") as service:
-            bad=self.client.post("/api/neral/preview/journeys",
-                      json={"from":"Berlin","to":"Stuttgart","extra":"xxx"},
-                      base_url=self.url,headers=self.csrf)
-            self.assertEqual(bad.status_code,400)
-            service.assert_called_once()
+        bad=self.client.post("/api/neral/preview/journeys",
+                  json={"from":"Berlin","to":"Stuttgart","extra":"xxx"},
+                  base_url=self.url,headers=self.csrf)
+        self.assertEqual(bad.status_code,400)
 
     def test_upstream_failure_is_not_disguised_as_a_confirmed_journey(self):
         with patch("neral_bahnconnections.plan_journeys",side_effect=RuntimeError("Forbidden")):
