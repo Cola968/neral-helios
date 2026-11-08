@@ -146,6 +146,7 @@ jobs:
       - run: node --check static/neral-rail-ui.js
       - run: node --test tests/test_neral_rail_ui.cjs
       - run: python -m unittest discover -s tests -p test_neral_bahnconnections.py -v
+      - run: python -m unittest discover -s tests -p test_neral_transitous_fallback.py -v
       - run: node --check static/neral-dynamic-widgets.js
       - run: node --test tests/test_neral_smart_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_1_0_preview_history.cjs
       - run: python -m unittest discover -s tests -p test_neral_dynamic_ui_api.py -v
