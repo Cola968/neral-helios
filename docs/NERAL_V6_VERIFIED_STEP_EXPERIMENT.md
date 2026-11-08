@@ -97,8 +97,11 @@ Texte besser rechnen, und kein Fähigkeitsgewinn. Ob sich die Fähigkeit
 das misst.
 
 Der GPU-Vergleich mit `matched_fewshot` und das Phase-2-Training
-bleiben hier blockiert. Beides braucht eine ausdrückliche Freigabe
-für genau diesen Lauf. Diese CPU-Prüfung startet keines von beiden.
+bleiben unausgeführt. Der Vergleich hat jetzt einen eigenen Einstieg,
+`.github/workflows/neral-v6-slice-compare-gpu.yml`. Er startet nur
+manuell auf `main` und nur mit einer eigenen Freigabe. Diese
+CPU-Prüfung startet ihn nicht. Das Phase-2-Training bleibt ein
+zweiter, späterer Lauf.
 
 ## Phase 1, bevor irgendjemand trainiert
 
@@ -204,11 +207,16 @@ Punktzahl. Dieselben Funktionen liefern dieselben Fälle.
   gleiche Familie, andere Schablone. Dazu 64 Gegenbeispiele aus Seed
   `20261108`, Paarindex 0 bis 15, beide Varianten, `ordered_price` und
   `segmented_fuel`.
-- Transfer, 32 Fälle. Vier Familien, die im Training und in den beiden
-  verbrauchten Screens nicht vorkommen: `inclusive_range_sum`,
-  `nesting_depth`, `inversion_pairs`, `running_maximum_changes`.
-  Index 0 bis 7. Klammertiefe steht in den Wörtern `open` und `close`,
-  damit ein Satzzeichen-Filter die Fälle nicht zusammenfallen lässt.
+- Transfer, 64 Fälle. Acht Familien, die im Training, in den beiden
+  verbrauchten Screens und im versiegelten Holdout nicht vorkommen.
+  Die ersten vier bleiben `inclusive_range_sum`, `nesting_depth`,
+  `inversion_pairs` und `running_maximum_changes`. Dazu kommen
+  `digit_sum`, `adjacent_ascents`, `alternating_sum` und
+  `capped_sum`. Je Index 0 bis 7. Klammertiefe steht in den Wörtern
+  `open` und `close`, damit ein Satzzeichen-Filter die Fälle nicht
+  zusammenfallen lässt. Die vier zusätzlichen Familien sind vor jedem
+  GPU-Lauf dazugekommen: 32 Aufgaben können eine einseitige gepaarte
+  Lücke unter 18,8 Prozentpunkten nicht signifikant machen.
 - Versiegeltes Holdout, 96 Fälle, nur im zweiten Modul. Paarindex 16
   bis 31 derselben Mess-Seed, 64 Fälle. Dazu `odd_median`,
   `population_bitcount`, `distinct_values` und
@@ -219,17 +227,17 @@ Punktzahl. Dieselben Funktionen liefern dieselben Fälle.
 SHA-256 der kanonischen JSONL, sortierte Schlüssel:
 
 - Retention `333bfcb4e92a9b9d6d27c2d9a6e6181c13f9c629a3a8d2bb35885a104a319054`
-- Transfer `3a4ab9c533ed6afce8ee7214acea49f69dd04c5d34506efe8ca5ab21f7b534ee`
+- Transfer `9604fe1910698e572d408e58e478f7446f393409d0997db3ab2bd99f769b48a2`
 - Holdout `6332c37ec3927475aba83da312f7943064d7c400be516caaf1dcf085cf9c3270`
 
-Ein späterer Vergleich, der hier nicht läuft, braucht
-`matched_fewshot`, greedy, 160 neue Tokens und dieselben Nachrichten
-für Qwen, v5 und den Kandidaten. Ohne dieses Protokoll bleibt der
-Gate bei `refuse`.
+Der Vergleich in `scripts/neral_v6_slice_compare.py` ist hier nicht
+gelaufen. Er braucht `matched_fewshot`, greedy, 160 neue Tokens und
+dieselben Nachrichten für Qwen, v5 und v6. Ohne dieses Protokoll
+bleibt der Gate bei `refuse`.
 
 Exakte normalisierte Prompts schneiden sich nicht: die drei Schnitte
 untereinander, und keiner mit Train, Validierung oder den beiden
-Dev72. 10-Gramme gegen die Dev-Screens sind 0. Die vier Transfer-
+Dev72. 10-Gramme gegen die Dev-Screens sind 0. Die acht Transfer-
 Familien und die vier neuen Holdout-Familien haben auch gegen
 Trainingsprompts und Trainingsantworten null 10-Gramme.
 
@@ -306,3 +314,43 @@ Belegte Ursache der fehlenden Rechenzeichen: `_compact_trace` in
 belegt ist, dass diese Streichung die historischen Dev72-Zahlen
 erzeugt hat. Ein `matched_fewshot`-Vergleich, der das messen könnte,
 ist nicht gelaufen.
+
+## Vergleichspfad, noch nicht gelaufen
+
+Kein bisheriger GPU-Einstieg bewertet Basis, v5 und v6 gemeinsam auf
+Retention und Transfer unter `matched_fewshot`. Die Dev72-Workflows
+messen verbrauchte 72er-Suiten. Der Sechs-Arm-Lauf misst v6.1, nicht
+v6, und ebenfalls die verbrauchte Suite. `neral-v6-verified-steps-train.yml`
+trainiert und bewertet diese Schnitte nicht.
+
+Neu ist `scripts/neral_v6_slice_compare.py`. Der Lauf prüft die beiden
+SHA-256 am Anfang, lädt das Holdout nicht, schreibt nur in einen neuen
+Ordner und bricht ab, wenn die drei Arme nicht dieselben Nachrichten
+und dasselbe Decoding-Objekt sehen: greedy, `do_sample=false`, 160
+neue Tokens. Je Schnitt gibt es die vier Ausgänge
+`strict_correct`, `wrong_readable_number`, `unreadable`,
+`incomplete`. Je Paar gibt es den exakten McNemar-Wert, ein
+Item-Bootstrap und ein Familien-Cluster-Bootstrap.
+`training_authorized` und `claimed_score_gain` bleiben falsch.
+
+Ein CPU-Trockenlauf mit einem deterministischen Stub hat Promptbau,
+Few-Shot-Gleichheit, Decoding, Bewertung, Bericht und Gate durchlaufen.
+Der Stub ist kein Modell. Seine Zähler sind kein Fähigkeitsergebnis.
+Das Gate sagt dabei `decision=ok` und
+`phase2_training=v61_comparison_not_in_report`. `ok` heißt nur, dass
+das Protokoll zulässig ist.
+
+Mit 64 Transfer-Aufgaben ist die kleinste einseitige Lücke mit
+zweiseitigem exaktem p ≤ 0,05 weiter sechs Diskordanzen, also 9,4
+Prozentpunkte, und nur wenn die Gegenrichtung null ist. Fünf gegen
+null ergeben p = 0,0625. Eine Lücke um 15 Prozentpunkte bei etwa einem
+Viertel diskordanter Paare braucht in der üblichen McNemar-Näherung
+rund 85 unabhängige Aufgaben für etwa 80 Prozent Power. Die acht
+Familien sind keine 64 unabhängigen Aufgaben. Ein Intervall, das null
+enthält, ist kein Beleg für Gleichheit.
+
+Die Reihenfolge bleibt Auswertung vor Training. Erst der
+Nur-Lese-Vergleich zeigt, ob v6 unter gleichem Prompt auf der
+Retention mehr falsch lesbare Zahlen hat als v5. Wenn nicht, ist das
+Training nicht begründet. Der Trainings-Workflow bleibt dafür ein
+eigener Lauf und ist in diesem Vorschlag nicht enthalten.

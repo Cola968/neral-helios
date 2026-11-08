@@ -7,8 +7,10 @@ a capability gain.
 
 Assignment is a pure function of the constants below. Same-family retention
 reuses the compositional holdout and a second counterexample seed. Transfer
-uses four families that are not in the verified-step training mixture and
-not in the already consumed dev72 screens.
+uses eight families that are not in the verified-step training mixture and
+not in the already consumed dev72 screens. Four of them were added after
+the 32-item draft because a paired test on 32 items cannot see a gap
+below about 19 percentage points.
 """
 from __future__ import annotations
 
@@ -33,14 +35,20 @@ TRANSFER_FAMILIES = (
     "nesting_depth",
     "inversion_pairs",
     "running_maximum_changes",
+    "digit_sum",
+    "adjacent_ascents",
+    "alternating_sum",
+    "capped_sum",
 )
 ASSIGNMENT_RULE = (
     "retention composition: make_case(family, 'holdout', index) for every "
     "composition family and every holdout index. "
     "retention counterexample: candidate(seed=20261108) pair index 0..15, "
     "both variants, ordered_price and segmented_fuel. "
-    "transfer: the four TRANSFER_FAMILIES, index 0..7, parameters in this "
-    "file. "
+    "transfer: the eight TRANSFER_FAMILIES, index 0..7, parameters in this "
+    "file. The last four families were added before any GPU comparison so "
+    "a paired gap near 19 percentage points is not the smallest visible "
+    "shift. "
     "locked holdout is a different module and is not built here: "
     "candidate(seed=20261108) pair index 16..31, plus four other families. "
     "Consumed dev72 screens are in none of the three slices. "
@@ -70,6 +78,37 @@ _RUNNING = (
     (3, 8, 2, 8, 9),
     (1, 1, 1),
     (6, 2, 7, 3, 8, 4),
+)
+_DIGIT_SUMS = (19, 208, 67, 1000, 845, 314159, 42, 9001)
+_ASCENTS = (
+    (1, 3, 2, 4),
+    (5, 4, 4, 6, 1),
+    (2, 2, 2),
+    (9, 1, 8, 2, 7),
+    (1, 2, 3, 4, 5),
+    (8, 7, 6, 5),
+    (3, 5, 4, 6, 6, 8),
+    (4, 1, 1, 2),
+)
+_ALTERNATING = (
+    (4, 1, 3, 2),
+    (5, 5),
+    (8, 1, 2),
+    (3, 9, 1, 4, 2),
+    (6,),
+    (2, 8, 3, 1),
+    (7, 2, 7, 2, 7),
+    (1, 4, 1, 4),
+)
+_CAPPED = (
+    ((3, 8, 1), 4),
+    ((2, 2, 2), 5),
+    ((9, 1, 7), 3),
+    ((4, 10, 6, 1), 6),
+    ((8,), 2),
+    ((1, 5, 5, 1), 5),
+    ((7, 0, 4), 4),
+    ((6, 6, 9, 2), 1),
 )
 
 
@@ -223,11 +262,34 @@ def _transfer_case(family: str, index: int) -> dict:
         answer = inversion_count(values)
         prompt = (f"For the list {list(values)}, count index pairs i < j "
                   f"whose left value is strictly greater than the right value.")
-    else:
+    elif family == "running_maximum_changes":
         values = _RUNNING[index]
         answer = running_maximum_changes(values)
         prompt = (f"Read {list(values)} from left to right. Count how often the "
                   f"largest value seen so far strictly increases, including the first item.")
+    elif family == "digit_sum":
+        number = _DIGIT_SUMS[index]
+        answer = sum(int(digit) for digit in str(number))
+        prompt = (f"Tally the decimal digits of the integer {number} by adding "
+                  f"them. Reply with that digit total.")
+    elif family == "adjacent_ascents":
+        values = _ASCENTS[index]
+        answer = sum(1 for pos in range(1, len(values)) if values[pos] > values[pos - 1])
+        prompt = (f"Across the sequence {list(values)}, count positions where "
+                  f"the entry is strictly above the entry just before it.")
+    elif family == "alternating_sum":
+        values = _ALTERNATING[index]
+        answer = sum(value if pos % 2 == 0 else -value
+                     for pos, value in enumerate(values))
+        prompt = (f"Start positive, then alternate minus and plus through "
+                  f"{list(values)}. The signed total is the result.")
+    elif family == "capped_sum":
+        values, cap = _CAPPED[index]
+        answer = sum(min(value, cap) for value in values)
+        prompt = (f"Each value in {list(values)} is replaced by whichever is "
+                  f"smaller, the value or the ceiling {cap}. Add the replacements.")
+    else:
+        raise ValueError("Unexpected transfer family")
     return _case("transfer", "unseen_family", family, index, prompt, answer)
 
 
@@ -235,7 +297,7 @@ def transfer_cases() -> list[dict]:
     """Families that do not occur in the verified-step training mixture."""
     cases = [_transfer_case(family, index)
              for family in TRANSFER_FAMILIES for index in range(8)]
-    if len(cases) != 32:
+    if len(cases) != len(TRANSFER_FAMILIES) * 8:
         raise ValueError("Transfer slice changed size")
     return _check_unique(cases)
 

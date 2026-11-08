@@ -1,0 +1,151 @@
+name: NERAL v6 retention and transfer matched few-shot compare (manual read-only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permit: EVALUATE_NERAL_V6_RETENTION_TRANSFER_MATCHED_FEWSHOT_READONLY'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V6_RETENTION_TRANSFER_MATCHED_FEWSHOT_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: CPU contracts before any weight is loaded
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local CUDA Python absent'}
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v6_slice_compare.py -v
+            if($LASTEXITCODE -ne 0){throw 'Slice comparison CPU contract failed'}
+          } finally {Pop-Location}
+      - name: Pin slices into a new directory and refuse a busy GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $stamp=[DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
+          $dest=Join-Path $root "v6-slice-compare-$stamp-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $root 'v5-r16-480-42378021782-1\adapter'
+          $v6=Join-Path $root 'v6-r16-120-42407667120-1\candidate-adapter'
+          if((Test-Path -LiteralPath $dest) -or
+             -not(Test-Path -LiteralPath $base -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container) -or
+             -not(Test-Path -LiteralPath $v6 -PathType Container)){
+            throw 'Pinned models missing or comparison output already exists'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU unavailable'}
+          $fields=($raw|Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 9000 -or [int]$fields[1].Trim() -gt 20){
+            throw 'GPU currently occupied'
+          }
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v6_slice_compare --mode prepare --run-dir $dest
+            if($LASTEXITCODE -ne 0){throw 'Slice pin check failed'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "SLICE_CONTROL=$control"+[Environment]::NewLine+
+            "SLICE_PY=$py"+[Environment]::NewLine+
+            "SLICE_DIR=$dest"+[Environment]::NewLine+
+            "SLICE_BASE=$base"+[Environment]::NewLine+
+            "SLICE_V5=$v5"+[Environment]::NewLine+
+            "SLICE_V6=$v6"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: GPU 1 of 3 - base Qwen, matched few-shot, read-only
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:SLICE_CONTROL
+          try{
+            $env:PYTHONPATH=$env:SLICE_CONTROL
+            & $env:SLICE_PY -B -m scripts.neral_v6_slice_compare --mode run --arm qwen_fewshot --run-dir $env:SLICE_DIR --base $env:SLICE_BASE --v5-adapter $env:SLICE_V5 --v6-adapter $env:SLICE_V6 --authorize EVALUATE_NERAL_V6_RETENTION_TRANSFER_MATCHED_FEWSHOT_READONLY
+            if($LASTEXITCODE -ne 0){throw 'Base Qwen comparison incomplete'}
+          } finally {Pop-Location}
+      - name: GPU 2 of 3 - NERAL v5, same prompts, read-only
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:SLICE_CONTROL
+          try{
+            $env:PYTHONPATH=$env:SLICE_CONTROL
+            & $env:SLICE_PY -B -m scripts.neral_v6_slice_compare --mode run --arm neral_v5 --run-dir $env:SLICE_DIR --base $env:SLICE_BASE --v5-adapter $env:SLICE_V5 --v6-adapter $env:SLICE_V6 --authorize EVALUATE_NERAL_V6_RETENTION_TRANSFER_MATCHED_FEWSHOT_READONLY
+            if($LASTEXITCODE -ne 0){throw 'NERAL v5 comparison incomplete'}
+          } finally {Pop-Location}
+      - name: GPU 3 of 3 - NERAL v6, same prompts, read-only
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:SLICE_CONTROL
+          try{
+            $env:PYTHONPATH=$env:SLICE_CONTROL
+            & $env:SLICE_PY -B -m scripts.neral_v6_slice_compare --mode run --arm neral_v6 --run-dir $env:SLICE_DIR --base $env:SLICE_BASE --v5-adapter $env:SLICE_V5 --v6-adapter $env:SLICE_V6 --authorize EVALUATE_NERAL_V6_RETENTION_TRANSFER_MATCHED_FEWSHOT_READONLY
+            if($LASTEXITCODE -ne 0){throw 'NERAL v6 comparison incomplete'}
+          } finally {Pop-Location}
+      - name: Score visible slices only and refuse promotion
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:SLICE_CONTROL
+          try{
+            $env:PYTHONPATH=$env:SLICE_CONTROL
+            & $env:SLICE_PY -B -m scripts.neral_v6_slice_compare --mode combine --run-dir $env:SLICE_DIR
+            if($LASTEXITCODE -ne 0){throw 'Slice comparison report failed'}
+          } finally {Pop-Location}
+          $summary=Get-Content -LiteralPath (Join-Path $env:SLICE_DIR 'summary.json') -Raw|ConvertFrom-Json
+          $rawText=Get-Content -LiteralPath (Join-Path $env:SLICE_DIR 'summary.json') -Raw
+          if($summary.status -ne 'NERAL_V6_SLICE_COMPARE_READONLY' -or
+             $summary.prompt_protocol -ne 'matched_fewshot' -or
+             $summary.retention_count -ne 164 -or
+             $summary.transfer_count -ne 64 -or
+             $summary.gpu_inference_performed -ne $true -or
+             $summary.weights_loaded -ne $true -or
+             $summary.read_only -ne $true -or
+             $summary.training_performed -ne $false -or
+             $summary.training_authorized -ne $false -or
+             $summary.claimed_score_gain -ne $false -or
+             $summary.release_validated -ne $false -or
+             $summary.adapter_promoted -ne $false -or
+             $summary.sealed_slice_loaded -ne $false -or
+             $rawText -match 'locked_holdout' -or
+             $rawText -match 'locked-holdout'){
+            throw 'Reject incomplete, leaked, or falsely promoted slice comparison'
+          }
+          $public=Join-Path $env:SLICE_CONTROL 'slice_compare_scalar'
+          if(Test-Path -LiteralPath $public){throw 'Scalar export already exists'}
+          New-Item -ItemType Directory -Path $public -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:SLICE_DIR 'summary.json') -Destination (Join-Path $public 'summary.json')
+          Write-Host 'NERAL_V6_SLICE_COMPARE_READONLY_COMPLETED: raw completions remain local'
+      - name: Upload aggregate comparison only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v6-slice-compare-scalar
+          path: control/slice_compare_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14

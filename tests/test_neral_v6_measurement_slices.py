@@ -27,7 +27,7 @@ from scripts.neral_v61_new_dev_eval import cases72
 
 ROOT = Path(__file__).resolve().parents[1]
 RETENTION_SHA = "333bfcb4e92a9b9d6d27c2d9a6e6181c13f9c629a3a8d2bb35885a104a319054"
-TRANSFER_SHA = "3a4ab9c533ed6afce8ee7214acea49f69dd04c5d34506efe8ca5ab21f7b534ee"
+TRANSFER_SHA = "9604fe1910698e572d408e58e478f7446f393409d0997db3ab2bd99f769b48a2"
 HOLDOUT_SHA = "6332c37ec3927475aba83da312f7943064d7c400be516caaf1dcf085cf9c3270"
 COMPACT_TRAIN_SHA = "c47256233a40ad6587e702732819b0166c586a1e55804f74eb06a2071dbd3b9b"
 VERIFIED_BOUND_TRAIN_SHA = "72b9c75ad154c19a941e072db6f57fa769f3aa8b3d221647ff08c5c8559fb5d8"
@@ -41,6 +41,7 @@ DECISION_FILES = (
     "scripts/neral_v6_dev72_regression_audit.py",
     "scripts/neral_six_arm_eval.py",
     "scripts/neral_six_arm_gpu.py",
+    "scripts/neral_v6_slice_compare.py",
 )
 
 
@@ -90,7 +91,7 @@ class MeasurementSliceContracts(unittest.TestCase):
         self.assertEqual(self.manifest["transfer_sha256"], TRANSFER_SHA)
         self.assertEqual(holdout_commitment()["sha256"], HOLDOUT_SHA)
         self.assertEqual((len(self.retention), len(self.transfer), len(self.holdout)),
-                         (164, 32, 96))
+                         (164, 64, 96))
         self.assertFalse(self.manifest["assignment_depends_on_scores"])
         self.assertFalse(self.manifest["locked_holdout_ids_visible_here"])
         self.assertFalse(self.manifest["training_authorized"])
@@ -243,9 +244,9 @@ class MeasurementSliceContracts(unittest.TestCase):
         self.assertEqual(counts["incomplete"], 1)
         self.assertEqual(counts["wrong_readable_number"], 1)
         self.assertEqual(counts["unreadable"], 1)
-        self.assertEqual(counts["strict_correct"], 29)
+        self.assertEqual(counts["strict_correct"], 61)
         self.assertEqual(sum(counts[name] for name in (
-            "strict_correct", "wrong_readable_number", "unreadable", "incomplete")), 32)
+            "strict_correct", "wrong_readable_number", "unreadable", "incomplete")), 64)
         self.assertFalse(counts["claimed_score_gain"])
         report = {
             "prompt_protocol": "matched_fewshot",
@@ -302,6 +303,20 @@ def _transfer_oracle(case):
         values = _list_in(case["prompt"])
         return str(sum(1 for i, left in enumerate(values)
                        for right in values[i + 1:] if left > right))
+    if case["family"] == "digit_sum":
+        number = int(re.search(r"integer (\d+)", case["prompt"]).group(1))
+        return str(sum(int(digit) for digit in str(number)))
+    if case["family"] == "adjacent_ascents":
+        values = _list_in(case["prompt"])
+        return str(sum(1 for pos in range(1, len(values)) if values[pos] > values[pos - 1]))
+    if case["family"] == "alternating_sum":
+        values = _list_in(case["prompt"])
+        return str(sum(value if pos % 2 == 0 else -value
+                       for pos, value in enumerate(values)))
+    if case["family"] == "capped_sum":
+        values = _list_in(case["prompt"])
+        cap = int(re.search(r"ceiling (\d+)", case["prompt"]).group(1))
+        return str(sum(min(value, cap) for value in values))
     values = _list_in(case["prompt"])
     best, changes = values[0], 1
     for value in values[1:]:
