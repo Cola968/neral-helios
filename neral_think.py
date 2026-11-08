@@ -117,6 +117,40 @@ def _review_preserves_format(question: str, draft: str, revised: str) -> bool:
     return True
 
 
+def _stale_previous_answer(messages: list[dict], candidate: str) -> bool:
+    """Reject near-copies of a previous assistant turn for a changed question.
+
+    This narrow guard is not a semantic fact-checker. The user can explicitly
+    ask for repetition or elaboration, in which case past content is relevant.
+    """
+    if len(messages) < 4 or not isinstance(candidate, str):
+        return False
+    previous, current, older_question = messages[-2], messages[-1], messages[-3]
+    if previous.get("role") != "assistant" or older_question.get("role") != "user":
+        return False
+    question = current.get("content", "").casefold().strip()
+    older = older_question.get("content", "").casefold().strip()
+    if question == older or re.search(
+        r"\b(wiederhol\w*|nochmal|erneut|ausführlicher|genauer|elaborate|repeat|rephrase)\b",
+        question,
+    ):
+        return False
+    normalize = lambda value: " ".join(re.findall(r"\w+", value.casefold()))
+    old_text = normalize(previous.get("content", ""))
+    fresh_text = normalize(candidate)
+    if len(old_text) < 45 or len(fresh_text) < 45:
+        return False
+    from difflib import SequenceMatcher
+    if SequenceMatcher(None, old_text[:2000], fresh_text[:2000]).ratio() >= 0.74:
+        return True
+    old_words = set(old_text.split())
+    new_words = set(fresh_text.split())
+    return (len(old_words) >= 10
+            and len(new_words) >= 10
+            and len(old_words & new_words) / len(old_words) >= 0.82
+            and len(fresh_text) <= len(old_text) * 1.5)
+
+
 class ThinkInputError(ValueError):
     """Only public generic messages; never include a model response or path."""
 
@@ -299,9 +333,15 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
         elif clock() - initial >= max_seconds:
             review_status = "skipped_time_budget"
         else:
+            # Keep the real current question explicit in the review turn:
+            # Qwen can otherwise treat the synthetic review instruction as
+            # the new user question and drift back to a previous topic.
+            current_question = messages[-1]["content"][:700]
             second_turns = turns + [
                 {"role": "assistant", "content": raw},
-                {"role": "user", "content": _HIGH_REVIEW_FEEDBACK},
+                {"role": "user", "content": _HIGH_REVIEW_FEEDBACK
+                 + "\\nAKTUELLE FRAGE: " + current_question
+                 + "\\nBeantworte ausschließlich diese aktuelle Frage."},
             ]
             used += 1
             try:
@@ -312,7 +352,9 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
                 review_status = "review_failed"
             else:
                 review_passes = 1
-                if _review_preserves_format(messages[-1]["content"], raw, revised):
+                if _stale_previous_answer(messages, revised):
+                    review_status = "review_rejected_stale"
+                elif _review_preserves_format(messages[-1]["content"], raw, revised):
                     raw = revised
                     extracted = extract_final(raw)
                     review_status = "completed_unverified"
@@ -334,6 +376,18 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
     }
     if oracle is not None and oracle["method"] == "finite_logic_exact":
         common["logic_certificate"] = oracle["certificate"]
+    if oracle is None and _stale_previous_answer(messages, raw):
+        # Do not knowingly serve the previous answer as a new reply.
+        return {
+            **common,
+            "text": ("Die aktuelle Frage konnte nicht zuverlässig beantwortet "
+                     "werden. Eine wiederholte alte Antwort wurde verworfen."),
+            "model_generated": False,
+            "verified": False,
+            "verification_status": "stale_context_rejected",
+            "review_status": "stale_context_rejected",
+            "final_answer": None,
+        }
     if checked:
         return {
             **common, "text": raw,
