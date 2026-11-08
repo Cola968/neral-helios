@@ -2,7 +2,7 @@
 // This client uses same-origin /api calls only. No persistent chat storage.
 (() => {
   const $=id=>document.getElementById(id);
-  const form=$("chatForm"),prompt=$("prompt"),submit=$("submit"),errors=$("error"),messages=$("messages");
+  const form=$("chatForm"),prompt=$("prompt"),submit=$("submit"),errors=$("error"),messages=$("messages"),phase=$("phase");
   const memory=[];
   let csrf=null,busy=false;
   const encoder=new TextEncoder();
@@ -50,6 +50,7 @@
     if(!text||encoder.encode(text).length>4096){errors.textContent="Nachricht zu lang oder leer.";return;}
     const mode=form.querySelector('input[name="mode"]:checked')?.value==="think" ? "think":"generate";
     busy=true;submit.disabled=true;errors.textContent="";
+    phase.textContent=mode==="think" ? "HIGH arbeitet lokal – bis zu zwei Modellaufrufe." : "LOW antwortet lokal …";
     // Preserve user/assistant pairs while keeping every sent item under
     // the server's 2048-byte limit and total history below 12 KB.
     // Keep the tail of long answers, where conclusions normally appear.
@@ -86,7 +87,7 @@
       if(memory.length>12) memory.splice(0,memory.length-12);
       prompt.value="";
     } catch(e) {errors.textContent=e.name==="TimeoutError"?"Lokales Modell hat das Zeitlimit überschritten.":e.message;}
-    finally {busy=false;submit.disabled=false;prompt.focus();}
+    finally {busy=false;submit.disabled=false;phase.textContent="";prompt.focus();}
   });
   $("clear").addEventListener("click",()=>{memory.length=0;messages.replaceChildren();append("assistant","Der Verlauf in diesem Fenster wurde gelöscht.","NERAL · lokal");errors.textContent="";prompt.focus();});
   connect();
