@@ -33,7 +33,23 @@
     const data=await api("/api/neral/account/chats");
     if(startedAuth!==authEpoch || owner!==username)return;
     list.replaceChildren();
+    const today=new Date(),yesterday=new Date(today);
+    yesterday.setDate(today.getDate()-1);
+    const dayKey=date=>date.getFullYear()+"-"+(date.getMonth()+1)+"-"+date.getDate();
+    const currentDay=dayKey(today),previousDay=dayKey(yesterday);
+    let currentGroup=null;
     for(const chat of data.chats){
+      const stamp=new Date(Number(chat.updated)*1000);
+      const group=!Number.isFinite(stamp.getTime())?"Früher":
+        dayKey(stamp)===currentDay?"Heute":
+        dayKey(stamp)===previousDay?"Gestern":"Früher";
+      if(group!==currentGroup){
+        const heading=document.createElement("div");
+        heading.className="sidebar-chat-date";
+        heading.textContent=group;
+        list.append(heading);
+        currentGroup=group;
+      }
       const row=document.createElement("div");
       row.className="saved-chat-row";
       const button=document.createElement("button");
@@ -144,6 +160,14 @@
     const term=searchInput.value.trim().toLocaleLowerCase("de");
     for(const row of list.querySelectorAll(".saved-chat-row"))
       row.hidden=!row.querySelector(".saved-chat-open").textContent.toLocaleLowerCase("de").includes(term);
+    for(const heading of list.querySelectorAll(".sidebar-chat-date")){
+      let node=heading.nextElementSibling,hasVisible=false;
+      while(node&&!node.classList.contains("sidebar-chat-date")){
+        if(node.classList.contains("saved-chat-row")&&!node.hidden)hasVisible=true;
+        node=node.nextElementSibling;
+      }
+      heading.hidden=!hasVisible;
+    }
   }
   searchInput.addEventListener("input",applyFilter);
   window.addEventListener("neral:turn-complete",event=>{
