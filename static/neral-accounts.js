@@ -22,6 +22,7 @@
     $("accountName").textContent=username||"Gast · lokal";
     $("showLogin").hidden=!!username;
     $("logout").hidden=!username;
+    $("accountSettings").hidden=!username;
     $("newSavedChat").title=username?"Neues gespeichertes Gespräch":"Anmelden, um Chats zu speichern";
     if(!username){list.replaceChildren();activeId=null;turns=[];}
   }
@@ -158,6 +159,73 @@
     // Clearing a conversation must not overwrite or delete a saved chat.
     activeId=null;
     refresh().catch(()=>{});
+  });
+
+  // Export is a real, authenticated, same-origin JSON attachment.
+  $("exportChats").setAttribute("href","/api/neral/account/export");
+  const manageDialog=$("accountManageDialog");
+  const manageForm=$("accountManageForm");
+  let manageAction=null;
+
+  function openAccountSettings(action){
+    if(!username)return;
+    manageAction=action;
+    $("accountManageTitle").textContent=action==="password"
+      ? "Passwort ändern" : "Konto löschen";
+    $("accountManageDescription").textContent=action==="password"
+      ? "Nach dem Speichern musst du dich erneut anmelden. Andere Sitzungen werden beendet."
+      : "Alle gespeicherten Chats und dieses lokale Konto werden endgültig gelöscht.";
+    $("accountNewPasswordGroup").hidden=action!=="password";
+    $("accountNewPassword").required=action==="password";
+    $("accountManageSubmit").textContent=action==="password"
+      ? "Passwort ändern" : "Konto endgültig löschen";
+    $("accountManageError").textContent="";
+    $("accountCurrentPassword").value="";
+    $("accountNewPassword").value="";
+    manageDialog.showModal();
+    $("accountCurrentPassword").focus();
+  }
+
+  $("changePassword").addEventListener("click",()=>openAccountSettings("password"));
+  $("deleteAccount").addEventListener("click",()=>openAccountSettings("delete"));
+  $("accountManageCancel").addEventListener("click",()=>{
+    manageDialog.close();
+    $("accountCurrentPassword").value="";
+    $("accountNewPassword").value="";
+  });
+  manageForm.addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(!username || !manageAction)return;
+    const current=$("accountCurrentPassword").value;
+    const action=manageAction;
+    const body=action==="password"
+      ? {current_password:current,new_password:$("accountNewPassword").value}
+      : {password:current};
+    if(action==="delete"&&!window.confirm(
+        "Konto und gespeicherte Chats dauerhaft löschen? Dieser Vorgang kann nicht rückgängig gemacht werden."
+    ))return;
+    $("accountManageSubmit").disabled=true;
+    $("accountManageError").textContent="";
+    try {
+      const endpoint=action==="password"
+        ? "/api/neral/account/password" : "/api/neral/account";
+      const result=await mutate(endpoint,action==="password"?"POST":"DELETE",body);
+      csrf=result.csrf;
+      window.dispatchEvent(new CustomEvent("neral:account-csrf",{detail:{csrf}}));
+      username=null;activeId=null;turns=[];
+      clearChat();authUi();
+      $("accountSettings").open=false;
+      manageDialog.close();
+      $("accountCurrentPassword").value="";
+      $("accountNewPassword").value="";
+      $("error").textContent=action==="password"
+        ? "Passwort geändert. Bitte neu anmelden."
+        : "Lokales Konto und gespeicherte Chats gelöscht.";
+    } catch(e) {
+      $("accountManageError").textContent=e.message||"Änderung fehlgeschlagen.";
+    } finally {
+      $("accountManageSubmit").disabled=false;
+    }
   });
   initialize();
 })();
