@@ -105,7 +105,8 @@ def generate_hard_cases(seed: int) -> list[dict]:
             "orders exist? Return one integer.", count))
 
         xor_bit = rng.randint(0, 1)
-        threshold = rng.randint(2, 5)
+        # Six distinct Boolean problem variants; avoid duplicate prompts.
+        threshold = index + 1
         def consistent(bits):
             A, B, C, D, E, F, G = bits
             return ((A ^ C ^ F) == xor_bit and
