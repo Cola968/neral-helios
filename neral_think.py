@@ -66,18 +66,18 @@ _HIGH_REVIEW_FEEDBACK = (
 # cannot prove semantic accuracy; reject it if it deletes clearly requested
 # code fences or turns valid requested JSON into prose.
 _CODE_REQUEST = re.compile(
-    r"\\b(?:schreibe|schreib|erstelle|implementiere|implementier|erzeuge|"
-    r"write|create|implement)\\b[^.\\n]{0,130}"
-    r"\\b(?:python|code|funktion|function|script|javascript|typescript|js|programm)\\b",
+    r"\b(?:schreibe|schreib|erstelle|implementiere|implementier|erzeuge|"
+    r"write|create|implement)\b[^.\n]{0,130}"
+    r"\b(?:python|code|funktion|function|script|javascript|typescript|js|programm)\b",
     re.IGNORECASE,
 )
 _JSON_ONLY_REQUEST = re.compile(
-    r"\\b(?:nur|ausschließlich|only|als|as|gültigem|gültiges|valid)\\b"
-    r"[^.\\n]{0,60}\\bjson\\b"
-    r"|\\bjson\\b[^.\\n]{0,60}\\b(?:nur|ausschließlich|only)\\b",
+    r"\b(?:nur|ausschließlich|only|als|as|gültigem|gültiges|valid)\b"
+    r"[^.\n]{0,60}\bjson\b"
+    r"|\bjson\b[^.\n]{0,60}\b(?:nur|ausschließlich|only)\b",
     re.IGNORECASE,
 )
-_FENCE = re.compile(r"[ \\t]*```([A-Za-z0-9_+-]{0,25})[ \\t]*")
+_FENCE = re.compile(r"[ \t]*```([A-Za-z0-9_+-]{0,25})[ \t]*")
 
 
 def _code_fence_languages(reply: str) -> tuple[str, ...]:
