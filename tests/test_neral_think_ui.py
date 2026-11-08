@@ -11,7 +11,7 @@ class ThinkUIContracts(unittest.TestCase):
         html = (ROOT / "templates/index.html").read_text(encoding="utf8")
         self.assertIn('id="neralLocalChatThink"', html)
         self.assertIn('type="checkbox"', html)
-        self.assertIn('THINK', html)
+        self.assertIn('HIGH', html)
 
     def test_fast_default_and_think_are_both_accessible(self):
         js = (ROOT / "static/neral-local-chat.js").read_text(encoding="utf8")
