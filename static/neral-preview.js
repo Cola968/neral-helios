@@ -517,7 +517,7 @@
         ? "NERAL HIGH · Endwert geprüft" : mode==="think"
         ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
       if(typeof result.model==="string" &&
-         /^(?:qwen3:8b|qwen3\\.5:9b)$/.test(result.model))
+         /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
         origin+=" · Modell "+result.model;
       if(sources.length) origin+=" · mit Suchtreffern";
       if(selectedAttachments.length) {
