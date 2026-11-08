@@ -62,19 +62,30 @@ class OllamaLocalBackend:
         # Agent tool selection needs strict JSON. Serialize with chat requests
         # so one local model is not forced into concurrent GPU generations.
         with self._inference_lock:
-            return self._respond(messages, require_json=True)
+            return self._respond(messages, require_json=True, thinking=False)
 
     def respond_chat(self, messages: list[dict]) -> str:
-        # Conversations are prose, not forced JSON. Use the same inference lock.
+        # FAST: avoid spending the 512-token tool budget on internal thinking.
+        # Explicitly disable it; Qwen3 family defaults otherwise vary by tag.
         with self._inference_lock:
-            return self._respond(messages, require_json=False)
+            return self._respond(messages, require_json=False, thinking=False)
 
-    def _respond(self, messages: list[dict], *, require_json: bool) -> str:
+    def respond_think(self, messages: list[dict]) -> str:
+        # Separate, opt-in local reasoning channel. Do not return raw thoughts.
+        with self._inference_lock:
+            return self._respond(messages, require_json=False, thinking=True)
+
+    def _respond(self, messages: list[dict], *, require_json: bool,
+                 thinking: bool = False) -> str:
+        if require_json and thinking:
+            raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
+        budget = 512 if require_json else (2048 if thinking else 1024)
         request_data = {
             "model": self.model,
             "messages": messages,
+            "think": thinking,
             "stream": False,
-            "options": {"temperature": 0, "num_predict": 512},
+            "options": {"temperature": 0, "num_predict": budget, "num_ctx": 4096},
             "keep_alive": "5m",
         }
         if require_json:
@@ -85,14 +96,19 @@ class OllamaLocalBackend:
         # The proxy handler is explicitly disabled. No cloud inference fallback.
         opener = local_only_opener()
         try:
-            with opener.open(request, timeout=self.timeout) as response:
+            with opener.open(request, timeout=90.0 if thinking else self.timeout) as response:
                 raw = response.read(128 * 1024 + 1)
             if len(raw) > 128 * 1024:
                 raise AgentModelError("Modellantwort zu groß.")
             packet = json.loads(raw)
+            # A forced max-token stop is never a completed response, even
+            # when a plausible answer is embedded in the partial content.
+            if packet.get("done", True) is not True or packet.get("done_reason", "stop") != "stop":
+                raise AgentModelError("Lokale Antwort wurde nicht vollständig abgeschlossen.")
             answer = packet["message"]["content"]
             if not isinstance(answer, str) or not answer.strip():
                 raise AgentModelError("Leere Modellantwort.")
+            # Deliberately do not expose message.thinking to HTTP clients.
             return answer
         except (OSError, KeyError, ValueError, TypeError, urllib.error.URLError) as exc:
             raise AgentModelError("Lokales Modell nicht erreichbar oder Antwort ungültig.") from exc
