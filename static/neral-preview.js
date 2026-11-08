@@ -492,7 +492,8 @@
       const create=browser.NeralLiveStream?.createPainter;
       if(typeof create==="function")painter=create(partialBody,{
         signal,
-        isCurrent:()=>activeRequest===controller&&startedEpoch===conversationEpoch
+        isCurrent:()=>activeRequest===controller&&startedEpoch===conversationEpoch,
+        onPaint:()=>{messages.scrollTop=messages.scrollHeight;}
       });
     }
     try {
