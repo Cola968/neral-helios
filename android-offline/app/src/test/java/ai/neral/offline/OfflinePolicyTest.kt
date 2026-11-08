@@ -23,6 +23,15 @@ class OfflinePolicyTest {
         assertFalse(OfflineModel.isPlausibleSize(3_000_000_000))
     }
 
+    @Test fun `official model checksum is pinned and corrupt GGUF is rejected`() {
+        assertEquals(64, OfflineModel.EXPECTED_SHA256.length)
+        val f = java.io.File.createTempFile("neral-corrupt-", ".gguf")
+        try {
+            f.writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46, 0x00))
+            assertFalse(OfflineModel.isVerified(f))
+        } finally { f.delete() }
+    }
+
     @Test fun `conversation window keeps latest exchanges and bounds input`() {
         val turns=(1..25).map { ChatTurn(if(it%2==0) "assistant" else "user", "x".repeat(1000)+it) }
         val clipped=OfflineModel.window(turns)
