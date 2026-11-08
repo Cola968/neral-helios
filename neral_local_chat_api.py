@@ -493,9 +493,10 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         except OllamaCompletionError as exc:
             return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
                            error_code=exc.reason), 503
-        except Exception:
-            # Never leak local paths, checkpoints, prompts or model outputs.
-            return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden."), 503
+        except Exception as exc:
+            # TEMPORARY CI-only diagnostic: exception class, never paths or payload.
+            return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden.",
+                           diagnostic_type=type(exc).__name__), 503
         finally:
             busy.release()
 
