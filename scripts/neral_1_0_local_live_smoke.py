@@ -48,6 +48,18 @@ def test_local_release(output: Path):
     if invalid.status_code!=403 or hostile.status_code!=403:
         raise ValueError("Local CSRF/Origin guards failed")
 
+    # A direct identity question is answered from real backend metadata, not
+    # sampled from Qwen; this must not pretend that a NERAL-LoRA is loaded.
+    identity=client.post("/api/neral/chat/generate",base_url=HOST,headers=hdr,
+        json={"prompt":"Wer bist du?"})
+    if (identity.status_code!=200 or
+            identity.json.get("model")!=NAME or
+            identity.json.get("model_generated") is not False or
+            identity.json.get("tool_used")!="neral_model_provenance" or
+            identity.json.get("adapter_loaded") is not False or
+            "kein NERAL-LoRA-Adapter" not in identity.json.get("text","")):
+        raise ValueError("REAL local foundation identity/provenance smoke failed")
+
     fast=client.post("/api/neral/chat/generate",base_url=HOST,headers=hdr,
        json={"prompt":"Wie heißt die Hauptstadt von Deutschland? Antworte kurz."})
     if (fast.status_code!=200 or
@@ -80,6 +92,7 @@ def test_local_release(output: Path):
         "exact_numeric_result_checked":True,
         "csrf_and_origin_blocked":True,
         "foundation_provenance_preserved":True,
+        "model_identity_runtime_verified":True,
         "legacy_50m_required":False,
         "raw_prompts_or_responses_included":False,
         "independent_model_intelligence_proven":False,

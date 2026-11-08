@@ -68,6 +68,28 @@ class PreviewStandaloneTests(unittest.TestCase):
         self.assertEqual(think.json["text"],"Eine kurze Erklärung.")
         self.assertEqual([item[0] for item in self.model.calls],["fast","think"])
 
+    def test_identity_response_uses_live_backend_not_model_self_claim(self):
+        """A greeting cannot hallucinate a NERAL-LoRA adapter in Qwen-only 1.0."""
+        headers=self.login()
+        for mode, question in [
+            ("generate", "Wer bist du?"),
+            ("generate", "Stell dich bitte vor."),
+            ("think", "Welches Modell verwendest du?"),
+        ]:
+            response=self.client.post("/api/neral/chat/"+mode,
+                json={"prompt":question},headers=headers,
+                base_url="http://127.0.0.1:9690")
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json["model"],"qwen3:8b")
+            self.assertEqual(response.json["model_origin"],
+                             "local_foundation_not_neral_adapter")
+            self.assertFalse(response.json["adapter_loaded"])
+            self.assertFalse(response.json["model_generated"])
+            self.assertEqual(response.json["tool_used"],"neral_model_provenance")
+            self.assertIn("qwen3:8b",response.json["text"])
+            self.assertIn("kein NERAL-LoRA-Adapter",response.json["text"])
+        self.assertEqual(self.model.calls,[])
+
     def test_origin_and_csrf_and_host_fail_closed(self):
         payload={"prompt":"Was ist ein Planet?"}
         no_session=self.client.post("/api/neral/chat/generate",json=payload,
