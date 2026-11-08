@@ -1,8 +1,8 @@
 """NERAL BahnConnections widget: bound external lookup and truthful travel results."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest import TestCase
 from unittest.mock import patch
-from neral_bahnconnections import plan_journeys, normalize_journey, station_for_name, provider_base
+from neral_bahnconnections import plan_journeys, normalize_journey, station_for_name, provider_base, _departure, DE
 
 def leg():
     return {
@@ -80,6 +80,16 @@ class RailRouteSecurityTests(TestCase):
         self.assertIn("nicht erreichbar",response.json["error"])
 
 class BahnJourneyTests(TestCase):
+    def test_unspecified_day_after_past_clock_time_uses_next_day(self):
+        # A user asking "ab 8 Uhr" at 18:00 expects the next 08:00, not 10 h ago.
+        fixed_now=datetime(2026,11,8,18,35,tzinfo=DE)
+        with patch("neral_bahnconnections.datetime") as mocked:
+            mocked.now.return_value=fixed_now
+            later=_departure({"time":"08:00"})
+        actual=datetime.fromisoformat(later)
+        self.assertEqual(actual.date(),(fixed_now+timedelta(days=1)).date())
+        self.assertEqual((actual.hour,actual.minute),(8,0))
+
     def test_curated_station_is_a_grounded_station(self):
         x=station_for_name("Berlin Hauptbahnhof")
         self.assertEqual(x["name"],"Berlin Hbf")
