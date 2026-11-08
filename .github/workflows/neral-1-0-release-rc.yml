@@ -26,10 +26,18 @@ on:
       - 'scripts/neral_1_0_local_live_smoke.py'
       - 'solve.py'
       - 'static/neral-preview.css'
+      - 'static/neral-smart-ui.css'
+      - 'static/neral-smart-ui.js'
+      - 'static/neral-dynamic-ui.css'
+      - 'static/neral-dynamic-ui.js'
+      - 'static/neral-dynamic-widgets.js'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/test_neral_smart_ui.cjs'
+      - 'tests/test_neral_dynamic_ui.cjs'
+      - 'tests/test_neral_dynamic_ui_api.py'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -66,10 +74,18 @@ on:
       - 'scripts/neral_1_0_local_live_smoke.py'
       - 'solve.py'
       - 'static/neral-preview.css'
+      - 'static/neral-smart-ui.css'
+      - 'static/neral-smart-ui.js'
+      - 'static/neral-dynamic-ui.css'
+      - 'static/neral-dynamic-ui.js'
+      - 'static/neral-dynamic-widgets.js'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/test_neral_smart_ui.cjs'
+      - 'tests/test_neral_dynamic_ui.cjs'
+      - 'tests/test_neral_dynamic_ui_api.py'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -111,6 +127,11 @@ jobs:
       - name: Syntax and browser JS
         run: python -m py_compile neral_preview_server.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
       - run: node --check static/neral-preview.js
+      - run: node --check static/neral-smart-ui.js
+      - run: node --check static/neral-dynamic-ui.js
+      - run: node --check static/neral-dynamic-widgets.js
+      - run: node --test tests/test_neral_smart_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_1_0_preview_history.cjs
+      - run: python -m unittest discover -s tests -p test_neral_dynamic_ui_api.py -v
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
       - run: node --test tests/test_neral_1_0_voice_client.cjs
