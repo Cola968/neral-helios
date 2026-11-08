@@ -65,14 +65,14 @@
 
   // Opting into web access does not make every greeting a search task.
   function skipWebForLocalBasics(question) {
-    const plain=question.toLowerCase().replace(/[!?.,:;]/g," ").replace(/\\s+/g," ").trim();
+    const plain=question.toLowerCase().replace(/[!?.,:;]/g," ").replace(/\s+/g," ").trim();
     return /^(hallo|hi|hey|guten tag|guten morgen|guten abend|wer bist du|wie heißt du|wie heisst du|welches modell bist du|welches modell verwendest du|nein wie heißt du welches modell bist du|nein wie heisst du welches modell bist du|wie heißt du welches modell bist du)$/.test(plain)
       || /^was ist die hauptstadt von [a-zäöüß -]+$/.test(plain);
   }
   function relevantSearchResult(question,hit) {
     if(!hit || typeof hit.title!=="string" || typeof hit.url!=="string")return false;
     const terms=text=>(String(text||"").toLowerCase().normalize("NFKD")
-      .replace(/[\\u0300-\\u036f]/g,"").match(/[a-z0-9]{4,}/g)||[]);
+      .replace(/[\u0300-\u036f]/g,"").match(/[a-z0-9]{4,}/g)||[]);
     const stop=new Set(["welche","welches","welcher","einem","einer","einen",
        "oder","diese","dieser","what","which","where","about","eine","eines",
        "sind","wird","werden","kann","this","that","from","with","uber"]);
