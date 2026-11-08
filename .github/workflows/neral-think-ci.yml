@@ -13,6 +13,8 @@ on:
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_1_0_high_depth.py'
+      - 'tests/test_neral_low_high_quality.py'
+      - 'scripts/neral_low_high_quality.py'
       - 'tests/test_neral_logic_engine.py'
       - 'tests/test_neral_logic_transfer.py'
       - 'tests/test_neral_think_exact_domains.py'
@@ -33,6 +35,8 @@ on:
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_1_0_high_depth.py'
+      - 'tests/test_neral_low_high_quality.py'
+      - 'scripts/neral_low_high_quality.py'
       - 'tests/test_neral_logic_engine.py'
       - 'tests/test_neral_logic_transfer.py'
       - 'tests/test_neral_think_exact_domains.py'
@@ -64,6 +68,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_think.py -v
       - name: Test real HIGH second-pass review and safe fallbacks
         run: python -m unittest discover -s tests -p test_neral_1_0_high_depth.py -v
+      - name: Paired LOW/HIGH quality-gate regression
+        run: python -m unittest discover -s tests -p test_neral_low_high_quality.py -v
       - name: Verify bounded independent logical reasoning (CPU only)
         run: python -m unittest discover -s tests -p test_neral_logic_engine.py -v
       - name: Verify transfer logic on 256 unseen-parameter cases, hostile inputs and THINK
