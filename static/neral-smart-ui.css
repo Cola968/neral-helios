@@ -66,11 +66,11 @@ svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-wi
 .welcome p{font-size:13px;margin:0;color:var(--muted)}
 .message{max-width:100%;border:0;background:none;padding:0;white-space:normal;overflow-wrap:anywhere;line-height:1.72}
 .message strong{display:block;font-size:11px;text-transform:none;letter-spacing:0;font-weight:600;color:var(--muted);margin-bottom:5px}
-.message p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.75;margin:0}
+.message .message-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.75;margin:0}
 .message.user{align-self:flex-end;max-width:85%;background:var(--soft);border-radius:14px;padding:11px 16px}
 .message.user strong{display:none}
 .message.assistant{align-self:stretch;background:none;border:0;max-width:100%;padding:0}
-.message.assistant p{color:var(--text)}
+.message.assistant .message-body{color:var(--text)}
 .smart-answer-actions{display:flex;gap:10px;margin-top:10px}
 .smart-answer-actions button{font-size:12px;color:var(--muted);border-radius:7px;padding:6px 8px}
 .smart-answer-actions button:hover{color:var(--text);background:var(--soft)}
