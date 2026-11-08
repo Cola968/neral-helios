@@ -74,10 +74,13 @@
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       }
       append("user",text);
-      const verified=result.verified===true&&result.verification_scope==="numeric_final_only";
-      const origin=result.model_generated===false&&result.tool_used ? "NERAL · lokal geprüft" :
-                   verified ? "NERAL THINK · Endwert geprüft" :
-                   mode==="think" ? "NERAL THINK · ungeprüft" : "NERAL FAST";
+      const verified=result.verified===true&&
+        ["numeric_final_only","logic_integer","code_trace_integer"].includes(result.verification_scope);
+      const origin=result.tool_used==="neral_model_provenance" ? "NERAL · Laufzeitstatus" :
+                   verified ? "NERAL HIGH · Endwert geprüft" :
+                   result.model_generated===false&&result.tool_used ? "NERAL · exakt berechnet" :
+                   mode==="think"&&result.review_passes===1 ? "NERAL HIGH · 2 Durchläufe, nicht verifiziert" :
+                   mode==="think" ? "NERAL HIGH · nicht verifiziert" : "NERAL LOW";
       append("assistant",result.text,origin);
       memory.push({role:"user",content:text},{role:"assistant",content:result.text});
       if(memory.length>12) memory.splice(0,memory.length-12);
