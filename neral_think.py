@@ -36,7 +36,9 @@ _THINK_SUFFIX = (
     "ohne Werkzeuge, Tests oder externe Quellen zu erfinden. "
     "Bei einer einzelnen numerischen Antwort beende die Ausgabe mit "
     "'FINAL: <Ergebnis>' bzw. 'FINAL: x = <Ergebnis>'. "
-    "Setze diese Markierung nur für eine eindeutige Endantwort. "
+    "Setze diese Markierung nur für eine ausdrücklich numerische Einzelaufgabe. "
+    "Für Erklärungen, Lerntexte, Aufzählungen oder Beispiele niemals "
+    "eine künstliche FINAL-Zeile ergänzen. "
     "Prüfe intern Annahmen, Gegenbeispiele und mögliche Rechenfehler; "
     "nenne Unsicherheit statt eine unbelegte Behauptung zu erfinden."
 )
@@ -149,6 +151,31 @@ def _stale_previous_answer(messages: list[dict], candidate: str) -> bool:
             and len(new_words) >= 10
             and len(old_words & new_words) / len(old_words) >= 0.82
             and len(fresh_text) <= len(old_text) * 1.5)
+
+
+def _without_spurious_final(question: str, answer: str) -> str:
+    """Remove an unrelated numeric FINAL footer from a long explanation.
+
+    Never change an explicit calculation, a user-requested FINAL marker,
+    or the verified numeric-oracle path. This is presentational cleanup,
+    not a claim that the remaining explanation is fact-checked.
+    """
+    if (len(answer) < 220 or not isinstance(question, str) or
+            re.search(r"\\b(?:final|berechne|berechnen|solve|calculate|rechne|bestimme)\\b",
+                      question, re.IGNORECASE)):
+        return answer
+    rows = answer.rstrip().splitlines()
+    if len(rows) < 5:
+        return answer
+    footer = rows[-1].strip()
+    if re.fullmatch(
+        r"(?:\\*\\*)?FINAL(?:_ANSWER)?:\\s*(?:x\\s*=\\s*)?"
+        r"[-+]?\\d+(?:[.,]\\d+)?(?:\\s*[A-Za-zΩ]+)?(?:\\*\\*)?",
+        footer, re.IGNORECASE
+    ) is None:
+        return answer
+    return "\\n".join(rows[:-1]).rstrip()
+
 
 
 class ThinkInputError(ValueError):
@@ -340,8 +367,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
             second_turns = turns + [
                 {"role": "assistant", "content": raw},
                 {"role": "user", "content": _HIGH_REVIEW_FEEDBACK
-                 + "\\nAKTUELLE FRAGE: " + current_question
-                 + "\\nBeantworte ausschließlich diese aktuelle Frage."},
+                 + "\nAKTUELLE FRAGE: " + current_question
+                 + "\nBeantworte ausschließlich diese aktuelle Frage."},
             ]
             used += 1
             try:
@@ -411,7 +438,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
                           else "neral_math_exact"),
         }
     return {
-        **common, "text": raw, "model_generated": True,
-        "verified": False, "verification_status": "not_available",
+        **common, "text": _without_spurious_final(messages[-1]["content"], raw),
+        "model_generated": True, "verified": False,
+        "verification_status": "not_available",
         "final_answer": extracted,
     }
