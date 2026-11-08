@@ -43,15 +43,14 @@
       const group=!Number.isFinite(stamp.getTime())?"Früher":
         dayKey(stamp)===currentDay?"Heute":
         dayKey(stamp)===previousDay?"Gestern":"Früher";
-      if(group!==currentGroup){
-        const heading=document.createElement("div");
-        heading.className="sidebar-chat-date";
-        heading.textContent=group;
-        list.append(heading);
-        currentGroup=group;
-      }
       const row=document.createElement("div");
       row.className="saved-chat-row";
+      // Keep saved-chat rows as direct list children for account navigation.
+      // The heading is a CSS pseudo-element, not a fake chat item.
+      if(group!==currentGroup){
+        row.setAttribute("data-group",group);
+        currentGroup=group;
+      }
       const button=document.createElement("button");
       button.type="button";
       button.className="saved-chat-open";
@@ -160,14 +159,7 @@
     const term=searchInput.value.trim().toLocaleLowerCase("de");
     for(const row of list.querySelectorAll(".saved-chat-row"))
       row.hidden=!row.querySelector(".saved-chat-open").textContent.toLocaleLowerCase("de").includes(term);
-    for(const heading of list.querySelectorAll(".sidebar-chat-date")){
-      let node=heading.nextElementSibling,hasVisible=false;
-      while(node&&!node.classList.contains("sidebar-chat-date")){
-        if(node.classList.contains("saved-chat-row")&&!node.hidden)hasVisible=true;
-        node=node.nextElementSibling;
-      }
-      heading.hidden=!hasVisible;
-    }
+
   }
   searchInput.addEventListener("input",applyFilter);
   window.addEventListener("neral:turn-complete",event=>{
