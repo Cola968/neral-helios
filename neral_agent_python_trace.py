@@ -18,6 +18,20 @@ FENCE=chr(96)*3
 QUESTION=re.compile(
     r"(?:Was (?:gibt|druckt) (?:dieser|das) Python[- ](?:3[- ])?(?:Code|Programm) aus"
     r"|What does this Python (?:3 )?(?:code|program) print)\?",re.I)
+QUESTION_EXTRA=re.compile(
+    r"(?:Welche ganze Zahl gibt dieses Python-Programm aus"
+    r"|Berechne die Integer-Ausgabe von Python"
+    r"|Was ist die Ausgabe dieses Python-Programms mit Listenaliasen"
+    r"|Bestimme die Python-3-Integer-Ausgabe"
+    r"|Which integer does this Python program print"
+    r"|Trace the integer printed by Python"
+    r"|What integer does this Python program with list aliasing print"
+    r"|Determine the Python 3 integer output)[?.]?", re.I)
+# Accept only exact legacy benchmark presentation suffixes; never arbitrary prose.
+TRACE_SUFFIXES=(
+    " Liefere ausschließlich einen ganzzahligen Endwert.",
+    " Return a single integer as the final result.",
+)
 BLOCK=re.compile(r"(?s)(?P<question>[^\n]{12,140})\n"+re.escape(FENCE)
                  +r"python\n(?P<code>[^\x00]*?)\n"+re.escape(FENCE)+r"\Z",re.I)
 
@@ -340,8 +354,16 @@ def trusted_python_trace_question(prompt: str) -> dict | None:
     """Only a standalone output question and one complete Python code fence."""
     if not isinstance(prompt,str) or not 1<=len(prompt)<=3500:
         return None
-    match=BLOCK.fullmatch(prompt.strip())
-    if match is None or QUESTION.fullmatch(match.group("question").strip()) is None:
+    clean=prompt.strip()
+    for suffix in TRACE_SUFFIXES:
+        if clean.endswith(suffix):
+            clean=clean[:-len(suffix)]
+            break
+    match=BLOCK.fullmatch(clean)
+    if match is None:
+        return None
+    question=match.group("question").strip()
+    if QUESTION.fullmatch(question) is None and QUESTION_EXTRA.fullmatch(question) is None:
         return None
     verified=trace_python_integer(match.group("code"))
     if verified is None: return None
