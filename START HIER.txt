@@ -8,6 +8,17 @@ NERAL 1.0 LOCAL – START HIER (WINDOWS)
    Beim ersten Start fragt NERAL, ob die benoetigten Python-Webserverpakete
    in einer eigenen Umgebung installiert werden duerfen. Bei Zustimmung J eingeben.
 
+OPTIONAL: STAERKERER MODUS (EXP. QWEN3.5)
+Wenn qwen3.5:9b bereits mit ollama list installiert ist, kannst du
+stattdessen "Start NERAL 1.0 Stark.cmd" doppelklicken.
+Dies nutzt qwen3.5:9b im gemessenen 2048-Token-Profil, unveraendertes
+lokales Modell, kein Download. Die neue Vergleichsmessung ergab 31/36
+richtige Antworten mit Qwen3.5 gegenueber 13/36 mit Qwen3:8B
+auf 36 randomisierten ENTWICKLUNGSAUFGABEN (kein echter Blindtest).
+Vier Qwen3.5-Antworten wurden nicht vollstaendig abgeschlossen.
+Der normale Start bleibt jederzeit verfuegbar. Nur EINEN Starter
+gleichzeitig ausfuehren; vor einem Wechsel die alte App beenden.
+
 3. NERAL oeffnet sich automatisch im Browser.
    Dort kannst du bei Bedarf unter Anmelden ein lokales Konto erstellen.
 
