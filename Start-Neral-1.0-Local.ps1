@@ -2,6 +2,7 @@ param(
     [ValidateSet('qwen3:8b','qwen3.5:9b')]
     [string]$Model='qwen3:8b',
     [switch]$CheckOnly,
+    [switch]$PrepareOnly,
     [switch]$NoBrowser
 )
 $ErrorActionPreference='Stop'
@@ -40,20 +41,40 @@ try {
 } finally {
     $socket.Dispose()
 }
-$preferred=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
-if(Test-Path -LiteralPath $preferred -PathType Leaf){
-    $py=$preferred
-}else{
-    $candidate=Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if(-not $candidate){throw 'Python fehlt. Python 3.12 mit Flask und Waitress wird benoetigt.'}
-    $py=$candidate.Source
-}
-& $py -B -c 'import sys,flask,waitress; assert sys.version_info >= (3,11)'
-if($LASTEXITCODE -ne 0){
-    throw 'Python-Abhaengigkeiten fehlen. Einmalig bewusst installieren: python -m pip install -r requirements-neral-preview.txt'
-}
+# Isolation: use a dedicated preview venv. Never install Flask/Waitress
+# into the local QLoRA training environment or the system Python.
 $state=Join-Path $PSScriptRoot 'local_state'
 New-Item -ItemType Directory -Path $state -Force | Out-Null
+$venv=Join-Path $state 'preview-venv'
+$py=Join-Path $venv 'Scripts\python.exe'
+if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+    if(Test-Path -LiteralPath $venv){
+        throw 'Die lokale Preview-Python-Umgebung ist unvollstaendig. Ordner local_state/preview-venv nach Backup pruefen.'
+    }
+    $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+    if(-not(Test-Path -LiteralPath $base -PathType Leaf)){
+        $candidate=Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if(-not $candidate){throw 'Python 3.11+ fehlt. Bitte Python installieren.'}
+        $base=$candidate.Source
+    }
+    if($env:NERAL_PREVIEW_INSTALL_CONSENT -ne '1'){
+        Write-Host 'NERAL benoetigt einmalig Flask und Waitress aus PyPI (Internet). Keine Modelle werden heruntergeladen.' -ForegroundColor Yellow
+        $consent=Read-Host 'Isolierte Python-Webserverumgebung anlegen und Pakete installieren? (J/N)'
+        if($consent -notin @('J','j','Ja','ja')){
+            throw 'Installation nicht freigegeben; vorhandene Trainingsumgebung bleibt unveraendert.'
+        }
+    }
+    & $base -B -m venv $venv
+    if($LASTEXITCODE -ne 0){throw 'Isolierte Preview-Python-Umgebung konnte nicht erstellt werden.'}
+    & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $PSScriptRoot 'requirements-neral-preview.txt')
+    if($LASTEXITCODE -ne 0){throw 'Installation der Webserverpakete fehlgeschlagen. Keine Aenderung an Trainingsgewichten.'}
+}
+& $py -B -c 'import sys,flask,waitress; assert sys.version_info >= (3,11)'
+if($LASTEXITCODE -ne 0){throw 'Preview-Python ist unvollstaendig. Nur local_state/preview-venv pruefen.'}
+if($PrepareOnly){
+    Write-Host 'NERAL Preview: isolierte Python-Abhaengigkeiten sind installiert. Kein Server gestartet.'
+    return
+}
 $err=Join-Path $state 'neral-preview-error.log'
 $out=Join-Path $state 'neral-preview.log'
 Write-Host "NERAL 1.0 Local Preview: $Model (local_foundation, kein freigegebener NERAL-LoRA-Adapter)." -ForegroundColor Cyan
