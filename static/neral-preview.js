@@ -63,7 +63,10 @@
     const heading=document.createElement("strong");
     heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
     const body=document.createElement("p");
-    if(role==="assistant")renderReadableModelText(body,text);
+    if(role==="assistant"){
+      renderReadableModelText(body,text);
+      browser.NeralMath?.render(body);
+    }
     else body.textContent=text; // All text remains inert, never model-controlled HTML.
     item.append(heading,body);
     if(role==="assistant") {
@@ -597,7 +600,11 @@
       if(ui && typeof ui.plan==="function" && typeof ui.mount==="function"){
         try{
           const spec=ui.plan({prompt:text,text:result.text,result});
-          if(spec)ui.mount(answerNode,spec);
+          if(spec && ui.mount(answerNode,spec) && spec.kind==="table" &&
+             browser.NeralMath &&
+             typeof browser.NeralMath.hideRedundantMarkdownTable==="function")
+            browser.NeralMath.hideRedundantMarkdownTable(
+              answerNode,result.text,renderReadableModelText);
         }catch{/* Keep the original text answer. */}
       }
       // Only successfully received, current local chat answers are offered
