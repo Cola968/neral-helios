@@ -81,7 +81,7 @@ class ChatReauditTests(unittest.TestCase):
             base_url=HOST, headers=headers, content_type="multipart/form-data",
             data={"prompt":"Analysiere die Anhänge.", "history":json.dumps(history),
                 "mode":"generate", "files":[
-                    (BytesIO(b"\x89PNG\\r\\n\x1a\\n" + b"image-bytes"), "kreis.png")
+                    (BytesIO(b"\x89PNG\r\n\x1a\n" + b"image-bytes"), "kreis.png")
                 ]})
         self.assertEqual(reply.status_code, 200, reply.get_json())
         self.assertEqual(len(low.calls), 1)
@@ -103,7 +103,7 @@ class ChatReauditTests(unittest.TestCase):
             base_url=HOST, headers=headers, content_type="multipart/form-data",
             data={"prompt":"Wie passt dieses Bild zur vorherigen Erklärung?",
                   "history":json.dumps(history), "mode":"generate",
-                  "files":[(BytesIO(b"\x89PNG\\r\\n\x1a\\n" + b"image-bytes"), "strom.png")]})
+                  "files":[(BytesIO(b"\x89PNG\r\n\x1a\n" + b"image-bytes"), "strom.png")]})
         self.assertEqual(reply.status_code, 200, reply.get_json())
         turns = low.calls[0]
         self.assertEqual(len(turns), 4)
