@@ -1,0 +1,87 @@
+name: NERAL Windows GPU memory attribution (read-only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_gpu_windows_memory.py'
+      - 'tests/test_neral_gpu_windows_memory.py'
+      - '.github/workflows/neral-gpu-windows-memory.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_gpu_windows_memory.py'
+      - 'tests/test_neral_gpu_windows_memory.py'
+      - '.github/workflows/neral-gpu-windows-memory.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'Exact read-only authorization: AUDIT_NERAL_WINDOWS_GPU_PROCESS_MEMORY_READONLY'
+permissions:
+  contents: read
+jobs:
+  cpu-contracts:
+    if: github.event_name != 'workflow_dispatch'
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Guard privacy-safe read-only GPU process attribution
+        run: python -B -m unittest discover -s tests -p test_neral_gpu_windows_memory.py -v
+  read-only-windows-probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.authorize == 'AUDIT_NERAL_WINDOWS_GPU_PROCESS_MEMORY_READONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    # Deliberately NO GPU exclusivity lock: nvidia-smi and read-only Windows
+    # counters do not load weights or alter GPU processes, even while training.
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          clean: true
+          persist-credentials: false
+          path: control
+      - name: Read-only process-memory contracts in local pinned Python
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'control'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Local Python unavailable'}
+          Push-Location $root
+          try {
+            $env:PYTHONPATH=$root
+            & $python -B -m unittest discover -s tests -p test_neral_gpu_windows_memory.py -v
+            if($LASTEXITCODE -ne 0){throw 'Read-only privacy contracts failed'}
+          } finally {Pop-Location}
+      - name: Report numeric GPU capacity and sanitized category estimates only
+        run: |
+          $ErrorActionPreference='Stop'
+          $raw=& nvidia-smi --query-gpu=memory.free,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU counters unavailable'}
+          $pieces=($raw|Select-Object -First 1)-split ','
+          if($pieces.Count -ne 4){throw 'Unexpected capacity output'}
+          $nums=@($pieces|ForEach-Object{[int]$_.Trim()})
+          Write-Host "NERAL_GPU_NUMERIC_MIB free=$($nums[0]) used=$($nums[1]) total=$($nums[2]) util=$($nums[3])"
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'control'
+          Push-Location $root
+          try {
+            $env:PYTHONPATH=$root
+            & $python -B -m scripts.neral_gpu_windows_memory
+            if($LASTEXITCODE -ne 0){throw 'Sanitized GPU process attribution failed'}
+          } finally {Pop-Location}
