@@ -22,6 +22,7 @@ REQUIRED_FILES = (
     "solve.py",
     "neral_local_chat_api.py",
     "neral_bahnconnections.py",
+    "neral_transitous_fallback.py",
     "neral_identity.py",
     "neral_agent_math.py",
     "neral_agent_python_trace.py",
