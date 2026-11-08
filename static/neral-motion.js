@@ -65,10 +65,13 @@
     function renderActive(){
       if(!active)return;
       const existing=active.querySelector(".neral-activity-disclosure");
+      const keepOpen=existing?.open===true;
       existing?.remove();
       if(!steps.length)return;
-      active.append(createHistory("neral-activity-disclosure",
-        "Aktivitäten · "+steps.length));
+      const disclosure=createHistory("neral-activity-disclosure",
+        "Aktivitäten · "+steps.length);
+      if(keepOpen)disclosure.open=true;
+      active.append(disclosure);
     }
     window.addEventListener("neral:activity",event=>{
       const phase=event.detail?.phase;
