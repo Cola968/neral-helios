@@ -221,3 +221,63 @@ def register_local_accounts(app):
         with database() as db:
             db.execute("DELETE FROM chats WHERE id=? AND user_id=?", (cid, user[0]))
         return jsonify(deleted=True)
+
+    @app.get("/api/neral/account/export")
+    def export_account():
+        user = auth()
+        if not user:
+            return jsonify(error="Bitte anmelden."), 401
+        with database() as db:
+            rows = db.execute(
+                "SELECT title,messages,updated FROM chats WHERE user_id=? "
+                "ORDER BY updated DESC,id DESC LIMIT ?", (user[0], MAX_CHATS)
+            ).fetchall()
+        response = jsonify(
+            format="NERAL-local-account-export-v1",
+            username=user[1],
+            chats=[{"title":row[0], "messages":json.loads(row[1]),
+                    "updated":row[2]} for row in rows]
+        )
+        response.headers["Content-Disposition"] = 'attachment; filename="neral-chats.json"'
+        return response
+
+    @app.post("/api/neral/account/password")
+    def change_password():
+        user = auth()
+        if not user:
+            return jsonify(error="Bitte anmelden."), 401
+        data = payload()
+        if not isinstance(data, dict) or set(data) != {"current_password", "new_password"}:
+            return jsonify(error="Aktuelles und neues Passwort erforderlich."), 400
+        current, new = data["current_password"], data["new_password"]
+        if (not isinstance(current, str) or not isinstance(new, str)
+                or len(current) > 128 or not 12 <= len(new) <= 128
+                or len(new.encode("utf8")) > 512):
+            return jsonify(error="Ungültige Passwörter."), 400
+        with database() as db:
+            row = db.execute("SELECT password_hash FROM users WHERE id=?",
+                             (user[0],)).fetchone()
+            if row is None or not check_password_hash(row[0], current):
+                return jsonify(error="Aktuelles Passwort stimmt nicht."), 401
+            db.execute("UPDATE users SET password_hash=? WHERE id=?",
+                       (generate_password_hash(new, method="scrypt"), user[0]))
+        rotate(None)
+        return jsonify(changed=True, authenticated=False, csrf=session["csrf"])
+
+    @app.delete("/api/neral/account")
+    def delete_account():
+        user = auth()
+        if not user:
+            return jsonify(error="Bitte anmelden."), 401
+        data = payload()
+        password = data.get("password") if isinstance(data, dict) and set(data) == {"password"} else None
+        if not isinstance(password, str) or len(password) > 128:
+            return jsonify(error="Passwort erforderlich."), 400
+        with database() as db:
+            row = db.execute("SELECT password_hash FROM users WHERE id=?",
+                             (user[0],)).fetchone()
+            if row is None or not check_password_hash(row[0], password):
+                return jsonify(error="Passwort stimmt nicht."), 401
+            db.execute("DELETE FROM users WHERE id=?", (user[0],))
+        rotate(None)
+        return jsonify(deleted=True, authenticated=False, csrf=session["csrf"])
