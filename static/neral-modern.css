@@ -144,7 +144,7 @@ body{background:#fff;color:#222325;font:14px/1.55 system-ui,-apple-system,"Segoe
   list-style:none;border-radius:10px;border:0;color:#5b5e5c;
   font-size:12px;font-weight:500;padding:8px 9px;white-space:nowrap}
 .tools-menu>summary::-webkit-details-marker{display:none}
-.tools-menu>summary:hover,.tools-menu[open]>summary{background:#f3f3f2}
+ .tools-menu>summary:hover,.tools-menu[open]>summary,#extraTools[open]>summary{background:#f3f3f2}
 .tools-panel{position:absolute;z-index:35;bottom:calc(100% + 13px);left:0;
   width:min(305px,calc(100vw - 26px));max-height:min(450px,calc(100dvh - 175px));
   overflow-y:auto;display:flex;flex-direction:column;gap:3px;
