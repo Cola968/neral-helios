@@ -5,7 +5,7 @@ const vm=require("node:vm");
 const fs=require("node:fs");
 const path=require("node:path");
 
-function setup({ready=true,transcript="Hallo NERAL"}={}){
+function setup({ready=true,transcript="Hallo NERAL",reason=""}={}){
   const events=new Map(), elems=new Map(), requests=[], tracks=[], worklets=[], audios=[];
   const element=id=>{
     if(!elems.has(id))elems.set(id,{
@@ -43,7 +43,7 @@ function setup({ready=true,transcript="Hallo NERAL"}={}){
   const fetch=async(url,options={})=>{
     requests.push({url,options});
     if(url.endsWith("/status"))return {ok:true,json:async()=>({
-      stt_ready:ready,tts_ready:ready,ready,execution:"local_cpu",audio_leaves_pc:false})};
+      stt_ready:ready,tts_ready:ready,ready,execution:"local_cpu",audio_leaves_pc:false,reason})};
     if(url.endsWith("/session"))return {ok:true,json:async()=>({csrf:"x".repeat(32)})};
     if(url.endsWith("/transcribe"))return {ok:true,json:async()=>({text:transcript,local_only:true})};
     if(url.endsWith("/speak"))return {ok:true,blob:async()=>({size:420})};
@@ -166,4 +166,15 @@ test("offline voice explains its actual install step on load without touching th
   await flush();
   assert.equal(prepared.micCount(),0);
   assert.match(prepared.element("localVoiceStatus").textContent,/bereit|verfuegbar|verfügbar/i);
+});
+
+test("unsupported frozen EXE shows safe ZIP-only explanation without accessing mic",async()=>{
+  const reason="NERAL.exe hat keine Offline-Sprachpakete. Bitte die ZIP-Version verwenden.";
+  const s=setup({ready:false,reason});
+  await flush();
+  assert.equal(s.element("localVoiceStatus").textContent,reason);
+  assert.equal(s.micCount(),0);
+  await s.events.get("localVoiceStart:click")();
+  assert.equal(s.micCount(),0);
+  assert.equal(s.element("localVoiceStatus").textContent,reason);
 });

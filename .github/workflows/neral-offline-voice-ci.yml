@@ -7,6 +7,7 @@ on:
       - 'static/neral-local-voice.js'
       - 'static/neral-local-voice-worklet.js'
       - 'tests/test_neral_local_voice.py'
+      - 'tests/test_neral_exe_voice_readiness.py'
       - 'tests/test_neral_local_voice_browser.cjs'
       - 'scripts/build_neral_1_0_preview.py'
       - 'Install-Neral-Local-Voice.ps1'
@@ -19,6 +20,7 @@ on:
       - 'static/neral-local-voice.js'
       - 'static/neral-local-voice-worklet.js'
       - 'tests/test_neral_local_voice.py'
+      - 'tests/test_neral_exe_voice_readiness.py'
       - 'tests/test_neral_local_voice_browser.cjs'
       - 'scripts/build_neral_1_0_preview.py'
       - '.github/workflows/neral-offline-voice-ci.yml'
@@ -44,6 +46,8 @@ jobs:
         run: |
           node --check static/neral-local-voice.js
           node --test tests/test_neral_local_voice_browser.cjs
+      - name: Frozen EXE speech honesty and setup link
+        run: python -m unittest discover -s tests -p test_neral_exe_voice_readiness.py -v
       - name: Existing voice and main chat regressions
         run: |
           node --test tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_voice_v2.cjs

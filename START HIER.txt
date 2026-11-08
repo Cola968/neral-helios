@@ -23,6 +23,10 @@ gleichzeitig ausfuehren; vor einem Wechsel die alte App beenden.
    Dort kannst du bei Bedarf unter Anmelden ein lokales Konto erstellen.
 
 LOKALER SPRACHCHAT (EINMALIGE EINRICHTUNG NOTWENDIG)
+- Falls du bisher NERAL.exe benutzt: Die Ein-Klick-EXE enthaelt die
+  optionalen Whisper/Piper-Pakete NICHT. Fuer den vollstaendig lokalen
+  Sprachmodus benoetigst du die entpackte ZIP-Version mit Installer.
+  Das Browser-Mikrofon ist eine getrennte Funktion und kann Cloud-STT nutzen.
 - Der Button "Lokaler Sprachmodus" funktioniert NICHT ohne die Sprachmodelle.
 - Nach dem ersten NERAL-Start: "Install NERAL Voice.cmd" im selben
   entpackten Ordner doppelklicken und J fuer Installation und Download

@@ -221,7 +221,7 @@
       const state=await requestJSON("/api/neral/voice/status");
       if(current!==version)return;
       if(!state.ready||state.execution!=="local_cpu"||state.audio_leaves_pc!==false){
-        say("Offline-Sprachmodelle fehlen · im NERAL-Ordner Install NERAL Voice.cmd starten, dann NERAL neu starten.");
+        say(state.reason || "Offline-Sprachmodelle fehlen · im NERAL-Ordner Install NERAL Voice.cmd starten, dann NERAL neu starten.");
         return;
       }
       if(!navigator.mediaDevices?.getUserMedia)
@@ -287,7 +287,7 @@
        state.audio_leaves_pc===false){
       say("Lokaler Sprachmodus bereit · Mikrofon startet nur nach Klick");
     }else{
-      say("Lokale Sprachmodelle fehlen · Install NERAL Voice.cmd im NERAL-Ordner ausführen, danach NERAL neu starten");
+      say(state.reason || "Lokale Sprachmodelle fehlen · Install NERAL Voice.cmd im NERAL-Ordner ausführen, danach NERAL neu starten");
     }
   }).catch(()=>{
     if(!active&&!starting)
