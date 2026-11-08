@@ -34,6 +34,7 @@
             <label title="Nur nach Aktivierung wird dein Suchbegriff an DuckDuckGo oder Bing gesendet."><input id="useWebSearch" type="checkbox"> Websuche</label>
             <label title="Bilder und Dokumente lokal auswerten, maximal 3 Anhänge à 4 MiB.">📎 Anhängen <input id="projectFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.py,.js,.ts,.tsx,.json,.md,.txt,.csv,.html,.css,.log,.yml,.yaml" aria-describedby="fileStatus"></label>
             <label title="Sprache nach jeder Antwort vorlesen"><input id="voiceOutput" type="checkbox"> Vorlesen</label>
+            <label title="Sprechtempo der Browserstimme">Tempo <select id="voiceSpeed" aria-label="Sprechtempo"><option value="0.85">Ruhig</option><option value="1" selected>Normal</option><option value="1.15">Schnell</option></select></label>
             <label title="Gesprochene Eingabe nach dem Erkennen direkt absenden"><input id="voiceAutoSend" type="checkbox" checked> Sprache direkt senden</label>
           </div>
           <div class="actions">
@@ -50,7 +51,7 @@
       <p id="pluginStatus" role="status">Websuche: nicht geprüft.</p>
       <p id="fileStatus" role="status">Keine Dateien ausgewählt.</p>
       <p id="error" role="alert" aria-live="assertive"></p>
-      <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen; nutze das Mikrofon nur nach dieser Zustimmung. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Anhänge werden nur beim Senden lokal verarbeitet und nicht gespeichert. Bilder benötigen ein separat installiertes lokales Vision-Modell. Likes verbleiben im Browser-Tab. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
+      <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen und funktioniert nicht in jedem Browser. Das Mikrofon öffnet sich nur nach Anklicken. Während der Aufnahme erscheinen vorläufige Wörter, gesendet wird nur endgültig erkannter Text. Vorlesen nutzt die Browser-/Systemstimme und kann längere Antworten abschnittsweise wiedergeben. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Anhänge werden nur beim Senden lokal verarbeitet und nicht gespeichert. Bilder benötigen ein separat installiertes lokales Vision-Modell. Likes verbleiben im Browser-Tab. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
     </section>
   </div>
 </body>
