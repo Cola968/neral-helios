@@ -55,3 +55,133 @@ jobs:
         run: python -B -m scripts.neral_v8_unseen_suite
       - name: Source syntax
         run: python -B -m py_compile scripts/neral_v8_unseen_suite.py scripts/neral_v8_unseen_eval.py
+  gpu-compare:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V8_FRESH_MATCHED_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      SRC_RUN_ID: ${{ inputs.source_run_id }}
+      SRC_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+      V8_SAMPLE: ${{ inputs.sample }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify runner, sealed local model sources and independent CPU checks
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:SRC_RUN_ID -notmatch '^[0-9]{9,15}$' -or
+             $env:SRC_RUN_ATTEMPT -notmatch '^[1-9][0-9]?$' -or
+             $env:V8_SAMPLE -notin @('pilot','full')){
+             throw 'Invalid v8 training run identifier or sample'
+          }
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $root 'v5-r16-480-42378021782-1\adapter'
+          $v7root=Join-Path $root 'v7-logic-r16-42475768212-1'
+          $v8root=Join-Path $root ("v8-selfverify-r16-"+$env:SRC_RUN_ID+"-"+$env:SRC_RUN_ATTEMPT)
+          $v7=Join-Path $v7root 'candidate-adapter'
+          $v8=Join-Path $v8root 'candidate-adapter'
+          $v7receipt=Join-Path $v7root 'scalar-private.json'
+          $v8receipt=Join-Path $v8root 'scalar-private.json'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $base -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container) -or
+             -not(Test-Path -LiteralPath $v7 -PathType Container) -or
+             -not(Test-Path -LiteralPath $v8 -PathType Container) -or
+             -not(Test-Path -LiteralPath $v7receipt -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $v8receipt -PathType Leaf)){
+             throw 'Required pinned Qwen/v5/v7/v8 local model or SHA receipt missing'
+          }
+          $free=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU check failed'}
+          $pieces=($free|Select-Object -First 1)-split ','
+          if($pieces.Count -ne 2 -or [int]$pieces[0].Trim() -lt 9000 -or
+             [int]$pieces[1].Trim() -gt 20){
+             throw 'Refuse overlapping or low-memory GPU inference'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $python -B -m unittest discover -s tests -p test_neral_v8_unseen_gate.py -v
+            if($LASTEXITCODE -ne 0){throw 'Independent reasoning benchmark contracts failed'}
+            $dest=Join-Path $root ("v8-unseen-gate-"+$env:GITHUB_RUN_ID+"-"+$env:GITHUB_RUN_ATTEMPT)
+            if(Test-Path -LiteralPath $dest){throw 'Private result output already exists'}
+            & $python -B -m scripts.neral_v8_unseen_eval --mode prepare --sample $env:V8_SAMPLE --folder $dest
+            if($LASTEXITCODE -ne 0){throw 'Unseen suite sealing refused'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_PY=$python"+[Environment]::NewLine+
+            "NERAL_CONTROL=$control"+[Environment]::NewLine+
+            "NERAL_BASE=$base"+[Environment]::NewLine+
+            "NERAL_V5=$v5"+[Environment]::NewLine+
+            "NERAL_V7=$v7"+[Environment]::NewLine+
+            "NERAL_V7_RECEIPT=$v7receipt"+[Environment]::NewLine+
+            "NERAL_V8=$v8"+[Environment]::NewLine+
+            "NERAL_V8_RECEIPT=$v8receipt"+[Environment]::NewLine+
+            "NERAL_OUT=$dest"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Run four unchanged Qwen v5 v7 v8 models on identical sealed cases
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:NERAL_CONTROL
+            foreach($arm in @('qwen','v5','v7','v8')){
+              & $env:NERAL_PY -B -m scripts.neral_v8_unseen_eval --mode run --sample $env:V8_SAMPLE --folder $env:NERAL_OUT --arm $arm --base $env:NERAL_BASE --v5 $env:NERAL_V5 --v7-adapter $env:NERAL_V7 --v7-receipt $env:NERAL_V7_RECEIPT --v8-adapter $env:NERAL_V8 --v8-receipt $env:NERAL_V8_RECEIPT --authorize EVALUATE_NERAL_V8_FRESH_MATCHED_READONLY
+              if($LASTEXITCODE -ne 0){throw "Evaluation refused for arm $arm; stop before grading"}
+            }
+          } finally {Pop-Location}
+      - name: Require exact retained skills and transfer statistics without promotion
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_CONTROL
+          try {
+            $env:PYTHONPATH=$env:NERAL_CONTROL
+            & $env:NERAL_PY -B -m scripts.neral_v8_unseen_eval --mode combine --sample $env:V8_SAMPLE --folder $env:NERAL_OUT --v7-adapter $env:NERAL_V7 --v7-receipt $env:NERAL_V7_RECEIPT --v8-adapter $env:NERAL_V8 --v8-receipt $env:NERAL_V8_RECEIPT
+            if($LASTEXITCODE -ne 0){throw 'Four-arm paired grading failed'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath (Join-Path $env:NERAL_OUT 'scalar-summary.json') -Raw | ConvertFrom-Json
+          $expected=if($env:V8_SAMPLE -eq 'pilot'){32}else{128}
+          if($report.status -ne 'NERAL_V8_FRESH_DEV_TRANSFER_GATE_NOT_RELEASE' -or
+             $report.case_count -ne $expected -or
+             $report.max_new_tokens -ne 512 -or
+             $report.model_only_no_tools -ne $true -or
+             $report.raw_prompts_or_responses_uploaded -ne $false -or
+             $report.weights_promoted -ne $false -or
+             $report.release_validated -ne $false -or
+             $report.independent_ood_proven -ne $false -or
+             $report.gate.adapter_promoted -ne $false){
+             throw 'Unsafe or misleading benchmark result'
+          }
+          $dest=Join-Path $env:NERAL_CONTROL 'v8_unseen_gate_scalar_only'
+          if(Test-Path -LiteralPath $dest){throw 'Never overwrite aggregate output'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:NERAL_OUT 'scalar-summary.json') -Destination (Join-Path $dest 'summary.json')
+          Write-Host 'Review-only research scores exported, no model weights promoted.'
+      - name: Upload only aggregate counts, hashes and paired differences
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v8-unseen-fourarm-scalars-only
+          path: control/v8_unseen_gate_scalar_only/summary.json
+          retention-days: 14
+          if-no-files-found: error
