@@ -26,6 +26,61 @@ def journey():
             "durationSeconds":19800,"transfers":0,"cancelled":False,
             "realtimeStatus":"live","legs":[x],"warnings":[],"sourceLabel":"Transitous / MOTIS"}
 
+class RailRouteSecurityTests(TestCase):
+    def setUp(self):
+        from neral_preview_server import create_preview_app
+        class FakeBackend:
+            model = "qwen3:8b"
+            def respond_chat(self, turns):
+                raise AssertionError("Model must not run for a BahnConnections request")
+        self.app=create_preview_app(FakeBackend(),secret_key=b"T"*32)
+        self.client=self.app.test_client()
+        self.url="http://127.0.0.1:9690"
+        self.client.get("/",base_url=self.url)
+        session=self.client.get("/api/neral/preview/session",base_url=self.url)
+        self.csrf={"X-Neral-CSRF":session.json["csrf"]}
+
+    def test_live_route_returns_only_validated_provider_journeys(self):
+        response={"status":"ok","from":"Berlin Hbf","to":"Stuttgart Hbf",
+                  "journeys":[normalize_journey(journey())],
+                  "source":"BahnConnections / Transitous","updatedAt":"2026-11-09T08:58:00+01:00",
+                  "realtimeStatus":"live","warnings":[]}
+        with patch("neral_bahnconnections.plan_journeys",return_value=response) as service:
+            r=self.client.post("/api/neral/preview/journeys",json={
+                "from":"Berlin Hauptbahnhof","to":"Stuttgart"},
+                headers=self.csrf,base_url=self.url)
+        self.assertEqual(r.status_code,200)
+        self.assertEqual(r.json["journeys"][0]["legs"][0]["name"],"ICE 599")
+        self.assertEqual(service.call_args.args[0]["from"],"Berlin Hauptbahnhof")
+
+    def test_csrf_host_origin_and_content_type_are_still_enforced(self):
+        payload={"from":"Berlin Hbf","to":"Stuttgart Hbf"}
+        no_csrf=self.client.post("/api/neral/preview/journeys",
+                  json=payload,base_url=self.url)
+        self.assertEqual(no_csrf.status_code,403)
+        wrong_origin=self.client.post("/api/neral/preview/journeys",
+                  json=payload,base_url=self.url,headers={
+                      **self.csrf,"Origin":"https://example.org"})
+        self.assertEqual(wrong_origin.status_code,403)
+        text=self.client.post("/api/neral/preview/journeys",
+                  data="from=Berlin&to=Stuttgart",base_url=self.url,headers=self.csrf)
+        self.assertEqual(text.status_code,415)
+        with patch("neral_bahnconnections.plan_journeys") as service:
+            bad=self.client.post("/api/neral/preview/journeys",
+                      json={"from":"Berlin","to":"Stuttgart","extra":"xxx"},
+                      base_url=self.url,headers=self.csrf)
+            self.assertEqual(bad.status_code,400)
+            service.assert_called_once()
+
+    def test_upstream_failure_is_not_disguised_as_a_confirmed_journey(self):
+        with patch("neral_bahnconnections.plan_journeys",side_effect=RuntimeError("Forbidden")):
+            response=self.client.post("/api/neral/preview/journeys",
+                      json={"from":"Berlin","to":"Stuttgart"},
+                      base_url=self.url,headers=self.csrf)
+        self.assertEqual(response.status_code,502)
+        self.assertNotIn("journeys",response.json)
+        self.assertIn("nicht erreichbar",response.json["error"])
+
 class BahnJourneyTests(TestCase):
     def test_curated_station_is_a_grounded_station(self):
         x=station_for_name("Berlin Hauptbahnhof")
