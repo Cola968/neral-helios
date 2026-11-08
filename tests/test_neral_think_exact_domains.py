@@ -74,6 +74,22 @@ class ExactQuantitativeCoverage(unittest.TestCase):
         self.assertTrue(out["model_generated"])
         self.assertTrue(out["verified"])
 
+class DiagnosticWholeSuiteRouting(unittest.TestCase):
+    def test_full_72_case_end_to_end_with_intentionally_incorrect_stub(self):
+        # Historic development suite is consumed. This proves *tool reachability*
+        # only, NOT model intelligence, new-weight accuracy or independent OOD.
+        covered={"math":0,"reasoning":0,"code_trace":0}
+        for case in cases72():
+            out=think_reply(chat(case["prompt"]),lambda _: "FINAL: 999999")
+            if out["verified"]:
+                self.assertFalse(out["model_generated"])
+                self.assertEqual(out["final_answer"],case["answer"])
+                covered[case["domain"]]+=1
+            else:
+                self.assertTrue(out["model_generated"])
+        self.assertEqual(covered,{"math":24,"reasoning":0,"code_trace":18})
+        self.assertEqual(sum(covered.values()),42)
+
 class FreshPythonTraceRouting(unittest.TestCase):
     def test_existing_dev_python_alias_set_enumerate_become_reachable(self):
         samples=[c for c in cases72() if c["domain"]=="code_trace" and c["family"]!="python_recursion_fib"]
