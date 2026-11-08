@@ -82,7 +82,7 @@ jobs:
           Push-Location $env:NERAL_AB_CONTROL
           try{
             $env:PYTHONPATH=$env:NERAL_AB_CONTROL
-            & $env:NERAL_AB_PY -B -m scripts.neral_fast_think_ab --model qwen3:8b --out $out --cases 6 --tokens 1024
+            & $env:NERAL_AB_PY -B -m scripts.neral_fast_think_ab --model qwen3:8b --out $out --cases 6 --tokens 2048
             if($LASTEXITCODE -ne 0){throw 'GPU comparison did not complete'}
           } finally {Pop-Location}
           [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_AB_OUTPUT=$out"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
@@ -92,7 +92,7 @@ jobs:
           $report=Get-Content -LiteralPath (Join-Path $env:NERAL_AB_OUTPUT 'scalar-summary.json') -Raw | ConvertFrom-Json
           if($report.status -ne 'NERAL_FAST_THINK_DEVELOPMENT_DIAGNOSTIC' -or
              $report.n_per_mode -ne 6 -or $report.model -ne 'qwen3:8b' -or
-             $report.token_budget_each -ne 1024 -or
+             $report.token_budget_each -ne 2048 -or
              $report.tools_compared -ne $false -or
              $report.model_weights_changed -ne $false -or
              $report.release_validated -ne $false -or
