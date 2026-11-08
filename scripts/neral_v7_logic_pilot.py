@@ -36,7 +36,7 @@ def _row(family:str,index:int,part:str):
     language="de" if index%2==0 else "en"
     params={}
     if family=="xor_many":
-        bits=[rnd.randrange(2) for _ in range(rnd.randrange(7,13))]
+        bits=[rnd.randrange(2) for _ in range(rnd.randrange(14,21))]
         params={"bits":bits}
         prompt=(f"Berechne das XOR aller Bits in dieser Liste: {bits}. Gib 0 oder 1 an."
                 if language=="de" else
@@ -65,8 +65,8 @@ def _row(family:str,index:int,part:str):
         check=f"CHECK: reachable={sorted(seen)}; excluding start={answer}."
     elif family=="boolean_four":
         parity=rnd.randrange(2)
-        weights=[rnd.randint(1,4) for _ in range(4)]
-        limit=rnd.randint(2,10)
+        weights=[rnd.randint(1,7) for _ in range(4)]
+        limit=rnd.randint(4,19)
         params={"parity":parity,"weights":weights,"limit":limit}
         solutions=[(a,b,c,d) for a,b,c,d in product((0,1),repeat=4)
                    if (not a or b) and ((c^d)==parity)
