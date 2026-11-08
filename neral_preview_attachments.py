@@ -230,7 +230,7 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
             # "Analysiere die Anhänge" must not let older messages dominate
             # the new image analysis. Validate history even when not reused.
             generic_attachment_request = (
-                question.casefold().strip(" .!?\\t\\r\\n") in {
+                question.casefold().strip(" .!?") in {
                     "analysiere die anhänge",
                     "analysiere die anhänge sachlich und ausführlich",
                 }
