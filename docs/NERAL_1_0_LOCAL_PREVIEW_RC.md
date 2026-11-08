@@ -201,9 +201,11 @@ Die Browseroberfläche erlaubt nach ausdrücklicher Dateiauswahl höchstens
 127.0.0.1:9690 übertragen, dort im Arbeitsspeicher verarbeitet und
 nicht dauerhaft gespeichert.
 
-- **PNG, JPEG, WebP:** Bildbeschreibung mit bereits installiertem
-  lokalem Ollama-Vision-Modell: bevorzugt qwen3-vl:2b (ca. 1,9 GB
-  quantisierte Gewichte), alternativ qwen2.5vl:3b.
+- **PNG, JPEG, WebP:** Bildanalyse mit einem bereits installierten
+  lokalen Ollama-Vision-Modell. NERAL erkennt jetzt insbesondere
+  `qwen3.5:9b`, außerdem `qwen3-vl:4b`, `qwen3-vl:2b`,
+  `qwen3.5:4b` und `qwen2.5vl:3b`. Bei vorhandenem
+  `qwen3.5:9b` ist kein zusätzlicher Download erforderlich.
 - **PDF:** Text von bis zu 15 Seiten mittels pypdf; Bildscans ohne
   Textschicht werden abgelehnt (noch kein OCR).
 - **DOCX:** Text aus der begrenzten Office-XML-Datei.
@@ -222,8 +224,10 @@ Vision-Modell meldet der Dienst einen Fehler, statt ein Bild zu erfinden.
 Die Windows-PC-Abnahme prüft nun zusätzlich, ob das lokale Textmodell
 wirklich ein nur in einer angehängten Textdatei enthaltenes Prüfwort
 wiedergibt. Ist bereits ein unterstütztes Vision-Modell installiert,
-prüft sie auch einen im Arbeitsspeicher erzeugten gültigen PNG-Anhang
-mit der realen lokalen Bild- und Textpipeline. Ohne Vision-Modell wird
+prüft sie auch einen im Arbeitsspeicher erzeugten roten PNG-Anhang
+mit der realen lokalen Bild- und Textpipeline. Die Antwort muss die rote
+Farbe erkennen, nicht nur bestätigen, dass eine Datei hochgeladen wurde.
+Ohne Vision-Modell wird
 **kein Modell heruntergeladen**; der skalare Prüfbericht markiert die
 Bildanalyse ausdrücklich als nicht live verifiziert. Ein bestandenes
 CPU-Gate allein beweist keine Bildanalyse auf dem Nutzer-PC.
