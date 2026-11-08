@@ -250,6 +250,11 @@ def _departure(payload: dict) -> str:
             raise ValueError("Uhrzeit muss HH:MM sein.")
         h, m = map(int, hour.split(":"))
         when = when.replace(hour=h, minute=m, second=0, microsecond=0)
+        if day is None and when < datetime.now(DE):
+            # "ab 8 Uhr" at 18:00 means the upcoming 08:00, not earlier today.
+            when += timedelta(days=1)
+        elif day == "heute" and when < datetime.now(DE):
+            raise ValueError("Die angegebene Abfahrtszeit liegt bereits in der Vergangenheit.")
     return when.isoformat()
 
 
