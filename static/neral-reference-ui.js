@@ -145,6 +145,9 @@
       tail.textContent=original.slice(last);result.append(tail);
     }
     body.replaceWith(result);
+    // Render prose formulas after code fences are safe inert <pre><code>.
+    // KaTeX skips code elements and never evaluates model markup.
+    window.NeralMath?.render(result);
   }
   if(timeline){
     timeline.querySelectorAll(".message.assistant").forEach(enhance);
