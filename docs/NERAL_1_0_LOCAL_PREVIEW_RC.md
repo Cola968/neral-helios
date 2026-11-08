@@ -14,6 +14,24 @@ Voraussetzung: **Ollama läuft bereits, `qwen3:8b` ist installiert und Python 3.
 
 Die Vorschau ist lokal, kostenlos und noch keine stabile öffentliche 1.0.
 
+## Automatische Modellwahl der einzelnen NERAL.exe
+
+Die eigenständige `NERAL.exe` bevorzugt beim nächsten Start **Qwen3.5:9B**,
+wenn es bereits in Ollama installiert ist. Das EXE-Profil verwendet
+`measured_nonthinking_2048` (`think=false`, maximal 2.048 Tokens).
+Ist nur `qwen3:8b` vorhanden, bleibt die bisherige lokale Standard-
+Konfiguration aktiv. Fehlen beide, verweigert NERAL den Start; die EXE lädt
+niemals Modellgewichte oder andere Programme automatisch herunter.
+
+Qwen3.5 erzielte im [36-Aufgaben-Entwicklungsvergleich](https://github.com/Cola968/neral-helios/actions/runs/42510047578)
+31/36 statt 13/36 bei Qwen3:8B. Vier Anfragen wurden nicht vollständig
+abgeschlossen; das ist keine Garantie für unbekannte Problemfamilien.
+Wer ausdrücklich das kleinere Modell verwenden will, startet im separaten
+ZIP `Start NERAL 1.0 Local.cmd`. `Start NERAL 1.0 Stark.cmd` bleibt
+die explizite starke ZIP-Variante. Ein Modellwechsel erfolgt nur durch
+beendeten und anschließend neu gestarteten lokalen Server, nicht durch
+gleichzeitige GPU-Läufe.
+
 ## Optionaler stärkerer Qwen3.5-Modus (explizite Wahl)
 
 Im entpackten ZIP gibt es zusätzlich **`Start NERAL 1.0 Stark.cmd`**.
