@@ -9,18 +9,9 @@
     row.dataset.phase=phase;
     row.setAttribute("role","status");
     row.setAttribute("aria-live","polite");
-    // Keep NERAL's approved geometric mark still; express only real working states.
     const mark=document.createElement("span");
-    mark.className="neral-presence";
-    const image=document.createElement("img");
-    image.className="neral-motion-glyph";
-    image.src=iconUrl;
-    image.alt="";
-    image.setAttribute("aria-hidden","true");
-    const signal=document.createElement("span");
-    signal.className="neral-presence-signal";
-    signal.setAttribute("aria-hidden","true");
-    mark.append(image,signal);
+    mark.className="neral-status-symbol";
+    mark.setAttribute("aria-hidden","true");
     const description=document.createElement("span");
     description.className="neral-activity-label";
     description.textContent=label;
@@ -29,120 +20,38 @@
   }
   const preview=document.getElementById("messages");
   if(preview){
-    let active=null,steps=[],completed=null;
-    const phases=new Set(["thinking","searching","checking","uploading"]);
-    function labelFor(detail){
-      switch(detail.phase){
-        case "searching": return "Sucht im Web";
-        case "checking": return "Prüft Python-Syntax";
-        case "uploading": return "Verarbeitet Anhänge";
-        default: return detail.mode==="think"?"Denkt nach":"Verarbeitet Anfrage";
-      }
-    }
-    function begin(key,label){
-      const existing=steps.find(item=>item.key===key);
-      if(existing)return;
-      steps.push({key,label,state:"running"});
-    }
-    function finish(key,label){
-      const entry=steps.find(item=>item.key===key);
-      if(!entry)return;
-      entry.state="done";
-      if(label)entry.label=label;
-    }
-    function createHistory(className){
-      const details=document.createElement("details");
-      details.className=className;
-      const summary=document.createElement("summary");
-      summary.textContent="Verwendete Werkzeuge · "+steps.length;
-      const list=document.createElement("ol");
-      list.className="neral-activity-history-list";
-      for(const entry of steps){
-        const li=document.createElement("li");
-        li.dataset.state=entry.state;
-        li.textContent=entry.label;
-        list.append(li);
-      }
-      details.append(summary,list);
-      return details;
-    }
-    function renderActive(){
-      if(!active)return;
-      const existing=active.querySelector(".neral-activity-disclosure");
-      const keepOpen=existing?.open===true;
-      // Update without replacing an expanded list, avoiding focus loss and flicker.
-      if(existing && steps.length){
-        const label=existing.querySelector("summary");
-        const list=existing.querySelector(".neral-activity-history-list");
-        if(label && list && typeof list.replaceChildren==="function"){
-          label.textContent="Verwendete Werkzeuge · "+steps.length;
-          list.replaceChildren(...steps.map(entry=>{
-            const li=document.createElement("li");
-            li.dataset.state=entry.state;
-            li.textContent=entry.label;
-            return li;
-          }));
-          return;
-        }
-      }
-      existing?.remove();
-      // Model computation is not an observable tool step: no fake timeline.
-      if(!steps.length)return;
-      const disclosure=createHistory("neral-activity-disclosure");
-      if(keepOpen)disclosure.open=true;
-      active.append(disclosure);
-    }
+    let active=null,searches=0;
+    const labels={searching:"Sucht im Web",checking:"Prüft Code",
+      uploading:"Analysiert Anhänge"};
     window.addEventListener("neral:activity",event=>{
-      const detail=event.detail||{},phase=detail.phase;
-      if(phase==="archive"){
-        if(completed?.length){
-          const last=preview.lastElementChild;
-          if(last?.classList?.contains("assistant")){
-            steps=completed;
-            last.append(createHistory("neral-activity-history"));
-          }
+      const detail=event.detail||{};
+      if(detail.phase==="done"||detail.phase==="cancelled"||
+         detail.phase==="error"){
+        active?.remove();active=null;searches=0;return;
+      }
+      if(detail.phase==="archive")return; // No synthetic timeline after a reply.
+      if(detail.phase==="search-done"){
+        if(active){
+          searches=Number.isInteger(detail.searches)&&detail.searches>0
+            ?Math.min(detail.searches,5):1;
+          active.dataset.searches=String(searches);
         }
-        completed=null;steps=[];return;
+        return;
       }
-      if(phase==="cancelled"||phase==="error"){
-        active?.remove();active=null;steps=[];completed=null;return;
+      if(detail.phase==="files-done")return;
+      if(!["thinking","searching","checking","uploading"].includes(detail.phase))return;
+      const label=labels[detail.phase]||
+        (detail.mode==="think"?"Denkt nach":"Verarbeitet Anfrage");
+      if(!active){active=makeActivity(label,detail.phase);preview.append(active);}
+      else{active.dataset.phase=detail.phase;
+        active.querySelector(".neral-activity-label").textContent=label;}
+      // Search-count annotation only follows a completed, actual web request.
+      if(searches && detail.phase==="thinking" && !active.querySelector(".neral-search-count")){
+        const note=document.createElement("span");
+        note.className="neral-search-count";
+        note.textContent=searches===1?"1 Suche ausgeführt":searches+" Suchen ausgeführt";
+        active.append(note);
       }
-      if(phase==="done"){
-        // Only a successful response may archive; the caller emits archive.
-        for(const entry of steps)if(entry.state==="running")entry.state="done";
-        completed=steps.length?steps.map(entry=>({...entry})):null;
-        active?.remove();active=null;steps=[];return;
-      }
-      if(phase==="search-done"){
-        const count=detail.count;
-        finish("web",Number.isInteger(count)&&count>0
-          ?"Websuche · "+Math.min(count,100)+" relevante Treffer"
-          :"Websuche · keine relevanten Treffer");
-        renderActive();return;
-      }
-      if(phase==="files-done"){
-        finish("files","Anhänge verarbeitet");
-        renderActive();return;
-      }
-      if(!phases.has(phase))return;
-      completed=null;
-      const label=labelFor(detail);
-      if(!active){
-        active=makeActivity(label,phase);
-        preview.append(active);
-      }else{
-        active.dataset.phase=phase;
-        active.querySelector(".neral-activity-label").textContent=label;
-      }
-      // Record only real operations, never synthetic thinking phases.
-      if(phase==="searching")begin("web","Websuche läuft");
-      if(phase==="checking")begin("codecheck","Prüft Python-Syntax");
-      if(phase==="uploading"){
-        const count=Number.isInteger(detail.count) && detail.count>0
-          ?Math.min(detail.count,100):null;
-        begin("files",count?"Anhangsanfrage · "+count+" Dateien":"Anhangsanfrage");
-      }
-      renderActive();
       preview.scrollTop=preview.scrollHeight;
     });
   }

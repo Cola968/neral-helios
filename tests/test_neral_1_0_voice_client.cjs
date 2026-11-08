@@ -34,7 +34,7 @@ function browserHarness() {
     if(url.endsWith("/status")) return {ok:true,json:async()=>({model:"qwen3:8b",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false})};
     if(url==="/api/web/search/status") return {ok:true,json:async()=>({configured:true,live_verified:false})};
     if(url==="/api/web/search") return {ok:true,json:async()=>({
-      results:[{title:"Python documentation",snippet:"Python guide",url:"https://docs.python.org/3/"}]
+      results:[{title:"Python documentation",snippet:"Python guide",url:"https://docs.python.org/3/",reachable:true}]
     })};
     if(url==="/api/neral/chat/generate") return {ok:true,json:async()=>({
       text:"Antwort aus dem lokalen Modell", model_origin:"local_foundation_not_neral_adapter",

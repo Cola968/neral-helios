@@ -102,6 +102,7 @@ on:
       - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/test_neral_source_reachability.py'
       - 'tests/test_neral_1_0_live_streaming.py'
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
@@ -273,6 +274,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_extracted_http.py -v
       - name: Every bundled file change must rebuild the correct current SHA
         run: python -m unittest discover -s tests -p test_neral_1_0_release_artifact_freshness.py -v
+      - name: Verified public HTTPS source links and DNS-rebinding protections
+        run: python -m unittest discover -s tests -p test_neral_source_reachability.py -v
       - name: New voice and web plugin security/readiness contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_voice_plugins.py -v
       - name: Offline image/document attachment security and multimodal contracts

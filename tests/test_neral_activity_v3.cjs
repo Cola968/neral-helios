@@ -46,36 +46,28 @@ function boot(){
   };
 }
 
-test("only real lifecycle phases produce entries and an expandable report",()=>{
+test("completed activity remains unboxed and disappears after a reply",()=>{
   const ui=boot();
-  ui.fire("searching");
-  ui.fire("search-done",{count:3});
-  ui.fire("uploading",{count:2});
-  ui.fire("thinking");
-  ui.fire("done");
+  ui.fire("searching");ui.fire("search-done",{count:3,searches:1});
+  ui.fire("uploading",{count:2});ui.fire("thinking");ui.fire("done");
   const answer=new ui.El("div");answer.className="message assistant";
-  ui.preview.append(answer);
-  ui.fire("archive");
-  const details=answer.querySelector(".neral-activity-history");
-  assert.ok(details,"completed answer should own a collapsed activity list");
-  assert.equal(details.tagName,"DETAILS");
-  assert.notEqual(details.getAttribute("open"),"true","history is collapsed by default");
-  const history=details.querySelector(".neral-activity-history-list");
-  assert.ok(history);
-  assert.equal(history.children.length,2,"only web search and attachment request are recorded; model work is not a tool");
-  assert.match(history.textContent+" "+history.children.map(x=>x.textContent).join(" "),/3 relevante Treffer/);
-  assert.equal(ui.preview.querySelector(".neral-activity"),null,"no waiting indicator after completion");
+  ui.preview.append(answer);ui.fire("archive");
+  assert.equal(answer.querySelector(".neral-activity-history"),null,
+    "No operational timeline gets inserted beneath the final answer");
+  assert.equal(ui.preview.querySelector(".neral-activity"),null,
+    "The working indicator disappears after a real completed answer");
 });
-test("expanded live activity remains open as real tool states change",()=>{
-  const ui=boot();
-  ui.fire("searching");
-  const disclosure=ui.preview.querySelector(".neral-activity-disclosure");
-  assert.ok(disclosure);
-  disclosure.open=true;
-  ui.fire("search-done",{count:2});
-  const refreshed=ui.preview.querySelector(".neral-activity-disclosure");
-  assert.ok(refreshed.open, "live updates must not collapse a panel the user expanded");
+
+test("live web search switches to a concise status without a disclosure box",()=>{
+  const ui=boot();ui.fire("searching");
+  const status=ui.preview.querySelector(".neral-activity");
+  assert.ok(status);
+  assert.equal(ui.preview.querySelector(".neral-activity-disclosure"),null);
+  ui.fire("search-done",{count:2,searches:1});ui.fire("thinking");
+  assert.equal(status.querySelector(".neral-activity-label").textContent,"Denkt nach");
+  assert.equal(status.querySelector(".neral-search-count").textContent,"1 Suche ausgeführt");
 });
+
 test("cancelled work never gets a fake success history",()=>{
   const ui=boot();
   ui.fire("thinking");

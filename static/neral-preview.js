@@ -146,23 +146,58 @@
     return matches.length>=Math.ceil(topics.length*0.75) &&
       matches.some(word=>title.has(word));
   }
-  function appendSources(sources) {
-    const details=document.createElement("details");
-    details.className="message-sources";
-    const summary=document.createElement("summary");
-    summary.textContent="Webquellen · "+sources.length+" ungeprüfte Treffer";
-    details.append(summary);
-    sources.forEach((source,index)=>{
-      // Provider URLs are already checked server-side; revalidate for the DOM.
+  // A citation belongs to the exact answer whose prompt received the evidence.
+  // Link reachability was verified by the local backend. Search excerpts are
+  // not treated as an independently checked article or factual endorsement.
+  function appendSources(answerNode,sources) {
+    const actions=answerNode?.querySelector?.(".message-actions");
+    if(!actions||!Array.isArray(sources))return;
+    const valid=[];
+    for(const source of sources.slice(0,5)){
+      if(source?.reachable!==true || typeof source.url!=="string")continue;
       let parsed;
-      try{parsed=new URL(source.url);}catch{return;}
-      if(parsed.protocol!=="https:" || parsed.username || parsed.password)return;
-      const link=document.createElement("a");
-      link.href=parsed.href;link.target="_blank";link.rel="noopener noreferrer";
-      link.textContent="["+(index+1)+"] "+String(source.title||parsed.hostname).slice(0,180);
-      details.append(link);
+      try{parsed=new URL(source.url);}catch{continue;}
+      if(parsed.protocol!=="https:"||parsed.username||parsed.password||
+         parsed.port||!parsed.hostname.includes(".")||
+         /(?:^|\.)(?:localhost|local|internal|test|invalid)$/i.test(parsed.hostname))continue;
+      if(valid.some(v=>v.url===parsed.href))continue;
+      valid.push({url:parsed.href,host:parsed.hostname,
+        title:String(source.title||parsed.hostname).slice(0,160)});
+    }
+    if(!valid.length)return;
+    const details=document.createElement("details");
+    details.className="neral-source-disclosure";
+    const summary=document.createElement("summary");
+    summary.title="Erreichbare Treffer der Websuche öffnen";
+    const stack=document.createElement("span");stack.className="neral-source-stack";
+    stack.setAttribute("aria-hidden","true");
+    valid.slice(0,3).forEach(v=>{
+      const marker=document.createElement("span");
+      marker.className="neral-source-mark";
+      marker.textContent=v.host.replace(/^www\./,"").slice(0,1).toUpperCase();
+      stack.append(marker);
     });
-    messages.append(details);
+    const name=document.createElement("span");
+    name.textContent=valid.length===1?"1 Quelle":valid.length+" Quellen";
+    name.className="neral-source-label";
+    summary.append(stack,name);
+    const list=document.createElement("div");list.className="neral-source-list";
+    const note=document.createElement("p");note.className="neral-source-notice";
+    note.textContent="Links beim Suchen erreichbar · Inhalte nicht unabhängig geprüft";
+    list.append(note);
+    valid.forEach(v=>{
+      const link=document.createElement("a");link.className="neral-source-link";
+      link.href=v.url;link.target="_blank";link.rel="noopener noreferrer";
+      link.setAttribute("target","_blank");link.setAttribute("rel","noopener noreferrer");
+      const title=document.createElement("span");title.className="neral-source-title";
+      title.textContent=v.title;
+      const domain=document.createElement("span");domain.className="neral-source-domain";
+      domain.textContent=v.host;
+      link.append(title,domain);list.append(link);
+    });
+    details.append(summary,list);
+    if(typeof actions.prepend==="function")actions.prepend(details);
+    else actions.append(details);
   }
   async function json(path,init={}) {
     const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...init});
@@ -516,13 +551,14 @@
         const search=await json("/api/web/search",{
           method:"POST",
           headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
-          body:JSON.stringify({query:text}),
-          signal:AbortSignal.any([signal,AbortSignal.timeout(18000)])
+          body:JSON.stringify({query:text,verify_links:true}),
+          signal:AbortSignal.any([signal,AbortSignal.timeout(28000)])
         });
         if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
         sources=Array.isArray(search.results)
-          ? search.results.filter(hit=>relevantSearchResult(text,hit)).slice(0,3) : [];
-        motionActivity("search-done",mode,{count:sources.length});
+          ? search.results.filter(hit=>hit.reachable===true && relevantSearchResult(text,hit)).slice(0,3) : [];
+        motionActivity("search-done",mode,{count:sources.length,
+          searches:Array.isArray(search.providers_contacted)?search.providers_contacted.length:1});
         const evidence=sources.map((r,i)=>
           "["+(i+1)+"] "+String(r.title||"").slice(0,110)+
           " | "+String(r.url||"").slice(0,190)+
@@ -641,7 +677,7 @@
       }
       motionActivity("archive",mode);
       completedTurn=true;
-      if(sources.length)appendSources(sources);
+      if(sources.length)appendSources(answerNode,sources);
       memory.push({role:"user",content:text},{role:"assistant",content:result.text});
       browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
         detail:{user:text,assistant:result.text}

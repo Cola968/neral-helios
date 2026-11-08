@@ -113,7 +113,7 @@ test("thinking/searching lifecycle is accurate, idempotent and cancellable",()=>
   ui.fire("searching","think");
   assert.equal(activity(ui.preview)[0].querySelector(".neral-activity-label").textContent,"Sucht im Web");
   ui.fire("checking");
-  assert.equal(activity(ui.preview)[0].querySelector(".neral-activity-label").textContent,"Prüft Python-Syntax");
+  assert.equal(activity(ui.preview)[0].querySelector(".neral-activity-label").textContent,"Prüft Code");
   ui.fire("done");
   assert.equal(activity(ui.preview).length,0);
   ui.fire("thinking","fast");
@@ -207,35 +207,29 @@ test("pure model generation never fabricates operational history",()=>{
   assert.equal(answer.querySelectorAll(".neral-activity-history").length,0,
     "Do not invent a step list for an ordinary local response");
 });
-test("activity shows a calm NERAL mark and a real-state presence indicator",()=>{
-  const ui=harness();
-  ui.fire("searching","think");
-  const row=activity(ui.preview)[0];
-  assert.ok(row.querySelector(".neral-presence"));
-  assert.equal(row.querySelectorAll(".neral-motion-glyph").length,1);
-  assert.ok(row.querySelector(".neral-presence-signal"));
-  assert.equal(row.querySelector(".neral-activity-label").textContent,"Sucht im Web");
-  const css=fs.readFileSync(path.join(root,"static/neral-motion.css"),"utf8");
-  assert.match(css,/\.neral-presence-signal/);
+test("activity shows a tiny symbol rather than a branded status card",()=>{
+  const ui=harness();ui.fire("searching","think");
+  const status=activity(ui.preview)[0];
+  assert.ok(status.querySelector(".neral-status-symbol"));
+  assert.equal(status.querySelectorAll(".neral-motion-glyph").length,0);
+  assert.equal(status.querySelector(".neral-activity-label").textContent,"Sucht im Web");
+  const css=fs.readFileSync(path.join(root,"static/neral-reference-ui.css"),"utf8");
+  assert.match(css,/\.neral-status-symbol/);
 });
 
-test("search history identifies real search results and excludes model reasoning",()=>{
-  const ui=harness();
-  ui.fire("searching","think");
-  ui.fire("search-done","think",{count:0});
-  ui.fire("thinking","think");
-  const details=ui.preview.querySelector(".neral-activity-disclosure");
-  assert.ok(details,"An actual attempted web search is observable");
-  const rows=details.querySelectorAll("li");
-  assert.equal(rows.length,1,"Model processing must not add a fake second step");
-  assert.match(rows[0].textContent,/keine relevanten Treffer/);
+test("a completed search stays compact and never creates a reasoning history",()=>{
+  const ui=harness();ui.fire("searching","think");
+  ui.fire("search-done","think",{count:0,searches:1});ui.fire("thinking","think");
+  const status=activity(ui.preview)[0];
+  assert.equal(status.querySelector(".neral-activity-label").textContent,"Denkt nach");
+  assert.match(status.querySelector(".neral-search-count").textContent,/1 Suche/);
+  assert.equal(ui.preview.querySelector(".neral-activity-disclosure"),null);
   ui.fire("done");
   const answer=new ui.Element("div");answer.className="message assistant";
   ui.preview.append(answer);ui.fire("archive");
-  const archive=answer.querySelector(".neral-activity-history");
-  assert.ok(archive);
-  assert.equal(archive.querySelectorAll("li").length,1);
+  assert.equal(answer.querySelector(".neral-activity-history"),null);
 });
+
 test("attached files keep their own truthful status, without instantaneous fake stage changes",()=>{
   const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
   assert.match(source,/if\(selectedAttachments\.length\)\s*motionActivity\("uploading"/);

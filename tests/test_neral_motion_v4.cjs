@@ -42,15 +42,14 @@ function boot(){
   }
   return {area,fire};
 }
-test("working state uses one stationary N mark and a phase-specific presence signal",()=>{
+test("working state uses one tiny phase-specific symbol, never a logo card",()=>{
   const ui=boot();
   ui.fire("thinking");
   const activity=ui.area.querySelector(".neral-activity");
   assert.ok(activity);
-  const marker=activity.querySelector(".neral-presence");
-  assert.ok(marker,"grok-like compact status mark missing");
-  assert.ok(marker.querySelector(".neral-motion-glyph"));
-  assert.ok(marker.querySelector(".neral-presence-signal"));
+  assert.ok(activity.querySelector(".neral-status-symbol"));
+  assert.equal(activity.querySelector(".neral-motion-glyph"),null);
+  assert.equal(activity.querySelector(".neral-presence"),null);
   assert.equal(activity.dataset.phase,"thinking");
   ui.fire("searching");
   assert.equal(activity.dataset.phase,"searching");
