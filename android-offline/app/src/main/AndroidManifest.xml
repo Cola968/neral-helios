@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:name=".NeralApplication"
-        android:label="NERAL Offline 0.3"
+        android:label="NERAL Offline 0.4"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
