@@ -216,6 +216,7 @@
       let modelPrompt=text;
       let sources=[];
       if($("useWebSearch").checked) {
+        window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"searching",mode}}));
         if(text.length>160 || /[\r\n]/.test(text))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         const search=await json("/api/web/search",{
@@ -248,6 +249,7 @@
           throw new Error("Frage mit Dateikontext überschreitet das 4096-Byte-Limit.");
         modelPrompt=augmented;
       }
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"thinking",mode}}));
       const result=await json("/api/neral/chat/"+mode,{
         method:"POST",
         headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
@@ -260,6 +262,7 @@
       if(result.model_origin!=="local_foundation_not_neral_adapter" ||
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done",mode}}));
       append("user",text);
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
@@ -287,6 +290,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"done",mode}}));
       if(activeRequest===controller){
         activeRequest=null;busy=false;submit.disabled=false;
         stopRequest.disabled=true;prompt.focus();
@@ -297,11 +301,13 @@
   stopRequest.addEventListener("click",()=>{
     if(activeRequest&&!activeRequest.signal.aborted){
       activeRequest.abort();
+      window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"cancelled"}}));
       errors.textContent="Browseranfrage abgebrochen. Ollama kann lokal noch weiterrechnen.";
     }
   });
   $("clear").addEventListener("click",()=>{
     conversationEpoch++;
+    window.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase:"cancelled"}}));
     if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
     stopAudio();
     if(recognizer && listening) recognizer.abort();
