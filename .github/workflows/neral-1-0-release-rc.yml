@@ -52,12 +52,12 @@ jobs:
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Syntax and browser JS
-        run: python -m py_compile neral_preview_server.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
+        run: python -m py_compile neral_preview_server.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py neral_think.py neral_agent_autonomy.py neral_local_chat_api.py
       - run: node --check static/neral-preview.js
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --check static/neral-local-chat.js
   local-windows-pc:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'fix/neral-1-0-runtime-identity-20261108')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-low-high-deliberation-20261108' || github.head_ref == 'fix/neral-1-0-runtime-identity-20261108')
     needs: [cpu-contracts]
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 22
