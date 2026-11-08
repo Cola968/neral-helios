@@ -14,12 +14,57 @@ from pathlib import Path
 from scripts.neral_v7_foundation_tournament import (
     DOMAINS, FAMILIES, MODEL_DIGEST, MODEL_TAG, OllamaLocal, Refused,
     _create_private_folder, _json, evaluate_response, generate_cases,
-    task_digest,
+    task_digest, SYSTEM, SEED,
 )
 
 CASE_SEED = 20261109
 ALLOWED_COUNTS = (6, 12, 24)
 ALLOWED_BUDGETS = (768, 1024, 1536, 2048)
+
+# Qwen's model card explicitly warns against greedy decoding in thinking mode.
+# Distinct recommended policies measure real deployment configurations; this
+# does NOT isolate the causal effect of the boolean think switch.
+QWEN3_SAMPLING = {
+    'FAST': {'temperature': 0.7, 'top_p': 0.8, 'top_k': 20},
+    'THINK': {'temperature': 0.6, 'top_p': 0.95, 'top_k': 20},
+}
+
+
+class RecommendedOllamaLocal(OllamaLocal):
+    """Only a preinstalled Qwen3-8B, no pull and no remote endpoint."""
+
+    def chat(self, model, prompt, *, think, max_tokens):
+        if model != 'qwen3:8b':
+            raise Refused('Recommended settings pinned to qwen3:8b only')
+        policy = QWEN3_SAMPLING['THINK' if think else 'FAST']
+        payload = {
+            'model': model,
+            'messages': [
+                {'role': 'system', 'content': SYSTEM},
+                {'role': 'user', 'content': prompt},
+            ],
+            'think': think,
+            'stream': False,
+            'keep_alive': '2m',
+            'options': {
+                **policy, 'num_predict': max_tokens, 'num_ctx': 4096, 'seed': SEED,
+            },
+        }
+        response = self._request('/api/chat', payload)
+        msg = response.get('message')
+        content = msg.get('content') if isinstance(msg, dict) else None
+        done_reason = response.get('done_reason')
+        n_tokens = response.get('eval_count', 0)
+        elapsed = response.get('total_duration', 0)
+        if (not isinstance(content, str) or len(content) > 16384
+                or done_reason not in ('stop', 'length')
+                or type(n_tokens) is not int or not 0 <= n_tokens < 100000
+                or type(elapsed) is not int or not 0 <= elapsed < 10**15):
+            raise Refused('Invalid Qwen3 local response')
+        return {
+            'content': content, 'reason': done_reason,
+            'eval_count': n_tokens, 'duration_ns': elapsed,
+        }
 
 
 def pick_cases(count: int) -> list[dict]:
@@ -41,7 +86,7 @@ def pick_cases(count: int) -> list[dict]:
 def compare_modes(client, model: str, output: Path, *, cases_count: int = 6,
                   max_tokens: int = 1024) -> dict:
     if (not isinstance(model, str) or MODEL_TAG.fullmatch(model) is None
-            or not model.startswith(('qwen3:', 'qwen3.5:'))):
+            or model != 'qwen3:8b'):
         raise Refused('Only an explicitly named local Qwen3 model is supported')
     if type(max_tokens) is not int or max_tokens not in ALLOWED_BUDGETS:
         raise Refused('Choose a fixed 768/1024/1536/2048 token budget')
@@ -99,7 +144,9 @@ def compare_modes(client, model: str, output: Path, *, cases_count: int = 6,
         'schema': 1, 'status': 'NERAL_FAST_THINK_DEVELOPMENT_DIAGNOSTIC',
         'model': model, 'model_digest': digest, 'case_seed': CASE_SEED,
         'suite_sha256': task_digest(cases), 'n_per_mode': len(cases),
-        'token_budget_each': max_tokens, 'temperature': 0,
+        'token_budget_each': max_tokens,
+        'sampling_policy': QWEN3_SAMPLING,
+        'temperature': 'mode_specific_non_greedy',
         'num_ctx': 4096, 'same_system_prompt': True,
         'pairs': dict(pairs),
         'accuracy': {m: {'correct': counts[m]['correct'],
@@ -113,7 +160,9 @@ def compare_modes(client, model: str, output: Path, *, cases_count: int = 6,
         'tools_compared': False, 'model_weights_changed': False,
         'models_downloaded': False, 'model_superiority_proven': False,
         'release_validated': False, 'blinded_holdout': False,
-        'limitations': ('Public, template-generated small development test of the '
+        'limitations': ('This comparison changes both sampling settings and the thinking switch; ' 
+                        'therefore it measures recommended configurations, not the isolated flag. ' 
+                        'Public, template-generated small development test of the '
                         'Ollama think switch, not the NERAL verifier and not an '
                         'independent generalization or release benchmark.'),
     }
@@ -130,7 +179,7 @@ def main(argv=None):
     parser.add_argument('--cases', type=int, choices=ALLOWED_COUNTS, default=6)
     parser.add_argument('--tokens', type=int, choices=ALLOWED_BUDGETS, default=1024)
     args = parser.parse_args(argv)
-    report = compare_modes(OllamaLocal(), args.model, args.out,
+    report = compare_modes(RecommendedOllamaLocal(), args.model, args.out,
                            cases_count=args.cases, max_tokens=args.tokens)
     print(_json({'status': report['status'], 'model': report['model'],
                  'n_per_mode': report['n_per_mode'],
