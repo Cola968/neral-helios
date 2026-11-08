@@ -1,0 +1,161 @@
+name: NERAL Qwen3 vs Qwen3.5 512-tail CPU audit and 2048-token GPU retest
+on:
+  pull_request:
+    paths:
+      - scripts/neral_foundation_2048_retest.py
+      - tests/test_neral_foundation_2048_retest.py
+      - .github/workflows/neral-foundation-2048-retest.yml
+  workflow_dispatch:
+    inputs:
+      authorize:
+        type: string
+        required: true
+        description: "Exact local-only audit+retest: AUDIT_AND_RETEST_NERAL_QWEN_FOUNDATIONS_2048"
+permissions:
+  contents: read
+jobs:
+  cpu-contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 512-token audit privacy, paired groups, Qwen sampling, GPU peak and score contracts
+        run: python -B -m unittest discover -s tests -p test_neral_foundation_2048_retest.py -v
+      - name: Python syntax
+        run: python -B -m py_compile scripts/neral_foundation_2048_retest.py
+
+  cpu-original-audit:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_AND_RETEST_NERAL_QWEN_FOUNDATIONS_2048'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Strict CPU-only analysis of the ORIGINAL 93 private 800-character suffixes
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $py=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          $source=Join-Path $root 'v7-foundation-local-42499079467-1'
+          $review=Join-Path $root 'foundation-private-512-review-42501672292-1.jsonl'
+          $scalar=Join-Path $control 'foundation_2048_cpu_audit_scalar'
+          $private=Join-Path $root ('foundation-private-tail-classified-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.jsonl')
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $review -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $source -PathType Container) -or
+             (Test-Path -LiteralPath $scalar) -or (Test-Path -LiteralPath $private)){
+             throw 'Missing private source, Python interpreter or create-only output'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_foundation_2048_retest.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU source validation failed'}
+            New-Item -ItemType Directory -Path $scalar -ErrorAction Stop | Out-Null
+            & $py -B -m scripts.neral_foundation_2048_retest --mode audit --source $source --private-review $review --public-out (Join-Path $scalar 'summary.json') --private-out $private
+            if($LASTEXITCODE -ne 0){throw 'Local private tail audit failed'}
+            $r=Get-Content -LiteralPath (Join-Path $scalar 'summary.json') -Raw | ConvertFrom-Json
+            if($r.status -ne 'NERAL_FOUNDATION_512_TAIL_HEURISTIC_AUDIT_ONLY' -or
+               $r.total_incomplete -ne 93 -or
+               $r.models.'qwen3:8b'.total -ne 31 -or
+               $r.models.'qwen3.5:9b'.total -ne 62 -or
+               $r.raw_responses_uploaded -ne $false -or
+               $r.no_gpu_or_model_calls -ne $true -or
+               $r.reasoning_correctness_proven -ne $false){
+               throw 'Reject inaccurate or private diagnostic report'
+            }
+            Write-Host 'CPU-only source audit verified. Private tail classifications stayed outside checkout.'
+          } finally {Pop-Location}
+      - name: Share only 93-case scalar category counts (NEVER private suffixes)
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-512-private-tail-classification-scalars-only
+          path: control/foundation_2048_cpu_audit_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
+
+  gpu-2048-retest:
+    needs: cpu-original-audit
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_AND_RETEST_NERAL_QWEN_FOUNDATIONS_2048'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Run ORIGINAL 72 paired tasks x 2 unchanged Ollama model digests at 2048 with measured GPU VRAM
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $py=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          $source=Join-Path $root 'v7-foundation-local-42499079467-1'
+          $out=Join-Path $root ('foundation-2048-private-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $scalar=Join-Path $control 'foundation_2048_retest_scalar'
+          if(-not (Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not (Test-Path -LiteralPath $source -PathType Container) -or
+             (Test-Path -LiteralPath $out) -or
+             (Test-Path -LiteralPath $scalar)){
+             throw 'Pinned source or create-only private destination unavailable'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_foundation_2048_retest.py -v
+            if($LASTEXITCODE -ne 0){throw 'Sampling/VRAM safety tests failed'}
+            & $py -B -m scripts.neral_foundation_2048_retest --mode retest --source $source --out $out
+            if($LASTEXITCODE -ne 0){throw 'Paired GPU comparison incomplete; do not upload'}
+            $result=Get-Content -LiteralPath (Join-Path $out 'scalar-summary.json') -Raw | ConvertFrom-Json
+            if($result.status -ne 'NERAL_FOUNDATION_2048_PAIRED_DEVELOPMENT_RETEST_ONLY' -or
+               $result.n_per_model -ne 72 -or
+               $result.generation_budget -ne 2048 -or
+               $result.raw_prompts_or_answers_uploaded -ne $false -or
+               $result.training_performed -ne $false -or
+               $result.release_validated -ne $false -or
+               $result.models.'qwen3:8b'.vram_observations -lt 3 -or
+               $result.models.'qwen3.5:9b'.vram_observations -lt 3){
+               throw 'Reject incomplete accuracy or GPU-peak evidence'
+            }
+            New-Item -ItemType Directory -Path $scalar -ErrorAction Stop | Out-Null
+            Copy-Item -LiteralPath (Join-Path $out 'scalar-summary.json') -Destination (Join-Path $scalar 'summary.json')
+            Write-Host 'Original 72 x 2 full 2048-token follow-up completed. Raw answers stay outside Git checkout.'
+          } finally {Pop-Location}
+      - name: Upload per-original-group correctness/termination and sampled GPU VRAM peaks ONLY
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-foundation-2048-paired-retest-scalars-only
+          path: control/foundation_2048_retest_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
