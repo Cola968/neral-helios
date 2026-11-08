@@ -79,9 +79,6 @@ on:
       - 'tests/test_neral_logic_transfer.py'
 permissions:
   contents: read
-concurrency:
-  group: neral-qwen7b-r32-gpu-exclusive
-  cancel-in-progress: false
 jobs:
   cpu-contracts:
     strategy:
@@ -116,6 +113,11 @@ jobs:
       - run: node --test tests/test_neral_1_0_project_files.cjs
       - run: node --check static/neral-local-chat.js
   local-windows-pc:
+    # Lock the scarce self-hosted PC only while the live model test runs.
+    # Ubuntu/Windows CPU contracts must never contend for the GPU lock.
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
     needs: [cpu-contracts]
     runs-on: [self-hosted, windows, x64, neral-gpu]
