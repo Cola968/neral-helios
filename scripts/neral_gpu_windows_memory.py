@@ -62,10 +62,6 @@ def parse_windows_gpu_snapshot(raw: str) -> dict:
     if (type(memory) is not list or type(processes) is not list or
             len(memory) > 4096 or len(processes) > 4096):
         raise ProbeError("Windows-GPU-Zählerdaten ungültig.")
-    if not memory:
-        return {"status": "no_gpu_process_counters", "read_only": True,
-                "exposes_process_identity": False}
-
     names: dict[int, str] = {}
     for row in processes:
         if type(row) is not dict:
@@ -78,6 +74,10 @@ def parse_windows_gpu_snapshot(raw: str) -> dict:
         if pid in names and names[pid] != category:
             raise ProbeError("Widersprüchlicher Windows-Prozesszähler.")
         names[pid] = category
+
+    if not memory:
+        return {"status": "no_gpu_process_counters", "read_only": True,
+                "exposes_process_identity": False}
 
     # Some Windows counters expose the same PID through several GPU contexts.
     # The max per PID is a conservative approximation; never sum those rows.
