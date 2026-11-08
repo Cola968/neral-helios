@@ -1,10 +1,10 @@
-# NERAL THINK – optionaler lokaler Prüfmodus (experimentell)
+# NERAL HIGH – optionaler lokaler Prüf- und Vertiefungsmodus (experimentell)
 
-THINK ist ein lokaler Werkzeug-/Orchestrierungs-Layer, kein neues Modelltraining und kein nachgewiesener Zuwachs an allgemeiner Intelligenz.
+HIGH (API: /api/neral/chat/think) ist ein lokaler Werkzeug-/Orchestrierungs-Layer, kein neues Modelltraining und kein nachgewiesener Zuwachs an allgemeiner Intelligenz.
 
 ## Nutzung
 
-Im Helios-Abschnitt „NERAL AI – lokaler Chat“ die Checkbox „THINK“ aktivieren. Standardmäßig bleibt der normale lokale FAST-Chat aktiv. Der unabhängige NERAL-EXT-A/B-Benchmark bleibt frei von THINK-Werkzeugen, damit er Modellgewichte fair vergleicht.
+Im Helios-Abschnitt „NERAL AI – lokaler Chat“ HIGH aktivieren. Standardmäßig bleibt LOW aktiv. Der unabhängige NERAL-EXT-A/B-Benchmark bleibt frei von THINK-Werkzeugen, damit er Modellgewichte fair vergleicht.
 
 ## Was genau verifiziert wird
 
@@ -14,11 +14,11 @@ Bei richtigem Endwert wird verified=true und verification_scope=numeric_final_on
 
 Bei unklarem oder falschem Endwert wird höchstens eine weitere lokale Modellantwort mit einem Korrekturhinweis angefordert. Wenn diese ebenfalls nicht verifiziert werden kann, liefert das deterministische Werkzeug den exakten Endwert. Solche Antworten werden als model_generated=false, tool_used=neral_math_exact und verification_status=tool_fallback ausgewiesen; sie sind keine zusätzlichen KI-Modellfähigkeiten.
 
-Allgemeine Fragen, Codingvorschläge und mehrteilige Gespräche besitzen derzeit keine sichere semantische Verifikation. Die Modellantwort bleibt verified=false und verification_status=not_available; kein Zweitaufruf erfolgt.
+Allgemeine Fragen, Codingvorschläge und mehrteilige Gespräche besitzen keine unabhängige semantische Verifikation. Im NERAL-1.0-HTTP-HIGH-Modus wird bei kurzen offenen Antworten ein weiterer lokaler Modellaufruf zur Fehlersuche und Überarbeitung gestartet (deep_review=True). Die Antwort bleibt verified=false und verification_status=not_available. Direkte Python-Aufrufe ohne deep_review=True bleiben abwärtskompatibel.
 
 ## Technische Grenzen
 
-- Pro Anfrage höchstens zwei Modellaufrufe, begrenzt durch das bestehende Backend-Tokenlimit.
+- Pro Anfrage höchstens zwei Modellaufrufe. HTTP-HIGH nutzt Qwen3 mit bis zu 4096 Generierungstokens pro Aufruf, Kontextbudget 8192 und nicht-gierigem Sampling. Je Ollama-Aufruf höchstens 90 Sekunden.
 - Eine Zeitprüfung vor dem zweiten Aufruf vermeidet unnötige Wiederholungen; sie kann laufende GPU-Generierungen nicht hart unterbrechen. hard_timeout_enforced=false.
 - Der Browser kann nach seinem Timeout abbrechen, aber dies stoppt die lokale Backend-Generierung nicht automatisch.
 - Die Chat-/Modelllocks schützen innerhalb des lokalen Prozesses. Ein separater GPU-Prozess (z.B. ein GitHub-Actions-Runner) bleibt davon unberührt.
