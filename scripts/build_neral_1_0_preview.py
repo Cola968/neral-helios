@@ -31,6 +31,7 @@ REQUIRED_FILES = (
     "neral_percentage_tool.py",
     "neral_think.py",
     "neral_web_search.py",
+    "neral_web_api.py",
     "agent_mode.py",
     "static/neral-preview.js",
     "static/neral-preview.css",

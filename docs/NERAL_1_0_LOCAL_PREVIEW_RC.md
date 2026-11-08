@@ -122,3 +122,50 @@ separat bestanden sind.
 Eine getestete lokale Anwendung ist ein Software-Release. Ein
 nachgewiesener neuronaler Intelligenzsprung ist ein anderer Maßstab.
 Beide Ergebnisse werden getrennt veröffentlicht.
+
+## Erweiterung 1.0: Sprachchat und Plugins
+**Sprachchat:** In der lokalen Browseroberfläche gibt es die Schaltfläche
+`Mikrofon`. Die Aufnahme startet nur nach einem Klick und Browser-Freigabe.
+Die Browser-Spracherkennung überträgt je nach Browser und Systemeinstellung
+Ton an einen **externen Browseranbieter**. Das ist **nicht garantiert
+offline** und kein rein lokales STT. Die erkannte Nachricht kann nach Wahl
+direkt an den lokal laufenden NERAL-Chat gesendet oder vorher geprüft werden.
+Die Option `Vorlesen` gibt Antworten über die Sprachsynthese des Browsers
+wieder. `Stopp Audio` beendet diese Wiedergabe. Nicht unterstützte
+Browserfunktionen werden deaktiviert, nicht als verfügbar vorgetäuscht.
+
+**Websuche:** Standardmäßig aus. Erst nach expliziter Aktivierung pro
+Nachricht wird **nur der Suchbegriff** an DuckDuckGo HTML gesendet,
+gegebenenfalls an Bing RSS. Kein API-Schlüssel, keine Abo-Beschränkung.
+Die maximal drei Texttreffer samt HTTPS-Quellen werden als ungeprüft
+gekennzeichnet und dem lokalen Modell als Kontext gegeben; die einzelnen
+Webseiten werden nicht geladen. Das ist keine garantierte Live-Suche und
+keine Verifikation von Fakten; Suchanbieter können blockieren.
+
+**Plugin-Status:** `/api/neral/preview/plugins` unterscheidet
+verfügbare lokale Mathe-/THINK-Funktionen, konfigurierte aber nicht live
+verifizierte Websuche und browserabhängige Sprachfunktionen von **nicht
+implementierten** Projektdatei- und Codeausführungs-Plugins. Zusätzliche
+API-Route `/api/web/search/status` mit ehrlichem Anbieterstatus.
+CSRF, Host- und Origin-Prüfungen gelten auch für die Suche.
+
+**Keine Modellgewichts-Promotion:** Die zusätzlichen Fähigkeiten können
+dem Gesamtsystem bei konkreten Aufgaben helfen, bedeuten aber **nicht**,
+dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
+über Qwen erfordert einen neuen, unbekannten, reproduzierbaren A/B-Test.
+
+
+## Code Check und ausdruecklich gewaehlte Dateien
+
+- Python Code Check analysiert den gerade eingegebenen Python-Quelltext nur mit
+  `ast.parse`. Kein Benutzer-Code wird ausgefuehrt, kein Shellprozess
+  gestartet, keine Laufzeit-, Semantik- oder Sicherheitstests behauptet.
+- Datei-Kontext liest im Browser nach ausdruecklicher Dateiauswahl bis zu zwei
+  Textdateien (je maximal 1200 Byte, zugelassene Quelltext-Endungen). Nur beim
+  naechsten aktiven Senden wird ihr Inhalt mit in den lokalen Modellprompt
+  aufgenommen. Dateiinhalte werden danach aus dem Browser-Zwischenspeicher
+  geloescht. Kein genereller Verzeichniszugriff oder Zugriff auf vertrauliche
+  Projektdateien ohne Nutzerauswahl.
+- `project_files` (automatischer Dateisystem-Agent) und
+  `local_code_execution` (Codeausfuehrung) bleiben deaktiviert.
+  Der begrenzte Datei-Kontext und der AST-Syntaxcheck sind getrennte Tools.

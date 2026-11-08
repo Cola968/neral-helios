@@ -27,14 +27,26 @@
             <label><input type="radio" name="mode" value="fast" checked> FAST</label>
             <label><input type="radio" name="mode" value="think"> THINK</label>
           </div>
+          <div class="plugin-options" role="group" aria-label="Werkzeuge und Sprachchat">
+            <label title="Nur nach Aktivierung wird dein Suchbegriff an DuckDuckGo oder Bing gesendet."><input id="useWebSearch" type="checkbox"> Websuche</label>
+            <label title="Maximal zwei ausgewählte Textdateien, nie automatisch hochgeladen.">Datei-Kontext <input id="projectFiles" type="file" multiple accept=".py,.js,.ts,.tsx,.json,.md,.txt,.html,.css"></label>
+            <label title="Sprache nach jeder Antwort vorlesen"><input id="voiceOutput" type="checkbox"> Vorlesen</label>
+            <label title="Gesprochene Eingabe nach dem Erkennen direkt absenden"><input id="voiceAutoSend" type="checkbox" checked> Sprache direkt senden</label>
+          </div>
           <div class="actions">
+            <button id="voiceInput" type="button" class="secondary" aria-label="Mikrofon einschalten">🎙 Mikrofon</button>
+            <button id="stopVoice" type="button" class="secondary" aria-label="Sprachausgabe stoppen">Stopp Audio</button>
+            <button id="codeCheck" type="button" class="secondary">Python prüfen</button>
             <button id="clear" type="button" class="secondary">Verlauf löschen</button>
             <button id="submit" type="submit">Senden</button>
           </div>
         </div>
       </form>
+      <p id="voiceStatus" role="status" aria-live="polite">Mikrofon nicht aktiv.</p>
+      <p id="pluginStatus" role="status">Websuche: nicht geprüft.</p>
+      <p id="fileStatus" role="status">Keine Dateien ausgewählt.</p>
       <p id="error" role="alert" aria-live="assertive"></p>
-      <p class="fineprint">Ohne Cloud-KI · keine automatische Modellinstallation · THINK kann länger dauern · mathematische Prüfung nur, wenn ausdrücklich ausgewiesen</p>
+      <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen; nutze das Mikrofon nur nach dieser Zustimmung. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Datei-Kontext nutzt nur ausdrücklich ausgewählte Textdateien. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
     </section>
   </div>
 </body>
