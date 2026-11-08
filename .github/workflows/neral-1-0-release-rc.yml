@@ -1,0 +1,139 @@
+name: NERAL 1.0 release candidate - offline package and LIVE Windows PC smoke
+on:
+  pull_request:
+    paths:
+      - 'neral_preview_server.py'
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'Start NERAL 1.0 Local.cmd'
+      - 'neral_agent_autonomy.py'
+      - 'neral_local_chat_api.py'
+      - 'templates/neral_preview.html'
+      - 'static/neral-preview.css'
+      - 'static/neral-preview.js'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'scripts/neral_1_0_local_live_smoke.py'
+      - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/test_neral_1_0_standalone_release.py'
+      - '.github/workflows/neral-1-0-release-rc.yml'
+      - 'requirements-neral-preview.txt'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_preview_server.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'tests/test_neral_1_0_standalone_release.py'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  cpu-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install preview server dependencies for CI only
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: New standalone app security, reproducible package and CSRF HTTP contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
+      - name: Historic one-click preview still has fail-closed model preflight
+        run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
+      - name: Syntax and browser JS
+        run: python -m py_compile neral_preview_server.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
+      - run: node --check static/neral-preview.js
+      - run: node --check static/neral-local-chat.js
+  local-windows-pc:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'release/neral-1-0-standalone-preview-20261108'
+    needs: [cpu-contracts]
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 22
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_AGENT_BACKEND: ollama
+      NERAL_AGENT_OLLAMA_MODEL: 'qwen3:8b'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: code
+          clean: true
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Real local Ollama inventory, FAST, THINK and CSRF smoke - no downloads
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $code=Join-Path $env:GITHUB_WORKSPACE 'code'
+          $out=Join-Path $env:RUNNER_TEMP 'neral-1-0-pc-smoke-scalar.json'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Existing Python 3.12 runtime missing. Cannot claim PC release readiness.'
+          }
+          if(Test-Path -LiteralPath $out){throw 'Smoke report already exists; overwrite refused'}
+          $env:PYTHONPATH=$code
+          Push-Location $code
+          try{
+            & $py -B -c 'import flask; import neral_preview_server; print("PREVIEW_IMPORT_OK")'
+            if($LASTEXITCODE -ne 0){throw 'Private Windows Python environment missing Flask or preview modules'}
+            & $py -B -m scripts.neral_1_0_local_live_smoke --out $out
+            if($LASTEXITCODE -ne 0){throw 'Actual installed local Ollama FAST/THINK failed'}
+          } finally {Pop-Location}
+          $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($report.status -ne 'NERAL_1_0_LOCAL_PC_SMOKE_PASSED' -or
+             $report.fast_actual_inference -ne $true -or
+             $report.think_actual_inference -ne $true -or
+             $report.csrf_and_origin_blocked -ne $true -or
+             $report.foundation_provenance_preserved -ne $true -or
+             $report.release_validated -ne $false -or
+             $report.weights_promoted -ne $false){
+            throw 'Unsafe or incomplete scalar PC release smoke'
+          }
+          $dir=Join-Path $code 'neral_1_0_pc_scalar'
+          if(Test-Path $dir){throw 'Report path exists'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath $out -Destination (Join-Path $dir 'summary.json')
+      - name: Publish scalar verdict only - no user prompts, chats, models
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-1-0-pc-live-verdict
+          path: code/neral_1_0_pc_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
+  package-rc:
+    if: github.event_name == 'pull_request'
+    needs: [cpu-contracts, local-windows-pc]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build deterministic verified-allowlist ZIP (NO model weights)
+        run: |
+          mkdir -p dist
+          python -m scripts.build_neral_1_0_preview --out dist/NERAL-1.0-Local-Preview.zip
+          cd dist
+          sha256sum NERAL-1.0-Local-Preview.zip > SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 1
+      - name: Publish source-only release candidate after BOTH CI and real PC pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: NERAL-1.0-Local-Preview-RELEASE-CANDIDATE
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
