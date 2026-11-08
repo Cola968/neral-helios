@@ -50,6 +50,29 @@ class ThinkHTTPTests(unittest.TestCase):
         self.assertEqual(reply.json["calls_used"], 1)
         self.assertEqual(len(model.calls), 1)
 
+    def test_new_exact_math_route_reaches_real_think_http_api(self):
+        q = "Find the remainder of 13 to the power 5 modulo 17."
+        client, model = setup(["FINAL: 999999", "FINAL: 999999"])
+        response = client.post("/api/neral/chat/think", json={"prompt": q})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["final_answer"], str(pow(13, 5, 17)))
+        self.assertTrue(response.json["verified"])
+        self.assertFalse(response.json["model_generated"])
+        self.assertEqual(response.json["verification_status"], "tool_fallback")
+        self.assertEqual(response.json["tool_used"], "neral_math_exact")
+        self.assertEqual(len(model.calls), 2)
+
+    def test_new_python_trace_route_reaches_real_think_http_api(self):
+        q = "Which integer does this Python program print?\n```python\nn = 4\nprint(n * 7)\n```"
+        client, model = setup(["FINAL: 999999", "FINAL: 999999"])
+        response = client.post("/api/neral/chat/think", json={"prompt": q})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["final_answer"], "28")
+        self.assertTrue(response.json["verified"])
+        self.assertFalse(response.json["model_generated"])
+        self.assertEqual(response.json["tool_used"], "neral_python_trace_static")
+        self.assertEqual(len(model.calls), 2)
+
     def test_think_model_failure_is_generic_not_sensitive(self):
         client, model = setup([])
         def boom(_):
