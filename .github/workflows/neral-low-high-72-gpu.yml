@@ -1,0 +1,123 @@
+name: NERAL LOW/HIGH 72 paired real RTX 4070 development quality gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_low_high_quality.py'
+      - 'tests/test_neral_low_high_quality.py'
+      - 'tests/test_neral_low_high_72_workflow.py'
+      - '.github/workflows/neral-low-high-72-gpu.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Explicit readonly permission: NERAL_LOW_HIGH_72_READONLY'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install preview HTTP dependencies for isolated fake-backend contracts
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Exact scorer and long-response regression tests
+        run: python -B -m unittest discover -s tests -p test_neral_low_high_quality.py -v
+      - name: GPU workflow safety gates
+        run: python -B -m unittest discover -s tests -p test_neral_low_high_72_workflow.py -v
+      - name: Compile scoring scripts
+        run: python -B -m py_compile scripts/neral_low_high_quality.py
+
+  gpu-paired:
+    needs: cpu-contract
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_LOW_HIGH_72_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+          clean: true
+      - name: Check free RTX 4070 resources and isolated preview Python
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $base=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Existing Python 3.12 runtime missing'}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU metrics unavailable'}
+          $values=($raw|Select-Object -First 1)-split ','
+          if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 6500 -or [int]$values[1].Trim() -gt 25){
+            throw 'GPU busy or memory insufficient: refuse concurrent inference'
+          }
+          $venv=Join-Path $env:RUNNER_TEMP ("neral-low-high-qa-"+$env:GITHUB_RUN_ID+"-"+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse existing QA venv'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Isolated QA venv failed'}
+          $qa=Join-Path $venv 'Scripts\python.exe'
+          & $qa -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $code 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Temporary preview dependencies unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_QUALITY_PY=$qa"+[Environment]::NewLine+
+            "NERAL_QUALITY_CODE=$code"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Execute all 72 paired LOW/HIGH development cases with real Ollama
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP ("neral-low-high-72-"+$env:GITHUB_RUN_ID+"-"+$env:GITHUB_RUN_ATTEMPT+".json")
+          if(Test-Path -LiteralPath $out){throw 'Create-only report path occupied'}
+          Push-Location $env:NERAL_QUALITY_CODE
+          try {
+            $env:PYTHONPATH=$env:NERAL_QUALITY_CODE
+            & $env:NERAL_QUALITY_PY -B -m scripts.neral_low_high_quality --count 72 --out $out
+            if($LASTEXITCODE -ne 0){throw '72-pair measurement incomplete; no performance verdict'}
+          } finally {Pop-Location}
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($r.status -ne 'NERAL_LOW_HIGH_PAIRED_DEVELOPMENT_DIAGNOSTIC' -or
+             $r.case_count -ne 72 -or $r.family_count -lt 12 -or
+             $r.model -ne 'qwen3:8b' -or
+             $r.release_validated -ne $false -or
+             $r.neural_improvement_proven -ne $false -or
+             $r.independent_holdout_verified -ne $false -or
+             $null -eq $r.paired.exact_mcnemar_p -or
+             $null -eq $r.by_domain.math -or
+             $null -eq $r.by_domain.reasoning -or
+             $null -eq $r.by_domain.code_trace){
+            throw 'Reject incomplete or misleading quality report'
+          }
+          $dir=Join-Path $env:NERAL_QUALITY_CODE 'neral_low_high_72_scalar'
+          if(Test-Path -LiteralPath $dir){throw 'Refuse existing public report'}
+          New-Item -Path $dir -ItemType Directory -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath $out -Destination (Join-Path $dir 'summary.json')
+          Write-Host '72 paired LOW/HIGH requests completed. Only aggregate results exported.'
+      - name: Publish aggregate only - never prompts, chats or model replies
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-low-high-72-development-scalars-only
+          path: control/neral_low_high_72_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14

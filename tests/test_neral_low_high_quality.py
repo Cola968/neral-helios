@@ -66,6 +66,29 @@ class HighMustBeBetter(unittest.TestCase):
         self.assertEqual(report["low_correct"], 72)
         self.assertEqual(report["difference_pp"], 0)
 
+    def test_complete_long_reasoning_with_one_final_marker_scores_correct(self):
+        # A 2048-token HIGH reply can exceed 4096 characters and still finish.
+        cases, pairs = benchmark(improved=0)
+        for case, row in zip(cases, pairs):
+            row["high"]["text"] = (
+                "Schrittweise Prüfung: " + ("Aussage korrekt geordnet. " * 230)
+                + "\nFINAL: " + str(case["answer"])
+            )
+        report = score_paired(cases, pairs, model_digest=DIGEST)
+        self.assertEqual(report["high_correct"], 72)
+        self.assertEqual(report["low_correct"], 72)
+
+    def test_long_answer_with_duplicated_final_is_rejected(self):
+        cases, pairs = benchmark(improved=0)
+        for case, row in zip(cases, pairs):
+            row["high"]["text"] = (
+                "FINAL: " + str(case["answer"]) + "\n"
+                + ("Vollständige Herleitung. " * 210)
+                + "\nFINAL: " + str(case["answer"])
+            )
+        report = score_paired(cases, pairs, model_digest=DIGEST)
+        self.assertEqual(report["high_correct"], 0)
+
     def test_multiple_final_markers_are_not_accepted_as_correct(self):
         cases, pairs = benchmark(improved=0)
         for case, row in zip(cases, pairs):
