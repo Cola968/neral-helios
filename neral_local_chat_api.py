@@ -471,7 +471,6 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 local_respond = getattr(high_backend, "respond_chat", None)
             if not callable(local_respond):
                 local_respond = high_backend.respond
-            from neral_agent_autonomy import OllamaLocalBackend
             # Only a real local Ollama backend receives opt-in second review.
             deep_review = isinstance(high_backend, OllamaLocalBackend)
             if deep_review:
