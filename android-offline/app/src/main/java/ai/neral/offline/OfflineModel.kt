@@ -48,12 +48,12 @@ object OfflineModel {
         } catch (_: Exception) { false }
     }
 
-    /** Keep prompt compact enough for a low-memory CPU-only mobile context. */
+    /** Keep short, valid messages in order; never treat an unfinished assistant draft as user input. */
     fun window(history: List<ChatTurn>): List<ChatTurn> =
-        listOf(ChatTurn("system", "Du bist NERAL Offline, ein lokaler Chat-Assistent. " +
-            "Du nutzt das unveraenderte Qwen3-0.6B-Modell. Antworte auf Deutsch, " +
-            "nenne Unsicherheit und erfinde keine Quellen.")) +
-        history.takeLast(6).map { turn ->
-            ChatTurn(if (turn.role == "assistant") "assistant" else "user", turn.content.takeLast(600))
-        }
+        listOf(ChatTurn("system", "Du bist NERAL Offline. Dein Sprachmodell ist Qwen3-0.6B, " +
+            "kein eigenes NERAL-LoRA. Beantworte die konkrete letzte Nutzerfrage direkt und auf Deutsch. " +
+            "Wiederhole keine alten Antworten, stelle nicht die Frage des Nutzers zurueck, " +
+            "beginne nicht grundlos mit einer Begruessung. Falls du etwas nicht weisst, sage es.")) +
+        history.filter { (it.role == "user" || it.role == "assistant") && it.content.isNotBlank() }
+            .takeLast(5).map { ChatTurn(it.role, it.content.takeLast(600)) }
 }
