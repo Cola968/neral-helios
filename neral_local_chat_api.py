@@ -15,6 +15,16 @@ import time
 from flask import Response, jsonify, request, stream_with_context
 
 from neral_identity import build_identity_prompt
+from neral_agent_autonomy import OllamaCompletionError
+
+_SAFE_OLLAMA_ERROR_TEXT = {
+    "token_limit": "Lokale Antwort am Ausgabelimit abgeschnitten. Bitte kürzer fragen oder die Aufgabe aufteilen.",
+    "incomplete": "Lokale Modellantwort ohne bestätigten Abschluss. Bitte erneut versuchen.",
+    "empty_answer": "Das lokale Modell hat keinen fertigen Antworttext geliefert.",
+    "timeout": "Das lokale Modell hat die Wartezeit überschritten. Bitte erneut versuchen.",
+    "invalid_response": "Das lokale Modell hat ein ungültiges Antwortformat geliefert.",
+}
+
 
 SYSTEM = build_identity_prompt("web", "local_foundation_not_neral_adapter")
 BASE_MODEL = "Qwen2.5-Coder-7B-Instruct"
@@ -336,6 +346,10 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 yield frame({"type": "final", "result": result})
             except GeneratorExit:
                 raise
+            except OllamaCompletionError as exc:
+                yield frame({"type": "error",
+                    "error": _SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                    "error_code": exc.reason})
             except Exception:
                 # Do not expose raw GPU prompts, hidden reasoning or filesystem data.
                 yield frame({"type": "error", "error":
@@ -389,6 +403,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 prepare_model(backend)
                 reply = getattr(backend, "respond_chat", None)
                 text = reply(data) if callable(reply) else backend.respond(data)
+            except OllamaCompletionError as exc:
+                return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                               error_code=exc.reason), 503
             except Exception:
                 # Do not leak local paths, model credentials or private prompts.
                 return jsonify(error="Lokale Modell-Inferenz nicht verfügbar oder fehlgeschlagen."), 503
@@ -448,6 +465,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             prepare_model(high_backend)
             result = think_reply(data, local_respond, deep_review=deep_review)
             return jsonify({**result, **_provenance(high_backend)})
+        except OllamaCompletionError as exc:
+            return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                           error_code=exc.reason), 503
         except Exception:
             # Never leak local paths, checkpoints, prompts or model outputs.
             return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden."), 503
