@@ -58,6 +58,17 @@
   });
   refresh();
 
+  // Existing tools menu now lives in the top-right chrome, without cloning
+  // controls or attaching duplicate event handlers.
+  const tools=$("extraTools"),slot=$("headerToolsSlot");
+  if(tools&&slot)slot.append(tools);
+  $("showPrivacy")?.addEventListener("click",()=>{
+    const details=$("privacyDetails");
+    if(!details)return;
+    details.open=!details.open;
+    if(tools)tools.open=false;
+    if(details.open)details.scrollIntoView({block:"nearest",behavior:"auto"});
+  });
   // Projects in this local version are explicitly chat attachments, not a
   // fictitious persistent workspace.
   $("projectFilesShortcut")?.addEventListener("click",()=>{
