@@ -95,3 +95,16 @@ test("stop voice cancels speech and a missing browser speech API disables mic",a
   ctx.handlers.get("stopVoice:click")();
   assert.ok(ctx.speech.includes("CANCEL"));
 });
+
+test("opt-in local Piper speech suppresses simultaneous browser speech synthesis",async()=>{
+  const ctx=browserHarness();
+  await flush();
+  // Voice v2 keeps the legacy browser readout enabled for normal chat.
+  ctx.element("localVoiceStart").getAttribute=key=>
+    key==="aria-pressed"?"true":null;
+  ctx.element("prompt").value="Hallo NERAL";
+  await ctx.handlers.get("chatForm:submit")({preventDefault(){}});
+  assert.ok(ctx.calls.find(x=>x.url==="/api/neral/chat/generate"));
+  assert.equal(ctx.speech.filter(x=>x!=="CANCEL").length,0,
+    "Only Piper may speak while local voice is active");
+});

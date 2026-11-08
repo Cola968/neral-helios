@@ -23,7 +23,7 @@ PORT = 9690
 ORIGIN = f"http://{HOST}:{PORT}"
 
 
-def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None):
+def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None):
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -59,6 +59,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
             request.max_content_length = 130000
         if request.path == "/api/neral/preview/attachment-chat":
             request.max_content_length = MAX_REQUEST_BYTES
+        if request.path == "/api/neral/voice/transcribe":
+            request.max_content_length = 500_000
         if request.host not in (f"127.0.0.1:{PORT}",):
             return jsonify(error="Nur der lokale NERAL-Dienst ist erlaubt."), 403
         if (request.headers.get("Origin") not in (None, ORIGIN) or
@@ -83,7 +85,7 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
         response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; script-src 'self'; style-src 'self'; "
-            "connect-src 'self'; img-src 'self'; font-src 'self'; "
+            "connect-src 'self'; img-src 'self'; media-src 'self' blob:; font-src 'self'; "
             "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         )
         return response
@@ -105,6 +107,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     from neral_preview_attachments import register_preview_attachment_api
     register_preview_attachment_api(app, backend, chat_busy, vision_analyzer=vision_analyzer)
 
+    from neral_local_voice import register_local_voice_api
+    local_voice = register_local_voice_api(app, service=voice_service)
+
     from neral_local_accounts import register_local_accounts
     register_local_accounts(app)
 
@@ -122,6 +127,7 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
             "web_search": {"configured": True, "live_verified": False,
                            "automatic": False, "query_leaves_pc": True,
                            "requires_api_key": False},
+            "offline_voice": local_voice.status(),
             "browser_voice": {"configured": True, "live_verified": False,
                               "requires_user_consent": True,
                               "may_use_browser_provider": True},
