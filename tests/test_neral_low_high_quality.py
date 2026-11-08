@@ -57,6 +57,25 @@ class HighMustBeBetter(unittest.TestCase):
         self.assertFalse(report["development_gate_passed"])
         self.assertEqual(report["difference_pp"], 0)
 
+    def test_high_final_and_final_answer_are_scored_equally(self):
+        cases, pairs = benchmark(improved=0)
+        for case, row in zip(cases, pairs):
+            row["high"]["text"] = "FINAL: " + str(case["answer"])
+        report = score_paired(cases, pairs, model_digest=DIGEST)
+        self.assertEqual(report["high_correct"], 72)
+        self.assertEqual(report["low_correct"], 72)
+        self.assertEqual(report["difference_pp"], 0)
+
+    def test_multiple_final_markers_are_not_accepted_as_correct(self):
+        cases, pairs = benchmark(improved=0)
+        for case, row in zip(cases, pairs):
+            row["high"]["text"] = ("FINAL: " + str(case["answer"]) +
+                                    "\\nFINAL_ANSWER: " + str(case["answer"]))
+        report = score_paired(cases, pairs, model_digest=DIGEST)
+        self.assertEqual(report["high_correct"], 0)
+        self.assertEqual(report["low_correct"], 72)
+        self.assertFalse(report["development_gate_passed"])
+
     def test_regressions_fail_even_when_high_has_some_wins(self):
         cases, pairs = benchmark(improved=8, regressed=8)
         report = score_paired(cases, pairs, model_digest=DIGEST)
