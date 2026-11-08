@@ -52,6 +52,8 @@ REQUIRED_FILES = (
     "static/neral-preview.css",
     "static/neral-modern.css",
     "static/neral-modern.js",
+    "static/neral-dynamic-ui.js",
+    "static/neral-dynamic-ui.css",
     "static/neral-motion.js",
     "static/neral-motion.css",
     "static/icon.svg",
