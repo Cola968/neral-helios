@@ -66,7 +66,7 @@ test("late text after completion and cancel cannot mutate another conversation",
 test("the live client uses the same painter for LOW network deltas and HIGH verified final answers",()=>{
   const fs=require("node:fs"),path=require("node:path");
   const src=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
-  assert.match(src,/NeralLiveStream\.createPainter/);
+  assert.match(src,/NeralLiveStream\?\.createPainter/);
   assert.match(src,/painter\.push\(piece\)/);
   assert.match(src,/painter\.push\(result\.text\)/);
   assert.match(src,/await painter\.finish\(\)/);
