@@ -39,9 +39,12 @@ jobs:
         run: node --check static/neral-local-chat.js
   windows-preflight:
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Powershell local Ollama inventory using fake CLI, no server or downloads
         shell: powershell
         run: |
@@ -65,3 +68,14 @@ jobs:
           } catch [System.Management.Automation.ParameterBindingException] {
             Write-Host 'Unknown model refused as expected.'
           }
+          $env:NERAL_PREVIEW_INSTALL_CONSENT='1'
+          & .\Start-Neral-1.0-Local.ps1 -PrepareOnly -Model qwen3:8b
+          if(-not $?) {throw 'Consented preview venv bootstrap failed'}
+          $private=Join-Path $PWD 'local_state\preview-venv\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $private -PathType Leaf)){
+            throw 'Isolated per-app Python was not created'
+          }
+          & $private -B -c 'import flask,waitress;print(1)'
+          if($LASTEXITCODE -ne 0){throw 'Isolated web app deps unavailable'}
+          & .\Start-Neral-1.0-Local.ps1 -PrepareOnly -Model qwen3:8b
+          if(-not $?) {throw 'Second run must reuse the existing isolated preview env'}
