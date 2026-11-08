@@ -57,7 +57,7 @@ _PATH_DE=re.compile(
     r"); direkt mit (?P<f>"+_NUMBER+r")\. Was kostet der billigste Weg\?",_FLAGS)
 _PATH_EN=re.compile(
     r"A directed network has exactly three start-to-finish paths: via A costing "
-    r"(?P<a>"+_NUMBER+r") and (?P<b>"+_NUMBER+r"); via B,C with "
+    r"(?P<a>"+_NUMBER+r") and (?P<b>"+_NUMBER+r"); via B,C (?:with|costing) "
     r"(?P<c>"+_NUMBER+r"), (?P<d>"+_NUMBER+r"), (?P<e>"+_NUMBER+
     r"); and direct costing (?P<f>"+_NUMBER+r")\. Give the minimum total cost\.",_FLAGS)
 
