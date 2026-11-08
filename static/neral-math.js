@@ -34,6 +34,43 @@
       return false;
     }
   }
+  // Math fences are *not* code fences. Only two exactly recognized flattened
+  // Kepler forms are repaired; other uncertain flattenings remain untouched.
+  // Never turn an arbitrary invalid model equation into an asserted formula.
+  function normalizeMathFence(value){
+    if(typeof value!=="string" || !value.trim() || value.length>2048)return null;
+    let expression=value.trim();
+    if(expression.startsWith("$") && expression.endsWith("$"))
+      expression=expression.slice(2,-2).trim();
+    else if(expression.startsWith("\\[") && expression.endsWith("\\]"))
+      expression=expression.slice(2,-2).trim();
+    if(!expression || /[<>]/.test(expression) || /[\u0000-\u0008\u000b-\u001f]/.test(expression))
+      return null;
+    const compact=expression.replace(/\s+/g,"");
+    if(compact==="T2a3=4π2G(M+m)")
+      return String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{G(M+m)}`;
+    if(compact==="T2a3=4π2GM")
+      return String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{GM}`;
+    if(/^T2a3=/i.test(compact))return null;
+    // Render already valid LaTeX and clear symbolic formulas. Plain prose or
+    // unexplained run-together numbers/letters must never be interpreted.
+    if(!/[\\^_=]/.test(expression) || /\\(?:href|url|html|includegraphics|newcommand|def|write18)\b/i.test(expression))
+      return null;
+    return expression.replace(/π/g,String.raw`\pi `);
+  }
+  function renderBlock(element,source){
+    if(!element || forbidden.has(String(element.tagName||"").toUpperCase()))return false;
+    const formula=normalizeMathFence(source);
+    const katex=typeof window!=="undefined" && window.katex;
+    if(formula===null || !katex || typeof katex.render!=="function")return false;
+    try{
+      katex.render(formula,element,{
+        displayMode:true,output:"htmlAndMathml",throwOnError:true,
+        trust:false,strict:"warn",maxExpand:200,maxSize:12
+      });
+      return true;
+    }catch{return false;}
+  }
   function stripDuplicateTable(text){
     // A real Dynamic UI table replaces the SAME markdown table, not prose.
     // Raw text is kept in chat history for copy/export. No content is destroyed.
@@ -68,5 +105,5 @@
     return true;
   }
   if(typeof window!=="undefined")
-    window.NeralMath={render,stripDuplicateTable,hideRedundantMarkdownTable};
+    window.NeralMath={render,renderBlock,normalizeMathFence,stripDuplicateTable,hideRedundantMarkdownTable};
 })();
