@@ -137,10 +137,10 @@ _UNITS = {
     "kN": ("force", Fraction(1000)),
 }
 _UNIT_REQUEST = re.compile(
-    r"(?i:wandle|konvertiere|rechne|convert)\\s+"
-    r"(?P<amount>[+-]?\\d{1,8}(?:[.,]\\d{1,6})?)\\s+"
-    r"(?P<source>[A-Za-z/]{1,5})\\s+(?i:in|to)\\s+"
-    r"(?P<target>[A-Za-z/]{1,5})(?:\\s+(?i:um))?[?.]?\\Z"
+    r"(?i:wandle|konvertiere|rechne|convert)\s+"
+    r"(?P<amount>[+-]?\d{1,8}(?:[.,]\d{1,6})?)\s+"
+    r"(?P<source>[A-Za-z/]{1,5})\s+(?i:in|to)\s+"
+    r"(?P<target>[A-Za-z/]{1,5})(?:\s+(?i:um))?[?.]?\Z"
 )
 
 
