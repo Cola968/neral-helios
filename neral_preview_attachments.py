@@ -226,6 +226,15 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
             if not files or len(files) > MAX_FILES:
                 raise AttachmentError("Bitte ein bis drei Anhänge auswählen.")
             question = raw_prompt or "Analysiere die Anhänge sachlich und ausführlich."
+            # Explicit picture/file follow-ups retain history. A generic
+            # "Analysiere die Anhänge" must not let older messages dominate
+            # the new image analysis. Validate history even when not reused.
+            generic_attachment_request = (
+                question.casefold().strip(" .!?") in {
+                    "analysiere die anhänge",
+                    "analysiere die anhänge sachlich und ausführlich",
+                }
+            )
             initial = _messages({"prompt": question, "history": history})
             # Validate complete existing conversation BEFORE parsing attachments.
             del initial
@@ -293,7 +302,8 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                 return jsonify(error="Anhangkontext überschreitet das Limit."), 413
             try:
                 turns = _messages(
-                    {"prompt": combined, "history": history},
+                    {"prompt": combined,
+                     "history": [] if generic_attachment_request else history},
                     max_prompt_bytes=MAX_AUGMENTED_PROMPT,
                 )
                 selected = (experimental_high_backend
