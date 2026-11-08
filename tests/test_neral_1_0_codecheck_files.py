@@ -42,6 +42,35 @@ class CodeCheckContracts(unittest.TestCase):
         self.assertFalse(out.json["code_executed"])
         self.assertNotIn("traceback",str(out.json).lower())
 
+    def test_ast_valid_but_python_compiler_invalid_must_fail(self):
+        # ast.parse() alone wrongly accepts these unusable Python programs.
+        headers = self.token()
+        invalid = (
+            "return 42",
+            "break",
+            "continue",
+            "nonlocal x",
+            "await sleep(1)",
+        )
+        for source in invalid:
+            with self.subTest(source=source):
+                out = self.client.post("/api/neral/preview/codecheck",
+                    base_url=HOST, headers=headers, json={"source": source})
+                self.assertEqual(out.status_code, 200)
+                self.assertFalse(out.json["syntax_ok"], source)
+                self.assertIs(out.json["code_executed"], False)
+                self.assertGreaterEqual(out.json["line"], 1)
+
+    def test_python_compiler_check_does_not_run_source(self):
+        headers = self.token()
+        dangerous = "print('must-not-execute')"
+        with patch("builtins.print", side_effect=AssertionError("Python source ran")):
+            out = self.client.post("/api/neral/preview/codecheck",
+                base_url=HOST, headers=headers, json={"source": dangerous})
+        self.assertEqual(out.status_code, 200)
+        self.assertTrue(out.json["syntax_ok"])
+        self.assertIs(out.json["code_executed"], False)
+
     def test_reject_malformed_large_and_cross_origin(self):
         hdr=self.token()
         for payload in ({"source":""},{"source":"x"*5000},
