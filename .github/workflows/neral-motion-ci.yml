@@ -1,0 +1,35 @@
+name: NERAL animation contracts
+on:
+  pull_request:
+    paths:
+      - 'static/neral-motion.js'
+      - 'static/neral-motion.css'
+      - 'static/neral-preview.js'
+      - 'templates/index.html'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_motion.cjs'
+      - '.github/workflows/neral-motion-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'static/neral-motion.js'
+      - 'static/neral-motion.css'
+      - 'static/neral-preview.js'
+      - 'templates/index.html'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_motion.cjs'
+      - '.github/workflows/neral-motion-ci.yml'
+permissions:
+  contents: read
+jobs:
+  motion-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check static/neral-motion.js
+      - run: node --check static/neral-preview.js
+      - run: node --test tests/test_neral_motion.cjs

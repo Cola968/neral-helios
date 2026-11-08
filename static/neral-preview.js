@@ -12,6 +12,12 @@
   stopRequest.disabled=true;
   let attachments=[];
   const browser=typeof window==="undefined" ? {} : window;
+  // Motion is progressive enhancement: headless tests and non-browser clients
+  // must never fail an otherwise valid local chat request.
+  function motionActivity(phase,mode){
+    if(typeof browser.dispatchEvent!=="function" || typeof CustomEvent!=="function")return;
+    browser.dispatchEvent(new CustomEvent("neral:activity",{detail:{phase,mode}}));
+  }
   const Recognition=browser.SpeechRecognition || browser.webkitSpeechRecognition;
   const speaker=browser.speechSynthesis;
   const mic=$("voiceInput"), voiceStatus=$("voiceStatus");
@@ -174,6 +180,10 @@
     if(!source.trim() || encoder.encode(source).length>4096) {
       errors.textContent="Python-Code fehlt oder ist zu lang.";return;
     }
+    const checkButton=$("codeCheck");
+    const startedEpoch=conversationEpoch;
+    busy=true;submit.disabled=true;checkButton.disabled=true;
+    motionActivity("checking");
     try {
       const reply=await json("/api/neral/preview/codecheck",{
         method:"POST",
@@ -181,13 +191,18 @@
         body:JSON.stringify({source}),
         signal:AbortSignal.timeout(5000)
       });
+      if(startedEpoch!==conversationEpoch)return;
       append("assistant",reply.syntax_ok
         ? "Python-Syntax gültig. Keine Ausführung oder Laufzeitprüfung vorgenommen."
         : "Python-Syntaxfehler in Zeile "+reply.line+", Spalte "+reply.column+
           ": "+reply.message+". Code wurde nicht ausgeführt.",
         "Code Check · Python-Syntax ohne Ausführung");
     } catch(e) {
-      errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
+      if(startedEpoch===conversationEpoch)
+        errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
+    } finally {
+      busy=false;submit.disabled=false;checkButton.disabled=false;
+      motionActivity("done");
     }
   });
 
@@ -230,6 +245,7 @@
       let modelPrompt=text;
       let sources=[];
       if($("useWebSearch").checked) {
+        motionActivity("searching",mode);
         if(text.length>160 || /[\r\n]/.test(text))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         const search=await json("/api/web/search",{
@@ -269,6 +285,7 @@
         path="/api/neral/preview/attachment-chat";
         options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
       }
+      motionActivity("thinking",mode);
       const result=await json(path,options);
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
@@ -276,6 +293,7 @@
       if(result.model_origin!=="local_foundation_not_neral_adapter" ||
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
+      motionActivity("done",mode);
       append("user",text+(selectedAttachments.length?"\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""));
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
@@ -310,6 +328,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
+      motionActivity("done",mode);
       if(activeRequest===controller){
         activeRequest=null;busy=false;submit.disabled=false;
         stopRequest.disabled=true;prompt.focus();
@@ -320,11 +339,13 @@
   stopRequest.addEventListener("click",()=>{
     if(activeRequest&&!activeRequest.signal.aborted){
       activeRequest.abort();
+      motionActivity("cancelled");
       errors.textContent="Browseranfrage abgebrochen. Ollama kann lokal noch weiterrechnen.";
     }
   });
   $("clear").addEventListener("click",()=>{
     conversationEpoch++;
+    motionActivity("cancelled");
     if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
     stopAudio();
     if(recognizer && listening) recognizer.abort();
