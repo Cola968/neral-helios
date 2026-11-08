@@ -157,8 +157,7 @@ dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
 
 ## Code Check und ausdruecklich gewaehlte Dateien
 
-- Python Code Check analysiert den gerade eingegebenen Python-Quelltext nur mit
-  `ast.parse`. Kein Benutzer-Code wird ausgefuehrt, kein Shellprozess
+- Python Code Check analysiert den gerade eingegebenen Python-Quelltext durch `ast.parse` und eine nicht ausgefuehrte Python-Kompilierung. Kein Benutzer-Code wird ausgefuehrt, kein Shellprozess
   gestartet, keine Laufzeit-, Semantik- oder Sicherheitstests behauptet.
 - Datei-Kontext liest im Browser nach ausdruecklicher Dateiauswahl bis zu zwei
   Textdateien (je maximal 1200 Byte, zugelassene Quelltext-Endungen). Nur beim
@@ -168,4 +167,4 @@ dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
   Projektdateien ohne Nutzerauswahl.
 - `project_files` (automatischer Dateisystem-Agent) und
   `local_code_execution` (Codeausfuehrung) bleiben deaktiviert.
-  Der begrenzte Datei-Kontext und der AST-Syntaxcheck sind getrennte Tools.
+  Der begrenzte Datei-Kontext und der Python-Syntaxcheck sind getrennte Tools.
