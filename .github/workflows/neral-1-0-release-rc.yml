@@ -252,6 +252,7 @@ jobs:
              $report.fast_actual_inference -ne $true -or
              $report.think_actual_inference -ne $true -or
              $report.attachment_actual_inference -ne $true -or
+             ($report.optional_vision_model_installed -eq $true -and $report.optional_vision_live_verified -ne $true) -or
              $report.csrf_and_origin_blocked -ne $true -or
              $report.foundation_provenance_preserved -ne $true -or
              $report.release_validated -ne $false -or
