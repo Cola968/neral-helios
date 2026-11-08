@@ -37,3 +37,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 #projectFiles{max-width:160px;font-size:11px;vertical-align:middle;color:var(--muted)}
 #fileStatus{font-size:11px;color:var(--muted);margin:5px 0 0;overflow-wrap:anywhere}
+
+/* Clear Stop Send alongside the existing voice/web/file toolbar. */
+#stopRequest{white-space:nowrap}
+@media(max-width:730px){.actions{flex-wrap:wrap;gap:6px}.actions button{font-size:12px}}
