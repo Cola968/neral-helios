@@ -1,0 +1,118 @@
+name: NERAL LOW/HIGH fresh 36-case transfer test after complete 72-gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_low_high_fresh.py'
+      - 'tests/test_neral_low_high_fresh.py'
+      - '.github/workflows/neral-low-high-fresh-gpu.yml'
+  workflow_run:
+    workflows:
+      - 'NERAL LOW/HIGH 72 paired real RTX 4070 development quality gate'
+    types: [completed]
+
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fresh seeded oracle suite and non-release guard
+        run: python -B -m unittest discover -s tests -p test_neral_low_high_fresh.py -v
+      - name: Complete paired scorer regressions and long answers
+        run: python -B -m unittest discover -s tests -p test_neral_low_high_quality.py -v
+      - name: Source syntax
+        run: python -B -m py_compile scripts/neral_low_high_fresh.py
+
+  gpu-fresh:
+    needs: cpu-contract
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify same RTX 4070 is free and create disposable Python QA environment
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $base=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Local Python not installed'}
+          $gpu=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'Cannot inspect GPU capacity'}
+          $values=($gpu|Select-Object -First 1)-split ','
+          if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 6500 -or [int]$values[1].Trim() -gt 25){
+            throw 'GPU busy or insufficient memory; no overlapping inference'
+          }
+          $venv=Join-Path $env:RUNNER_TEMP ("neral-fresh-qa-"+$env:GITHUB_RUN_ID+"-"+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse existing temporary environment'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Temporary virtual environment failed'}
+          $qa=Join-Path $venv 'Scripts\python.exe'
+          & $qa -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $code 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Isolated preview packages unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_FRESH_PY=$qa"+[Environment]::NewLine+
+            "NERAL_FRESH_CODE=$code"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Compare NERAL real LOW 1024 vs HIGH 2048 on freshly seeded private 36 cases
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP ("neral-low-high-fresh-"+$env:GITHUB_RUN_ID+"-"+$env:GITHUB_RUN_ATTEMPT+".json")
+          if(Test-Path -LiteralPath $out){throw 'Create-only report destination occupied'}
+          Push-Location $env:NERAL_FRESH_CODE
+          try {
+            $env:PYTHONPATH=$env:NERAL_FRESH_CODE
+            & $env:NERAL_FRESH_PY -B -m scripts.neral_low_high_fresh --out $out
+            if($LASTEXITCODE -ne 0){throw 'Fresh 36-case evaluation incomplete'}
+          } finally {Pop-Location}
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.status -ne 'NERAL_LOW_HIGH_FRESH_36_DEVELOPMENT_NOT_RELEASE' -or
+             $r.case_count -ne 36 -or $r.family_count -ne 6 -or
+             $r.model -ne 'qwen3:8b' -or
+             $r.generation_budgets.low -ne 1024 -or
+             $r.generation_budgets.high -ne 2048 -or
+             $r.private_random_seed_uploaded -ne $false -or
+             $r.raw_prompts_or_responses_uploaded -ne $false -or
+             $r.training_performed -ne $false -or
+             $r.independent_holdout_verified -ne $false -or
+             $r.release_validated -ne $false){
+            throw 'Unsafe fresh report or false independent-release claim'
+          }
+          $dir=Join-Path $env:NERAL_FRESH_CODE 'neral_low_high_fresh_36_scalar'
+          if(Test-Path -LiteralPath $dir){throw 'Refuse existing public scalar folder'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath $out -Destination (Join-Path $dir 'summary.json')
+          Write-Host 'Fresh 36-case evaluation completed: no independent release holdout.'
+      - name: Publish aggregate metrics only - no independent release holdout
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-low-high-fresh-36-development-scalars-only
+          path: control/neral_low_high_fresh_36_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
