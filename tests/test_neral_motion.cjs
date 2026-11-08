@@ -173,11 +173,12 @@ test("local preview announces real stages and removes indicator on abort and fin
   const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
   const html=fs.readFileSync(path.join(root,"templates/neral_preview.html"),"utf8");
   const index=fs.readFileSync(path.join(root,"templates/index.html"),"utf8");
-  assert.match(source,/phase:"searching"/);
-  assert.match(source,/phase:"checking"/);
-  assert.match(source,/phase:"thinking"/);
-  assert.match(source,/phase:"cancelled"/);
-  assert.match(source,/phase:"done"/);
+  assert.match(source,/motionActivity\("searching"/);
+  assert.match(source,/motionActivity\("checking"/);
+  assert.match(source,/motionActivity\("thinking"/);
+  assert.match(source,/motionActivity\("cancelled"/);
+  assert.match(source,/motionActivity\("done"/);
+  assert.match(source,/typeof CustomEvent/);
   assert.match(html,/neral-motion\.css/);
   assert.match(html,/neral-motion\.js/);
   assert.match(index,/neral-motion\.css/);
