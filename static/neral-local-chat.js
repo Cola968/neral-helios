@@ -53,8 +53,9 @@
       transcript.textContent = 'Noch keine Nachricht. Der Verlauf wird nur im Arbeitsspeicher dieses Browserfensters gehalten.';
       return;
     }
-    for (const item of messages) {
-      const line = document.createElement('p');
+    for (const [index,item] of messages.entries()) {
+      const line = document.createElement(item.role === 'assistant' ? 'div' : 'p');
+      if(item.role==='assistant')line.className='neral-inline-answer';
       const role = document.createElement('strong');
       role.textContent = item.role === 'user' ? 'Du: ' :
         item.tool_used === 'neral_math_exact' ? 'NERAL (exakte lokale Berechnung): ' :
@@ -63,6 +64,18 @@
       const content = document.createElement('span');
       content.textContent = item.content;
       line.append(role, content);
+      // The same validated renderer used by the Windows desktop chat.
+      // Build only from a real, completed answer. Never run model HTML.
+      if(item.role==='assistant' && index>0 && messages[index-1].role==='user'){
+        const ui=window.NeralDynamicUI;
+        if(ui && typeof ui.plan==='function' && typeof ui.mount==='function'){
+          try{
+            const spec=ui.plan({prompt:messages[index-1].content,
+              text:item.content,result:item.uiResult||{model_generated:true}});
+            if(spec)ui.mount(line,spec);
+          }catch{/* Dynamic UI is optional; preserve plain response. */}
+        }
+      }
       transcript.append(line);
     }
     transcript.scrollTop = transcript.scrollHeight;
@@ -112,7 +125,12 @@
         mode: answer.mode === 'THINK' ? 'THINK' : null,
         verified: answer.verified === true && answer.verification_scope === 'numeric_final_only',
         tool_used: answer.model_generated === false && answer.tool_used === 'neral_math_exact'
-          ? 'neral_math_exact' : null});
+          ? 'neral_math_exact' : null,
+        uiResult: {
+          model_generated: answer.model_generated === false ? false : true,
+          tool_used: answer.model_generated === false ? answer.tool_used : null,
+          exact: answer.model_generated === false && answer.exact === true
+        }});
       // Keep memory bounded and keep alternating user-assistant turns.
       if (messages.length > 12) messages = messages.slice(-12);
       updateIdentity(answer);
