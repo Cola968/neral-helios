@@ -13,6 +13,7 @@ import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
+from werkzeug.exceptions import RequestEntityTooLarge
 from neral_preview_attachments import MAX_REQUEST_BYTES
 
 ALLOWED_MODELS = ("qwen3:8b", "qwen3.5:9b")
@@ -44,6 +45,12 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
         SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=False,  # HTTP is permitted on private loopback only.
     )
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def reject_oversized_request(_error):
+        # The browser client always parses API responses as JSON; Flask's
+        # default HTML 413 would hide the actual upload-limit error.
+        return jsonify(error="Anfrage oder Anhang überschreitet das erlaubte Größenlimit."), 413
 
     @app.before_request
     def reject_external_or_cross_origin():
