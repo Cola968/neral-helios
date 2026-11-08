@@ -96,11 +96,37 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
     from neral_web_api import register_web_search_api
     register_web_search_api(app, service=search_service)
 
+    @app.post("/api/neral/preview/journeys")
+    def preview_journeys():
+        # Explicit journey query only. Never forwards chat history or attachments.
+        # Existing before_request verifies loopback host, same origin, session and CSRF.
+        if not request.is_json:
+            return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
+        if request.content_length is not None and request.content_length > 2048:
+            return jsonify(error="Bahn-Anfrage zu lang."), 413
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error="Ungültige Verbindungssuche."), 400
+        try:
+            from neral_bahnconnections import plan_journeys
+            result = plan_journeys(payload)
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except Exception:
+            # Do not reveal DNS errors, host secrets or internal provider URLs.
+            return jsonify(error="BahnConnections ist zurzeit nicht erreichbar. "
+                         "Keine Verbindung konnte bestätigt werden."), 502
+
     @app.get("/api/neral/preview/plugins")
     def preview_plugins():
         return jsonify(plugins={
             "exact_math": {"available": True, "execution": "local_verified"},
             "think": {"available": True, "execution": "local_foundation_plus_tools"},
+            "bahnconnections_journeys": {"configured": True, "live_verified": False,
+                                      "requires_explicit_route": True,
+                                      "external_provider": True,
+                                      "source": "BahnConnections / Transitous"},
             "web_search": {"configured": True, "live_verified": False,
                            "automatic": False, "query_leaves_pc": True,
                            "requires_api_key": False},
