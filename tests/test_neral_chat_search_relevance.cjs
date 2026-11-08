@@ -9,7 +9,7 @@ async function exercise(promptText,results){
     return elements[id] ||= {
       value:"",textContent:"",disabled:false,checked:false,
       addEventListener(kind,callback){handlers.set(id+":"+kind,callback);},
-      querySelector(){return {value:"fast"};},append(){},replaceChildren(){},
+      querySelector(){return id==="chatForm"?{value:"fast"}:null;},append(){},replaceChildren(){},
       remove(){},focus(){},setAttribute(){},getAttribute(){return null;},
       scrollHeight:0,scrollTop:0,
     };
