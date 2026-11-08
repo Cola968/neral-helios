@@ -218,3 +218,19 @@ Multipart-Anfragen durchlaufen dieselben Host-, Origin-, CSRF- und
 Sitzungsprüfungen wie der bisherige Chat. Dateien werden nicht auf
 dem Server gespeichert. Die neue Funktion ist bis zur CI- und
 Nutzerabnahme **noch kein stabiler NERAL-1.0-Release**.
+
+## Lokale Benutzerkonten und Chat-Speicherung
+
+Die Anmeldung ist **lokal auf diesem PC**, nicht bei einem Internetdienst. Ohne Anmeldung ist der Gastchat weiterhin verfügbar; dessen Verlauf wird nicht dauerhaft gespeichert. Mit einem lokalen Konto bleiben Chats nach dem Schließen des Browsers erhalten. Gespeicherte Gespräche lassen sich in der Sidebar öffnen, suchen und löschen.
+
+Der Benutzername umfasst 3–32 erlaubte Zeichen, das Passwort 12–128 Zeichen. Passwörter werden ausschließlich als scrypt-Hashes gespeichert. Die SQLite-Datenbank liegt außerhalb des austauschbaren Installationsordners unter Windows in `%LOCALAPPDATA%\NERAL\accounts.sqlite3`, unter Linux im XDG-Datenordner beziehungsweise `~/.local/share/NERAL/accounts.sqlite3`. Beim Installieren einer neuen ZIP-Version bleiben die Konten deshalb erhalten.
+
+**Wichtige Einschränkung:** Die SQLite-Datei ist nicht verschlüsselt. Ein lokales NERAL-Passwort schützt die Anmeldung in der App, nicht vor jemandem mit Dateisystemzugriff auf das Betriebssystemkonto. Die Anwendung bleibt ausschließlich an `127.0.0.1:9690` gebunden; diese Anmeldung ist nicht für einen öffentlich erreichbaren Mehrbenutzer-Server ausgelegt.
+
+Im Menü **Einstellungen** lässt sich ein JSON-Export der eigenen Gespräche herunterladen, das Passwort ändern oder das lokale Konto mitsamt Chats endgültig löschen. Passwortänderungen verlangen das alte Passwort und beenden auch andere Sitzungen. Kontolöschung erfordert das Passwort und löscht alle zugehörigen gespeicherten Chats. Es gibt keine E-Mail-Wiederherstellung, keinen Cloud-Abgleich und keinen automatischen Datenimport. Für einen eigenen Sicherungsstand den Export verwenden.
+
+Beim Konto- oder Chatwechsel entfernt die Oberfläche nicht gesendete Texte, ausgewählte Dateianhänge und alte Nachrichten aus der Ansicht. Verzögerte Ergebnisse einer vorherigen Anmeldung werden verworfen. Schnell aufeinanderfolgende Antworten werden beim lokalen Speichern nacheinander verarbeitet.
+
+Stripe ist für diese lokale Preview **nicht aktiviert**: Es gibt keine Abos, keine Bezahlpflicht und keine echten Zahlungen. Die optionalen Websuch- und Browser-Sprachdienste behalten ihre gesonderten Datenschutzhinweise. Die lokale Anmeldung behauptet keine Freigabe von NERAL-LoRA-Modellgewichten.
+
+Zur Prüfung der neuen Konten dienen `python -m unittest discover -s tests -p test_neral_1_0_accounts.py -v`, `node --test tests/test_neral_1_0_account_client.cjs` und die unveränderten vollständigen Release-Tests.
