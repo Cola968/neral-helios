@@ -65,7 +65,10 @@
     const body=document.createElement("p");
     if(role==="assistant"){
       renderReadableModelText(body,text);
-      browser.NeralMath?.render(body);
+      // Fenced code is converted into real <pre><code> blocks by the
+      // reference UI; render math only AFTER that transformation.
+      if(!text.includes(String.fromCharCode(96).repeat(3)))
+        browser.NeralMath?.render(body);
     }
     else body.textContent=text; // All text remains inert, never model-controlled HTML.
     item.append(heading,body);
