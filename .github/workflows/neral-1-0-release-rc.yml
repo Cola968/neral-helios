@@ -94,7 +94,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Unable to prepare isolated web QA dependencies'}
           Push-Location $code
           try{
-            & $qa -B -c 'import flask; import neral_preview_server; print("PREVIEW_IMPORT_OK")'
+            & $qa -B -c 'import flask; import neral_preview_server; print(1)'
             if($LASTEXITCODE -ne 0){throw 'Isolated preview Python failed import preflight'}
             & $qa -B -m scripts.neral_1_0_local_live_smoke --out $out
             if($LASTEXITCODE -ne 0){throw 'Actual installed local Ollama FAST/THINK failed'}
