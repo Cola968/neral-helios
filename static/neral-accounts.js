@@ -33,9 +33,24 @@
     const data=await api("/api/neral/account/chats");
     if(startedAuth!==authEpoch || owner!==username)return;
     list.replaceChildren();
+    const today=new Date(),yesterday=new Date(today);
+    yesterday.setDate(today.getDate()-1);
+    const dayKey=date=>date.getFullYear()+"-"+(date.getMonth()+1)+"-"+date.getDate();
+    const currentDay=dayKey(today),previousDay=dayKey(yesterday);
+    let currentGroup=null;
     for(const chat of data.chats){
+      const stamp=new Date(Number(chat.updated)*1000);
+      const group=!Number.isFinite(stamp.getTime())?"Früher":
+        dayKey(stamp)===currentDay?"Heute":
+        dayKey(stamp)===previousDay?"Gestern":"Früher";
       const row=document.createElement("div");
       row.className="saved-chat-row";
+      // Keep saved-chat rows as direct list children for account navigation.
+      // The heading is a CSS pseudo-element, not a fake chat item.
+      if(group!==currentGroup){
+        row.setAttribute("data-group",group);
+        currentGroup=group;
+      }
       const button=document.createElement("button");
       button.type="button";
       button.className="saved-chat-open";
@@ -144,6 +159,7 @@
     const term=searchInput.value.trim().toLocaleLowerCase("de");
     for(const row of list.querySelectorAll(".saved-chat-row"))
       row.hidden=!row.querySelector(".saved-chat-open").textContent.toLocaleLowerCase("de").includes(term);
+
   }
   searchInput.addEventListener("input",applyFilter);
   window.addEventListener("neral:turn-complete",event=>{

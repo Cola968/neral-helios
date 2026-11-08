@@ -53,6 +53,8 @@ on:
       - 'static/neral-dynamic-ui.js'
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
+      - 'static/neral-reference-ui.css'
+      - 'static/neral-reference-ui.js'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
@@ -63,6 +65,7 @@ on:
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
+      - 'tests/test_neral_reference_ui.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
       - 'tests/test_neral_1_0_release_artifact_freshness.py'
       - 'tests/test_neral_1_0_standalone_release.py'
@@ -126,6 +129,8 @@ on:
       - 'static/neral-dynamic-ui.js'
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
+      - 'static/neral-reference-ui.css'
+      - 'static/neral-reference-ui.js'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
@@ -136,6 +141,7 @@ on:
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
+      - 'tests/test_neral_reference_ui.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
       - 'tests/test_neral_1_0_release_artifact_freshness.py'
       - 'tests/test_neral_1_0_standalone_release.py'
@@ -205,6 +211,8 @@ jobs:
       - run: node --check static/neral-dynamic-ui.js
       - run: node --test tests/test_neral_dynamic_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_history.cjs
+      - run: node --check static/neral-reference-ui.js
+      - run: node --test tests/test_neral_reference_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
       - run: node --test tests/test_neral_1_0_voice_client.cjs
       - run: node --test tests/test_neral_1_0_project_files.cjs
