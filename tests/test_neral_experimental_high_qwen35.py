@@ -1,5 +1,6 @@
 """Opt-in Qwen3.5 HIGH must route real local requests without breaking default LOW."""
 import unittest
+from io import BytesIO
 from unittest.mock import patch
 
 from neral_agent_autonomy import OllamaLocalBackend, AgentModelError
@@ -114,6 +115,23 @@ class DualModelHighContracts(unittest.TestCase):
         self.assertTrue(r.json["verified"])
         self.assertEqual(r.json["model"],"qwen3.5:9b")
         self.assertFalse(events)
+
+    def test_attached_file_high_uses_same_high_model_and_safe_switch(self):
+        events=[]
+        low=Backend("qwen3:8b",events=events)
+        high=Backend("qwen3.5:9b",profile="measured_nonthinking_2048",events=events)
+        cli,hdr=web(low,high)
+        result=cli.post("/api/neral/preview/attachment-chat",
+            data={"prompt":"Fasse den Notizzettel zusammen.",
+                  "history":"[]","mode":"think",
+                  "files":(BytesIO(b"Ein kurzer sicherer Testtext mit genug Worten."),"note.txt")},
+            headers=hdr,content_type="multipart/form-data",base_url=HOST)
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json["model"],"qwen3.5:9b")
+        self.assertEqual(result.json["mode"],"HIGH")
+        self.assertFalse(result.json["adapter_loaded"])
+        self.assertTrue(any(a=="think" and m=="qwen3.5:9b" for a,m in events))
+        self.assertFalse(any(a=="think" and m=="qwen3:8b" for a,m in events))
 
     def test_cli_start_fails_closed_for_missing_secondary_model(self):
         from neral_preview_server import build_experimental_high
