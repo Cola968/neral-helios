@@ -17,6 +17,7 @@ on:
       - 'neral_logic_engine.py'
       - 'neral_logic_transfer.py'
       - 'neral_percentage_tool.py'
+      - 'neral_preview_attachments.py'
       - 'neral_preview_server.py'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
@@ -28,6 +29,7 @@ on:
       - 'static/neral-preview.css'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
+      - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
@@ -56,6 +58,7 @@ on:
       - 'neral_logic_engine.py'
       - 'neral_logic_transfer.py'
       - 'neral_percentage_tool.py'
+      - 'neral_preview_attachments.py'
       - 'neral_preview_server.py'
       - 'neral_quantitative_oracles.py'
       - 'neral_think.py'
@@ -67,6 +70,7 @@ on:
       - 'static/neral-preview.css'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
+      - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
@@ -103,12 +107,14 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_release_artifact_freshness.py -v
       - name: New voice and web plugin security/readiness contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_voice_plugins.py -v
+      - name: Offline image/document attachment security and multimodal contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
       - name: Python syntax safety and file-context contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Syntax and browser JS
-        run: python -m py_compile neral_preview_server.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
+        run: python -m py_compile neral_preview_server.py neral_preview_attachments.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
       - run: node --check static/neral-preview.js
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs

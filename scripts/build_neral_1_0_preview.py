@@ -21,6 +21,7 @@ REQUIRED_FILES = (
     "neral_agent_sandbox.py",
     "solve.py",
     "neral_local_chat_api.py",
+    "neral_preview_attachments.py",
     "neral_identity.py",
     "neral_agent_math.py",
     "neral_agent_python_trace.py",

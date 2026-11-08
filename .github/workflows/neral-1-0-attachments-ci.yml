@@ -1,0 +1,56 @@
+name: NERAL 1.0 local attachments and feedback contracts
+
+on:
+  pull_request:
+    paths:
+      - 'neral_preview_attachments.py'
+      - 'neral_preview_server.py'
+      - 'neral_local_chat_api.py'
+      - 'static/neral-preview.js'
+      - 'static/neral-preview.css'
+      - 'templates/neral_preview.html'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'requirements-neral-preview.txt'
+      - 'tests/test_neral_1_0_attachments.py'
+      - 'tests/test_neral_1_0_project_files.cjs'
+      - '.github/workflows/neral-1-0-attachments-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated CI dependencies (not user PC)
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Compile changed server modules
+        run: python -m py_compile neral_preview_attachments.py neral_preview_server.py neral_local_chat_api.py
+      - name: Upload and multimodal security contracts without GPU
+        run: python -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
+      - name: Existing standalone release security contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
+      - name: Existing codecheck security contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
+      - name: Browser code parse
+        run: node --check static/neral-preview.js
+      - name: Browser attachment, like and copy acceptance
+        run: node --test tests/test_neral_1_0_project_files.cjs
+      - name: Browser voice, web and chat-history regression
+        run: node --test tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_preview_cancel_v2.cjs
+      - name: Release package includes attachment processor
+        shell: bash
+        run: |
+          mkdir -p dist
+          python -m scripts.build_neral_1_0_preview --out dist/attachment-preview.zip
+          python -c "import zipfile; z=zipfile.ZipFile('dist/attachment-preview.zip'); assert 'NERAL-1.0-Local/neral_preview_attachments.py' in z.namelist()"

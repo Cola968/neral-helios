@@ -13,6 +13,7 @@ import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
+from neral_preview_attachments import MAX_REQUEST_BYTES
 
 ALLOWED_MODELS = ("qwen3:8b", "qwen3.5:9b")
 HOST = "127.0.0.1"
@@ -20,7 +21,7 @@ PORT = 9690
 ORIGIN = f"http://{HOST}:{PORT}"
 
 
-def create_preview_app(backend=None, *, secret_key=None, search_service=None):
+def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None):
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -46,6 +47,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
 
     @app.before_request
     def reject_external_or_cross_origin():
+        if request.path == "/api/neral/preview/attachment-chat":
+            request.max_content_length = MAX_REQUEST_BYTES
         if request.host not in (f"127.0.0.1:{PORT}",):
             return jsonify(error="Nur der lokale NERAL-Dienst ist erlaubt."), 403
         if (request.headers.get("Origin") not in (None, ORIGIN) or
@@ -88,7 +91,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
                        release_validated=False,adapter_promoted=False)
 
     from neral_local_chat_api import register_neral_local_chat_api
-    register_neral_local_chat_api(app,backend)
+    chat_busy = register_neral_local_chat_api(app,backend)
+    from neral_preview_attachments import register_preview_attachment_api
+    register_preview_attachment_api(app, backend, chat_busy, vision_analyzer=vision_analyzer)
 
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same
@@ -111,6 +116,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None):
                                     "executes_code": False},
             "selected_file_context": {"available": True,
                                       "requires_user_selection": True,
+                                      "supported": ["png","jpg","webp","txt","md","pdf","docx","csv","json","code"],
+                                      "vision_requires_local_model": True,
+                                      "automatic_model_install": False,
                                       "persistent_filesystem_access": False},
             "local_code_execution": {"available": False},
             "project_files": {"available": False},
