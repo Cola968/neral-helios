@@ -27,6 +27,38 @@ class FakeClient:
                 'eval_count': 10, 'duration_ns': 1000000000}
 
 
+class RecommendedSamplingTests(unittest.TestCase):
+    def test_qwen3_uses_non_greedy_documented_sampling(self):
+        from scripts.neral_fast_think_ab import RecommendedOllamaLocal
+
+        class Stub(RecommendedOllamaLocal):
+            def _request(self, path, payload=None):
+                self.last_request = payload
+                return {"message": {"content": "FINAL_ANSWER: 7"},
+                        "done_reason": "stop", "eval_count": 8,
+                        "total_duration": 3000000}
+
+        backend = Stub()
+        for think, temperature, top_p in (
+            (False, 0.7, 0.8), (True, 0.6, 0.95),
+        ):
+            backend.chat("qwen3:8b", "Berechne 3+4.", think=think,
+                         max_tokens=2048)
+            options = backend.last_request["options"]
+            self.assertEqual(backend.last_request["think"], think)
+            self.assertEqual(options["temperature"], temperature)
+            self.assertEqual(options["top_p"], top_p)
+            self.assertEqual(options["top_k"], 20)
+            self.assertEqual(options["num_predict"], 2048)
+            self.assertEqual(options["seed"], 20261108)
+
+    def test_non_qwen3_8b_is_not_mislabeled_recommended(self):
+        from scripts.neral_fast_think_ab import RecommendedOllamaLocal
+        with self.assertRaises(ValueError):
+            RecommendedOllamaLocal().chat("qwen3.5:9b", "test",
+                                         think=True, max_tokens=2048)
+
+
 class ABTests(unittest.TestCase):
     def test_balanced_reproducible_cases(self):
         a = pick_cases(12)
