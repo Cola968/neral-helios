@@ -64,6 +64,11 @@ test("local voice keeps a responsive icon and updates only its accessible label"
   assert.match(source,/function setVoiceButtonLabel/);
   assert.doesNotMatch(source,/button\.textContent\s*=\s*"Lokalen Sprachmodus beenden"/);
 });
+test("important voice and attachment failures remain visible outside closed settings",()=>{
+  assert.match(js(),/function watchStatusWarning/);
+  assert.match(js(),/MutationObserver/);
+  assert.match(css(),/\.composer-status \.neral-status-alert/);
+});
 test("local release includes the CSS and JS and offline checks are wired",()=>{
   const builder=read("scripts/build_neral_1_0_preview.py");
   const workflow=read(".github/workflows/neral-1-0-release-rc.yml");
