@@ -161,7 +161,7 @@ test("offline voice explains its actual install step on load without touching th
   const missing=setup({ready:false});
   await flush();
   assert.equal(missing.micCount(),0);
-  assert.match(missing.element("localVoiceStatus").textContent,/Install NERAL Voice\\.cmd/);
+  assert.match(missing.element("localVoiceStatus").textContent,/Install NERAL Voice\.cmd/);
   const prepared=setup({ready:true});
   await flush();
   assert.equal(prepared.micCount(),0);
