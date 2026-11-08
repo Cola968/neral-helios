@@ -266,3 +266,27 @@ test("invalid web queries are rejected before announcing a search",()=>{
   const request=source.indexOf('const search=await json("/api/web/search"');
   assert.ok(gate>=0 && gate<event && event<request);
 });
+
+test("sources must match topical words, never generic search or recency terms",()=>{
+  const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
+  const block=source.slice(source.indexOf("  function relevantSearchResult"),
+    source.indexOf("  function appendSources"));
+  const relevant=vm.runInNewContext(block+"\nrelevantSearchResult",{});
+  assert.equal(relevant("Suche aktuelle Meldungen zum BER",{
+    title:"Aktuelle Meldungen zur Rechtschreibung",
+    snippet:"Neueste News und Meldungen",url:"https://example.org/duden"
+  }),false,"A generic 'aktuell' overlap is not topical evidence");
+  assert.equal(relevant("Suche aktuelle Meldungen zum BER",{
+    title:"BER Flughafen: Neue Flugverbindungen",
+    snippet:"Aktuelle Entwicklungen am Berlin Brandenburg Airport",
+    url:"https://example.org/ber"
+  }),true,"BER itself must be searchable despite its three-letter acronym");
+  assert.equal(relevant("Neue BER Flughafen Flugverbindungen",{
+    title:"BER Flughafen: Neue Strecken",snippet:"Die Flugverbindungen wachsen.",
+    url:"https://example.org/ber"
+  }),true);
+  assert.equal(relevant("Neue BER Flughafen Flugverbindungen",{
+    title:"BER Parkplatz",snippet:"Parken am Flughafen.",
+    url:"https://example.org/parking"
+  }),false,"One topical keyword should not pass a multi-topic query");
+});

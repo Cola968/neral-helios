@@ -112,18 +112,33 @@
   }
   function relevantSearchResult(question,hit) {
     if(!hit || typeof hit.title!=="string" || typeof hit.url!=="string")return false;
-    const terms=text=>(String(text||"").toLowerCase().normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g,"").match(/[a-z0-9]{4,}/g)||[]);
-    const stop=new Set(["welche","welches","welcher","einem","einer","einen",
-       "oder","diese","dieser","what","which","where","about","eine","eines",
-       "sind","wird","werden","kann","this","that","from","with","uber",
-       "erklaren","erklare","erklarst","kannst","konnen","mochtest","bitte",
-       "schwieriges","kompliziertes","schrittweise","wieso","warum"]);
-    const wanted=terms(question).filter(t=>!stop.has(t));
-    if(!wanted.length)return false;
-    // A matching URL parameter alone is not evidence. Use page title and snippet.
-    const provided=new Set(terms(hit.title+" "+String(hit.snippet||"")));
-    return wanted.some(word=>provided.has(word));
+    const tokens=text=>(String(text||"").toLowerCase().normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g,"").match(/[a-z0-9]{3,}/g)||[]);
+    const generic=new Set([
+      "suche","suchen","such","recherche","recherchiere","recherchieren",
+      "aktuell","aktuellen","aktuelle","aktuelles","neueste","neuesten","neuer",
+      "neue","neues","neuen","heute","gestern","morgen","woche","meldung",
+      "meldungen","news","nachrichten","websuche","internet","online",
+      "quellen","quelle","belege","links","bitte","zeige","finde",
+      "welche","welches","welcher","einem","einer","einen","oder","diese",
+      "dieser","what","which","where","about","eine","eines","sind",
+      "wird","werden","kann","this","that","from","with","uber","erklare",
+      "erklaren","erklarst","kannst","konnen","mochtest","schwieriges",
+      "kompliziertes","schrittweise","wieso","warum","mehr","gibt",
+      "gibt","denn","alles","stand"
+    ]);
+    // Common domain acronyms are important even though shorter than 4 letters.
+    const acronyms=new Set(["ber","dfs","gpu","cpu","api","sql","iss","usa"]);
+    const topics=[...new Set(tokens(question).filter(word=>
+      (word.length>=4||acronyms.has(word))&&!generic.has(word)))];
+    if(!topics.length)return false;
+    const title=new Set(tokens(hit.title));
+    const body=new Set(tokens(hit.title+" "+String(hit.snippet||"")));
+    const matches=topics.filter(word=>body.has(word));
+    // Fail closed: require a topical match in the title, and two matches
+    // when the question actually contains multiple distinct topical terms.
+    return matches.length>=Math.ceil(topics.length*0.75) &&
+      matches.some(word=>title.has(word));
   }
   function appendSources(sources) {
     const details=document.createElement("details");
