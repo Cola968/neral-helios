@@ -72,8 +72,8 @@ class ChatRegressionTests(unittest.TestCase):
             "Ein elektrisches Feld beschreibt die Kraft auf eine positive "
             "Probeladung. Seine Richtung ist definitionsgemäß die Kraft auf "
             "diese positive Ladung. Eine Spannung ist eine Potentialdifferenz. "
-            "Im einfachen Stromkreis gilt U = R * I.\\n\\n"
-            "Beispiel: Bei 9 V und 3 Ohm ist I = 3 A.\\n\\n"
+            "Im einfachen Stromkreis gilt U = R * I.\n\n"
+            "Beispiel: Bei 9 V und 3 Ohm ist I = 3 A.\n\n"
             "**FINAL: x = 3 A**"
         )
         result = think_reply(
