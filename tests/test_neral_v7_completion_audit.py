@@ -1,5 +1,10 @@
 """CPU tests: distinguish token-budget truncation from strict EOS-only scoring."""
 import unittest
+import tempfile
+import json
+from pathlib import Path
+from scripts import neral_v7_logic_compare as source
+from scripts.neral_v7_completion_audit import main
 from scripts.neral_v7_completion_audit import diagnostic_report
 from scripts.neral_v7_logic_pilot import evaluation_cases
 
@@ -60,6 +65,26 @@ class OutputAuditTests(unittest.TestCase):
         self.assertTrue(audit["arms"]["qwen"]["possible_stop_token_mismatch"])
         self.assertEqual(audit["arms"]["qwen"]["strict_correct"],0)
         self.assertEqual(audit["arms"]["qwen"]["possibly_correct_but_incomplete"],72)
+
+    def test_scalar_only_artifact_can_be_written_to_ephemeral_repo_checkout(self):
+        # Windows GitHub Actions uses a temporary, fresh aggregate-only folder
+        # under the checkout for artifact upload. This should be allowed.
+        with tempfile.TemporaryDirectory() as private, tempfile.TemporaryDirectory(
+            dir=Path(__file__).resolve().parents[1]
+        ) as checkout_output:
+            run=Path(private)/"old"
+            source.prepare_run(run)
+            cases=source._cases_folder(run)
+            for arm in ("qwen","v5","candidate"):
+                with (run/(arm+".jsonl")).open("x",encoding="utf8") as f:
+                    for row in rows(cases):
+                        f.write(json.dumps(row,ensure_ascii=False)+"\n")
+            path=Path(checkout_output)/"summary.json"
+            main(["--run-dir",str(run),"--out",str(path)])
+            report=json.loads(path.read_text("utf8"))
+            self.assertEqual(report["status"],"NERAL_V7_INCOMPLETE_OUTPUT_DIAGNOSTIC_ONLY")
+            self.assertFalse(report["raw_responses_exported"])
+            self.assertNotIn(cases[0]["id"],path.read_text("utf8"))
 
     def test_aggregate_by_role_retention_and_transfer(self):
         cases=evaluation_cases()

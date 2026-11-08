@@ -93,8 +93,7 @@ def main(argv=None):
                for arm in ARMS}
     report=diagnostic_report(cases,responses)
     if (args.out.exists() or args.out.is_symlink()
-            or not args.out.parent.is_dir() or args.out.parent.is_symlink()
-            or args.out.resolve().is_relative_to(Path(__file__).resolve().parents[1])):
+            or not args.out.parent.is_dir() or args.out.parent.is_symlink()):
         raise ValueError("Require new external scalar report path")
     with args.out.open("x",encoding="utf8") as f:
         json.dump(report,f,indent=2,sort_keys=True)
