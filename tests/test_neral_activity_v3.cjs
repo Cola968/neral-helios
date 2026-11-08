@@ -66,6 +66,16 @@ test("only real lifecycle phases produce entries and an expandable report",()=>{
   assert.match(history.textContent+" "+history.children.map(x=>x.textContent).join(" "),/3 Treffer/);
   assert.equal(ui.preview.querySelector(".neral-activity"),null,"no waiting indicator after completion");
 });
+test("expanded live activity remains open as real tool states change",()=>{
+  const ui=boot();
+  ui.fire("searching");
+  const disclosure=ui.preview.querySelector(".neral-activity-disclosure");
+  assert.ok(disclosure);
+  disclosure.open=true;
+  ui.fire("search-done",{count:2});
+  const refreshed=ui.preview.querySelector(".neral-activity-disclosure");
+  assert.ok(refreshed.open, "live updates must not collapse a panel the user expanded");
+});
 test("cancelled work never gets a fake success history",()=>{
   const ui=boot();
   ui.fire("thinking");
