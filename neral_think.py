@@ -131,11 +131,11 @@ def _stale_previous_answer(messages: list[dict], candidate: str) -> bool:
     question = current.get("content", "").casefold().strip()
     older = older_question.get("content", "").casefold().strip()
     if question == older or re.search(
-        r"\\b(wiederhol\\w*|nochmal|erneut|ausführlicher|genauer|elaborate|repeat|rephrase)\\b",
+        r"\b(wiederhol\w*|nochmal|erneut|ausführlicher|genauer|elaborate|repeat|rephrase)\b",
         question,
     ):
         return False
-    normalize = lambda value: " ".join(re.findall(r"\\w+", value.casefold()))
+    normalize = lambda value: " ".join(re.findall(r"\w+", value.casefold()))
     old_text = normalize(previous.get("content", ""))
     fresh_text = normalize(candidate)
     if len(old_text) < 45 or len(fresh_text) < 45:
