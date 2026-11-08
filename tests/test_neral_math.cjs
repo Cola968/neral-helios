@@ -49,6 +49,27 @@ test("code blocks and user text are never passed to math auto-renderer",()=>{
   assert.equal(api.render({tagName:"TEXTAREA"}),false);
   assert.equal(calls.length,0);
 });
+test("real offline KaTeX engine typesets relativity as MathML and HTML",()=>{
+  const katex=require(path.join(root,"static/vendor/katex/katex.min.js"));
+  const bs=String.fromCharCode(92);
+  const examples=["E=mc^2",bs+"Delta t="+bs+"gamma"+bs+"Delta t_0",
+    "G_{"+bs+"mu"+bs+"nu}="+bs+"frac{8"+bs+"pi G}{c^4}T_{"+bs+"mu"+bs+"nu}",
+    "r_s="+bs+"frac{2GM}{c^2}"];
+  for(const expression of examples){
+    const html=katex.renderToString(expression,{
+      throwOnError:true,trust:false,output:"htmlAndMathml"
+    });
+    assert.match(html,/class="katex"/);
+    assert.match(html,/<math[\s>]/);
+    assert.match(html,/katex-html/);
+  }
+});
+test("code fences are converted to safe code DOM before mathematical formatting",()=>{
+  const preview=read("static/neral-preview.js");
+  const reference=read("static/neral-reference-ui.js");
+  assert.match(preview,/text\.includes\(String\.fromCharCode\(96\)\.repeat\(3\)\)/);
+  assert.match(reference,/NeralMath\?\.render\(result\)/);
+});
 test("real preview, restored messages, dynamic tables and original Helios chat are wired",()=>{
   const preview=read("static/neral-preview.js");
   const dynamic=read("static/neral-dynamic-ui.js");
