@@ -125,6 +125,38 @@ class AttachmentPreviewTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertIn("Vertrauliche Tabelle 19", self.backend.calls[0][-1]["content"])
 
+    def test_real_text_pdf_is_extracted_without_ocr_or_network(self):
+        # Construct a minimal standards-compliant PDF with a real text layer.
+        # This checks pypdf extraction, not a stub or a model hallucination.
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ]
+        stream = b"BT /F1 14 Tf 50 780 Td (NERAL PDF 42) Tj ET"
+        objects.append(
+            b"<< /Length " + str(len(stream)).encode() +
+            b" >>\\nstream\\n" + stream + b"\\nendstream"
+        )
+        pdf = b"%PDF-1.4\\n"
+        offsets = [0]
+        for number, body in enumerate(objects, 1):
+            offsets.append(len(pdf))
+            pdf += f"{number} 0 obj\\n".encode() + body + b"\\nendobj\\n"
+        xref_offset = len(pdf)
+        pdf += b"xref\\n0 6\\n0000000000 65535 f \\n"
+        pdf += b"".join(f"{offset:010d} 00000 n \\n".encode()
+                        for offset in offsets[1:])
+        pdf += (b"trailer\\n<< /Size 6 /Root 1 0 R >>\\nstartxref\\n" +
+                str(xref_offset).encode() + b"\\n%%EOF\\n")
+        result = self.post([(BytesIO(pdf), "example.pdf")],
+                           prompt="Welche Zahl steht in der PDF?")
+        self.assertEqual(result.status_code, 200, result.get_json())
+        self.assertEqual(result.json["attachments"][0]["kind"], "document")
+        self.assertIn("NERAL PDF 42", self.backend.calls[0][-1]["content"])
+
     def test_unsupported_corrupt_or_empty_files_are_rejected(self):
         for raw, name, expected in [
             (b"something", "payload.exe", 400),
