@@ -23,7 +23,7 @@ from neral_identity import build_identity_prompt
 
 MAX_FILES = 3
 MAX_FILE_BYTES = 4 * 1024 * 1024
-MAX_REQUEST_BYTES = 11 * 1024 * 1024
+MAX_REQUEST_BYTES = 13 * 1024 * 1024
 MAX_EXTRACT_BYTES = 6500
 MAX_AUGMENTED_PROMPT = 12500
 IMAGE_TYPES = {".jpg", ".jpeg", ".png", ".webp"}
