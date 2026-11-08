@@ -1,0 +1,41 @@
+name: NERAL HIGH verified-first installed-system contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_high_verified_first.py'
+      - 'neral_local_chat_api.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'tests/test_neral_high_verified_first.py'
+      - 'tests/test_neral_high_package.py'
+      - '.github/workflows/neral-high-verified-main-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_high_verified_first.py'
+      - 'neral_local_chat_api.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'tests/test_neral_high_verified_first.py'
+      - 'tests/test_neral_high_package.py'
+      - '.github/workflows/neral-high-verified-main-ci.yml'
+permissions:
+  contents: read
+jobs:
+  high-direct:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: HIGH directly verifies bounded arithmetic, logic and static code traces
+        run: python -m unittest discover -s tests -p test_neral_high_verified_first.py -v
+      - name: Extract ZIP and run the isolated HIGH verifier without repository
+        run: python -m unittest discover -s tests -p test_neral_high_package.py -v
+      - name: Prior LOW/HIGH and source-only release contracts
+        run: python -m unittest discover -s tests -p test_neral_low_high_main_merge.py -v
