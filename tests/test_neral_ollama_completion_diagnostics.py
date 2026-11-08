@@ -125,5 +125,42 @@ class CompletionDiagnostics(unittest.TestCase):
                 self.assertNotIn("PRIVATE",str(result.json))
                 self.assertNotIn("text",result.json)
 
+
+    def test_high_http_failure_reason_is_safe_and_not_success(self):
+        f=FakeOllama(reply={"done":True,"done_reason":"length",
+                            "message":{"content":"PRIVATE final-looking answer"}})
+        with patch("neral_agent_autonomy.local_only_opener",return_value=f):
+            client=create_preview_app(self.model(),secret_key=b"H"*32).test_client()
+            base="http://127.0.0.1:9690"
+            client.get("/",base_url=base)
+            token=client.get("/api/neral/preview/session",base_url=base).json["csrf"]
+            result=client.post("/api/neral/chat/think",
+                json={"prompt":"Erkläre die Bedeutung der Keplerschen Gesetze."},
+                headers={"X-Neral-CSRF":token},base_url=base)
+        self.assertEqual(result.status_code,503)
+        self.assertEqual(result.json["error_code"],"token_limit")
+        self.assertNotIn("PRIVATE",str(result.json))
+        self.assertNotIn("text",result.json)
+
+    def test_streaming_http_error_never_emits_a_final_success_event(self):
+        f=FakeOllama(lines=[
+            {"done":False,"message":{"content":"PRIVATE partial"}},
+            {"done":True,"done_reason":"length","message":{"content":""}}
+        ])
+        with patch("neral_agent_autonomy.local_only_opener",return_value=f):
+            client=create_preview_app(self.model(),secret_key=b"S"*32).test_client()
+            base="http://127.0.0.1:9690"
+            client.get("/",base_url=base)
+            token=client.get("/api/neral/preview/session",base_url=base).json["csrf"]
+            result=client.post("/api/neral/chat/generate-stream",
+                json={"prompt":"Erkläre ein komplexes Problem."},
+                headers={"X-Neral-CSRF":token},base_url=base)
+            events=[json.loads(line) for line in result.data.splitlines()]
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(events[-1]["type"],"error")
+        self.assertEqual(events[-1]["error_code"],"token_limit")
+        self.assertFalse(any(x["type"]=="final" for x in events))
+        self.assertNotIn("PRIVATE",str(events[-1]))
+
 if __name__=="__main__":
     unittest.main()
