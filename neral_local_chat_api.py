@@ -29,6 +29,58 @@ MAX_PROMPT_BYTES = 4096
 MAX_HISTORY_MESSAGES = 12
 MAX_HISTORY_BYTES = 12000
 
+# Optional UI hint only. The response remains text unless a bounded
+# browser-side declarative schema validates; no model-generated code runs.
+UI_INTENTS = frozenset(("calculator", "chart", "table", "quiz", "simulation"))
+UI_INSTRUCTIONS = {
+    "calculator": (
+        'If appropriate, finish the normal explanation with a fenced code block '
+        'labelled neral-ui. Inside, emit only JSON such as '
+        '{"type":"calculator","title":"Rechner","inputs":'
+        '[{"id":"x","label":"Wert","unit":"","min":0,"max":100,"step":1,"value":10}],'
+        '"expression":"x*2","resultLabel":"Ergebnis","unit":""}. '
+        'Expression uses only numeric constants, named inputs, + - * / ^ and '
+        'abs/sqrt/sin/cos/min/max/pow. No HTML or JavaScript. If uncertain, omit the block.'
+    ),
+    "chart": (
+        'If meaningful numerical values are actually available, append a fenced '
+        'neral-ui JSON code block: {"type":"chart","title":"Titel",'
+        '"labels":["A","B"],"values":[2,3],"unit":""}. '
+        'Never invent missing numbers. No HTML or JavaScript.'
+    ),
+    "table": (
+        'If a comparison makes sense, append a fenced neral-ui JSON code block: '
+        '{"type":"table","title":"Vergleich","headers":["A","B"],'
+        '"rows":[["Wert 1","Wert 2"]]}. Do not invent facts. No executable content.'
+    ),
+    "quiz": (
+        'If a quiz is requested, append a fenced neral-ui JSON code block: '
+        '{"type":"quiz","title":"Quiz","questions":'
+        '[{"prompt":"2+2?","options":["3","4","5"],"answer":1,'
+        '"explanation":"2+2=4"}]}. Use 1 to 4 questions, each with 2 to 4 '
+        'options and zero-based correct answer index. No scripts.'
+    ),
+    "simulation": (
+        'For an explicitly requested idealized projectile motion simulation, '
+        'append a fenced neral-ui JSON code block: '
+        '{"type":"simulation","title":"Schräger Wurf",'
+        '"preset":"projectile"}. For all other simulations omit the widget. '
+        'No HTML or JavaScript.'
+    ),
+}
+
+
+def _ui_instruction(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    kind = payload.get("ui_intent")
+    if kind is None:
+        return ""
+    # The key itself is strictly validated in _messages.
+    return ("\nOPTIONALE INTERAKTIVE DARSTELLUNG: " + UI_INSTRUCTIONS[kind]
+            + " The ordinary text explanation must remain understandable alone. "
+            "If data, formula, or correctness is uncertain, give only prose.")
+
 
 def _provenance(backend) -> dict:
     is_adapter = isinstance(getattr(backend, "adapter_sha256", None), str)
@@ -52,8 +104,10 @@ def _provenance(backend) -> dict:
 
 
 def _messages(payload: object) -> list[dict]:
-    if not isinstance(payload, dict) or not {"prompt"} <= set(payload) or not set(payload) <= {"prompt", "history"}:
+    if not isinstance(payload, dict) or not {"prompt"} <= set(payload) or not set(payload) <= {"prompt", "history", "ui_intent"}:
         raise ValueError("Nur prompt und history sind zulässig.")
+    if "ui_intent" in payload and payload["ui_intent"] not in UI_INTENTS:
+        raise ValueError("Unbekannte UI-Art.")
     prompt = payload.get("prompt")
     history = payload.get("history", [])
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
@@ -186,11 +240,13 @@ def register_neral_local_chat_api(app, backend):
         if not request.is_json:
             return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
         try:
-            data = _messages(request.get_json(silent=True))
+            payload = request.get_json(silent=True)
+            data = _messages(payload)
             # Tell the model the actual runtime origin; UI provenance stays explicit.
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            data[0]["content"] += _ui_instruction(payload)
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
@@ -241,10 +297,12 @@ def register_neral_local_chat_api(app, backend):
         if not request.is_json:
             return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
         try:
-            data = _messages(request.get_json(silent=True))
+            payload = request.get_json(silent=True)
+            data = _messages(payload)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            data[0]["content"] += _ui_instruction(payload)
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
         if not busy.acquire(blocking=False):
