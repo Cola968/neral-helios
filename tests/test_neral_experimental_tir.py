@@ -129,5 +129,59 @@ class TIRLoopRegression(unittest.TestCase):
         self.assertEqual(result["tool_calls_triggered"], 0)
 
 
+
+class TIRHttpGate(unittest.TestCase):
+    def _client(self):
+        from neral_agent_autonomy import OllamaLocalBackend
+        from neral_preview_server import create_preview_app
+
+        class Fake(OllamaLocalBackend):
+            def __init__(self, model, profile):
+                super().__init__(model, timeout=90, inference_profile=profile)
+            def respond_chat(self, turns):
+                return "No tool needed"
+            def respond_think(self, turns):
+                return "No tool needed"
+            def unload(self):
+                return None
+
+        low = Fake("qwen3:8b", "legacy")
+        high = Fake("qwen3.5:9b", "measured_nonthinking_2048")
+        client = create_preview_app(low, experimental_high_backend=high).test_client()
+        client.get("/", base_url="http://127.0.0.1:9690")
+        session = client.get("/api/neral/preview/session",
+                             base_url="http://127.0.0.1:9690")
+        return client, {"X-Neral-CSRF": session.json["csrf"]}
+
+    def test_per_request_flag_required_and_off_by_default(self):
+        from unittest.mock import patch
+        client, headers = self._client()
+        with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "0"}):
+            response = client.post("/api/neral/chat/think",
+                json={"prompt": "Explain gravity", "experimental_tir": True},
+                headers=headers, base_url="http://127.0.0.1:9690")
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("text", response.json)
+
+    def test_explicit_opt_in_picks_tir_without_affecting_legacy(self):
+        from unittest.mock import patch
+        client, headers = self._client()
+        report = {"text": "42", "mode": "HIGH", "model_generated": False,
+                  "verified": False, "verification_status": "executed_unverified",
+                  "verification_scope": "execution_only", "calls_used": 1,
+                  "tool_calls_triggered": 1, "tool_calls_succeeded": 1}
+        with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "1"}), patch(
+                "neral_tir_experimental.run_experimental_tir", return_value=report) as tir:
+            response = client.post("/api/neral/chat/think",
+                json={"prompt": "Count integers in a complex problem",
+                      "experimental_tir": True},
+                headers=headers, base_url="http://127.0.0.1:9690")
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["tool_calls_succeeded"], 1)
+        self.assertEqual(response.json["model"], "qwen3.5:9b")
+        self.assertTrue(response.json["experimental_tir"])
+        self.assertEqual(tir.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
