@@ -135,6 +135,7 @@
             table.rows.map((row,i)=>({label:row[0],value:numbers[i]})),provenance:"model_unverified"};
         }
       }
+      if(wantsChart)return null; // No numeric evidence: do not imply data exists.
       return {kind:"table",title:"Interaktive Tabelle",...table,provenance:"model_unverified"};
     }
     const cards=comparisonCards(prompt,text);
