@@ -88,6 +88,15 @@ class HighMustBeBetter(unittest.TestCase):
         self.assertEqual(report["high_tool_assisted"], 8)
         self.assertFalse(report["neural_improvement_proven"])
 
+    def test_actual_quantitative_tool_tag_is_disclosed_not_rejected(self):
+        # neral_agent_quantitative returns "neral_quant_exact" for exact
+        # physical conversions; the LOW/HIGH scorer must keep provenance.
+        cases, pairs = benchmark(improved=1)
+        pairs[0]["high"]["tool_used"] = "neral_quant_exact"
+        report = score_paired(cases, pairs, model_digest=DIGEST)
+        self.assertEqual(report["high_tool_assisted"], 1)
+        self.assertFalse(report["neural_improvement_proven"])
+
     def test_not_enough_cases_is_not_proof(self):
         cases, pairs = benchmark(improved=8)
         report = score_paired(cases[:12], pairs[:12], model_digest=DIGEST)
