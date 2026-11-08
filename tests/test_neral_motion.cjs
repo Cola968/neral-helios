@@ -103,6 +103,8 @@ test("thinking/searching lifecycle is accurate, idempotent and cancellable",()=>
   assert.equal(activity(ui.preview).length,1,"duplicate phases must not duplicate indicators");
   ui.fire("searching","think");
   assert.equal(activity(ui.preview)[0].querySelector(".neral-activity-label").textContent,"Durchsucht das Web");
+  ui.fire("checking");
+  assert.equal(activity(ui.preview)[0].querySelector(".neral-activity-label").textContent,"Prüft Python-Syntax");
   ui.fire("done");
   assert.equal(activity(ui.preview).length,0);
   ui.fire("thinking","fast");
@@ -144,6 +146,8 @@ test("motion contract keeps text stable, reduced motion and keyboard-visible con
   assert.match(css,/#modelPicker\[open\]/);
   assert.match(css,/\.sidebar\.open/);
   assert.match(css,/dialog\[open\]/);
+  assert.match(css,/#voiceInput\[aria-pressed="true"\]/);
+  assert.match(css,/#neralComparePanel\[aria-busy="true"\]/);
   assert.doesNotMatch(js,/Math\.random|setInterval|innerHTML|token.*setTimeout/);
   assert.match(js,/aria-live/);
 });
@@ -152,6 +156,7 @@ test("local preview announces real stages and removes indicator on abort and fin
   const html=fs.readFileSync(path.join(root,"templates/neral_preview.html"),"utf8");
   const index=fs.readFileSync(path.join(root,"templates/index.html"),"utf8");
   assert.match(source,/phase:"searching"/);
+  assert.match(source,/phase:"checking"/);
   assert.match(source,/phase:"thinking"/);
   assert.match(source,/phase:"cancelled"/);
   assert.match(source,/phase:"done"/);
@@ -160,4 +165,8 @@ test("local preview announces real stages and removes indicator on abort and fin
   assert.match(index,/neral-motion\.css/);
   assert.match(index,/neral-motion\.js/);
   assert.match(index,/src="\/static\/icon.svg"/,"approved NERAL logo must remain");
+  const sw=fs.readFileSync(path.join(root,"static/sw.js"),"utf8");
+  assert.match(sw,/neral-shell-v4/);
+  assert.match(sw,/\/static\/neral-motion\.css/);
+  assert.match(sw,/\/static\/neral-motion\.js/);
 });
