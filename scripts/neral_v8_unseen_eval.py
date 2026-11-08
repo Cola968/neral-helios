@@ -225,8 +225,12 @@ def evaluate_candidate_gate(retention:list[dict],transfer:list[dict],*,pilot:boo
         "pilot":not pilot,
         "transfer_gain":tran["net"]>=10,
         "transfer_significance":p<=0.05,
-        "retention_net":ret["net"]>=-2,
-        "retention_by_family":all(x>=-2 for x in ret["by_family_net"].values()),
+        # A net gain can hide a new failure on an important old skill.
+        # Even one newly incorrect evaluated task blocks review.
+        "zero_retention_regressions":ret["regressions"]==0,
+        "zero_transfer_regressions":tran["regressions"]==0,
+        "retention_net":ret["net"]>=0,
+        "retention_by_family":all(x>=0 for x in ret["by_family_net"].values()),
     }
     return {
         "schema":1,"status":"NERAL_V8_REVIEW_ONLY_REJECTION_GATE",
@@ -284,6 +288,17 @@ def report_scores(cases:list[dict],responses:dict,sample:str)->dict:
         }
         for i,c in enumerate(cases) if c["part"]=="transfer"
     ]
+    gate=evaluate_candidate_gate(retention,transfer,pilot=(sample=="pilot"))
+    # Safeguard against complementary strengths: a model could beat v5
+    # while breaking tasks solved by v7 or the unmodified Qwen foundation.
+    for comparator in ("qwen","v5","v7"):
+        delta=_paired(correct[comparator],correct["v8"])
+        gate["checks"]["zero_regressions_vs_"+comparator]=(
+            delta["regressions"]==0
+        )
+    gate["failed_checks"]=sorted(k for k,v in gate["checks"].items() if not v)
+    gate["eligible_for_review"]=all(gate["checks"].values())
+
     result={
         "schema":1,"status":STATUS,"sample":sample,
         "case_count":len(cases),
@@ -304,12 +319,14 @@ def report_scores(cases:list[dict],responses:dict,sample:str)->dict:
             "v7_minus_v5":_paired(correct["v5"],correct["v7"]),
         },
         "slices":{"retention":group("retention"),"transfer":group("transfer")},
-        "gate":evaluate_candidate_gate(retention,transfer,pilot=(sample=="pilot")),
+        "gate":gate,
         "limitations":(
             "This is developer-authored, published after v8 training data were "
             "frozen, and not independently blinded. 64 retention cases check "
             "selected known families, not full coding/general skill preservation. "
-            "A review gate does not authorize model release or deployment."
+            "A review gate does not authorize model release or deployment. "
+            "Zero observed regressions on these tasks cannot establish a "
+            "universal no-regression guarantee on untested tasks."
         ),
     }
     return result
