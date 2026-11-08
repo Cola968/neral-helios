@@ -84,7 +84,7 @@ class ThinkEngineTests(unittest.TestCase):
         self.assertTrue(out["verified"])
         self.assertTrue(out["model_generated"])
         self.assertEqual(out["final_answer"], "x = 4")
-        self.assertEqual(out["mode"], "THINK")
+        self.assertEqual(out["mode"], "HIGH")
         self.assertEqual(len(calls), 1)
         self.assertIn("NERAL identity", calls[0][0]["content"])
 
