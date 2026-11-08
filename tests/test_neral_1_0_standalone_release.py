@@ -48,6 +48,14 @@ class PreviewStandaloneTests(unittest.TestCase):
         self.assertEqual(token.status_code,200)
         return {"X-Neral-CSRF":token.json["csrf"]}
 
+    def test_existing_preview_venv_checks_pdf_dependency_and_repairs_only_with_consent(self):
+        script=(ROOT/"Start-Neral-1.0-Local.ps1").read_text(encoding="utf-8")
+        # An upgraded installation must not silently miss pypdf for PDF uploads.
+        self.assertIn("import sys,flask,waitress,pypdf",script)
+        self.assertGreaterEqual(script.count("Read-Host"),2,
+            "Both initial install and existing-venv repairs require user consent")
+        self.assertIn("requirements-neral-preview.txt",script)
+
     def test_no_legacy_50m_deployment_or_files_are_needed(self):
         self.assertFalse(any("neral50m" in x for x in REQUIRED_FILES))
         self.assertFalse(any(x.startswith("deployment/") for x in REQUIRED_FILES))
