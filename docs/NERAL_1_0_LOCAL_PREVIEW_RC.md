@@ -203,10 +203,11 @@ Vision-Modell meldet der Dienst einen Fehler, statt ein Bild zu erfinden.
 Der echte Windows-GPU-Live-Test für Bildanalyse steht noch aus.
 
 PDF-Auswertung setzt pypdf aus requirements-neral-preview.txt voraus.
-Bei einer bereits vorhandenen isolierten local_state/preview-venv kann
-es fehlen. NERAL meldet das ausdrücklich. Nachinstallation nur mit
-Nutzerentscheidung in dieser isolierten Umgebung, niemals automatisch
-in der QLoRA-Trainingsumgebung.
+Bei einer bereits vorhandenen isolierten local_state/preview-venv
+prüft der Windows-Starter die Abhängigkeiten erneut. Fehlt pypdf,
+fragt er vor einer Installation in **dieser** Umgebung ausdrücklich
+nach Zustimmung. Die Trainingsumgebung und System-Python bleiben
+unverändert; es gibt keinen automatischen Modell-Download.
 
 Unter jeder Assistentenantwort stehen **Gefällt mir** und **Kopieren**.
 Likes sind tablokal und werden nicht auf dem Server gespeichert;
