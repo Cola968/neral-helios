@@ -309,6 +309,15 @@ def register_neral_local_chat_api(app, backend):
             identity = _runtime_identity_answer(data[-1]["content"], backend)
             if identity is not None:
                 return jsonify(identity)
+            # Real local Ollama HIGH: independently recognized exact questions
+            # are solved by safe tools BEFORE costly neural generation.
+            # Legacy HF-adapter/mocked backends retain their previous contracts.
+            from neral_agent_autonomy import OllamaLocalBackend
+            if isinstance(backend, OllamaLocalBackend):
+                from neral_high_verified_first import direct_high_reply
+                direct = direct_high_reply(data)
+                if direct is not None:
+                    return jsonify({**direct, **_provenance(backend)})
             from neral_think import think_reply
             # Dedicated Ollama reasoning only for explicit THINK requests;
             # other HF backends keep their existing verified response path.
