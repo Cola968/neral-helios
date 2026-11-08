@@ -16,6 +16,7 @@ import zlib
 
 from neral_agent_autonomy import OllamaLocalBackend
 from neral_preview_server import create_preview_app
+from neral_preview_attachments import VISION_MODELS
 from scripts.neral_v7_foundation_tournament import OllamaLocal
 
 HOST="http://127.0.0.1:9690"
@@ -100,10 +101,7 @@ def verify_live_vision_attachment(client, csrf: str, installed: dict) -> bool:
     """
     if not isinstance(installed, dict):
         raise ValueError("Local model inventory is invalid")
-    model = next(
-        (tag for tag in ("qwen3-vl:2b", "qwen2.5vl:3b") if tag in installed),
-        None,
-    )
+    model = next((tag for tag in VISION_MODELS if tag in installed), None)
     if model is None:
         return False
     response = client.post(
@@ -181,7 +179,7 @@ def test_local_release(output: Path):
     if not valid_high_smoke(deep.status_code, deep.get_json(silent=True)):
         raise ValueError("REAL Qwen HIGH/exact-local-tool smoke failed")
     attachment_actual_inference = verify_live_text_attachment(client, hdr["X-Neral-CSRF"])
-    vision_installed = any(m in installed for m in ("qwen3-vl:2b", "qwen2.5vl:3b"))
+    vision_installed = any(m in installed for m in VISION_MODELS)
     vision_live_verified = verify_live_vision_attachment(client, hdr["X-Neral-CSRF"], installed)
     if OllamaLocal().inventory().get(NAME)!=digest:
         raise ValueError("Local model SHA drift during live smoke")
