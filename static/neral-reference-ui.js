@@ -106,6 +106,19 @@
         prose.textContent=original.slice(last,match.index);
         result.append(prose);
       }
+      const codeText=match[2];
+      if(/^(?:math|latex|tex|katex)$/i.test(match[1])){
+        const formula=document.createElement("div");
+        formula.className="reference-math";
+        formula.setAttribute("aria-label","Mathematische Formel");
+        if(window.NeralMath?.renderBlock(formula,codeText)){
+          result.append(formula);
+          last=pattern.lastIndex;found=true;
+          continue;
+        }
+      }
+      // Any missing KaTeX or unrecognized formula falls back to the
+      // original text, never a fabricated fraction or executable markup.
       const block=document.createElement("section");
       block.className="reference-code";
       block.setAttribute("aria-label","Codeblock "+(match[1]||"Code"));
@@ -117,7 +130,6 @@
       button.type="button";button.className="reference-code-copy";
       button.textContent="Kopieren";
       button.setAttribute("aria-label","Code kopieren");
-      const codeText=match[2];
       button.addEventListener("click",async()=>{
         try{
           await navigator.clipboard.writeText(codeText);

@@ -49,6 +49,48 @@ test("code blocks and user text are never passed to math auto-renderer",()=>{
   assert.equal(api.render({tagName:"TEXTAREA"}),false);
   assert.equal(calls.length,0);
 });
+test("NERAL repairs only the exact known lost-fraction Kepler math-fence forms",()=>{
+  const {api}=boot();
+  const dual="T2a3=4π2G(M+m)";
+  const one="T2a3=4π2GM";
+  const two=api.normalizeMathFence(dual);
+  const heavy=api.normalizeMathFence(one);
+  assert.equal(two,String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{G(M+m)}`);
+  assert.equal(heavy,String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{GM}`);
+  assert.equal(api.normalizeMathFence(String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{G(M+m)}`),two);
+  assert.equal(api.normalizeMathFence("T2a3=4π2/(G(M+m))"),null,
+    "unknown or ambiguous corrupt expressions must never be guessed");
+  const katex=require(path.join(root,"static/vendor/katex/katex.min.js"));
+  const rendered=katex.renderToString(two,{displayMode:true,throwOnError:true,trust:false});
+  assert.match(rendered,/mfrac/);
+  assert.match(rendered,/katex-display/);
+  assert.doesNotMatch(rendered,/katex-error/);
+});
+test("a fenced math block is rendered by local KaTeX as a proper fraction, not code",()=>{
+  const {api}=boot();
+  const invocations=[];
+  const window={katex:{render:(formula,node,options)=>invocations.push({formula,node,options})}};
+  const sandbox={window,document:{},console};
+  vm.runInNewContext(read("static/neral-math.js"),sandbox,{timeout:1500});
+  const node={tagName:"DIV"};
+  assert.equal(window.NeralMath.renderBlock(node,"T2a3=4π2G(M+m)"),true);
+  assert.equal(invocations.length,1);
+  assert.equal(invocations[0].formula,String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{G(M+m)}`);
+  assert.equal(invocations[0].options.trust,false);
+  assert.equal(invocations[0].options.throwOnError,true);
+  assert.equal(invocations[0].options.displayMode,true);
+  assert.equal(window.NeralMath.renderBlock(node,"<img src=x onerror=alert(1)>"),false);
+  assert.equal(window.NeralMath.renderBlock(node,""),false);
+  assert.equal(invocations.length,1);
+});
+test("fenced math is recognized separately from code while original answer is preserved",()=>{
+  const reference=read("static/neral-reference-ui.js");
+  assert.match(reference,/math\|latex\|tex/);
+  assert.match(reference,/NeralMath\?\.renderBlock/);
+  assert.match(reference,/reference-math/);
+  assert.match(reference,/reference-code/);
+  assert.doesNotMatch(reference,/\.innerHTML\s*=/);
+});
 test("real offline KaTeX engine typesets relativity as MathML and HTML",()=>{
   const katex=require(path.join(root,"static/vendor/katex/katex.min.js"));
   const bs=String.fromCharCode(92);
@@ -128,4 +170,77 @@ test("rendered scientific table replaces only its visible Markdown duplication, 
   assert.match(output,/Soll ich ein Beispiel rechnen/);
   assert.doesNotMatch(output,/^\|/m);
   assert.match(original,/\\frac/); // source remains untouched for copy.
+});
+
+
+test("actual preview enhancement renders math fences and preserves ordinary code/fallback",()=>{
+  class Element{
+    constructor(tag="div",text=""){
+      this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];
+      this.className="";this.dataset={};this.attributes={};
+      this.classList={
+        contains:name=>this.className.split(/\s+/).includes(name),
+        toggle:()=>{}
+      };
+    }
+    append(...children){this.children.push(...children);}
+    replaceWith(node){this.replacedBy=node;}
+    setAttribute(key,value){this.attributes[key]=value;}
+    addEventListener(){}
+    focus(){}
+    contains(){return false;}
+    querySelector(){return null;}
+  }
+  const fence=String.fromCharCode(96).repeat(3);
+  const messages=[
+    "Die Gleichung:\n"+fence+"math\nT2a3=4π2G(M+m)\n"+fence+"\nDas ist Kepler.",
+    "Python:\n"+fence+"python\nprint(1)\n"+fence,
+    "Ungültig:\n"+fence+"math\n<img src=x onerror=alert(1)>\n"+fence
+  ].map(answer=>{
+    const item=new Element("div"),title=new Element("strong","NERAL HIGH"),
+      body=new Element("p",answer);
+    item.className="message assistant";
+    item.querySelector=selector=>selector===":scope > strong"?title:
+      selector===":scope > p"?body:null;
+    return {item,title,body,answer};
+  });
+  const controls=Object.fromEntries([
+    "modeDropdownTrigger","modeDropdownMenu","modeOptionLow",
+    "modeOptionHigh","modeDropdownLabel","messages"
+  ].map(x=>[x,new Element("div")]));
+  controls.messages.querySelectorAll=()=>messages.map(m=>m.item);
+  const mock={formulas:[]};
+  const window={
+    katex:{render:(expression,node,options)=>{
+      mock.formulas.push({expression,node,options});
+      node.katexRendered=true;
+    }},
+    renderMathInElement:()=>{}
+  };
+  const document={
+    getElementById:id=>controls[id]||null,
+    querySelector:selector=>selector.includes('value="fast"')?
+      {checked:true,addEventListener(){}}:
+      selector.includes('value="think"')?
+      {checked:false,addEventListener(){}}:null,
+    createElement:tag=>new Element(tag),
+    createTextNode:value=>new Element("#text",value),
+    addEventListener(){}
+  };
+  vm.runInNewContext(read("static/neral-math.js"),{window,document,console},{timeout:1500});
+  vm.runInNewContext(read("static/neral-reference-ui.js"),
+    {window,document,console},{timeout:1500});
+  const [good,code,bad]=messages;
+  assert.ok(good.body.replacedBy,"response body must be replaced by enhanced blocks");
+  const formula=good.body.replacedBy.children.find(el=>el.className==="reference-math");
+  assert.ok(formula,"math fence must be a mathematical display, not syntax-colored code");
+  assert.equal(formula.katexRendered,true);
+  assert.equal(mock.formulas.length,1);
+  assert.equal(mock.formulas[0].expression,String.raw`\frac{T^2}{a^3}=\frac{4\pi^2}{G(M+m)}`);
+  assert.equal(good.body.replacedBy.children.some(el=>el.className==="reference-code"),false);
+  assert.ok(code.body.replacedBy.children.some(el=>el.className==="reference-code"));
+  assert.ok(bad.body.replacedBy.children.some(el=>el.className==="reference-code"),
+    "Unrecognized malformed formula must remain available as original code/text");
+  assert.equal(good.answer.includes("T2a3=4π2G(M+m)"),true,
+    "the original answer must remain available for copy and conversation history");
 });
