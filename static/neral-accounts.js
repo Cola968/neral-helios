@@ -5,6 +5,7 @@
   const $ = id => document.getElementById(id);
   const dlg=$("accountDialog"), form=$("accountForm"), list=$("savedChatList");
   let csrf=null, username=null, activeId=null, turns=[], saving=false;
+  let authEpoch=0, navigationEpoch=0;
   const api=async(path,opts={})=>{
     const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...opts});
     const data=await response.json();
@@ -28,7 +29,9 @@
   }
   async function refresh(){
     if(!username)return;
+    const startedAuth=authEpoch, owner=username;
     const data=await api("/api/neral/account/chats");
+    if(startedAuth!==authEpoch || owner!==username)return;
     list.replaceChildren();
     for(const chat of data.chats){
       const row=document.createElement("div");
@@ -58,8 +61,11 @@
     applyFilter();
   }
   async function openChat(id){
+    const startedAuth=authEpoch, owner=username, selected=++navigationEpoch;
+    if(!owner)return;
     try{
       const chat=await api("/api/neral/account/chats/"+encodeURIComponent(id));
+      if(startedAuth!==authEpoch || owner!==username || selected!==navigationEpoch)return;
       activeId=chat.id;
       turns=chat.messages;
       clearChat();
@@ -72,18 +78,23 @@
       dlg.showModal();
       return;
     }
+    const startedAuth=authEpoch, owner=username, selected=++navigationEpoch;
     try{
       const chat=await mutate("/api/neral/account/chats","POST",{title:"Neuer Chat"});
+      if(startedAuth!==authEpoch || owner!==username || selected!==navigationEpoch)return;
       activeId=chat.id;turns=[];clearChat();
       await refresh();
       $("prompt").focus();
     }catch(e){$("error").textContent=e.message;}
   }
   async function initialize(){
+    const startedAuth=authEpoch;
     try{
       const session=await api("/api/neral/preview/session");
+      if(startedAuth!==authEpoch)return;
       csrf=session.csrf;
       const me=await api("/api/neral/account/me");
+      if(startedAuth!==authEpoch)return;
       username=me.authenticated?me.username:null;
       authUi();
       await refresh();
@@ -97,6 +108,7 @@
     if(!candidate||password.length<12){accountError(new Error("Mindestens 12 Zeichen für das Passwort."));return;}
     try{
       const result=await mutate("/api/neral/account/"+action,"POST",{username:candidate,password});
+      authEpoch++;navigationEpoch++;
       csrf=result.csrf;
       window.dispatchEvent(new CustomEvent("neral:account-csrf",{detail:{csrf}}));
       username=result.username;
@@ -114,6 +126,7 @@
   $("logout").addEventListener("click",async()=>{
     try{
       const data=await mutate("/api/neral/account/logout","POST");
+      authEpoch++;navigationEpoch++;
       csrf=data.csrf;
       window.dispatchEvent(new CustomEvent("neral:account-csrf",{detail:{csrf}}));
       username=null;activeId=null;turns=[];clearChat();authUi();
@@ -139,6 +152,8 @@
     if(typeof user!=="string"||typeof assistant!=="string")return;
     if(saving)return; // reject overlapping persistence instead of mixing chats.
     saving=true;
+    const startedAuth=authEpoch, owner=username, selected=navigationEpoch;
+    const stillCurrent=()=>startedAuth===authEpoch && owner===username && selected===navigationEpoch;
     const originalId=activeId;
     const next=turns.concat({role:"user",content:user},{role:"assistant",content:assistant}).slice(-80);
     const title=(turns.length?list.querySelector('[aria-current="page"]')?.textContent:user.slice(0,75))||"Neuer Chat";
@@ -146,15 +161,19 @@
       let cid=originalId;
       if(!cid){
         const created=await mutate("/api/neral/account/chats","POST",{title});
+        if(!stillCurrent())return;
         cid=created.id;activeId=cid;
       }
+      if(!stillCurrent())return;
       await mutate("/api/neral/account/chats/"+cid,"PUT",{title,messages:next});
+      if(!stillCurrent())return;
       if(activeId===cid)turns=next;
       await refresh();
     }catch(e){$("error").textContent="Antwort angezeigt, aber Speichern fehlgeschlagen: "+e.message;}
     finally{saving=false;}
   });
   window.addEventListener("neral:chat-cleared",()=>{
+    navigationEpoch++;
     turns=[];
     // Clearing a conversation must not overwrite or delete a saved chat.
     activeId=null;
@@ -210,6 +229,7 @@
       const endpoint=action==="password"
         ? "/api/neral/account/password" : "/api/neral/account";
       const result=await mutate(endpoint,action==="password"?"POST":"DELETE",body);
+      authEpoch++;navigationEpoch++;
       csrf=result.csrf;
       window.dispatchEvent(new CustomEvent("neral:account-csrf",{detail:{csrf}}));
       username=null;activeId=null;turns=[];
