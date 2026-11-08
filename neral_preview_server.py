@@ -1,6 +1,7 @@
 """NERAL 1.0 Local Preview: tiny local chat server, NO legacy 50M dependency.
 
-All requests stay on loopback. Session+CSRF and Host/Origin controls protect
+All model requests stay on loopback. ONLY an expressly consented search query
+may reach public search engines. Session+CSRF and Host/Origin controls protect
 the local Ollama backend from hostile web pages. No user content is logged,
 stored or sent to GitHub. This preview does NOT promote NERAL adapter weights.
 """
