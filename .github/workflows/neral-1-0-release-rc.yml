@@ -14,6 +14,7 @@ on:
       - 'neral_agent_sandbox.py'
       - 'neral_identity.py'
       - 'neral_local_chat_api.py'
+      - 'neral_bahnconnections.py'
       - 'neral_logic_engine.py'
       - 'neral_logic_transfer.py'
       - 'neral_percentage_tool.py'
@@ -30,6 +31,8 @@ on:
       - 'static/neral-smart-ui.js'
       - 'static/neral-dynamic-ui.css'
       - 'static/neral-dynamic-ui.js'
+      - 'static/neral-rail-ui.js'
+      - 'static/neral-rail-ui.css'
       - 'static/neral-dynamic-widgets.js'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
@@ -37,6 +40,8 @@ on:
       - 'tests/test_neral_1_0_local_preview.py'
       - 'tests/test_neral_smart_ui.cjs'
       - 'tests/test_neral_dynamic_ui.cjs'
+      - 'tests/test_neral_rail_ui.cjs'
+      - 'tests/test_neral_bahnconnections.py'
       - 'tests/test_neral_dynamic_ui_api.py'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
@@ -62,6 +67,7 @@ on:
       - 'neral_agent_sandbox.py'
       - 'neral_identity.py'
       - 'neral_local_chat_api.py'
+      - 'neral_bahnconnections.py'
       - 'neral_logic_engine.py'
       - 'neral_logic_transfer.py'
       - 'neral_percentage_tool.py'
@@ -78,6 +84,8 @@ on:
       - 'static/neral-smart-ui.js'
       - 'static/neral-dynamic-ui.css'
       - 'static/neral-dynamic-ui.js'
+      - 'static/neral-rail-ui.js'
+      - 'static/neral-rail-ui.css'
       - 'static/neral-dynamic-widgets.js'
       - 'static/neral-preview.js'
       - 'templates/neral_preview.html'
@@ -85,6 +93,8 @@ on:
       - 'tests/test_neral_1_0_local_preview.py'
       - 'tests/test_neral_smart_ui.cjs'
       - 'tests/test_neral_dynamic_ui.cjs'
+      - 'tests/test_neral_rail_ui.cjs'
+      - 'tests/test_neral_bahnconnections.py'
       - 'tests/test_neral_dynamic_ui_api.py'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
@@ -129,6 +139,9 @@ jobs:
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-smart-ui.js
       - run: node --check static/neral-dynamic-ui.js
+      - run: node --check static/neral-rail-ui.js
+      - run: node --test tests/test_neral_rail_ui.cjs
+      - run: python -m unittest discover -s tests -p test_neral_bahnconnections.py -v
       - run: node --check static/neral-dynamic-widgets.js
       - run: node --test tests/test_neral_smart_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_1_0_preview_history.cjs
       - run: python -m unittest discover -s tests -p test_neral_dynamic_ui_api.py -v
