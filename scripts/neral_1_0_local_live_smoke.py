@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from io import BytesIO
 from pathlib import Path
 import struct
@@ -122,6 +123,10 @@ def verify_live_vision_attachment(client, csrf: str, installed: dict) -> bool:
         or not isinstance(data, dict)
         or not isinstance(data.get("text"), str)
         or not data["text"].strip()
+        # The fixture contains actual red pixels. A generic acknowledgment
+        # cannot count as evidence that the picture was understood.
+        or re.search(r"\\b(?:rot|rote|roter|rotes|roten|rotem|red|rötlich)\\b",
+                     data["text"].casefold()) is None
         or data.get("vision_models") != [model]
         or data.get("mode") != "LOW"
         or data.get("model_generated") is not True
