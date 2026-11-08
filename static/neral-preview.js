@@ -172,7 +172,7 @@
         ? "Python-Syntax gültig. Keine Ausführung oder Laufzeitprüfung vorgenommen."
         : "Python-Syntaxfehler in Zeile "+reply.line+", Spalte "+reply.column+
           ": "+reply.message+". Code wurde nicht ausgeführt.",
-        "Code Check · nur AST-Syntax");
+        "Code Check · Python-Syntax ohne Ausführung");
     } catch(e) {
       errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
     }
