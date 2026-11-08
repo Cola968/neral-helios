@@ -166,8 +166,8 @@ def _stop(value: object) -> dict | None:
     stop = {"name": value["name"][:80]}
     for field in ("lat", "lon"):
         x = value.get(field)
-        stop[field] = x if isinstance(x, (float, int)) and not isinstance(x, bool) and
-            (abs(x) <= (90 if field == "lat" else 180)) else None
+        stop[field] = (x if isinstance(x, (float, int)) and not isinstance(x, bool)
+                       and abs(x) <= (90 if field == "lat" else 180) else None)
     for field in ("track", "scheduledTrack"):
         x = value.get(field)
         if isinstance(x, str) and len(x) <= 20:
