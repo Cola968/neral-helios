@@ -203,7 +203,8 @@ def _truncate_utf8(text, limit):
     return raw[:limit].decode("utf-8", errors="ignore"), True
 
 
-def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None):
+def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
+                                    experimental_high_backend=None, prepare_model=None):
     vision = vision_analyzer or _local_vision
 
     @app.post("/api/neral/preview/attachment-chat")
@@ -295,24 +296,26 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None)
                     {"prompt": combined, "history": history},
                     max_prompt_bytes=MAX_AUGMENTED_PROMPT,
                 )
+                selected = (experimental_high_backend
+                            if mode == "think" and experimental_high_backend is not None
+                            else backend)
                 turns[0]["content"] = build_identity_prompt(
-                    "web", _provenance(backend)["model_origin"]
+                    "web", _provenance(selected)["model_origin"]
                 )
+                if callable(prepare_model):
+                    prepare_model(selected)
                 if mode == "think":
                     from neral_think import think_reply
-                    responder = (getattr(backend, "respond_think", None) or
-                                 getattr(backend, "respond_chat", None) or
-                                 backend.respond)
+                    responder = (getattr(selected, "respond_think", None) or
+                                 getattr(selected, "respond_chat", None) or
+                                 selected.respond)
                     from neral_agent_autonomy import OllamaLocalBackend
-                    # Keep HIGH parity with the regular localhost chat:
-                    # opt into the bounded second review only for real Ollama
-                    # backends, never for experimental adapter/mocked backends.
-                    deep_review = isinstance(backend, OllamaLocalBackend)
+                    deep_review = isinstance(selected, OllamaLocalBackend)
                     result = think_reply(turns, responder, deep_review=deep_review)
                     if not isinstance(result, dict) or not isinstance(result.get("text"), str):
                         raise ValueError("Unvollständiges THINK-Ergebnis")
                 else:
-                    responder = getattr(backend, "respond_chat", None) or backend.respond
+                    responder = getattr(selected, "respond_chat", None) or selected.respond
                     answer = responder(turns)
                     result = {"text": answer, "mode": "LOW", "model_generated": True}
                 if (not result["text"].strip() or
@@ -322,7 +325,7 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None)
                 return jsonify(error="Lokale Analyse oder Modell-Inferenz fehlgeschlagen."), 503
             return jsonify({
                 **result,
-                **_provenance(backend),
+                **_provenance(selected),
                 "attachments": meta,
                 "vision_models": sorted(vision_models),
                 "attachment_context_verified": False,
