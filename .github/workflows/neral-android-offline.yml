@@ -21,15 +21,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
       - name: Install Android NDK
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-35' 'ndk;27.2.12479018'
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager 'platforms;android-35' 'ndk;27.2.12479018'
           echo "$ANDROID_HOME/ndk/27.2.12479018/shader-tools/linux-x86_64" >> "$GITHUB_PATH"
 
       - name: Fetch pinned local inference engine
