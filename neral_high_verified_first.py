@@ -25,6 +25,26 @@ _ALLOWED_METHODS = frozenset({
 })
 
 
+# Only a known, standalone benchmark instruction may be detached. Never
+# strip arbitrary text after a vague keyword like "Antworte".
+_BENCHMARK_FORMAT = re.compile(
+    r"(?P<task>[\s\S]*?\S)\n+"
+    r"(?P<suffix>Gib das Ergebnis in der letzten Zeile exakt "
+    r"als FINAL_ANSWER: <integer> aus\.)[ \t]*\Z",
+    re.IGNORECASE,
+)
+
+
+def split_task_and_format_instruction(prompt: str) -> tuple[str, str]:
+    """Separate the exact benchmark line, without eating user instructions."""
+    if not isinstance(prompt, str) or not 1 <= len(prompt) <= 4096:
+        return prompt, ""
+    matched = _BENCHMARK_FORMAT.fullmatch(prompt)
+    if matched is None:
+        return prompt, ""
+    return matched.group("task").strip(), matched.group("suffix")
+
+
 def direct_high_reply(messages: list[dict]) -> dict | None:
     """Use a trusted answer without spending GPU tokens, only if fully parsed.
 
@@ -40,9 +60,10 @@ def direct_high_reply(messages: list[dict]) -> dict | None:
             messages[1].get("role") != "user"):
         return None
     question = messages[1].get("content")
-    if (not isinstance(question, str) or
-            not 1 <= len(question.encode("utf-8")) <= 4096 or
-            _REQUIRES_EXPLANATION.search(question)):
+    if not isinstance(question, str) or not 1 <= len(question.encode("utf-8")) <= 4096:
+        return None
+    core_task, format_suffix = split_task_and_format_instruction(question)
+    if _REQUIRES_EXPLANATION.search(core_task):
         return None
 
     oracle = None
@@ -53,7 +74,7 @@ def direct_high_reply(messages: list[dict]) -> dict | None:
         trusted_logic_question,
     ):
         try:
-            oracle = solver(question)
+            oracle = solver(core_task)
         except (ValueError, TypeError, OverflowError):
             # Input isn't valid for the restricted local verifier.
             oracle = None
@@ -80,8 +101,9 @@ def direct_high_reply(messages: list[dict]) -> dict | None:
         else "neral_logic_exact" if method == "finite_logic_exact"
         else "neral_math_exact"
     )
+    rendered = f"FINAL_ANSWER: {answer}" if format_suffix else answer
     response = {
-        "text": answer, "final_answer": answer, "mode": "HIGH",
+        "text": rendered, "final_answer": answer, "mode": "HIGH",
         "calls_used": 0, "review_passes": 0,
         "review_status": "not_needed_verified_exact",
         "seconds": round(time.monotonic() - started, 3),
