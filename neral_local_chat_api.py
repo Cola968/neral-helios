@@ -131,13 +131,44 @@ def _verified_math_request(prompt: str) -> dict | None:
     return None
 
 
-def register_neral_local_chat_api(app, backend):
-    """Mount onto same Flask app; the main app's session/Origin guard applies."""
+def register_neral_local_chat_api(app, backend, *, experimental_high_backend=None):
+    """One local GPU chat lock for both foundations and all chat modes."""
     busy = threading.Lock()
+    if experimental_high_backend is not None:
+        from neral_agent_autonomy import OllamaLocalBackend
+        if (not isinstance(backend, OllamaLocalBackend)
+                or not isinstance(experimental_high_backend, OllamaLocalBackend)
+                or backend.model != "qwen3:8b"
+                or experimental_high_backend.model != "qwen3.5:9b"
+                or experimental_high_backend.inference_profile != "measured_nonthinking_2048"):
+            raise ValueError("Experimental HIGH requires exact approved local foundations.")
+
+    high_backend = experimental_high_backend or backend
+    active_model = [None]
+
+    def prepare_model(selected):
+        """Serialized switch, fail closed if the other model cannot unload.
+
+        Also evict the other model before the FIRST generation because Ollama
+        may have retained it from an earlier process. No call during direct
+        verified-tool answers. Other routes share the chat busy lock.
+        """
+        if experimental_high_backend is None:
+            return
+        if active_model[0] != selected.model:
+            other = high_backend if selected is backend else backend
+            other.unload()
+            active_model[0] = selected.model
+
+    # Shared by the attachment chat route, which acquires the same busy lock.
+    app._neral_prepare_model = prepare_model
 
     @app.get("/api/neral/chat/status")
     def local_chat_status():
-        return jsonify(_provenance(backend))
+        return jsonify({**_provenance(backend),
+                        "experimental_high_enabled": experimental_high_backend is not None,
+                        "experimental_high_model": (
+                            high_backend.model if experimental_high_backend is not None else None)})
 
     @app.post("/api/neral/chat/compare")
     def local_chat_compare():
@@ -216,6 +247,7 @@ def register_neral_local_chat_api(app, backend):
             try:
                 # Ollama agent requests enforce JSON; normal conversations do
                 # not. HF adapter backends use their existing local respond().
+                prepare_model(backend)
                 reply = getattr(backend, "respond_chat", None)
                 text = reply(data) if callable(reply) else backend.respond(data)
             except Exception:
@@ -255,25 +287,22 @@ def register_neral_local_chat_api(app, backend):
             from neral_think import think_reply
             # Dedicated Ollama reasoning only for explicit THINK requests;
             # other HF backends keep their existing verified response path.
-            local_respond = getattr(backend, "respond_think", None)
+            local_respond = getattr(high_backend, "respond_think", None)
             if not callable(local_respond):
-                local_respond = getattr(backend, "respond_chat", None)
+                local_respond = getattr(high_backend, "respond_chat", None)
             if not callable(local_respond):
-                local_respond = backend.respond
+                local_respond = high_backend.respond
             from neral_agent_autonomy import OllamaLocalBackend
-            # Second review is opt-in only for real local Ollama.
-            # Retain the historic adapter THINK semantics and its tests.
-            deep_review = isinstance(backend, OllamaLocalBackend)
+            # Only a real local Ollama backend receives opt-in second review.
+            deep_review = isinstance(high_backend, OllamaLocalBackend)
             if deep_review:
-                # Give exact, independently checked tasks a deterministic
-                # answer without spending GPU tokens. Unsupported cases
-                # always continue through normal model reasoning.
                 from neral_high_verified_first import direct_high_reply
                 direct = direct_high_reply(data)
                 if direct is not None:
-                    return jsonify({**direct, **_provenance(backend)})
+                    return jsonify({**direct, **_provenance(high_backend)})
+            prepare_model(high_backend)
             result = think_reply(data, local_respond, deep_review=deep_review)
-            return jsonify({**result, **_provenance(backend)})
+            return jsonify({**result, **_provenance(high_backend)})
         except Exception:
             # Never leak local paths, checkpoints, prompts or model outputs.
             return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden."), 503

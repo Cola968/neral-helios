@@ -9,8 +9,11 @@ from __future__ import annotations
 import argparse
 import ast
 import hmac
+import json
+import re
 import secrets
 import sys
+import urllib.request
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
@@ -23,7 +26,54 @@ PORT = 9690
 ORIGIN = f"http://{HOST}:{PORT}"
 
 
-def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None):
+def _installed_ollama_models() -> dict[str, str]:
+    """Read installed model digests from loopback, never download or send data."""
+    from neral_agent_autonomy import local_only_opener
+    req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+    with local_only_opener().open(req, timeout=15) as response:
+        raw = response.read(65537)
+    if len(raw) > 65536:
+        raise ValueError("Lokale Ollama-Modellliste zu groß.")
+    data = json.loads(raw)
+    rows = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or len(rows) > 150:
+        raise ValueError("Lokale Ollama-Modellliste ungültig.")
+    found = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            raise ValueError("Lokale Modellliste enthält ungültigen Eintrag.")
+        name, digest = item.get("name"), item.get("digest")
+        if not isinstance(name, str) or not isinstance(digest, str):
+            raise ValueError("Unvollständige lokale Modellkennung.")
+        canonical = digest if digest.startswith("sha256:") else "sha256:" + digest
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", canonical):
+            raise ValueError("Lokaler Modell-Digest ungültig.")
+        if name in found:
+            raise ValueError("Doppelte lokale Modellkennung.")
+        found[name] = canonical
+    return found
+
+
+def build_experimental_high(low_model: str, enabled: bool):
+    """Only explicit opt-in and both models already installed permit HIGH."""
+    if not enabled:
+        return None
+    if low_model != "qwen3:8b":
+        raise ValueError("Experimentelles HIGH erfordert Qwen3:8B als LOW.")
+    try:
+        installed = _installed_ollama_models()
+    except Exception as exc:
+        raise ValueError("Lokale Ollama-Inventur nicht verfügbar.") from exc
+    if not all(re.fullmatch(r"sha256:[0-9a-f]{64}",installed.get(model,""))
+               for model in ("qwen3:8b","qwen3.5:9b")):
+        raise ValueError("Für HIGH müssen Qwen3:8B und Qwen3.5:9B bereits installiert sein.")
+    from neral_agent_autonomy import OllamaLocalBackend
+    return OllamaLocalBackend(
+        "qwen3.5:9b", timeout=90,
+        inference_profile="measured_nonthinking_2048")
+
+
+def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None, experimental_high_backend=None):
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -99,13 +149,20 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     @app.get("/api/neral/preview/session")
     def session_info():
         return jsonify(csrf=session["csrf"],model=name,
+                       experimental_high_model=(
+                           getattr(experimental_high_backend, "model", None)),
+                       experimental_high_enabled=experimental_high_backend is not None,
                        model_origin="local_foundation_not_neral_adapter",
                        release_validated=False,adapter_promoted=False)
 
     from neral_local_chat_api import register_neral_local_chat_api
-    chat_busy = register_neral_local_chat_api(app,backend)
+    chat_busy = register_neral_local_chat_api(
+        app,backend,experimental_high_backend=experimental_high_backend)
     from neral_preview_attachments import register_preview_attachment_api
-    register_preview_attachment_api(app, backend, chat_busy, vision_analyzer=vision_analyzer)
+    register_preview_attachment_api(
+        app, backend, chat_busy, vision_analyzer=vision_analyzer,
+        experimental_high_backend=experimental_high_backend,
+        prepare_model=app._neral_prepare_model)
 
     from neral_local_voice import register_local_voice_api
     local_voice = register_local_voice_api(app, service=voice_service)
@@ -179,12 +236,17 @@ def main(argv=None):
     parser.add_argument("--inference-profile", choices=("legacy", "measured_nonthinking_2048"),
                         default="legacy",
                         help="Experimental measured profile; default stays legacy.")
+    parser.add_argument("--experimental-high-qwen35",action="store_true",
+                        help="Opt-in HIGH with installed Qwen3.5:9b; defaults off.")
     args=parser.parse_args(argv)
     from neral_agent_autonomy import OllamaLocalBackend
     from waitress import serve
+    high=build_experimental_high(args.model,args.experimental_high_qwen35)
     app=create_preview_app(OllamaLocalBackend(
-        args.model,timeout=90,inference_profile=args.inference_profile))
-    print(f"NERAL 1.0 Local Preview: {ORIGIN} | {args.model} | "
+        args.model,timeout=90,inference_profile=args.inference_profile),
+        experimental_high_backend=high)
+    print(f"NERAL 1.0 Local Preview: {ORIGIN} | LOW={args.model} | "
+          f"HIGH={getattr(high,'model',args.model)} | "
           f"inference_profile={args.inference_profile} | "
           "local foundation only | no promoted LoRA",flush=True)
     serve(app,host=HOST,port=PORT,threads=4)
