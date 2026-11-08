@@ -15,6 +15,7 @@ from typing import Callable
 
 from neral_agent_math import MathInputError, eval_python_expr, solve_math_symbolic
 from neral_agent_python_trace import trusted_python_trace_question
+from neral_quantitative_oracles import trusted_quantitative_question
 
 MAX_RESPONSE = 32768
 MAX_THINK_SECONDS = 120
@@ -188,6 +189,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
         oracle = trusted_math_question(user_question)
         if oracle is None:
             oracle = trusted_python_trace_question(user_question)
+        if oracle is None:
+            oracle = trusted_quantitative_question(user_question)
     turns = [dict(row) for row in messages]
     turns[0]["content"] += _THINK_SUFFIX
 
