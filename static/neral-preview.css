@@ -1,0 +1,29 @@
+:root{color-scheme:dark;--bg:#101210;--panel:#181b18;--field:#202520;--line:#303730;--text:#e6eee5;--muted:#97a397;--accent:#a0c79b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.shell{max-width:1000px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;padding:0 20px}
+.masthead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 0 18px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:14px}.brand-mark{font-weight:700;font-size:25px;display:grid;place-items:center;border:1px solid var(--accent);border-radius:11px;width:48px;height:48px;color:var(--accent)}
+h1{font-size:21px;letter-spacing:-.5px;margin:0;font-weight:650}h1 span{font-weight:450;color:var(--muted)}
+.brand p{margin:2px 0 0;color:var(--muted);font-size:12px}.connect{font-size:12px;color:var(--accent);text-align:right}
+.notice{font-size:12px;color:var(--muted);padding:12px 0;border-bottom:1px solid var(--line)}
+main{flex:1}.messages{min-height:320px;max-height:calc(100dvh - 305px);overflow-y:auto;padding:28px 0;display:flex;flex-direction:column;gap:18px}
+.welcome{max-width:500px;margin:auto;align-self:center;text-align:center;color:var(--muted);font-size:16px}
+.message{max-width:83%;border-radius:14px;padding:12px 16px;white-space:pre-wrap;overflow-wrap:anywhere}
+.message.user{align-self:flex-end;background:#293529}
+.message.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+.message strong{display:block;font-size:11px;letter-spacing:.3px;text-transform:uppercase;color:var(--accent);margin-bottom:5px}
+.message p{margin:0}.composer-panel{padding:12px 0 22px;border-top:1px solid var(--line)}
+textarea{width:100%;resize:vertical;min-height:80px;max-height:210px;padding:14px 16px;background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:13px;font:inherit}
+textarea:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px}
+.modes{display:flex;gap:4px}.modes label{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:12px}.modes label:has(input:checked){background:#283728;border-color:#648160}
+.actions{display:flex;gap:9px}
+button{border:1px solid var(--accent);background:var(--accent);color:#142014;border-radius:10px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.secondary{background:transparent;color:var(--muted);border-color:var(--line)}
+button:disabled{opacity:.5;cursor:not-allowed}
+#error{color:#ffb2a5;min-height:1.25em;font-size:13px;margin:8px 0}
+.fineprint{font-size:11px;color:var(--muted);margin:6px 0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:550px){.shell{padding:0 12px}.masthead{padding:14px 0}.brand-mark{width:40px;height:40px}h1{font-size:17px}.connect{max-width:100px}.messages{max-height:calc(100dvh - 300px)}.message{max-width:94%}.toolbar{align-items:stretch;flex-wrap:wrap}.modes,.actions{flex:1;justify-content:space-between}.modes label{flex:1;text-align:center}.actions button{flex:1;padding:8px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important}}
