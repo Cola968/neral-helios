@@ -50,6 +50,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_low_high_main_merge.py -v
       - name: Regression - identity and no stale HIGH context
         run: python -m unittest discover -s tests -p test_neral_chat_stale_context.py -v
+      - name: Follow-up audit of actual HIGH model identity and image context
+        run: python -m unittest discover -s tests -p test_neral_chat_reaudit.py -v
       - name: Existing legacy THINK contracts unchanged
         run: python -m unittest discover -s tests -p test_neral_think.py -v
       - name: Existing HTTP THINK adapter contracts unchanged

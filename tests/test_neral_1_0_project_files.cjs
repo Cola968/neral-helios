@@ -125,3 +125,33 @@ test("truncated attachment excerpts are disclosed beside the model answer",async
   assert.ok(assistantHeaders.some(t=>/Auszüge gekürzt/i.test(t)),
     "Users must see that not all document content was processed");
 });
+
+test("image-only request with web toggle never searches for generic attachment placeholder",async()=>{
+  const x=harness();await flush();
+  x.element("useWebSearch").checked=true;
+  x.element("projectFiles").files=[{name:"screenshot.png",size:100}];
+  x.handlers.get("projectFiles:change")();
+  x.element("prompt").value="";
+  await x.handlers.get("chatForm:submit")({preventDefault(){}});
+  assert.equal(x.calls.filter(c=>c.url==="/api/web/search").length,0,
+    "The phrase 'Analysiere die Anhänge' must not be leaked as a web query");
+  const upload=x.calls.find(c=>c.url==="/api/neral/preview/attachment-chat");
+  assert.ok(upload,"real image bytes must still follow multipart path");
+  assert.equal(upload.opts.body.get("prompt"),"Analysiere die Anhänge.");
+});
+
+test("answer provenance displays selected HIGH foundation and does not claim files were understood",async()=>{
+  const x=harness({model:"qwen3.5:9b",attachment_context_verified:false});
+  await flush();
+  x.element("chatForm").querySelector=()=>({value:"think"});
+  x.element("projectFiles").files=[{name:"scan.png",size:200}];
+  x.handlers.get("projectFiles:change")();
+  x.element("prompt").value="Was steht auf diesem Bild?";
+  await x.handlers.get("chatForm:submit")({preventDefault(){}});
+  const labels=x.created.filter(e=>e.tagName==="strong").map(e=>e.textContent);
+  const heading=labels.find(s=>s.includes("NERAL HIGH"));
+  assert.ok(heading,"HIGH response is visible");
+  assert.match(heading,/qwen3\.5:9b/,"show real model identity, not an implicit Qwen8B label");
+  assert.match(heading,/Anhänge verarbeitet/);
+  assert.doesNotMatch(heading,/Anhänge ausgewertet/,"upload alone is not proof of content understanding");
+});
