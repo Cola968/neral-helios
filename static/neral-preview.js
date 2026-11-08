@@ -23,7 +23,8 @@
     item.className="message "+role;
     const heading=document.createElement("strong");
     heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
-    const body=document.createElement("p");
+    const body=document.createElement("div");
+    body.className="message-body";
     body.textContent=text; // Untrusted search and model output must never be HTML.
     item.append(heading,body);
     messages.append(item);
