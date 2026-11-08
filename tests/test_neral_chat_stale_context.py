@@ -67,6 +67,26 @@ class ChatRegressionTests(unittest.TestCase):
         self.assertIn("Schwarzes Loch", out["text"])
         self.assertEqual(out["review_status"], "review_rejected_stale")
 
+    def test_high_didactic_physics_discards_irrelevant_numeric_final_marker(self):
+        explanation = (
+            "Ein elektrisches Feld beschreibt die Kraft auf eine positive "
+            "Probeladung. Seine Richtung ist definitionsgemäß die Kraft auf "
+            "diese positive Ladung. Eine Spannung ist eine Potentialdifferenz. "
+            "Im einfachen Stromkreis gilt U = R * I.\\n\\n"
+            "Beispiel: Bei 9 V und 3 Ohm ist I = 3 A.\\n\\n"
+            "**FINAL: x = 3 A**"
+        )
+        result = think_reply(
+            [{"role":"system","content":"Du bist NERAL."},
+             {"role":"user","content":"Elektrische Felder und Stromkreise"}],
+            lambda _: explanation,
+            deep_review=False
+        )
+        self.assertIn("I = 3 A", result["text"])
+        self.assertNotIn("FINAL:", result["text"])
+        self.assertNotIn("x = 3 A", result["text"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
