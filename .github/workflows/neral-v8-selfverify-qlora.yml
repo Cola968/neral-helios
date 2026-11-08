@@ -36,9 +36,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Exact source and parameter recomputation contracts
-        run: python -B -m unittest discover -s tests -p test_neral_v7_logic_pilot.py -v
+        run: python -B -m unittest discover -s tests -p test_neral_v8_selfverify.py -v
       - name: Standalone CPU data audit
-        run: python -B -m scripts.neral_v7_logic_train --mode cpu-contract
+        run: python -B -m scripts.neral_v8_selfverify_train --mode cpu-contract
 
   gpu-experimental-training:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL'
@@ -74,9 +74,9 @@ jobs:
           Push-Location $control
           try {
             $env:PYTHONPATH=$control
-            & $py -B -m unittest discover -s tests -p test_neral_v7_logic_pilot.py -v
+            & $py -B -m unittest discover -s tests -p test_neral_v8_selfverify.py -v
             if($LASTEXITCODE -ne 0){throw 'Logic data failed source test'}
-            & $py -B -m scripts.neral_v7_logic_train --mode cpu-contract
+            & $py -B -m scripts.neral_v8_selfverify_train --mode cpu-contract
             if($LASTEXITCODE -ne 0){throw 'Logic source preflight failed'}
           } finally {Pop-Location}
       - name: Train isolated new adapter; never overwrite v5 or main release
@@ -101,8 +101,8 @@ jobs:
           Push-Location $control
           try {
             $env:PYTHONPATH=$control
-            & $py -B -m scripts.neral_v7_logic_train --mode train-local-gpu --base $model --v5-adapter $v5 --out $dest --authorize TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL
-            if($LASTEXITCODE -ne 0){throw 'Logic QLoRA did not complete'}
+            & $py -B -m scripts.neral_v8_selfverify_train --mode train-local-gpu --base $model --v5-adapter $v5 --out $dest --authorize TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL
+            if($LASTEXITCODE -ne 0){throw 'v8 selfverification QLoRA did not complete'}
           } finally {Pop-Location}
           [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_V8_PRIVATE=$dest"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
       - name: Verify original predecessor unchanged and new candidate SHA
