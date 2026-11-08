@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/neral-single-click-windows.yml'
       - 'neral_oneclick.py'
+      - 'neral_auto_update.py'
+      - 'tests/test_neral_auto_update.py'
       - 'neral_preview_server.py'
       - 'neral_local_accounts.py'
       - 'neral_agent_autonomy.py'
@@ -18,6 +20,8 @@ on:
     paths:
       - '.github/workflows/neral-single-click-windows.yml'
       - 'neral_oneclick.py'
+      - 'neral_auto_update.py'
+      - 'tests/test_neral_auto_update.py'
       - 'neral_preview_server.py'
       - 'neral_local_accounts.py'
       - 'neral_agent_autonomy.py'
@@ -43,6 +47,15 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements-neral-preview.txt pyinstaller==6.16.0
       - name: RED-to-GREEN single-click safety and assets tests
         run: python -m unittest discover -s tests -p test_neral_oneclick.py -v
+      - name: Offline updater and supply-chain security contracts
+        run: python -m unittest discover -s tests -p test_neral_auto_update.py -v
+      - name: Embed immutable build source
+        shell: powershell
+        run: |
+          if($env:GITHUB_SHA -notmatch '^[0-9a-f]{40}$'){throw 'Invalid commit SHA'}
+          $utc=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+          "BUILD_COMMIT = '$env:GITHUB_SHA'" | Set-Content -LiteralPath neral_build_info.py -Encoding utf8
+          "BUILD_UTC = '$utc'" | Add-Content -LiteralPath neral_build_info.py -Encoding utf8
       - name: Build a real EXE with no external Python installation
         shell: powershell
         run: |
@@ -74,3 +87,54 @@ jobs:
             dist/NERAL.exe.sha256
           if-no-files-found: error
           retention-days: 14
+
+  publish-windows:
+    name: Publish verified Windows release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [windows-single-file]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: NERAL-Windows-Ein-Klick
+          path: dist
+      - name: Verify executable hash and immutable provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os, pathlib, re
+          file = pathlib.Path("dist/NERAL.exe")
+          assert file.is_file() and 512 < file.stat().st_size < 150_000_000
+          with file.open("rb") as reader:
+              assert reader.read(2) == b"MZ"
+          digest = hashlib.sha256(file.read_bytes()).hexdigest()
+          expected = pathlib.Path("dist/NERAL.exe.sha256").read_text("utf-8-sig").strip().lower()
+          assert digest == expected
+          sha = os.environ["SOURCE_SHA"]
+          assert re.fullmatch(r"[0-9a-f]{40}", sha)
+          pathlib.Path("dist/NERAL.exe.sha256").write_text(digest + "  NERAL.exe\n", encoding="ascii")
+          pathlib.Path("dist/SOURCE-COMMIT.txt").write_text(sha + "\n", encoding="ascii")
+          PY
+      - name: Publish immutable checksum-verified NERAL Windows prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="neral-windows-${SOURCE_SHA:0:12}"
+          gh release create "$tag" \
+            dist/NERAL.exe \
+            dist/NERAL.exe.sha256 \
+            dist/SOURCE-COMMIT.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "NERAL Windows (${SOURCE_SHA:0:12})" \
+            --notes "Geprüfte lokale Windows-App ohne Modellgewichte. SHA-256 und Git-Commit beiliegend. Aktualisierungen nur aus diesem offiziellen Repository. Nicht Authenticode-signiert."

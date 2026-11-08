@@ -26,6 +26,7 @@ REQUIRED_FILES = (
     "docs/NERAL_LOCAL_VOICE.md",
     "Start-Neral-1.0-Local.ps1",
     "neral_preview_server.py",
+    "neral_auto_update.py",
     "neral_local_accounts.py",
     "neral_agent_autonomy.py",
     "neral_agent_sandbox.py",

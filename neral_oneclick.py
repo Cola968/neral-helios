@@ -20,11 +20,48 @@ import urllib.error
 import urllib.request
 import webbrowser
 
+import neral_auto_update
+
+try:
+    from neral_build_info import BUILD_COMMIT, BUILD_UTC
+except ImportError:
+    # Source checkout / developer use is never an automatically updating EXE.
+    BUILD_COMMIT, BUILD_UTC = "", ""
+
 HOST = "127.0.0.1"
 PORT = 9690
 URL = f"http://{HOST}:{PORT}/"
 OLLAMA_TAGS = "http://127.0.0.1:11434/api/tags"
 MODELS = ("qwen3:8b", "qwen3.5:9b")
+
+
+def _update_state() -> Path:
+    """Keep updates out of model folders, repo files and account data."""
+    appdata = os.environ.get("LOCALAPPDATA")
+    base = Path(appdata) if appdata and Path(appdata).is_absolute() else (
+        Path.home() / "AppData" / "Local")
+    return base / "NERAL" / "updates"
+
+
+def _launch_staged_update() -> bool:
+    """A previously verified update becomes active on the NEXT app launch."""
+    if not getattr(sys, "frozen", False) or os.environ.get("NERAL_AUTO_UPDATE") == "0":
+        return False
+    staged = neral_auto_update.staged_windows_exe(
+        _update_state(), BUILD_COMMIT, BUILD_UTC)
+    if staged is None:
+        return False
+    if Path(sys.executable).resolve() == staged.resolve():
+        return False
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.Popen([str(staged)], cwd=str(staged.parent),
+                         stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+    except OSError:
+        return False
+    return True
 
 
 def has_model(payload: object, model: str) -> bool:
@@ -151,7 +188,7 @@ def start_app() -> None:
 
     root = tk.Tk()
     root.title("NERAL")
-    root.geometry("360x155")
+    root.geometry("420x210")
     root.resizable(False, False)
     root.configure(bg="#f8f8f7")
     root.attributes("-topmost", False)
@@ -165,6 +202,9 @@ def start_app() -> None:
     open_button = tk.Button(controls, text="Chat öffnen", command=lambda: webbrowser.open(URL),
                             width=15, state="disabled")
     open_button.pack(side="left", padx=6)
+    update_button = tk.Button(root, text="Update herunterladen …",
+                              state="disabled", width=31)
+    # Leave disabled/hidden until a verified release is downloaded.
     server = None
     owned = None
 
@@ -205,7 +245,58 @@ def start_app() -> None:
                 "Die lokale Anwendung konnte nicht gestartet werden.")
             messagebox.showerror("NERAL", message)
 
+    def restart_into_update() -> None:
+        # Explicit restart avoids losing in-flight conversations.
+        if os.environ.get("NERAL_AUTO_UPDATE") == "0":
+            return
+        staged = neral_auto_update.staged_windows_exe(
+            _update_state(), BUILD_COMMIT, BUILD_UTC)
+        if staged is None:
+            status.set("Update nicht mehr gültig.")
+            return
+        quit_app()
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            # Wait briefly after Waitress closes before binding the same port.
+            time.sleep(0.4)
+            subprocess.Popen([str(staged)], cwd=str(staged.parent),
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, creationflags=flags)
+        except OSError:
+            pass  # The verified version stays staged for the next manual start.
+
+    update_button.configure(command=restart_into_update)
+
+    def start_update_check() -> None:
+        if not getattr(sys, "frozen", False) or os.environ.get("NERAL_AUTO_UPDATE") == "0":
+            return
+
+        def check() -> None:
+            try:
+                staged = neral_auto_update.check_windows_release(
+                    _update_state(), BUILD_COMMIT, BUILD_UTC)
+                if staged is not None:
+                    def show_available() -> None:
+                        if root.winfo_exists():
+                            status.set("Geprüftes Update bereit · Neustart möglich")
+                            update_button.configure(
+                                text="Update installieren und neu starten",
+                                state="normal")
+                            update_button.pack(pady=(8, 0))
+                    root.after(0, show_available)
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+                pass  # Offline is normal. Never interrupt local inference.
+            finally:
+                try:
+                    root.after(3_600_000, start_update_check)
+                except RuntimeError:
+                    pass
+
+        threading.Thread(target=check, name="neral-update-check",
+                         daemon=True).start()
+
     root.after(100, boot)
+    root.after(1_000, start_update_check)
     root.mainloop()
 
 
@@ -214,6 +305,8 @@ def main() -> int:
         return run_smoke_test()
     if len(sys.argv) > 1:
         return 2
+    if _launch_staged_update():
+        return 0
     start_app()
     return 0
 
