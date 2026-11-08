@@ -1,6 +1,10 @@
 package ai.neral.offline
 
 import android.os.Bundle
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -46,7 +50,8 @@ private fun OfflineScreen() {
     val scope = rememberCoroutineScope()
     val handler = remember { Handler(Looper.getMainLooper()) }
     val model = remember { File(context.filesDir, "models/${OfflineModel.FILE_NAME}") }
-    val turns = remember { mutableStateListOf<ChatTurn>() }
+    val store = remember { ChatStore(context.filesDir) }
+    val turns = remember { mutableStateListOf<ChatTurn>().apply { addAll(store.load()) } }
     val listState = rememberLazyListState()
     var installed by remember { mutableStateOf(OfflineModel.isReady(model)) }
     var engine by remember { mutableStateOf<LlamaEngine?>(null) }
@@ -68,7 +73,8 @@ private fun OfflineScreen() {
                                 handler.post { status = "Download: $percent %" }
                             }
                         }
-                        if (!OfflineModel.isReady(model)) error("Modelldatei fehlt oder ist unvollstaendig")
+                        handler.post { status = "Pruefe Modellintegritaet …" }
+                        if (!OfflineModel.isVerified(model)) error("Modell unvollstaendig oder Pruefsumme falsch; bitte erneut laden")
                         handler.post { status = "Lade Modell in den Handyspeicher …" }
                         LlamaEngine().apply { load(path = model.absolutePath, nGpuLayers = 0, nCtx = 2048) }
                     }
@@ -95,8 +101,20 @@ private fun OfflineScreen() {
             Modifier.fillMaxSize().background(Background)
                 .windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(14.dp)
         ) {
-            Text("NERAL", fontSize = 25.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            Text("Offline · kostenlos · ohne PC", fontSize = 12.sp, color = Accent)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("NERAL", fontSize = 25.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = {
+                        store.clear()
+                        turns.clear()
+                        input = ""
+                        status = if (engine != null) "Neuer Chat · offline bereit" else "Neuer Chat"
+                    },
+                    enabled = !busy && turns.isNotEmpty()
+                ) { Text("Neuer Chat") }
+            }
+            Text("Offline · kostenlos · ohne PC · Verlauf nur auf diesem Handy", fontSize = 12.sp, color = Accent)
             Spacer(Modifier.height(8.dp))
             Text(status, fontSize = 12.sp, color = Color(0xFFB0B9C8))
             Spacer(Modifier.height(12.dp))
@@ -136,6 +154,13 @@ private fun OfflineScreen() {
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(message.content.ifEmpty { "…" }, color = Color.White, fontSize = 15.sp)
+                        if (message.role == "assistant" && message.content.isNotBlank()) {
+                            TextButton(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("NERAL-Antwort", message.content))
+                                Toast.makeText(context, "Antwort kopiert", Toast.LENGTH_SHORT).show()
+                            }) { Text("Kopieren", fontSize = 12.sp) }
+                        }
                     }
                 }
             }
@@ -165,6 +190,8 @@ private fun OfflineScreen() {
                         turns.add(ChatTurn("user", question))
                         val previous = turns.toList()
                         turns.add(ChatTurn("assistant", ""))
+                        try { store.save(turns.filter { it.content.isNotBlank() }) }
+                        catch (_: Exception) { status = "Verlauf konnte nicht gespeichert werden" }
                         val responseIndex = turns.lastIndex
                         generating = true
                         busy = true
@@ -199,12 +226,16 @@ private fun OfflineScreen() {
                                 handler.post {
                                     if (responseIndex < turns.size)
                                         turns[responseIndex] = ChatTurn("assistant", result)
-                                    status = "Offline bereit · CPU · Qwen3 0,6B"
+                                    status = try {
+                                        store.save(turns.toList())
+                                        "Offline bereit · CPU · Qwen3 0,6B"
+                                    } catch (_: Exception) { "Antwort da, Verlauf konnte nicht gespeichert werden" }
                                 }
                             } catch (e: Exception) {
                                 handler.post {
                                     if (responseIndex < turns.size)
                                         turns[responseIndex] = ChatTurn("assistant", "Fehler: ${e.message}")
+                                    try { store.save(turns.toList()) } catch (_: Exception) { }
                                     status = "Modellfehler · erneut versuchen"
                                 }
                             } finally {
