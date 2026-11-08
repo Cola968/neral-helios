@@ -19,7 +19,7 @@ async function exercise(promptText,results){
   const fetch=async(url,options={})=>{
     calls.push({url,body:options.body?JSON.parse(options.body):null});
     if(url.endsWith("/session"))
-      return {ok:true,json:async()=>({csrf:"TEST_CSRF"})};
+      return {ok:true,json:async()=>({csrf:"TEST_CSRF",model:"qwen3:8b"})};
     if(url.endsWith("/status"))
       return {ok:true,json:async()=>({
         model:"qwen3:8b",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false
