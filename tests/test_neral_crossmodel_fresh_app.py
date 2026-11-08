@@ -95,6 +95,25 @@ class CrossModelFreshAppContracts(unittest.TestCase):
         self.assertEqual(z["models"]["qwen3:8b"]["finished"],35)
         self.assertEqual(z["models"]["qwen3:8b"]["by_domain"]["math"]["correct"],7)
 
+    def test_safe_http_reason_counts_without_private_payloads(self):
+        observations=self.observations()
+        first,second=self.cases[0]["id"],self.cases[1]["id"]
+        observations["qwen3.5:9b"][first]={
+            "text":"","finished":False,"seconds":27.0,
+            "http_error":True,"error_code":"token_limit"}
+        observations["qwen3.5:9b"][second]={
+            "text":"","finished":False,"seconds":34.0,
+            "http_error":True,"error_code":"timeout"}
+        report=summarize_pairs(self.cases,observations,self.vrams(),self.digests())
+        self.assertEqual(report["models"]["qwen3.5:9b"]["api_failures"],2)
+        self.assertEqual(report["models"]["qwen3.5:9b"]["api_failure_codes"],
+                         {"timeout":1,"token_limit":1})
+        self.assertEqual(report["models"]["qwen3:8b"]["api_failure_codes"],{})
+        self.assertNotIn("PRIVATE",json.dumps(report))
+        observations["qwen3.5:9b"][first]["error_code"]="C:/PRIVATE/secret.txt"
+        with self.assertRaises(PilotError):
+            summarize_pairs(self.cases,observations,self.vrams(),self.digests())
+
     def test_malformed_response_and_model_digests_fail_closed(self):
         rows=self.observations()
         rows["qwen3:8b"][self.cases[0]["id"]]["seconds"]=-1
