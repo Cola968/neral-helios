@@ -33,6 +33,7 @@ on:
       - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -76,6 +77,7 @@ on:
       - 'tests/test_neral_1_0_attachments.py'
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
+      - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -116,6 +118,10 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_codecheck_files.py -v
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
+      - name: Real extracted Windows launcher, live HTTP and safe port refusal
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\tests\neral_1_0_windows_extracted_launcher_smoke.ps1
       - name: Syntax and browser JS
         run: python -m py_compile neral_preview_server.py neral_preview_attachments.py scripts/build_neral_1_0_preview.py scripts/neral_1_0_local_live_smoke.py
       - run: node --check static/neral-preview.js
