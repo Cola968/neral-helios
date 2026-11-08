@@ -151,7 +151,7 @@ test("answer provenance displays selected HIGH foundation and does not claim fil
   const labels=x.created.filter(e=>e.tagName==="strong").map(e=>e.textContent);
   const heading=labels.find(s=>s.includes("NERAL HIGH"));
   assert.ok(heading,"HIGH response is visible");
-  assert.match(heading,/qwen3\\.5:9b/,"show real model identity, not an implicit Qwen8B label");
+  assert.match(heading,/qwen3\.5:9b/,"show real model identity, not an implicit Qwen8B label");
   assert.match(heading,/Anhänge verarbeitet/);
   assert.doesNotMatch(heading,/Anhänge ausgewertet/,"upload alone is not proof of content understanding");
 });
