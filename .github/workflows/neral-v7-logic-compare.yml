@@ -1,0 +1,161 @@
+name: NERAL v7 logic matched-weight compare (manual read-only GPU)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v7_logic_compare.py'
+      - 'tests/test_neral_v7_logic_compare.py'
+      - '.github/workflows/neral-v7-logic-compare.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v7_logic_compare.py'
+      - 'tests/test_neral_v7_logic_compare.py'
+      - '.github/workflows/neral-v7-logic-compare.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permission: EVALUATE_NERAL_V7_LOGIC_MATCHED_READONLY'
+        required: true
+        type: string
+      source_run_id:
+        description: 'Completed NERAL v7 logic QLoRA training run ID; never a path'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify paired scoring, source seals and same prompts
+        run: python -B -m unittest discover -s tests -p test_neral_v7_logic_compare.py -v
+
+  gpu-readonly:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V7_LOGIC_MATCHED_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 110
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      SRC_RUN: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Verify sealed local candidate and prepare read-only comparison
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if($env:SRC_RUN -notmatch '^[0-9]{9,15}$'){
+            throw 'Source run ID must be decimal workflow number, not a path'
+          }
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $source=Join-Path $root "v7-logic-r16-$env:SRC_RUN-1"
+          $candidate=Join-Path $source 'candidate-adapter'
+          $receipt=Join-Path $source 'scalar-private.json'
+          $base=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $root 'v5-r16-480-42378021782-1\adapter'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $candidate -PathType Container) -or
+             -not(Test-Path -LiteralPath $receipt -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $base -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container)){
+             throw 'Verified candidate, original base or v5 is missing'
+          }
+          $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if($report.status -ne 'NERAL_V7_LOGIC_R16_120_STEPS_UNRELEASED' -or
+             $report.steps_completed -ne 120 -or $report.adapter_promoted -ne $false){
+             throw 'Candidate not trained or isolation guard failed'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU unavailable'}
+          $parts=($raw|Select-Object -First 1)-split ','
+          if($parts.Count -ne 2 -or [int]$parts[0].Trim() -lt 9000 -or
+             [int]$parts[1].Trim() -gt 20){
+             throw 'GPU occupied; no overlapping inference'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v7_logic_compare.py -v
+            if($LASTEXITCODE -ne 0){throw 'V7 comparison CPU contracts failed'}
+          } finally {Pop-Location}
+          $dest=Join-Path $root "v7-logic-weight-compare-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $dest){throw 'No reuse of previous private outputs'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v7_logic_compare --mode prepare --folder $dest
+            if($LASTEXITCODE -ne 0){throw 'Frozen sources rejected'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "LOGIC_PY=$py"+[Environment]::NewLine+
+            "LOGIC_CONTROL=$control"+[Environment]::NewLine+
+            "LOGIC_BASE=$base"+[Environment]::NewLine+
+            "LOGIC_V5=$v5"+[Environment]::NewLine+
+            "LOGIC_CANDIDATE=$candidate"+[Environment]::NewLine+
+            "LOGIC_RECEIPT=$receipt"+[Environment]::NewLine+
+            "LOGIC_OUT=$dest"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Three model-only GPU runs using identical prompts and decoding
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:LOGIC_CONTROL
+          try {
+            $env:PYTHONPATH=$env:LOGIC_CONTROL
+            foreach($arm in @('qwen','v5','candidate')){
+              & $env:LOGIC_PY -B -m scripts.neral_v7_logic_compare --mode run --arm $arm --folder $env:LOGIC_OUT --base $env:LOGIC_BASE --v5 $env:LOGIC_V5 --candidate $env:LOGIC_CANDIDATE --receipt $env:LOGIC_RECEIPT --authorize EVALUATE_NERAL_V7_LOGIC_MATCHED_READONLY
+              if($LASTEXITCODE -ne 0){throw "Model arm $arm failed; no grading"}
+            }
+          } finally {Pop-Location}
+      - name: Paired scalar report and explicit release refusal
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:LOGIC_CONTROL
+          try {
+            $env:PYTHONPATH=$env:LOGIC_CONTROL
+            & $env:LOGIC_PY -B -m scripts.neral_v7_logic_compare --mode combine --folder $env:LOGIC_OUT --candidate $env:LOGIC_CANDIDATE --receipt $env:LOGIC_RECEIPT
+            if($LASTEXITCODE -ne 0){throw 'Paired scoring failed'}
+          } finally {Pop-Location}
+          $summary=Get-Content -LiteralPath (Join-Path $env:LOGIC_OUT 'summary.json') -Raw | ConvertFrom-Json
+          if($summary.status -ne 'NERAL_V7_LOGIC_MATCHED_WEIGHT_DEV_DIAGNOSTIC' -or
+             $summary.case_count -ne 72 -or
+             $summary.same_prompt_all_arms -ne $true -or
+             $summary.same_decoding_all_arms -ne $true -or
+             $summary.model_only_no_tools -ne $true -or
+             $summary.release_validated -ne $false -or
+             $summary.adapter_promoted -ne $false -or
+             $summary.quality_improvement_proven -ne $false){
+             throw 'Wrong comparison protocol or false promotion'
+          }
+          $folder=Join-Path $env:LOGIC_CONTROL 'v7_logic_compare_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Refuse output overwrite'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:LOGIC_OUT 'summary.json') -Destination (Join-Path $folder 'summary.json')
+      - name: Publish only aggregate research metrics
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v7-logic-weight-compare-scalars
+          path: control/v7_logic_compare_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
