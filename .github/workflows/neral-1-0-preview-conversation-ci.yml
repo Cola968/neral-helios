@@ -1,0 +1,32 @@
+name: NERAL 1.0 preview cancellation and conversation integrity
+on:
+  pull_request:
+    paths:
+      - 'static/neral-preview.js'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_1_0_preview_cancel.cjs'
+      - 'tests/test_neral_1_0_preview_history.cjs'
+      - '.github/workflows/neral-1-0-preview-conversation-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'static/neral-preview.js'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_1_0_preview_cancel.cjs'
+      - 'tests/test_neral_1_0_preview_history.cjs'
+permissions:
+  contents: read
+jobs:
+  chat-ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node syntax and headless UI request semantics (no Ollama)
+        run: |
+          node --check static/neral-preview.js
+          node --test tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_preview_cancel.cjs
