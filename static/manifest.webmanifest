@@ -1,1 +1,40 @@
-{"id": "/", "name": "Neral · Helios", "short_name": "Neral", "description": "Dein eigener lokaler Neral-Chat mit SOLVE und Projekten.", "start_url": "/", "scope": "/", "display": "standalone", "background_color": "#101110", "theme_color": "#131513", "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}, {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"}, {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}], "shortcuts": [{"name": "Neuer Chat", "url": "/?quick=chat"}, {"name": "SOLVE", "url": "/?quick=solve"}]}
+{
+  "id": "/",
+  "name": "Neral · Helios",
+  "short_name": "Neral",
+  "description": "Dein eigener lokaler Neral-Chat mit SOLVE und Projekten.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171817",
+  "theme_color": "#171817",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Neuer Chat",
+      "url": "/?quick=chat"
+    },
+    {
+      "name": "SOLVE",
+      "url": "/?quick=solve"
+    }
+  ]
+}

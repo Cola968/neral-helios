@@ -1,0 +1,36 @@
+name: NERAL v8 evidence-driven training loop (CPU contracts)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v8_experiment_policy.py'
+      - 'scripts/neral_v8_unseen_eval.py'
+      - 'tests/test_neral_v8_experiment_policy.py'
+      - '.github/workflows/neral-v8-experiment-policy-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v8_experiment_policy.py'
+      - 'scripts/neral_v8_unseen_eval.py'
+      - 'tests/test_neral_v8_experiment_policy.py'
+      - '.github/workflows/neral-v8-experiment-policy-ci.yml'
+permissions:
+  contents: read
+jobs:
+  fail-closed-quality-policy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert controlled regression and future-holdout policy
+        run: python -B -m unittest discover -s tests -p test_neral_v8_experiment_policy.py -v
+      - name: Existing unchanged v8 benchmark regression contracts
+        run: python -B -m unittest discover -s tests -p test_neral_v8_unseen_gate.py -v
+      - name: Verify no syntax drift
+        run: python -B -m py_compile scripts/neral_v8_experiment_policy.py scripts/neral_v8_unseen_eval.py

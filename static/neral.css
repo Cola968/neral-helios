@@ -60,3 +60,7 @@ dialog{color:var(--text);background:var(--side);border:1px solid var(--line);bor
 /* NERAL 1.0 Local Preview: accessible direct entry without mobile header overflow. */
 #neralAIQuickOpen{font-weight:650}
 @media(max-width:730px){.view-switch{gap:1px}.view-switch button{padding:6px 7px;font-size:12px}}
+
+/* Official monochrome NERAL mark; never stretched or recoloured by theme. */
+.sidebar a.brand{display:flex;align-items:center;gap:10px}
+.sidebar .neral-brand-icon{display:block;flex:0 0 26px;width:26px;height:26px;border-radius:7px}

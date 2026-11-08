@@ -28,9 +28,15 @@ Das Modell ist auf dem bisherigen NERAL-Windows-PC bereits in
 `ollama list` nachgewiesen; künftige Installationen müssen es
 erneut prüfen.
 
-1. Das geprüfte Release-Candidate-Artefakt aus GitHub Actions herunterladen.
-   Die enthaltene ZIP und `SHA256SUMS.txt` gehören zusammen. SHA
-   in PowerShell gegen `Get-FileHash <ZIP> -Algorithm SHA256` prüfen.
+1. Unter GitHub Actions das Artefakt des **aktuellen** Main-Commits herunterladen.
+   `NERAL-1.0-Local-Preview-CPU-TESTED-NOT-PC-VERIFIED` ist nur für
+   **manuelle Tests**, auch wenn der GPU-Runner noch beschäftigt ist.
+   Erst `NERAL-1.0-Local-Preview-RELEASE-CANDIDATE` setzt zusätzlich
+   einen bestandenen realen Windows-Ollama-Test voraus. Keines davon
+   bedeutet, dass NERAL-Gewichte überlegen sind. Im CPU-Paket gibt
+   `SOURCE-COMMIT.txt` den exakten Git-Commit an. Die enthaltene ZIP
+   und `SHA256SUMS.txt` gehören zusammen. SHA in PowerShell gegen
+   `Get-FileHash <ZIP> -Algorithm SHA256` prüfen.
 2. ZIP in einen eigenen Ordner entpacken. `local_state/` und
    persönliche Chats werden von diesem Paket nicht überschrieben
    oder mitgeliefert.
@@ -42,8 +48,7 @@ erneut prüfen.
    Webserver-Abhängigkeiten über pip installiert. Keine Modellgewichte
    werden heruntergeladen; die QLoRA-/PyTorch-Trainingsumgebung
    und das System-Python bleiben unverändert.
-5. `Start NERAL 1.0 Local.cmd` doppelklicken.
-   Der Starter prüft den Ollama-Modellnamen und lokale Python-Laufzeit,
+5. Nach dem Start öffnet sich NERAL. Der Starter prüft den Ollama-Modellnamen und lokale Python-Laufzeit,
    verweigert eine zweite Instanz auf Port **9690** und startet
    den lokalen Waitress-Server. Browser-Adresse:
    **http://127.0.0.1:9690/**.
@@ -157,8 +162,7 @@ dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
 
 ## Code Check und ausdruecklich gewaehlte Dateien
 
-- Python Code Check analysiert den gerade eingegebenen Python-Quelltext nur mit
-  `ast.parse`. Kein Benutzer-Code wird ausgefuehrt, kein Shellprozess
+- Python Code Check analysiert den gerade eingegebenen Python-Quelltext durch `ast.parse` und eine nicht ausgefuehrte Python-Kompilierung. Kein Benutzer-Code wird ausgefuehrt, kein Shellprozess
   gestartet, keine Laufzeit-, Semantik- oder Sicherheitstests behauptet.
 - Datei-Kontext liest im Browser nach ausdruecklicher Dateiauswahl bis zu zwei
   Textdateien (je maximal 1200 Byte, zugelassene Quelltext-Endungen). Nur beim
@@ -168,7 +172,7 @@ dass die Qwen-Gewichte verbessert wurden. Eine allgemeine Überlegenheit
   Projektdateien ohne Nutzerauswahl.
 - `project_files` (automatischer Dateisystem-Agent) und
   `local_code_execution` (Codeausfuehrung) bleiben deaktiviert.
-  Der begrenzte Datei-Kontext und der AST-Syntaxcheck sind getrennte Tools.
+  Der begrenzte Datei-Kontext und der Python-Syntaxcheck sind getrennte Tools.
 
 
 ## Dateianhänge, Bildanalyse und Antwort-Feedback (Feature-PR)

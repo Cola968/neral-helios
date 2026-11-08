@@ -42,6 +42,10 @@ button:disabled{opacity:.5;cursor:not-allowed}
 #stopRequest{white-space:nowrap}
 @media(max-width:730px){.actions{flex-wrap:wrap;gap:6px}.actions button{font-size:12px}}
 
+/* NERAL V2 brand mark replaces the old placeholder N. */
+.brand-mark{overflow:hidden;border:0!important;background:#171817;color:inherit}
+.brand-mark img{width:100%;height:100%;display:block;object-fit:contain}
+
 /* Per-answer actions intentionally quiet and readable, not floating AI cards. */
 .message-actions{display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid var(--line)}
 .message-actions .message-tool{background:transparent;border:1px solid transparent;color:var(--muted);font-size:12px;font-weight:500;border-radius:7px;padding:4px 9px}

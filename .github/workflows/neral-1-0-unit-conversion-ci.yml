@@ -1,0 +1,32 @@
+name: NERAL 1.0 exact physical units CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_quantitative.py'
+      - 'tests/test_neral_1_0_units.py'
+      - '.github/workflows/neral-1-0-unit-conversion-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_agent_quantitative.py'
+      - 'tests/test_neral_1_0_units.py'
+      - '.github/workflows/neral-1-0-unit-conversion-ci.yml'
+permissions:
+  contents: read
+jobs:
+  unit-conversion:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only Flask preview dependency
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Independently test exact conversions and no model-origin inflation
+        run: python -m unittest discover -s tests -p test_neral_1_0_units.py -v
