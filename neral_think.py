@@ -1,4 +1,4 @@
-"""Optional NERAL THINK coordinator: bounded local verification, no untrusted execution.
+"""NERAL HIGH coordinator: bounded local verification and optional second-pass review.
 
 The verifier only handles fully recognized standalone arithmetic and affine
 equations, using NERAL's existing exact AST math functions. For everything else,
@@ -19,7 +19,8 @@ from neral_quantitative_oracles import trusted_quantitative_question
 from neral_logic_engine import trusted_logic_question
 
 MAX_RESPONSE = 32768
-MAX_THINK_SECONDS = 120
+MAX_THINK_SECONDS = 180
+MAX_REVIEW_DRAFT_BYTES = 2600
 # Only simple numeric or x = numeric finals. Never extract an arbitrary last number.
 _NUMBER = r"[+-]?\d{1,25}(?:[.,]\d{1,25})?(?:/\d{1,25})?"
 _FINAL_VALUE = re.compile(r"(?:x\s*=\s*)?" + _NUMBER + r"\Z", re.IGNORECASE)
@@ -34,7 +35,9 @@ _THINK_SUFFIX = (
     "ohne Werkzeuge, Tests oder externe Quellen zu erfinden. "
     "Bei einer einzelnen numerischen Antwort beende die Ausgabe mit "
     "'FINAL: <Ergebnis>' bzw. 'FINAL: x = <Ergebnis>'. "
-    "Setze diese Markierung nur für eine eindeutige Endantwort."
+    "Setze diese Markierung nur für eine eindeutige Endantwort. "
+    "Prüfe intern Annahmen, Gegenbeispiele und mögliche Rechenfehler; "
+    "nenne Unsicherheit statt eine unbelegte Behauptung zu erfinden."
 )
 _RETRY_FEEDBACK = (
     "Die letzte numerische Endantwort konnte durch die lokale exakte "
@@ -44,6 +47,19 @@ _RETRY_FEEDBACK = (
     "oder FINAL: x = <Ergebnis>."
 )
 
+
+# HIGH uses a second separate local inference for non-oracle tasks.
+# The draft is an assistant message, not evidence of correctness.
+_HIGH_REVIEW_FEEDBACK = (
+    "HIGH – kritische Qualitätsprüfung deines vorherigen Entwurfs: "
+    "Kontrolliere die eigentliche Nutzerfrage, Annahmen, Rechenschritte, "
+    "Einheiten, Randfälle, mögliche Gegenbeispiele und offensichtliche "
+    "Faktenunsicherheit. Überarbeite die Antwort, wenn du einen Fehler "
+    "erkennst. Erfinde keine Quellen, Testläufe oder Prüfungen. "
+    "Gib jetzt ausschließlich die beste abschließende Antwort für "
+    "den ursprünglichen Nutzer aus, nicht eine Beschreibung dieser "
+    "Prüfrunde. Falls unsicher, benenne die Unsicherheit."
+)
 
 class ThinkInputError(ValueError):
     """Only public generic messages; never include a model response or path."""
@@ -173,11 +189,13 @@ def _ensure_messages(messages: list[dict]) -> None:
 
 def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
                 clock: Callable[[], float] = time.monotonic,
-                max_seconds: int = MAX_THINK_SECONDS) -> dict:
-    """One greedy pass; one retry only on verifiably numeric ambiguity/error.
+                max_seconds: int = MAX_THINK_SECONDS,
+                deep_review: bool = False) -> dict:
+    """HIGH: exact oracle retry or bounded two-pass review for open questions.
 
-    This cannot interrupt an already running model.generate; the time budget is
-    enforced *between* calls. The active HF/Ollama backend owns token bounds.
+    deep_review=False preserves independent legacy THINK tool tests. The HTTP
+    HIGH route enables review. Self-review is not a proof of correctness.
+    Time is checked between calls, not during active GPU inference.
     """
     _ensure_messages(messages)
     if not callable(respond) or type(max_seconds) is not int or not 1 <= max_seconds <= 300:
@@ -199,6 +217,8 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
 
     raw = _call_once(respond, turns)
     used = 1
+    review_passes = 0
+    review_status = "not_requested" if not deep_review else "not_needed_oracle"
     extracted = extract_final(raw)
     checked = bool(oracle is not None and extracted is not None
                    and _verified_match(extracted, oracle["answer"]))
@@ -215,9 +235,36 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
             checked = bool(extracted is not None and
                            _verified_match(extracted, oracle["answer"]))
 
+    # For open-ended work, ask a separate bounded review pass.
+    # Never present model self-review as deterministic verification.
+    if oracle is None and deep_review:
+        if len(raw.encode("utf-8")) > MAX_REVIEW_DRAFT_BYTES:
+            review_status = "skipped_long_draft"
+        elif clock() - initial >= max_seconds:
+            review_status = "skipped_time_budget"
+        else:
+            second_turns = turns + [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": _HIGH_REVIEW_FEEDBACK},
+            ]
+            used += 1
+            try:
+                revised = _call_once(respond, second_turns)
+            except Exception:
+                # The initial answer is still available; do not leak a path,
+                # traceback, private checkpoint, or untrusted partial output.
+                review_status = "review_failed"
+            else:
+                raw = revised
+                extracted = extract_final(raw)
+                review_passes = 1
+                review_status = "completed_unverified"
+
     elapsed = max(0.0, clock() - initial)
     common = {
-        "mode": "THINK", "calls_used": used,
+        "mode": "HIGH", "calls_used": used,
+        "review_passes": review_passes,
+        "review_status": review_status,
         "seconds": round(elapsed, 3),
         "hard_timeout_enforced": False,
         "verification_scope": (
