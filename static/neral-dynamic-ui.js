@@ -126,7 +126,7 @@
     if(math)return math;
     const table=markdownTable(text);
     if(table){
-      const wantsChart=/\b(diagramm|balken|chart|grafik|visualisiere|plot)\b/i.test(prompt);
+      const wantsChart=/\b(balkendiagramm|säulendiagramm|diagramm|balken|chart|grafik|visualisiere|plot)\b/i.test(prompt);
       if(wantsChart && table.rows.length<=12){
         const column=table.headers.length-1;
         const numbers=table.rows.map(row=>toNum(row[column]));
