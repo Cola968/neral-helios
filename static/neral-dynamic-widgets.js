@@ -72,6 +72,7 @@
     }
     const formula=make("p","neral-ui-formula","Formel: "+spec.expression);
     body.append(grid,result.box,formula);
+    update();
   }
 
   function chart(body,spec){
@@ -230,7 +231,7 @@
     const params=[
       {id:"speed",label:"Startgeschwindigkeit",unit:"m/s",min:1,max:60,step:1,value:20},
       {id:"angle",label:"Wurfwinkel",unit:"°",min:5,max:85,step:1,value:45},
-      {id:"gravity",label:"Schwerebeschleunigung",unit:"m/s²",min:1,max:20,step:0.1,value:9.81}
+      {id:"gravity",label:"Schwerebeschleunigung",unit:"m/s²",min:1,max:20,step:0.01,value:9.81}
     ];
     const values=Object.fromEntries(params.map(x=>[x.id,x.value]));
     const grid=make("div","neral-ui-controls");
