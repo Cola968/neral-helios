@@ -1,0 +1,89 @@
+name: NERAL v7 original-response token-cap audit (read-only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v7_completion_audit.py'
+      - 'tests/test_neral_v7_completion_audit.py'
+      - '.github/workflows/neral-v7-completion-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v7_completion_audit.py'
+      - 'tests/test_neral_v7_completion_audit.py'
+      - '.github/workflows/neral-v7-completion-audit.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permission: AUDIT_NERAL_V7_ORIGINAL_OUTPUTS_READONLY'
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify scalar-only truncation and EOS diagnosis
+        run: python -B -m unittest discover -s tests -p test_neral_v7_completion_audit.py -v
+
+  original-private-answers:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'AUDIT_NERAL_V7_ORIGINAL_OUTPUTS_READONLY'
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+          clean: true
+      - name: Reinspect original 160-token output files, absolutely no new GPU inference
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $src=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v7-logic-weight-compare-42476466509-1'
+          if(-not(Test-Path -LiteralPath $src -PathType Container) -or
+             -not(Test-Path -LiteralPath $py -PathType Leaf)){
+             throw 'Original read-only dev benchmark files or Python are missing'
+          }
+          $folder=Join-Path $control 'v7_completion_audit_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Never overwrite output'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v7_completion_audit.py -v
+            if($LASTEXITCODE -ne 0){throw 'CPU contracts failed'}
+            New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+            $out=Join-Path $folder 'summary.json'
+            & $py -B -m scripts.neral_v7_completion_audit --run-dir $src --out $out
+            if($LASTEXITCODE -ne 0){throw 'Original response audit refused'}
+            $result=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+            if($result.status -ne 'NERAL_V7_INCOMPLETE_OUTPUT_DIAGNOSTIC_ONLY' -or
+               $result.old_official_scores_unchanged -ne $true -or
+               $result.raw_responses_exported -ne $false -or
+               $result.release_validated -ne $false -or
+               $result.adapter_promoted -ne $false){
+               throw 'Unsafe report, no upload'
+            }
+          } finally {Pop-Location}
+      - name: Export only aggregate diagnostics (never prompts, answers or weights)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v7-completion-diagnostic-scalars-only
+          path: control/v7_completion_audit_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
