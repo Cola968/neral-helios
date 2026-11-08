@@ -280,6 +280,18 @@ class AttachmentPreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "attachment"):
             verify_live_text_attachment(client, csrf)
 
+    def test_live_pc_optional_vision_gate_skips_missing_model_and_checks_real_pixels(self):
+        from scripts.neral_1_0_local_live_smoke import verify_live_vision_attachment
+
+        self.assertFalse(verify_live_vision_attachment(self.client, self.csrf, {}))
+        self.assertEqual(self.vision_calls, [])
+        self.assertTrue(verify_live_vision_attachment(
+            self.client, self.csrf, {"qwen3-vl:2b": "sha256:test"}))
+        self.assertEqual(len(self.vision_calls), 1)
+        raw = self.vision_calls[0][0]
+        self.assertTrue(raw.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertGreater(len(raw), 50)
+
     def test_regular_json_chat_preserves_existing_contract(self):
         result = self.client.post(
             "/api/neral/chat/generate",
