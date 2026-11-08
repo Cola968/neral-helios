@@ -1,0 +1,126 @@
+name: NERAL HIGH verified-first 24-case GPU system gain (dev only)
+on:
+  pull_request:
+    paths:
+      - 'neral_high_verified_first.py'
+      - 'neral_local_chat_api.py'
+      - 'scripts/neral_high_verified_first_probe.py'
+      - 'tests/test_neral_high_verified_first_probe.py'
+      - '.github/workflows/neral-high-verified-first-gpu.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  cpu-oracles:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/neral-high-verification-first-20261108'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install local HTTP test dependency only
+        run: python -m pip install 'Flask>=3.0,<4'
+      - name: 24 independent CPU oracle checks before any GPU work
+        run: python -B -m unittest discover -s tests -p test_neral_high_verified_first_probe.py -v
+      - name: Verify HTTP implementation and legacy safety
+        run: python -B -m unittest discover -s tests -p test_neral_high_verified_first.py -v
+  live-windows:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/neral-high-verification-first-20261108'
+    needs: [cpu-oracles]
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: src
+          persist-credentials: false
+          clean: true
+      - name: Strict installed model and idle GPU preflight; no downloads
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'src'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          Push-Location $root
+          try {
+            $env:PYTHONPATH=$root
+            & $py -B -m scripts.neral_v7_foundation_tournament --mode inventory
+            if($LASTEXITCODE -ne 0){throw 'No local Ollama inventory'}
+          } finally {Pop-Location}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'CUDA GPU not available'}
+          $fields=($raw | Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 4500 -or
+             [int]$fields[1].Trim() -gt 20){throw 'GPU occupied, refusing benchmark'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_QA_ROOT=$root"+[Environment]::NewLine+
+            "NERAL_QA_BASE_PY=$py"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Build isolated temporary Flask QA environment
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:RUNNER_TEMP "neral-high-verify-qa-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $folder){throw 'No overwrite of QA environment'}
+          & $env:NERAL_QA_BASE_PY -B -m venv $folder
+          if($LASTEXITCODE -ne 0){throw 'QA venv failed'}
+          $qa=Join-Path $folder 'Scripts\python.exe'
+          & $qa -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:NERAL_QA_ROOT 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'QA dependencies failed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_QA_PY=$qa"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Real 24-pair local LOW versus verified HIGH HTTP score
+        run: |
+          $ErrorActionPreference='Stop'
+          $output=Join-Path $env:RUNNER_TEMP "neral-high-verified-first-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          if(Test-Path -LiteralPath $output){throw 'Refuse output overwrite'}
+          Push-Location $env:NERAL_QA_ROOT
+          try {
+            $env:PYTHONPATH=$env:NERAL_QA_ROOT
+            & $env:NERAL_QA_PY -B -m scripts.neral_high_verified_first_probe --out $output
+            if($LASTEXITCODE -ne 0){throw 'Failed or incomplete live 24-pair system test'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_HIGH_SCALAR=$output"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Guard scalar-only evidence and explicit model vs tool attribution
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content -LiteralPath $env:NERAL_HIGH_SCALAR -Raw | ConvertFrom-Json
+          if($r.status -ne 'NERAL_VERIFIED_FIRST_SYSTEM_DEV_ONLY' -or
+             $r.cases -ne 24 -or $r.model -ne 'qwen3:8b' -or
+             $r.model_weights_changed -ne $false -or
+             $r.neural_improvement_proven -ne $false -or
+             $r.release_validated -ne $false -or
+             $r.independent_novel_methods -ne $false -or
+             $r.no_prompt_or_response_upload -ne $true -or
+             $r.tools_granted_only_to_high -ne $true){
+            throw 'Unsafe or misleading aggregate score'
+          }
+          $dest=Join-Path $env:NERAL_QA_ROOT 'verified_first_scalar'
+          if(Test-Path -LiteralPath $dest){throw 'Refuse stale scalar output'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath $env:NERAL_HIGH_SCALAR -Destination (Join-Path $dest 'summary.json')
+      - name: Publish scalar-only per-domain correctness and latency
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-high-verified-first-24-scalar-only
+          path: src/verified_first_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
