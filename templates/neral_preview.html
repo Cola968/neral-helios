@@ -7,12 +7,36 @@
   <title>NERAL 1.0 Local Preview</title>
   <link rel="icon" href="/static/icon.svg">
   <link rel="stylesheet" href="/static/neral-preview.css">
+  <link rel="stylesheet" href="/static/neral-accounts.css">
   <link rel="stylesheet" href="/static/neral-motion.css">
   <script src="/static/neral-preview.js" defer></script>
   <script src="/static/neral-motion.js" defer></script>
+  <script src="/static/neral-accounts.js" defer></script>
 </head>
 <body>
-  <div class="shell">
+  <div class="app-layout">
+    <aside class="neral-sidebar" aria-label="Gesprächsnavigation">
+      <div class="sidebar-heading"><img src="/static/icon.svg" alt="" width="24" height="24"><span>neral</span></div>
+      <button id="newSavedChat" class="sidebar-link" type="button">＋ &nbsp;Neuer Chat</button>
+      <button id="searchChats" class="sidebar-link" type="button">⌕ &nbsp;Chats durchsuchen</button>
+      <input id="chatSearchInput" class="sidebar-search" type="search" placeholder="Chats suchen" aria-label="Gespeicherte Chats filtern" hidden>
+      <div class="sidebar-label">Gespräche</div>
+      <nav id="savedChatList" aria-label="Gespeicherte Chats"></nav>
+      <div id="accountSection" class="sidebar-account">
+        <span id="accountName">Gast · lokal</span>
+        <button id="showLogin" class="sidebar-login" type="button">Anmelden</button>
+        <button id="logout" class="sidebar-login" type="button" hidden>Abmelden</button>
+        <details id="accountSettings" hidden>
+          <summary aria-label="Kontoeinstellungen">⚙ <span>Einstellungen</span></summary>
+          <div class="account-settings-actions">
+            <a id="exportChats" href="/api/neral/account/export" download="neral-chats.json">Chats exportieren</a>
+            <button id="changePassword" type="button">Passwort ändern</button>
+            <button id="deleteAccount" type="button">Konto löschen</button>
+          </div>
+        </details>
+      </div>
+    </aside>
+    <div class="shell">
     <header class="masthead">
       <div class="brand"><div class="brand-mark" aria-hidden="true"><img src="/static/icon.svg" alt="" width="48" height="48"></div><div><h1>NERAL <span>1.0 Local</span></h1><p>Private KI auf deinem PC</p></div></div>
       <div id="connection" role="status" class="connect" aria-live="polite">Verbinde lokal …</div>
@@ -54,5 +78,35 @@
       <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen und funktioniert nicht in jedem Browser. Das Mikrofon öffnet sich nur nach Anklicken. Während der Aufnahme erscheinen vorläufige Wörter, gesendet wird nur endgültig erkannter Text. Vorlesen nutzt die Browser-/Systemstimme und kann längere Antworten abschnittsweise wiedergeben. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Anhänge werden nur beim Senden lokal verarbeitet und nicht gespeichert. Bilder benötigen ein separat installiertes lokales Vision-Modell. Likes verbleiben im Browser-Tab. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
     </section>
   </div>
+  </div>
+  <dialog id="accountDialog" aria-labelledby="accountDialogTitle">
+    <form id="accountForm" method="dialog">
+      <h2 id="accountDialogTitle">Lokal anmelden</h2>
+      <p>Das Konto und alle gespeicherten Chats bleiben auf diesem PC.</p>
+      <label for="accountUsername">Benutzername</label>
+      <input id="accountUsername" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.-]+">
+      <label for="accountPassword">Passwort (mindestens 12 Zeichen)</label>
+      <input id="accountPassword" type="password" autocomplete="current-password" required minlength="12" maxlength="128">
+      <p id="accountError" role="alert"></p>
+      <div class="dialog-buttons"><button id="accountSubmit" type="submit">Anmelden</button><button id="accountRegister" type="button" class="secondary">Konto erstellen</button><button id="accountCancel" type="button" class="secondary">Abbrechen</button></div>
+    </form>
+  </dialog>
+  <dialog id="accountManageDialog" aria-labelledby="accountManageTitle">
+    <form id="accountManageForm" method="dialog">
+      <h2 id="accountManageTitle">Kontoeinstellungen</h2>
+      <p id="accountManageDescription">Kontoverwaltung auf diesem Gerät.</p>
+      <label for="accountCurrentPassword">Aktuelles Passwort</label>
+      <input id="accountCurrentPassword" type="password" autocomplete="current-password" required maxlength="128">
+      <div id="accountNewPasswordGroup">
+        <label for="accountNewPassword">Neues Passwort (mindestens 12 Zeichen)</label>
+        <input id="accountNewPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128">
+      </div>
+      <p id="accountManageError" role="alert"></p>
+      <div class="dialog-buttons">
+        <button id="accountManageSubmit" type="submit">Bestätigen</button>
+        <button id="accountManageCancel" type="button" class="secondary">Abbrechen</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

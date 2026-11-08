@@ -54,6 +54,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
 
     @app.before_request
     def reject_external_or_cross_origin():
+        if request.path.startswith("/api/neral/account/chats/") and request.method == "PUT":
+            request.max_content_length = 130000
         if request.path == "/api/neral/preview/attachment-chat":
             request.max_content_length = MAX_REQUEST_BYTES
         if request.host not in (f"127.0.0.1:{PORT}",):
@@ -101,6 +103,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     chat_busy = register_neral_local_chat_api(app,backend)
     from neral_preview_attachments import register_preview_attachment_api
     register_preview_attachment_api(app, backend, chat_busy, vision_analyzer=vision_analyzer)
+
+    from neral_local_accounts import register_local_accounts
+    register_local_accounts(app)
 
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same

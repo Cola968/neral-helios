@@ -1,0 +1,84 @@
+/* NERAL desktop layout: quiet light surfaces, existing chat controls retained. */
+:root{color-scheme:light;--bg:#fff;--panel:#fff;--field:#fafafa;--line:#e7e7e5;--text:#202120;--muted:#6f716e;--accent:#2c2d2b}
+body{background:#fff;color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:13px}
+.app-layout{min-height:100dvh;display:flex}
+.neral-sidebar{width:214px;flex:0 0 214px;background:#f8f8f7;border-right:1px solid #e7e7e5;display:flex;flex-direction:column;padding:15px 10px;gap:7px}
+.sidebar-heading{display:flex;align-items:center;gap:7px;font-weight:700;font-size:15px;padding:0 7px 16px}
+.sidebar-heading img{width:21px;height:21px}
+.sidebar-link,.sidebar-login{border:0;border-radius:7px;background:transparent;color:#383a38;text-align:left;font-size:12px;font-weight:450;padding:10px;cursor:pointer}
+.sidebar-link:hover,.sidebar-login:hover,#savedChatList button:hover{background:#ececeb}
+.sidebar-label{font-size:11px;font-weight:600;color:#888b87;padding:22px 9px 7px}
+#savedChatList{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0}
+#savedChatList button{border:0;border-radius:7px;background:transparent;color:#414340;text-align:left;font-size:12px;font-weight:450;padding:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%}
+#savedChatList button[aria-current="page"]{background:#e8e8e6;color:#202120;font-weight:600}
+.sidebar-account{margin-top:auto;border-top:1px solid var(--line);padding:12px 6px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:11px}
+.sidebar-account span{flex:1;min-width:100%;font-weight:600}
+.sidebar-login{padding:5px 8px}
+.shell{max-width:none;flex:1;min-width:0;padding:0 26px}
+.masthead{padding:15px 6px;border-bottom:0}
+.brand{gap:8px}.brand-mark{width:28px;height:28px;background:transparent}.brand-mark img{width:25px;height:25px}
+.brand h1{font-size:14px;font-weight:650}.brand p{display:none}.connect{font-size:11px;color:#777}
+.notice{border:0;font-size:10px;text-align:center;padding:6px 0;color:#92938f}
+.shell main{width:min(760px,100%);margin:0 auto;min-height:0}
+.messages{max-height:calc(100dvh - 270px);min-height:280px;padding:24px 0;gap:23px}
+.message{max-width:85%;padding:6px 0;border:0;border-radius:0;font-size:13px;line-height:1.7}
+.message.user{background:#f2f2f1;border-radius:12px;padding:12px 15px;max-width:70%}
+.message.assistant{background:transparent;border:0}
+.message strong{font-size:10px;color:#71736f;text-transform:none;margin-bottom:7px}
+.composer-panel{width:min(760px,100%);margin:0 auto;padding:9px 0 14px;border:0}
+textarea{border-radius:13px;min-height:55px;max-height:145px;border-color:#dadbd8;background:#fff;padding:13px 15px;font-size:13px}
+.toolbar{margin-top:7px;flex-wrap:wrap}
+.toolbar .modes label{border:0;padding:7px 10px;font-size:11px}
+.toolbar .modes label:has(input:checked){background:#efefee;border:0}
+.plugin-options{gap:8px}
+.actions{gap:5px;flex-wrap:wrap}
+button{border-color:#2c2d2b;background:#2c2d2b;color:#fff;border-radius:9px;padding:8px 12px;font-size:12px}
+button.secondary{background:transparent;border-color:transparent;color:#555753}
+button.secondary:hover{background:#f1f1f0}
+.message-actions{border-color:#efefed}
+.fineprint{max-height:40px;overflow:auto;font-size:9px;color:#92938f}
+#voiceStatus,#pluginStatus,#fileStatus{font-size:10px;color:#9a9c98}
+dialog{border:1px solid #e1e2df;border-radius:14px;padding:28px;width:min(400px,calc(100vw - 30px));color:#242624;box-shadow:0 18px 70px #0002}
+dialog::backdrop{background:#0005}
+dialog h2{font-size:19px;margin:0}
+dialog p{font-size:12px;color:#676a66}
+dialog label{display:block;font-size:12px;margin:18px 0 6px}
+dialog input{border:1px solid #d8d9d6;border-radius:8px;padding:10px;width:100%;font:inherit}
+.dialog-buttons{display:flex;gap:7px;flex-wrap:wrap;margin-top:18px}
+#accountError{color:#a43327;font-size:12px;min-height:1em}
+[hidden]{display:none!important}
+@media(max-width:760px){.neral-sidebar{width:155px;flex-basis:155px}.shell{padding:0 12px}.message{max-width:96%}.message.user{max-width:90%}.toolbar{gap:4px}.actions button{flex:0 1 auto}.messages{max-height:calc(100dvh - 330px)}}
+@media(max-width:520px){.neral-sidebar{width:66px;flex-basis:66px;padding:10px 4px}.sidebar-heading span,.sidebar-label,.sidebar-link,#savedChatList,.sidebar-account span{display:none}.sidebar-heading{padding:5px 12px 20px}.sidebar-account{justify-content:center}.sidebar-login{font-size:9px;padding:4px}.shell{padding:0 10px}.notice{font-size:9px}.brand h1{font-size:12px}.connect{font-size:9px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+.sidebar-search{font:inherit;font-size:12px;border:1px solid #dedfdb;border-radius:8px;background:#fff;color:var(--text);padding:9px;width:100%;outline-offset:2px}
+.saved-chat-row{display:flex;align-items:center;border-radius:7px;min-width:0}
+.saved-chat-row:hover{background:#ececeb}
+#savedChatList .saved-chat-open{flex:1;min-width:0}
+#savedChatList .saved-chat-delete{flex:0 0 25px;width:25px;text-align:center;padding:4px;border:0;border-radius:6px;background:transparent;color:#858883;font-size:16px;opacity:0}
+.saved-chat-row:hover .saved-chat-delete,.saved-chat-row:focus-within .saved-chat-delete{opacity:1}
+#savedChatList .saved-chat-delete:hover{background:#d9dad7;color:#222}
+@media(hover:none){#savedChatList .saved-chat-delete{opacity:1}}
+
+
+/* Account management lives in the sidebar, without an extra page or theme. */
+#accountSettings{width:100%;position:relative;min-width:0}
+#accountSettings>summary{cursor:pointer;color:#555753;padding:7px 8px;
+  font-size:11px;border-radius:7px;list-style:none}
+#accountSettings>summary::-webkit-details-marker{display:none}
+#accountSettings>summary:hover{background:#ececeb}
+.account-settings-actions{display:flex;flex-direction:column;gap:2px;padding-top:5px}
+.account-settings-actions a,.account-settings-actions button{display:block;text-align:left;
+  border:0;border-radius:7px;width:100%;padding:9px 10px;background:transparent;
+  text-decoration:none;color:#454745;font:inherit;font-size:11px;font-weight:450;
+  cursor:pointer}
+.account-settings-actions a:hover,.account-settings-actions button:hover{background:#ececeb}
+.account-settings-actions #deleteAccount{color:#984133}
+#accountManageDialog #accountManageError{font-size:12px;color:#a43327;min-height:1em}
+@media(max-width:520px){
+  #accountSettings>summary{padding:8px 11px;font-size:14px}
+  #accountSettings>summary span{display:none}
+  #accountSettings[open] .account-settings-actions{position:fixed;z-index:12;bottom:16px;
+    left:69px;width:220px;border:1px solid #e1e2df;border-radius:10px;
+    background:#fff;padding:9px;box-shadow:0 10px 35px #0002}
+}
