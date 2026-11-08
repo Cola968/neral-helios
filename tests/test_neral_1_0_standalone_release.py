@@ -1,5 +1,6 @@
 """RED: the 1.0 preview must run without historic 50M model/export."""
 from __future__ import annotations
+import ast
 import json
 import os
 from pathlib import Path
@@ -125,6 +126,29 @@ class PreviewStandaloneTests(unittest.TestCase):
                 self.assertIn("NERAL-1.0-Local/templates/neral_preview.html",names)
                 self.assertNotIn("NERAL-1.0-Local/local_state/chats.sqlite3",names)
                 self.assertFalse(any("safetensors" in n or "adapter_model" in n for n in names))
+
+    def test_every_local_python_import_is_present_in_shipped_source_allowlist(self):
+        """Protect all lazy agent and THINK imports, not only a single use case."""
+        included=set(REQUIRED_FILES)
+        for relative in REQUIRED_FILES:
+            if not relative.endswith(".py") or relative.startswith("scripts/"):
+                continue
+            code=(ROOT/relative).read_text(encoding="utf-8")
+            tree=ast.parse(code,filename=relative)
+            for node in ast.walk(tree):
+                names=[]
+                if isinstance(node,ast.ImportFrom) and node.module:
+                    names.append(node.module.split(".")[0])
+                elif isinstance(node,ast.Import):
+                    names.extend(alias.name.split(".")[0] for alias in node.names)
+                for module in names:
+                    source=ROOT/(module+".py")
+                    if source.is_file():
+                        self.assertIn(
+                            module+".py",included,
+                            f"{relative} imports a first-party Python module "
+                            f"{module!r} that the installable ZIP omits",
+                        )
 
     def test_extracted_zip_supports_real_think_logic_transfer_in_isolation(self):
         """Run an actual nontrivial logic tool from the ZIP, not from git checkout."""
