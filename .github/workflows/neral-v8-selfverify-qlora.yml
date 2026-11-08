@@ -1,0 +1,162 @@
+name: NERAL v8 selfverification QLoRA pilot (manual local GPU, never release)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v8_selfverify_data.py'
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'scripts/neral_training_checkpoint_policy.py'
+      - 'scripts/neral_v8_selfverify_train.py'
+      - 'tests/test_neral_v8_selfverify.py'
+      - '.github/workflows/neral-v8-selfverify-qlora.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v8_selfverify_data.py'
+      - 'scripts/neral_v6_r16_gpu.py'
+      - 'scripts/neral_training_checkpoint_policy.py'
+      - 'scripts/neral_v8_selfverify_train.py'
+      - 'tests/test_neral_v8_selfverify.py'
+      - '.github/workflows/neral-v8-selfverify-qlora.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact manual permit: TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact source and parameter recomputation contracts
+        run: python -B -m unittest discover -s tests -p test_neral_v8_selfverify.py -v
+      - name: Standalone CPU data audit
+        run: python -B -m scripts.neral_v8_selfverify_train --mode cpu-contract
+
+  gpu-experimental-training:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 125
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: CPU source/oracle checks BEFORE optimizer
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned offline CUDA Python missing'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v8_selfverify.py -v
+            if($LASTEXITCODE -ne 0){throw 'Logic data failed source test'}
+            & $py -B -m scripts.neral_v8_selfverify_train --mode cpu-contract
+            if($LASTEXITCODE -ne 0){throw 'Logic source preflight failed'}
+          } finally {Pop-Location}
+      - name: Train isolated new adapter; never overwrite v5 or main release
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $v5=Join-Path $root 'v5-r16-480-42378021782-1\adapter'
+          $dest=Join-Path $root "v8-selfverify-r16-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(-not(Test-Path -LiteralPath $model -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container) -or
+             (Test-Path -LiteralPath $dest)){
+            throw 'Pinned base/v5 missing or private destination already exists'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'CUDA GPU unavailable'}
+          $parts=($raw|Select-Object -First 1)-split ','
+          if($parts.Count -ne 2 -or [int]$parts[0].Trim() -lt 10000 -or
+             [int]$parts[1].Trim() -gt 20){throw 'GPU busy; refuse overlapping experiments'}
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v8_selfverify_train --mode train-local-gpu --base $model --v5-adapter $v5 --out $dest --authorize TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL
+            if($LASTEXITCODE -ne 0){throw 'v8 selfverification QLoRA did not complete'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_V8_PRIVATE=$dest"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Verify original predecessor unchanged and new candidate SHA
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:NERAL_V8_PRIVATE
+          $report=Get-Content -LiteralPath (Join-Path $root 'scalar-private.json') -Raw|ConvertFrom-Json
+          if($report.source_counts.verified_v5_v6_replay -ne 560 -or
+             $report.source_counts.independently_checked_v7_direct -ne 240 -or
+             $report.source_counts.independently_checked_new_families -ne 160){
+             throw 'Unexpected SFT source balance'
+          }
+          $new=Join-Path $root 'candidate-adapter\adapter_model.safetensors'
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath $new).Hash.ToLowerInvariant()
+          if($report.status -ne 'NERAL_V8_SELFVERIFY_R16_240_UNRELEASED' -or
+             $report.train_rows -ne 960 -or $report.validation_rows -ne 128 -or
+             $report.steps_completed -ne 240 -or $report.checkpoint_interval -ne 40 -or
+             $report.checkpoint_mode -ne 'best_validation_loss' -or
+             $report.lora_trainable_parameters -ne 40370176 -or
+             $report.candidate_adapter_sha256 -ne $sha -or
+             $sha -eq $report.predecessor_adapter_sha256 -or
+             $report.release_validated -ne $false -or
+             $report.adapter_promoted -ne $false -or
+             $report.independent_transfer_proven -ne $false){
+             throw 'Failed integrity or nonpromotion guard'
+          }
+          $scalar=[ordered]@{
+            schema=1
+            status=$report.status
+            train_rows=$report.train_rows
+            validation_rows=$report.validation_rows
+            steps_completed=$report.steps_completed
+            checkpoint_selected_step=$report.checkpoint_selected_step
+            training_loss=$report.training_loss
+            validation_loss=$report.validation_loss
+            peak_reserved_vram_mib=$report.peak_reserved_vram_mib
+            total_elapsed_seconds=$report.total_elapsed_seconds
+            predecessor_adapter_sha256=$report.predecessor_adapter_sha256
+            candidate_adapter_sha256=$report.candidate_adapter_sha256
+            train_sha256=$report.train_sha256
+            validation_sha256=$report.validation_sha256
+            training_performed=$true
+            release_validated=$false
+            independent_transfer_proven=$false
+            adapter_promoted=$false
+          }
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\v8_selfverify_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Never overwrite scalar report'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+          ($scalar|ConvertTo-Json -Compress) | Set-Content -LiteralPath (Join-Path $folder 'summary.json') -Encoding utf8
+      - name: Export only scalar receipt; no raw data or adapter uploaded
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v8-selfverify-r16-scalar-only
+          path: control/v8_selfverify_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error

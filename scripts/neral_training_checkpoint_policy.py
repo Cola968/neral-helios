@@ -11,8 +11,11 @@ from pathlib import Path
 import re
 
 
-def options_for_training(*,steps:int,interval:int|None)->dict:
-    if type(steps) is not int or not 1<=steps<=120:
+def options_for_training(*,steps:int,interval:int|None,
+                         max_steps_limit:int=120)->dict:
+    if type(max_steps_limit) is not int or max_steps_limit not in (120,240):
+        raise ValueError("Only reviewed 120- or 240-step manual policies")
+    if type(steps) is not int or not 1<=steps<=max_steps_limit:
         raise ValueError("Only bounded, manual experimental training schedules")
     if interval is None:
         return {"eval_strategy":"no","save_strategy":"no"}
@@ -30,9 +33,11 @@ def options_for_training(*,steps:int,interval:int|None)->dict:
 
 
 def validate_best_checkpoint(path:str|Path,loss:float,root:Path,
-                             *,steps:int,interval:int)->int:
+                             *,steps:int,interval:int,
+                             max_steps_limit:int=120)->int:
     """Return verified private best step, never return public weight paths."""
-    options_for_training(steps=steps,interval=interval)
+    options_for_training(steps=steps,interval=interval,
+                         max_steps_limit=max_steps_limit)
     p,root=Path(path),Path(root)
     if (root.is_symlink() or not root.is_dir() or
             p.is_symlink() or not p.is_dir() or

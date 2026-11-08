@@ -65,7 +65,11 @@ class CheckpointTrainingTests(unittest.TestCase):
         from scripts.neral_v6_r16_gpu import _gpu_train
         from scripts.neral_v61_replay_train import main
         source=inspect.getsource(_gpu_train)
-        self.assertIn("options_for_training(steps=steps,interval=checkpoint_interval)",source)
+        self.assertIn("options_for_training(steps=steps,interval=checkpoint_interval,",source)
+        self.assertIn("max_steps_limit=max_steps_limit",source)
+        self.assertEqual(inspect.signature(_gpu_train).parameters["max_steps_limit"].default,120)
+        self.assertIn("TRAIN_NERAL_V8_SELFVERIFY_R16_240_EXPERIMENTAL",source)
+        self.assertIn("NERAL_V8_SELFVERIFY_R16_240_UNRELEASED",source)
         self.assertIn("validate_best_checkpoint(",source)
         self.assertIn("trainer.state.best_model_checkpoint",source)
         self.assertLess(source.index("validate_best_checkpoint("),source.index("policy.save_pretrained("))
