@@ -44,6 +44,42 @@ class OneClickTests(unittest.TestCase):
         self.assertIn("127.0.0.1",src)
         self.assertIn("webbrowser.open",src)
 
+    def test_exe_prefers_installed_stronger_foundation_without_download(self):
+        available = {"models": [
+            {"name": "qwen3:8b"}, {"name": "qwen3.5:9b"}
+        ]}
+        with patch.object(neral_oneclick, "_tags", return_value=available):
+            model, owned = neral_oneclick.ensure_existing_local_model()
+        self.assertEqual(model, "qwen3.5:9b")
+        self.assertIsNone(owned)
+        backend = neral_oneclick.backend_for_model(model)
+        self.assertEqual(backend.model, "qwen3.5:9b")
+        self.assertEqual(backend.inference_profile, "measured_nonthinking_2048")
+
+    def test_exe_falls_back_only_to_verified_installed_8b(self):
+        with patch.object(neral_oneclick, "_tags", return_value={
+            "models":[{"name":"qwen3:8b"}, {"name":"malicious_model"}]
+        }):
+            model, owned = neral_oneclick.ensure_existing_local_model()
+        self.assertEqual(model, "qwen3:8b")
+        self.assertIsNone(owned)
+        backend = neral_oneclick.backend_for_model(model)
+        self.assertEqual(backend.inference_profile,"legacy")
+        with self.assertRaises(ValueError):
+            neral_oneclick.backend_for_model("malicious_model")
+
+    def test_exe_does_not_silently_fallback_when_no_allowlisted_model_exists(self):
+        with patch.object(neral_oneclick, "_tags", return_value={
+            "models":[{"name":"some-unrelated:9b"}]
+        }):
+            with self.assertRaisesRegex(RuntimeError,"fehlt"):
+                neral_oneclick.ensure_existing_local_model()
+
+    def test_actual_gui_start_uses_selected_benchmark_matched_backend(self):
+        source=(Path(__file__).resolve().parents[1]/"neral_oneclick.py").read_text("utf8")
+        self.assertIn("create_preview_app(backend_for_model(tag))",source)
+        self.assertIn("inference_profile=profile",source)
+
     def test_workflow_builds_onefile_windows_executable_and_runs_it(self):
         wf=(Path(__file__).resolve().parents[1]/
             ".github/workflows/neral-single-click-windows.yml").read_text(encoding="utf8")
