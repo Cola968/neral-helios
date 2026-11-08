@@ -29,6 +29,16 @@ if($LASTEXITCODE -ne 0){throw 'Installation der lokalen Sprachpakete fehlgeschla
 $voiceRoot=Join-Path $PSScriptRoot 'local_state\voice'
 & $py -B $installer --root $voiceRoot
 if($LASTEXITCODE -ne 0){throw 'Sprachmodelle konnten nicht sicher heruntergeladen/verifiziert werden.'}
-& $py -B -c 'from neral_local_voice import LocalVoiceService; s=LocalVoiceService().status(); print(s); assert s["ready"],"Sprachmodus nicht bereit"'
-if($LASTEXITCODE -ne 0){throw 'Lokaler Sprachmodus noch nicht bereit. Installation pruefen.'}
-Write-Host 'NERAL-Sprachmodus vorbereitet. Lokale NERAL-Anwendung neu starten und den Button Lokaler Sprachmodus anklicken.' -ForegroundColor Green
+# Check actual native CPU engines, not just whether their model files exist.
+# This can catch Piper phonemizer incompatibility and Whisper DLL failures
+# that the superficial status endpoint could not detect.
+$selftest=Join-Path $PSScriptRoot 'scripts\neral_local_voice_selftest.py'
+if(-not(Test-Path -LiteralPath $selftest -PathType Leaf)){
+    throw 'Offline-Sprachinstallation unvollstaendig: Sprach-Selbsttest fehlt.'
+}
+Write-Host 'Pruefe jetzt ECHTE lokale Whisper- und Piper-Audioverarbeitung ...'
+& $py -B $selftest
+if($LASTEXITCODE -ne 0){
+    throw 'Offline-Sprachmodus ist nicht funktionsfaehig. Python-Paket/Modell/Sprachstimme pruefen; kein Erfolg vorgetaeuscht.'
+}
+Write-Host 'NERAL-Sprachmodus geprueft. NERAL vollstaendig schliessen und neu starten; dann Lokaler Sprachmodus anklicken.' -ForegroundColor Green
