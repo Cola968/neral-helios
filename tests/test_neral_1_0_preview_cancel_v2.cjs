@@ -6,6 +6,12 @@ const {TextEncoder}=require("node:util");
 function harness({ignoreAbort=false}={}){
   const handlers=new Map(), elements={}, calls=[], rendered=[];
   const pending=[];
+  const windowEvents=new Map();
+  const browser={
+    addEventListener(name,callback){windowEvents.set(name,callback);},
+    dispatchEvent(event){const fn=windowEvents.get(event.type);if(fn)fn(event);}
+  };
+  class CustomEvent {constructor(type,options={}){this.type=type;this.detail=options.detail;}}
   function element(id){
     return elements[id] ||= {
       value:"", checked:false, disabled:false, files:[],
@@ -36,7 +42,7 @@ function harness({ignoreAbort=false}={}){
   };
   const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
   vm.runInNewContext(source,{
-    window:{},document:{getElementById:element,createElement:tag=>({
+    window:browser,CustomEvent,document:{getElementById:element,createElement:tag=>({
       tagName:tag.toUpperCase(),textContent:"",className:"",children:[],
       append(...x){this.children.push(...x);},remove(){}
     })},
@@ -46,6 +52,7 @@ function harness({ignoreAbort=false}={}){
           stop:()=>handlers.get("stopRequest:click")(),
           clear:()=>handlers.get("clear:click")(),
           submit:()=>handlers.get("chatForm:submit")({preventDefault(){}}),
+          emit:(name,detail)=>browser.dispatchEvent(new CustomEvent(name,{detail})),
           flush:()=>new Promise(r=>setImmediate(r))};
 }
 const modelResult=text=>({ok:true,json:async()=>({
@@ -98,4 +105,18 @@ test("clear during an opt-in WEB SEARCH cannot launch a zombie model request",as
   await active;
   assert.equal(h.calls.filter(x=>x.url==="/api/neral/chat/generate").length,0);
   assert.equal(h.elements.stopRequest.disabled,true);
+});
+
+
+test("account switch clears an unsent private draft and selected files", async()=>{
+  const h=harness();await h.flush();
+  h.element("prompt").value="Privater Entwurf von Konto A";
+  h.element("projectFiles").value="C:\\fakepath\\private.txt";
+  h.element("projectFiles").files=[{name:"private.txt",size:20}];
+  h.handlers.get("projectFiles:change")();
+  assert.match(h.element("fileStatus").textContent,/private\.txt/);
+  h.emit("neral:load-chat",{messages:[]});
+  assert.equal(h.element("prompt").value,"");
+  assert.equal(h.element("projectFiles").value,"");
+  assert.match(h.element("fileStatus").textContent,/Keine Dateien/);
 });
