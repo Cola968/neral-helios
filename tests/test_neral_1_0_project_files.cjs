@@ -22,7 +22,7 @@ function harness() {
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8"),{
     document:{getElementById:element,createElement:()=>({className:"",textContent:"",append(){}})},
-    window:{},fetch,TextEncoder,AbortSignal,Error,console
+    window:{},fetch,TextEncoder,AbortSignal,AbortController,Error,console
   },{timeout:2000});
   return {element,handlers,calls};
 }

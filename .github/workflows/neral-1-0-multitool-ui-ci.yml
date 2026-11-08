@@ -1,0 +1,38 @@
+name: NERAL 1.0 voice/web/file chat cancellation and history
+on:
+  pull_request:
+    paths:
+      - 'static/neral-preview.js'
+      - 'static/neral-preview.css'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
+      - 'tests/test_neral_1_0_preview_history.cjs'
+      - 'tests/test_neral_1_0_voice_client.cjs'
+      - 'tests/test_neral_1_0_project_files.cjs'
+      - '.github/workflows/neral-1-0-multitool-ui-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'static/neral-preview.js'
+      - 'static/neral-preview.css'
+      - 'templates/neral_preview.html'
+      - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
+      - 'tests/test_neral_1_0_preview_history.cjs'
+      - 'tests/test_neral_1_0_voice_client.cjs'
+      - 'tests/test_neral_1_0_project_files.cjs'
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: No-code JS syntax and protected multi-tool interaction tests
+        run: |
+          node --check static/neral-preview.js
+          node --test tests/test_neral_1_0_preview_cancel_v2.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_project_files.cjs

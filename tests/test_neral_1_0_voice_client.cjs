@@ -51,7 +51,7 @@ function browserHarness() {
     })},
     window:{SpeechRecognition:Recognition,speechSynthesis:speak},
     SpeechSynthesisUtterance:class {constructor(text){this.text=text;this.lang="";}},
-    fetch,TextEncoder,AbortSignal,Error,console
+    fetch,TextEncoder,AbortSignal,AbortController,Error,console
   },{timeout:2000});
   return {element,handlers,calls,speech,Recognition};
 }

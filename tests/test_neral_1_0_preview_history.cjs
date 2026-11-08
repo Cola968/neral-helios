@@ -39,7 +39,7 @@ test("a long model answer never poisons the following conversation history",asyn
   const src=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
   vm.runInNewContext(src,{
     document:{getElementById:element,createElement:tag=>({tag,textContent:"",append(){},remove(){},className:""})},
-    fetch,TextEncoder,AbortSignal,Error,console
+    fetch,TextEncoder,AbortSignal,AbortController,Error,console
   },{timeout:2000});
   await new Promise(resolve=>setTimeout(resolve,5));
   const submit=handlers.get("chatForm:submit");
