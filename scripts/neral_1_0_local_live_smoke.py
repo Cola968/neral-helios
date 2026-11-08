@@ -11,6 +11,8 @@ import hashlib
 import json
 from io import BytesIO
 from pathlib import Path
+import struct
+import zlib
 
 from neral_agent_autonomy import OllamaLocalBackend
 from neral_preview_server import create_preview_app
@@ -74,6 +76,67 @@ def verify_live_text_attachment(client, csrf: str) -> bool:
     return True
 
 
+def _red_png_test_image() -> bytes:
+    """Generate valid 64x64 RGB PNG entirely in memory, without Pillow or user files."""
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        body = kind + payload
+        return (struct.pack(">I", len(payload)) + body +
+                struct.pack(">I", zlib.crc32(body) & 0xffffffff))
+    width = height = 64
+    row = bytes([0]) + bytes([255, 0, 0]) * width
+    return (
+        bytes([137, 80, 78, 71, 13, 10, 26, 10]) +
+        chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
+        chunk(b"IDAT", zlib.compress(row * height, 9)) +
+        chunk(b"IEND", b"")
+    )
+
+
+def verify_live_vision_attachment(client, csrf: str, installed: dict) -> bool:
+    """If a supported local model already exists, test actual image + text path.
+
+    No model downloads. False means NOT VERIFIED (missing optional model).
+    Failure with an installed model is an error, never a success.
+    """
+    if not isinstance(installed, dict):
+        raise ValueError("Local model inventory is invalid")
+    model = next(
+        (tag for tag in ("qwen3-vl:2b", "qwen2.5vl:3b") if tag in installed),
+        None,
+    )
+    if model is None:
+        return False
+    response = client.post(
+        "/api/neral/preview/attachment-chat",
+        base_url=HOST,
+        headers={"X-Neral-CSRF": csrf},
+        content_type="multipart/form-data",
+        data={
+            "prompt": "Beschreibe die dominante Farbe des Bildes.",
+            "mode": "generate",
+            "history": "[]",
+            "files": [(BytesIO(_red_png_test_image()), "neral-smoke.png")],
+        },
+    )
+    data = response.get_json(silent=True)
+    if (
+        response.status_code != 200
+        or not isinstance(data, dict)
+        or not isinstance(data.get("text"), str)
+        or not data["text"].strip()
+        or data.get("vision_models") != [model]
+        or data.get("mode") != "LOW"
+        or data.get("model_generated") is not True
+        or data.get("adapter_loaded") is not False
+        or data.get("file_bytes_persisted") is not False
+        or not isinstance(data.get("attachments"), list)
+        or len(data["attachments"]) != 1
+        or data["attachments"][0].get("kind") != "image"
+    ):
+        raise ValueError("REAL local vision attachment pipeline failed")
+    return True
+
+
 def test_local_release(output: Path):
     output=Path(output)
     if (output.exists() or output.is_symlink() or not output.parent.is_dir() or
@@ -118,6 +181,8 @@ def test_local_release(output: Path):
     if not valid_high_smoke(deep.status_code, deep.get_json(silent=True)):
         raise ValueError("REAL Qwen HIGH/exact-local-tool smoke failed")
     attachment_actual_inference = verify_live_text_attachment(client, hdr["X-Neral-CSRF"])
+    vision_installed = any(m in installed for m in ("qwen3-vl:2b", "qwen2.5vl:3b"))
+    vision_live_verified = verify_live_vision_attachment(client, hdr["X-Neral-CSRF"], installed)
     if OllamaLocal().inventory().get(NAME)!=digest:
         raise ValueError("Local model SHA drift during live smoke")
     report={
@@ -129,6 +194,8 @@ def test_local_release(output: Path):
         "fast_actual_inference":True,
         "think_actual_inference":True,
         "attachment_actual_inference":attachment_actual_inference,
+        "optional_vision_model_installed":vision_installed,
+        "optional_vision_live_verified":vision_live_verified,
         "exact_numeric_result_checked":True,
         "csrf_and_origin_blocked":True,
         "foundation_provenance_preserved":True,
