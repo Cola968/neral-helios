@@ -9,36 +9,32 @@
     row.dataset.phase=phase;
     row.setAttribute("role","status");
     row.setAttribute("aria-live","polite");
-    const image=document.createElement("img");
-    image.className="neral-motion-glyph";
-    image.src=iconUrl;
-    image.alt="";
-    image.setAttribute("aria-hidden","true");
+    const dots=document.createElement("span");
+    dots.className="neral-motion-dots";
+    dots.setAttribute("aria-hidden","true");
+    for(let i=0;i<3;i++)dots.append(document.createElement("span"));
     const description=document.createElement("span");
     description.className="neral-activity-label";
     description.textContent=label;
-    row.append(image,description);
+    row.append(dots,description);
     return row;
   }
   const preview=document.getElementById("messages");
   if(preview){
     let active=null,steps=[],completed=null;
-    const phaseNames={
-      thinking:"thinking",searching:"searching",checking:"checking",uploading:"uploading"
-    };
-    const activeLabel=event=>{
-      const phase=event.detail?.phase;
-      if(phase==="checking")return "Prüft Python-Syntax";
-      if(phase==="searching")return "Durchsucht das Web";
-      if(phase==="uploading")return "Verarbeitet ausgewählte Anhänge";
-      return event.detail?.mode==="think"?"Denkt nach":"Verarbeitet Anfrage";
-    };
-    function step(label,key){
+    const phases=new Set(["thinking","searching","checking","uploading"]);
+    function labelFor(detail){
+      switch(detail.phase){
+        case "searching": return "Sucht im Web";
+        case "checking": return "Prüft Python-Syntax";
+        case "uploading": return "Verarbeitet Anhänge";
+        default: return detail.mode==="think"?"Denkt nach":"Verarbeitet Anfrage";
+      }
+    }
+    function begin(key,label){
       const existing=steps.find(item=>item.key===key);
-      if(existing)return existing;
-      const item={key,label,state:"running"};
-      steps.push(item);
-      return item;
+      if(existing)return;
+      steps.push({key,label,state:"running"});
     }
     function finish(key,label){
       const entry=steps.find(item=>item.key===key);
@@ -46,11 +42,11 @@
       entry.state="done";
       if(label)entry.label=label;
     }
-    function createHistory(className,summaryText){
+    function createHistory(className){
       const details=document.createElement("details");
       details.className=className;
       const summary=document.createElement("summary");
-      summary.textContent=summaryText;
+      summary.textContent="Verwendete Werkzeuge · "+steps.length;
       const list=document.createElement("ol");
       list.className="neral-activity-history-list";
       for(const entry of steps){
@@ -67,53 +63,47 @@
       const existing=active.querySelector(".neral-activity-disclosure");
       const keepOpen=existing?.open===true;
       existing?.remove();
+      // Model computation is not an observable tool step: no fake timeline.
       if(!steps.length)return;
-      const disclosure=createHistory("neral-activity-disclosure",
-        "Aktivitäten · "+steps.length);
+      const disclosure=createHistory("neral-activity-disclosure");
       if(keepOpen)disclosure.open=true;
       active.append(disclosure);
     }
     window.addEventListener("neral:activity",event=>{
-      const phase=event.detail?.phase;
-      // A completed record can only attach to its own immediately following
-      // verified assistant response. Aborts, errors and clears discard it.
+      const detail=event.detail||{},phase=detail.phase;
       if(phase==="archive"){
         if(completed?.length){
           const last=preview.lastElementChild;
           if(last?.classList?.contains("assistant")){
             steps=completed;
-            last.append(createHistory("neral-activity-history",
-              "Aktivitäten · "+steps.length+" Schritte"));
+            last.append(createHistory("neral-activity-history"));
           }
         }
-        completed=null;
-        steps=[];
-        return;
+        completed=null;steps=[];return;
       }
       if(phase==="cancelled"||phase==="error"){
-        active?.remove();active=null;steps=[];completed=null;
-        return;
+        active?.remove();active=null;steps=[];completed=null;return;
       }
       if(phase==="done"){
+        // Only a successful response may archive; the caller emits archive.
         for(const entry of steps)if(entry.state==="running")entry.state="done";
-        completed=steps.length?steps.map(x=>({...x})):null;
-        active?.remove();active=null;steps=[];
-        return;
+        completed=steps.length?steps.map(entry=>({...entry})):null;
+        active?.remove();active=null;steps=[];return;
       }
       if(phase==="search-done"){
-        const count=event.detail?.count;
+        const count=detail.count;
         finish("web",Number.isInteger(count)&&count>0
-          ?"Websuche abgeschlossen · "+Math.min(count,100)+" Treffer"
-          :"Websuche abgeschlossen");
+          ?"Websuche · "+Math.min(count,100)+" relevante Treffer"
+          :"Websuche · keine relevanten Treffer");
         renderActive();return;
       }
       if(phase==="files-done"){
-        finish("files","Lokale Anhangsanfrage abgeschlossen");
+        finish("files","Anhänge verarbeitet");
         renderActive();return;
       }
-      if(!phaseNames[phase])return;
+      if(!phases.has(phase))return;
       completed=null;
-      const label=activeLabel(event);
+      const label=labelFor(detail);
       if(!active){
         active=makeActivity(label,phase);
         preview.append(active);
@@ -121,17 +111,13 @@
         active.dataset.phase=phase;
         active.querySelector(".neral-activity-label").textContent=label;
       }
-      if(phase==="searching")step("Websuche läuft","web");
-      if(phase==="checking")step("Prüft Python-Syntax","codecheck");
+      // Record only real operations, never synthetic thinking phases.
+      if(phase==="searching")begin("web","Websuche läuft");
+      if(phase==="checking")begin("codecheck","Prüft Python-Syntax");
       if(phase==="uploading"){
-        const count=Number.isInteger(event.detail?.count)?
-          Math.max(1,Math.min(3,event.detail.count)):null;
-        step(count?"Lokale Anhangsanfrage · "+count+" Dateien":
-          "Lokale Anhangsanfrage","files");
-      }
-      if(phase==="thinking"){
-        step(event.detail?.mode==="think"?"NERAL HIGH verarbeitet Anfrage":
-          "NERAL LOW verarbeitet Anfrage","model");
+        const count=Number.isInteger(detail.count) && detail.count>0
+          ?Math.min(detail.count,100):null;
+        begin("files",count?"Anhangsanfrage · "+count+" Dateien":"Anhangsanfrage");
       }
       renderActive();
       preview.scrollTop=preview.scrollHeight;

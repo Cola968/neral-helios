@@ -1,9 +1,19 @@
-/* NERAL motion V2 — purposeful 120-200ms microinteractions, no fake progress. */
+/* NERAL motion V4: quiet, real-state feedback without fabricated progress. */
 .neral-activity{
   display:flex;align-items:center;gap:10px;min-height:30px;width:fit-content;
   color:var(--muted,#969e97);font-size:12px;line-height:1.5;user-select:none
 }
 .neral-activity[hidden]{display:none!important}
+.neral-motion-dots{display:inline-flex;align-items:center;justify-content:center;
+  gap:3px;width:19px;height:19px;flex:0 0 19px}
+.neral-motion-dots span{display:block;width:4px;height:4px;border-radius:50%;
+  background:currentColor;opacity:.3;animation:neral-quiet-pulse 1.35s ease-in-out infinite}
+.neral-motion-dots span:nth-child(2){animation-delay:130ms}
+.neral-motion-dots span:nth-child(3){animation-delay:260ms}
+@keyframes neral-quiet-pulse{
+  0%,60%,100%{opacity:.28;transform:translateY(0)}
+  30%{opacity:.95;transform:translateY(-1px)}
+}
 .neral-motion-glyph,.neral-pending-glyph{
   display:inline-block;width:19px;height:19px;flex:0 0 19px;
   object-fit:contain;border-radius:5px;
@@ -86,7 +96,7 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
 }
 
 
-/* V3: operational activity, never fabricated reasoning. Collapsed by default. */
+/* V4: record only executed tools; never invent a reasoning timeline. */
 #messages>.neral-activity{max-width:min(450px,95%);flex-wrap:wrap;gap:7px 10px}
 .neral-activity-disclosure{flex:0 0 100%;margin-left:28px}
 .neral-activity-disclosure summary,
@@ -124,7 +134,8 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
 .neral-attachment-chip-size{white-space:nowrap;color:var(--muted,#969e97)}
 .message-tool[aria-pressed="true"]{transition:color 140ms ease}
 @media(prefers-reduced-motion:reduce){
-  .neral-attachment-chip{animation:none!important;transform:none!important}
+  .neral-attachment-chip,.neral-motion-dots span{
+    animation:none!important;transform:none!important;opacity:1!important}
   .neral-activity-disclosure summary::after,
   .neral-activity-history summary::after{transition:none!important}
 }
