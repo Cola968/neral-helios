@@ -13,11 +13,14 @@
   <link rel="stylesheet" href="/static/neral-dynamic-ui.css">
   <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
   <link rel="stylesheet" href="/static/neral-math.css">
+  <link rel="stylesheet" href="/static/neral-formulas.css">
   <link rel="stylesheet" href="/static/neral-reference-ui.css">
   <script src="/static/neral-live-stream.js" defer></script>
   <script src="/static/vendor/katex/katex.min.js" defer></script>
+  <script src="/static/vendor/katex/mhchem.min.js" defer></script>
   <script src="/static/vendor/katex/auto-render.min.js" defer></script>
   <script src="/static/neral-math.js" defer></script>
+  <script src="/static/neral-formulas.js" defer></script>
   <script src="/static/neral-preview.js" defer></script>
   <script src="/static/neral-local-voice.js" defer></script>
   <script src="/static/neral-motion.js" defer></script>
@@ -122,6 +125,7 @@
                   <span class="sr-only">Datei anhängen</span>
                   <input id="projectFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.py,.js,.ts,.tsx,.json,.md,.txt,.csv,.html,.css,.log,.yml,.yaml" aria-label="Datei anhängen" aria-describedby="fileStatus">
                 </label>
+                <button id="formulaLibraryToggle" type="button" aria-controls="formulaLibraryPanel" aria-expanded="false" title="Formeln durchsuchen">∑ Formeln</button>
                 <div class="modes" role="group" aria-label="Modus">
                   <label><input type="radio" name="mode" value="fast" checked> LOW</label>
                   <label><input type="radio" name="mode" value="think"> HIGH</label>
@@ -184,6 +188,21 @@
               </div>
             </div>
           </div>
+          <section class="neral-formula-library" id="formulaLibraryPanel" aria-label="Formelsammlung" hidden>
+            <div class="neral-formula-head">
+              <h2>Formelsammlung</h2>
+              <span id="formulaLibraryCount" class="neral-formula-count"></span>
+            </div>
+            <div class="neral-formula-controls">
+              <input id="formulaLibrarySearch" type="search" placeholder="Formel suchen …" aria-label="Formel suchen" autocomplete="off">
+              <select id="formulaLibraryCategory" aria-label="Fachgebiet auswählen"></select>
+            </div>
+            <div id="formulaLibraryList" class="neral-formula-list" aria-live="polite"></div>
+            <div class="neral-formula-foot">
+              Formeln sind Beispiele, keine automatisch überprüften Rechnungen. Einfügen ändert nur deinen Entwurf.
+              <span id="formulaLibraryStatus" role="status"></span>
+            </div>
+          </section>
         </form>
         <div class="composer-status">
           <p id="voiceStatus" role="status" aria-live="polite">Mikrofon nicht aktiv.</p>
