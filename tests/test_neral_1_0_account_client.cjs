@@ -35,9 +35,10 @@ function node(){
     }
   };
 }
-function harness({delayList=false,delayOpen=false}={}){
+function harness({delayList=false,delayOpen=false,delaySave=false}={}){
   const elements=new Map(),events=new Map(),requests=[];
-  const listResult=deferred(),openResult=deferred();
+  const listResult=deferred(),openResult=deferred(),saveResult=deferred();
+  const writes=[];
   const get=id=>{
     if(!elements.has(id))elements.set(id,node());
     return elements.get(id);
@@ -62,13 +63,17 @@ function harness({delayList=false,delayOpen=false}={}){
         id:chat.id,title:chat.title,messages:[{role:"assistant",content:"Alice privat"}]
       });
     }
+    if(url==="/api/neral/account/chats/"+chat.id && options.method==="PUT"){
+      writes.push(JSON.parse(options.body));
+      return delaySave && writes.length===1?saveResult.promise:response({saved:true});
+    }
     if(url.endsWith("/logout"))return response({authenticated:false,csrf:"rotated_csrf"});
     throw new Error("Unexpected fetch: "+url);
   };
   const src=fs.readFileSync(path.join(__dirname,"../static/neral-accounts.js"),"utf8");
   vm.runInNewContext(src,{window,document:{getElementById:get,createElement:node},
     fetch,CustomEvent,Error,console},{timeout:2500});
-  return {get,events,requests,chat,listResult,openResult,
+  return {get,events,requests,chat,listResult,openResult,saveResult,writes,
     flush:()=>new Promise(resolve=>setImmediate(resolve))};
 }
 
@@ -107,4 +112,26 @@ test("a delayed open-chat result cannot reveal private turns after logout",async
   assert.equal(h.get("accountName").textContent,"Gast · lokal");
   assert.ok(!JSON.stringify(events).includes("PRIVATE_ALICE_CONTENT"),
     "A late GET must never resurrect a previous account's chat after logout");
+});
+
+
+test("two completed turns are persisted in order even while the first save waits",async()=>{
+  const h=harness({delaySave:true});
+  await h.flush();
+  const button=h.get("savedChatList").children[0].children[0];
+  await button.events.click();
+  const complete=h.events.get("neral:turn-complete");
+  assert.equal(typeof complete,"function");
+  const first=complete({detail:{user:"Erste Frage",assistant:"Erste Antwort"}});
+  await h.flush();
+  assert.equal(h.writes.length,1);
+  const second=complete({detail:{user:"Zweite Frage",assistant:"Zweite Antwort"}});
+  await h.flush();
+  h.saveResult.resolve({ok:true,json:async()=>({saved:true})});
+  await first;
+  await second;
+  await h.flush();
+  assert.equal(h.writes.length,2,"Second answer must not be discarded during an earlier save");
+  assert.deepEqual(h.writes[1].messages.slice(-2).map(m=>m.content),
+    ["Zweite Frage","Zweite Antwort"]);
 });
