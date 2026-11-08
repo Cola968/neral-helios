@@ -304,6 +304,12 @@ html[data-theme=dark] .sidebar-account::before{background:var(--nr-active)}
   .mode-dropdown-menu,#modeDropdownTrigger,#themeToggle{transition:none!important}
 }
 
+/* Verified LaTeX-only math fences: no raw HTML, responsive layout. */
+.reference-math{display:block;max-width:100%;min-width:0;
+  overflow-x:auto;overflow-y:hidden;text-align:center;padding:4px 0 8px;
+  scrollbar-width:thin}
+.reference-math .katex-display{margin:10px 0;max-width:100%}
+
 /* Model output code is painted as selectable text only. */
 .reference-answer-body{display:flex;flex-direction:column;gap:0;min-width:0}
 .reference-prose{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;
