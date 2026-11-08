@@ -114,15 +114,15 @@ def _strict_integer_grade(case: dict, item: dict) -> str:
     rows = [line.strip() for line in raw.splitlines() if line.strip()]
     markers = [
         i for i, line in enumerate(rows)
-        if re.match(r"FINAL(?:_ANSWER)?\\s*:", line, re.IGNORECASE)
+        if re.match(r"FINAL(?:_ANSWER)?\s*:", line, re.IGNORECASE)
     ]
     if len(markers) > 1 or (markers and markers[0] != len(rows) - 1):
         return "ungraded"
     if rows:
-        final = re.fullmatch(r"FINAL\\s*:\\s*(.+)", rows[-1], re.IGNORECASE)
+        final = re.fullmatch(r"FINAL\s*:\s*(.+)", rows[-1], re.IGNORECASE)
         if final is not None:
             rows[-1] = "FINAL_ANSWER: " + final.group(1)
-            raw = "\\n".join(rows)
+            raw = "\n".join(rows)
     normalized_case = {**case, "answer": str(case["answer"])}
     return semantic_grade(normalized_case, raw, complete=item["complete"])
 
