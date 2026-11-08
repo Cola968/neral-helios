@@ -1,0 +1,21 @@
+/* NERAL motion: signals real frontend states, not simulated model output. */
+.neral-activity{display:flex;align-items:center;gap:10px;width:fit-content;
+  min-height:30px;padding:4px 0;color:var(--muted,#969e97);font-size:12px;line-height:1.5;
+  letter-spacing:0;user-select:none}
+.neral-activity[hidden]{display:none!important}
+.neral-motion-glyph,.neral-pending-glyph{display:inline-block;width:19px;height:19px;
+  flex:0 0 19px;border-radius:5px;object-fit:contain;animation:neral-breathe 1.9s ease-in-out infinite}
+.neral-activity[data-phase="searching"] .neral-motion-glyph{animation-duration:1.5s}
+.neral-activity-label{color:inherit}
+#messages>.neral-activity{align-self:flex-start;margin:0 0 0 1px}
+#neralLocalChatPanel .neral-activity{margin:8px 0}
+.message.pending:not([data-partial]){display:flex;align-items:center;gap:9px}
+.message.pending:not([data-partial]) .content{font-size:13px;line-height:1.5;color:var(--muted)}
+.message.pending[data-partial] .neral-pending-glyph{display:none}
+.brand-mark img{width:100%;height:100%;display:block;border-radius:inherit}
+.brand img.neral-brand-symbol{width:25px;height:25px;border-radius:6px;flex:none;vertical-align:middle}
+.sidebar .brand:has(.neral-brand-symbol){display:flex;align-items:center;gap:9px}
+@keyframes neral-breathe{0%,100%{opacity:.55;transform:scale(.96)}50%{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){
+ .neral-motion-glyph,.neral-pending-glyph{animation:none!important;transform:none!important;opacity:1!important}
+}
