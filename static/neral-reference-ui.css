@@ -37,6 +37,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 .sidebar-chat-date{font-size:11px;font-weight:600;color:var(--nr-muted);
   padding:15px 9px 6px;user-select:none}
 .sidebar-chat-date:first-child{padding-top:4px}
+
+#savedChatList .saved-chat-row[data-group]{position:relative;padding-top:30px}
+#savedChatList .saved-chat-row[data-group]::before{
+  content:attr(data-group);position:absolute;top:8px;left:9px;
+  color:var(--nr-muted);font-size:11px;font-weight:600;line-height:15px;
+  pointer-events:none
+}
 .sidebar-account{
   margin-top:12px;padding:14px 6px 5px;border-top:1px solid var(--nr-line);
   display:flex;align-items:center;flex-wrap:wrap;gap:5px
