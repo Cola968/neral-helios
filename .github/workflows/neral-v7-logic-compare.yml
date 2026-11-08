@@ -23,9 +23,6 @@ on:
         type: string
 permissions:
   contents: read
-concurrency:
-  group: neral-qwen7b-r32-gpu-exclusive
-  cancel-in-progress: false
 jobs:
   cpu-contract:
     if: github.event_name != 'workflow_dispatch'
@@ -41,6 +38,9 @@ jobs:
 
   gpu-readonly:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'EVALUATE_NERAL_V7_LOGIC_MATCHED_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
     runs-on: [self-hosted,windows,x64,neral-gpu]
     timeout-minutes: 110
     defaults:
