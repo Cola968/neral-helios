@@ -109,6 +109,23 @@ class InstalledVisionRegressionTests(unittest.TestCase):
             client,csrf,{"qwen3.5:9b":"sha256:fixture", "qwen3:8b":"sha256:fixture"},
         ))
 
+    def test_live_gate_rejects_fake_success_without_recognizing_red_pixels(self):
+        class UnawareModel(FakeModel):
+            def respond_chat(self, turns):
+                self.calls.append(turns)
+                return "Der Dateianhang wurde empfangen."
+        backend = UnawareModel()
+        app = create_preview_app(
+            backend, secret_key=b"T"*32,
+            vision_analyzer=lambda *_: ("qwen3.5:9b", "Unbekanntes Bild."),
+        )
+        client = app.test_client()
+        client.get("/", base_url=HOST)
+        csrf = client.get("/api/neral/preview/session", base_url=HOST).json["csrf"]
+        with self.assertRaisesRegex(ValueError, "vision attachment"):
+            verify_live_vision_attachment(client, csrf, {"qwen3.5:9b":"sha256:fixture"})
+
+
 
 if __name__ == "__main__":
     unittest.main()
