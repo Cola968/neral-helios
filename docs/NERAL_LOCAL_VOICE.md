@@ -18,6 +18,9 @@ einen externen KI- oder Sprachanbieter.
    während der einmaligen Installation nach deiner Zustimmung.
 3. Starte NERAL neu. Der Button **Lokaler Sprachmodus** prüft die lokale
    Verfügbarkeit und öffnet das Mikrofon erst nach dem Klick.
+   **Websuche muss ausgeschaltet sein**, damit kein gesprochener Text als
+   Suchanfrage einen externen Anbieter erreichen kann. Während der lokalen
+   Sprachsitzung bleibt die Websuche gesperrt.
 
 Die Modelle liegen ausschließlich in `local_state/voice/`, außerhalb der
 Release-ZIP-Datei und der Git-Historie. Die normalen Qwen-/LoRA-Gewichte und
