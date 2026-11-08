@@ -7,11 +7,12 @@ This module is a synchronous, bounded first chat interface, not streaming.
 """
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
 
-from flask import jsonify, request
+from flask import Response, jsonify, request, stream_with_context
 
 from neral_identity import build_identity_prompt
 
@@ -252,6 +253,99 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             })
         finally:
             busy.release()
+
+    @app.post("/api/neral/chat/generate-stream")
+    def local_chat_generate_stream():
+        """Live, bounded NDJSON from real Ollama FAST output; legacy API unchanged.
+
+        The stream never includes internal model thoughts. It is not considered
+        a completed answer until a `final` event passes all output checks.
+        """
+        if not request.is_json:
+            return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
+        try:
+            data = _messages(request.get_json(silent=True))
+            data[0]["content"] = build_identity_prompt(
+                "web", _provenance(backend)["model_origin"])
+        except (TypeError, ValueError, UnicodeError):
+            return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
+        if not busy.acquire(blocking=False):
+            return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+
+        def frame(event):
+            return json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\\n"
+
+        def events():
+            started = time.monotonic()
+            try:
+                identity = _runtime_identity_reply(data[-1]["content"], backend)
+                if identity is None and len(data) == 2:
+                    from neral_agent_quantitative import calculate_explicit
+                    exact = calculate_explicit(data[-1]["content"])
+                    if exact is None:
+                        exact = _verified_math_request(data[-1]["content"])
+                    if exact is None:
+                        from neral_percentage_tool import calculate_percentage
+                        exact = calculate_percentage(data[-1]["content"])
+                else:
+                    exact = None
+                if identity is not None or exact is not None:
+                    direct = identity if identity is not None else exact
+                    result = {
+                        **direct, "mode": "LOW",
+                        "model_generated": False,
+                        "seconds": round(time.monotonic() - started, 3),
+                        **_provenance(backend),
+                        "response_mode": "local_stream_protocol_direct",
+                    }
+                    yield frame({"type": "final", "result": result})
+                    return
+
+                prepare_model(backend)
+                stream = getattr(backend, "respond_chat_stream", None)
+                parts = []
+                total_bytes = 0
+                # Backends without streaming support still return a real
+                # complete answer in a final event, never fake token chunks.
+                if callable(stream):
+                    for part in stream(data):
+                        if not isinstance(part, str):
+                            raise ValueError("Ungültiger Textabschnitt.")
+                        total_bytes += len(part.encode("utf-8"))
+                        if total_bytes > 32768:
+                            raise ValueError("Antwort zu lang.")
+                        if part:
+                            parts.append(part)
+                            yield frame({"type": "delta", "text": part})
+                else:
+                    reply = getattr(backend, "respond_chat", None)
+                    answer = reply(data) if callable(reply) else backend.respond(data)
+                    if not isinstance(answer, str):
+                        raise ValueError("Ungültige Modellantwort.")
+                    parts.append(answer)
+                text = "".join(parts)
+                if not text.strip() or len(text.encode("utf-8")) > 32768:
+                    raise ValueError("Unvollständige Modellantwort.")
+                result = {
+                    "text": text, "mode": "LOW", "model_generated": True,
+                    "seconds": round(time.monotonic() - started, 3),
+                    **_provenance(backend),
+                    "response_mode": "local_streaming" if callable(stream)
+                                     else "local_non_streaming_fallback",
+                }
+                yield frame({"type": "final", "result": result})
+            except GeneratorExit:
+                raise
+            except Exception:
+                # Do not expose raw GPU prompts, hidden reasoning or filesystem data.
+                yield frame({"type": "error", "error":
+                    "Lokale Generierung fehlgeschlagen oder nicht vollständig abgeschlossen."})
+            finally:
+                busy.release()
+
+        return Response(stream_with_context(events()),
+                        mimetype="application/x-ndjson",
+                        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"})
 
     @app.post("/api/neral/chat/generate")
     def local_chat_generate():
