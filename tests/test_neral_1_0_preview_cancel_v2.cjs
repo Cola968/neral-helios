@@ -42,7 +42,7 @@ function harness({ignoreAbort=false}={}){
     })},
     fetch,TextEncoder,AbortSignal,AbortController,Error,console
   },{timeout:2000});
-  return {elements,handlers,rendered,calls,pending,
+  return {element,elements,handlers,rendered,calls,pending,
           stop:()=>handlers.get("stopRequest:click")(),
           clear:()=>handlers.get("clear:click")(),
           submit:()=>handlers.get("chatForm:submit")({preventDefault(){}}),
@@ -88,7 +88,7 @@ test("clear cannot resurrect a late model reply, leak old history, or trigger sp
 
 test("clear during an opt-in WEB SEARCH cannot launch a zombie model request",async()=>{
   const h=harness({ignoreAbort:true});await h.flush();
-  h.elements.useWebSearch.checked=true;
+  h.element("useWebSearch").checked=true;
   const active=h.submit();
   assert.equal(h.pending[0].url,"/api/web/search");
   h.clear();
