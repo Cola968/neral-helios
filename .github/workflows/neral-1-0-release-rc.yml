@@ -37,6 +37,9 @@ on:
       - 'Install-Neral-Local-Voice.ps1'
       - 'Install NERAL Voice.cmd'
       - 'scripts/neral_local_voice_install.py'
+      - 'scripts/neral_local_voice_selftest.py'
+      - 'tests/test_neral_voice_install_readiness.py'
+      - '.github/workflows/neral-voice-install-readiness-ci.yml'
       - 'docs/NERAL_LOCAL_VOICE.md'
       - 'tests/test_neral_local_voice.py'
       - 'tests/test_neral_local_voice_browser.cjs'
@@ -154,6 +157,9 @@ on:
       - 'Install-Neral-Local-Voice.ps1'
       - 'Install NERAL Voice.cmd'
       - 'scripts/neral_local_voice_install.py'
+      - 'scripts/neral_local_voice_selftest.py'
+      - 'tests/test_neral_voice_install_readiness.py'
+      - '.github/workflows/neral-voice-install-readiness-ci.yml'
       - 'docs/NERAL_LOCAL_VOICE.md'
       - 'tests/test_neral_local_voice.py'
       - 'tests/test_neral_local_voice_browser.cjs'
@@ -283,6 +289,8 @@ jobs:
         run: |
           node --check static/neral-local-voice.js
           node --test tests/test_neral_local_voice_browser.cjs
+      - name: Verify actual offline voice installer requirements
+        run: python -m unittest discover -s tests -p test_neral_voice_install_readiness.py -v
       - name: Historic one-click preview still has fail-closed model preflight
         run: python -m unittest discover -s tests -p test_neral_1_0_local_preview.py -v
       - name: Real extracted Windows launcher, live HTTP and safe port refusal
