@@ -31,7 +31,7 @@ class CodeCheckContracts(unittest.TestCase):
         self.assertEqual(out.status_code,200)
         self.assertTrue(out.json["syntax_ok"])
         self.assertIs(out.json["code_executed"],False)
-        self.assertEqual(out.json["scope"],"python_ast_only")
+        self.assertEqual(out.json["scope"],"python_parse_compile_only")
 
     def test_syntax_error_reports_a_bounded_location_no_code(self):
         out=self.client.post("/api/neral/preview/codecheck",base_url=HOST,
