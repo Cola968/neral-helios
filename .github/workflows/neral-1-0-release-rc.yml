@@ -82,12 +82,21 @@ jobs:
             throw 'Existing Python 3.12 runtime missing. Cannot claim PC release readiness.'
           }
           if(Test-Path -LiteralPath $out){throw 'Smoke report already exists; overwrite refused'}
+          # The QLoRA training interpreter must NOT be modified to install
+          # a web server. Create a disposable QA venv under runner TEMP only.
           $env:PYTHONPATH=$code
+          $venv=Join-Path $env:RUNNER_TEMP "neral-preview-qa-$env:GITHUB_RUN_ID"
+          if(Test-Path -LiteralPath $venv){throw 'Refuse existing temporary venv'}
+          & $py -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Isolated QA Python creation failed'}
+          $qa=Join-Path $venv 'Scripts\python.exe'
+          & $qa -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $code 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Unable to prepare isolated web QA dependencies'}
           Push-Location $code
           try{
-            & $py -B -c 'import flask; import neral_preview_server; print("PREVIEW_IMPORT_OK")'
-            if($LASTEXITCODE -ne 0){throw 'Private Windows Python environment missing Flask or preview modules'}
-            & $py -B -m scripts.neral_1_0_local_live_smoke --out $out
+            & $qa -B -c 'import flask; import neral_preview_server; print("PREVIEW_IMPORT_OK")'
+            if($LASTEXITCODE -ne 0){throw 'Isolated preview Python failed import preflight'}
+            & $qa -B -m scripts.neral_1_0_local_live_smoke --out $out
             if($LASTEXITCODE -ne 0){throw 'Actual installed local Ollama FAST/THINK failed'}
           } finally {Pop-Location}
           $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
