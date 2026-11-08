@@ -57,7 +57,7 @@ function harness({deferResponse=false}={}) {
       tag,textContent:"",className:"",children:[],
       append(...items){this.children.push(...items)},remove(){},setAttribute(){}
     })},
-    fetch,TextEncoder,AbortSignal,Error,console,
+    fetch,TextEncoder,AbortSignal,AbortController,Error,console,
     window:{SpeechRecognition:Recognition,speechSynthesis:{cancel(){},speak(){}}},
     SpeechSynthesisUtterance:class {constructor(text){this.text=text;}},
   },{timeout:2000});
