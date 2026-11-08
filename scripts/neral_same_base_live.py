@@ -84,6 +84,41 @@ def route_extra_arithmetic(question: str) -> dict | None:
     }
 
 
+
+def generate_pilot_cases(seed: int) -> list[dict]:
+    """Create a DEVELOPMENT-only suite with six tool-eligible arithmetic tasks.
+
+    The other five families come from the published fresh-case generator.
+    These six are freshly randomized but their family is public and deliberately
+    tests the router's narrow supported domain: never call this a blind holdout.
+    """
+    if type(seed) is not int or not 0 <= seed < 2**64:
+        raise PilotBlocked("Invalid private development case seed")
+    from scripts.neral_low_high_fresh import generate_fresh_cases
+    original = generate_fresh_cases(seed)
+    retained = [
+        case for case in original
+        if not (case["domain"] == "math" and case["family"] == "blocked_grid_paths")
+    ]
+    rng = random.Random(seed ^ 0x58_76_2026)
+    for index in range(6):
+        a, b, c, d = (rng.randint(3001, 99001) for _ in range(4))
+        e = rng.randint(101, 99001)
+        # Independent Python integer arithmetic as local reference.
+        gold = a * b - c * d + e
+        question = f"What is ({a} * {b}) - ({c} * {d}) + {e}?"
+        retained.append({
+            "id": f"fresh-math-arithmetic_affine-{index:02d}",
+            "domain": "math", "family": "arithmetic_affine_integer",
+            "kind": "integer", "answer": gold, "prompt": question,
+        })
+    if (len(retained) != 36 or len({c["id"] for c in retained}) != 36
+            or any(sum(c["domain"] == domain for c in retained) != 12
+                   for domain in ("math", "reasoning", "code_trace"))
+            or len({(c["domain"], c["family"]) for c in retained}) != 6):
+        raise PilotBlocked("Fresh diagnostic families are incomplete")
+    return retained
+
 def checked_high_packet(packet: object) -> str:
     if (type(packet) is not dict or packet.get("model") != MODEL
             or packet.get("inference_profile") != PROFILE
@@ -192,10 +227,9 @@ def run_live(*, output_dir: Path, release_receipt: dict, authorization: str) -> 
     used, total = _read_gpu_memory()
     if total - used < 7000:
         raise PilotBlocked("GPU not free: refuse overlapping inference")
-    from scripts.neral_low_high_fresh import generate_fresh_cases
     from scripts.neral_low_high_quality import make_prompt
     from neral_agent_autonomy import OllamaLocalBackend
-    cases = generate_fresh_cases(secrets.randbits(64))
+    cases = generate_pilot_cases(secrets.randbits(64))
     if len(cases) != 36:
         raise PilotBlocked("Incomplete local 36-case development suite")
     backend = OllamaLocalBackend(MODEL, timeout=90, inference_profile=PROFILE)
