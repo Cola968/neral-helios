@@ -616,7 +616,7 @@
         detail:{user:text,assistant:result.text}
       }));
       if(memory.length>12) memory.splice(0,memory.length-12);
-      prompt.value="";
+      // Keep any next-question draft entered while the reply was streaming.
       attachments=[];
       fileInput.value="";
       renderAttachmentChips([]);
