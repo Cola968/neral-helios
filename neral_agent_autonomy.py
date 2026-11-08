@@ -30,6 +30,19 @@ class AgentOutputError(AgentModelError):
     """Recoverable malformed local model tool response, with no raw output exported."""
 
 
+class OllamaCompletionError(AgentModelError):
+    """Stable non-sensitive failure reason; no prompts or model text included."""
+
+    VALID_REASONS = frozenset((
+        "token_limit", "incomplete", "empty_answer", "timeout", "invalid_response"
+    ))
+    def __init__(self, reason: str):
+        if reason not in self.VALID_REASONS:
+            raise ValueError("Unbekannter sicherer Modell-Fehlercode.")
+        self.reason = reason
+        super().__init__("Lokale Modellantwort nicht sicher abgeschlossen: " + reason)
+
+
 class DenyRedirect(urllib.request.HTTPRedirectHandler):
     """Never allow the local model endpoint to redirect private prompts."""
 
@@ -163,14 +176,20 @@ class OllamaLocalBackend:
                             written.append(part)
                             yield part
                         if packet.get("done") is True:
-                            if packet.get("done_reason", "stop") != "stop":
-                                raise AgentModelError("Modellantwort wurde abgeschnitten.")
+                            reason = packet.get("done_reason")
+                            if reason != "stop":
+                                raise OllamaCompletionError(
+                                    "token_limit" if reason == "length" else "incomplete")
                             done = True
                             break
-                if not done or not "".join(written).strip():
-                    raise AgentModelError("Modellantwort nicht vollständig abgeschlossen.")
+                if not done:
+                    raise OllamaCompletionError("incomplete")
+                if not "".join(written).strip():
+                    raise OllamaCompletionError("empty_answer")
             except AgentModelError:
                 raise
+            except TimeoutError as exc:
+                raise OllamaCompletionError("timeout") from exc
             except (OSError, KeyError, ValueError, TypeError, urllib.error.URLError) as exc:
                 raise AgentModelError("Lokaler Modell-Datenstrom nicht verfügbar.") from exc
 
@@ -213,15 +232,26 @@ class OllamaLocalBackend:
             if len(raw) > 128 * 1024:
                 raise AgentModelError("Modellantwort zu groß.")
             packet = json.loads(raw)
-            # A forced max-token stop is never a completed response, even
-            # when a plausible answer is embedded in the partial content.
-            if packet.get("done", True) is not True or packet.get("done_reason", "stop") != "stop":
-                raise AgentModelError("Lokale Antwort wurde nicht vollständig abgeschlossen.")
-            answer = packet["message"]["content"]
+            if not isinstance(packet, dict):
+                raise OllamaCompletionError("invalid_response")
+            # Stronger Qwen3.5's benchmark-matched profile requires an explicit
+            # Ollama terminal acknowledgement. Legacy fixtures remain unchanged.
+            reason = packet.get("done_reason")
+            if (packet.get("done", True) is not True or
+                    reason not in ("stop", None) or
+                    (measured and (packet.get("done") is not True or reason != "stop"))):
+                raise OllamaCompletionError(
+                    "token_limit" if reason == "length" else "incomplete")
+            message = packet.get("message")
+            if not isinstance(message, dict):
+                raise OllamaCompletionError("invalid_response")
+            answer = message.get("content")
             if not isinstance(answer, str) or not answer.strip():
-                raise AgentModelError("Leere Modellantwort.")
+                raise OllamaCompletionError("empty_answer")
             # Deliberately do not expose message.thinking to HTTP clients.
             return answer
+        except TimeoutError as exc:
+            raise OllamaCompletionError("timeout") from exc
         except (OSError, KeyError, ValueError, TypeError, urllib.error.URLError) as exc:
             raise AgentModelError("Lokales Modell nicht erreichbar oder Antwort ungültig.") from exc
 
