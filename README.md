@@ -1,5 +1,32 @@
 # Neral / Helios
 
+## NERAL 1.0 Local Preview – aktueller Windows-Release-Kandidat
+
+**Stand 8. November 2026:** Das neue lokale Preview läuft **ohne
+historischen 50M-Checkpoint** auf dem bereits installierten
+`qwen3:8b` via Ollama. Eigenständige Web-App auf
+`http://127.0.0.1:9690/`, FAST-/THINK-Modus, lokale Prüfwerkzeuge,
+Sitzungs-/CSRF-Schutz und sichtbare Modellherkunft.
+
+- **Release-Candidate-Artefakt:** im jeweils vollständig grünen
+  [NERAL-1.0-Release-Workflow](.github/workflows/neral-1-0-release-rc.yml)
+  unter GitHub Actions, inklusive ZIP und SHA256SUMS.
+- **Installationsanleitung und reale Releasegrenzen:**
+  [NERAL 1.0 Local Preview](docs/NERAL_1_0_LOCAL_PREVIEW_RC.md).
+- **Start:** Entpacken, Ollama mit `qwen3:8b` starten,
+  `Start NERAL 1.0 Local.cmd` doppelklicken. Beim ersten Start werden
+  Flask/Waitress **nur mit Einwilligung** in einer eigenen Python-Umgebung
+  eingerichtet. Die QLoRA-Trainingsumgebung bleibt unverändert.
+- **Evidenz:** [Windows-PC-Inferenz plus Windows/Linux-Sicherheitsabnahme
+  erfolgreich](https://github.com/Cola968/neral-helios/actions/runs/42490217241).
+
+**Keine allgemeine 1.0-Modellfreigabe:** Die aktuelle Laufzeit verwendet
+ein unverändertes Qwen-Grundmodell. Ein eigenständiger, dem Basismodell
+überlegener NERAL-LoRA-Adapter wurde noch **nicht** unabhängig validiert
+oder in dieses Preview übernommen. Das ältere 50M-Projekt bleibt
+historisch unten dokumentiert.
+
+
 > **Aktueller experimenteller Entwicklungszweig (November 2026):**
 > Neben den historischen 20M/50M-Eigenmodellen existiert ein lokales
 > **Qwen2.5-Coder-7B-Instruct + NERAL-v5-LoRA**-System.

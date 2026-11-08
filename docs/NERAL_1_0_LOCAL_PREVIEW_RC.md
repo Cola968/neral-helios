@@ -35,10 +35,13 @@ erneut prüfen.
    persönliche Chats werden von diesem Paket nicht überschrieben
    oder mitgeliefert.
 3. In PowerShell `ollama list` aufrufen. Qwen3-8B muss dort stehen.
-4. Im Paketverzeichnis `python -m pip install -r requirements-neral-preview.txt`
-   **nur bei fehlenden Python-Abhängigkeiten selbst** ausführen.
-   Dieser Schritt benötigt Internet zum Installieren von Flask/Waitress;
-   die Modellinferenz selbst arbeitet ohne Cloud-KI.
+4. `Start NERAL 1.0 Local.cmd` doppelklicken. Beim ersten
+   Start fragt NERAL, ob eine isolierte Python-Umgebung unter
+   `local_state/preview-venv` mit Flask und Waitress eingerichtet
+   werden darf. **Nur nach Zustimmung** werden diese zwei
+   Webserver-Abhängigkeiten über pip installiert. Keine Modellgewichte
+   werden heruntergeladen; die QLoRA-/PyTorch-Trainingsumgebung
+   und das System-Python bleiben unverändert.
 5. `Start NERAL 1.0 Local.cmd` doppelklicken.
    Der Starter prüft den Ollama-Modellnamen und lokale Python-Laufzeit,
    verweigert eine zweite Instanz auf Port **9690** und startet
@@ -48,14 +51,19 @@ erneut prüfen.
    Für neue Nutzer steht `-CheckOnly` im PowerShell-Starter bereit.
    Das führt keine Modellinferenz aus.
 
-**Wichtig:** Der bestehende lokale Python-Trainings-Interpreter in
+**Wichtig:** Der bestehende lokale Python-Trainings-Interpreter dient nur als Python-Ausgangsbasis. Die Webserver-Pakete werden in einer eigenen Vorschau-Umgebung installiert. Der Interpreter in
 `NERAL-QLoRA-Research\\training-env-py312` wird bevorzugt, sonst
-ein vorhandenes System-Python. Beide sind zulässig, wenn sie Flask und
-Waitress enthalten. Es werden keine Python- oder Modellinstallationen
-ungefragt durchgeführt.
+ein vorhandenes System-Python. Beide sind als Ausgangsbasis zulässig, wenn Python 3.11+ vorhanden ist.
+Die Webserver-Pakete werden nur nach Einwilligung installiert; kein
+Modell wird automatisch geladen oder heruntergeladen.
 
 Alternativ vor dem Start:
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\\Start-Neral-1.0-Local.ps1 -CheckOnly`
+
+Mit `-PrepareOnly` kann die isolierte Python-Umgebung nach Zustimmung
+vorbereitet werden, ohne den Server oder Browser zu starten. Bei
+freigegebenen CI-Abnahmen kann `NERAL_PREVIEW_INSTALL_CONSENT=1`
+den interaktiven Dialog ersetzen.
 
 ## Sicherheit und Daten
 
