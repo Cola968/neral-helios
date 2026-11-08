@@ -6,6 +6,8 @@ on:
       - '.github/workflows/neral-single-click-windows.yml'
       - 'neral_oneclick.py'
       - 'neral_auto_update.py'
+      - 'scripts/vendor_katex.py'
+      - 'tests/test_neral_math.cjs'
       - 'tests/test_neral_auto_update.py'
       - 'neral_preview_server.py'
       - 'neral_local_accounts.py'
@@ -21,6 +23,8 @@ on:
       - '.github/workflows/neral-single-click-windows.yml'
       - 'neral_oneclick.py'
       - 'neral_auto_update.py'
+      - 'scripts/vendor_katex.py'
+      - 'tests/test_neral_math.cjs'
       - 'tests/test_neral_auto_update.py'
       - 'neral_preview_server.py'
       - 'neral_local_accounts.py'
@@ -43,6 +47,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bundle local KaTeX and WOFF2 fonts (offline at runtime)
+        run: python scripts/vendor_katex.py
+      - name: Test safe mathematical rendering and math assets
+        run: node --test tests/test_neral_math.cjs
       - name: Install separate Windows build environment
         run: python -m pip install --disable-pip-version-check -r requirements-neral-preview.txt pyinstaller==6.16.0
       - name: RED-to-GREEN single-click safety and assets tests
