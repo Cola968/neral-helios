@@ -55,7 +55,7 @@ test("real preview, restored messages, dynamic tables and original Helios chat a
   const helios=read("static/helios-core.js");
   const local=read("static/neral-local-chat.js");
   assert.match(preview,/NeralMath/);
-  assert.match(preview,/renderMath/);
+  assert.match(preview,/NeralMath\?\.render\(body\)/);
   assert.match(dynamic,/NeralMath/);
   assert.match(dynamic,/table/);
   assert.match(helios,/NeralMath/);
