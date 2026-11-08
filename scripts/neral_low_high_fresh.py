@@ -120,10 +120,13 @@ def generate_fresh_cases(seed: int) -> list[dict]:
         # Logic 2: count truth assignments from concrete boolean constraints.
         xor_target = bool(rng.getrandbits(1))
         equality_mode = bool(rng.getrandbits(1))
+        # A distinct fifth logical constraint for each of six variants.
+        min_true = i
         def matches(A, B, C, D, E):
             return (bool(A ^ C) == xor_target and (B or D) and
                     (E == (not B if equality_mode else C)) and
-                    not (A and E))
+                    not (A and E) and
+                    sum((A, B, C, D, E)) >= min_true)
         combinations = sum(matches(*values)
                            for values in itertools.product((False, True), repeat=5))
         bitmask_check = 0
@@ -137,8 +140,9 @@ def generate_fresh_cases(seed: int) -> list[dict]:
         cases.append(_case(
             "reasoning", "five_variable_logic", i,
             "How many truth assignments of A,B,C,D,E satisfy all "
-            f"four constraints? (A XOR C) is {xor_rule}; "
-            f"(B OR D) is TRUE; {relation}; (A AND E) is FALSE.",
+            f"five constraints? (A XOR C) is {xor_rule}; "
+            f"(B OR D) is TRUE; {relation}; (A AND E) is FALSE; "
+            f"at least {min_true} of A,B,C,D,E are TRUE.",
             combinations))
 
         # Code trace 1: indexed mutation, independent direct/comprehension gold.
