@@ -95,6 +95,9 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     from neral_preview_attachments import register_preview_attachment_api
     register_preview_attachment_api(app, backend, chat_busy, vision_analyzer=vision_analyzer)
 
+    from neral_local_accounts import register_local_accounts
+    register_local_accounts(app)
+
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same
     # session, CSRF, Host and Origin security checks.
