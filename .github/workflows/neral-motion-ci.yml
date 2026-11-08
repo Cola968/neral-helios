@@ -8,6 +8,7 @@ on:
       - 'templates/index.html'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_motion.cjs'
+      - 'tests/test_neral_motion_v4.cjs'
       - 'tests/test_neral_modern_ui.cjs'
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
@@ -28,6 +29,7 @@ on:
       - 'templates/index.html'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_motion.cjs'
+      - 'tests/test_neral_motion_v4.cjs'
       - 'tests/test_neral_modern_ui.cjs'
       - 'static/neral-modern.css'
       - 'static/neral-modern.js'
@@ -56,4 +58,4 @@ jobs:
       - run: node --check static/neral-dynamic-ui.js
       - run: node --check static/neral-local-chat.js
       - run: node --check static/neral.js
-      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_dynamic_ui_app.cjs
+      - run: node --test tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_dynamic_ui_app.cjs tests/test_neral_motion_v4.cjs
