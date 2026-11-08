@@ -251,7 +251,11 @@ def register_neral_local_chat_api(app, backend):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             from neral_think import think_reply
-            local_respond = getattr(backend, "respond_chat", None)
+            # Dedicated Ollama reasoning only for explicit THINK requests;
+            # other HF backends keep their existing verified response path.
+            local_respond = getattr(backend, "respond_think", None)
+            if not callable(local_respond):
+                local_respond = getattr(backend, "respond_chat", None)
             if not callable(local_respond):
                 local_respond = backend.respond
             result = think_reply(data, local_respond)
