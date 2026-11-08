@@ -105,27 +105,38 @@ def _mcnemar(wins: int, losses: int) -> float:
 
 
 def _strict_integer_grade(case: dict, item: dict) -> str:
-    """Accept exactly one final marker (FINAL or FINAL_ANSWER) at the end.
+    """Grade a complete long answer by its unique terminal marker ONLY.
 
-    Models may follow their trusted HIGH system instruction to use FINAL:
-    instead of FINAL_ANSWER:. The benchmark must not call that incorrect.
-    Multiple or nonterminal markers remain invalid; no last-number guessing.
+    The checked local backend refuses non-EOS Ollama outputs. Never scan an
+    arbitrary last number or accept an earlier marker followed by prose.
+    Multi-line explanations may exceed semantic_grade's 4096-char guard,
+    but a short final value is independently gradeable.
     """
+    if not item["complete"]:
+        return "ungraded"
     raw = item["text"]
     rows = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not rows:
+        return "ungraded"
     markers = [
         i for i, line in enumerate(rows)
-        if re.match(r"FINAL(?:_ANSWER)?\s*:", line, re.IGNORECASE)
+        if re.match(r"FINAL(?:_ANSWER)?\\s*:", line, re.IGNORECASE)
     ]
-    if len(markers) > 1 or (markers and markers[0] != len(rows) - 1):
+    if len(markers) != 1:
+        if len(rows) != 1 or markers:
+            return "ungraded"
+        candidate = rows[0]
+    elif markers[0] != len(rows) - 1:
         return "ungraded"
-    if rows:
-        final = re.fullmatch(r"FINAL\s*:\s*(.+)", rows[-1], re.IGNORECASE)
-        if final is not None:
-            rows[-1] = "FINAL_ANSWER: " + final.group(1)
-            raw = "\n".join(rows)
+    else:
+        last = rows[-1]
+        final = re.fullmatch(r"FINAL(?:_ANSWER)?\\s*:\\s*(.+)", last, re.IGNORECASE)
+        if final is None:
+            return "ungraded"
+        candidate = "FINAL_ANSWER: " + final.group(1)
     normalized_case = {**case, "answer": str(case["answer"])}
-    return semantic_grade(normalized_case, raw, complete=item["complete"])
+    return semantic_grade(normalized_case, candidate, complete=True)
+
 
 
 def score_paired(cases: list[dict], responses: list[dict], *,
