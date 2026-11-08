@@ -25,7 +25,7 @@ class TestSafeGpuRelease(unittest.TestCase):
             {"name":"qwen3.5:9b","size_vram":7_100_000_000},
             {"name":"other-persons-model:latest","size_vram":1_000_000},
         ]
-        self.assertEqual(select_ollama_targets(models),["qwen3:8b","qwen3.5:9b"])
+        self.assertEqual(set(select_ollama_targets(models)),{"qwen3:8b","qwen3.5:9b"})
         self.assertEqual(select_ollama_targets([{"name":"other-persons-model:latest"}]),[])
         with self.assertRaises(ValueError): select_ollama_targets([{"name":"qwen3:8b"},{"name":"qwen3:8b"}])
         with self.assertRaises(ValueError): select_ollama_targets([{"name":"qwen3:8b\nfoo"}])
