@@ -5,13 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>NERAL 1.0 Local Preview</title>
+  <link rel="icon" href="/static/icon.svg">
   <link rel="stylesheet" href="/static/neral-preview.css">
+  <link rel="stylesheet" href="/static/neral-motion.css">
   <script src="/static/neral-preview.js" defer></script>
+  <script src="/static/neral-motion.js" defer></script>
 </head>
 <body>
   <div class="shell">
     <header class="masthead">
-      <div class="brand"><div class="brand-mark" aria-hidden="true">N</div><div><h1>NERAL <span>1.0 Local</span></h1><p>Private KI auf deinem PC</p></div></div>
+      <div class="brand"><div class="brand-mark" aria-hidden="true"><img src="/static/icon.svg" alt=""></div><div><h1>NERAL <span>1.0 Local</span></h1><p>Private KI auf deinem PC</p></div></div>
       <div id="connection" role="status" class="connect" aria-live="polite">Verbinde lokal …</div>
     </header>
     <div class="notice" role="note">Lokales Qwen-Basismodell <strong id="model">{{ model }}</strong>. Kein freigegebener NERAL-LoRA-Adapter. Antworten können Fehler enthalten.</div>
