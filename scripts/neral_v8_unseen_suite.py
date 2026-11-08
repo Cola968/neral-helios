@@ -314,7 +314,7 @@ def make_case(part:str,family:str,index:int)->dict:
     return {
         "id":f"{part}-{family}-{index:02d}","part":part,
         "family":family,"ordinal":index,"language":"de" if de else "en",
-        "domain":DOMAINS[family],"prompt":text,"answer":str(gold),
+        "domain":DOMAINS[family],"kind":"integer","prompt":text,"answer":str(gold),
         "parameters":p,
     }
 
