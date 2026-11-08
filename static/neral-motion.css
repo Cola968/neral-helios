@@ -4,22 +4,12 @@
   color:var(--muted,#969e97);font-size:12px;line-height:1.5;user-select:none
 }
 .neral-activity[hidden]{display:none!important}
-.neral-motion-dots{display:inline-flex;align-items:center;justify-content:center;
-  gap:3px;width:19px;height:19px;flex:0 0 19px}
-.neral-motion-dots span{display:block;width:4px;height:4px;border-radius:50%;
-  background:currentColor;opacity:.3;animation:neral-quiet-pulse 1.35s ease-in-out infinite}
-.neral-motion-dots span:nth-child(2){animation-delay:130ms}
-.neral-motion-dots span:nth-child(3){animation-delay:260ms}
-@keyframes neral-quiet-pulse{
-  0%,60%,100%{opacity:.28;transform:translateY(0)}
-  30%{opacity:.95;transform:translateY(-1px)}
-}
 .neral-motion-glyph,.neral-pending-glyph{
   display:inline-block;width:19px;height:19px;flex:0 0 19px;
   object-fit:contain;border-radius:5px;
-  animation:neral-breathe 1.9s ease-in-out infinite
+  animation:none
 }
-.neral-activity[data-phase="searching"] .neral-motion-glyph{animation-duration:1.65s}
+.neral-activity[data-phase="searching"] .neral-motion-glyph{animation:none}
 #messages>.neral-activity{align-self:flex-start;padding:4px 8px}
 #neralLocalChatPanel .neral-activity{margin:8px 0}
 .message.pending:not([data-partial]){display:flex;align-items:center;gap:9px}
@@ -36,7 +26,7 @@
 #voiceInput[aria-pressed="true"]{animation:neral-listening 2s ease-in-out infinite}
 #neralComparePanel[aria-busy="true"]{animation:neral-comparing 2s ease-in-out infinite}
 /* The JSON preview never simulates token-by-token writing: one entrance only. */
-#messages>.message{animation:neral-arrive 170ms ease-out both}
+#messages>.message{animation:none}
 
 /* Native controls retain real focus behavior; motion affects only paint/transform. */
 #send:not(:disabled),#submit:not(:disabled),#stop:not([hidden]),
@@ -138,4 +128,133 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
     animation:none!important;transform:none!important;opacity:1!important}
   .neral-activity-disclosure summary::after,
   .neral-activity-history summary::after{transition:none!important}
+}
+
+
+/* V4 · NERAL Presence: calm identity, expressive REAL work state.
+   Inspired by xAI's published state-design principles, not a copy of its UI. */
+.neral-activity{
+  min-height:34px;gap:10px;
+  font-size:12px;letter-spacing:-.005em
+}
+.neral-presence{
+  display:inline-flex;position:relative;align-items:center;justify-content:center;
+  width:28px;height:28px;flex:0 0 28px;isolation:isolate;
+  background:var(--soft,#f6f7f5);
+  border:1px solid var(--line,#e9ebe8);
+  border-radius:9px
+}
+.neral-presence .neral-motion-glyph,
+.neral-presence .neral-pending-glyph{
+  width:17px;height:17px;flex:0 0 17px;
+  animation:none!important;opacity:1;transform:none;
+  object-fit:contain;border-radius:4px
+}
+.neral-presence-signal{
+  position:absolute;z-index:1;
+  width:7px;height:7px;right:-3px;bottom:-2px;
+  border-radius:50%;border:1.5px solid var(--bg,#fff);
+  background:var(--muted,#747a76);
+  transform:scale(.83);opacity:.86
+}
+.neral-activity[data-phase="thinking"] .neral-presence-signal,
+.neral-activity[data-phase="checking"] .neral-presence-signal,
+.message.pending:not([data-partial]) .neral-presence-signal{
+  animation:neral-v4-presence 1.65s cubic-bezier(.4,0,.2,1) infinite
+}
+.neral-activity[data-phase="searching"] .neral-presence-signal{
+  border-radius:3px;width:10px;height:3px;right:-4px;bottom:2px;
+  animation:neral-v4-scan 1.45s cubic-bezier(.4,0,.2,1) infinite
+}
+.neral-activity[data-phase="uploading"] .neral-presence-signal{
+  animation:neral-v4-transfer 1.5s cubic-bezier(.4,0,.2,1) infinite
+}
+.neral-activity-label{font-weight:520;line-height:1.5}
+@keyframes neral-v4-presence{
+  0%,100%{opacity:.45;transform:scale(.78)}
+  52%{opacity:1;transform:scale(1.22)}
+}
+@keyframes neral-v4-scan{
+  0%,100%{opacity:.5;transform:translateX(-5px) scaleX(.82)}
+  50%{opacity:1;transform:translateX(1px) scaleX(1)}
+}
+@keyframes neral-v4-transfer{
+  0%,100%{opacity:.55;transform:translateY(1px) scale(.86)}
+  50%{opacity:1;transform:translateY(-3px) scale(1)}
+}
+.message.pending[data-partial] .neral-presence-pending{display:none}
+.message.pending.neral-cancel-requested .neral-presence-signal{animation:none;opacity:.4}
+/* Only freshly completed replies enter. Restoring 80 old messages stays still. */
+#messages>.message.neral-motion-enter{
+  animation:neral-v4-response 240ms cubic-bezier(.22,1,.36,1) both
+}
+@keyframes neral-v4-response{
+  from{opacity:0;transform:translateY(7px)}
+  to{opacity:1;transform:translateY(0)}
+}
+#messages>.message.neral-motion-enter .message-actions{
+  animation:neral-v4-actions 200ms ease-out 85ms both
+}
+@keyframes neral-v4-actions{
+  from{opacity:0;transform:translateY(3px)}
+  to{opacity:1;transform:translateY(0)}
+}
+/* Expand detail only on demand. Never replay while an open log gains steps. */
+.neral-activity-history[open] .neral-activity-history-list,
+.neral-activity-disclosure[open] .neral-activity-history-list{
+  animation:neral-v4-detail 180ms cubic-bezier(.22,1,.36,1) both
+}
+@keyframes neral-v4-detail{
+  from{opacity:0;transform:translateY(-3px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.neral-activity-history summary,
+.neral-activity-disclosure summary{
+  border-radius:7px;padding:3px 6px 3px 0;
+  transition:color 150ms ease
+}
+.neral-activity-history summary:hover,
+.neral-activity-disclosure summary:hover{color:var(--text,#282b28)}
+.neral-activity-history summary:focus-visible,
+.neral-activity-disclosure summary:focus-visible{
+  outline:2px solid var(--muted,#777);outline-offset:3px
+}
+#extraTools[open] .tools-panel,
+#modelDetails[open] .model-details-panel{
+  transform-origin:bottom left;
+  animation:neral-v4-popover 190ms cubic-bezier(.22,1,.36,1) both
+}
+@keyframes neral-v4-popover{
+  from{opacity:0;transform:translateY(5px) scale(.988)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+#voiceInput[aria-pressed="true"]{animation:none;box-shadow:none}
+#voiceInput[aria-pressed="true"] svg,
+#localVoiceStart[aria-pressed="true"] svg{
+  transform-origin:center;
+  animation:neral-v4-presence 1.4s cubic-bezier(.4,0,.2,1) infinite
+}
+#neralComparePanel[aria-busy="true"]{animation:none}
+#submit:not(:disabled):active,#stopRequest:not(:disabled):active{
+  transform:scale(.98)
+}
+@media(prefers-reduced-motion:reduce){
+  .neral-presence-signal{animation:none!important;opacity:1!important;transform:none!important}
+  .neral-activity[data-phase="thinking"] .neral-presence-signal,
+  .neral-activity[data-phase="searching"] .neral-presence-signal,
+  .neral-activity[data-phase="uploading"] .neral-presence-signal,
+  .neral-activity[data-phase="checking"] .neral-presence-signal,
+  .message.pending:not([data-partial]) .neral-presence-signal{
+    animation:none!important;opacity:1!important;transform:none!important
+  }
+  #messages>.message.neral-motion-enter,
+  #messages>.message.neral-motion-enter .message-actions,
+  .neral-activity-history[open] .neral-activity-history-list,
+  .neral-activity-disclosure[open] .neral-activity-history-list,
+  #extraTools[open] .tools-panel,#modelDetails[open] .model-details-panel,
+  #voiceInput[aria-pressed="true"] svg,
+  #localVoiceStart[aria-pressed="true"] svg{
+    animation:none!important;transform:none!important
+  }
+  .neral-activity-history summary,.neral-activity-disclosure summary{transition:none!important}
 }

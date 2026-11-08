@@ -9,14 +9,22 @@
     row.dataset.phase=phase;
     row.setAttribute("role","status");
     row.setAttribute("aria-live","polite");
-    const dots=document.createElement("span");
-    dots.className="neral-motion-dots";
-    dots.setAttribute("aria-hidden","true");
-    for(let i=0;i<3;i++)dots.append(document.createElement("span"));
+    // Keep NERAL's approved geometric mark still; express only real working states.
+    const mark=document.createElement("span");
+    mark.className="neral-presence";
+    const image=document.createElement("img");
+    image.className="neral-motion-glyph";
+    image.src=iconUrl;
+    image.alt="";
+    image.setAttribute("aria-hidden","true");
+    const signal=document.createElement("span");
+    signal.className="neral-presence-signal";
+    signal.setAttribute("aria-hidden","true");
+    mark.append(image,signal);
     const description=document.createElement("span");
     description.className="neral-activity-label";
     description.textContent=label;
-    row.append(dots,description);
+    row.append(mark,description);
     return row;
   }
   const preview=document.getElementById("messages");
@@ -62,6 +70,21 @@
       if(!active)return;
       const existing=active.querySelector(".neral-activity-disclosure");
       const keepOpen=existing?.open===true;
+      // Update without replacing an expanded list, avoiding focus loss and flicker.
+      if(existing && steps.length){
+        const label=existing.querySelector("summary");
+        const list=existing.querySelector(".neral-activity-history-list");
+        if(label && list && typeof list.replaceChildren==="function"){
+          label.textContent="Verwendete Werkzeuge · "+steps.length;
+          list.replaceChildren(...steps.map(entry=>{
+            const li=document.createElement("li");
+            li.dataset.state=entry.state;
+            li.textContent=entry.label;
+            return li;
+          }));
+          return;
+        }
+      }
       existing?.remove();
       // Model computation is not an observable tool step: no fake timeline.
       if(!steps.length)return;
@@ -136,7 +159,13 @@
         image.src=iconUrl;
         image.alt="";
         image.setAttribute("aria-hidden","true");
-        pending.prepend(image);
+        const mark=document.createElement("span");
+        mark.className="neral-presence neral-presence-pending";
+        const signal=document.createElement("span");
+        signal.className="neral-presence-signal";
+        signal.setAttribute("aria-hidden","true");
+        mark.append(image,signal);
+        pending.prepend(mark);
       }
     };
     const observer=new MutationObserver(markPending);

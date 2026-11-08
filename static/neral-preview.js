@@ -55,11 +55,11 @@
     }
     plain(clean.slice(index));
   }
-  function append(role,text,origin) {
+  function append(role,text,origin,animate=false) {
     const empty=messages.querySelector(".welcome");
     if(empty) empty.remove();
     const item=document.createElement("div");
-    item.className="message "+role;
+    item.className="message "+role+(animate?" neral-motion-enter":"");
     const heading=document.createElement("strong");
     heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
     const body=document.createElement("p");
@@ -431,8 +431,8 @@
         errors.textContent=String(e.message||"Code Check fehlgeschlagen.");
     } finally {
       busy=false;submit.disabled=false;checkButton.disabled=false;
-      motionActivity("done");
-      if(checkResponded)motionActivity("archive");
+      motionActivity(startedEpoch!==conversationEpoch?"cancelled":checkResponded ? "done" : "error");
+      if(checkResponded && startedEpoch===conversationEpoch)motionActivity("archive");
     }
   });
 
@@ -469,6 +469,7 @@
     activeRequest=controller;
     const startedEpoch=conversationEpoch;
     const selectedAttachments=attachments.slice();
+    let completedTurn=false;
     const deadline=AbortSignal.timeout(selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
     const signal=AbortSignal.any([controller.signal,deadline]);
@@ -534,7 +535,7 @@
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       if(selectedAttachments.length)motionActivity("files-done",mode);
       motionActivity("done",mode);
-      append("user",text+(selectedAttachments.length?"\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""));
+      append("user",text+(selectedAttachments.length?"\n📎 "+selectedAttachments.map(f=>f.name).join(", "):""),undefined,true);
       const verified=result.verified===true && result.verification_scope!=="none";
       let origin=result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
@@ -551,7 +552,7 @@
       }
       if(Array.isArray(result.vision_models)&&result.vision_models.length)
         origin+=" · Bildmodell "+result.vision_models.join(", ");
-      const answerNode=append("assistant",result.text,origin);
+      const answerNode=append("assistant",result.text,origin,true);
       // Progressive enhancement: interactive components are built only from
       // data already present in this reply or locally verified tool results.
       // Never fail the underlying conversation because of a UI widget.
@@ -571,6 +572,7 @@
         }));
       }
       motionActivity("archive",mode);
+      completedTurn=true;
       if(sources.length)appendSources(sources);
       memory.push({role:"user",content:text},{role:"assistant",content:result.text});
       browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
@@ -592,7 +594,7 @@
           : String(e.message||"Anfrage fehlgeschlagen.");
       }
     } finally {
-      motionActivity("done",mode);
+      if(!completedTurn)motionActivity(startedEpoch!==conversationEpoch||controller.signal.aborted?"cancelled":"error",mode);
       if(activeRequest===controller){
         activeRequest=null;busy=false;submit.disabled=false;
         stopRequest.disabled=true;prompt.focus();

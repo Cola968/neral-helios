@@ -207,17 +207,18 @@ test("pure model generation never fabricates operational history",()=>{
   assert.equal(answer.querySelectorAll(".neral-activity-history").length,0,
     "Do not invent a step list for an ordinary local response");
 });
-test("activity uses a minimal dot indicator instead of a breathing logo",()=>{
+test("activity shows a calm NERAL mark and a real-state presence indicator",()=>{
   const ui=harness();
   ui.fire("searching","think");
   const row=activity(ui.preview)[0];
-  assert.ok(row.querySelector(".neral-motion-dots"));
-  assert.equal(row.querySelectorAll(".neral-motion-glyph").length,0);
+  assert.ok(row.querySelector(".neral-presence"));
+  assert.equal(row.querySelectorAll(".neral-motion-glyph").length,1);
+  assert.ok(row.querySelector(".neral-presence-signal"));
   assert.equal(row.querySelector(".neral-activity-label").textContent,"Sucht im Web");
   const css=fs.readFileSync(path.join(root,"static/neral-motion.css"),"utf8");
-  assert.match(css,/\.neral-motion-dots/);
-  assert.match(css,/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  assert.match(css,/\.neral-presence-signal/);
 });
+
 test("search history identifies real search results and excludes model reasoning",()=>{
   const ui=harness();
   ui.fire("searching","think");
