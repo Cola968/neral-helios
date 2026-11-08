@@ -273,7 +273,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
 
         def frame(event):
-            return json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\\n"
+            return json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
 
         def events():
             started = time.monotonic()
