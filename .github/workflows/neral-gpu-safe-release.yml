@@ -1,0 +1,98 @@
+name: NERAL controlled GPU VRAM release (manual, bounded)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_gpu_safe_release.py'
+      - 'tests/test_neral_gpu_safe_release.py'
+      - '.github/workflows/neral-gpu-safe-release.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_gpu_safe_release.py'
+      - 'tests/test_neral_gpu_safe_release.py'
+      - '.github/workflows/neral-gpu-safe-release.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: true
+        type: choice
+        options: [inspect, unload_ollama]
+        default: inspect
+      authorize:
+        required: true
+        type: string
+        description: 'INSPECT_NERAL_GPU_PROCESSES_READONLY or UNLOAD_NERAL_OLLAMA_VRAM_ONLY'
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ensure no unknown processes or Ollama models are modified
+        run: python -B -m unittest discover -s tests -p test_neral_gpu_safe_release.py -v
+
+  gpu-bounded:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      ((inputs.mode == 'inspect' &&
+        inputs.authorize == 'INSPECT_NERAL_GPU_PROCESSES_READONLY') ||
+       (inputs.mode == 'unload_ollama' &&
+        inputs.authorize == 'UNLOAD_NERAL_OLLAMA_VRAM_ONLY'))
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      SAFE_GPU_MODE: ${{ inputs.mode }}
+      SAFE_GPU_AUTH: ${{ inputs.authorize }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          clean: true
+          persist-credentials: false
+          path: control
+      - name: Check strict local-only safety contracts before touching VRAM
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){
+            throw 'Pinned local offline Python runtime absent'
+          }
+          Push-Location $repo
+          try {
+            $env:PYTHONPATH=$repo
+            & $python -B -m unittest discover -s tests -p test_neral_gpu_safe_release.py -v
+            if($LASTEXITCODE -ne 0){throw 'Local safe GPU release contracts failed'}
+          } finally {Pop-Location}
+      - name: Inspect capacity or unload only exact trusted Ollama Qwen models
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $python=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          Push-Location $repo
+          try {
+            $env:PYTHONPATH=$repo
+            & $python -B -m scripts.neral_gpu_safe_release --mode $env:SAFE_GPU_MODE --authorize $env:SAFE_GPU_AUTH
+            if($LASTEXITCODE -ne 0){throw 'Safe local GPU operation refused'}
+          } finally {Pop-Location}
