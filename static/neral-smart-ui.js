@@ -22,7 +22,48 @@
     if(start<text.length||!result.length)result.push({type:"text",text:text.slice(start)});
     return result;
   }
-  if(typeof module!=="undefined"&&module.exports)module.exports={suggestionsFor,splitFences};
+  function splitTables(text){
+    if(typeof text!=="string")return [{type:"text",text:""}];
+    const lines=text.split("\n"),result=[];let buffer="",i=0;
+    const cells=line=>{
+      const value=line.trim();
+      if(!value.startsWith("|")||!value.endsWith("|"))return null;
+      return value.slice(1,-1).split("|").map(x=>x.trim());
+    };
+    function flush(){if(buffer){result.push({type:"text",text:buffer});buffer="";}}
+    while(i<lines.length){
+      const header=cells(lines[i]),divider=cells(lines[i+1]||"");
+      if(header&&divider&&header.length>=2&&header.length<=8&&
+         divider.length===header.length&&divider.every(x=>/^:?-{3,}:?$/.test(x))){
+        const rows=[];let j=i+2;
+        while(j<lines.length&&rows.length<50){
+          const row=cells(lines[j]);if(!row||row.length!==header.length)break;
+          rows.push(row);j++;
+        }
+        if(rows.length){
+          flush();result.push({type:"table",headers:header,rows});
+          i=j;continue;
+        }
+      }
+      buffer+=lines[i]+(i<lines.length-1?"\n":"");i++;
+    }
+    flush();return result;
+  }
+  function parseChartSpec(text){
+    let spec;
+    try{spec=JSON.parse(text);}catch{return null;}
+    if(!spec||typeof spec!=="object"||Array.isArray(spec))return null;
+    if(typeof spec.title!=="string"||spec.title.length>80||
+       !Array.isArray(spec.labels)||!Array.isArray(spec.values)||
+       spec.labels.length<2||spec.labels.length>12||
+       spec.labels.length!==spec.values.length)return null;
+    const labels=spec.labels,values=spec.values;
+    if(labels.some(x=>typeof x!=="string"||x.length<1||x.length>36)||
+       values.some(x=>typeof x!=="number"||!Number.isFinite(x)||x<0||x>1e9))
+      return null;
+    return {title:spec.title,rows:labels.map((label,i)=>({label,value:values[i]}))};
+  }
+  if(typeof module!=="undefined"&&module.exports)module.exports={suggestionsFor,splitFences,splitTables,parseChartSpec};
   if(typeof document==="undefined")return;
   const $=id=>document.getElementById(id);
   const trigger=$("smartToolsTrigger"),menu=$("smartToolsMenu"),modeButton=$("smartModeTrigger"),
@@ -156,17 +197,85 @@
       window.setTimeout(()=>{button.textContent=before;},1200);
     }).catch(()=>{button.title="Kopieren fehlgeschlagen";});
   }
+  function renderTable(part,body){
+    const box=document.createElement("div");box.className="smart-table-wrap";
+    const table=document.createElement("table");table.className="smart-table";
+    const thead=document.createElement("thead"),head=document.createElement("tr");
+    const tbody=document.createElement("tbody");
+    let rows=part.rows.map(x=>x.slice()),sortColumn=-1,ascending=true;
+    function fillRows(){
+      tbody.replaceChildren();
+      for(const row of rows){
+        const tr=document.createElement("tr");
+        for(const cell of row){
+          const td=document.createElement("td");td.textContent=cell;tr.append(td);
+        }
+        tbody.append(tr);
+      }
+    }
+    part.headers.forEach((label,index)=>{
+      const th=document.createElement("th"),button=document.createElement("button");
+      button.type="button";button.textContent=label+" ↕";
+      button.title="Spalte sortieren";
+      button.addEventListener("click",()=>{
+        ascending=sortColumn===index?!ascending:true;sortColumn=index;
+        rows.sort((a,b)=>{
+          const x=a[index].trim(),y=b[index].trim();
+          const nx=Number(x.replace(",",".")),ny=Number(y.replace(",","."));
+          const cmp=x!==""&&y!==""&&Number.isFinite(nx)&&Number.isFinite(ny)
+            ?nx-ny:x.localeCompare(y,"de",{numeric:true,sensitivity:"base"});
+          return ascending?cmp:-cmp;
+        });
+        fillRows();
+      });
+      th.append(button);head.append(th);
+    });
+    thead.append(head);table.append(thead,tbody);fillRows();box.append(table);
+    const copy=document.createElement("button");copy.type="button";
+    copy.className="smart-table-copy";copy.textContent="Tabelle als TSV kopieren";
+    copy.addEventListener("click",()=>copyText(
+      [part.headers,...part.rows].map(row=>row.join("\t")).join("\n"),copy));
+    box.append(copy);body.append(box);
+  }
+  function renderChart(spec,body){
+    const figure=document.createElement("figure");figure.className="smart-chart";
+    const heading=document.createElement("figcaption");heading.textContent=spec.title||"Diagramm";
+    figure.append(heading);
+    const max=Math.max(...spec.rows.map(x=>x.value),1);
+    for(const row of spec.rows){
+      const item=document.createElement("div");item.className="smart-chart-row";
+      const label=document.createElement("span");label.textContent=row.label;
+      const barWrap=document.createElement("div");barWrap.className="smart-chart-track";
+      const bar=document.createElement("div");bar.className="smart-chart-bar";
+      bar.style.width=(row.value/max*100).toFixed(2)+"%";
+      bar.setAttribute("aria-label",row.label+": "+row.value);
+      barWrap.append(bar);
+      const value=document.createElement("span");value.textContent=String(row.value);
+      item.append(label,barWrap,value);figure.append(item);
+    }
+    const notice=document.createElement("div");notice.className="smart-chart-note";
+    notice.textContent="Darstellung aus Modellwerten · nicht unabhängig geprüft";
+    figure.append(notice);
+    body.append(figure);
+  }
   function enhanceAnswer(item){
     if(!item.classList?.contains("assistant")||item.dataset.smartReady==="1")return;
     item.dataset.smartReady="1";
     const body=item.querySelector(".message-body, p");if(!body)return;
-    const original=body.textContent||"",parts=splitFences(original);
-    if(parts.some(part=>part.type==="code")){
+    const original=body.textContent||"";
+    const parts=splitFences(original).flatMap(part=>
+      part.type==="text"?splitTables(part.text):[part]);
+    if(parts.some(part=>part.type!=="text")){
       body.replaceChildren();
       for(const part of parts){
         if(part.type==="text"){
           const span=document.createElement("span");span.className="smart-prose";
           span.textContent=part.text;body.append(span);continue;
+        }
+        if(part.type==="table"){renderTable(part,body);continue;}
+        if(part.language.toLowerCase()==="neral-chart"){
+          const chart=parseChartSpec(part.text);
+          if(chart){renderChart(chart,body);continue;}
         }
         const block=document.createElement("div");block.className="smart-code";
         const bar=document.createElement("div");bar.className="smart-code-bar";
