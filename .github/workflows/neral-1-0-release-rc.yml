@@ -116,6 +116,38 @@ jobs:
       - run: node --test tests/test_neral_1_0_voice_client.cjs
       - run: node --test tests/test_neral_1_0_project_files.cjs
       - run: node --check static/neral-local-chat.js
+  preview-package:
+    # A CPU-tested QA build is useful immediately; it is NOT a PC-tested RC.
+    # Publish only on trusted main, from its exact SHA and after both OS checks.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [cpu-contracts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Deterministic source-only manual QA ZIP - NOT PC VERIFIED
+        run: |
+          mkdir -p dist
+          python -m scripts.build_neral_1_0_preview --out dist/NERAL-1.0-Local-Preview.zip
+          cd dist
+          sha256sum NERAL-1.0-Local-Preview.zip > SHA256SUMS.txt
+          printf '%s\n' "${{ github.sha }}" > SOURCE-COMMIT.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 1
+          test "$(wc -c < SOURCE-COMMIT.txt)" -eq 41
+      - name: Publish manual QA preview - NOT-PC-VERIFIED
+        uses: actions/upload-artifact@v4
+        with:
+          name: NERAL-1.0-Local-Preview-CPU-TESTED-NOT-PC-VERIFIED
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
   local-windows-pc:
     # Lock the scarce self-hosted PC only while the live model test runs.
     # Ubuntu/Windows CPU contracts must never contend for the GPU lock.
