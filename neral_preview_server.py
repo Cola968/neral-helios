@@ -10,6 +10,7 @@ import argparse
 import ast
 import hmac
 import secrets
+import sys
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
@@ -34,7 +35,7 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     if not isinstance(secret_key, bytes) or len(secret_key) < 32:
         raise ValueError("Fresh secret key required for local sessions")
 
-    root = Path(__file__).resolve().parent
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     app = Flask("neral_1_0_preview",template_folder=str(root/"templates"),
                 static_folder=str(root/"static"))
     app.secret_key = secret_key
