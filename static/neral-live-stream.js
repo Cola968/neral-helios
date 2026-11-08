@@ -106,6 +106,7 @@
       if(offset<pending.length){
         target.textContent+=pending.slice(offset).join("");
         offset=pending.length;
+        options.onPaint?.(target.textContent);
       }
       if(finalRequested)finishPromise(true);
     }
@@ -120,6 +121,7 @@
         const amount=Math.min(backlog,96,Math.max(3,Math.ceil(backlog/90)));
         target.textContent+=pending.slice(offset,offset+amount).join("");
         offset+=amount;
+        options.onPaint?.(target.textContent);
       }
       if(finalRequested&&offset===pending.length){finishPromise(true);return;}
       if(offset<pending.length)scheduled=schedule(frame);
