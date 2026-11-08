@@ -27,7 +27,8 @@ _ORIGIN = "local_foundation_not_neral_adapter"
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _TOOLS = frozenset({None, "neral_math_exact", "neral_logic_exact",
                     "neral_python_trace_static", "neral_percentage_exact",
-                    "neral_quantitative_exact", "neral_model_provenance"})
+                    "neral_quantitative_exact", "neral_quant_exact",
+                    "neral_model_provenance"})
 
 
 class QualityGateError(ValueError):
