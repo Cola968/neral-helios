@@ -57,6 +57,16 @@
   modeMenu.querySelectorAll("[data-mode]").forEach(option=>
     option.addEventListener("click",()=>setMode(option.dataset.mode)));
   modeLabel.textContent=modes.high?.checked?"Hoch":"Niedrig";
+  for(const popover of [menu,modeMenu]){
+    popover.addEventListener("keydown",event=>{
+      if(event.key!=="ArrowDown"&&event.key!=="ArrowUp")return;
+      const options=[...popover.querySelectorAll('button:not([disabled])')];
+      if(!options.length)return;
+      event.preventDefault();
+      const index=Math.max(0,options.indexOf(document.activeElement));
+      options[(index+(event.key==="ArrowDown"?1:options.length-1))%options.length].focus();
+    });
+  }
   document.addEventListener("pointerdown",event=>{
     if(!menu.hidden&&!menu.contains(event.target)&&!trigger.contains(event.target))close(trigger,menu);
     if(!modeMenu.hidden&&!modeMenu.contains(event.target)&&!modeButton.contains(event.target))close(modeButton,modeMenu);
@@ -149,7 +159,7 @@
   function enhanceAnswer(item){
     if(!item.classList?.contains("assistant")||item.dataset.smartReady==="1")return;
     item.dataset.smartReady="1";
-    const body=item.querySelector("p");if(!body)return;
+    const body=item.querySelector(".message-body, p");if(!body)return;
     const original=body.textContent||"",parts=splitFences(original);
     if(parts.some(part=>part.type==="code")){
       body.replaceChildren();
@@ -185,5 +195,11 @@
     for(const record of records)for(const node of record.addedNodes)
       if(node.nodeType===1)enhanceAnswer(node);
   }).observe(messages,{childList:true});
+  const fileStatus=$("fileStatus");
+  if(fileStatus&&typeof MutationObserver!=="undefined"){
+    const update=()=>{fileStatus.hidden=fileStatus.textContent==="Keine Dateien ausgewählt.";};
+    update();
+    new MutationObserver(update).observe(fileStatus,{childList:true,characterData:true,subtree:true});
+  }
   renderSuggestions();
 })(typeof globalThis!=="undefined"?globalThis:this);
