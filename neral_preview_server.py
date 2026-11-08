@@ -19,7 +19,7 @@ PORT = 9690
 ORIGIN = f"http://{HOST}:{PORT}"
 
 
-def create_preview_app(backend=None, *, secret_key=None):
+def create_preview_app(backend=None, *, secret_key=None, search_service=None):
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -88,6 +88,27 @@ def create_preview_app(backend=None, *, secret_key=None):
 
     from neral_local_chat_api import register_neral_local_chat_api
     register_neral_local_chat_api(app,backend)
+
+    # Web search stays opt-in: constructing a service or reading status must
+    # never send data off the machine. All API routes inherit the same
+    # session, CSRF, Host and Origin security checks.
+    from neral_web_api import register_web_search_api
+    register_web_search_api(app, service=search_service)
+
+    @app.get("/api/neral/preview/plugins")
+    def preview_plugins():
+        return jsonify(plugins={
+            "exact_math": {"available": True, "execution": "local_verified"},
+            "think": {"available": True, "execution": "local_foundation_plus_tools"},
+            "web_search": {"configured": True, "live_verified": False,
+                           "automatic": False, "query_leaves_pc": True,
+                           "requires_api_key": False},
+            "browser_voice": {"configured": True, "live_verified": False,
+                              "requires_user_consent": True,
+                              "may_use_browser_provider": True},
+            "local_code_execution": {"available": False},
+            "project_files": {"available": False},
+        })
     return app
 
 
