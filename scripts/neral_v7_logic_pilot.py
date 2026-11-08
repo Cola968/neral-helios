@@ -113,20 +113,24 @@ def _row(family:str,index:int,part:str):
                 f"{edges}. Count different directed paths from 0 to 6.")
         check=f"CHECK: path-count DP={dp}; target={answer}."
     elif family=="ordered_arrangements":
-        banned=rnd.randrange(4)
-        earlier=rnd.randrange(3)
-        later=3
-        params={"banned":banned,"earlier":earlier,"later":later}
-        answer=sum(p[0]!=banned and p.index(earlier)<p.index(later)
-                   for p in permutations(range(4)))
-        prompt=(f"Vier Objekte 0,1,2,3 stehen in einer Reihenfolge. Objekt {banned} "
-                f"darf nicht vorne stehen und {earlier} muss vor {later} kommen. "
+        banned=index%5
+        earlier=(index//5)%4
+        later=4
+        last_banned=rnd.randrange(5)
+        params={"banned":banned,"earlier":earlier,"later":later,
+                "last_banned":last_banned}
+        answer=sum(p[0]!=banned and p[-1]!=last_banned
+                   and p.index(earlier)<p.index(later)
+                   for p in permutations(range(5)))
+        prompt=(f"Fünf Objekte 0,1,2,3,4 stehen in einer Reihenfolge. Objekt {banned} "
+                f"darf nicht vorne stehen; Objekt {last_banned} darf nicht hinten stehen "
+                f"und {earlier} muss vor {later} kommen. "
                 "Wie viele verschiedene Reihenfolgen sind möglich?"
                 if language=="de" else
-                f"Arrange objects 0,1,2,3. Object {banned} cannot be first, "
-                f"and object {earlier} must come before {later}. "
-                "How many valid orders exist?")
-        check=f"CHECK: enumerate all 24 permutations; valid={answer}."
+                f"Arrange objects 0,1,2,3,4. Object {banned} cannot be first; "
+                f"object {last_banned} cannot be last; and object {earlier} "
+                f"must come before {later}. How many valid orders exist?")
+        check=f"CHECK: enumerate all 120 permutations; valid={answer}."
     elif family=="service_arrival":
         now=rnd.randint(20,70)
         services=[(rnd.randint(0,10),rnd.randint(7,17),rnd.randint(2,14))
@@ -204,9 +208,9 @@ def independent_answer(r:dict)->int:
             dp[u]+=sum(dp[a] for a,b in p["edges"] if b==u)
         return dp[-1]
     if f=="ordered_arrangements":
-        return sum(q[0]!=p["banned"] and
-                   q.index(p["earlier"])<q.index(p["later"])
-                   for q in permutations(range(4)))
+        return sum(q[0]!=p["banned"] and q[-1]!=p["last_banned"]
+                   and q.index(p["earlier"])<q.index(p["later"])
+                   for q in permutations(range(5)))
     if f=="service_arrival":
         return min((first if p["now"]<=first else
                     first+((p["now"]-first+period-1)//period)*period)+duration
