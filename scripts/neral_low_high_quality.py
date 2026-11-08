@@ -103,6 +103,30 @@ def _mcnemar(wins: int, losses: int) -> float:
                    for k in range(min(wins, losses) + 1)) / 2**n)
 
 
+def _strict_integer_grade(case: dict, item: dict) -> str:
+    """Accept exactly one final marker (FINAL or FINAL_ANSWER) at the end.
+
+    Models may follow their trusted HIGH system instruction to use FINAL:
+    instead of FINAL_ANSWER:. The benchmark must not call that incorrect.
+    Multiple or nonterminal markers remain invalid; no last-number guessing.
+    """
+    raw = item["text"]
+    rows = [line.strip() for line in raw.splitlines() if line.strip()]
+    markers = [
+        i for i, line in enumerate(rows)
+        if re.match(r"FINAL(?:_ANSWER)?\\s*:", line, re.IGNORECASE)
+    ]
+    if len(markers) > 1 or (markers and markers[0] != len(rows) - 1):
+        return "ungraded"
+    if rows:
+        final = re.fullmatch(r"FINAL\\s*:\\s*(.+)", rows[-1], re.IGNORECASE)
+        if final is not None:
+            rows[-1] = "FINAL_ANSWER: " + final.group(1)
+            raw = "\\n".join(rows)
+    normalized_case = {**case, "answer": str(case["answer"])}
+    return semantic_grade(normalized_case, raw, complete=item["complete"])
+
+
 def score_paired(cases: list[dict], responses: list[dict], *,
                  model_digest: str) -> dict:
     """Count only independently gradeable exact results; errors score zero."""
@@ -115,14 +139,9 @@ def score_paired(cases: list[dict], responses: list[dict], *,
         grades = []
         for mode in ("low", "high"):
             item = pair[mode]
-            # The independent exact grader rejects missing finals, long
-            # outputs, errors, and unsupported syntax. Never extract an
-            # arbitrary number from a model's answer.
-            # Tournament reference answers are integers, while the shared
-            # semantic grader requires canonical textual reference values.
-            # Preserve the original held-out task; normalize only for grading.
-            grade = semantic_grade({**case, "answer": str(case["answer"])},
-                                   item["text"], complete=item["complete"])
+            # Independent exact scoring accepts both documented final
+            # marker formats, rejects duplicates, and normalizes integer gold.
+            grade = _strict_integer_grade(case, item)
             grades.append(grade == "correct")
             latencies[mode].append(item["seconds"])
         low_ok, high_ok = grades
