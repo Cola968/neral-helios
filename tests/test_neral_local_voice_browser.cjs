@@ -16,6 +16,7 @@ function setup({ready=true,transcript="Hallo NERAL"}={}){
     });
     return elems.get(id);
   };
+  element("useWebSearch").checked=false;
   const track={enabled:true, stop(){this.stopped=true}};
   const stream={getTracks(){return [track]}};
   let micCount=0;
@@ -134,4 +135,12 @@ test("existing typed draft is never silently auto-submitted by voice",async()=>{
   assert.equal(s.element("prompt").value,"Bitte prüfen: Hallo NERAL");
   assert.equal(s.element("chatForm").submitted||0,0);
   assert.equal(s.tracks[0].stopped,true,"exit auto voice when user must review text");
+});
+
+test("offline voice refuses external web search before microphone consent",async()=>{
+  const s=setup();await flush();
+  s.element("useWebSearch").checked=true;
+  await s.events.get("localVoiceStart:click")();
+  assert.equal(s.micCount(),0,"Search-enabled speech must not upload an implicit query");
+  assert.match(s.element("localVoiceStatus").textContent,/Websuche.*deaktivier/i);
 });
