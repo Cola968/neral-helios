@@ -17,6 +17,8 @@ on:
       - 'static/neral-dynamic-ui.js'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'tests/test_neral_math.cjs'
+      - 'static/neral-reference-ui.js'
+      - 'scripts/vendor_katex.py'
       - 'static/neral-math.js'
       - 'static/neral-math.css'
       - 'static/helios-core.js'
@@ -42,6 +44,8 @@ on:
       - 'static/neral-dynamic-ui.js'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'tests/test_neral_math.cjs'
+      - 'static/neral-reference-ui.js'
+      - 'scripts/vendor_katex.py'
       - 'static/neral-math.js'
       - 'static/neral-math.css'
       - 'static/helios-core.js'
@@ -60,6 +64,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Vendor KaTeX for actual offline rendering test
+        run: python scripts/vendor_katex.py
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-preview.js
       - run: node --check static/neral-modern.js
