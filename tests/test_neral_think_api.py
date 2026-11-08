@@ -73,6 +73,21 @@ class ThinkHTTPTests(unittest.TestCase):
         self.assertEqual(response.json["tool_used"], "neral_python_trace_static")
         self.assertEqual(len(model.calls), 2)
 
+    def test_finite_logic_http_tool_fallback_carries_proof_certificate(self):
+        client, model = setup(["FINAL: 999999", "FINAL: 999999"])
+        question = "Compute XOR of the bits [1, 1, 0, 1, 0]."
+        response = client.post("/api/neral/chat/think", json={"prompt": question})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["final_answer"], "1")
+        self.assertTrue(response.json["verified"])
+        self.assertFalse(response.json["model_generated"])
+        self.assertEqual(response.json["verification_scope"], "logic_integer")
+        self.assertEqual(response.json["verification_method"], "finite_logic_exact")
+        self.assertEqual(response.json["tool_used"], "neral_logic_exact")
+        self.assertEqual(response.json["logic_certificate"],
+                         {"rule": "xor_parity", "bit_count": 5, "ones": 3})
+        self.assertEqual(len(model.calls), 2)
+
     def test_think_model_failure_is_generic_not_sensitive(self):
         client, model = setup([])
         def boom(_):

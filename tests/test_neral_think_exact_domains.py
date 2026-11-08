@@ -87,8 +87,8 @@ class DiagnosticWholeSuiteRouting(unittest.TestCase):
                 covered[case["domain"]]+=1
             else:
                 self.assertTrue(out["model_generated"])
-        self.assertEqual(covered,{"math":24,"reasoning":0,"code_trace":18})
-        self.assertEqual(sum(covered.values()),42)
+        self.assertEqual(covered,{"math":24,"reasoning":24,"code_trace":18})
+        self.assertEqual(sum(covered.values()),66)
 
 class FreshPythonTraceRouting(unittest.TestCase):
     def test_existing_dev_python_alias_set_enumerate_become_reachable(self):
