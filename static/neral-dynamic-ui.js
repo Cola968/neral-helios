@@ -274,7 +274,13 @@
         ?"Rechnung lokal geprüft · Werte können geändert werden"
         :"Aus NERALs Antwort erstellt · Angaben ungeprüft";
       widget.append(content,el("p","neral-dui-provenance",source));
-      message.append(widget);return true;
+      // Display the visualization before like/copy controls in real chat DOM.
+      const actions=typeof message.querySelector==="function"
+        ? message.querySelector(".message-actions") : null;
+      if(actions && typeof message.insertBefore==="function")
+        message.insertBefore(widget,actions);
+      else message.append(widget);
+      return true;
     }catch{return false;} // Degrade to the unmodified answer text.
   }
   if(typeof window!=="undefined")window.NeralDynamicUI={plan,mount,calculate};
