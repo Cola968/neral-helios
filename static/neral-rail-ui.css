@@ -80,3 +80,5 @@
 @media(prefers-reduced-motion:reduce){
   .rail-results{scroll-behavior:auto}
 }
+/* Travel result is the answer; avoid duplicate assistant labels or action bars. */
+.message.rail-standalone-answer > strong{display:none}
