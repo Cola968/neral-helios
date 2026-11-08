@@ -73,6 +73,25 @@
     });
   }
 
+  // Live regions remain unobtrusive until something actually needs attention.
+  // Files rejected by validation and denied microphones must never be invisible.
+  function watchStatusWarning(id,pattern){
+    const node=byId(id);
+    if(!node)return;
+    const reflect=()=>{
+      node.classList.toggle("neral-status-alert",
+        pattern.test(node.textContent||""));
+    };
+    if(typeof MutationObserver!=="undefined"){
+      const observer=new MutationObserver(reflect);
+      observer.observe(node,{childList:true,characterData:true,subtree:true});
+    }
+    reflect();
+  }
+  watchStatusWarning("fileStatus",/abgelehnt|ungültig|fehler|zu groß|unzulässig/i);
+  watchStatusWarning("voiceStatus",/fehlgeschlagen|verweigert|nicht verfügbar|konnte nicht|keine sprache|unterbrochen/i);
+  watchStatusWarning("localVoiceStatus",/fehlgeschlagen|verweigert|nicht verfügbar|konnte|fehlen|nicht installiert|fehler/i);
+
   // A restored chat should scroll from its own already-rendered content.
   window.addEventListener("neral:load-chat",()=>{
     if(messages)messages.scrollTop=messages.scrollHeight;
