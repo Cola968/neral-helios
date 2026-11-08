@@ -50,3 +50,12 @@ dialog input{border:1px solid #d8d9d6;border-radius:8px;padding:10px;width:100%;
 @media(max-width:760px){.neral-sidebar{width:155px;flex-basis:155px}.shell{padding:0 12px}.message{max-width:96%}.message.user{max-width:90%}.toolbar{gap:4px}.actions button{flex:0 1 auto}.messages{max-height:calc(100dvh - 330px)}}
 @media(max-width:520px){.neral-sidebar{width:66px;flex-basis:66px;padding:10px 4px}.sidebar-heading span,.sidebar-label,.sidebar-link,#savedChatList,.sidebar-account span{display:none}.sidebar-heading{padding:5px 12px 20px}.sidebar-account{justify-content:center}.sidebar-login{font-size:9px;padding:4px}.shell{padding:0 10px}.notice{font-size:9px}.brand h1{font-size:12px}.connect{font-size:9px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+.sidebar-search{font:inherit;font-size:12px;border:1px solid #dedfdb;border-radius:8px;background:#fff;color:var(--text);padding:9px;width:100%;outline-offset:2px}
+.saved-chat-row{display:flex;align-items:center;border-radius:7px;min-width:0}
+.saved-chat-row:hover{background:#ececeb}
+#savedChatList .saved-chat-open{flex:1;min-width:0}
+#savedChatList .saved-chat-delete{flex:0 0 25px;width:25px;text-align:center;padding:4px;border:0;border-radius:6px;background:transparent;color:#858883;font-size:16px;opacity:0}
+.saved-chat-row:hover .saved-chat-delete,.saved-chat-row:focus-within .saved-chat-delete{opacity:1}
+#savedChatList .saved-chat-delete:hover{background:#d9dad7;color:#222}
+@media(hover:none){#savedChatList .saved-chat-delete{opacity:1}}
