@@ -14,6 +14,28 @@ Voraussetzung: **Ollama läuft bereits, `qwen3:8b` ist installiert und Python 3.
 
 Die Vorschau ist lokal, kostenlos und noch keine stabile öffentliche 1.0.
 
+## Optionaler stärkerer Qwen3.5-Modus (explizite Wahl)
+
+Im entpackten ZIP gibt es zusätzlich **`Start NERAL 1.0 Stark.cmd`**.
+Wer `qwen3.5:9b` bereits lokal installiert hat, startet damit die
+gleiche NERAL-App über den vorhandenen PowerShell-Starter mit
+`-Model qwen3.5:9b -ExperimentalSampling`. Die Einstellungen
+`measured_nonthinking_2048`, `think=false` und max. 2.048
+Ausgabetokens entsprechen dem separat getesteten A/B-Profil.
+Dies ist ein **Opt-in für ein fremdes stärkeres Grundmodell**, kein
+neuer trainierter NERAL-Adapter, kein garantierter Qualitätsgewinn
+für unbekannte Aufgabenfamilien und **keine Default-Änderung**.
+Ist das Modell nicht installiert, scheitert der Start verständlich und
+ohne Download oder automatischen Fallback.
+
+Entwicklungs-Evidenz:
+[36 echte lokale App-Aufgaben](https://github.com/Cola968/neral-helios/actions/runs/42510047578):
+Qwen3.5 31/36, Qwen3 13/36, gleiche Konfiguration und Aufgaben,
+aber bekannte öffentliche Aufgabenschemata. Vier der 36 Qwen3.5-Anfragen
+lieferten HTTP-Abbrüche. Die lokalen Gewichte bleiben unangetastet.
+Für einen Modellwechsel muss der vorherige NERAL-Prozess auf Port 9690
+geschlossen sein; niemals parallel zwei GPU-Modellinstanzen starten.
+
 ## Was dieses Paket ist
 
 Ein eigenständiger, lokaler NERAL-KI-Chat, der das bereits installierte
