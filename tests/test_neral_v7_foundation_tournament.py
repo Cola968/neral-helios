@@ -58,6 +58,32 @@ class OfflineFoundationTournament(unittest.TestCase):
         self.assertEqual(evaluate_response(case,"")["status"],"ungraded")
         self.assertEqual(evaluate_response(case,"FINAL_ANSWER: 42",complete=False)["status"],"incomplete")
 
+    def test_actual_ollama_bare_digest_is_canonicalized_without_guessing(self):
+        from scripts.neral_v7_foundation_tournament import canonical_model_digest
+        digest="d"*64
+        self.assertEqual(canonical_model_digest(digest),"sha256:"+digest)
+        self.assertEqual(canonical_model_digest("sha256:"+digest),"sha256:"+digest)
+        for bad in ("garbage","d"*63,"D"*64,
+                    "sha256:"+"z"*64,"sha512:"+"d"*64):
+            with self.subTest(value=bad),self.assertRaises(Refused):
+                canonical_model_digest(bad)
+
+    def test_real_ollama_tag_inventory_bare_hash_is_accepted(self):
+        from unittest.mock import patch
+        import json
+        class FakeResponse:
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self,limit):
+                return json.dumps({"models":[{"name":"qwen3.5:9b",
+                             "digest":"7"*64}]}).encode()
+        class FakeOpener:
+            def open(self,request,timeout):return FakeResponse()
+        with patch("scripts.neral_v7_foundation_tournament._local_opener",
+                   return_value=FakeOpener()):
+            actual=OllamaLocal().inventory()
+        self.assertEqual(actual,{"qwen3.5:9b":"sha256:"+"7"*64})
+
     def test_local_inventory_enforces_no_proxy_no_redirect_no_download(self):
         from urllib.request import Request
         observed=[]
