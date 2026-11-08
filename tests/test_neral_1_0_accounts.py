@@ -162,5 +162,30 @@ class AccountTests(unittest.TestCase):
 
 
 
+    def test_password_change_revokes_other_browser_sessions(self):
+        a = self.register(self.a, self.ready(self.a), "alice")
+        csrf_b = self.ready(self.b)
+        login_b = self.call(self.b, "POST", "/api/neral/account/login", csrf_b, {
+            "username": "alice", "password": "strong-local-password-123"})
+        self.assertEqual(login_b.status_code, 200)
+        self.assertTrue(self.call(self.b, "GET", "/api/neral/account/me").json["authenticated"])
+        changed = self.call(self.a, "POST", "/api/neral/account/password", a, {
+            "current_password": "strong-local-password-123",
+            "new_password": "new-password-long-123"})
+        self.assertEqual(changed.status_code, 200)
+        self.assertFalse(self.call(self.b, "GET", "/api/neral/account/me").json["authenticated"])
+        self.assertEqual(self.call(self.b, "GET", "/api/neral/account/chats").status_code, 401)
+
+    def test_default_account_database_survives_replaceable_install_directory(self):
+        from neral_local_accounts import default_account_db_path
+        from neral_local_accounts import Path as StoragePath
+        location = default_account_db_path()
+        self.assertIsInstance(location, StoragePath)
+        self.assertEqual(location.name, "accounts.sqlite3")
+        self.assertNotEqual(location.parent, StoragePath(__file__).resolve().parents[1] / "local_state")
+        self.assertNotEqual(location.parent, StoragePath(__file__).resolve().parents[1])
+
+
+
 if __name__ == "__main__":
     unittest.main()
