@@ -273,7 +273,7 @@ def plan_journeys(payload: object, *, fetch_json=None) -> dict:
             "from": from_station, "to": to_station, "departure": departure,
             "arriveBy": False, "bike": False, "wheelchair": False,
             "maxTransfers": 4, "minTransferMinutes": 0, "categories": CATEGORIES,
-        }, timeout=27)
+        }, timeout=12)
     except RuntimeError:
         if not allow_fallback:
             raise
