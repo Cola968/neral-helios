@@ -265,6 +265,16 @@ dialog{z-index:100;max-height:calc(100dvh - 32px);overflow-y:auto}
   .starter-prompts button{font-size:11px;padding:9px 10px}
   .privacy-details>summary{font-size:9px}
 }
+/* On narrow phones, preserve legible tool names on two compact rows. */
+@media(max-width:570px){
+  .composer-toolbar{flex-wrap:wrap;gap:6px}
+  .composer-tools{width:100%;flex:1 1 100%;justify-content:space-between}
+  .composer-actions{justify-content:flex-end;margin-left:auto}
+  .web-toggle{font-size:11px;gap:6px;padding:7px 6px}
+  .tools-menu>summary{padding:8px 8px}
+  .tools-menu>summary span{display:inline}
+  .tools-panel{left:auto;right:0}
+}
 @media(max-height:600px){
   .masthead{min-height:54px;flex-basis:54px}
   .messages{padding-top:16px;padding-bottom:12px}
