@@ -32,7 +32,7 @@ class NeralBrandV2Tests(unittest.TestCase):
             path = f"/static/icon-{size}.png"
             self.assertIn(path, icons)
             raw = (ROOT / path.lstrip("/")).read_bytes()
-            self.assertEqual(raw[:8], b"\\x89PNG\\r\\n\\x1a\\n")
+            self.assertEqual(raw[:8], bytes.fromhex("89504e470d0a1a0a"))
             self.assertEqual(struct.unpack(">II", raw[16:24]), (size, size))
             self.assertGreater(len(raw), 700)
         self.assertIn("/static/icon.svg", icons)
