@@ -3,7 +3,7 @@ const test=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
 const {TextEncoder}=require("node:util");
 
-function harness() {
+function harness(reply={}) {
   const handlers=new Map(),calls=[],elements={},created=[],clipboard=[];
   function makeElement(id) {
     const ownHandlers=new Map(),attrs=new Map();
@@ -39,7 +39,7 @@ function harness() {
        url==="/api/neral/preview/attachment-chat")
       return {ok:true,json:async()=>({
         text:"Auswertung: 42",model_origin:"local_foundation_not_neral_adapter",
-        adapter_loaded:false,vision_models:["qwen3-vl:2b"]
+        adapter_loaded:false,vision_models:["qwen3-vl:2b"],...reply
       })};
     throw Error("Unexpected URL "+url);
   };
@@ -109,4 +109,19 @@ test("assistant responses have functional like toggle and copy without feedback 
   assert.deepEqual(x.clipboard,["Auswertung: 42"]);
   assert.equal(copy.textContent,"Kopiert");
   assert.equal(x.calls.filter(c=>/feedback|like|copy/.test(c.url)).length,0);
+});
+
+test("truncated attachment excerpts are disclosed beside the model answer",async()=>{
+  const x=harness({vision_models:[],
+    attachments:[{name:"long.txt",kind:"document",truncated:true}]});
+  await flush();
+  const source={name:"long.txt",size:10};
+  x.element("projectFiles").files=[source];
+  x.handlers.get("projectFiles:change")();
+  x.element("prompt").value="Bitte zusammenfassen.";
+  await x.handlers.get("chatForm:submit")({preventDefault(){}});
+  const assistantHeaders=x.created.filter(e=>e.tagName==="strong")
+    .map(e=>e.textContent);
+  assert.ok(assistantHeaders.some(t=>/Auszüge gekürzt/i.test(t)),
+    "Users must see that not all document content was processed");
 });
