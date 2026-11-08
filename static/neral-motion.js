@@ -63,6 +63,12 @@
     const observer=new MutationObserver(markPending);
     observer.observe(log,{childList:true});
     markPending();
+    const stop=document.getElementById("stop");
+    stop?.addEventListener("click",()=>{
+      // The backend cancel may take longer; stop the visual activity now.
+      for(const pending of log.querySelectorAll(".message.pending"))
+        pending.classList.add("neral-cancel-requested");
+    });
   }
 
   // Embedded local chat has an actual aria-busy lifecycle. No guessed timer.
