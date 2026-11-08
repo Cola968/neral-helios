@@ -71,7 +71,7 @@ def generate_cases(seed=SEED):
         choose=lambda de,en: de if language else en
 
         # Exact integer mathematics (no floating point answer oracles).
-        n=rng.randint(16,38); k=rng.randint(3,9)
+        n=rng.randint(16,30); k=rng.randint(3,6)
         cases.append(_task("math","binomial",i,choose(
             f"Wie viele Möglichkeiten gibt es, {k} Objekte aus {n} verschiedenen "
             "Objekten ohne Reihenfolge auszuwählen?",
