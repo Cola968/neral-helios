@@ -31,7 +31,7 @@ SYSTEM = (
 DOMAINS = ("math", "reasoning", "code_trace")
 MODEL_TAG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 MODEL_DIGEST = re.compile(r"sha256:[a-f0-9]{64}\Z")
-_RAW_MODEL_DIGEST = re.compile(r"[a-f0-9]{64}\\Z")
+_RAW_MODEL_DIGEST = re.compile(r"[a-f0-9]{64}\Z")
 
 
 def canonical_model_digest(value: str) -> str:
