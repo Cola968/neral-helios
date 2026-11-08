@@ -1,0 +1,72 @@
+name: NERAL Windows EXE one-click build
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/neral-single-click-windows.yml'
+      - 'neral_oneclick.py'
+      - 'neral_preview_server.py'
+      - 'neral_local_accounts.py'
+      - 'neral_agent_autonomy.py'
+      - 'neral_local_chat_api.py'
+      - 'neral_preview_attachments.py'
+      - 'templates/**'
+      - 'static/**'
+      - 'tests/test_neral_oneclick.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-single-click-windows.yml'
+      - 'neral_oneclick.py'
+      - 'neral_preview_server.py'
+      - 'neral_local_accounts.py'
+      - 'neral_agent_autonomy.py'
+      - 'neral_local_chat_api.py'
+      - 'neral_preview_attachments.py'
+      - 'templates/**'
+      - 'static/**'
+permissions:
+  contents: read
+
+jobs:
+  windows-single-file:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install separate Windows build environment
+        run: python -m pip install --disable-pip-version-check -r requirements-neral-preview.txt pyinstaller==6.16.0
+      - name: RED-to-GREEN single-click safety and assets tests
+        run: python -m unittest discover -s tests -p test_neral_oneclick.py -v
+      - name: Build a real EXE with no external Python installation
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name NERAL `
+            --add-data "templates;templates" `
+            --add-data "static;static" `
+            neral_oneclick.py
+          if($LASTEXITCODE -ne 0){throw 'Single-file EXE build failed'}
+          if(-not(Test-Path -LiteralPath 'dist/NERAL.exe')){throw 'NERAL.exe not built'}
+      - name: Execute bundled EXE and verify actual local HTTP assets
+        shell: powershell
+        run: |
+          & ./dist/NERAL.exe --smoke-test
+          if($LASTEXITCODE -ne 0){throw "Frozen NERAL.exe smoke failed: $LASTEXITCODE"}
+      - name: Hash verified Windows executable
+        shell: powershell
+        run: |
+          (Get-FileHash ./dist/NERAL.exe -Algorithm SHA256).Hash | Out-File -Encoding ascii ./dist/NERAL.exe.sha256
+      - name: Save tested single-click executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: NERAL-Windows-Ein-Klick
+          path: |
+            dist/NERAL.exe
+            dist/NERAL.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
