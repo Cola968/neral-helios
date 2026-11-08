@@ -30,8 +30,9 @@
         active=null;
         return;
       }
-      if(phase!=="thinking"&&phase!=="searching")return;
-      const label=phase==="searching"?"Durchsucht das Web":
+      if(phase!=="thinking"&&phase!=="searching"&&phase!=="checking")return;
+      const label=phase==="checking"?"Prüft Python-Syntax":
+        phase==="searching"?"Durchsucht das Web":
         event.detail?.mode==="think"?"Denkt nach":"Verarbeitet Anfrage";
       if(!active){
         active=makeActivity(label,phase);
