@@ -39,7 +39,7 @@ class NeralBrandV2Tests(unittest.TestCase):
 
     def test_new_sw_cache_version(self):
         js = (ROOT / "static/sw.js").read_text(encoding="utf-8")
-        self.assertIn("neral-shell-v3", js)
+        self.assertIn("neral-shell-v4", js)
         self.assertIn("'/static/icon-192.png'", js)
         self.assertIn("'/static/icon-512.png'", js)
 
