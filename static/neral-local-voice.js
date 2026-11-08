@@ -264,6 +264,9 @@
     if(typeof reply==="string"&&reply.trim())void playAnswer(reply);
   });
   $("clear").addEventListener("click",turnOff);
+  $("stopRequest").addEventListener("click",()=>{
+    if(active||starting)turnOff();
+  });
   $("stopVoice").addEventListener("click",()=>{
     if(active||starting)turnOff();
   });
