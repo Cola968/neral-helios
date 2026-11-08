@@ -1,0 +1,72 @@
+/* NERAL motion V2 — purposeful 120-200ms microinteractions, no fake progress. */
+.neral-activity{
+  display:flex;align-items:center;gap:10px;min-height:30px;width:fit-content;
+  color:var(--muted,#969e97);font-size:12px;line-height:1.5;user-select:none
+}
+.neral-activity[hidden]{display:none!important}
+.neral-motion-glyph,.neral-pending-glyph{
+  display:inline-block;width:19px;height:19px;flex:0 0 19px;
+  object-fit:contain;border-radius:5px;
+  animation:neral-breathe 1.9s ease-in-out infinite
+}
+.neral-activity[data-phase="searching"] .neral-motion-glyph{animation-duration:1.65s}
+#messages>.neral-activity{align-self:flex-start;padding:4px 8px}
+#neralLocalChatPanel .neral-activity{margin:8px 0}
+.message.pending:not([data-partial]){display:flex;align-items:center;gap:9px}
+.message.pending:not([data-partial]) .content{font-size:13px;line-height:1.5}
+.message.pending[data-partial] .neral-pending-glyph{display:none}
+.message.pending[data-partial] .content::after{
+  content:"";display:inline-block;width:2px;height:.95em;margin-left:3px;
+  background:currentColor;vertical-align:-.12em;
+  animation:neral-caret 1s steps(2,end) infinite
+}
+/* The JSON preview never simulates token-by-token writing: one entrance only. */
+#messages>.message{animation:neral-arrive 170ms ease-out both}
+
+/* Native controls retain real focus behavior; motion affects only paint/transform. */
+#send:not(:disabled),#submit:not(:disabled),#stop:not([hidden]),
+#stopRequest:not(:disabled){transition:transform 130ms ease,background-color 130ms ease}
+#send:not(:disabled):active,#submit:not(:disabled):active,
+#stop:not([hidden]):active,#stopRequest:not(:disabled):active{transform:scale(.95)}
+.view-switch button,.mode-row button,.modes label,
+#modelPicker>summary,.chat-actions>summary,.new-chat,.chat-item>button,
+.actions button{
+  transition:background-color 150ms ease,color 150ms ease,border-color 150ms ease
+}
+#modelPicker[open] .model-menu,#chatActions[open] .action-menu{
+  transform-origin:top right;animation:neral-menu-in 150ms cubic-bezier(.2,.7,.2,1) both
+}
+dialog[open]{animation:neral-dialog-in 170ms ease-out both}
+@media(max-width:730px){
+  .sidebar.open{animation:neral-sidebar-in 190ms cubic-bezier(.2,.7,.2,1) both}
+}
+@keyframes neral-breathe{
+  0%,100%{opacity:.53;transform:scale(.96)}
+  50%{opacity:1;transform:scale(1)}
+}
+@keyframes neral-caret{50%{opacity:0}}
+@keyframes neral-arrive{
+  from{opacity:0;transform:translateY(5px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes neral-menu-in{
+  from{opacity:0;transform:translateY(-5px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes neral-dialog-in{
+  from{opacity:0;transform:translateY(8px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes neral-sidebar-in{
+  from{opacity:.75;transform:translateX(-8px)}
+  to{opacity:1;transform:translateX(0)}
+}
+@media(prefers-reduced-motion:reduce){
+  .neral-activity,.neral-motion-glyph,.neral-pending-glyph,
+  .message.pending[data-partial] .content::after,#messages>.message,
+  #modelPicker[open] .model-menu,#chatActions[open] .action-menu,
+  dialog[open],.sidebar.open{animation:none!important;transform:none!important}
+  #send,#submit,#stop,#stopRequest,.view-switch button,.mode-row button,.modes label,
+  #modelPicker>summary,.chat-actions>summary,.new-chat,.chat-item>button,
+  .actions button{transition:none!important}
+}
