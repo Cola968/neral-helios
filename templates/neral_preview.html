@@ -2,54 +2,123 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark light">
-  <title>NERAL 1.0 Local Preview</title>
-  <link rel="icon" href="/static/icon.svg">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>NERAL 1.0 – Lokaler Chat</title>
   <link rel="stylesheet" href="/static/neral-preview.css">
+  <link rel="stylesheet" href="/static/neral-smart-ui.css">
   <script src="/static/neral-preview.js" defer></script>
+  <script src="/static/neral-smart-ui.js" defer></script>
 </head>
 <body>
-  <div class="shell">
-    <header class="masthead">
-      <div class="brand"><div class="brand-mark" aria-hidden="true"><img src="/static/icon.svg" alt="" width="48" height="48"></div><div><h1>NERAL <span>1.0 Local</span></h1><p>Private KI auf deinem PC</p></div></div>
-      <div id="connection" role="status" class="connect" aria-live="polite">Verbinde lokal …</div>
+<div class="app">
+  <aside id="smartSidebar" class="smart-sidebar" aria-label="Navigation">
+    <div class="smart-brand">neral</div>
+    <button type="button" class="smart-new" id="smartNewChat" title="Gespräch im aktuellen Tab zurücksetzen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Neuer Chat
+    </button>
+    <div class="smart-side-section">Arbeitsbereich</div>
+    <div class="smart-current"><span class="smart-current-dot" aria-hidden="true"></span>Aktueller Chat</div>
+    <div class="smart-side-fill"></div>
+    <div class="smart-side-foot">
+      <div class="smart-side-caption">Lokal auf diesem PC</div>
+      <div id="connection" role="status" aria-live="polite">Verbindung wird geprüft …</div>
+      <button id="smartTheme" type="button" class="smart-theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15a8 8 0 0 1-11-11 8 8 0 1 0 11 11Z"/></svg>
+        Hell / Dunkel
+      </button>
+    </div>
+  </aside>
+  <button type="button" id="smartBackdrop" class="smart-backdrop" aria-label="Navigation schließen" hidden></button>
+  <div class="smart-main">
+    <header class="smart-topbar">
+      <div class="smart-title-wrap">
+        <button type="button" id="smartSidebarToggle" aria-expanded="false" aria-controls="smartSidebar" aria-label="Navigation öffnen" class="smart-mobile-nav">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <strong>NERAL 1.0</strong>
+        <span class="smart-top-subtitle">Lokaler Chat</span>
+      </div>
+      <details class="smart-identity">
+        <summary>Modellinfo <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <div class="smart-identity-popover">
+          <strong id="model">{{ model }}</strong>
+          <p>Lokales Qwen-Basismodell. Kein freigegebener NERAL-LoRA-Adapter.</p>
+          <p>Modellantworten können falsch sein. THINK bedeutet nicht automatisch eine bessere Antwort.</p>
+        </div>
+      </details>
     </header>
-    <div class="notice" role="note">Lokales Qwen-Basismodell <strong id="model">{{ model }}</strong>. Kein freigegebener NERAL-LoRA-Adapter. Antworten können Fehler enthalten.</div>
-    <main>
-      <div id="messages" class="messages" role="log" aria-live="polite" aria-label="Chatverlauf"><p class="welcome">Frag NERAL nach Mathematik, Programmierung, Logik oder einer Erklärung. Der Chat bleibt in diesem Fenster.</p></div>
+    <main id="messages" class="smart-messages" role="log" aria-live="polite" aria-label="Chatverlauf">
+      <div class="welcome">
+        <h1>Womit fangen wir an?</h1>
+        <p>Code, Mathematik, Erklärungen oder eine neue Idee.</p>
+      </div>
     </main>
-    <section class="composer-panel" aria-label="Nachricht an NERAL">
-      <form id="chatForm">
+    <section class="smart-compose-area" aria-label="Nachricht an NERAL">
+      <div id="smartSuggestions" class="smart-suggestions" aria-label="Passende Aktionen" hidden></div>
+      <form id="chatForm" class="smart-composer" autocomplete="off">
         <label for="prompt" class="sr-only">Nachricht</label>
-        <textarea id="prompt" rows="3" maxlength="4000" placeholder="Deine Nachricht an NERAL …" required></textarea>
-        <div class="toolbar">
-          <div class="modes" role="group" aria-label="Modus">
-            <label><input type="radio" name="mode" value="fast" checked> FAST</label>
-            <label><input type="radio" name="mode" value="think"> THINK</label>
+        <textarea id="prompt" maxlength="4000" rows="2" required placeholder="Nachricht an NERAL …"></textarea>
+        <div class="smart-composer-controls">
+          <div class="smart-tool-anchor">
+            <button type="button" id="smartToolsTrigger" class="smart-icon-button" aria-label="Werkzeuge öffnen" aria-haspopup="menu" aria-expanded="false" aria-controls="smartToolsMenu">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <div class="smart-popover smart-tools" id="smartToolsMenu" role="menu" aria-label="NERAL-Werkzeuge" hidden>
+              <button type="button" role="menuitem" id="smartAttach">Textdatei auswählen <span>bis 2 Dateien</span></button>
+              <button type="button" role="menuitem" id="smartCodeCheck">Python-Syntax prüfen <span>ohne Ausführung</span></button>
+              <button type="button" role="menuitem" id="smartVoice">Spracheingabe <span>Browserfunktion</span></button>
+              <button type="button" role="menuitem" id="smartStopVoice">Vorlesen stoppen</button>
+              <label class="smart-menu-option"><input type="checkbox" id="smartVoiceOutput"> Antworten vorlesen</label>
+              <label class="smart-menu-option"><input type="checkbox" id="smartAutoSend" checked> Sprache direkt senden</label>
+              <div class="smart-menu-divider"></div>
+              <button type="button" role="menuitem" id="smartClear">Verlauf löschen <span>nur dieser Tab</span></button>
+            </div>
           </div>
-          <div class="plugin-options" role="group" aria-label="Werkzeuge und Sprachchat">
-            <label title="Nur nach Aktivierung wird dein Suchbegriff an DuckDuckGo oder Bing gesendet."><input id="useWebSearch" type="checkbox"> Websuche</label>
-            <label title="Maximal zwei ausgewählte Textdateien, nie automatisch hochgeladen.">Datei-Kontext <input id="projectFiles" type="file" multiple accept=".py,.js,.ts,.tsx,.json,.md,.txt,.html,.css"></label>
-            <label title="Sprache nach jeder Antwort vorlesen"><input id="voiceOutput" type="checkbox"> Vorlesen</label>
-            <label title="Gesprochene Eingabe nach dem Erkennen direkt absenden"><input id="voiceAutoSend" type="checkbox" checked> Sprache direkt senden</label>
+          <label class="smart-web-toggle" title="Bei Aktivierung wird dein Suchbegriff erst beim Senden an externe Suchanbieter übertragen.">
+            <input type="checkbox" id="useWebSearch">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c4 4 4 14 0 18M12 3c-4 4-4 14 0 18"/></svg>
+            <span>Websuche</span>
+          </label>
+          <div class="smart-grow"></div>
+          <div class="smart-mode-anchor">
+            <button type="button" id="smartModeTrigger" class="smart-mode-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="smartModeMenu" title="Denkmodus auswählen">
+              <span id="smartModeLabel">Niedrig</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div id="smartModeMenu" class="smart-popover smart-modes" role="menu" aria-label="Denkmodus" hidden>
+              <button type="button" role="menuitemradio" data-mode="low" aria-checked="true">Niedrig <span>✓</span></button>
+              <button type="button" role="menuitemradio" data-mode="high" aria-checked="false">Hoch <span>✓</span></button>
+              <small>Hoch nutzt bei geeigneten Aufgaben einen zusätzlichen Prüfversuch.</small>
+            </div>
           </div>
-          <div class="actions">
-            <button id="voiceInput" type="button" class="secondary" aria-label="Mikrofon einschalten">🎙 Mikrofon</button>
-            <button id="stopVoice" type="button" class="secondary" aria-label="Sprachausgabe stoppen">Stopp Audio</button>
-            <button id="codeCheck" type="button" class="secondary">Python prüfen</button>
-            <button id="clear" type="button" class="secondary">Verlauf löschen</button>
-            <button id="stopRequest" type="button" class="secondary" disabled title="Stoppt den Browseraufruf. Ollama kann lokal weiterrechnen.">Anfrage abbrechen</button>
-            <button id="submit" type="submit">Senden</button>
-          </div>
+          <button type="button" id="stopRequest" class="smart-cancel" disabled title="Stoppt die Browseranfrage; Ollama kann noch weiterrechnen.">Stopp</button>
+          <button type="submit" id="submit" class="smart-send" aria-label="Nachricht senden" title="Nachricht senden">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+          </button>
+        </div>
+        <div class="smart-hidden-controls" hidden>
+          <input id="projectFiles" type="file" multiple accept=".py,.js,.ts,.tsx,.json,.md,.txt,.html,.css" aria-label="Textdateien auswählen">
+          <label><input type="radio" name="mode" value="fast" checked> Niedrig</label>
+          <label><input type="radio" name="mode" value="think"> Hoch</label>
+          <input id="voiceOutput" type="checkbox">
+          <input id="voiceAutoSend" type="checkbox" checked>
+          <button id="voiceInput" type="button">Mikrofon</button>
+          <button id="stopVoice" type="button">Stopp Audio</button>
+          <button id="codeCheck" type="button">Python prüfen</button>
+          <button id="clear" type="button">Verlauf löschen</button>
         </div>
       </form>
-      <p id="voiceStatus" role="status" aria-live="polite">Mikrofon nicht aktiv.</p>
-      <p id="pluginStatus" role="status">Websuche: nicht geprüft.</p>
-      <p id="fileStatus" role="status">Keine Dateien ausgewählt.</p>
+      <p id="fileStatus" class="smart-small-status" role="status">Keine Dateien ausgewählt.</p>
+      <p id="voiceStatus" class="smart-small-status" role="status" aria-live="polite">Mikrofon nicht aktiv.</p>
+      <p id="pluginStatus" class="smart-small-status" role="status">Websuche nur auf Wunsch.</p>
       <p id="error" role="alert" aria-live="assertive"></p>
-      <p class="fineprint">Modellantworten bleiben lokal. Spracherkennung per Browser kann Audiodaten an einen Browseranbieter übertragen; nutze das Mikrofon nur nach dieser Zustimmung. Vorlesen nutzt die Sprachfunktion deines Systems/Browsers. Die Websuche gibt ausschließlich auf Wunsch deinen Suchbegriff an externe Anbieter weiter. Suchtreffer sind ungeprüft. Datei-Kontext nutzt nur ausdrücklich ausgewählte Textdateien. Python prüfen führt Code nie aus. Kein NERAL-LoRA freigegeben.</p>
+      <details class="smart-privacy"><summary>Datenschutz und Grenzen</summary>
+        <p>Modellantworten bleiben auf dem PC. Browser-Spracherkennung kann Audio an einen Browseranbieter übertragen. Websuche sendet nach Aktivierung den Suchbegriff an externe Suchanbieter; die Treffer werden nicht unabhängig geprüft. Datei-Kontext liest ausschließlich bewusst ausgewählte kleine Textdateien. Python-Syntaxprüfung führt Code nicht aus.</p>
+      </details>
     </section>
   </div>
+</div>
 </body>
 </html>
