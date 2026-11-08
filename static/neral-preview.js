@@ -28,6 +28,11 @@
     // Small, deliberately limited Markdown subset. Never inject model HTML.
     const clean=String(value).replace(/&#(?:x20|32);|&nbsp;/gi," ")
       .replace(/\\\\\\*/g,"*");
+    // Plain responses remain plain text, including in screen readers.
+    if(!clean.includes("**") && !clean.includes("`")) {
+      container.textContent=clean;
+      return;
+    }
     const tokens=/\\*\\*([^*\\n]{1,300})\\*\\*|`([^`\\n]{1,240})`/g;
     let index=0,parts=0;
     const plain=piece=>{
