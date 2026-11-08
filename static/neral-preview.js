@@ -85,11 +85,14 @@
     }
   }
 
-  // Browser microphones are never opened on load. User action is mandatory.
+  // The microphone is always opened by an explicit click, never by page load,
+  // TTS completion or a background callback. Some browsers send audio to a
+  // speech-recognition provider; never represent this as fully local.
+  let speechSession=0, playbackSession=0;
   mic.disabled=!Recognition;
   mic.title=Recognition
-    ? "Browser-Spracherkennung kann Audiodaten an einen Browseranbieter übertragen."
-    : "Dieser Browser unterstützt die Spracherkennung nicht.";
+    ? "Browser-Spracherkennung kann Audio an einen Browseranbieter übertragen."
+    : "Dieser Browser unterstützt keine Web-Speech-Spracherkennung.";
   voiceStatus.textContent=Recognition
     ? "Mikrofon aus · Erkennung eventuell über Browseranbieter"
     : "Mikrofon nicht verfügbar: Browser-Spracherkennung fehlt.";
@@ -98,6 +101,7 @@
   $("stopVoice").disabled=!speaker;
 
   function stopAudio() {
+    playbackSession++; // Any late onend callback may NOT queue another chunk.
     if(speaker) speaker.cancel();
   }
   function setListening(value) {
@@ -107,50 +111,148 @@
       ? "Mikrofon aktiv · Browseranbieter kann Audio erhalten"
       : "Mikrofon aus · Erkennung eventuell über Browseranbieter";
   }
+  function cancelRecognition() {
+    speechSession++; // Invalidates every callback of earlier recognizers.
+    const previous=recognizer;
+    recognizer=null;
+    setListening(false);
+    if(previous) {
+      try {previous.abort();} catch { /* Already stopped. */ }
+    }
+  }
   mic.addEventListener("click",()=>{
     if(!Recognition || busy) return;
     if(listening) {
-      if(recognizer) recognizer.stop();
-      setListening(false);
+      cancelRecognition(); // Unlike stop(), abort() discards queued final text.
       return;
     }
+    const epoch=conversationEpoch, session=++speechSession;
     try {
-      stopAudio();
-      recognizer=new Recognition();
-      recognizer.lang="de-DE";
-      recognizer.continuous=false;
-      recognizer.interimResults=false;
-      recognizer.maxAlternatives=1;
-      recognizer.onresult=event=>{
-        const transcript=event?.results?.[0]?.[0]?.transcript;
-        if(typeof transcript!=="string") return;
-        const normalized=transcript.trim();
-        if(!normalized || encoder.encode(normalized).length>4096) {
-          errors.textContent="Sprachtext leer oder zu lang.";
+      stopAudio(); // Never transcribe NERAL's own voice output.
+      const current=new Recognition();
+      recognizer=current;
+      current.lang="de-DE";
+      current.continuous=false;
+      current.interimResults=true;
+      current.maxAlternatives=1;
+      const active=()=>recognizer===current && speechSession===session &&
+        epoch===conversationEpoch && listening;
+
+      current.onresult=event=>{
+        if(!active())return;
+        const results=Array.from(event?.results||[]);
+        const finals=[],partials=[];
+        for(const row of results) {
+          const segment=row?.[0]?.transcript;
+          if(typeof segment!=="string") continue;
+          // A missing isFinal exists in older mocks; browser events provide it.
+          (row.isFinal===false?partials:finals).push(segment.trim());
+        }
+        if(!finals.length) {
+          const preview=partials.join(" ").trim();
+          if(preview) voiceStatus.textContent="Erkannt (vorläufig): "+
+            preview.slice(0,150)+" · noch nicht gesendet";
           return;
         }
-        prompt.value=normalized;
-        if($("voiceAutoSend").checked && csrf && !busy) form.requestSubmit();
-        else prompt.focus();
+        const transcript=finals.join(" ").trim();
+        const existing=prompt.value.trim();
+        const combined=existing?existing+" "+transcript:transcript;
+        if(!transcript || encoder.encode(combined).length>4096) {
+          cancelRecognition();
+          errors.textContent="Erkannter Text leer oder zusammen mit dem Entwurf zu lang.";
+          return;
+        }
+        cancelRecognition(); // Ignore duplicate and late final callbacks.
+        prompt.value=combined;
+        if(existing) {
+          // Typed instructions must never be silently sent by the microphone.
+          voiceStatus.textContent="Sprache ergänzt · Entwurf prüfen und selbst senden";
+          prompt.focus();
+        } else if($("voiceAutoSend").checked && csrf && !busy) {
+          voiceStatus.textContent="Sprache erkannt · lokale Anfrage wird gesendet";
+          form.requestSubmit();
+        } else {
+          voiceStatus.textContent="Sprache erkannt · Text prüfen und senden";
+          prompt.focus();
+        }
       };
-      recognizer.onerror=()=>{setListening(false);voiceStatus.textContent="Spracherkennung fehlgeschlagen oder verweigert.";};
-      recognizer.onend=()=>setListening(false);
-      recognizer.start(); // Must remain in the actual click handler.
+      current.onerror=event=>{
+        if(!active())return;
+        cancelRecognition();
+        voiceStatus.textContent=event?.error==="not-allowed"||
+            event?.error==="service-not-allowed"
+          ? "Mikrofon oder Spracherkennung verweigert · Browserberechtigung prüfen"
+          : event?.error==="no-speech"
+          ? "Keine Sprache erkannt · erneut Mikrofon anklicken"
+          : "Spracherkennung fehlgeschlagen · Browser prüfen";
+      };
+      current.onend=()=>{
+        if(!active())return;
+        cancelRecognition();
+        voiceStatus.textContent="Mikrofon beendet · kein endgültiger Satz erkannt";
+      };
+      current.start(); // Only in a real user-initiated click handler.
       setListening(true);
-    } catch(e) {
-      setListening(false);
+    } catch {
+      cancelRecognition();
       errors.textContent="Mikrofon konnte nicht gestartet werden.";
     }
   });
-  $("stopVoice").addEventListener("click",stopAudio);
+  $("stopVoice").addEventListener("click",()=>{
+    stopAudio();
+    voiceStatus.textContent="Vorlesen gestoppt";
+  });
 
+  // Speak all reasonably bounded answer text as short sequential utterances.
+  // Never start the microphone automatically after playback; no hot mic loop.
   function speak(text) {
     if(!$("voiceOutput").checked || !speaker ||
        typeof SpeechSynthesisUtterance==="undefined") return;
     stopAudio();
-    const utterance=new SpeechSynthesisUtterance(text.slice(0,1800));
-    utterance.lang="de-DE";
-    speaker.speak(utterance);
+    if(listening)cancelRecognition();
+    const session=playbackSession;
+    const chunks=[];
+    let remaining=String(text).slice(0,8000);
+    while(remaining.length) {
+      let cut=Math.min(remaining.length,480);
+      if(remaining.length>480) {
+        const boundary=remaining.slice(0,480).lastIndexOf(" ");
+        if(boundary>=240)cut=boundary+1;
+      }
+      const chunk=remaining.slice(0,cut).trim();
+      if(chunk)chunks.push(chunk);
+      remaining=remaining.slice(cut);
+    }
+    if(!chunks.length)return;
+    const requested=Number($("voiceSpeed")?.value);
+    const rate=[0.85,1,1.15].includes(requested)?requested:1;
+    const voices=typeof speaker.getVoices==="function"?speaker.getVoices():[];
+    const german=Array.isArray(voices)?voices.filter(v=>
+      typeof v.lang==="string" && /^de(?:-|$)/i.test(v.lang)):[];
+    const voice=german.find(v=>v.localService===true)||german[0]||null;
+    let index=0;
+    const next=()=>{
+      if(session!==playbackSession)return;
+      if(index>=chunks.length){
+        voiceStatus.textContent="Vorlesen abgeschlossen";
+        return;
+      }
+      const utterance=new SpeechSynthesisUtterance(chunks[index++]);
+      utterance.lang="de-DE";
+      utterance.rate=rate;
+      if(voice)utterance.voice=voice;
+      utterance.onend=next;
+      utterance.onerror=()=>{
+        if(session===playbackSession){
+          stopAudio();
+          voiceStatus.textContent="Vorlesen durch den Browser unterbrochen";
+        }
+      };
+      voiceStatus.textContent="NERAL liest vor · Abschnitt "+index+
+        " von "+chunks.length;
+      speaker.speak(utterance);
+    };
+    next();
   }
   // Explicit file selection only. Binary files are never converted to strings
   // in the browser: the localhost API performs type checks and extraction.
@@ -229,6 +331,7 @@
     }
     const mode=form.querySelector('input[name="mode"]:checked')?.value==="think"
        ? "think":"generate";
+    if(listening)cancelRecognition();
     busy=true;
     submit.disabled=true;
     stopRequest.disabled=false;
@@ -348,8 +451,7 @@
     motionActivity("cancelled");
     if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
     stopAudio();
-    if(recognizer && listening) recognizer.abort();
-    setListening(false);
+    cancelRecognition();
     memory.length=0;
     attachments=[];
     fileInput.value="";
