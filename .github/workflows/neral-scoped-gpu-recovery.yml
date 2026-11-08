@@ -50,7 +50,7 @@ jobs:
        (inputs.mode == 'stop_scoped' &&
         inputs.authorize == 'STOP_NERAL_PINNED_IDLE_CUDA_PROCESS_ONLY'))
     concurrency:
-      group: neral-qwen7b-r32-gpu-exclusive
+      group: ${{ inputs.mode == 'inspect' && 'neral-scoped-gpu-inspect-only' || 'neral-qwen7b-r32-gpu-exclusive' }}
       cancel-in-progress: false
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 10
