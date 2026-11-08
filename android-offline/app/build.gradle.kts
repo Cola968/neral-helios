@@ -7,11 +7,11 @@ android {
     namespace = "ai.neral.offline"
     compileSdk = 35
     defaultConfig {
-        applicationId = "ai.neral.offline.recovery"
+        applicationId = "ai.neral.offline.replyfix"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0-recovery"
+        versionCode = 4
+        versionName = "0.4.0-replyfix"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions {
