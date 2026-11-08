@@ -27,6 +27,11 @@
             <label><input type="radio" name="mode" value="fast" checked> FAST</label>
             <label><input type="radio" name="mode" value="think"> THINK</label>
           </div>
+          <div class="web-opt-in">
+            <label><input type="checkbox" id="webSearch"> Websuche erlauben</label>
+            <label for="webQuery" class="sr-only">Suchbegriff für externe Websuche</label>
+            <input type="text" id="webQuery" maxlength="160" placeholder="Nur diesen Suchbegriff extern suchen">
+          </div>
           <div class="actions">
             <button id="clear" type="button" class="secondary">Verlauf löschen</button>
             <button id="submit" type="submit">Senden</button>
@@ -34,7 +39,7 @@
         </div>
       </form>
       <p id="error" role="alert" aria-live="assertive"></p>
-      <p class="fineprint">Ohne Cloud-KI · keine automatische Modellinstallation · THINK kann länger dauern · mathematische Prüfung nur, wenn ausdrücklich ausgewiesen</p>
+      <p class="fineprint">Ohne Cloud-KI · Websuche nur nach Opt-in (Suchbegriff an DuckDuckGo/Bing) · Treffer ungeprüft · THINK kann länger dauern</p>
     </section>
   </div>
 </body>
