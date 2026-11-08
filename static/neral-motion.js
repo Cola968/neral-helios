@@ -17,7 +17,15 @@
     const description=document.createElement("span");
     description.className="neral-activity-label";
     description.textContent=label;
-    row.append(image,description);
+    // The approved NERAL symbol stays still. Only a small state indicator
+    // moves while there is a real pending action.
+    const mark=document.createElement("span");
+    mark.className="neral-presence";
+    const signal=document.createElement("span");
+    signal.className="neral-presence-signal";
+    signal.setAttribute("aria-hidden","true");
+    mark.append(image,signal);
+    row.append(mark,description);
     return row;
   }
   const preview=document.getElementById("messages");
@@ -66,6 +74,23 @@
       if(!active)return;
       const existing=active.querySelector(".neral-activity-disclosure");
       const keepOpen=existing?.open===true;
+      // Update the existing disclosure in place. Replacing an open details
+      // element for every token/tool event makes it flicker and loses focus.
+      if(existing && steps.length){
+        const label=existing.querySelector("summary");
+        const list=existing.querySelector(".neral-activity-history-list");
+        if(label && list && typeof list.replaceChildren==="function"){
+          label.textContent="Aktivitäten · "+steps.length;
+          const entries=steps.map(entry=>{
+            const li=document.createElement("li");
+            li.dataset.state=entry.state;
+            li.textContent=entry.label;
+            return li;
+          });
+          list.replaceChildren(...entries);
+          return;
+        }
+      }
       existing?.remove();
       if(!steps.length)return;
       const disclosure=createHistory("neral-activity-disclosure",
@@ -150,7 +175,13 @@
         image.src=iconUrl;
         image.alt="";
         image.setAttribute("aria-hidden","true");
-        pending.prepend(image);
+        const mark=document.createElement("span");
+        mark.className="neral-presence neral-presence-pending";
+        const signal=document.createElement("span");
+        signal.className="neral-presence-signal";
+        signal.setAttribute("aria-hidden","true");
+        mark.append(image,signal);
+        pending.prepend(mark);
       }
     };
     const observer=new MutationObserver(markPending);
