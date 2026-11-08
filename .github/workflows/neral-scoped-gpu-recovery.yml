@@ -1,0 +1,98 @@
+name: NERAL scoped idle CUDA runtime recovery (manual)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_scoped_gpu_process.py'
+      - 'tests/test_neral_scoped_gpu_process.py'
+      - '.github/workflows/neral-scoped-gpu-recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_scoped_gpu_process.py'
+      - 'tests/test_neral_scoped_gpu_process.py'
+      - '.github/workflows/neral-scoped-gpu-recovery.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        required: true
+        type: choice
+        default: inspect
+        options: [inspect, stop_scoped]
+      authorize:
+        required: true
+        type: string
+        description: 'Exact inspection or graceful NERAL-only stop permission'
+permissions:
+  contents: read
+jobs:
+  cpu-contract:
+    if: github.event_name != 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove arbitrary and busy Python cannot be terminated
+        run: python -B -m unittest discover -s tests -p test_neral_scoped_gpu_process.py -v
+
+  scoped-pc:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      ((inputs.mode == 'inspect' &&
+        inputs.authorize == 'INSPECT_NERAL_SCOPED_GPU_PYTHON_READONLY') ||
+       (inputs.mode == 'stop_scoped' &&
+        inputs.authorize == 'STOP_NERAL_PINNED_IDLE_CUDA_PROCESS_ONLY'))
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      RECOVERY_MODE: ${{ inputs.mode }}
+      RECOVERY_AUTH: ${{ inputs.authorize }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          clean: true
+          persist-credentials: false
+          path: control
+      - name: Verify all safety tests on the exact private runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+            throw 'Pinned local Python unavailable'
+          }
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_scoped_gpu_process.py -v
+            if($LASTEXITCODE -ne 0){throw 'Safety check failed; refuse process operation'}
+          } finally {Pop-Location}
+      - name: Inspect or gracefully stop only verified idle NERAL runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          Push-Location $control
+          try {
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_scoped_gpu_process --mode $env:RECOVERY_MODE --authorize $env:RECOVERY_AUTH
+            if($LASTEXITCODE -ne 0){throw 'No unverified process may be stopped'}
+          } finally {Pop-Location}
