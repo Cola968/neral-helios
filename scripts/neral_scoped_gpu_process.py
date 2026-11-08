@@ -49,10 +49,14 @@ def _normalize(path):
 def classify_neral_candidate(proc,expected:str,*,now:float)->dict:
     """Inspect process identity without returning identity details."""
     try:
-        same=_normalize(proc.exe())==_normalize(expected)
+        exe_path=proc.exe()
+        same=_normalize(exe_path)==_normalize(expected)
         args=proc.cmdline()
         if type(args) is not list:
             args=[]
+        pinned_launch=bool(args) and _normalize(args[0])==_normalize(expected)
+        compatible_python=ntpath.basename(_normalize(exe_path)) in ("python.exe","pythonw.exe")
+        trusted_interpreter=bool(same or (pinned_launch and compatible_python))
         tail=" ".join(args[1:]).casefold()
         from_neral=("neral" in tail or "helios" in tail)
         runner=any(fragment in tail for fragment in (
@@ -66,7 +70,7 @@ def classify_neral_candidate(proc,expected:str,*,now:float)->dict:
         old=300<=age<365*24*3600
         active_cpu=float(proc.cpu_percent(interval=0.15))>5.0
         alive=bool(proc.is_running()) and proc.status() not in ("zombie","dead")
-        checked=bool(same and from_neral and not runner and not training
+        checked=bool(trusted_interpreter and from_neral and not runner and not training
                      and old and not active_cpu and alive)
     except (OSError,ValueError,TypeError,AttributeError):
         checked=False
@@ -74,6 +78,8 @@ def classify_neral_candidate(proc,expected:str,*,now:float)->dict:
         active_cpu=True
         old=False
         same=False
+        pinned_launch=False
+        compatible_python=False
         from_neral=False
         runner=False
         alive=False
@@ -81,6 +87,8 @@ def classify_neral_candidate(proc,expected:str,*,now:float)->dict:
         "verified":checked,"training_process":bool(training),
         "older_than_5min":bool(old),"busy_cpu":bool(active_cpu),
         "pinned_executable":bool(same),
+        "pinned_launch_argv0":bool(pinned_launch),
+        "compatible_python_binary":bool(compatible_python),
         "project_command":bool(from_neral),
         "runner_process":bool(runner),
         "alive":bool(alive),
@@ -149,7 +157,8 @@ def run(mode:str,authorize:str)->dict:
         "verified_idle_neral_runtime_count":len(candidates),
         "scope_evidence_counts":{
             key:sum(bool(item[key]) for item in observations)
-            for key in ("pinned_executable","project_command",
+            for key in ("pinned_executable","pinned_launch_argv0",
+                        "compatible_python_binary","project_command",
                         "runner_process","training_process",
                         "older_than_5min","busy_cpu","alive")
         },
