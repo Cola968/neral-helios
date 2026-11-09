@@ -27,6 +27,19 @@ class ReleaseArtifactFreshness(unittest.TestCase):
         self.assertIn(".github/workflows/neral-1-0-release-rc.yml",watched)
         self.assertIn("tests/test_neral_1_0_release_artifact_freshness.py",watched)
 
+    def test_tir_smoke_source_changes_also_trigger_exact_sha_release_receipt(self):
+        """Manual TIR GPU acceptance requires a matching successful main release."""
+        wf=WORKFLOW.read_text(encoding="utf-8")
+        pull=wf.split("\\n  pull_request:\\n",1)[1].split("\\n  push:\\n",1)[0]
+        push=wf.split("\\n  push:\\n",1)[1].split("\\npermissions:\\n",1)[0]
+        for path in ("scripts/neral_tir_smoke3.py",
+                     "scripts/neral_ollama_wire_probe.py",
+                     "tests/test_neral_tir_smoke3.py",
+                     "tests/test_neral_ollama_wire_probe.py"):
+            with self.subTest(path=path):
+                self.assertIn("- '"+path+"'",pull)
+                self.assertIn("- '"+path+"'",push)
+
     def test_gpu_exclusive_lock_only_blocks_gpu_not_cpu_release_jobs(self):
         """PR CPU tests must never cancel a queued main release's PC smoke."""
         wf=WORKFLOW.read_text(encoding="utf-8")
