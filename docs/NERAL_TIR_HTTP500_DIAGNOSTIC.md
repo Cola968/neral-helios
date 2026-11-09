@@ -43,6 +43,66 @@ The source comparison does not prove Ollama is at fault; token generation,
 runtime initialization, an Ollama error and a compatibility problem are
 still possible.
 
+
+## Root-cause candidate identified in the Ollama Qwen3.5 parser
+
+NERAL's **old** custom TIR protocol requested JSON nested inside Ollama's
+**reserved** native XML delimiter:
+
+```text
+<tool_call>{"tool":"python_sandbox","code":"print(17*13)"}</tool_call>
+```
+
+This is a protocol collision. Ollama's Qwen3.5 parser reads the same
+`<tool_call>` tag as a native Qwen-Coder XML tool invocation. Its native
+parser expects nested `<function=...>` and `<parameter=...>` XML markup,
+**not JSON between those tags**. NERAL didn't register any native Ollama
+`tools`, so the tool request wasn't a supported native call either.
+
+Ollama upstream issue
+[ollama/ollama#14986](https://github.com/ollama/ollama/issues/14986)
+documents this exact tag+JSON conflict on `qwen3.5:9b`, including an
+Ollama HTTP 500 with an `EOF` parsing error even without registered native
+tools. Issue [ollama/ollama#19187](https://github.com/ollama/ollama/issues/19187)
+documents silent empty responses when the native tool parser discards
+tool-like generated text. These bugs account for both *types* of responses
+observed in NERAL smoke #42662197770 (one Ollama HTTP 500 and three empty
+HTTP 200), but the actual original 500 response body was not retained, so
+this diagnosis is a **strong source-supported hypothesis**, not a confirmed
+post-fix runtime outcome.
+
+### Specific repair
+
+The experimental TIR prompt and strict application parser now use a
+NERAL-specific non-XML envelope:
+
+```text
+NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(17*13)"}
+```
+
+No reserved native Qwen/Ollama tags appear in the prompt or in the
+one-step repair instruction. Legacy XML output is *rejected* by the parser,
+not executed. All tool allowlists, bounded-code limits and Docker isolation
+remain unchanged. The Ollama endpoint, `think:false`, sampling parameters,
+model weights, `num_ctx` and `keep_alive` are unchanged.
+
+The new CPU regression asserts the outgoing TIR prompt contains no
+reserved `<tool_call>` markers, the strict decoder accepts the new
+NERAL-only JSON envelope, and unsafe extra keys/tools or legacy XML
+never execute. This is a **code-path fix**, not yet proof that real
+`qwen3.5:9b` now produces a completed response on the RTX 4070.
+
+### Promotion gate
+
+Before any full development benchmark, the manual **three-task** smoke must
+confirm `http_503 == 0`, `tool_calls_triggered > 0`, at least one
+successful real Python sandbox execution, and inspect the new `eval_count`
+and `ollama_error_type` metadata. If there is a new 500 error, its
+full raw content is retained locally **on the user's PC only**, never
+printed to public GitHub logs. Do not automatically launch GPU workflows
+while preparing or merging this PR.
+
+
 ## New local diagnostic capture
 `scripts/neral_ollama_wire_probe.py` temporarily intercepts *only* the
 manual three-case test's calls to loopback `/api/chat`. Its upstream
