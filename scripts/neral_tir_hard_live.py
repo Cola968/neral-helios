@@ -192,33 +192,51 @@ def validated_tool_counts(packet: dict) -> tuple[int, int]:
     return triggered, succeeded
 
 
+# Only transient local inference failures are eligible for retry. A model
+# exhausting 2,048 output tokens is a TERMINAL completion, not a server outage.
+_TRANSIENT_FAILURES = frozenset({
+    "timeout", "incomplete", "model_error", "server_503",
+})
+
+
 def _run_one(arm: str, question: str, backend, client, headers: dict):
-    from neral_agent_autonomy import AgentModelError
+    from neral_agent_autonomy import AgentModelError, OllamaCompletionError
     from neral_identity import build_identity_prompt
     started = time.monotonic()
     if arm == "raw_qwen35":
         turns = [
-            {"role":"system","content":build_identity_prompt(
-                "web","local_foundation_not_neral_adapter")},
-            {"role":"user","content":question},
+            {"role": "system", "content": build_identity_prompt(
+                "web", "local_foundation_not_neral_adapter")},
+            {"role": "user", "content": question},
         ]
         try:
             result = backend.respond_chat(turns)
+        except OllamaCompletionError as exc:
+            # This is a local inference failure, NEVER an HTTP 503.
+            return "", False, True, time.monotonic()-started, None, 0, 0, exc.reason
         except AgentModelError:
-            return "", False, True, time.monotonic()-started, None, 0, 0
+            return "", False, True, time.monotonic()-started, None, 0, 0, "model_error"
         if not isinstance(result, str) or not result.strip():
             raise PilotBlocked("Raw model returned empty response")
-        return result, True, False, time.monotonic()-started, None, 0, 0
+        return result, True, False, time.monotonic()-started, None, 0, 0, None
     if arm not in ("neral_high", "neral_high_router"):
         raise PilotBlocked("Unknown arm")
     payload = {"prompt": question}
     if arm == "neral_high_router":
         payload["experimental_tir"] = True
+    # Synchronous Flask test client, no async tasks and no concurrent model calls.
     response = client.post("/api/neral/chat/think", json=payload,
                            base_url=BASE_URL, headers=headers)
     seconds = time.monotonic()-started
     if response.status_code == 503:
-        return "", False, True, seconds, None, 0, 0
+        packet = response.get_json(silent=True)
+        code = packet.get("error_code") if isinstance(packet, dict) else None
+        if code not in {
+            "token_limit", "incomplete", "empty_answer",
+            "timeout", "invalid_response", "model_error",
+        }:
+            code = "server_503"
+        return "", False, True, seconds, None, 0, 0, code
     if response.status_code != 200:
         raise PilotBlocked("HIGH gate denied or failed")
     packet = response.get_json(silent=True)
@@ -228,10 +246,26 @@ def _run_one(arm: str, question: str, backend, client, headers: dict):
         if packet.get("experimental_tir") is not True:
             raise PilotBlocked("C arm missing experimental provenance")
     else:
-        # The existing preflight reports its tool by name but not its count.
         triggered = succeeded = int(packet.get("tool_used") is not None)
     return (packet["text"], True, False, seconds, packet.get("tool_used"),
-            triggered, succeeded)
+            triggered, succeeded, None)
+
+
+def run_one_with_backoff(arm: str, question: str, backend, client, headers: dict,
+                         *, sleeper=time.sleep):
+    """At most two sequential retries for transient failures; never for truncation.
+
+    Reuse the same backend/model and exactly the same prompt and decoding
+    parameters. No retries for completed but wrong model answers.
+    """
+    started = time.monotonic()
+    for attempt in range(3):
+        result = _run_one(arm, question, backend, client, headers)
+        if (not result[2] or result[-1] not in _TRANSIENT_FAILURES
+                or attempt == 2):
+            return (*result[:3], time.monotonic()-started, *result[4:])
+        sleeper(0.25 * (2**attempt))
+    raise AssertionError("unreachable")
 
 
 def run_live_hard(*, output_dir: Path, receipt: dict, authorization: str) -> dict:
@@ -256,6 +290,7 @@ def run_live_hard(*, output_dir: Path, receipt: dict, authorization: str) -> dic
     observations=[]
     extra={arm:{"tool_calls_triggered":0,"tool_calls_succeeded":0}
            for arm in ARMS}
+    failures={arm:Counter() for arm in ARMS}
     matrix_private=[]
     output_dir.mkdir(exist_ok=False)
     try:
@@ -267,9 +302,11 @@ def run_live_hard(*, output_dir: Path, receipt: dict, authorization: str) -> dic
                     case["id"].encode("ascii")).digest()[:8],"big")).shuffle(order)
                 arms={}
                 for arm in order:
-                    text,complete,failed,seconds,tool,triggered,succeeded = _run_one(
+                    text,complete,failed,seconds,tool,triggered,succeeded,error_code = run_one_with_backoff(
                         arm,prompt,backend,client,headers)
                     arms[arm] = observation(prompt,text,complete,failed,seconds,tool)
+                    if failed:
+                        failures[arm][error_code or "unknown"] += 1
                     extra[arm]["tool_calls_triggered"] += triggered
                     extra[arm]["tool_calls_succeeded"] += succeeded
                 observations.append({"id":case["id"],"arms":arms})
@@ -299,6 +336,10 @@ def run_live_hard(*, output_dir: Path, receipt: dict, authorization: str) -> dic
     except SameBaseError as exc:
         raise PilotBlocked("Unusable hard36 paired scoring") from exc
     score["collector_status"]=STATUS
+    # The legacy scorer calls all failures 'http_errors', even for raw
+    # local Ollama. Publish sanitized reasons separately, never prompt text.
+    score["failure_classes"]={arm:dict(failures[arm]) for arm in ARMS}
+    score["legacy_http_errors_include_raw_local_failures"]=True
     score["tool_counters"]=extra
     score["gpu_telemetry"]=vram
     score["observed_peak_vram_gib"]=round(vram["peak_used_mib"]/1024,3)
