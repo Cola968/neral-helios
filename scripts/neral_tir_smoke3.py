@@ -43,8 +43,34 @@ def run_smoke_three(backend, client, headers: dict) -> dict:
         successes += succeeded
         # Never print case prompts, model replies, per-case scores or errors.
     total_errors = sum(errors.values())
+    # The backend records only safe, bounded metadata for each real Ollama
+    # call, including transient failures and retries. Whitelist every field
+    # again here: never publish raw server errors, prompts, answers, thoughts
+    # or file paths in GitHub Actions logs.
+    public_keys = (
+        "endpoint", "model", "request_keys", "option_keys",
+        "think", "num_ctx", "num_predict", "temperature",
+        "top_p", "top_k", "presence_penalty", "keep_alive",
+        "ollama_http_status", "ollama_error_type",
+        "content_length", "thinking_length", "done_reason",
+    )
+    private_events = getattr(backend, "inference_diagnostic_events", ())
+    safe_events = []
+    if isinstance(private_events, (list, tuple)):
+        for row in private_events[:24]:
+            if isinstance(row, dict):
+                safe_events.append({key: row.get(key) for key in public_keys})
+    status_counts = Counter(
+        str(row["ollama_http_status"]) if type(row["ollama_http_status"]) is int
+        else "no_http_response" for row in safe_events)
+    type_counts = Counter(
+        row["ollama_error_type"] if isinstance(row["ollama_error_type"], str)
+        else "none" for row in safe_events)
     return {
         "task_count": 3, "arm": "neral_high_router",
+        "ollama_attempts": safe_events,
+        "ollama_http_status_counts": dict(status_counts),
+        "ollama_error_type_counts": dict(type_counts),
         "http_503": total_errors,
         "failure_classes": dict(errors),
         "tool_calls_triggered": calls,
