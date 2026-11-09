@@ -1,0 +1,100 @@
+name: NERAL C-only three-task TIR GPU smoke (NOT hard36)
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_tir_smoke3.py'
+      - 'scripts/neral_tir_hard_live.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_tir_smoke3.py'
+      - 'tests/test_neral_tir_hard_live.py'
+      - 'tests/test_neral_experimental_tir.py'
+      - '.github/workflows/neral-tir-smoke3-gpu.yml'
+  workflow_dispatch:
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'NERAL_TIR_SMOKE3_GPU_MANUAL_ONLY'
+      release_run_id:
+        required: true
+        type: string
+        description: 'Successful exact-SHA main release run'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install preview API requirements for mocked HTTP tests
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Three task CPU and transport contracts ONLY
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_tir_smoke3.py -v
+          python -B -m unittest discover -s tests -p test_neral_tir_hard_live.py -v
+          python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
+          python -B -m unittest discover -s tests -p test_neral_hard36_private_audit.py -v
+  gpu-three-only:
+    needs: cpu-contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_TIR_SMOKE3_GPU_MANUAL_ONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 9
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_EXPERIMENTAL_TIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check exact release receipt and local preinstalled sandbox
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RELEASE_RUN_ID -notmatch '^[0-9]{9,15}$'){throw 'Invalid release ID'}
+          $url="https://api.github.com/repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$env:RELEASE_RUN_ID
+          $receipt=Invoke-RestMethod -Uri $url -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 30
+          if($receipt.name -ne 'NERAL 1.0 release candidate - offline package and LIVE Windows PC smoke' -or
+             $receipt.status -ne 'completed' -or $receipt.conclusion -ne 'success' -or
+             $receipt.event -ne 'push' -or $receipt.head_branch -ne 'main' -or
+             $receipt.head_sha -ne $env:GITHUB_SHA){throw 'Exact SHA release not green'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Local offline Docker image missing or engine stopped'}
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Local Python missing'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-smoke3-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse occupied environment'}
+          & $py -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Unable to create isolated test environment'}
+          $python=Join-Path $venv 'Scripts\python.exe'
+          & $python -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r requirements-neral-preview.txt
+          if($LASTEXITCODE -ne 0){throw 'HTTP dependencies failed'}
+          $receiptPath=Join-Path $env:RUNNER_TEMP ('neral-smoke3-receipt-'+$env:GITHUB_RUN_ID+'.json')
+          $receipt | Select-Object name,status,conclusion,head_branch,event,head_sha |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath $receiptPath -Encoding ascii
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('SMOKE_PY='+$python+[Environment]::NewLine+
+             'SMOKE_RECEIPT='+$receiptPath+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+      - name: Run exactly three C-only questions, print aggregate tool and 503 counters
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & $env:SMOKE_PY -B -m scripts.neral_tir_smoke3 --release-receipt-json $env:SMOKE_RECEIPT --authorize NERAL_TIR_SMOKE3_GPU_MANUAL_ONLY
+          if($LASTEXITCODE -ne 0){throw 'Three-task smoke detected failure; no full benchmark authorized'}
