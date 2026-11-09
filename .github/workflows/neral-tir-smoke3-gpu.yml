@@ -7,6 +7,7 @@ on:
       - 'neral_tir_experimental.py'
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_tir_smoke3.py'
+      - 'tests/test_neral_ollama_diagnostics.py'
       - 'tests/test_neral_tir_hard_live.py'
       - 'tests/test_neral_experimental_tir.py'
       - '.github/workflows/neral-tir-smoke3-gpu.yml'
@@ -39,6 +40,7 @@ jobs:
       - name: Three task CPU and transport contracts ONLY
         run: |
           python -B -m unittest discover -s tests -p test_neral_tir_smoke3.py -v
+          python -B -m unittest discover -s tests -p test_neral_ollama_diagnostics.py -v
           python -B -m unittest discover -s tests -p test_neral_tir_hard_live.py -v
           python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
           python -B -m unittest discover -s tests -p test_neral_hard36_private_audit.py -v
