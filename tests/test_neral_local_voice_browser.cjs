@@ -12,7 +12,7 @@ function setup({ready=true,transcript="Hallo NERAL",reason="",microphoneGate=nul
       textContent:"",value:"",disabled:false,checked:true,
       addEventListener(kind,cb){events.set(id+":"+kind,cb)},
       requestSubmit(){this.submitted=(this.submitted||0)+1},
-      focus(){},setAttribute(){},getAttribute(){return "false"},
+      focus(){},setAttribute(name,value){this[name]=value},getAttribute(name){return this[name]??"false"},
     });
     return elems.get(id);
   };
