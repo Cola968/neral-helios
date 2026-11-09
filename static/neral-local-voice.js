@@ -8,7 +8,7 @@
   const form=$("chatForm"), prompt=$("prompt");
   const browser=window;
   let active=false,starting=false,version=0,phase="idle",csrf=null;
-  let stream=null,context=null,node=null,source=null,replyAudio=null,controller=null;
+  let stream=null,context=null,node=null,source=null,replyAudio=null,controller=null,cancelPlayback=null;
   let preRoll=[],blocks=[],heard=0,silence=0,seconds=0,awaiting=false;
   const SAMPLE_RATE=16000, MAX_SPEECH=12, END_SILENCE=.8;
 
@@ -28,6 +28,9 @@
     version++;
     active=false;starting=false;phase="idle";awaiting=false;
     if(controller){controller.abort();controller=null;}
+    // A stopped Audio element does not fire "ended". Resolve the pending
+    // playback promise and revoke its blob URL before releasing the microphone.
+    if(cancelPlayback)cancelPlayback();
     if(replyAudio){
       try{replyAudio.pause();replyAudio.currentTime=0;}catch{}
       replyAudio=null;
@@ -65,7 +68,7 @@
     const all=new Float32Array(length);
     let offset=0;
     for(const part of parts){all.set(part,offset);offset+=part.length;}
-    const outLength=Math.floor(length*SAMPLE_RATE/rate);
+    const outLength=Math.min(MAX_SPEECH*SAMPLE_RATE,Math.floor(length*SAMPLE_RATE/rate));
     if(outLength<4000||outLength>MAX_SPEECH*SAMPLE_RATE)throw Error("Audio außerhalb des Zeitlimits.");
     const wav=new ArrayBuffer(44+outLength*2);
     const view=new DataView(wav);
@@ -121,6 +124,13 @@
       if(existing){
         turnOff();
         say("Diktat ergänzt · Text prüfen und selbst absenden");
+        return;
+      }
+      // sendMessage silently refuses a new request when a previous one is busy.
+      // Never leave this voice session muted in an unobservable waiting state.
+      if($("submit")?.disabled){
+        turnOff();
+        say("NERAL antwortet noch · Diktat im Eingabefeld prüfen und später absenden");
         return;
       }
       if(!form||typeof form.requestSubmit!=="function"){
@@ -195,10 +205,27 @@
         const url=browser.URL.createObjectURL(wav);
         await new Promise((resolve,reject)=>{
           const audio=new browser.Audio(url);replyAudio=audio;
-          const dispose=()=>{browser.URL.revokeObjectURL(url);replyAudio=null;};
-          audio.onended=()=>{dispose();resolve();};
-          audio.onerror=()=>{dispose();reject(Error("Lokale WAV-Wiedergabe fehlgeschlagen."));};
-          Promise.resolve(audio.play()).catch(error=>{dispose();reject(error);});
+          let settled=false;
+          const finish=error=>{
+            if(settled)return;
+            settled=true;
+            audio.onended=null;
+            audio.onerror=null;
+            browser.URL.revokeObjectURL(url);
+            if(replyAudio===audio)replyAudio=null;
+            if(cancelPlayback===cancel)cancelPlayback=null;
+            if(error)reject(error);
+            else resolve();
+          };
+          const cancel=()=>{
+            try{audio.pause();audio.currentTime=0;}catch{}
+            finish();
+          };
+          cancelPlayback=cancel;
+          audio.onended=()=>finish();
+          audio.onerror=()=>finish(Error("Lokale WAV-Wiedergabe fehlgeschlagen."));
+          try{Promise.resolve(audio.play()).catch(finish);}
+          catch(error){finish(error);}
         });
       }
       if(active&&current===version)rearm("Du kannst weiterreden · lokales Mikrofon aktiv");
@@ -210,12 +237,16 @@
       say("Websuche deaktivieren, bevor der vollständig lokale Sprachmodus startet.");
       return;
     }
-    if(!csrf&&!(browser.AudioContext||browser.webkitAudioContext)){
+    if(!(browser.AudioContext||browser.webkitAudioContext)){
       say("WebAudio ist in diesem Browser nicht verfügbar.");
       return;
     }
     const current=++version;
-    starting=true;button.disabled=true;
+    starting=true;
+    // Keep the same button clickable while the browser permission prompt
+    // is open. A second click invalidates the pending getUserMedia result.
+    setVoiceButtonLabel("Sprachstart abbrechen");
+    say("Prüfe lokale Sprachmodelle …");
     try {
       const session=await requestJSON("/api/neral/preview/session");
       const state=await requestJSON("/api/neral/voice/status");
@@ -262,7 +293,13 @@
       setVoiceButtonLabel("Lokalen Sprachmodus beenden");
       rearm();
     }catch(e){if(current===version)fail(e.message||"Lokales Mikrofon konnte nicht gestartet werden.");}
-    finally{starting=false;button.disabled=false;}
+    finally{
+      if(current===version){
+        starting=false;
+        if(!active)setVoiceButtonLabel("Lokaler Sprachmodus");
+      }
+      button.disabled=false;
+    }
   }
   button.addEventListener("click",start);
   browser.addEventListener("neral:voice-answer",event=>{
@@ -270,6 +307,13 @@
     awaiting=false;
     const reply=event?.detail?.text;
     if(typeof reply==="string"&&reply.trim())void playAnswer(reply);
+  });
+  // The chat frontend reports failed/cancelled model turns through this
+  // event. Recover from failed inference instead of waiting forever.
+  browser.addEventListener("neral:activity",event=>{
+    if(!active||!awaiting||phase!=="waiting")return;
+    if(event?.detail?.phase==="error"||event?.detail?.phase==="cancelled")
+      rearm("NERAL hat nicht geantwortet · erneut sprechen");
   });
   $("clear").addEventListener("click",turnOff);
   $("stopRequest").addEventListener("click",()=>{
