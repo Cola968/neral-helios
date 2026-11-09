@@ -108,6 +108,43 @@ def run_smoke_three(backend, client, headers: dict, *,
     }
 
 
+def save_private_ollama_errors(errors: list[dict], *,
+                               base_dir: Path | None = None) -> bool:
+    """Store exact Ollama 500 body on the PC only, never in GitHub logs.
+
+    Private raw errors may contain a prompt. No artifacts, stdout, telemetry
+    or GitHub upload. A new file is created with restrictive permissions.
+    """
+    if not errors:
+        return False
+    import re
+    if base_dir is None:
+        base_dir = (Path.home() / "NERAL-QLoRA-Research" /
+                    "private-ollama-diagnostics")
+    base_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        base_dir.chmod(0o700)
+    except OSError:
+        pass  # Windows ACL ownership is inherited from the owner's home.
+    run_id = os.environ.get("GITHUB_RUN_ID", "local")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    if re.fullmatch(r"[0-9]{1,18}", run_id) is None:
+        run_id = "local"
+    if re.fullmatch(r"[0-9]{1,8}", attempt) is None:
+        attempt = "1"
+    unique = str(time.time_ns())
+    path = base_dir / ("smoke3-ollama-error-" + run_id + "-" +
+                       attempt + "-" + unique + ".json")
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump({"scope": "owner_local_only", "errors": errors},
+                  handle, ensure_ascii=False, indent=2)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return True
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--authorize", required=True)
@@ -135,17 +172,24 @@ def main():
     from unittest.mock import patch
     from scripts.neral_ollama_wire_probe import make_capturing_opener
     wire_events = []
+    private_errors = []
     upstream_factory = neral_agent_autonomy.local_only_opener
+    private_saved = False
     try:
         client, headers = _high_client(backend)
         with patch.object(
             neral_agent_autonomy, "local_only_opener",
-            new=make_capturing_opener(upstream_factory, wire_events),
+            new=make_capturing_opener(
+                upstream_factory, wire_events, private_errors=private_errors),
         ):
             report = run_smoke_three(
                 backend, client, headers, wire_events=wire_events)
     finally:
-        backend.unload()
+        try:
+            private_saved = save_private_ollama_errors(private_errors)
+        finally:
+            backend.unload()
+    report["private_error_details_saved_locally"] = private_saved
     print(json.dumps(report, sort_keys=True), flush=True)
     if not report["ready_for_larger_development_test"]:
         raise SystemExit(2)
