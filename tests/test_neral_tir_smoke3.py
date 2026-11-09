@@ -5,6 +5,48 @@ from unittest.mock import patch
 from scripts.neral_tir_smoke3 import TASKS, run_smoke_three
 
 
+
+class VramPreflightWaitContracts(unittest.TestCase):
+    def test_cached_ollama_gpu_memory_may_clear_without_force_stopping_models(self):
+        from scripts.neral_tir_smoke3 import wait_for_gpu_idle
+        samples = iter([(7400, 12282), (7000, 12282), (3200, 12282)])
+        waits = []
+        result = wait_for_gpu_idle(
+            audit=lambda: next(samples),
+            clock=lambda: sum(waits),
+            sleep=lambda seconds: waits.append(seconds),
+            max_wait_seconds=60,
+            interval_seconds=10,
+        )
+        self.assertTrue(result)
+        self.assertEqual(waits, [10, 10])
+
+    def test_busy_gpu_is_still_rejected_after_bounded_wait(self):
+        from scripts.neral_tir_smoke3 import wait_for_gpu_idle
+        waits = []
+        with self.assertRaisesRegex(RuntimeError, "GPU is not idle"):
+            wait_for_gpu_idle(
+                audit=lambda: (8000, 12282),
+                clock=lambda: sum(waits),
+                sleep=lambda seconds: waits.append(seconds),
+                max_wait_seconds=25,
+                interval_seconds=10,
+            )
+        self.assertEqual(waits, [10, 10, 5])
+
+    def test_idle_gpu_passes_without_delay(self):
+        from scripts.neral_tir_smoke3 import wait_for_gpu_idle
+        waits = []
+        self.assertTrue(wait_for_gpu_idle(
+            audit=lambda: (1000, 12282),
+            clock=lambda: 0,
+            sleep=lambda seconds: waits.append(seconds),
+            max_wait_seconds=60,
+            interval_seconds=10,
+        ))
+        self.assertEqual(waits, [])
+
+
 class ThreeCaseSmokeContracts(unittest.TestCase):
     def test_three_cases_only_and_counts_real_c_tool_call_packets(self):
         observed = []

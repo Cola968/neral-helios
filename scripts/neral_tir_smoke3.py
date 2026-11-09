@@ -145,6 +145,33 @@ def save_private_ollama_errors(errors: list[dict], *,
     return True
 
 
+
+def wait_for_gpu_idle(*, audit=None, clock=time.monotonic,
+                      sleep=time.sleep, max_wait_seconds=350,
+                      interval_seconds=10) -> bool:
+    """Bounded wait for cached Ollama weights to leave GPU VRAM.
+
+    Never unload another model or GPU process; never reduce the
+    existing minimum free-VRAM requirement of 7000 MiB.
+    """
+    if audit is None:
+        from scripts.neral_foundation_2048_retest import _read_gpu_memory
+        audit = _read_gpu_memory
+    if (not callable(audit) or not callable(clock) or not callable(sleep)
+            or not 0 < max_wait_seconds <= 360
+            or not 0 < interval_seconds <= 60):
+        raise ValueError("Invalid bounded GPU idle preflight")
+    start = clock()
+    while True:
+        used, total = audit()
+        if total - used >= 7000:
+            return True
+        remaining = max_wait_seconds - (clock() - start)
+        if remaining <= 0:
+            raise RuntimeError("GPU is not idle; refuse smoke test")
+        sleep(min(interval_seconds, remaining))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--authorize", required=True)
@@ -154,16 +181,15 @@ def main():
         raise RuntimeError("Opt-in three-task local GPU smoke not authorized")
     from scripts.neral_same_base_live import release_gate, require_model, _high_client
     from scripts.neral_same_base_ab_score import MODEL, PROFILE
-    from scripts.neral_foundation_2048_retest import _read_gpu_memory
     from neral_agent_autonomy import OllamaLocalBackend
     receipt = json.loads(args.release_receipt_json.read_text(encoding="utf8"))
     release_gate(receipt)
     require_model(__import__(
         "scripts.neral_v7_foundation_tournament",
         fromlist=["OllamaLocal"]).OllamaLocal(timeout=120).inventory())
-    used, total = _read_gpu_memory()
-    if total - used < 7000:
-        raise RuntimeError("GPU is not idle; refuse smoke test")
+    # The exact-SHA main release smoke may leave Ollama weights cached.
+    # Wait for idle VRAM, but never force-unload or reduce the safety bar.
+    wait_for_gpu_idle()
     backend = OllamaLocalBackend(MODEL, timeout=90, inference_profile=PROFILE)
     # Scope the diagnostic interceptor to these THREE calls only. The original
     # localhost-only opener stays in force and all HTTP bytes are replayed to
