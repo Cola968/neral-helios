@@ -29,5 +29,31 @@ class ThreeCaseSmokeContracts(unittest.TestCase):
         self.assertEqual(result["tool_calls_triggered"],0)
         self.assertFalse(result["ready_for_larger_development_test"])
 
+
+    def test_safe_per_attempt_ollama_http_and_thinking_diagnostics(self):
+        class Backend:
+            inference_diagnostic_events = [{
+                "endpoint": "/api/chat",
+                "model": "qwen3.5:9b",
+                "request_keys": ["keep_alive", "messages", "model", "options", "stream", "think"],
+                "option_keys": ["num_ctx", "num_predict", "top_k"],
+                "think": False, "keep_alive": "5m",
+                "ollama_http_status": 400,
+                "ollama_error_type": "invalid_option",
+                "content_length": 0, "thinking_length": 31,
+                "done_reason": None,
+                "private_prompt": "DO_NOT_UPLOAD_SECRET",
+            }]
+        with patch("scripts.neral_tir_smoke3.run_one_with_backoff",
+                   return_value=("",False,True,1.0,None,0,0,"model_error")):
+            result = run_smoke_three(Backend(),None,{})
+        self.assertEqual(result["ollama_http_status_counts"], {"400":1})
+        self.assertEqual(result["ollama_error_type_counts"], {"invalid_option":1})
+        self.assertEqual(result["ollama_attempts"][0]["content_length"],0)
+        self.assertEqual(result["ollama_attempts"][0]["thinking_length"],31)
+        self.assertNotIn("DO_NOT_UPLOAD_SECRET",repr(result))
+        self.assertEqual(result["http_503"],3)
+
+
 if __name__=="__main__":
     unittest.main()
