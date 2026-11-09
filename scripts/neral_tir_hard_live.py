@@ -233,7 +233,7 @@ def _run_one(arm: str, question: str, backend, client, headers: dict):
         code = packet.get("error_code") if isinstance(packet, dict) else None
         if code not in {
             "token_limit", "incomplete", "empty_answer",
-            "timeout", "invalid_response", "model_error",
+            "timeout", "invalid_response", "model_error", "internal_error",
         }:
             code = "server_503"
         return "", False, True, seconds, None, 0, 0, code
