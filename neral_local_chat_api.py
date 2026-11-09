@@ -8,6 +8,7 @@ This module is a synchronous, bounded first chat interface, not streaming.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -15,7 +16,7 @@ import time
 from flask import Response, jsonify, request, stream_with_context
 
 from neral_identity import build_identity_prompt
-from neral_agent_autonomy import OllamaCompletionError
+from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
 
 _SAFE_OLLAMA_ERROR_TEXT = {
     "token_limit": "Lokale Antwort am Ausgabelimit abgeschnitten. Bitte kürzer fragen oder die Aufgabe aufteilen.",
@@ -186,7 +187,6 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
     """One local GPU chat lock for both foundations and all chat modes."""
     busy = threading.Lock()
     if experimental_high_backend is not None:
-        from neral_agent_autonomy import OllamaLocalBackend
         if (not isinstance(backend, OllamaLocalBackend)
                 or not isinstance(experimental_high_backend, OllamaLocalBackend)
                 or backend.model != "qwen3:8b"
@@ -431,12 +431,28 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         if not request.is_json:
             return jsonify(error="Nur JSON-Anfragen erlaubt."), 415
         try:
-            data = _messages(request.get_json(silent=True))
+            payload = request.get_json(silent=True)
+            if not isinstance(payload, dict):
+                raise ValueError("Invalid JSON")
+            experimental_tir = payload.get("experimental_tir", False)
+            if type(experimental_tir) is not bool:
+                raise ValueError("Invalid experimental flag")
+            # Keep _messages strict; a TIR switch is not a new chat message.
+            clean = {k: v for k, v in payload.items()
+                     if k != "experimental_tir"}
+            data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
+        if experimental_tir and os.environ.get("NERAL_EXPERIMENTAL_TIR") != "1":
+            return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
+        if (experimental_tir and (
+                not isinstance(high_backend, OllamaLocalBackend)
+                or high_backend.model != "qwen3.5:9b"
+                or high_backend.inference_profile != "measured_nonthinking_2048")):
+            return jsonify(error="TIR erfordert das lokale Qwen3.5:9B Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
@@ -454,15 +470,23 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 local_respond = getattr(high_backend, "respond_chat", None)
             if not callable(local_respond):
                 local_respond = high_backend.respond
-            from neral_agent_autonomy import OllamaLocalBackend
             # Only a real local Ollama backend receives opt-in second review.
             deep_review = isinstance(high_backend, OllamaLocalBackend)
             if deep_review:
                 from neral_high_verified_first import direct_high_reply
                 direct = direct_high_reply(data)
                 if direct is not None:
+                    if experimental_tir:
+                        direct = {**direct, "tool_calls_triggered": 1,
+                                  "tool_calls_succeeded": 1,
+                                  "experimental_tir": True}
                     return jsonify({**direct, **_provenance(high_backend)})
             prepare_model(high_backend)
+            if experimental_tir:
+                from neral_tir_experimental import run_experimental_tir
+                result = run_experimental_tir(data, high_backend.respond_chat)
+                return jsonify({**result, "experimental_tir": True,
+                                **_provenance(high_backend)})
             result = think_reply(data, local_respond, deep_review=deep_review)
             return jsonify({**result, **_provenance(high_backend)})
         except OllamaCompletionError as exc:
