@@ -22,15 +22,19 @@ _TOOL_CALL = re.compile(r"\s*<tool_call>(?P<data>[\s\S]{1,4400}?)</tool_call>\s*
 _INTEGER = re.compile(r"[+-]?\d{1,15}\Z")
 _ALLOWED_TOOLS = frozenset({"solve", "python_sandbox"})
 _PROMPT = (
-    "\nEXPERIMENTAL LOCAL TIR: If the question needs exact numerical "
-    "computation or Python code execution, return ONLY the following single "
-    "tool-call form with strict JSON (no Markdown): "
+    "\nEXPERIMENTAL LOCAL TIR: You have two safe, local tools. "
+    "For a user question whose answer requires exact arithmetic, counting "
+    "combinations or permutations, Boolean assignments, time-zone arithmetic, "
+    "or checking Python code, YOU MUST call a tool BEFORE giving a numerical "
+    "answer; do not guess. Use solve ONLY for arithmetic expressions or linear "
+    "equations; use python_sandbox for all other computations or Python checks. "
+    "Respond with exactly ONE strict JSON tool-call, no explanation or Markdown: "
     '<tool_call>{"tool":"solve","code":"17*13"}</tool_call> '
     "or "
     '<tool_call>{"tool":"python_sandbox","code":"print(17*13)"}</tool_call>. '
-    "Use solve only for a supported arithmetic expression or linear equation. "
-    "For an open-ended knowledge or conversation question, answer normally "
-    "without any tool. Do not invent executed results. A tool is optional."
+    "Write self-contained standard-library Python code with a single printed "
+    "result. Never invent execution results. For knowledge or conversation "
+    "without a needed computation, answer normally without tools."
 )
 
 
@@ -174,6 +178,12 @@ def run_experimental_tir(
         raise ValueError("Invalid experimental TIR input")
     started = clock()
     turns = [dict(row) for row in messages]
+    # A benchmark's terminal output-format line is an output contract, not
+    # part of the computational problem. Strip only the one exact, trusted
+    # suffix; keep the original for output formatting after tool execution.
+    core_task, format_suffix = split_task_and_format_instruction(messages[-1]["content"])
+    if format_suffix:
+        turns[-1]["content"] = core_task
     turns[0]["content"] += _PROMPT
     triggered = succeeded = 0
     tool_used = None
@@ -187,7 +197,8 @@ def run_experimental_tir(
             if "<tool_call" in answer or "</tool_call>" in answer or attempt != 0:
                 break
             return {
-                "text": answer, "mode": "HIGH", "model_generated": True,
+                "text": _display_output(answer, messages[-1]["content"]),
+                "mode": "HIGH", "model_generated": True,
                 "verified": False, "verification_status": "not_available",
                 "verification_scope": "none", "calls_used": 1,
                 "tool_calls_triggered": 0, "tool_calls_succeeded": 0,

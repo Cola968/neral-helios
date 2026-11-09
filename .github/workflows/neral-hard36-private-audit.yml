@@ -1,0 +1,45 @@
+name: NERAL prior hard36 reasoning audit (CPU read-only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_hard36_private_audit.py'
+      - '.github/workflows/neral-hard36-private-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: CPU diagnostic contracts, no private data
+        run: python -B -m unittest discover -s tests -p test_neral_hard36_private_audit.py -v
+  previous-run-audit:
+    needs: audit-contracts
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Aggregate existing local private 36-case responses (NO inference)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $private=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\tir-hard36-private-42640667778-2\hard36-private.json'
+          if(-not (Test-Path -LiteralPath $py -PathType Leaf)){throw 'Local python unavailable'}
+          if(-not (Test-Path -LiteralPath $private -PathType Leaf)){throw 'Prior private result unavailable'}
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & $py -B -m scripts.neral_hard36_private_audit --private-json $private
+          if($LASTEXITCODE -ne 0){throw 'Private audit failed safely'}
