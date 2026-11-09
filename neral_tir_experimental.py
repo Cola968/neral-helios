@@ -34,10 +34,11 @@ _PROMPT = (
     "There are NO native Ollama function tools in this request. "
     "Write exactly one plain-text line starting with NERAL_EXECUTE_JSON: "
     "followed by a strict JSON object, without Markdown or XML tags. "
-    "Example A: NERAL_EXECUTE_JSON: "
-    '{\"tool\":\"solve\",\"code\":\"17*13\"}. '
-    "Example B: NERAL_EXECUTE_JSON: "
-    '{\"tool\":\"python_sandbox\",\"code\":\"print(17*13)\"}. '
+    "Example for arithmetic: NERAL_EXECUTE_JSON: "
+    '{\"tool\":\"solve\",\"code\":\"17*13\"} '
+    "Example for other computations: NERAL_EXECUTE_JSON: "
+    '{\"tool\":\"python_sandbox\",\"code\":\"print(17*13)\"} '
+    "No punctuation after the final JSON brace. "
     "Use only tool and code keys; all code must be self-contained "
     "standard-library Python with a single printed result. "
     "Never invent execution results. For conversation or knowledge "
