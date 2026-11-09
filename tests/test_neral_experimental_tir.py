@@ -91,13 +91,13 @@ class TIRLoopRegression(unittest.TestCase):
     SUFFIX = SuffixRegression.SUFFIX
     def test_tool_schema_strict(self):
         self.assertEqual(parse_tool_call(
-            '<tool_call>{"tool":"solve","code":"17*13"}</tool_call>'),
+            'NERAL_EXECUTE_JSON: {"tool":"solve","code":"17*13"}'),
             ("solve", "17*13"))
         for candidate in (
-            '<tool_call>{"tool":"shell","code":"whoami"}</tool_call>',
-            '<tool_call>{"tool":"solve","code":"17*13","admin":true}</tool_call>',
-            'before <tool_call>{"tool":"solve","code":"17*13"}</tool_call>',
-            '<tool_call>{"tool":"solve","code":1}</tool_call>',
+            'NERAL_EXECUTE_JSON: {"tool":"shell","code":"whoami"}',
+            'NERAL_EXECUTE_JSON: {"tool":"solve","code":"17*13","admin":true}',
+            'before NERAL_EXECUTE_JSON: {"tool":"solve","code":"17*13"}',
+            'NERAL_EXECUTE_JSON: {"tool":"solve","code":1}',
         ):
             with self.subTest(candidate=candidate):
                 self.assertIsNone(parse_tool_call(candidate))
@@ -116,8 +116,8 @@ class TIRLoopRegression(unittest.TestCase):
                 calls = []
                 def respond(turns):
                     self.assertNotIn("Gib das Ergebnis", turns[-1]["content"])
-                    return '<tool_call>' + __import__("json").dumps(
-                        {"tool": tool, "code": code}) + '</tool_call>'
+                    return 'NERAL_EXECUTE_JSON: ' + __import__("json").dumps(
+                        {"tool": tool, "code": code}) + ''
                 def runner(tool_name, python_code):
                     calls.append((tool_name, python_code))
                     return {"status": "PASSED", "output": expected,
@@ -134,7 +134,7 @@ class TIRLoopRegression(unittest.TestCase):
         seen = []
         def respond(turns):
             seen.append(turns)
-            return '<tool_call>{"tool":"python_sandbox","code":"print(6*7)"}</tool_call>'
+            return 'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(6*7)"}'
         def runner(tool, code):
             self.assertEqual((tool, code), ("python_sandbox", "print(6*7)"))
             return {"status": "PASSED", "output": "42", "verification_scope": "execution_only"}
@@ -148,8 +148,8 @@ class TIRLoopRegression(unittest.TestCase):
 
     def test_exactly_one_repair_after_failure(self):
         responses = iter([
-            '<tool_call>{"tool":"python_sandbox","code":"print(x)"}</tool_call>',
-            '<tool_call>{"tool":"python_sandbox","code":"print(42)"}</tool_call>',
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(x)"}',
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(42)"}',
         ])
         seen = []
         def respond(turns):
@@ -169,7 +169,7 @@ class TIRLoopRegression(unittest.TestCase):
 
     def test_error_twice_is_explicitly_unverified(self):
         def respond(turns):
-            return '<tool_call>{"tool":"solve","code":"1/0"}</tool_call>'
+            return 'NERAL_EXECUTE_JSON: {"tool":"solve","code":"1/0"}'
         result = run_experimental_tir(messages("Calculate something"), respond,
                                       tool_runner=lambda tool, code: {
                                           "status": "FAILED", "error_type": "RuntimeError",
@@ -192,7 +192,7 @@ class TIRLoopRegression(unittest.TestCase):
     def test_rejects_extraneous_tool_instructions(self):
         result = run_experimental_tir(
             messages("Check something"), lambda turns:
-            '<tool_call>{"tool":"shell","code":"rm -rf /"}</tool_call>',
+            'NERAL_EXECUTE_JSON: {"tool":"shell","code":"rm -rf /"}',
             tool_runner=lambda *args: self.fail("Must not invoke unapproved tool"))
         self.assertEqual(result["verification_status"], "unverified_fallback")
         self.assertEqual(result["tool_calls_triggered"], 0)
