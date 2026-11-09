@@ -16,7 +16,7 @@ import time
 from flask import Response, jsonify, request, stream_with_context
 
 from neral_identity import build_identity_prompt
-from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
+from neral_agent_autonomy import AgentModelError, OllamaCompletionError, OllamaLocalBackend
 
 _SAFE_OLLAMA_ERROR_TEXT = {
     "token_limit": "Lokale Antwort am Ausgabelimit abgeschnitten. Bitte kürzer fragen oder die Aufgabe aufteilen.",
@@ -492,9 +492,15 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         except OllamaCompletionError as exc:
             return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
                            error_code=exc.reason), 503
+        except AgentModelError:
+            # A local Ollama transport/backend failure is distinct from
+            # exhausted tokens and from unexpected application exceptions.
+            return jsonify(error="Lokale Modell-Inferenz nicht verfügbar.",
+                           error_code="model_error"), 503
         except Exception:
             # Never leak local paths, checkpoints, prompts or model outputs.
-            return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden."), 503
+            return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden.",
+                           error_code="internal_error"), 503
         finally:
             busy.release()
 
