@@ -1,8 +1,8 @@
-"""Development-only nonregression check for NERAL's fixed Hard36 diagnostic.
+"""Development-only paired nonregression diagnostic for NERAL's Hard36 runs.
 
-This cannot approve a release, prove model intelligence, or substitute for a
-separately held-out evaluation. It only detects loss of measured correct cases
-in a complete, pinned 36-case development summary.
+Hard36 draws a new random 36-case set on every run. Compare Qwen and NERAL
+within the SAME run, never against the raw 20/36 obtained in an earlier run.
+This script cannot authorize deployment, verify a holdout or validate weights.
 """
 from __future__ import annotations
 
@@ -14,30 +14,46 @@ from pathlib import Path
 def assess_hard36(summary: dict) -> dict:
     if type(summary) is not dict:
         raise ValueError("Expected a JSON object")
-    if (summary.get("status") != "NERAL_TIR_HARD36_DEVELOPMENT_ONLY"
+    if (summary.get("status") != "NERAL_SAME_BASE_3ARM_DEVELOPMENT_DIAGNOSTIC"
+            or summary.get("collector_status") != "NERAL_TIR_HARD36_DEVELOPMENT_ONLY"
             or summary.get("cases") != 36
             or summary.get("independent_holdout_verified") is not False
-            or summary.get("weight_improvement_proven") is not False):
+            or summary.get("weight_improvement_proven") is not False
+            or summary.get("automatic_promotion_authorized") is not False):
         raise ValueError("Wrong development-only benchmark provenance")
-    counts = summary.get("correct")
-    if type(counts) is not dict:
-        raise ValueError("Missing per-arm correct counts")
-    baseline, candidate = counts.get("raw_qwen35"), counts.get("neral_high_router")
-    if (type(baseline) is not int or baseline != 20
-            or type(candidate) is not int or not 0 <= candidate <= 36):
-        raise ValueError("Incompatible baseline or invalid candidate count")
+
+    arms = summary.get("arms")
+    paired = summary.get("paired")
+    if type(arms) is not dict or type(paired) is not dict:
+        raise ValueError("Missing paired scorer results")
+    raw = arms.get("raw_qwen35")
+    candidate = arms.get("neral_high_router")
+    match = paired.get("neral_high_router_vs_raw_qwen35")
+    if any(type(v) is not dict for v in (raw, candidate, match)):
+        raise ValueError("Missing same-run baseline, candidate or paired result")
+
+    baseline, result = raw.get("correct"), candidate.get("correct")
+    wins, losses = match.get("wins"), match.get("losses")
+    if (any(type(v) is not int or not 0 <= v <= 36
+            for v in (baseline, result, wins, losses))
+            or wins + losses > 36
+            or result - baseline != wins - losses
+            or losses > baseline or wins > 36 - baseline):
+        raise ValueError("Invalid or inconsistent same-run paired counts")
+
     return {
         "scope": "hard36_development_only",
         "baseline_correct": baseline,
-        "candidate_correct": candidate,
-        "regression_cases": max(0, baseline - candidate),
-        "development_gate_passed": candidate >= baseline,
+        "candidate_correct": result,
+        "paired_wins": wins,
+        "paired_losses": losses,
+        "development_gate_passed": result >= baseline,
         "promotion_allowed": False,
         "independent_holdout_verified": False,
         "explanation": (
-            "No decline on the fixed development metric; this is not a release gate"
-            if candidate >= baseline else
-            "Candidate regressed versus raw Qwen3.5 on the fixed development metric"
+            "No score decline on this SAME set of 36 development cases; not a release approval"
+            if result >= baseline else
+            "Candidate regressed against SAME-RUN raw Qwen on development cases"
         ),
     }
 
@@ -45,7 +61,7 @@ def assess_hard36(summary: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summary", type=Path,
-                        help="Actual scalar-summary.json from a completed GPU hard36 run")
+                        help="Actual scalar-summary.json from a completed Hard36 GPU run")
     args = parser.parse_args()
     try:
         report = assess_hard36(json.loads(args.summary.read_text(encoding="utf-8")))
