@@ -179,6 +179,60 @@ class TIRLoopRegression(unittest.TestCase):
         self.assertEqual(result["verification_status"], "unverified_fallback")
         self.assertFalse(result["verified"])
 
+    def test_plain_first_reply_gets_one_model_driven_tool_decision_retry(self):
+        """No benchmark-specific keywords: let the model reconsider tool use."""
+        calls = []
+        seen = []
+        replies = iter([
+            "I estimate the count is 42.",
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(40+2)"}',
+        ])
+        def respond(turns):
+            seen.append([dict(t) for t in turns])
+            return next(replies)
+        def runner(tool, code):
+            calls.append((tool, code))
+            return {"status": "PASSED", "output": "42",
+                    "verification_scope": "execution_only"}
+        result = run_experimental_tir(
+            messages("Determine an exact combinatorial count with constraints."),
+            respond, tool_runner=runner)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[1][-2]["role"], "assistant")
+        self.assertEqual(seen[1][-1]["role"], "user")
+        self.assertIn("NERAL_EXECUTE_JSON:", seen[1][-1]["content"])
+        self.assertNotIn("<tool_call", seen[1][-1]["content"])
+        self.assertEqual(calls, [("python_sandbox", "print(40+2)")])
+        self.assertEqual(result["tool_calls_triggered"], 1)
+        self.assertEqual(result["tool_calls_succeeded"], 1)
+        self.assertEqual(result["text"], "42")
+
+    def test_explicit_model_no_tool_decision_never_invokes_runner(self):
+        seen = []
+        def respond(turns):
+            seen.append(turns)
+            return "NERAL_FINAL_TEXT: A galaxy contains stars and gas."
+        result = run_experimental_tir(
+            messages("What is a galaxy?"), respond,
+            tool_runner=lambda *_: self.fail("No tool approved"))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(result["text"], "A galaxy contains stars and gas.")
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["tool_calls_triggered"], 0)
+
+    def test_second_plain_answer_does_not_loop_or_execute(self):
+        seen = []
+        def respond(turns):
+            seen.append([dict(t) for t in turns])
+            return "An ordinary explanatory answer."
+        result = run_experimental_tir(
+            messages("Explain a general concept."), respond,
+            tool_runner=lambda *_: self.fail("Must not call tools"))
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(result["text"], "An ordinary explanatory answer.")
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["tool_calls_triggered"], 0)
+
     def test_plain_chat_never_calls_tools(self):
         seen = []
         result = run_experimental_tir(
