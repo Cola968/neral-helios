@@ -5,14 +5,14 @@ const vm=require("node:vm");
 const fs=require("node:fs");
 const path=require("node:path");
 
-function setup({ready=true,transcript="Hallo NERAL",reason=""}={}){
-  const events=new Map(), elems=new Map(), requests=[], tracks=[], worklets=[], audios=[];
+function setup({ready=true,transcript="Hallo NERAL",reason="",microphoneGate=null}={}){
+  const events=new Map(), elems=new Map(), requests=[], tracks=[], worklets=[], audios=[], objectURLs=[];
   const element=id=>{
     if(!elems.has(id))elems.set(id,{
       textContent:"",value:"",disabled:false,checked:true,
       addEventListener(kind,cb){events.set(id+":"+kind,cb)},
       requestSubmit(){this.submitted=(this.submitted||0)+1},
-      focus(){},setAttribute(){},getAttribute(){return "false"},
+      focus(){},setAttribute(name,value){this[name]=value},getAttribute(name){return this[name]??"false"},
     });
     return elems.get(id);
   };
@@ -37,9 +37,17 @@ function setup({ready=true,transcript="Hallo NERAL",reason=""}={}){
     pause(){this.paused=true}
   }
   const win={AudioContext,AudioWorkletNode,Audio,URL:{
-    createObjectURL(){return "blob:audio"}, revokeObjectURL(){},
+    createObjectURL(){
+      const url="blob:audio-"+objectURLs.length;
+      objectURLs.push({url,revoked:false});
+      return url;
+    },
+    revokeObjectURL(url){
+      const entry=objectURLs.find(item=>item.url===url);
+      if(entry)entry.revoked=true;
+    },
   },addEventListener(name,cb){events.set("window:"+name,cb)}};
-  const navigator={mediaDevices:{async getUserMedia(){micCount++;tracks.push(track);return stream}}};
+  const navigator={mediaDevices:{async getUserMedia(){micCount++;if(microphoneGate)await microphoneGate();tracks.push(track);return stream}}};
   const fetch=async(url,options={})=>{
     requests.push({url,options});
     if(url.endsWith("/status"))return {ok:true,json:async()=>({
@@ -54,7 +62,7 @@ function setup({ready=true,transcript="Hallo NERAL",reason=""}={}){
                        fetch,Audio,URL:win.URL,AbortController,Float32Array,
                        ArrayBuffer,DataView,Blob,Math,Number,TextEncoder,console},
                      {timeout:2000});
-  return {element,events,requests,tracks,worklets,audios,win,
+  return {element,events,requests,tracks,worklets,audios,objectURLs,win,
           micCount:()=>micCount,node:()=>AudioWorkletNode.latest,
           context:()=>AudioContext.latest};
 }
@@ -177,4 +185,55 @@ test("unsupported frozen EXE shows safe ZIP-only explanation without accessing m
   await s.events.get("localVoiceStart:click")();
   assert.equal(s.micCount(),0);
   assert.equal(s.element("localVoiceStatus").textContent,reason);
+});
+
+test("failed model response reopens local microphone instead of hanging in waiting",async()=>{
+  const s=setup();await flush();
+  await s.events.get("localVoiceStart:click")();
+  await pulse(s,.1,.5);await pulse(s,0,.9);
+  assert.equal(s.tracks[0].enabled,false);
+  s.events.get("window:neral:activity")({detail:{phase:"error"}});
+  assert.equal(s.tracks[0].enabled,true);
+  assert.match(s.element("localVoiceStatus").textContent,/erneut|weiter|sprich/i);
+});
+
+test("stopping Piper playback releases object URL and stops audio",async()=>{
+  const s=setup();await flush();
+  await s.events.get("localVoiceStart:click")();
+  await pulse(s,.1,.5);await pulse(s,0,.9);
+  s.events.get("window:neral:voice-answer")({detail:{text:"Guten Tag."}});
+  await flush();
+  assert.equal(s.objectURLs.length,1);
+  const audio=s.audios[0];
+  s.events.get("localVoiceStart:click")();
+  assert.equal(audio.paused,true);
+  assert.equal(s.objectURLs[0].revoked,true,"object URL must be released on explicit stop");
+  audio.onended?.();
+  await flush();
+  assert.equal(s.tracks[0].stopped,true);
+});
+
+test("a busy chat preserves recognized dictation without auto-submitting or hanging",async()=>{
+  const s=setup();await flush();
+  await s.events.get("localVoiceStart:click")();
+  s.element("submit").disabled=true;
+  await pulse(s,.1,.5);await pulse(s,0,.9);
+  assert.equal(s.element("prompt").value,"Hallo NERAL");
+  assert.equal(s.element("chatForm").submitted||0,0);
+  assert.equal(s.tracks[0].stopped,true,"dictation must be available for manual sending");
+});
+
+test("startup can be canceled while permission prompt is pending",async()=>{
+  let grant;
+  const gate=new Promise(resolve=>{grant=resolve});
+  const s=setup({microphoneGate:()=>gate});await flush();
+  const pending=s.events.get("localVoiceStart:click")();
+  await flush();
+  assert.equal(s.micCount(),1);
+  assert.equal(s.element("localVoiceStart").disabled,false,"cancel control must remain clickable");
+  await s.events.get("localVoiceStart:click")();
+  grant();
+  await pending;
+  assert.equal(s.tracks[0].stopped,true,"late permission must not reopen the mic");
+  assert.equal(s.element("localVoiceStart")["aria-pressed"],"false");
 });
