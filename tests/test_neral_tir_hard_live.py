@@ -85,6 +85,39 @@ class HardPilotContracts(unittest.TestCase):
         self.assertEqual(result[-1], "token_limit")
         self.assertTrue(result[2])
 
+    def test_measured_ollama_raw_and_high_have_identical_options(self):
+        import json
+        from unittest.mock import patch
+        from neral_agent_autonomy import OllamaLocalBackend
+        sent = []
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, maxbytes):
+                return json.dumps({
+                    "done": True, "done_reason": "stop",
+                    "message": {"content": "FINAL_ANSWER: 7"}
+                }).encode()
+        class Local:
+            def open(self, request, timeout):
+                sent.append(json.loads(request.data))
+                return Response()
+        backend = OllamaLocalBackend(
+            "qwen3.5:9b", timeout=90,
+            inference_profile="measured_nonthinking_2048")
+        msgs = [{"role":"system","content":"test"},{"role":"user","content":"7"}]
+        with patch("neral_agent_autonomy.local_only_opener",return_value=Local()):
+            backend.respond_chat(msgs)
+            backend.respond_think(msgs)
+        self.assertEqual(len(sent),2)
+        self.assertEqual(sent[0]["options"],sent[1]["options"])
+        self.assertEqual([x["keep_alive"] for x in sent],["5m","5m"])
+        self.assertEqual([x["options"]["num_ctx"] for x in sent],[4096,4096])
+        self.assertEqual([x["options"]["num_predict"] for x in sent],[2048,2048])
+        self.assertEqual([x["think"] for x in sent],[False,False])
+
 
 if __name__ == "__main__":
     unittest.main()
