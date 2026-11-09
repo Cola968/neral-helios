@@ -54,6 +54,38 @@ def local_only_opener():
     return urllib.request.build_opener(urllib.request.ProxyHandler({}), DenyRedirect())
 
 
+def _safe_ollama_http_error_type(response) -> str:
+    """Read a bounded local Ollama error for classification; never log raw text."""
+    try:
+        raw = response.read(4097)
+        if len(raw) > 4096:
+            return "http_rejected"
+        packet = json.loads(raw)
+        detail = packet.get("error") if isinstance(packet, dict) else None
+        if not isinstance(detail, str):
+            return "http_rejected"
+        detail = detail[:2048].lower()
+    except (OSError, ValueError, TypeError, UnicodeError):
+        return "http_rejected"
+    if ("thinking" in detail or "think" in detail) and (
+            "support" in detail or "invalid" in detail):
+        return "thinking_unsupported"
+    if any(term in detail for term in (
+            "unsupported parameter", "unknown parameter", "invalid option",
+            "unsupported option", "unknown option", "parameter:")):
+        return "invalid_option"
+    if any(term in detail for term in (
+            "not found", "no such model", "model missing")):
+        return "model_not_found"
+    if any(term in detail for term in (
+            "out of memory", "failed to load", "insufficient memory",
+            "model requires more system memory", "allocation failed")):
+        return "model_load_failure"
+    if "context" in detail or "num_ctx" in detail:
+        return "context_error"
+    return "http_rejected"
+
+
 class OllamaLocalBackend:
     """Opt-in localhost Ollama, never a remote provider or outbound proxy."""
 
@@ -74,6 +106,10 @@ class OllamaLocalBackend:
         self.timeout = timeout
         self.inference_profile = inference_profile
         self._inference_lock = threading.Lock()
+        # Safe metadata only: never retain prompts, returned text, thoughts or
+        # raw server exceptions. The GPU smoke reads these after each call.
+        self.last_inference_diagnostic = None
+        self.inference_diagnostic_events = []
 
     def respond(self, messages: list[dict]) -> str:
         # Agent tool selection needs strict JSON. Serialize with chat requests
@@ -197,10 +233,7 @@ class OllamaLocalBackend:
                  thinking: bool = False) -> str:
         if require_json and thinking:
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
-        # Only an explicitly selected experiment uses the exact decoder
-        # from the successful Qwen3/Qwen3.5 development comparison. HIGH
-        # remains a system-level checked/review mode: the neural generator
-        # is non-thinking in this profile, matching what was actually tested.
+        # Measured Qwen3.5 settings MUST be identical for raw and TIR.
         measured = (self.inference_profile == "measured_nonthinking_2048"
                     and not require_json)
         budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
@@ -221,39 +254,90 @@ class OllamaLocalBackend:
         }
         if require_json:
             request_data["format"] = "json"
+        diagnostic = {
+            "endpoint": "/api/chat", "model": self.model,
+            "request_keys": sorted(request_data),
+            "option_keys": sorted(options),
+            "think": request_data["think"],
+            "num_ctx": options["num_ctx"],
+            "num_predict": options["num_predict"],
+            "temperature": options["temperature"],
+            "top_p": options.get("top_p"),
+            "top_k": options.get("top_k"),
+            "presence_penalty": options.get("presence_penalty"),
+            "keep_alive": request_data["keep_alive"],
+            "ollama_http_status": None,
+            "ollama_error_type": None,
+            "content_length": None,
+            "thinking_length": None,
+            "done_reason": None,
+        }
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
-        # The proxy handler is explicitly disabled. No cloud inference fallback.
-        opener = local_only_opener()
+        # Proxy handler is disabled. No cloud provider and no raw error logging.
         try:
-            with opener.open(request, timeout=90.0 if (thinking or measured) else self.timeout) as response:
+            with local_only_opener().open(
+                    request, timeout=90.0 if (thinking or measured) else self.timeout
+            ) as response:
+                diagnostic["ollama_http_status"] = getattr(response, "status", 200)
                 raw = response.read(128 * 1024 + 1)
             if len(raw) > 128 * 1024:
                 raise AgentModelError("Modellantwort zu groß.")
             packet = json.loads(raw)
             if not isinstance(packet, dict):
                 raise OllamaCompletionError("invalid_response")
-            # Stronger Qwen3.5's benchmark-matched profile requires an explicit
-            # Ollama terminal acknowledgement. Legacy fixtures remain unchanged.
             reason = packet.get("done_reason")
+            diagnostic["done_reason"] = (
+                reason if reason in ("stop", "length", "load", "unload") else "other"
+                if reason is not None else None
+            )
+            message = packet.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                thoughts = message.get("thinking")
+                diagnostic["content_length"] = (
+                    len(content) if isinstance(content, str) else None)
+                diagnostic["thinking_length"] = (
+                    len(thoughts) if isinstance(thoughts, str) else None)
             if (packet.get("done", True) is not True or
                     reason not in ("stop", None) or
                     (measured and (packet.get("done") is not True or reason != "stop"))):
                 raise OllamaCompletionError(
                     "token_limit" if reason == "length" else "incomplete")
-            message = packet.get("message")
             if not isinstance(message, dict):
                 raise OllamaCompletionError("invalid_response")
             answer = message.get("content")
             if not isinstance(answer, str) or not answer.strip():
+                # Never expose or substitute the private thinking channel.
                 raise OllamaCompletionError("empty_answer")
-            # Deliberately do not expose message.thinking to HTTP clients.
             return answer
+        except urllib.error.HTTPError as exc:
+            diagnostic["ollama_http_status"] = int(exc.code)
+            diagnostic["ollama_error_type"] = _safe_ollama_http_error_type(exc)
+            raise AgentModelError("Ollama hat den lokalen Request abgelehnt.") from exc
+        except OllamaCompletionError as exc:
+            diagnostic["ollama_error_type"] = (
+                "thinking_only" if exc.reason == "empty_answer"
+                and (diagnostic["thinking_length"] or 0) > 0
+                else exc.reason
+            )
+            raise
         except TimeoutError as exc:
+            diagnostic["ollama_error_type"] = "timeout"
             raise OllamaCompletionError("timeout") from exc
         except (OSError, KeyError, ValueError, TypeError, urllib.error.URLError) as exc:
+            diagnostic["ollama_error_type"] = (
+                "invalid_json" if isinstance(exc, ValueError)
+                else "transport_error"
+            )
             raise AgentModelError("Lokales Modell nicht erreichbar oder Antwort ungültig.") from exc
+        finally:
+            # Only predefined, safe scalar fields are written. No private text.
+            self.last_inference_diagnostic = dict(diagnostic)
+            self.inference_diagnostic_events.append(dict(diagnostic))
+            if len(self.inference_diagnostic_events) > 24:
+                del self.inference_diagnostic_events[:-24]
 
 
 SYSTEM = """Du bist der lokale NERAL-Werkzeug-Agent. Du arbeitest nur im bereitgestellten Projekt.
