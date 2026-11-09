@@ -30,8 +30,8 @@ class ReleaseArtifactFreshness(unittest.TestCase):
     def test_tir_smoke_source_changes_also_trigger_exact_sha_release_receipt(self):
         """Manual TIR GPU acceptance requires a matching successful main release."""
         wf=WORKFLOW.read_text(encoding="utf-8")
-        pull=wf.split("\\n  pull_request:\\n",1)[1].split("\\n  push:\\n",1)[0]
-        push=wf.split("\\n  push:\\n",1)[1].split("\\npermissions:\\n",1)[0]
+        pull=wf.split("  pull_request:",1)[1].split("  push:",1)[0]
+        push=wf.split("  push:",1)[1].split("permissions:",1)[0]
         for path in ("scripts/neral_tir_smoke3.py",
                      "scripts/neral_ollama_wire_probe.py",
                      "tests/test_neral_tir_smoke3.py",
