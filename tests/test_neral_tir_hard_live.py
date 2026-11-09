@@ -36,6 +36,55 @@ class HardPilotContracts(unittest.TestCase):
             with self.subTest(item=item), self.assertRaises(ValueError):
                 validated_tool_counts(item)
 
+    def test_transient_503_retried_serially_with_backoff(self):
+        from scripts.neral_tir_hard_live import run_one_with_backoff
+        class Response:
+            def __init__(self, status, body):
+                self.status_code, self.body = status, body
+            def get_json(self, silent=True):
+                return self.body
+        class Client:
+            def __init__(self):
+                self.calls = 0
+            def post(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls < 3:
+                    return Response(503, {"error_code": "timeout"})
+                return Response(200, {
+                    "model": "qwen3.5:9b", "inference_profile": "measured_nonthinking_2048",
+                    "model_origin": "local_foundation_not_neral_adapter",
+                    "adapter_loaded": False, "mode": "HIGH", "text": "FINAL_ANSWER: 17",
+                    "tool_used": None, "model_generated": True})
+        client = Client()
+        pauses = []
+        result = run_one_with_backoff(
+            "neral_high", "Answer exactly 17", None, client, {},
+            sleeper=pauses.append)
+        self.assertEqual(client.calls, 3)
+        self.assertEqual(result[0], "FINAL_ANSWER: 17")
+        self.assertFalse(result[2])
+        self.assertEqual(len(pauses), 2)
+        self.assertGreater(pauses[1], pauses[0])
+
+    def test_terminal_token_limit_is_not_silently_retried(self):
+        from scripts.neral_tir_hard_live import run_one_with_backoff
+        class Response:
+            status_code = 503
+            def get_json(self, silent=True):
+                return {"error_code": "token_limit"}
+        class Client:
+            calls = 0
+            def post(self, *args, **kwargs):
+                self.calls += 1
+                return Response()
+        client = Client()
+        result = run_one_with_backoff(
+            "neral_high", "difficult task", None, client, {},
+            sleeper=lambda *_: None)
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(result[-1], "token_limit")
+        self.assertTrue(result[2])
+
 
 if __name__ == "__main__":
     unittest.main()
