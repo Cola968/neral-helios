@@ -48,6 +48,7 @@ class SuffixRegression(unittest.TestCase):
 
 
 class TIRLoopRegression(unittest.TestCase):
+    SUFFIX = SuffixRegression.SUFFIX
     def test_tool_schema_strict(self):
         self.assertEqual(parse_tool_call(
             '<tool_call>{"tool":"solve","code":"17*13"}</tool_call>'),
@@ -60,6 +61,34 @@ class TIRLoopRegression(unittest.TestCase):
         ):
             with self.subTest(candidate=candidate):
                 self.assertIsNone(parse_tool_call(candidate))
+
+
+    def test_three_exact_tasks_trigger_tools_with_format_suffix(self):
+        tasks = (
+            ("Calculate exactly 31 * 17.", "solve", "31*17", "527"),
+            ("Count valid orders of A,B,C given A before B.", "python_sandbox",
+             "print(3)", "3"),
+            ("Count Boolean assignments to A,B where exactly one is True.",
+             "python_sandbox", "print(2)", "2"),
+        )
+        for question, tool, code, expected in tasks:
+            with self.subTest(question=question):
+                calls = []
+                def respond(turns):
+                    self.assertNotIn("Gib das Ergebnis", turns[-1]["content"])
+                    return '<tool_call>' + __import__("json").dumps(
+                        {"tool": tool, "code": code}) + '</tool_call>'
+                def runner(tool_name, python_code):
+                    calls.append((tool_name, python_code))
+                    return {"status": "PASSED", "output": expected,
+                            "verification_scope": "execution_only"}
+                out = run_experimental_tir(
+                    messages(question + self.SUFFIX), respond,
+                    tool_runner=runner)
+                self.assertEqual(calls, [(tool, code)])
+                self.assertEqual(out["tool_calls_triggered"], 1)
+                self.assertEqual(out["tool_calls_succeeded"], 1)
+                self.assertEqual(out["text"], "FINAL_ANSWER: " + expected)
 
     def test_success_requires_single_model_call_no_review(self):
         seen = []
