@@ -105,6 +105,38 @@ class WireCaptureTests(unittest.TestCase):
         self.assertNotIn("PRIVATE PROMPT",repr(events))
         self.assertEqual(json.loads(upstream.request.data),self.payload)
 
+    def test_owner_local_private_error_file_not_in_public_report(self):
+        import tempfile
+        from pathlib import Path
+        from scripts.neral_tir_smoke3 import save_private_ollama_errors
+        private="PRIVATE_TOKEN_123"
+        with tempfile.TemporaryDirectory() as temp:
+            saved=save_private_ollama_errors(
+                [{"http_status":500,"ollama_error_body":private}],
+                base_dir=Path(temp))
+            self.assertTrue(saved)
+            files=list(Path(temp).glob("smoke3-ollama-error-*.json"))
+            self.assertEqual(len(files),1)
+            self.assertIn(private,files[0].read_text(encoding="utf-8"))
+
+    def test_error_raw_text_is_private_sink_only(self):
+        events=[]
+        private=[]
+        raw=json.dumps({"error":"SECRET_PRIVATE_PROMPT_500"}).encode()
+        class RejectingOpener:
+            def open(self,request,timeout):
+                raise urllib.error.HTTPError(request.full_url,500,"ISE",{},
+                                             io.BytesIO(raw))
+        import urllib.request
+        req=urllib.request.Request("http://127.0.0.1:11434/api/chat",
+                  data=json.dumps(self.payload).encode(),method="POST")
+        with self.assertRaises(urllib.error.HTTPError):
+            make_capturing_opener(lambda:RejectingOpener(),events,
+                                  private_errors=private)().open(req,timeout=90)
+        self.assertEqual(private[0]["ollama_error_body"],
+                         raw.decode("utf-8"))
+        self.assertNotIn("SECRET_PRIVATE_PROMPT_500",repr(events))
+
     def test_wrapper_preserves_http_error_for_existing_backend(self):
         events=[]
         raw=json.dumps({"error":"PRIVATE PROMPT runner failure"}).encode()
