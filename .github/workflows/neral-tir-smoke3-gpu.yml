@@ -8,6 +8,8 @@ on:
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_tir_smoke3.py'
       - 'tests/test_neral_ollama_diagnostics.py'
+      - 'tests/test_neral_ollama_wire_probe.py'
+      - 'scripts/neral_ollama_wire_probe.py'
       - 'tests/test_neral_tir_hard_live.py'
       - 'tests/test_neral_experimental_tir.py'
       - '.github/workflows/neral-tir-smoke3-gpu.yml'
@@ -41,6 +43,7 @@ jobs:
         run: |
           python -B -m unittest discover -s tests -p test_neral_tir_smoke3.py -v
           python -B -m unittest discover -s tests -p test_neral_ollama_diagnostics.py -v
+          python -B -m unittest discover -s tests -p test_neral_ollama_wire_probe.py -v
           python -B -m unittest discover -s tests -p test_neral_tir_hard_live.py -v
           python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
           python -B -m unittest discover -s tests -p test_neral_hard36_private_audit.py -v

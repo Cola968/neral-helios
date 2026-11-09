@@ -18,23 +18,31 @@ from typing import Callable
 
 from neral_high_verified_first import split_task_and_format_instruction
 
-_TOOL_CALL = re.compile(r"\s*<tool_call>(?P<data>[\s\S]{1,4400}?)</tool_call>\s*\Z")
+# Qwen3.5's built-in Ollama parser treats <tool_call> as native XML and can
+# return HTTP 500 / silently discard its JSON contents. Use an application-
+# specific textual envelope that the native parser does not intercept.
+_TOOL_CALL = re.compile(r"\s*NERAL_EXECUTE_JSON:\s*(?P<data>\{[\s\S]{1,4400}\})\s*\Z")
 _INTEGER = re.compile(r"[+-]?\d{1,15}\Z")
 _ALLOWED_TOOLS = frozenset({"solve", "python_sandbox"})
 _PROMPT = (
     "\nEXPERIMENTAL LOCAL TIR: You have two safe, local tools. "
     "For a user question whose answer requires exact arithmetic, counting "
     "combinations or permutations, Boolean assignments, time-zone arithmetic, "
-    "or checking Python code, YOU MUST call a tool BEFORE giving a numerical "
-    "answer; do not guess. Use solve ONLY for arithmetic expressions or linear "
-    "equations; use python_sandbox for all other computations or Python checks. "
-    "Respond with exactly ONE strict JSON tool-call, no explanation or Markdown: "
-    '<tool_call>{"tool":"solve","code":"17*13"}</tool_call> '
-    "or "
-    '<tool_call>{"tool":"python_sandbox","code":"print(17*13)"}</tool_call>. '
-    "Write self-contained standard-library Python code with a single printed "
-    "result. Never invent execution results. For knowledge or conversation "
-    "without a needed computation, answer normally without tools."
+    "or checking Python code, YOU MUST propose a computation BEFORE guessing. "
+    "Use solve ONLY for arithmetic expressions or linear equations; "
+    "use python_sandbox for other computations or Python checks. "
+    "There are NO native Ollama function tools in this request. "
+    "Write exactly one plain-text line starting with NERAL_EXECUTE_JSON: "
+    "followed by a strict JSON object, without Markdown or XML tags. "
+    "Example for arithmetic: NERAL_EXECUTE_JSON: "
+    '{\"tool\":\"solve\",\"code\":\"17*13\"} '
+    "Example for other computations: NERAL_EXECUTE_JSON: "
+    '{\"tool\":\"python_sandbox\",\"code\":\"print(17*13)\"} '
+    "No punctuation after the final JSON brace. "
+    "Use only tool and code keys; all code must be self-contained "
+    "standard-library Python with a single printed result. "
+    "Never invent execution results. For conversation or knowledge "
+    "questions without necessary computation, answer normally."
 )
 
 
@@ -194,7 +202,8 @@ def run_experimental_tir(
             raise ValueError("Invalid local model response")
         parsed = parse_tool_call(answer)
         if parsed is None:
-            if "<tool_call" in answer or "</tool_call>" in answer or attempt != 0:
+            if ("NERAL_EXECUTE_JSON:" in answer or "<tool_call" in answer
+                    or "</tool_call>" in answer or attempt != 0):
                 break
             return {
                 "text": _display_output(answer, messages[-1]["content"]),
@@ -236,7 +245,7 @@ def run_experimental_tir(
                 {"role": "user", "content": (
                     "Der lokale Toolaufruf schlug fehl: " + last_error +
                     "\nRepariere den Code genau einmal. Gib ausschließlich einen "
-                    "neuen erlaubten <tool_call>-JSON-Block zurück. Keine Shell."
+                    "neuen NERAL_EXECUTE_JSON:-Einzeiler zurück. Kein XML. Keine Shell."
                 )},
             ])
     return {
