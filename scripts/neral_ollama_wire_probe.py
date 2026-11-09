@@ -149,13 +149,15 @@ class _BufferedResponse:
         return False
 
 
-def make_capturing_opener(upstream_factory, events: list):
+def make_capturing_opener(upstream_factory, events: list, *,
+                          private_errors: list | None = None):
     """Return a temporary replacement opener factory, not an Ollama proxy.
 
     This is wired only inside the explicitly authorized three-case local smoke.
     All localhost-only network/redirect behavior is delegated to upstream.
     """
-    if not callable(upstream_factory) or not isinstance(events, list):
+    if (not callable(upstream_factory) or not isinstance(events, list)
+            or (private_errors is not None and not isinstance(private_errors, list))):
         raise TypeError("Diagnostic opener requires a factory and event sink")
 
     class _CapturingOpener:
@@ -179,6 +181,14 @@ def make_capturing_opener(upstream_factory, events: list):
                 # Capture only a bounded local JSON error; replay identical
                 # bytes to the original diagnostic classifier for compatibility.
                 raw_error = exc.read(4097)
+                # Explicit opt-in: retain exact error only in owner-local
+                # memory for later write to a private on-PC diagnostics file.
+                # NEVER place its contents into public GitHub Actions logs.
+                if private_errors is not None and len(private_errors) < 12:
+                    private_errors.append({
+                        "http_status": exc.code,
+                        "ollama_error_body": raw_error.decode("utf-8", "replace"),
+                    })
                 if len(events) < 24:
                     events.append({
                         **safe_request,
