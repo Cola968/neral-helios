@@ -55,5 +55,27 @@ class ThreeCaseSmokeContracts(unittest.TestCase):
         self.assertEqual(result["http_503"],3)
 
 
+
+    def test_wire_fields_present_without_prompt_or_raw_500_error(self):
+        wire = [{
+            "message_roles": ["system", "user"],
+            "has_options_stop": False,
+            "eval_count": 0,
+            "prompt_eval_count": 212,
+            "tool_calls_count": 0,
+            "ollama_http_status": 500,
+            "ollama_error_type": "http_rejected",
+            "private_prompt": "SECRET_NEVER_UPLOADED",
+            "ollama_error_raw": "SECRET_OTHER_PRIVATE",
+        }]
+        with patch("scripts.neral_tir_smoke3.run_one_with_backoff",
+                   return_value=("",False,True,0.1,None,0,0,"empty_answer")):
+            result = run_smoke_three(None,None,{},wire_events=wire)
+        self.assertEqual(result["ollama_wire_diagnostics"][0]["eval_count"],0)
+        self.assertEqual(result["ollama_wire_diagnostics"][0]["message_roles"],
+                         ["system","user"])
+        self.assertNotIn("SECRET_NEVER_UPLOADED",repr(result))
+        self.assertNotIn("SECRET_OTHER_PRIVATE",repr(result))
+
 if __name__=="__main__":
     unittest.main()
