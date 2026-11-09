@@ -24,6 +24,7 @@ from neral_high_verified_first import split_task_and_format_instruction
 _TOOL_CALL = re.compile(r"\s*NERAL_EXECUTE_JSON:\s*(?P<data>\{[\s\S]{1,4400}\})\s*\Z")
 _INTEGER = re.compile(r"[+-]?\d{1,15}\Z")
 _ALLOWED_TOOLS = frozenset({"solve", "python_sandbox"})
+_FINAL_PREFIX = "NERAL_FINAL_TEXT:"
 _PROMPT = (
     "\nEXPERIMENTAL LOCAL TIR: You have two safe, local tools. "
     "For a user question whose answer requires exact arithmetic, counting "
@@ -42,7 +43,19 @@ _PROMPT = (
     "Use only tool and code keys; all code must be self-contained "
     "standard-library Python with a single printed result. "
     "Never invent execution results. For conversation or knowledge "
-    "questions without necessary computation, answer normally."
+    "questions without necessary computation, emit NERAL_FINAL_TEXT: "
+    "followed by the answer instead of a tool packet. Do not return "
+    "unprefixed guesses for computational requests."
+)
+# The retry is task-agnostic. No benchmark wording or regex route.
+_CHOICE_RETRY = (
+    "Your previous answer did not contain an explicit tool decision. "
+    "Reconsider the ORIGINAL user question. If exact computation, counting "
+    "or running a program is needed, do not guess: emit exactly one "
+    "NERAL_EXECUTE_JSON: object using solve for basic expressions or "
+    "python_sandbox for other calculations. Otherwise emit "
+    "NERAL_FINAL_TEXT: followed by the ordinary answer. "
+    "Use no Markdown, preamble, native XML, or additional commentary."
 )
 
 
@@ -196,23 +209,48 @@ def run_experimental_tir(
     triggered = succeeded = 0
     tool_used = None
     last_error = "No verified tool result"
+    unstructured_first = None
+
+    def direct_unverified(value: str, calls: int) -> dict:
+        return {
+            "text": _display_output(value, messages[-1]["content"]),
+            "mode": "HIGH", "model_generated": True,
+            "verified": False, "verification_status": "not_available",
+            "verification_scope": "none", "calls_used": calls,
+            "tool_calls_triggered": 0, "tool_calls_succeeded": 0,
+            "seconds": round(clock()-started, 3),
+        }
+
     for attempt in range(2):
         answer = respond(turns)
         if not isinstance(answer, str) or not answer.strip() or len(answer) > 32768:
             raise ValueError("Invalid local model response")
         parsed = parse_tool_call(answer)
         if parsed is None:
-            if ("NERAL_EXECUTE_JSON:" in answer or "<tool_call" in answer
-                    or "</tool_call>" in answer or attempt != 0):
+            if answer.startswith(_FINAL_PREFIX):
+                content = answer[len(_FINAL_PREFIX):].strip()
+                if (content and "NERAL_EXECUTE_JSON:" not in content
+                        and "<tool_call" not in content and "</tool_call>" not in content):
+                    return direct_unverified(content, attempt + 1)
                 break
-            return {
-                "text": _display_output(answer, messages[-1]["content"]),
-                "mode": "HIGH", "model_generated": True,
-                "verified": False, "verification_status": "not_available",
-                "verification_scope": "none", "calls_used": 1,
-                "tool_calls_triggered": 0, "tool_calls_succeeded": 0,
-                "seconds": round(clock()-started, 3),
-            }
+            # Never reinterpret malformed tool packets as valid direct answers.
+            if ("NERAL_EXECUTE_JSON:" in answer or "<tool_call" in answer
+                    or "</tool_call>" in answer):
+                break
+            if attempt == 0:
+                # A single model-driven retry replaces premature acceptance
+                # of a plain estimate. Never route by benchmark keywords.
+                unstructured_first = answer
+                turns.extend([
+                    {"role": "assistant", "content": answer},
+                    {"role": "user", "content": _CHOICE_RETRY},
+                ])
+                continue
+            # After one retry, keep the first textual reply unverified rather
+            # than treating an unstructured second reply as tool execution.
+            if unstructured_first is not None:
+                return direct_unverified(unstructured_first, 2)
+            break
         tool, code = parsed
         tool_used = "neral_math_exact" if tool == "solve" else "neral_python_sandbox"
         triggered += 1
