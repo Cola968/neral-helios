@@ -412,3 +412,31 @@ html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
 @media(prefers-reduced-motion:reduce){
   .neral-activity[data-phase="thinking"] .neral-status-symbol::before{animation:none!important;opacity:1!important}
 }
+
+/* NERAL concept A: factual search providers and verified result domains below
+   the active line. No status cards, no invented site-reading claims. */
+#messages>.neral-activity,.neral-activity{
+  display:flex;flex-direction:column;align-items:flex-start;flex-wrap:nowrap;
+  gap:3px;max-width:min(100%,620px);width:fit-content;
+  margin:3px 0 4px;padding:3px 0;border:0;background:transparent;
+  box-shadow:none;color:var(--nr-muted,#737576)}
+.neral-status-header{display:flex;align-items:center;gap:8px;min-height:22px;
+  font-size:12px;font-weight:500;color:var(--nr-text,#282828)}
+.neral-activity-time{margin-left:3px;font-size:10.5px;font-weight:400;
+  color:var(--nr-muted,#808080);white-space:nowrap}
+.neral-live-sources{display:flex;flex-direction:column;gap:3px;margin:1px 0 0 23px;
+  max-width:min(550px,calc(100vw - 80px));min-width:0;
+  font-size:11px;line-height:1.55;color:var(--nr-muted,#777)}
+.neral-live-provider{color:var(--nr-muted,#808080)}
+.neral-live-sites{display:flex;gap:5px 7px;align-items:center;flex-wrap:wrap}
+.neral-live-sites-label{margin-right:2px;white-space:nowrap}
+.neral-live-site{display:inline-flex;align-items:center;max-width:170px;
+  padding:2px 7px;border-radius:15px;border:1px solid var(--nr-line,#e5e5e5);
+  color:var(--nr-text,#323232);background:var(--nr-sidebar,#f7f7f6);
+  font-size:10.5px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.neral-live-site:hover,.neral-live-site:focus-visible{background:var(--nr-hover,#ececeb)}
+.neral-live-site:focus-visible{outline:2px solid var(--nr-muted,#848484);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){
+  .neral-live-site,.neral-activity-time{animation:none!important;transition:none!important}
+}

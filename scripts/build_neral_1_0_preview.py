@@ -50,6 +50,7 @@ REQUIRED_FILES = (
     "neral_web_api.py",
     "agent_mode.py",
     "static/neral-preview.js",
+    "static/neral-web-live.js",
     "static/neral-live-stream.js",
     "static/neral-accounts.js",
     "static/neral-accounts.css",

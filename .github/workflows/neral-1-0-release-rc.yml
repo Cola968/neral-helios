@@ -102,6 +102,9 @@ on:
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
+      - 'static/neral-web-live.js'
+      - 'tests/test_neral_live_sources.cjs'
+      - 'tests/test_neral_live_sources.py'
       - 'static/neral-live-stream.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_attachments.py'
@@ -229,6 +232,9 @@ on:
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
       - 'static/neral-preview.js'
+      - 'static/neral-web-live.js'
+      - 'tests/test_neral_live_sources.cjs'
+      - 'tests/test_neral_live_sources.py'
       - 'static/neral-live-stream.js'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_attachments.py'
@@ -290,6 +296,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_release_artifact_freshness.py -v
       - name: Verified public HTTPS source links and DNS-rebinding protections
         run: python -m unittest discover -s tests -p test_neral_source_reachability.py -v
+      - name: Live web provider and verified source stream
+        run: python -m unittest discover -s tests -p test_neral_live_sources.py -v
       - name: New voice and web plugin security/readiness contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_voice_plugins.py -v
       - name: Offline image/document attachment security and multimodal contracts

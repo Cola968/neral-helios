@@ -5,6 +5,8 @@ on:
       - 'static/neral-motion.js'
       - 'static/neral-motion.css'
       - 'static/neral-preview.js'
+      - 'static/neral-web-live.js'
+      - 'tests/test_neral_live_sources.cjs'
       - 'templates/index.html'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_motion.cjs'
@@ -36,6 +38,8 @@ on:
       - 'static/neral-motion.js'
       - 'static/neral-motion.css'
       - 'static/neral-preview.js'
+      - 'static/neral-web-live.js'
+      - 'tests/test_neral_live_sources.cjs'
       - 'templates/index.html'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_motion.cjs'
@@ -78,10 +82,11 @@ jobs:
         run: python scripts/vendor_katex.py
       - run: node --check static/neral-motion.js
       - run: node --check static/neral-preview.js
+      - run: node --check static/neral-web-live.js
       - run: node --check static/neral-modern.js
       - run: node --check static/neral-dynamic-ui.js
       - run: node --check static/neral-math.js
       - run: node --check static/neral-formulas.js
       - run: node --check static/neral-local-chat.js
       - run: node --check static/neral.js
-      - run: node --test tests/test_neral_motion_v5.cjs tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_dynamic_ui_app.cjs tests/test_neral_motion_v4.cjs tests/test_neral_math.cjs tests/test_neral_formula_library.cjs
+      - run: node --test tests/test_neral_live_sources.cjs tests/test_neral_motion_v5.cjs tests/test_neral_motion.cjs tests/test_neral_activity_v3.cjs tests/test_neral_modern_ui.cjs tests/test_neral_dynamic_ui.cjs tests/test_neral_dynamic_ui_app.cjs tests/test_neral_motion_v4.cjs tests/test_neral_math.cjs tests/test_neral_formula_library.cjs

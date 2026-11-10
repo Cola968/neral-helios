@@ -1,14 +1,84 @@
 """Same-origin, session-guarded opt-in web search for every NERAL plan."""
 from __future__ import annotations
 
-from flask import jsonify, request
-from concurrent.futures import ThreadPoolExecutor
+from flask import jsonify, request, Response
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+from threading import Thread
+import json
 from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url
 
 
 def register_web_search_api(app, service=None):
     """Parent Flask app's existing localhost, session and Origin guards apply."""
     search = service if service is not None else WebSearch()
+
+    def verified_results(result: dict, on_source=None) -> dict:
+        """Check public HTTPS endpoints; emit only reachable hits, no page contents."""
+        candidates = result.get("results", [])[:5]
+        def verify(index, hit):
+            if not isinstance(hit, dict):
+                return index, None
+            checked_url = verify_public_https_url(hit.get("url"))
+            return index, ({**hit, "url": checked_url, "reachable": True}
+                           if checked_url else None)
+        accepted = {}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(candidates)]
+            for task in as_completed(tasks):
+                index, checked = task.result()
+                if checked is not None:
+                    accepted[index] = checked
+                    if on_source is not None:
+                        on_source(checked)
+        return {**result, "results": [accepted[i] for i in sorted(accepted)],
+                "link_check": "public_https_tls_and_http_only"}
+
+    @app.post("/api/web/search/stream")
+    def web_search_stream():
+        """NDJSON stream of real contacted providers and verified source hits.
+
+        An event is not a claim that page content was read. This endpoint
+        inherits the same-origin session/CSRF guards of the hosting Flask app.
+        """
+        if not request.is_json:
+            return jsonify(error="Nur JSON erlaubt."), 415
+        data = request.get_json(silent=True)
+        if (not isinstance(data, dict) or set(data) != {"query", "verify_links"}
+            or data.get("verify_links") is not True
+            or not isinstance(data.get("query"), str)
+            or not 2 <= len(data["query"].strip()) <= 160
+            or any(ord(char) < 32 or ord(char) == 127 for char in data["query"])):
+            return jsonify(error="Ungültige Suchanfrage."), 400
+        query = data["query"]
+        events = Queue()
+        def emit(item):
+            events.put(item)
+        def worker():
+            try:
+                result = search.search(query,
+                    on_provider=lambda name: emit({"type": "provider", "name": name}))
+                verified = verified_results(result,
+                    on_source=lambda source: emit({"type": "source", "source": source}))
+                emit({"type": "result", "result": verified})
+            except (WebSearchInputError, WebSearchRateLimitError):
+                emit({"type": "error", "message": "Websuche konnte nicht ausgeführt werden."})
+            except Exception:
+                # Never leak provider/network internals into the browser stream.
+                emit({"type": "error", "message": "Websuche nicht verfügbar."})
+            finally:
+                emit({"type": "end"})
+        Thread(target=worker, daemon=True).start()
+        def generate():
+            while True:
+                event = events.get()
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+                if event["type"] == "end":
+                    break
+        return Response(generate(), mimetype="application/x-ndjson",
+            headers={"Cache-Control": "no-store, no-transform",
+                     "X-Content-Type-Options": "nosniff",
+                     "X-Accel-Buffering": "no"})
 
     @app.get("/api/web/search/status")
     def web_search_status():
@@ -29,17 +99,7 @@ def register_web_search_api(app, service=None):
         try:
             result = search.search(data["query"])
             if data.get("verify_links") is True:
-                candidates = result.get("results", [])[:5]
-                # Bound both worker count and per-link socket timeout.
-                def verify(hit):
-                    if not isinstance(hit, dict):
-                        return None
-                    checked_url = verify_public_https_url(hit.get("url"))
-                    return {**hit, "url": checked_url, "reachable": True} if checked_url else None
-                with ThreadPoolExecutor(max_workers=3) as pool:
-                    checked = list(pool.map(verify, candidates))
-                result = {**result, "results": [hit for hit in checked if hit],
-                          "link_check": "public_https_tls_and_http_only"}
+                result = verified_results(result)
             return jsonify(result)
         except WebSearchInputError as exc:
             return jsonify(error=str(exc)), 400
