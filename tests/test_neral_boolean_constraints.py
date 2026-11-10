@@ -87,6 +87,31 @@ class BooleanAlgebraContracts(unittest.TestCase):
             count({"A":[0,1],"B":[False,True]},
                   [{"op":"eq","args":["A","B"]}])
 
+    def test_compact_ordering_extraction_requires_explicit_source_evidence(self):
+        from neral_turn0_extractor import parse_extracted_constraints
+        question=(
+            "Four distinct jobs North, East, South and West have one "
+            "complete order. East must be before West. "
+            "How many valid orders are there?"
+        )
+        candidate={
+            "kind":"formal","complete":True,
+            "schema":{
+                "ordering":["North","East","South","West"],
+                "rules":[{"left":"East","op":"<","right":"West"}],
+                "query":"count"},
+            "evidence":[
+                "Four distinct jobs North, East, South and West",
+                "East must be before West",
+                "How many valid orders are there?",
+            ],
+        }
+        self.assertEqual(parse_extracted_constraints(
+            question,json.dumps(candidate)),12)
+        candidate["schema"]["ordering"].append("Unknown")
+        self.assertIsNone(parse_extracted_constraints(
+            question,json.dumps(candidate)))
+
     def test_boolean_extraction_requires_source_evidence_and_unverified_status(self):
         from neral_turn0_extractor import parse_extracted_constraints
         question = ("A and B can each be True or False. "
