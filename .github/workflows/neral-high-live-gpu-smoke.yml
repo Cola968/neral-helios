@@ -1,0 +1,149 @@
+name: NERAL experimental Qwen3.5 HIGH live RTX 4070 acceptance (read-only)
+on:
+  pull_request:
+    paths:
+      - scripts/neral_high_live_gpu_smoke.py
+      - tests/test_neral_high_live_gpu_smoke.py
+      - .github/workflows/neral-high-live-gpu-smoke.yml
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permission: NERAL_QWEN35_HIGH_LIVE_SMOKE_READONLY'
+        type: string
+        required: true
+      release_run_id:
+        description: 'Completed successful release on same main commit'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cpu-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Scalar metadata, no fake quality claims, reject missing VRAM
+        run: python -B -m unittest discover -s tests -p test_neral_high_live_gpu_smoke.py -v
+      - name: Existing full opt-in LOW/HIGH safety tests
+        run: python -B -m unittest discover -s tests -p test_neral_experimental_high_qwen35.py -v
+
+  release-receipt:
+    needs: cpu-contract
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_QWEN35_HIGH_LIVE_SMOKE_READONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Check complete green MAIN release on EXACT smoke commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]{9,15}$ ]] || exit 1
+          receipt="$(gh api "repos/${GITHUB_REPOSITORY_NAME}/actions/runs/${RELEASE_RUN_ID}" --jq '[.name,.status,.conclusion,.head_branch,.event,.head_sha]|join("|")')"
+          expected="NERAL 1.0 release candidate - offline package and LIVE Windows PC smoke|completed|success|main|push|${SOURCE_SHA}"
+          if [[ "$receipt" != "$expected" ]]; then
+             echo "No successful release PC gate on this exact main SHA; do not use RTX 4070"
+             exit 1
+          fi
+          echo 'Release PC smoke verified on exactly the same commit.'
+
+  local-rtx4070:
+    needs: [cpu-contract,release-receipt]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.authorize == 'NERAL_QWEN35_HIGH_LIVE_SMOKE_READONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: Fail closed if GPU busy; create disposable QA environment
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $python=Join-Path $root 'training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Pinned local Python unavailable'}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'RTX 4070 sampling unavailable'}
+          $part=($raw|Select-Object -First 1)-split ','
+          if($part.Count -ne 2 -or [int]$part[0].Trim() -lt 7000 -or [int]$part[1].Trim() -gt 25){
+            throw 'RTX 4070 busy, no parallel AI model loads'
+          }
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-high-live-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Temporary output already exists'}
+          & $python -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Venv failure'}
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $code 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Preview dependencies unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "HIGH_SMOKE_PY=$py"+[Environment]::NewLine+
+            "HIGH_SMOKE_CODE=$code"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Test LOW -> HIGH -> LOW and direct HIGH locally; no training
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $private=Join-Path $root ('neral-high-live-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          $out=Join-Path $env:HIGH_SMOKE_CODE 'neral_high_live_scalar'
+          if((Test-Path -LiteralPath $private) -or (Test-Path -LiteralPath $out)){
+            throw 'Create-only destination occupied'
+          }
+          Push-Location $env:HIGH_SMOKE_CODE
+          try {
+            $env:PYTHONPATH=$env:HIGH_SMOKE_CODE
+            & $env:HIGH_SMOKE_PY -B -m unittest discover -s tests -p test_neral_high_live_gpu_smoke.py -v
+            if($LASTEXITCODE -ne 0){throw 'Scalar contract failed'}
+            & $env:HIGH_SMOKE_PY -B -m scripts.neral_high_live_gpu_smoke --out $private
+            if($LASTEXITCODE -ne 0){throw 'Real local HIGH smoke failed'}
+            $r=Get-Content -LiteralPath $private -Raw|ConvertFrom-Json
+            if($r.status -ne 'NERAL_HIGH_LIVE_RTX4070_OPT_IN_SMOKE_ONLY' -or
+               $r.requests_completed -ne 4 -or
+               $r.vram_observations -lt 3 -or
+               $r.raw_prompts_or_answers_uploaded -ne $false -or
+               $r.model_promotion_authorized -ne $false -or
+               $r.training_performed -ne $false){
+                throw 'Unsafe/incomplete local HIGH result'
+            }
+            New-Item -Path $out -ItemType Directory -ErrorAction Stop | Out-Null
+            Copy-Item -LiteralPath $private -Destination (Join-Path $out 'summary.json')
+          } finally {Pop-Location}
+      - name: Export metadata only, no local prompts or replies
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-optional-high-live-gpu-scalars-only
+          path: control/neral_high_live_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error
