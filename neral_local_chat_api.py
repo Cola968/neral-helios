@@ -520,16 +520,30 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 first_turn_probe_armed = True
                 def first_turn_diagnostic():
                     nonlocal first_turn_actual_event
+                    if type(first_turn_actual_event) is dict:
+                        return first_turn_actual_event
                     event = high_backend.last_inference_diagnostic
                     if event is previous_event or type(event) is not dict:
                         return {}
                     first_turn_actual_event = event
                     return event
+                def bounded_formal_extract(turns):
+                    nonlocal first_turn_actual_event
+                    # Capture metadata even if Ollama terminates the short JSON
+                    # generation with done_reason=length. No model text persists.
+                    try:
+                        return high_backend.respond_formal_extract(turns)
+                    finally:
+                        event = high_backend.last_inference_diagnostic
+                        if event is not previous_event and type(event) is dict:
+                            first_turn_actual_event = event
                 result = run_experimental_tir(
                     data, high_backend.respond_chat,
                     finalize_review=(bounded_observation_review
                                      if bounded_final else None),
-                    first_turn_diagnostic=first_turn_diagnostic)
+                    first_turn_diagnostic=first_turn_diagnostic,
+                    extract_constraints=(bounded_formal_extract
+                                         if bounded_final else None))
                 return jsonify({**result, "experimental_tir": True,
                                 **_provenance(high_backend)})
             previous_event = (
