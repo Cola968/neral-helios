@@ -78,6 +78,27 @@ class GpuPsContracts(unittest.TestCase):
             with self.subTest(ps=ps), self.assertRaises(PreflightError):
                 running_model_summary(ps)
 
+    def test_rejected_offload_preserves_exact_size_and_vram_in_report(self):
+        from scripts.neral_high12_probe import require_high_gpu_residency
+        report = {}
+        with self.assertRaisesRegex(PreflightError, "high_model_cpu_offload_detected"):
+            require_high_gpu_residency({
+                "models": [{
+                    "name": "qwen3.5:9b",
+                    "size": 7_000_000_000,
+                    "size_vram": 5_250_000_000,
+                }]
+            }, report)
+        self.assertEqual(report["observed_loaded_models_after_preload"],
+                         ["qwen3.5:9b"])
+        self.assertEqual(report["gpu_residency_before"]["size_bytes"],
+                         7_000_000_000)
+        self.assertEqual(report["gpu_residency_before"]["size_vram_bytes"],
+                         5_250_000_000)
+        self.assertEqual(report["gpu_residency_before"]["gpu_percent_of_reported_size"],
+                         75.0)
+        self.assertFalse(report["gpu_residency_before"]["fully_gpu_per_ps"])
+
     def test_missing_gpu_bytes_or_zero_is_not_fully_gpu(self):
         for item in ({"size": 7000, "size_vram": 0},
                      {"size": 7000, "size_vram": 6000},
