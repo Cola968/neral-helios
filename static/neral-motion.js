@@ -68,9 +68,23 @@
       line.textContent="Suchanbieter: "+[...providers]
         .map(n=>n==="DuckDuckGo HTML"?"DuckDuckGo":"Bing").join(" · ");
     }
+    function showSearchQuery(query){
+      if(!active||active.dataset.phase!=="searching"||
+         typeof query!=="string"||!query.trim()||
+         query.length>160||/[\r\n]/.test(query))return;
+      const box=detailsArea();
+      let line=box.querySelector(".neral-live-search-query");
+      if(!line){
+        line=document.createElement("div");
+        line.className="neral-live-search-query";
+        box.prepend?.(line);
+        if(!line.parentNode&&!box.children?.includes?.(line))box.append(line);
+      }
+      line.textContent="Suchanfrage: "+query;
+    }
     function showSource(source){
       if(!active || source?.reachable!==true || typeof source.url!=="string" ||
-         sourceHosts.size>=4)return;
+         sourceHosts.size>=5)return;
       let parsed;
       try{parsed=new URL(source.url);}catch{return;}
       const host=parsed.hostname.toLowerCase();
@@ -95,7 +109,7 @@
       const thumb=document.createElement("span");
       thumb.className="neral-live-icon-wrap";
       thumb.setAttribute("aria-hidden","true");
-      thumb.textContent="◉";
+      thumb.textContent=host.replace(/^www\./,"").charAt(0).toUpperCase();
       thumb.append(favicon(host));
       if(typeof link.prepend==="function")link.prepend(thumb);
       else link.append(thumb);
@@ -108,6 +122,9 @@
       if(detail.phase==="done"||detail.phase==="cancelled"||
          detail.phase==="error"){
         reset();return;
+      }
+      if(detail.phase==="search-query"){
+        showSearchQuery(detail.query);return;
       }
       if(detail.phase==="search-provider"){
         showProvider(detail.name);return;

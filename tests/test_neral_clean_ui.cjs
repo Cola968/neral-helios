@@ -63,3 +63,30 @@ test("ZIP ships new UI and both CI workflows validate it",()=>{
   assert.ok(motion.includes("tests/test_neral_clean_ui.cjs"));
   assert.ok(motion.includes("node --check static/neral-clean-ui.js"));
 });
+
+test("offline voice setup is quiet on load and shown only after tapping the voice button",()=>{
+  const styles=new Set();
+  const nodes={};
+  const make=id=>{
+    const events={};
+    return nodes[id]={id,textContent:id==="localVoiceStatus"
+      ?"Offline-Sprachmodelle fehlen · Install NERAL Voice.cmd starten.":"",
+      style:{},scrollHeight:40,
+      classList:{add:c=>styles.add(c),remove:c=>styles.delete(c),
+        toggle:(c,v)=>v?styles.add(id+":"+c):styles.delete(id+":"+c),
+        contains:c=>styles.has(id+":"+c)},
+      setAttribute(){},addEventListener:(ev,cb)=>{events[ev]=cb},
+      fire:ev=>events[ev]?.({target:nodes[id]}),focus(){},contains(){return false}};
+  };
+  for(const id of ["neralSidebar","sidebarToggle","sidebarBackdrop","chatForm",
+    "prompt","submit","localVoiceStatus","localVoiceStart"])make(id);
+  const document={getElementById:id=>nodes[id]||null,
+    addEventListener(){},querySelectorAll(){return []}};
+  const window={matchMedia:()=>({matches:false,addEventListener(){}}),
+    addEventListener(){}};
+  vm.runInNewContext(read("static/neral-modern.js"),
+    {document,window,MutationObserver:class{observe(){} }},{timeout:1000});
+  assert.equal(nodes.localVoiceStatus.classList.contains("neral-status-alert"),false);
+  nodes.localVoiceStart.fire("click");
+  assert.equal(nodes.localVoiceStatus.classList.contains("neral-status-alert"),true);
+});
