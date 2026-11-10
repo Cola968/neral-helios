@@ -41,6 +41,10 @@ class PairedTir12Contracts(unittest.TestCase):
         self.assertFalse(r["release_approval"])
         self.assertFalse(r["independent_holdout_verified"])
         self.assertFalse(r["same_inference_budget"])
+        self.assertEqual(r["raw_first_turn_token_budget"],2048)
+        self.assertEqual(r["tir_turn0_token_budget"],384)
+        self.assertEqual(r["tir_fallback_token_budget"],2048)
+        self.assertEqual(r["tir_turn0_temperature"],0)
 
     def test_tool_metrics_are_scalar_and_observation_is_never_unverified_stdout(self):
         cases,rows=fixture(raw_correct=5,tir_correct=6)
