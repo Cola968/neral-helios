@@ -8,6 +8,7 @@ model-extracted result verified. No code execution, network or dependencies.
 from __future__ import annotations
 
 import json
+import re
 from neral_formal_constraints import (
     PREFIX, InvalidFormalConstraints, try_solve_formal_constraints,
 )
@@ -95,6 +96,33 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
     rules = schema.get("rules")
     groups = schema.get("all_different", [])
     boolean_rules = schema.get("bool_rules", [])
+    # Guard against extra invented variables/items in the model-generated
+    # schema. This is a source-consistency check, NOT semantic verification.
+    if "ordering" in schema:
+        names = schema["ordering"]
+        if (type(names) is not list
+                or not all(type(v) is str for v in names)):
+            return None
+        # For a complete order, one literal source span must enumerate
+        # every item; otherwise refuse to infer a complete set.
+        ordering_spans = [
+            span for span in evidence if type(span) is str
+            and all(re.search(r"(?<!\\w)" + re.escape(v) + r"(?!\\w)", span)
+                    for v in names)
+        ]
+        if not ordering_spans:
+            return None
+    else:
+        variables = schema.get("variables")
+        if type(variables) is not dict:
+            return None
+        names = list(variables)
+    if any(
+        type(name) is not str
+        or re.search(r"(?<!\\w)" + re.escape(name) + r"(?!\\w)", question) is None
+        for name in names
+    ):
+        return None
     if (type(rules) is not list or type(groups) is not list
             or type(boolean_rules) is not list
             or len(rules) + len(groups) + len(boolean_rules) < 1
