@@ -87,6 +87,29 @@ class BooleanAlgebraContracts(unittest.TestCase):
             count({"A":[0,1],"B":[False,True]},
                   [{"op":"eq","args":["A","B"]}])
 
+    def test_boolean_extraction_requires_source_evidence_and_unverified_status(self):
+        from neral_turn0_extractor import parse_extracted_constraints
+        question = ("A and B can each be True or False. "
+                    "A XOR B must be True. "
+                    "How many assignments satisfy all conditions?")
+        schema = {
+            "variables":{"A":[False,True],"B":[False,True]},
+            "rules":[],
+            "bool_rules":[{"op":"eq","args":[
+                {"op":"xor","args":["A","B"]},True]}],
+            "query":"count"}
+        proposal={
+            "kind":"formal", "complete":True, "schema":schema,
+            "evidence":["A and B can each be True or False",
+                        "A XOR B must be True",
+                        "How many assignments satisfy all conditions?"],
+        }
+        self.assertEqual(parse_extracted_constraints(
+            question,json.dumps(proposal)),2)
+        proposal["evidence"][1]="Unsupported invented condition"
+        self.assertIsNone(parse_extracted_constraints(
+            question,json.dumps(proposal)))
+
     def test_development_example_is_generic_not_hardcoded(self):
         variables={v:[False,True] for v in "ABCDEFG"}
         rules=[
