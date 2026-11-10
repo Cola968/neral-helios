@@ -99,8 +99,13 @@ class OllamaLocalBackend:
             raise ValueError("Ungültige lokale Modellkennung.")
         if not 1 <= timeout <= 90:
             raise ValueError("Ungültiges Modell-Zeitlimit.")
-        if inference_profile not in ("legacy", "measured_nonthinking_2048"):
+        if inference_profile not in ("legacy", "measured_nonthinking_2048",
+                                  "interactive_long16k"):
             raise ValueError("Unbekanntes Inferenzprofil; keine stille Standardänderung.")
+        if (inference_profile == "interactive_long16k"
+                and os.environ.get("OLLAMA_FLASH_ATTENTION") != "1"):
+            raise ValueError("16K requires OLLAMA_FLASH_ATTENTION=1 in the NERAL host process; verify the Ollama service separately.")
+        self.context_window = 16384 if inference_profile == "interactive_long16k" else 4096
         self.model = model
         self.endpoint = endpoint
         self.timeout = timeout
@@ -202,12 +207,13 @@ class OllamaLocalBackend:
         """
         with self._inference_lock:
             measured = self.inference_profile == "measured_nonthinking_2048"
+            large = self.inference_profile == "interactive_long16k"
             options = (
                 {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
                  "min_p": 0.0, "presence_penalty": 1.5,
-                 "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": 4096}
-                if measured else
-                {"temperature": 0, "num_predict": 1024, "num_ctx": 4096}
+                 "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": self.context_window}
+                if measured or large else
+                {"temperature": 0, "num_predict": 1024, "num_ctx": self.context_window}
             )
             payload = json.dumps({
                 "model": self.model,
@@ -283,17 +289,19 @@ class OllamaLocalBackend:
         # measured profile. Only the NEW JSON extractor gets 384 tokens.
         measured = (self.inference_profile == "measured_nonthinking_2048"
                     and (not require_json or extraction_only))
-        budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
+        interactive_large = (self.inference_profile == "interactive_long16k"
+                             and not require_json)
+        budget = 512 if require_json else (2048 if (measured or interactive_large or thinking) else 1024)
         options = (
-            {"temperature": 0, "num_predict": 384, "num_ctx": 4096}
+            {"temperature": 0, "num_predict": 384, "num_ctx": self.context_window}
             if extraction_only else
-            {"temperature": 0, "num_predict": 64, "num_ctx": 4096}
+            {"temperature": 0, "num_predict": 64, "num_ctx": self.context_window}
             if final_only else
             {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
              "min_p": 0.0, "presence_penalty": 1.5,
-             "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": 4096}
-            if measured else
-            {"temperature": 0, "num_predict": budget, "num_ctx": 4096}
+             "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": self.context_window}
+            if measured or interactive_large else
+            {"temperature": 0, "num_predict": budget, "num_ctx": self.context_window}
         )
         if measured and self._benchmark_seed is not None:
             options["seed"] = self._benchmark_seed
