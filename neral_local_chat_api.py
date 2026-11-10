@@ -507,10 +507,19 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         for row in events
                     )
                     return text, recovered
+                # Snapshot the first Ollama call only. Never expose prompt,
+                # generated code, private thinking or raw model text.
+                first_event_index = len(high_backend.inference_diagnostic_events)
+                def first_turn_diagnostic():
+                    events = high_backend.inference_diagnostic_events
+                    if len(events) <= first_event_index:
+                        return {}
+                    return events[first_event_index]
                 result = run_experimental_tir(
                     data, high_backend.respond_chat,
                     finalize_review=(bounded_observation_review
-                                     if bounded_final else None))
+                                     if bounded_final else None),
+                    first_turn_diagnostic=first_turn_diagnostic)
                 return jsonify({**result, "experimental_tir": True,
                                 **_provenance(high_backend)})
             previous_event = (
