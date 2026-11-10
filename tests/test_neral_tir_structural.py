@@ -114,5 +114,23 @@ class FirstTurnTelemetryContracts(unittest.TestCase):
         self.assertEqual(result["first_turn_telemetry"]["eval_count"],2048)
         self.assertEqual(result["verification_status"],"base_fallback_unverified")
 
+
+class BenchmarkTelemetrySafety(unittest.TestCase):
+    def test_scalar_filter_never_leaks_arbitrary_payload(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        event = {"eval_count":2048,"prompt_eval_count":110,
+                 "done_reason":"stop","decision":"unstructured",
+                 "prompt":"TOP_SECRET","content":"TOP_SECRET"}
+        filtered=safe_first_turn_event(event)
+        self.assertEqual(filtered, {"eval_count":2048,"prompt_eval_count":110,
+                         "done_reason":"stop","decision":"unstructured"})
+        self.assertNotIn("TOP_SECRET",str(filtered))
+        self.assertIsNone(safe_first_turn_event(
+            {"eval_count":True,"prompt_eval_count":0,"done_reason":"stop",
+             "decision":"tool"}))
+        self.assertIsNone(safe_first_turn_event(
+            {"eval_count":100,"prompt_eval_count":0,"done_reason":"unexpected",
+             "decision":"tool"}))
+
 if __name__=="__main__":
     unittest.main()
