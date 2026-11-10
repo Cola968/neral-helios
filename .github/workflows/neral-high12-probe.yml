@@ -1,4 +1,4 @@
-name: NERAL HIGH12 one-task GPU inventory and Ollama timings preflight
+name: NERAL HIGH12 one-task CUDA recovery and timings preflight
 on:
   workflow_dispatch:
     inputs:
@@ -10,15 +10,23 @@ on:
         description: 'Full 40-character active PR #503 head SHA'
         required: true
         type: string
+      restart_authorization:
+        description: 'Explicit consent: may stop/restart your own Ollama server if CPU fallback confirmed. Type NERAL_RESTART_OLLAMA_ON_GPU_FALLBACK'
+        required: true
+        type: string
   pull_request:
     paths:
       - 'scripts/neral_high12_probe.py'
+      - 'scripts/neral_ollama_cuda_recover.py'
+      - 'tests/test_neral_ollama_cuda_recover.py'
       - 'tests/test_neral_high12_probe.py'
       - '.github/workflows/neral-high12-probe.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/neral_high12_probe.py'
+      - 'scripts/neral_ollama_cuda_recover.py'
+      - 'tests/test_neral_ollama_cuda_recover.py'
       - 'tests/test_neral_high12_probe.py'
       - '.github/workflows/neral-high12-probe.yml'
 
@@ -45,7 +53,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements-neral-preview.txt
       - run: python -B -m unittest discover -s tests -p test_neral_high12_probe.py -v
-      - run: python -B -m py_compile scripts/neral_high12_probe.py
+      - run: python -B -m unittest discover -s tests -p test_neral_ollama_cuda_recover.py -v
+      - run: python -B -m py_compile scripts/neral_high12_probe.py scripts/neral_ollama_cuda_recover.py
 
   verify-pr:
     name: Authorize exact PR #503 head SHA
@@ -57,6 +66,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       AUTHORIZE: ${{ inputs.authorize }}
       TARGET_SHA: ${{ inputs.target_sha }}
+      RESTART_AUTH: ${{ inputs.restart_authorization }}
     outputs:
       target_sha: ${{ steps.verify.outputs.target_sha }}
     steps:
@@ -66,6 +76,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REPOSITORY" != "Cola968/neral-helios" ||
                 "$AUTHORIZE" != "NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY" ||
+                "$RESTART_AUTH" != "NERAL_RESTART_OLLAMA_ON_GPU_FALLBACK" ||
                 ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo 'Invalid authorization or target SHA' >&2
             exit 1
@@ -86,7 +97,7 @@ jobs:
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
 
   gpu-probe:
-    name: One Qwen3.5 request, 30s limit, NVIDIA and Ollama inventory gate
+    name: Optional native Ollama CUDA restart plus one 30s Qwen3.5 request
     needs: verify-pr
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, windows, x64, neral-gpu]
@@ -100,6 +111,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET_SHA: ${{ needs.verify-pr.outputs.target_sha }}
+      RESTART_AUTH: ${{ inputs.restart_authorization }}
       NERAL_EXPERIMENTAL_TIR: '0'
       HF_HUB_OFFLINE: '1'
       HF_DATASETS_OFFLINE: '1'
@@ -150,7 +162,7 @@ jobs:
           [IO.File]::AppendAllText($env:GITHUB_ENV,
             ('HIGH12_PROBE_PY='+$py+[Environment]::NewLine),
             [Text.UTF8Encoding]::new($false))
-      - name: Capture nvidia-smi and Ollama listeners, clean reload HIGH, one 30s raw chat
+      - name: Inspect Ollama server log, one guarded restart if zero VRAM, 30s probe
         run: |
           $ErrorActionPreference='Stop'
           $root=Join-Path $env:GITHUB_WORKSPACE 'control'
@@ -160,7 +172,7 @@ jobs:
           $env:PYTHONPATH=$root
           Push-Location $root
           try {
-            & $env:HIGH12_PROBE_PY -B -m scripts.neral_high12_probe --authorize NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY --target-sha $env:TARGET_SHA --out (Join-Path $dir 'report.json')
+            & $env:HIGH12_PROBE_PY -B -m scripts.neral_high12_probe --authorize NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY --authorize-restart $env:RESTART_AUTH --target-sha $env:TARGET_SHA --out (Join-Path $dir 'report.json')
             if ($LASTEXITCODE -ne 0) {throw 'One-task probe failed; see sanitized report'}
           } finally {Pop-Location}
       - name: Upload sanitized timing and GPU-residency report
