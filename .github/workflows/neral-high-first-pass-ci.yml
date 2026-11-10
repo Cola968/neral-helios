@@ -9,6 +9,7 @@ on:
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_chat_stale_context.py'
       - 'tests/test_neral_high_format_audit.py'
+      - 'tests/test_neral_numeric_final_fallback.py'
       - '.github/workflows/neral-high-first-pass-ci.yml'
   push:
     branches: [main]
@@ -20,6 +21,7 @@ on:
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_chat_stale_context.py'
       - 'tests/test_neral_high_format_audit.py'
+      - 'tests/test_neral_numeric_final_fallback.py'
       - '.github/workflows/neral-high-first-pass-ci.yml'
 permissions:
   contents: read
@@ -49,3 +51,5 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_chat_stale_context.py -v
       - name: Strict FINAL_ANSWER format audit (no rescore)
         run: python -m unittest discover -s tests -p test_neral_high_format_audit.py -v
+      - name: Bounded numeric final extraction and benchmark scorer fallback
+        run: python -m unittest discover -s tests -p test_neral_numeric_final_fallback.py -v
