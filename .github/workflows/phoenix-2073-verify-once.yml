@@ -1,0 +1,27 @@
+name: Phoenix exact 2.073B checkpoint verify once
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-2073-verify-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    steps:
+      - name: Exact read-only identity check
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw '2.073B continuity checkpoint missing' }
+          $f = Get-Item -LiteralPath $p
+          $sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (-not $sha.StartsWith('f7a73e283421')) { throw '2.073B checkpoint hash prefix no longer matches pinned filename identity' }
+          Write-Host ('CHECKPOINT|processed_tokens=2073161216|bytes=' + $f.Length + '|sha256=' + $sha)
+          Write-Host ('DISK|D|free_gib=' + [math]::Round((Get-PSDrive -Name D).Free/1GB,2))
+          Write-Host 'Read-only identity check complete. No model load, GPU access, writes, deletes or training.'

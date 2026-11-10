@@ -1,0 +1,52 @@
+name: Phoenix private resumable review HTML v2 once (CPU only)
+
+# One-shot: only changes to this exact workflow trigger it. Source text stays
+# inside private local assets, never uploaded or printed by Actions.
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-private-review-ui-v2-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-local-private-data-cpu
+  cancel-in-progress: false
+
+jobs:
+  create-private-html-v2:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact experimental commit in isolated run directory
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_review_v2_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Verify original SHA and create NEW local v2 HTML only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$path) {
+            $absolute = [IO.Path]::GetFullPath($path)
+            if ($absolute -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_review_v2_source_' + $env:GITHUB_RUN_ID)
+          $root = 'D:\NeralPrivateAssets'
+          $queue = Join-Path $root 'phoenix\screened_review_queue_v1.jsonl'
+          $out = Join-Path $root 'phoenix\screened_review_queue_v2.html'
+          $sha = '94053e24e34b309ced74cf0ecdf75db484b4168718a260039ae3b7931c579f81'
+          if (-not (Test-Path -LiteralPath $queue -PathType Leaf)) { throw 'Original private queue missing' }
+          if ((Get-FileHash -LiteralPath $queue -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha) { throw 'Queue SHA changed; no HTML generated' }
+          if (Test-Path -LiteralPath $out) { throw 'Version 2 HTML exists; never overwrite' }
+          foreach ($path in @($repo,$root,$queue,$out)) { if ($path.Contains("'")) { throw 'Unsafe shell path' } }
+          $command = "set -euo pipefail; test -x ~/.venvs/neral-triton-py312/bin/python; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_ui.py --assets-root '$(ToWsl $root)' --queue '$(ToWsl $queue)' --queue-sha256 '$sha' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $command
+          if ($LASTEXITCODE -ne 0) { throw 'Private v2 HTML creation blocked' }
+          if (-not (Test-Path -LiteralPath $out -PathType Leaf)) { throw 'Expected private v2 HTML missing' }
+          Write-Host ('PRIVATE_UI_V2|created=true|bytes=' + (Get-Item -LiteralPath $out).Length + '|draft_resume=true|training_approved=false')
+          Write-Host 'Original v1 preserved. Review content and notes not printed or uploaded. No GPU, model loading or training.'

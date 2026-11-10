@@ -1,0 +1,21 @@
+name: Phoenix private decision validator tests (synthetic CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-review-decisions-ci.yml'
+      - 'frontier350/nextgen_v1/phoenix_review_decisions.py'
+      - 'frontier350/nextgen_v1/test_phoenix_review_decisions.py'
+permissions:
+  contents: read
+jobs:
+  validate-synthetic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run entirely synthetic review import tests; no private assets or model
+        working-directory: frontier350/nextgen_v1
+        run: python3 -m unittest -v test_phoenix_review_decisions

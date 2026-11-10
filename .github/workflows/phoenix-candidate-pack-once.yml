@@ -1,0 +1,74 @@
+name: Phoenix private screened candidate pack once (CPU ONLY)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-candidate-pack-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  test-builder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Synthetic candidate-pack tests
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python3 -m unittest -v test_phoenix_candidate_pack
+          python3 -m py_compile phoenix_candidate_pack.py
+
+  build-local-private-candidate:
+    needs: test-builder
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Reusable exact-commit checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_candidate_pack_source
+          clean: true
+          persist-credentials: false
+      - name: Build candidate-only pack locally on D
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_candidate_pack_source'
+          $root = 'D:\NeralPrivateAssets'
+          $archive = Join-Path $root 'sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $out = Join-Path $root 'phoenix\candidate_pack_v1'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned archive missing' }
+          if (Test-Path -LiteralPath $out) { throw 'Candidate pack v1 already exists; refusing overwrite' }
+          $expected = 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Pinned archive digest mismatch' }
+          $drive = Get-PSDrive -Name D
+          if ($drive.Free -lt 200GB) { throw 'D drive free-space guard failed' }
+          foreach ($p in @($repo,$root,$archive,$out)) { if ($p.Contains("'")) { throw 'Unsafe shell path' } }
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_candidate_pack.py --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)' --max-de 400 --max-en 800"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Private candidate pack blocked' }
+          $report = Join-Path $out 'candidate_report.json'
+          if (-not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'Candidate report missing' }
+          $r = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($r.training_approved -ne $false -or $r.holdout_checked -ne $false -or $r.audit.rows -ne 1200) { throw 'Unsafe or incomplete candidate report' }
+          $size = (Get-ChildItem -LiteralPath $out -File | Measure-Object -Property Length -Sum).Sum
+          if ($size -gt 200MB) { throw 'Unexpected candidate-pack size; refusing' }
+          Write-Host ('CANDIDATE_PACK|rows=' + $r.audit.rows + '|train=' + $r.split.rows.train + '|validation=' + $r.split.rows.validation + '|flags=' + ($r.audit.flags | ConvertTo-Json -Compress) + '|bytes=' + $size + '|training_approved=false')
+          Write-Host ('CANDIDATE_REPORT_SHA256|' + (Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'No raw dialogue or IDs were printed/uploaded; no model/GPU/training.'

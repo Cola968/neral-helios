@@ -1,0 +1,47 @@
+name: Phoenix real checkpoint exact-resume refusal once (CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-real-resume-refusal-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  negative-checkpoint-resume-test:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout exact committed negative test without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_exact_resume_refusal_source
+          persist-credentials: false
+          clean: true
+      - name: Validate actual missing optimizer moments refuse exact resume before any training
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_exact_resume_refusal_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_exact_resume_refusal_source') { throw 'Unexpected checkout location' }
+          $script=Join-Path $repo 'frontier350\nextgen_v1\phoenix_real_resume_refusal.py'
+          $checkpoint='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          if(-not (Test-Path -LiteralPath $script -PathType Leaf) -or -not (Test-Path -LiteralPath $checkpoint -PathType Leaf)) { throw 'Required source/checkpoint missing' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserves failed' }
+          if((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Checkpoint SHA mismatch' }
+          foreach($p in @($repo,$checkpoint)) { if($p.Contains("'")) { throw 'Unsupported apostrophe in shell path' } }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_real_resume_refusal.py --execute --trusted-local-checkpoint --checkpoint '$(WslPath $checkpoint)'"
+          Write-Host 'Read-only CPU negative test: exact checkpoint must be refused as a native AdamW resume.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Actual resume refusal test failed; NO training started' }
+          Write-Host 'Verified refusal; no GPU, optimizer creation, training, checkpoint writes, or uploads.'

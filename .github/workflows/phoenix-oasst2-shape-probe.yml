@@ -1,0 +1,91 @@
+name: Phoenix inspect recovered OASST2 source shape (read only)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-oasst2-shape-probe.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  sampled-source-schema-and-full-line-bounds:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Verify exact source and read only bounded aggregate schema statistics
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = 'source_preflight'
+          $file = $null; $gzip = $null; $reader = $null
+          try {
+            $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+            $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+            if (!(Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Archive unavailable' }
+            $item = Get-Item -LiteralPath $archive -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $item.Length -ne 54301900) { throw 'Archive identity or size mismatch' }
+            $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($digest -cne 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751') { throw 'Archive SHA mismatch' }
+            $stage = 'bounded_gzip_and_sampled_json_schema'
+            $file = [IO.File]::Open($archive, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+            $gzip = [IO.Compression.GZipStream]::new($file, [IO.Compression.CompressionMode]::Decompress)
+            $reader = [IO.StreamReader]::new($gzip, [Text.Encoding]::UTF8)
+            $lines = 0; $sample = 0; $tree = 0; $assistant = 0; $prompter = 0; $de = 0; $en = 0; $reviewedHuman = 0; $overlong = 0; $blank = 0
+            while (($line = $reader.ReadLine()) -ne $null) {
+              $lines++
+              if ($lines -gt 500000) { throw 'Archive exceeds absolute diagnostic bound' }
+              if ($line.Length -gt 120000) { $overlong++ }
+              if (!$line.Trim()) { $blank++; continue }
+              if ($sample -ge 4096) { continue }
+              $row = ConvertFrom-Json -InputObject $line -ErrorAction Stop
+              if (!($row -is [pscustomobject]) -or !($row.message_id -is [string]) -or !$row.message_id.Trim()) { throw 'Sample message identity invalid' }
+              $sample++
+              if (($row.message_tree_id -is [string]) -and $row.message_tree_id.Trim()) { $tree++ }
+              if ($row.role -ceq 'assistant') { $assistant++ }
+              if ($row.role -ceq 'prompter') { $prompter++ }
+              if ($row.lang -ceq 'de') { $de++ }
+              if ($row.lang -ceq 'en') { $en++ }
+              if (($row.review_result -is [bool]) -and $row.review_result -eq $true -and ($row.synthetic -is [bool]) -and $row.synthetic -eq $false -and !$row.model_name -and $row.deleted -ne $true) { $reviewedHuman++ }
+            }
+            if ($sample -eq 0) { throw 'No JSON messages sampled' }
+            $boundsOk = ($lines -le 200000 -and $overlong -eq 0 -and $blank -eq 0)
+            $schemaOk = ($tree -eq $sample -and $assistant -gt 0 -and $prompter -gt 0)
+            $report = [ordered]@{
+              status = $(if ($boundsOk -and $schemaOk) { 'source_shape_sampled_pass_not_approved' } else { 'bridge_shape_or_bounds_blocked' })
+              pinned_sha256_match = $true
+              total_line_count = $lines
+              sampled_json_messages = $sample
+              sampled_tree_ids_present = $tree
+              sampled_assistant_roles = $assistant
+              sampled_prompter_roles = $prompter
+              sampled_german_messages = $de
+              sampled_english_messages = $en
+              sampled_reviewed_human_messages = $reviewedHuman
+              oversized_lines = $overlong
+              blank_lines = $blank
+              bridge_line_count_bound_passed = ($lines -le 200000)
+              full_source_lineage_checked = $false
+              frozen_holdout_present = $false
+              dataset_approved = $false
+              training_started = $false
+              raw_data_uploaded = $false
+            }
+            Write-Host ('PHOENIX_SOURCE_SHAPE ' + ($report | ConvertTo-Json -Compress))
+            if (!$boundsOk -or !$schemaOk) { throw 'Source data are incompatible with current bridge; stop before export' }
+          } catch {
+            Write-Host ('PHOENIX_SOURCE_SHAPE {"status":"blocked","stage":"' + $stage + '","dataset_approved":false,"training_started":false,"raw_data_uploaded":false}')
+            throw 'Source inspection stopped; no export, approval or training.'
+          } finally {
+            if ($reader) { $reader.Dispose() }
+            if ($gzip) { $gzip.Dispose() }
+            if ($file) { $file.Dispose() }
+          }
+      - name: Declare evidence boundary
+        run: Write-Host 'This read-only check counted all gzip lines and inspected at most 4096 schemas. It did not examine all row lineage, privacy, licensing, semantic overlap, a holdout, model quality or GPU throughput.'

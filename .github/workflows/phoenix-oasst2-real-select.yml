@@ -1,0 +1,55 @@
+name: Phoenix real OASST2 selector diagnostic (manual; no install or export)
+
+# Deliberately manual after Windows setup-python failed on registry/install rights.
+# Do not retry setup-python or change Windows execution policy/registry here.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  local-real-selector-dry-run:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout exact profiling code into isolated directory without cleaning private assets
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_selector_dry_run_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Require trusted, already installed Python 3.10+ and profile pinned source only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # An operator can configure NERAL_PYTHON to an existing, trusted
+          # interpreter. No download, package install, registry edit or privileges.
+          $interpreter = $null
+          if ($env:NERAL_PYTHON) {
+            if (!(Test-Path -LiteralPath $env:NERAL_PYTHON -PathType Leaf)) { throw 'Configured local Python unavailable. No data read.' }
+            $interpreter = $env:NERAL_PYTHON
+          } elseif (Get-Command python -CommandType Application -ErrorAction SilentlyContinue) {
+            $interpreter = 'python'
+          } else {
+            throw 'Python absent in runner environment. Set trusted NERAL_PYTHON outside GitHub first; no installation attempted.'
+          }
+          try {
+            $version = & $interpreter -c 'import sys; print(int(sys.version_info.major == 3 and sys.version_info.minor >= 10))' 2>$null
+            if ($LASTEXITCODE -ne 0 -or @($version).Count -ne 1 -or [string]$version -cne '1') { throw 'Python version mismatch' }
+          } catch { throw 'Trusted Python 3.10+ not executable. No source accessed.' }
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'phoenix_selector_dry_run_${{ github.run_id }}\frontier350\nextgen_v1\phoenix_oasst2_profile.py'
+          if (!(Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Exact profiling code unavailable. No source opened.' }
+          & $interpreter $script --assets-root "$root" --archive "$archive" 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Real source selector diagnostic blocked. No export, approval or training.' }
+      - name: Record non-approval boundary
+        run: Write-Host 'Manual read-only actual source selector diagnostic only. No Python installation or registry mutation, no fabricated holdout, training JSONL, corpus approval, SFT, GPU, model modification or raw text upload.'

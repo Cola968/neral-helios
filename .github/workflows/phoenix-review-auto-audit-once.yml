@@ -1,0 +1,69 @@
+name: Phoenix private automatic review hints once (CPU ONLY)
+
+# A fresh one-shot run for the explicit pinned-digest test fix. No recurrence.
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-review-auto-audit-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  test-auditor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Synthetic safety tests; no private data and no GPU
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python3 -m unittest -v test_phoenix_review_auto_audit
+          python3 -m py_compile phoenix_review_auto_audit.py
+  local-audit:
+    needs: test-auditor
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Reusable isolated source checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_review_auto_audit_source
+          clean: true
+          persist-credentials: false
+      - name: Audit pinned private queue; write only local aggregate and flags
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_review_auto_audit_source'
+          $root = 'D:\NeralPrivateAssets'
+          $queue = Join-Path $root 'phoenix\screened_review_queue_v1.jsonl'
+          $receipt = Join-Path $root 'phoenix\screened_review_queue_v1_receipt.json'
+          $out = Join-Path $root 'phoenix\screened_review_auto_audit_v1.json'
+          if ((Test-Path -LiteralPath $out) -or -not (Test-Path -LiteralPath $queue -PathType Leaf) -or -not (Test-Path -LiteralPath $receipt -PathType Leaf)) { throw 'Missing original private inputs or already existing output; no overwrite' }
+          $expected = '94053e24e34b309ced74cf0ecdf75db484b4168718a260039ae3b7931c579f81'
+          if ((Get-FileHash -LiteralPath $queue -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Review queue changed' }
+          foreach ($p in @($repo, $root, $queue, $receipt, $out)) {
+            if ($p.Contains("'")) { throw 'Unsafe shell path' }
+          }
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_review_auto_audit.py --assets-root '$(ToWsl $root)' --queue '$(ToWsl $queue)' --receipt '$(ToWsl $receipt)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Private automatic audit blocked' }
+          if (-not (Test-Path -LiteralPath $out -PathType Leaf)) { throw 'Missing local private report' }
+          $report = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($report.training_approved -ne $false -or $report.human_content_review_completed -ne $false -or $report.queue_rows -ne 24) { throw 'Unsafe private report state' }
+          Write-Host 'Verified local-only automatic hints; no source text, IDs or notes logged, and no human review claimed.'

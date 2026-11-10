@@ -1,0 +1,49 @@
+name: Phoenix screened OASST2 sampler comparison (NO GPU / NO TRAINING)
+
+# One-shot verification of the consolidated sampler path. This uses CPU/WSL
+# only and prints aggregate counters; no CUDA calls, model loading or training.
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-diverse-probe-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  source-sampler-comparison-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Isolated pinned checkout; private files untouched
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_diverse_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Compare legacy, tree-diverse and screened-tree-diverse policies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_diverse_source_' + $env:GITHUB_RUN_ID)
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned local archive unavailable; no processing' }
+          if ($repo.Contains("'") -or $root.Contains("'") -or $archive.Contains("'")) { throw 'Unsafe path; source comparison refused' }
+          $cmd = "set -euo pipefail; test -x ~/.venvs/neral-triton-py312/bin/python; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_diverse_probe.py --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Screened sampler comparison blocked; no training authorization' }
+      - name: Explicit evidence boundary
+        run: Write-Host 'All policies remain unapproved; NO GPU, checkpoint, training, raw dialog, holdout, model evaluation, license/data approval or source export.'

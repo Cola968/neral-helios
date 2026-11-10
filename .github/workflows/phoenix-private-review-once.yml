@@ -1,0 +1,88 @@
+name: Phoenix private human-review queue one-shot (CPU ONLY / NEVER UPLOAD TEXT)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-private-review-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  create-local-private-review-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Reusable exact-commit checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_review_source
+          clean: true
+          persist-credentials: false
+      - name: Prepare isolated private root and pinned source copy
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceRoot = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $source = Join-Path $sourceRoot 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $root = 'D:\NeralPrivateAssets'
+          $sourceDir = Join-Path $root 'sources'
+          $archive = Join-Path $sourceDir '2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $expected = 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'
+          if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Pinned source archive missing' }
+          if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Source archive digest mismatch' }
+          New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+          if (Test-Path -LiteralPath $archive -PathType Leaf) {
+            if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Existing private archive digest mismatch; refusing overwrite' }
+          } else {
+            Copy-Item -LiteralPath $source -Destination $archive
+            if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { Remove-Item -LiteralPath $archive -Force; throw 'Copied archive digest mismatch' }
+          }
+          Write-Host 'PRIVATE_ROOT_READY|pinned_archive_verified=true|extra_archive_bytes=54301900|max_once=true'
+      - name: Diagnose aggregate preparation phases
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_review_source'
+          $root = 'D:\NeralPrivateAssets'
+          $archive = Join-Path $root 'sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_diagnose.py --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --max-en 800 --max-de 400"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Aggregate private review diagnosis blocked' }
+      - name: Save 24 rows ONLY in private local assets; log aggregates only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_review_source'
+          $root = 'D:\NeralPrivateAssets'
+          $archive = Join-Path $root 'sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $reviewDir = Join-Path $root 'phoenix'
+          New-Item -ItemType Directory -Path $reviewDir -Force | Out-Null
+          $out = Join-Path $reviewDir 'screened_review_queue_v1.jsonl'
+          $receipt = Join-Path $reviewDir 'screened_review_queue_v1_receipt.json'
+          if ((Test-Path -LiteralPath $out) -or (Test-Path -LiteralPath $receipt)) { throw 'Review v1 already exists; refusing overwrite' }
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_queue.py --execute --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)' --receipt '$(ToWsl $receipt)' --per-bucket 6 --max-en 800 --max-de 400"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Local private review queue blocked; no approval or training' }
+          $r = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($r.rows -ne 24 -or $r.all_human_reviews_pending -ne $true -or $r.training_approved -ne $false -or $r.training_started -ne $false -or $r.raw_text_uploaded -ne $false) { throw 'Unsafe or malformed private review receipt' }
+          Write-Host ('PRIVATE_REVIEW|rows=' + $r.rows + '|all_pending=' + $r.all_human_reviews_pending + '|training_approved=' + $r.training_approved)
+          Write-Host ('PRIVATE_REVIEW_SHA256|' + (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'Private review text and IDs were not logged or uploaded.'
+      - name: Explicit non-approval and hardware boundary
+        run: Write-Host '24 pending human reviews; NO GPU, model access, training, approval, benchmark, private-text logging or artifact upload.'

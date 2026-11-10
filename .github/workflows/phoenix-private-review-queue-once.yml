@@ -1,0 +1,57 @@
+name: Phoenix private OASST2 review queue one-shot (NO GPU / NO TRAINING)
+
+# Explicit one-shot creation of a bounded private human-review sheet.
+# Raw selected conversations stay on the user's machine under NERAL_ASSETS_ROOT.
+# Never upload the queue as an Actions artifact or print its contents/path.
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-private-review-queue-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  create-private-review-queue:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Isolated pinned checkout; never clean private assets
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_review_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Build bounded private review queue using existing WSL Python
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_review_source_' + $env:GITHUB_RUN_ID)
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          $private = Join-Path $root 'phoenix'
+          if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw 'Private asset root unavailable' }
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned local archive unavailable' }
+          if (-not (Test-Path -LiteralPath $private -PathType Container)) {
+            New-Item -ItemType Directory -Path $private -ErrorAction Stop | Out-Null
+          }
+          if ($repo.Contains("'") -or $root.Contains("'") -or $archive.Contains("'") -or $private.Contains("'")) { throw 'Unsafe path; private review creation refused' }
+          $out = Join-Path $private ('human_review_' + $env:GITHUB_RUN_ID + '.jsonl')
+          $receipt = Join-Path $private ('human_review_' + $env:GITHUB_RUN_ID + '_receipt.json')
+          $cmd = "set -euo pipefail; test -x ~/.venvs/neral-triton-py312/bin/python; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_private_review_queue.py --execute --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)' --out '$(ToWsl $out)' --receipt '$(ToWsl $receipt)' --per-bucket 8"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Private review queue creation blocked; no training authorization' }
+      - name: Evidence boundary
+        run: Write-Host 'Private review queue created locally only if prior step passed. No raw text uploaded/logged, no GPU/CUDA, model load, holdout approval or training.'

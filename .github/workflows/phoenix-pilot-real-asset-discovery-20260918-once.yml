@@ -1,0 +1,66 @@
+# rerun: 2026-09-23 live Phoenix readiness inventory
+name: Phoenix pilot genuine asset discovery (metadata only, NO TRAINING)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-pilot-real-asset-discovery-20260918-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  actual-assets:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Read only metadata of historically used verified assets and local review candidates
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          # This is the assets-root selection from the previously successful genuine
+          # own-weight CPU development workflow, NOT the unverified D: guess.
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $private='D:\NeralPrivateAssets\phoenix'
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $tokExists=Test-Path -LiteralPath $tokenizer -PathType Leaf
+          $tokMatch=$false
+          if($tokExists) { $tokMatch=((Get-FileHash -LiteralPath $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant() -eq '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd') }
+          $candidates=@()
+          if(Test-Path -LiteralPath $private -PathType Container) {
+            $candidates=@(Get-ChildItem -LiteralPath $private -File -Recurse -ErrorAction Stop | Where-Object { $_.Name -match '(?i)(approval|holdout|review)' } | Select-Object -First 100)
+          }
+          $approval=@($candidates | Where-Object { $_.Name -match '(?i)approval' -and $_.Extension -eq '.json' })
+          $holdout=@($candidates | Where-Object { $_.Name -match '(?i)holdout' -and $_.Extension -in @('.jsonl','.json','.txt') })
+          $review=@($candidates | Where-Object { $_.Name -match '(?i)review' })
+          $shardDirs=@()
+          # Only already known bounded asset/review subtrees; never scan whole disks.
+          foreach($root in @((Join-Path $assets 'frontier350_assets'),$private)) {
+            if(Test-Path -LiteralPath $root -PathType Container) {
+              $samples=@(Get-ChildItem -LiteralPath $root -Filter '*.bin' -File -Recurse -ErrorAction Stop | Select-Object -First 250)
+              $shardDirs += [ordered]@{ category=if($root -eq $private){'private_review_root'}else{'original_assets_root'}; candidate_uint16_bin_files_up_to_250=$samples.Count; candidate_nonempty_even_length=@($samples | Where-Object { $_.Length -gt 1024 -and $_.Length % 2 -eq 0 }).Count }
+            }
+          }
+          $report=[ordered]@{
+            event='genuine_asset_inventory_read_only'
+            original_checkpoint_present=(Test-Path -LiteralPath $source -PathType Leaf)
+            previously_successful_assets_root_present=(Test-Path -LiteralPath $assets -PathType Container)
+            tokenizer_present=$tokExists
+            tokenizer_sha256_verified=$tokMatch
+            review_named_candidates_up_to_100=$review.Count
+            holdout_named_candidates_up_to_100=$holdout.Count
+            approval_json_named_candidates_up_to_100=$approval.Count
+            candidate_bin_shards=$shardDirs
+            review_verified_complete=$false
+            holdout_verified_independent=$false
+            manifest_approved=$false
+            gpu_accessed=$false
+            torch_imported=$false
+            training_started=$false
+            newly_processed_tokens=0
+          }
+          $report | ConvertTo-Json -Compress -Depth 5 | Write-Host
+          if(-not $tokMatch) { Write-Host 'BLOCKED: original tokenizer cannot be SHA-verified at the prior successful assets root.' }
+          Write-Host 'Metadata candidates are NOT licensed/approved training data; human reviews and explicit SHA-bound manifest remain required. No training invoked.'

@@ -1,0 +1,53 @@
+name: Phoenix 24-item own-weight domain development probe on PC once (CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-domain-dev-on-pc-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  own-weight-development:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout committed source, no persistent credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_domain_dev_source
+          clean: true
+          persist-credentials: false
+      - name: Run bounded, SHA-gated CPU-only public development questions
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive paths only' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_domain_dev_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_domain_dev_source') { throw 'Unexpected checkout location' }
+          $script=Join-Path $repo 'frontier350\nextgen_v1\helios_domain_dev_probe.py'
+          $checkpoint='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private='D:\NeralPrivateAssets\phoenix'
+          foreach($file in @($script,$checkpoint)) { if(-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw 'Missing source or local checkpoint' } }
+          foreach($dir in @($assets,$private)) { if(-not (Test-Path -LiteralPath $dir -PathType Container)) { throw 'Missing verified local storage' } }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Unexpected checkpoint SHA' }
+          foreach($p in @($repo,$assets,$private,$checkpoint)) { if($p.Contains("'")) { throw 'Unsafe apostrophe in path' } }
+          $name='helios_quality_'+'${{ github.sha }}'.Substring(0,12)+'.json'
+          if(Test-Path -LiteralPath (Join-Path $private $name)) { throw 'Refuse report overwrite' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios_domain_dev_probe.py --execute --trusted-local-checkpoint --assets-root '$(WslPath $assets)' --checkpoint '$(WslPath $checkpoint)' --private-dir '$(WslPath $private)' --output-name '$name'"
+          Write-Host 'Public questions: 24 DE/EN arithmetic, everyday, astronomy and aviation development examples; rankings only; CPU; per-question results stay local.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Development suite failed; no training performed' }
+          Write-Host ('LOCAL_PRIVATE_DOMAIN_REPORT|' + (Join-Path $private $name))
+          Write-Host 'No GPU, no training, no checkpoint mutation or result artifact. This is not an independent benchmark.'

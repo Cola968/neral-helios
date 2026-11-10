@@ -1,0 +1,50 @@
+name: Phoenix 2B checkpoint inventory once
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-2b-inventory-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Read-only inventory
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'READ-ONLY checkpoint inventory. No model load, no GPU use, no deletes.'
+          $roots = Get-ChildItem -LiteralPath 'D:\' -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(Neral|neral|runs|Runs)' }
+          Write-Host ('Candidate roots: ' + (($roots | ForEach-Object FullName) -join '; '))
+          $files = @()
+          foreach ($r in $roots) {
+            try {
+              $files += Get-ChildItem -LiteralPath $r.FullName -File -Recurse -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -in '.pt','.pth','.ckpt','.bin' -and $_.Length -ge 100MB }
+            } catch { Write-Host ('Skipped unreadable root: ' + $r.FullName) }
+          }
+          $files = $files | Sort-Object LastWriteTime -Descending
+          Write-Host ('Large checkpoint-like files found: ' + $files.Count)
+          $top = $files | Select-Object -First 30
+          foreach ($f in $top) {
+            $gib = [math]::Round($f.Length / 1GB, 3)
+            Write-Host ("FILE|{0}|{1} GiB|{2:o}" -f $f.FullName,$gib,$f.LastWriteTime)
+          }
+          Write-Host 'Hashing only likely 2B candidates selected by path/name/time metadata.'
+          $likely = $files | Where-Object {
+            $_.FullName -match '(2[._-]?0(0|2)1|1997|2021|2B|V8|V81|V82|nextgen|autorecovery|resume)' -or
+            $_.Name -ieq 'resume.pt'
+          } | Select-Object -First 8
+          foreach ($f in $likely) {
+            $h = Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256
+            Write-Host ("HASH|{0}|{1}" -f $f.FullName,$h.Hash.ToLowerInvariant())
+          }
+          $d = Get-PSDrive -Name D
+          Write-Host ("DISK|D|free_gib={0}" -f [math]::Round($d.Free/1GB,2))
+          Write-Host 'Inventory complete. No files were modified.'

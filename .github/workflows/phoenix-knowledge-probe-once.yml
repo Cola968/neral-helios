@@ -1,0 +1,57 @@
+name: Phoenix public knowledge probe once (CPU ONLY / NO TRAINING)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-knowledge-probe-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  public-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public diagnostic contract tests and syntax (no model files)
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python3 -m unittest -v test_phoenix_knowledge_probe test_phoenix_continuity_cpu_probe
+          python3 -m py_compile phoenix_knowledge_probe.py
+  on-machine-cpu:
+    needs: public-contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Reuse dedicated exact-commit checkout; no checkpoint copies
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_knowledge_probe_source
+          persist-credentials: false
+          clean: true
+      - name: Check exact pins and disk reserve; run CPU forced-choice diagnostics only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_knowledge_probe_source'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $checkpoint = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          if (!(Test-Path -LiteralPath $assets -PathType Container) -or !(Test-Path -LiteralPath $checkpoint -PathType Leaf)) { throw 'Pinned private assets or checkpoint unavailable' }
+          if ((Get-PSDrive -Name C).Free -lt 30GB -or (Get-PSDrive -Name D).Free -lt 200GB) { throw 'Disk reserve failed; no inference' }
+          if ((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Checkpoint SHA mismatch; no model load' }
+          foreach ($p in @($repo,$assets,$checkpoint)) { if ($p.Contains("'")) { throw 'Unsafe shell path' } }
+          $cmd = "set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_knowledge_probe.py --execute --trusted-local-checkpoint --assets-root '$(ToWsl $assets)' --checkpoint '$(ToWsl $checkpoint)'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Knowledge diagnostic failed; do not claim measured model knowledge' }
+          Write-Host 'Completed PUBLIC factual preference diagnostic only; no GPU, training, file output or model modification.'

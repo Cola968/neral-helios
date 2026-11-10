@@ -1,0 +1,41 @@
+name: Phoenix weight-only lineage real Torch CPU probe once
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-weightonly-lineage-real-torch-cpu-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  synthetic-lineage-replay:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact auditable source, no persistent credentials
+        uses: actions/checkout@v4
+        with:
+          ref: 22358d80c5fdfd60c51115e96ce4cb5af831d6d3
+          path: phoenix_weightonly_lineage_source
+          persist-credentials: false
+      - name: CPU-only actual Torch tiny model lineage/journal and full contract suites
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_weightonly_lineage_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_weightonly_lineage_source') { throw 'Unexpected checkout' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Storage reserve failed' }
+          if($repo.Contains("'")) { throw 'Unsupported quote in checkout path' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m compileall -q frontier350/nextgen_v1/phoenix_weight_only_pilot.py frontier350/nextgen_v1/phoenix_weightonly_lineage_cpu_probe.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_sft_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_storage_budget.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_checkpoint_journal.py'; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/phoenix_weightonly_lineage_cpu_probe.py --execute --cpu-only"
+          Write-Host 'Synthetic tiny CPU model; no original checkpoint, real assets, approval or GPU training. Temporary files deleted after probe.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'CPU lineage integration failed. No real training was authorized or started.' }
+          Write-Host 'Hardened pilot contracts and tiny actual Torch replay passed; no Neral answer-quality evidence.'

@@ -1,0 +1,86 @@
+name: Phoenix OASST2 private input preflight (read only)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-oasst2-preflight.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  local-data-prerequisites-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout pinned Phoenix code independently without touching ignored data
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_data_preflight_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Verify known private paths and SHA; fail closed if prerequisites are absent
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pass = $false
+          try {
+            $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+            $hasRoot = Test-Path -LiteralPath $root -PathType Container
+            $hasArchive = $false
+            $hasHoldout = $false
+            $verifiedDigest = $false
+            $legacyArchive = $false
+            $reason = 'missing_private_assets_root'
+            $expected = 'a9f240c4c77aa1378364f70d37e753c07ba284e247b019d700e1947a0e5da751'
+            $legacy = Join-Path $env:GITHUB_WORKSPACE 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+            if (Test-Path -LiteralPath $legacy -PathType Leaf) {
+              $legacyItem = Get-Item -LiteralPath $legacy -Force
+              $legacyArchive = (($legacyItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)
+            }
+            if ($hasRoot) {
+              $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+              $holdout = Join-Path $root 'phoenix\holdout_hashes.json'
+              if (Test-Path -LiteralPath $archive -PathType Leaf) {
+                $item = Get-Item -LiteralPath $archive -Force
+                $hasArchive = (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and $item.Length -gt 0 -and $item.Length -le 250000000)
+              }
+              if (Test-Path -LiteralPath $holdout -PathType Leaf) {
+                $item = Get-Item -LiteralPath $holdout -Force
+                $hasHoldout = (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and $item.Length -gt 0 -and $item.Length -le 1000000)
+              }
+              $reason = 'archive_or_holdout_missing_or_outside_bounds'
+              if ($hasArchive) {
+                $verifiedDigest = ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $expected)
+                if (-not $verifiedDigest) { $reason = 'archive_sha256_mismatch' }
+              }
+              if ($hasArchive -and $hasHoldout -and $verifiedDigest) { $reason = 'ready_for_private_source_review_only' }
+            }
+            $pass = ($reason -eq 'ready_for_private_source_review_only')
+            $result = [ordered]@{
+              status = $(if ($pass) { 'source_preflight_passed_not_approved' } else { 'blocked' })
+              reason = $reason
+              private_root_available = [bool]$hasRoot
+              expected_archive_present_and_bounded = [bool]$hasArchive
+              pinned_archive_sha256_match = [bool]$verifiedDigest
+              frozen_registry_file_present_and_bounded = [bool]$hasHoldout
+              old_workspace_archive_present = [bool]$legacyArchive
+              dataset_approved = $false
+              training_started = $false
+              raw_data_uploaded = $false
+            }
+            Write-Host ('PHOENIX_DATA_PREFLIGHT ' + ($result | ConvertTo-Json -Compress))
+          } catch {
+            $pass = $false
+            Write-Host 'PHOENIX_DATA_PREFLIGHT {"status":"blocked","reason":"private_preflight_error","dataset_approved":false,"training_started":false}'
+          }
+          if (-not $pass) { throw 'Phoenix input preflight blocked: NO dataset approval or training' }
+      - name: Scope declaration
+        run: Write-Host 'No dataset conversion, source text disclosure, file mutation, network download, model loading, training or benchmark approval in this job.'

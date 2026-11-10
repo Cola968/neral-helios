@@ -1,0 +1,41 @@
+name: Phoenix FP32-master pilot CPU contracts once (NO GPU/TRAINING)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-weight-only-pilot-contract-cpu-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  pilot-contracts-cpu:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned precision-corrected source, no credentials persisted
+        uses: actions/checkout@v4
+        with:
+          ref: 020f70181ff8c651d5248e1080b3306d93e56152
+          path: phoenix_fp32_contract_source
+          persist-credentials: false
+      - name: CPU-only source compile and synthetic contracts; no private assets
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_fp32_contract_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_fp32_contract_source') { throw 'Unexpected checkout path' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if($repo.Contains("'")) { throw 'Unsupported quote in checkout path' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m compileall -q frontier350/nextgen_v1/phoenix_master_precision.py frontier350/nextgen_v1/phoenix_weight_only_pilot.py frontier350/nextgen_v1/test_phoenix_master_precision.py frontier350/nextgen_v1/test_phoenix_weight_only_pilot.py; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_sft_*.py'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_storage_budget.py'"
+          Write-Host 'CPU only; synthetic small Torch precision experiment. No real weights, GPU, training, private data or output artifacts.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'FP32 pilot CPU regression failed; no training started' }
+          Write-Host 'CPU contracts passed. Full 350M GPU feasibility and free-answer quality remain UNTESTED.'

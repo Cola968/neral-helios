@@ -1,0 +1,80 @@
+name: Phoenix Helios knowledge mode once (CPU ONLY / NO TRAINING)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-knowledge-mode-once.yml'
+      - 'frontier350/nextgen_v1/helios_knowledge_preview.py'
+      - 'frontier350/nextgen_v1/test_helios_knowledge_preview.py'
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Knowledge-mode contracts and syntax
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python3 -m unittest -v test_helios_knowledge_preview
+          python3 -m py_compile helios_knowledge_preview.py
+  live-retrieval:
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Public Wikipedia API smoke only; no model
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python3 - <<'PY'
+          from helios_knowledge_preview import wikipedia_lookup
+          checks = [("What is the capital of Finland?", "en"), ("Was ist die Hauptstadt von Spanien?", "de")]
+          for query, lang in checks:
+              result = wikipedia_lookup(query, lang)
+              assert result["extract"] and result["url"].startswith("https://")
+              print({"language": lang, "title_present": bool(result["title"]), "extract_chars": len(result["extract"]), "query_logged": False})
+          PY
+  end-to-end-cpu:
+    needs: [contracts, live-retrieval]
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Exact source checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_knowledge_mode_source
+          clean: true
+          persist-credentials: false
+      - name: One bounded grounded-generation smoke with pinned 2.073B checkpoint
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_knowledge_mode_source'
+          $moduleDir = Join-Path $repo 'frontier350\nextgen_v1'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $checkpoint = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          if (!(Test-Path -LiteralPath $moduleDir -PathType Container) -or !(Test-Path -LiteralPath $assets -PathType Container) -or !(Test-Path -LiteralPath $checkpoint -PathType Leaf)) { throw 'Pinned source/assets/checkpoint unavailable' }
+          if ((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if ((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Checkpoint SHA mismatch' }
+          foreach ($p in @($moduleDir,$assets,$checkpoint)) { if ($p.Contains("'")) { throw 'Unsafe shell path' } }
+          $cmd = "set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(ToWsl $moduleDir)'; ~/.venvs/neral-triton-py312/bin/python - <<'PY'`nfrom pathlib import Path`nfrom helios_guarded_preview import load_continuity_cpu, guarded_generate`nfrom helios_knowledge_preview import wikipedia_lookup, grounded_prompt`nroot=Path('$(ToWsl $assets)')`nckpt=Path('$(ToWsl $checkpoint)')`nmodel,tok,bos,eos,processed,torch=load_continuity_cpu(root,ckpt)`nq='What is the capital of Finland?'`ns=wikipedia_lookup(q,'en')`np=grounded_prompt(q,s,tok,bos)`na,used,reason=guarded_generate(model,tok,bos,eos,torch,p,32)`nprint({'checkpoint_tokens':processed,'retrieval_title_present':bool(s['title']),'answer_nonempty':bool(a.strip()),'generated_tokens':used,'finish_reason':reason,'answer_logged':False,'training_started':False})`nassert a.strip()`nPY"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Knowledge-mode end-to-end smoke failed' }
+          Write-Host 'Knowledge mode smoke passed: external retrieval + own pinned Neral generation; no GPU/training/checkpoint write.'

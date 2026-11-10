@@ -1,0 +1,47 @@
+name: Phoenix native main real-checkpoint refusal on PC once (CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-native-entrypoint-refusal-on-pc-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  native-cpu-refusal:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout exact committed source without persistent Git credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_native_refusal_source
+          clean: true
+          persist-credentials: false
+      - name: Execute tiny synthetic native main calls with real SHA-pinned optimizer defect
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_native_refusal_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_native_refusal_source') { throw 'Unexpected checkout path' }
+          $script=Join-Path $repo 'frontier350\nextgen_v1\phoenix_native_entrypoint_cpu_refusal.py'
+          $checkpoint='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          foreach($file in @($script,$checkpoint)) { if(-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw 'Source/checkpoint missing' } }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Wrong original checkpoint SHA' }
+          foreach($p in @($repo,$checkpoint)) { if($p.Contains("'")) { throw 'Unsupported apostrophe in shell path' } }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_native_entrypoint_cpu_refusal.py --execute --trusted-local-checkpoint --checkpoint '$(WslPath $checkpoint)'"
+          Write-Host 'CPU-only negative test of both native main entrypoints. Real checkpoint and synthetic tiny temporary data; CUDA availability patched to fail on access.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Native direct resume refusal test FAILED; no training was launched' }
+          Write-Host 'Read-only original weights, no CUDA allocation, no optimizer step, no checkpoint write, no upload of weights/answers.'

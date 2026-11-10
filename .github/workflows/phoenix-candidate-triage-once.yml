@@ -1,0 +1,69 @@
+name: Phoenix candidate triage once (CPU ONLY / NO SFT)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-candidate-triage-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  test-triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Corrected synthetic triage and continuity CPU-probe contracts; no own weights
+        working-directory: frontier350/nextgen_v1
+        run: |
+          python3 -m unittest -v test_phoenix_candidate_triage test_phoenix_continuity_cpu_probe
+          python3 -m py_compile phoenix_candidate_triage.py
+  triage-private-local:
+    needs: test-triage
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Reusable exact-commit source checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_candidate_triage_source
+          clean: true
+          persist-credentials: false
+      - name: Make bounded non-approving working copy on D
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE 'phoenix_candidate_triage_source'
+          $root = 'D:\NeralPrivateAssets'
+          $source = Join-Path $root 'phoenix\candidate_pack_v1'
+          $out = Join-Path $root 'phoenix\candidate_triaged_v1'
+          if (-not (Test-Path -LiteralPath $source -PathType Container) -or (Test-Path -LiteralPath $out)) { throw 'Original missing or output already exists; no overwrite' }
+          if ((Get-PSDrive -Name D).Free -lt 200GB) { throw 'D: storage reserve not satisfied' }
+          foreach ($p in @($repo,$root,$source,$out)) { if ($p.Contains("'")) { throw 'Unsafe shell path' } }
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_candidate_triage.py --assets-root '$(ToWsl $root)' --candidate '$(ToWsl $source)' --out '$(ToWsl $out)'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Private triage stopped, source unchanged' }
+          $manifest = Join-Path $out 'triage_manifest.json'
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw 'Triage manifest missing' }
+          $r = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          if ($r.original_rows -ne 1200 -or $r.training_approved -ne $false -or $r.holdout_checked -ne $false -or $r.content_correctness_verified -ne $false) { throw 'Unsafe triage manifest' }
+          $size = (Get-ChildItem -LiteralPath $out -File | Measure-Object -Property Length -Sum).Sum
+          if ($size -gt 5MB) { throw 'Unexpected working-copy size' }
+          Write-Host ('TRIAGE_VERIFIED|train=' + $r.train_rows + '|validation=' + $r.validation_rows + '|quarantine=' + $r.quarantine_rows + '|bytes=' + $size + '|training_approved=false')
+          Write-Host ('TRIAGE_MANIFEST_SHA256|' + (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'No private text, IDs, model weights, GPU work or training uploaded or executed.'

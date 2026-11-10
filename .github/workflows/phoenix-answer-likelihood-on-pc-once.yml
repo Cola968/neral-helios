@@ -1,0 +1,52 @@
+name: Phoenix teacher-forced answer ranking on PC once (CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-answer-likelihood-on-pc-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  bounded-answer-ranking:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout only the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_likelihood_source
+          clean: true
+          persist-credentials: false
+      - name: SHA-gated local CPU diagnostic, never train
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if ($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Only absolute local drive paths accepted' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_likelihood_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if (-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_likelihood_source') { throw 'Unsafe checkout path' }
+          $code=Join-Path $repo 'frontier350\nextgen_v1\helios_answer_likelihood_probe.py'
+          $checkpoint='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets=if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private='D:\NeralPrivateAssets\phoenix'
+          if (-not (Test-Path -LiteralPath $code -PathType Leaf) -or -not (Test-Path -LiteralPath $checkpoint -PathType Leaf) -or -not (Test-Path -LiteralPath $assets -PathType Container) -or -not (Test-Path -LiteralPath $private -PathType Container)) { throw 'Source or pinned private inputs missing' }
+          if ((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if ((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Checkpoint SHA mismatch' }
+          foreach($p in @($repo,$assets,$checkpoint,$private)) { if($p.Contains("'")) { throw 'Unsafe shell path' } }
+          $name='helios_quality_likelihood_'+'${{ github.sha }}'.Substring(0,12)+'.json'
+          if(Test-Path -LiteralPath (Join-Path $private $name)) { throw 'Refuse existing output' }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/helios_answer_likelihood_probe.py --execute --trusted-local-checkpoint --assets-root '$(WslPath $assets)' --checkpoint '$(WslPath $checkpoint)' --private-dir '$(WslPath $private)' --output-name '$name'"
+          Write-Host 'Checking 3 public questions x 2 prompt styles x 10 equal-length digit candidates; CPU only; no generated answers or upload.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Local CPU likelihood probe failed; no training was attempted' }
+          Write-Host ('PRIVATE_LOCAL_LIKELIHOOD_REPORT|'+(Join-Path $private $name))
+          Write-Host 'Only diagnostic candidate scores, NOT chatbot accuracy, NOT proof of quality gain.'

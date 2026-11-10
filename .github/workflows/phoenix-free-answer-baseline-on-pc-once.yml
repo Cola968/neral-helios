@@ -1,0 +1,55 @@
+name: Phoenix original free-answer baseline 8 public dev cases on PC (CPU ONLY)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-free-answer-baseline-on-pc-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+jobs:
+  original-free-answer-baseline:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Check out exact committed experiment in isolated directory
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_free_answer_baseline_source
+          clean: true
+          persist-credentials: false
+      - name: Run code tests then measure original real weights CPU-only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function To-Wsl([string]$InputPath) {
+            $full = [IO.Path]::GetFullPath($InputPath)
+            if ($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Only absolute local drive paths accepted' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_free_answer_baseline_source'))
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+          if (-not $repo.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_free_answer_baseline_source') { throw 'Unexpected checkout path' }
+          $code = Join-Path $repo 'frontier350\nextgen_v1\helios_free_answer_dev_probe.py'
+          $tests = Join-Path $repo 'frontier350\nextgen_v1\test_helios_free_answer_dev_probe.py'
+          $checkpoint = 'D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $private = 'D:\NeralPrivateAssets\phoenix'
+          if (-not (Test-Path -LiteralPath $code -PathType Leaf) -or -not (Test-Path -LiteralPath $tests -PathType Leaf)) { throw 'Committed probe/tests missing' }
+          if (-not (Test-Path -LiteralPath $assets -PathType Container) -or -not (Test-Path -LiteralPath $checkpoint -PathType Leaf) -or -not (Test-Path -LiteralPath $private -PathType Container)) { throw 'Missing local trusted assets or private destination' }
+          if ((Get-PSDrive -Name C).Free -lt 30GB -or (Get-PSDrive -Name D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          $sha = (Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Original checkpoint SHA mismatch: refuse load' }
+          foreach ($p in @($repo, $assets, $checkpoint, $private)) { if ($p.Contains("'")) { throw 'Unsupported apostrophe in local shell path' } }
+          $name = 'helios_quality_free_dev_' + '${{ github.sha }}'.Substring(0,12) + '.json'
+          if (Test-Path -LiteralPath (Join-Path $private $name)) { throw 'Refuse duplicate/private result overwrite' }
+          $cmd = "set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1; cd '$(To-Wsl $repo)/frontier350/nextgen_v1'; ~/.venvs/neral-triton-py312/bin/python -m unittest -v test_helios_free_answer_dev_probe; ~/.venvs/neral-triton-py312/bin/python -u helios_free_answer_dev_probe.py --execute --trusted-local-checkpoint --assets-root '$(To-Wsl $assets)' --checkpoint '$(To-Wsl $checkpoint)' --private-dir '$(To-Wsl $private)' --output-name '$name'"
+          Write-Host 'CPU-only, 8 prepublished development prompts, 2 decoders, max 16 tokens each; no weights changed.'
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Code tests or own-weight free-answer baseline failed; NO training launched' }
+          Write-Host ('LOCAL_PRIVATE_FREE_ANSWER_REPORT|' + (Join-Path $private $name))
+          Write-Host 'Only aggregates in logs. No GitHub artifact uploads; this is public development, not a blind holdout or model improvement.'

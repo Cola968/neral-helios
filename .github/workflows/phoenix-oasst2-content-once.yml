@@ -1,0 +1,48 @@
+name: Phoenix OASST2 one-shot content risks (CPU ONLY / NO TRAINING)
+
+# One-shot only when THIS workflow file changes. No dataset exports, training or CUDA.
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-oasst2-content-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  local-read-only-content-profile:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Commit-pinned isolated checkout; never touch private asset directory
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_content_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Read original pinned archive in RAM with existing trusted WSL Python
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_content_source_' + $env:GITHUB_RUN_ID)
+          $root = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          $archive = Join-Path $root 'sft50_sources\2023-11-05_oasst2_ready.messages.jsonl.gz'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'Pinned local archive unavailable; no processing' }
+          if ($repo.Contains("'") -or $root.Contains("'") -or $archive.Contains("'")) { throw 'Unsafe path; source processing refused' }
+          $cmd = "set -euo pipefail; test -x ~/.venvs/neral-triton-py312/bin/python; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_oasst2_content_profile.py --assets-root '$(ToWsl $root)' --archive '$(ToWsl $archive)'"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Content screening refused or failed; no data approval' }
+      - name: Explicit non-approval and GPU-safety boundary
+        run: Write-Host 'Only aggregate warning counts from the previously pinned original archive. No raw text/IDs, GPU activity, model, training, corpus export, license/privacy approval or holdout claims.'

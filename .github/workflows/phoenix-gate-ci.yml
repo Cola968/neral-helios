@@ -1,0 +1,54 @@
+name: Phoenix read-only evidence CPU tests
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - 'frontier350/nextgen_v1/phoenix_*.py'
+      - 'frontier350/nextgen_v1/test_phoenix_*.py'
+      - 'frontier350/nextgen_v1/train_sft_pilot.py'
+      - 'frontier350/nextgen_v1/sft_eval_contract.py'
+      - 'frontier350/nextgen_v1/test_sft_*.py'
+      - 'frontier350/nextgen_v1/storage_budget.py'
+      - 'frontier350/nextgen_v1/test_storage_budget.py'
+      - 'frontier350/nextgen_v1/checkpoint_journal.py'
+      - 'frontier350/nextgen_v1/test_checkpoint_journal.py'
+      - 'frontier350/nextgen_v1/train_full_with_journal.py'
+      - '.github/workflows/phoenix-gate-ci.yml'
+  pull_request:
+    branches: [experiment/nextgen-v1-isolated]
+    paths:
+      - 'frontier350/nextgen_v1/phoenix_*.py'
+      - 'frontier350/nextgen_v1/test_phoenix_*.py'
+      - 'frontier350/nextgen_v1/train_sft_pilot.py'
+      - 'frontier350/nextgen_v1/sft_eval_contract.py'
+      - 'frontier350/nextgen_v1/test_sft_*.py'
+      - 'frontier350/nextgen_v1/storage_budget.py'
+      - 'frontier350/nextgen_v1/test_storage_budget.py'
+      - 'frontier350/nextgen_v1/checkpoint_journal.py'
+      - 'frontier350/nextgen_v1/test_checkpoint_journal.py'
+      - 'frontier350/nextgen_v1/train_full_with_journal.py'
+      - '.github/workflows/phoenix-gate-ci.yml'
+permissions:
+  contents: read
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check
+        run: python -m compileall -q frontier350/nextgen_v1/phoenix_gate.py frontier350/nextgen_v1/phoenix_capture.py frontier350/nextgen_v1/phoenix_real_smoke.py frontier350/nextgen_v1/phoenix_data_audit.py frontier350/nextgen_v1/phoenix_oasst2_bridge.py frontier350/nextgen_v1/train_sft_pilot.py frontier350/nextgen_v1/sft_eval_contract.py frontier350/nextgen_v1/storage_budget.py frontier350/nextgen_v1/test_storage_budget.py frontier350/nextgen_v1/checkpoint_journal.py frontier350/nextgen_v1/test_checkpoint_journal.py frontier350/nextgen_v1/train_full_with_journal.py frontier350/nextgen_v1/test_sft_*.py frontier350/nextgen_v1/test_phoenix_*.py
+      - name: Run isolated synthetic contract tests
+        run: python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_phoenix_*.py'
+      - name: Verify SFT pack and validation contracts without Torch or GPU
+        run: python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_sft_*.py'
+      - name: Verify storage cap and recovery journal without Torch or GPU
+        run: |
+          python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_storage_budget.py'
+          python -m unittest discover -v -s frontier350/nextgen_v1 -p 'test_checkpoint_journal.py'
+      - name: Evidence boundary
+        run: echo 'Hosted CPU synthetic contracts and storage tests only. NO actual local disk cleanup, GPU training, own-weight inference, quality improvement, dataset approval or promotion.'

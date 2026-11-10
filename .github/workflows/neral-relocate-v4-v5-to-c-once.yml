@@ -1,0 +1,91 @@
+name: Relocate Neral V4 V5 from D to C once
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/neral-relocate-v4-v5-to-c-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-disk-maintenance
+  cancel-in-progress: false
+
+jobs:
+  relocate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Safely relocate old Neral scale generations and preserve D paths
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destRoot = 'C:\NeralArchive'
+          $reserveBytes = 35GB
+          New-Item -ItemType Directory -Path $destRoot -Force | Out-Null
+
+          function MeasureTree([string]$path) {
+            $files = @(Get-ChildItem -LiteralPath $path -File -Recurse -Force -ErrorAction Stop)
+            [pscustomobject]@{
+              Count = $files.Count
+              Bytes = [long](($files | Measure-Object Length -Sum).Sum)
+            }
+          }
+
+          function RelocateOne([string]$name) {
+            $src = Join-Path 'D:\' $name
+            $dst = Join-Path $destRoot $name
+            Write-Host ('=== ' + $name + ' ===')
+            if (-not (Test-Path -LiteralPath $src)) { throw "Source missing: $src" }
+            $srcItem = Get-Item -LiteralPath $src -Force
+            if (($srcItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              Write-Host "$src is already a reparse point; refusing a second relocation"
+              return
+            }
+            if (Test-Path -LiteralPath $dst) { throw "Destination already exists: $dst" }
+
+            $before = MeasureTree $src
+            $c = Get-PSDrive C
+            if ($c.Free -lt ($before.Bytes + $reserveBytes)) {
+              throw ("Not enough C space for " + $name + "; need source bytes plus 35 GiB reserve")
+            }
+            Write-Host ("Source files=" + $before.Count + " bytes=" + $before.Bytes)
+
+            New-Item -ItemType Directory -Path $dst -ErrorAction Stop | Out-Null
+            & robocopy.exe $src $dst /E /COPY:DAT /DCOPY:DAT /R:2 /W:2 /XJ /NP /NFL /NDL
+            $rc = $LASTEXITCODE
+            if ($rc -gt 7) { throw "Robocopy failed with exit code $rc" }
+
+            $after = MeasureTree $dst
+            if ($after.Count -ne $before.Count -or $after.Bytes -ne $before.Bytes) {
+              throw ("Verification mismatch for " + $name + "; source retained, destination copy left for inspection")
+            }
+            Write-Host ("Verified copy files=" + $after.Count + " bytes=" + $after.Bytes)
+
+            # Delete source only after exact file-count + byte-count verification.
+            Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction Stop
+            if (Test-Path -LiteralPath $src) { throw "Source deletion incomplete; junction not created" }
+            & cmd.exe /c "mklink /J `"$src`" `"$dst`""
+            if ($LASTEXITCODE -ne 0) { throw "Junction creation failed after verified relocation" }
+            $junction = Get-Item -LiteralPath $src -Force
+            if (($junction.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+              throw "Expected D path is not a junction"
+            }
+            $viaJunction = MeasureTree $src
+            if ($viaJunction.Count -ne $before.Count -or $viaJunction.Bytes -ne $before.Bytes) {
+              throw "Junction verification mismatch"
+            }
+            Write-Host ("RELOCATED_OK " + $name + " GiB=" + [math]::Round($before.Bytes/1GB,2))
+          }
+
+          RelocateOne 'NeralScaleV4'
+          RelocateOne 'NeralScaleV5'
+
+          Write-Host '=== FINAL SPACE ==='
+          Get-PSDrive C,D | ForEach-Object {
+            Write-Host ($_.Name + ': free=' + [math]::Round($_.Free/1GB,2) + ' GiB')
+          }
+          Write-Host 'RELOCATION_COMPLETE_D_PATHS_PRESERVED_BY_JUNCTION'

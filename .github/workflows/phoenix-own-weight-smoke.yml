@@ -1,0 +1,45 @@
+name: Phoenix SAFE 64-token baseline health (READ ONLY; no training)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/phoenix-own-weight-smoke.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  safe-local-inference-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout an independent commit-pinned source directory
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: phoenix_real_source_${{ github.run_id }}
+          clean: false
+          persist-credentials: false
+      - name: Read-only 64-token SAFE public development diagnostic; only aggregates leave PC
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function ToWsl([string]$p) {
+            $f = [IO.Path]::GetFullPath($p)
+            if ($f -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute Windows path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo = Join-Path $env:GITHUB_WORKSPACE ('phoenix_real_source_' + $env:GITHUB_RUN_ID)
+          $assets = if ($env:NERAL_ASSETS_ROOT) { $env:NERAL_ASSETS_ROOT } else { Join-Path $env:USERPROFILE 'Documents\Codex\2026-09-05\lo\outputs\neral' }
+          if (-not (Test-Path -LiteralPath $assets -PathType Container)) { throw 'Local assets unavailable: no inference' }
+          if ($repo.Contains("'") -or $assets.Contains("'")) { throw 'Shell-unsafe local path: no inference' }
+          $cmd = "set -euo pipefail; cd '$(ToWsl $repo)'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/nextgen_v1/phoenix_real_smoke.py --execute --assets-root '$(ToWsl $assets)' --token-budget 64"
+          & wsl.exe -- bash -lc $cmd
+          if ($LASTEXITCODE -ne 0) { throw 'SAFE diagnostic refused or failed; no model quality claim' }
+          Write-Host 'Real own-weight SAFE health diagnostic complete: fixed public prompts, NO answers uploaded, NO training or weight changes. Not NIS2.'

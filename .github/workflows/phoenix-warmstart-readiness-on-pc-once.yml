@@ -1,0 +1,46 @@
+name: Phoenix original-weight warm-start readiness on PC once (NO TRAINING)
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths:
+      - '.github/workflows/phoenix-warmstart-readiness-on-pc-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-local-storage-readonly
+  cancel-in-progress: false
+jobs:
+  original-weight-readiness:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned source without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          ref: 5e07c8a012f07667ef8d56e1fa59070044e10e33
+          path: phoenix_warmstart_readiness_source
+          persist-credentials: false
+      - name: Check model-only SHA and architecture on CPU without creating new output
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          function WslPath([string]$p) {
+            $full=[IO.Path]::GetFullPath($p)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') { throw 'Absolute drive path required' }
+            return '/mnt/' + $matches[1].ToLowerInvariant() + '/' + $matches[2].Replace('\','/')
+          }
+          $repo=[IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE 'phoenix_warmstart_readiness_source'))
+          $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')+'\'
+          if(-not $repo.StartsWith($workspace,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($repo) -ne 'phoenix_warmstart_readiness_source') { throw 'Unexpected checkout' }
+          $source='D:\NeralScaleV81\_continuity_v5\continuity_002073161216_f7a73e283421.pt'
+          $newOut='D:\NeralScaleV81\_phoenix_warmstart_proposal_readonly_20260918_1334'
+          if(-not (Test-Path -LiteralPath $source -PathType Leaf) -or (Test-Path -LiteralPath $newOut)) { throw 'Source missing or proposed output occupied' }
+          if((Get-PSDrive C).Free -lt 30GB -or (Get-PSDrive D).Free -lt 200GB) { throw 'Disk reserve failed' }
+          if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f7a73e283421975acc34e13afc38378be4eab11da34e8e6b46fc7cb0cda883e7') { throw 'Original checkpoint SHA mismatch' }
+          foreach($p in @($repo,$source,$newOut)) { if($p.Contains("'")) { throw 'Unsupported shell quote in path' } }
+          $cmd="set -euo pipefail; export CUDA_VISIBLE_DEVICES=-1 PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2; cd '$(WslPath $repo)'; ~/.venvs/neral-triton-py312/bin/python -B -m unittest discover -s frontier350/nextgen_v1 -p 'test_phoenix_warmstart_readiness.py'; ~/.venvs/neral-triton-py312/bin/python -B frontier350/nextgen_v1/phoenix_warmstart_readiness.py --execute --cpu-only --trusted-local-checkpoint --checkpoint '$(WslPath $source)' --proposed-output '$(WslPath $newOut)'"
+          Write-Host 'CPU-only read-only original checkpoint readiness, no GPU, optimizer, training, output creation, private text or weights uploaded.'
+          & wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0) { throw 'Original model-only readiness NOT verified; no training started' }
+          if(Test-Path -LiteralPath $newOut) { throw 'Readiness check improperly created the proposed output' }
+          Write-Host 'Model-only readiness checked; output remains absent; no GPU or training.'

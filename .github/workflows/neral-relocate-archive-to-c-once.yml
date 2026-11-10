@@ -1,0 +1,124 @@
+name: Neral archive relocation D to C one-shot
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/neral-relocate-archive-to-c-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-nextgen-local-gpu-training
+  cancel-in-progress: false
+
+jobs:
+  relocate:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Relocate only inactive historical Neral generations that safely fit
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sources = @(
+            'D:\NeralScaleV2',
+            'D:\NeralScaleV4',
+            'D:\NeralScaleV5',
+            'D:\NeralThroughput50kV1',
+            'D:\NeralThroughput60kV3'
+          )
+          $destRoot = 'C:\NeralArchive'
+          $reserve = 30GB
+          $hardMoveCap = 20GB
+
+          # Current/live generations are intentionally excluded.
+          $forbidden = @('D:\NeralScaleV8','D:\NeralScaleV81','D:\NeralV82Gate','D:\NeralAutoRecoveryV1')
+          foreach ($src in $sources) {
+            if ($forbidden -contains $src) { throw "Refusing live path: $src" }
+          }
+
+          # Refuse if a process explicitly references any candidate path.
+          $cmdlines = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object -ExpandProperty CommandLine -ErrorAction SilentlyContinue
+          foreach ($src in $sources) {
+            $needle = $src.ToLowerInvariant()
+            foreach ($line in $cmdlines) {
+              if ($line -and $line.ToLowerInvariant().Contains($needle)) { throw "Source appears active in a process; refusing: $src" }
+            }
+          }
+
+          $infos = @()
+          foreach ($src in $sources) {
+            if (-not (Test-Path -LiteralPath $src -PathType Container)) { continue }
+            $attr = Get-Item -LiteralPath $src -Force
+            if ($attr.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            $sum = (Get-ChildItem -LiteralPath $src -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            if ($null -eq $sum) { $sum = 0 }
+            $infos += [pscustomobject]@{Path=$src; Bytes=[int64]$sum}
+          }
+          if ($infos.Count -eq 0) { throw 'No unmoved archival source directories found' }
+
+          $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+          $capacity = [math]::Min([int64]$hardMoveCap, [int64]$c.FreeSpace - [int64]$reserve)
+          if ($capacity -le 0) { throw 'C: has no safe relocation capacity above 30 GiB reserve' }
+
+          Write-Host '=== ARCHIVE CANDIDATES ==='
+          foreach ($i in ($infos | Sort-Object Bytes -Descending)) {
+            Write-Host ((Split-Path -Leaf $i.Path) + '_GIB=' + [math]::Round($i.Bytes/1GB,2))
+          }
+          Write-Host ('SAFE_MOVE_CAP_GIB=' + [math]::Round($capacity/1GB,2))
+          Write-Host ('C_FREE_BEFORE_GIB=' + [math]::Round($c.FreeSpace/1GB,2))
+
+          # Greedy descending: maximize useful D: recovery while never exceeding safe capacity.
+          $selected = @()
+          $selectedBytes = 0L
+          foreach ($i in ($infos | Sort-Object Bytes -Descending)) {
+            if ($i.Bytes -le 0) { continue }
+            if ($selectedBytes + $i.Bytes -le $capacity) {
+              $selected += $i
+              $selectedBytes += $i.Bytes
+            }
+          }
+          if ($selected.Count -eq 0) { throw 'No whole archival folder safely fits on C:' }
+          Write-Host ('SELECTED_MOVE_GIB=' + [math]::Round($selectedBytes/1GB,2))
+
+          New-Item -ItemType Directory -Path $destRoot -Force | Out-Null
+          foreach ($item in $selected) {
+            $src = $item.Path
+            $name = Split-Path -Leaf $src
+            $dst = Join-Path $destRoot $name
+            if (Test-Path -LiteralPath $dst) { throw "Destination already exists; refusing overwrite: $dst" }
+
+            $srcFiles = @(Get-ChildItem -LiteralPath $src -File -Recurse -Force -ErrorAction SilentlyContinue)
+            $srcCount = $srcFiles.Count
+            $srcBytes = ($srcFiles | Measure-Object Length -Sum).Sum
+            if ($null -eq $srcBytes) { $srcBytes = 0 }
+
+            New-Item -ItemType Directory -Path $dst | Out-Null
+            & robocopy $src $dst /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XJ /NFL /NDL /NP /NJH /NJS
+            $rc = $LASTEXITCODE
+            if ($rc -gt 7) { throw "Robocopy failed for $src with code $rc" }
+
+            $dstFiles = @(Get-ChildItem -LiteralPath $dst -File -Recurse -Force -ErrorAction SilentlyContinue)
+            $dstCount = $dstFiles.Count
+            $dstBytes = ($dstFiles | Measure-Object Length -Sum).Sum
+            if ($null -eq $dstBytes) { $dstBytes = 0 }
+            if ($srcCount -ne $dstCount -or [int64]$srcBytes -ne [int64]$dstBytes) {
+              throw "Verification mismatch; source preserved and copied destination retained: $src"
+            }
+
+            Remove-Item -LiteralPath $src -Recurse -Force
+            if (Test-Path -LiteralPath $src) { throw "Source removal failed after verified copy: $src" }
+            & cmd.exe /c "mklink /J `"$src`" `"$dst`""
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $src)) { throw "Junction creation failed: $src" }
+            Write-Host ("MOVED_AND_LINKED=" + $name + " GIB=" + [math]::Round($dstBytes/1GB,2))
+          }
+
+          $d2 = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='D:'"
+          $c2 = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+          if ([int64]$c2.FreeSpace -lt [int64]$reserve) { throw 'Postcondition failed: C reserve below 30 GiB' }
+          Write-Host ('C_FREE_AFTER_GIB=' + [math]::Round($c2.FreeSpace/1GB,2))
+          Write-Host ('D_FREE_AFTER_GIB=' + [math]::Round($d2.FreeSpace/1GB,2))
+          Write-Host 'RELOCATION_COMPLETE=true'

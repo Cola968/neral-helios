@@ -1,59 +1,64 @@
-# NextGen V1: isolated, real-weight SFT pilot
+# NextGen V1 — isolierter Neral-350M-SFT-Pilot (NICHT ausgeführt)
 
-**Implemented code, NOT an executed GPU experiment.** The following commands are for a trusted local operator only, after the active V8.1 training and queued V8.2 read-only diagnostic are finished. There is no GitHub Actions GPU trigger, automatic promotion, cloud job, checkpoint upload or change to the production trainer.
+**Aktualisiert am 18.09.2026.** Experimenteller Code im Branch `experiment/phoenix-sft-fp32-audit`, nicht gemergt, keine Modellgewichte geändert, kein SFT-Checkpoint, keine belegte Qualitätsverbesserung, keine 60–70k akzeptierten Trainingstokens/s. **Kein automatischer GitHub-Trainingsstart.**
 
-## Why this exists
+## Warum ein SFT-Pilot noch nicht gestartet wird
 
-The 1B foundation report showed 0% exact generation and 0% self-termination (EOS) even when pair-preference tests were above zero. More foundation tokens do not directly supervise the boundary between a user message and a completed assistant response. This pilot evaluates a distinct objective: response-only cross-entropy with an explicit target for the native `<|eos|>` token. A lower SFT validation loss alone does **not** demonstrate good chat answers, nor does it establish 60–70k accepted tokens/s.
+Der SHA-verifizierte eigene Pretraining-Checkpoint umfasst **2.073.161.216 Tokens**, nicht die geplanten 10 Milliarden. Das Fundament-Corpus besteht aus Dokumenten mit BOS/EOS, nicht aus systematisch serialisierten `User: ...\nAssistant:`-Konversationen. Der erste echte Test zeigte 0/3 streng einstellige Antworten, sowohl raw als auch guarded. Der anschließende **24-Item-Entwicklungstest** fand bei vorgegebenen Ziffern lediglich 4/24 korrekte Top-1-Präferenzen im Instruktions-Chatformat und 0/8 beim Rechnen als Gleichung. Das sind öffentlich dokumentierte Diagnosen, **kein unabhängiger Benchmark, keine frei generierte Chatqualität**. Siehe [`QUALITY_FINDINGS_2026_09_18_V2.md`](QUALITY_FINDINGS_2026_09_18_V2.md) und [eigener Gewichts-Lauf](https://github.com/Cola968/neral-helios/actions/runs/35343702334).
 
-## Inputs: trusted local files only
+**Quelle:** Das vorhandene OASST2-Archiv wurde unverändert, SHA-gepinnt und lokal geprüft (135.174 Nachrichten). Das separat gescreente Kandidateninventar umfasst 1.200 Paare aus verschiedenen Bäumen, nominell 1.094 Train / 106 Validation. Ein wiederholter normalisierter Antworttext und mehrere Heuristik-Warnungen erfordern Nachprüfung. Keine automatische Prüfung beweist Antwortkorrektheit, Rechtmäßigkeit oder umfassende PII-Freiheit. Die 24 Originaldialoge der Offline-Rezensionsprobe liegen privat unter `D:\NeralPrivateAssets\phoenix\screened_review_queue_v1.jsonl`; das Bedienformular `screened_review_queue_v2.html` befindet sich im gleichen lokalen Verzeichnis. Menschen haben die Prüfentscheidungen noch nicht abgeschlossen.
 
-1. A *copy* of a stable, own-weight `frontier350` checkpoint, its SHA-256, and the matching 16K tokenizer JSON. Never point the pilot at a checkpoint being written by an active trainer. `torch.load(weights_only=False)` can execute untrusted pickle content: run this only on a checkpoint whose provenance you independently trust. `--trusted-local-checkpoint` is explicit acknowledgement, not an automated trust proof.
-2. Distinct local `train.jsonl` and `validation.jsonl` files. Each JSON line must have **exactly** `id`, `source_id`, `user`, `assistant`. Only text from independently reviewed and legally permitted sources may be included. Do not train on any frozen NIS2 benchmark prompts/answers or feedback from a release holdout.
-3. `holdout_hashes.json`: nonempty JSON list of SHA-256 hashes of *normalized prompt strings*. Normalization uses NFKC, casefold and whitespace collapse; the registry is supplied outside the pack builder and never needs to reveal holdout text in CI. Exact hashes do not catch semantic or near-duplicate leakage.
-4. An independently reviewed `screen.json` report with `version: 1`, the SHA-256 hashes of training file, validation file and holdout registry, `approved: true`, and zero `exact_overlap_count`, `near_overlap_count`, `privacy_hits`. Those are assertions by a real external review process: this code checks identities/claims, **not the truth of the near-duplicate or PII review**. No fabricated pass report is acceptable.
-5. A `manifest.json` with `version: 1`, `train_sha256`, `validation_sha256`, `tokenizer_sha256`, `holdout_sha256`, `screen_report_sha256` and a nonempty `sources` array. Each source requires `id`, exact `revision_sha256`, `license`, and three explicit `true` flags: `approved_for_training`, `privacy_reviewed`, `benchmark_screened`. Inspect source licenses and original revisions; a flag is not legal authorization by itself. All hashes are lowercase SHA-256 hexadecimal.
+Der frühere Holdout ist verloren. Ein **neuer, eigenständig formulierter und vor allen Experimenten privat eingefrorener** 24–100-Fragen-Holdout v2 mit DE/EN, verifizierten Lösungen und Rubriken fehlt weiterhin. Die öffentlichen Diagnosefragen sind kein Ersatz und dürfen nicht als unabhängiges Evaluationsset ausgegeben werden.
 
-The source and screening manifests are deliberately strict and will fail closed when a required item is absent. Sensitive text, model weights and prompt samples remain on the local machine; no input files or generated token packs are committed to GitHub/Hugging Face.
+## Obligatorische Reihenfolge und Freigaben
 
-## Step 1: build EOS-supervised local pack
+1. V2-Holdout mit `phoenix_freeze_holdout_v2.py` unabhängig erstellen, über `phoenix_holdout_rubric_check.py` validieren, Hashes und Receipt privat bewahren. Keine alten NIS2-Werte als vergleichbar ausgeben.
+2. Originaldaten auf Quelle, Nutzungsrechte, Datenschutz, falsche/unsichere Antworten und exakte **sowie semantische** Überschneidungen prüfen. Die vorhandene Offline-UI und der automatische 24er-Test ersetzen keine echte menschliche Bewertung der ausgewählten Daten.
+3. Separates Hash-gebundenes Manifest und unabhängigen Screening-Report erst **nach tatsächlicher Prüfung** freigeben. Weder `approved:true` noch Reviewer-Entscheidungen erfinden. Der Screen muss null ungelöste Exact-/Near-Overlap-/Privacy-Hits haben. Train/Validation/Holdout dürfen sich nicht überschneiden.
+4. Nur dann lokal einen neuen SFT-Pack erstellen. Verifiziertes originales 16K-BPE, BOS/EOS, Antwort-only-Loss, kausale Labelverschiebung und Hashes sind Pflicht. `--out` muss ein **neues** Verzeichnis sein. Keine Originaldaten, Gewichte, Holdout-Fragen oder private Reports als GitHub-Artefakte hochladen.
+5. Vor einem ausdrücklich genehmigten kleinen Pilot stabile GPU-Leerlaufwerte und Speicher prüfen; danach mit identischem, unabhängigem Holdout die ursprünglichen Gewichte und einen isolierten Kandidaten vergleichen. Validation-Loss oder Formatkosmetik zählen nicht als Chat-Qualitätsbeleg.
 
-Run from the repository root, using Python with `tokenizers` installed (same native tokenizer package as the 350M evaluator). Replace placeholders with your *own existing trusted local paths*:
+## Vorbereiteter Pack-Befehl — ausschließlich nach vollständiger Freigabe
+
+Vom Repository-Stamm unter der vorhandenen WSL-Python-Umgebung (Windows `python.exe` wurde auf dem Runner nicht zuverlässig gefunden):
 
 ```bash
-python frontier350/nextgen_v1/sft_contract.py \
-  --manifest PATH_TO_MANIFEST.json \
-  --train PATH_TO_TRAIN.jsonl \
-  --validation PATH_TO_VALIDATION.jsonl \
-  --tokenizer PATH_TO_TOKENIZER.json \
-  --holdout-hashes PATH_TO_HOLDOUT_HASHES.json \
-  --screening PATH_TO_SCREEN.json \
-  --out LOCAL_NEW_PACK_DIR \
-  --seq 512
+~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/sft_contract.py \
+  --manifest PATH_TO_APPROVED_MANIFEST.json \
+  --train PATH_TO_APPROVED_TRAIN.jsonl \
+  --validation PATH_TO_APPROVED_VALIDATION.jsonl \
+  --tokenizer PATH_TO_PINNED_TOKENIZER.json \
+  --holdout-hashes PATH_TO_FROZEN_PRIVATE_HOLDOUT_HASHES.json \
+  --screening PATH_TO_APPROVED_SCREEN.json \
+  --out NEW_PRIVATE_PACK_DIRECTORY --seq 512
 ```
 
-Inputs use the native `User: …\nAssistant:` template; the first assistant token is preceded by a space, prompt targets are masked with -100, and the final supervised token is `<|eos|>`. No answers are truncated. Splits, exact holdout collisions, hashes and token IDs are checked. The pack is capped at 20,000 rows per split and cannot overwrite an output directory. `pack_report.json` records hashes and declares itself untrained local data.
+Der Pack verwirft ungültige Daten, überschreibt keine bestehende Ausgabe und darf niemals mit Dummy-Hashes oder einem frei erfundenen Freigabereport erstellt werden.
 
-## Step 2: bounded GPU SFT pilot, only when idle
+## Korrigierter GPU-Pilot-Befehl — NICHT jetzt ausführen
 
-An actual candidate can be trained with `train_sft_pilot.py` on the user's own trusted Neral checkpoint after explicit opt-in:
+Der frühere Beispielbefehl ließ drei **erforderliche** Nachweisargumente aus. Die hier dokumentierte Version enthält `--source-manifest`, `--screening-report` und `--holdout-hashes`. Der zusätzliche Entry-Point `train_sft_guarded_entry.py` erzwingt drei getrennte bestandene Leerlaufmessungen, **bevor** der bisherige Trainer Torch/CUDA initialisieren darf. Der alte `train_sft_pilot.py`-Direktaufruf besitzt diese zusätzliche dreifache Vorprüfung nicht und ist daher nicht der empfohlene Startpfad.
 
 ```bash
-python frontier350/nextgen_v1/train_sft_pilot.py \
+~/.venvs/neral-triton-py312/bin/python frontier350/nextgen_v1/train_sft_guarded_entry.py \
   --execute --trusted-local-checkpoint \
-  --checkpoint PATH_TO_STABLE_LOCAL_COPY.pt \
-  --checkpoint-sha256 EXACT_64_HEX_SHA256 \
-  --pack LOCAL_NEW_PACK_DIR \
-  --tokenizer PATH_TO_TOKENIZER.json \
-  --out NEW_ISOLATED_RESULT_DIR \
+  --checkpoint PATH_TO_TRUSTED_IMMUTABLE_ORIGINAL_CHECKPOINT.pt \
+  --checkpoint-sha256 EXACT_64_HEX_ORIGINAL_SHA256 \
+  --pack LOCAL_APPROVED_PACK_DIRECTORY \
+  --tokenizer PATH_TO_PINNED_TOKENIZER.json \
+  --source-manifest PATH_TO_APPROVED_MANIFEST.json \
+  --screening-report PATH_TO_APPROVED_SCREEN.json \
+  --holdout-hashes PATH_TO_FROZEN_PRIVATE_HOLDOUT_HASHES.json \
+  --out NEW_ISOLATED_SFT_RESULT_DIRECTORY \
   --train-blocks 4 --batch 2 --steps 20
 ```
 
-- Safeguards: SHA-matched checkpoint and token packs, matching native tokenizer, own 349,825,152-parameter architecture, idle RTX 4070/BF16, start temperature <=78 C, runtime <=82 C, >=9000 MiB initially free, <=9 GiB reserved. Refuses existing output directories.
-- Model: top four or eight blocks train in FP32-master precision with BF16 autocast, AdamW and gradient clipping. Lower layers and embeddings are frozen; this is **not** whole-model pretraining. Only answer/EOS labels contribute to loss. There is a fixed seed and isolated source/validation split.
-- Scope: 1–50 updates only. It records masked-answer training loss, the average SFT validation loss on up to eight fixed rows before and after, supervised answer-token counts, wall time, temperature and VRAM. It saves an isolated candidate only if this small validation loss improves. The candidate has a separate `nextgen_sft_pilot_v1` schema and `production_eligible: false`, so it is not a drop-in production pretraining checkpoint.
-- Limits: this short pilot is **not resumable** and does not benchmark full-stage accepted throughput. Do not use it for a long job. Same-data/seed A/B, real generation checks, full held-out NIS2, license and near-duplicate audits, numerical parity, exact resume and three >=5M fully accepted stages all remain necessary before any replacement decision. A negative pilot result is evidence to investigate, not a license to loosen gates.
+**GPU-Leerlaufprüfung (nur neuer Entry-Point):** drei Messungen mit je 2 Sekunden Abstand; **jede** muss GPU-Auslastung maximal 15 %, belegten VRAM maximal 2.500 MiB und Temperatur maximal 78 °C erfüllen. Bei fehlenden Werten, ausgelasteter oder heißer GPU: Abbruch ohne Trainingsstart. Der ursprüngliche Trainer prüft zusätzlich GPU-Typ RTX 4070, BF16, mindestens 9.000 MiB freien VRAM und Starttemperatur bis 78 °C. Während des maximal 50-Schritt-Pilots sind 82 °C sowie 9 GiB reservierter VRAM die Abbruchgrenzen. Diese Schutzmaßnahmen garantieren keine Hardware-Sicherheit oder gleichzeitige Ausführungsfreiheit; andere GPU-Aufgaben vorher beenden und kein anderes Training starten.
 
-## Verified and unverified
+Die bestehende Modellarchitektur muss exakt 349.825.152 Parameter umfassen; der Source-Checkpoint und der Tokenizer werden hashgebunden. `torch.load(weights_only=False)` wird im alten Trainer **nur nach expliziter Vertrauensbestätigung und SHA-Check** verwendet. Der neue Entry-Point allein ersetzt diese Vertrauensprüfung nicht.
 
-The GitHub-hosted CPU suite checks 15 admission contracts, 13 packing contracts and 8 pilot loader contracts, as well as Python syntax. It uses synthetic fixture rows, a fake tokenizer for packing tests and **no Torch/GPU/model training**. Successful CPU CI certifies only these explicit code paths, not that a CUDA pilot runs correctly. Do not claim 60k, 70k, EOS recovery, chat quality, or benchmark scores without separate measured evidence.
+## Validierung und Nachweisgrenzen
+
+Die bounded SFT-Funktion prüft bis zu 16 deterministisch über die Validierung verteilte Beispiele vor/nach Training und gewichtet Cross-Entropy nach tatsächlich supervisierten Antworttokens. Nur ein verbesserter Validierungs-Loss darf einen **isolierten, nicht produktionsberechtigten** Kandidaten erzeugen. Ein echtes Qualitätsurteil verlangt einen unabhängigen eingefrorenen Holdout, freie Antworten, Blindbewertung und identische Decoder-/Prompt-Einstellungen. Jeder Pilot bleibt ausdrücklich `production_eligible:false`.
+
+[24er-Eigengewichtsdiagnose](https://github.com/Cola968/neral-helios/actions/runs/35343702334) und [CI nach Korrektur der Splitprüfung](https://github.com/Cola968/neral-helios/actions/runs/35344126991) sind abgeschlossen. Die CI-Tests verwenden synthetische Daten, nicht echte SFT-GPU-Berechnungen. **Status: Datenfreigabe ausstehend, unabhängiger Holdout ausstehend, SFT nicht gestartet, Qualitätsgewinn nicht nachgewiesen.**

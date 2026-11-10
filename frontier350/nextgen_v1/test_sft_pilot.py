@@ -17,9 +17,11 @@ class PackLoadTests(unittest.TestCase):
         self.tok.write_text("synthetic", encoding="utf-8")
         self.pack = root / "pack"
         self.pack.mkdir()
-        self.tr = {"id": "training", "input_ids": [1, 10, 11],
+        # Model receives x[t] and must predict labels[t] == x[t+1].
+        # The last label is EOS, which is intentionally absent from x.
+        self.tr = {"id": "training", "input_ids": [1, 10, 12],
                    "labels": [-100, 12, 2], "answer_tokens_including_eos": 2}
-        self.va = {"id": "validation", "input_ids": [1, 10, 13],
+        self.va = {"id": "validation", "input_ids": [1, 10, 14],
                    "labels": [-100, 14, 2], "answer_tokens_including_eos": 2}
         self.write()
 
@@ -78,6 +80,20 @@ class PackLoadTests(unittest.TestCase):
         self.tr["answer_tokens_including_eos"] = 3
         self.write()
         with self.assertRaisesRegex(ValueError, "answer token count"):
+            load_pack(self.pack, self.tok)
+
+    def test_training_shift_mismatch_rejected_even_with_recomputed_sha(self):
+        # This was the old supposedly-valid fixture: correct EOS and count,
+        # but the model would learn 10 -> 12 while input actually proceeds 10 -> 11.
+        self.tr["input_ids"][-1] = 11
+        self.write()
+        with self.assertRaisesRegex(ValueError, "causal next-token label alignment mismatch"):
+            load_pack(self.pack, self.tok)
+
+    def test_validation_shift_mismatch_rejected_even_with_recomputed_sha(self):
+        self.va["labels"][1] = 13
+        self.write()
+        with self.assertRaisesRegex(ValueError, "causal next-token label alignment mismatch"):
             load_pack(self.pack, self.tok)
 
 

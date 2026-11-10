@@ -1,0 +1,64 @@
+name: Neral storage inventory one-shot (READ ONLY)
+
+on:
+  push:
+    branches: [experiment/phoenix-sft-fp32-audit]
+    paths: ['.github/workflows/neral-storage-inventory-once.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-storage-maintenance
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read-only drive and project inventory
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host '=== DRIVE FREE SPACE ==='
+          Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object DeviceID,@{N='SizeGiB';E={[math]::Round($_.Size/1GB,1)}},@{N='FreeGiB';E={[math]::Round($_.FreeSpace/1GB,1)}} | Format-Table -AutoSize
+
+          if (-not (Test-Path -LiteralPath 'D:\' -PathType Container)) { throw 'D drive unavailable' }
+
+          Write-Host '=== D TOP LEVEL DIRECTORIES ==='
+          Get-ChildItem -LiteralPath 'D:\' -Directory -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName | Sort-Object
+
+          Write-Host '=== LIKELY NERAL PROJECT DIRECTORIES (depth <= 4) ==='
+          $names = @('neral','helios','outputs','runs','checkpoints','checkpoint','datasets','dataset','training','models','model','codex')
+          $frontier = @('D:\')
+          for ($depth = 0; $depth -lt 4; $depth++) {
+            $next = @()
+            foreach ($base in $frontier) {
+              try { $children = Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction SilentlyContinue } catch { $children = @() }
+              foreach ($child in $children) {
+                if ($names -contains $child.Name.ToLowerInvariant() -or $child.FullName.ToLowerInvariant().Contains('neral') -or $child.FullName.ToLowerInvariant().Contains('helios')) {
+                  Write-Host $child.FullName
+                }
+                $next += $child.FullName
+              }
+            }
+            if ($next.Count -gt 4000) { break }
+            $frontier = $next
+          }
+
+          Write-Host '=== SIZE OF MATCHED NERAL/HELIOS DIRECTORIES (bounded) ==='
+          $candidates = Get-ChildItem -LiteralPath 'D:\' -Directory -Recurse -Depth 4 -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '(?i)(neral|helios)' } | Select-Object -First 80
+          $rows = @()
+          foreach ($dir in $candidates) {
+            try {
+              $sum = (Get-ChildItem -LiteralPath $dir.FullName -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+              if ($null -eq $sum) { $sum = 0 }
+              $rows += [pscustomobject]@{Path=$dir.FullName; SizeGiB=[math]::Round($sum/1GB,2)}
+            } catch {}
+          }
+          $rows | Sort-Object SizeGiB -Descending | Format-Table -AutoSize
+
+          Write-Host 'READ_ONLY_COMPLETE=true'
