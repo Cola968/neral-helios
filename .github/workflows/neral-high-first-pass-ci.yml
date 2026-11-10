@@ -7,6 +7,7 @@ on:
       - 'tests/test_neral_1_0_high_depth.py'
       - 'tests/test_neral_high_response_format.py'
       - 'tests/test_neral_think.py'
+      - 'tests/test_neral_chat_stale_context.py'
       - '.github/workflows/neral-high-first-pass-ci.yml'
   push:
     branches: [main]
@@ -41,3 +42,5 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_high_response_format.py -v
       - name: Basic THINK parser and exact-oracle contracts
         run: python -m unittest discover -s tests -p test_neral_think.py -v
+      - name: Multi-turn stale-context safety
+        run: python -m unittest discover -s tests -p test_neral_chat_stale_context.py -v
