@@ -5,7 +5,7 @@ requests enter this route. No code generation, eval, network or model call.
 """
 from __future__ import annotations
 
-from itertools import product
+from itertools import permutations, product
 import json
 import math
 
@@ -172,8 +172,6 @@ def try_solve_formal_constraints(question: str) -> int | None:
             raise InvalidFormalConstraints("Invalid variable domain")
     names = tuple(sorted(variables))
     max_states = math.prod(len(variables[name]) for name in names)
-    if max_states > MAX_ASSIGNMENTS:
-        raise InvalidFormalConstraints("Search space exceeds hard cap")
     prepared = []
     for rule in rules:
         if (type(rule) is not dict or "left" not in rule
@@ -217,8 +215,26 @@ def try_solve_formal_constraints(question: str) -> int | None:
         _compile_boolean(expr, variables, 0, node_budget)
         for expr in boolean_rules
     )
+    # A full all_different constraint collapses an N^N domain product to
+    # N! complete assignments. Enable this general optimization only when
+    # every variable has the SAME domain of exactly N distinct values.
+    # No benchmark-text routing, probabilistic pruning or elevated cap.
+    if max_states <= MAX_ASSIGNMENTS:
+        candidate_values = product(*(variables[name] for name in names))
+    else:
+        full_distinct = any(set(group) == set(names) for group in seen_groups)
+        common_domain = variables[names[0]]
+        exhaustive_permutations = (
+            full_distinct
+            and len(common_domain) == len(names)
+            and all(variables[name] == common_domain for name in names)
+            and math.factorial(len(names)) <= MAX_ASSIGNMENTS
+        )
+        if not exhaustive_permutations:
+            raise InvalidFormalConstraints("Search space exceeds hard cap")
+        candidate_values = permutations(common_domain, len(names))
     count = 0
-    for values in product(*(variables[name] for name in names)):
+    for values in candidate_values:
         assignment = dict(zip(names, values))
         if not all(
             _satisfies(assignment[left], op,
