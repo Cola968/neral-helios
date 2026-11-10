@@ -59,8 +59,17 @@ def try_solve_formal_constraints(question: str) -> int | None:
         return None
     if len(question.encode("utf-8")) > MAX_INPUT_BYTES:
         raise InvalidFormalConstraints("Schema exceeds size limit")
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise InvalidFormalConstraints("Duplicate JSON member")
+            result[key] = value
+        return result
+
     try:
-        payload = json.loads(question[len(PREFIX):])
+        payload = json.loads(question[len(PREFIX):],
+                             object_pairs_hook=unique_keys)
     except (TypeError, ValueError):
         raise InvalidFormalConstraints("Invalid JSON") from None
     if (type(payload) is not dict
@@ -74,6 +83,7 @@ def try_solve_formal_constraints(question: str) -> int | None:
     if (type(variables) is not dict or not 1 <= len(variables) <= MAX_VARIABLES
             or type(rules) is not list or len(rules) > MAX_RULES
             or type(distinct) is not list or len(distinct) > MAX_RULES
+            or type(query) is not str
             or query not in ("count", "satisfiable")):
         raise InvalidFormalConstraints("Invalid schema dimensions")
     for name, domain in variables.items():
@@ -91,7 +101,8 @@ def try_solve_formal_constraints(question: str) -> int | None:
     prepared = []
     for rule in rules:
         if (type(rule) is not dict or "left" not in rule
-                or "op" not in rule or rule["op"] not in _OPERATORS
+                or "op" not in rule or type(rule["op"]) is not str
+                or rule["op"] not in _OPERATORS
                 or (set(rule) not in ({"left", "op", "right"},
                                       {"left", "op", "value"}))):
             raise InvalidFormalConstraints("Malformed relation")
