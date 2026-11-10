@@ -99,12 +99,25 @@ def validate_native_listener(data: dict, approved_install: str,
     processes, listener_pids = data["processes"], data.get("listener_pids")
     service_pids = data.get("service_pids")
     clients = data.get("established_clients")
-    if (not isinstance(listener_pids, list) or not listener_pids
-            or not isinstance(service_pids, list)
-            or type(clients) is not int or clients != 0
-            or len(listener_pids) != 1
-            or len(processes) < 1 or len(processes) > 3):
-        raise RecoveryRefused("ambiguous_or_busy_ollama_listener")
+    if not isinstance(listener_pids, list) or len(listener_pids) != 1:
+        raise RecoveryRefused("ambiguous_ollama_listener")
+    if not isinstance(service_pids, list):
+        raise RecoveryRefused("process_inventory_unavailable")
+    if not 1 <= len(processes) <= 3:
+        raise RecoveryRefused("unexpected_ollama_process_count")
+    # Explicit consent includes interruption of existing localhost chats.
+    # It never permits interruption of remote users or a public listener.
+    listener_addresses = data.get("listener_addresses")
+    if (not isinstance(listener_addresses, list) or not listener_addresses
+            or any(type(addr) is not str or addr not in ("127.0.0.1", "::1")
+                   for addr in listener_addresses)):
+        raise RecoveryRefused("ollama_listener_not_loopback")
+    if data.get("all_clients_loopback") is not True:
+        raise RecoveryRefused("nonlocal_ollama_client")
+    if type(clients) is not int or clients < 0:
+        raise RecoveryRefused("client_inventory_unavailable")
+    if clients > 8:
+        raise RecoveryRefused("too_many_connected_ollama_clients")
     owner = listener_pids[0]
     if type(owner) is not int or owner <= 0 or owner in service_pids:
         raise RecoveryRefused("foreign_or_service_listener")
@@ -145,19 +158,22 @@ $rows=@(Get-CimInstance Win32_Process | Where-Object { $names -contains $_.Name 
       path=[string]$_.ExecutablePath;user=[string]$own.User
     }
   })
-$owners=@(Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue |
-  Select-Object -ExpandProperty OwningProcess -Unique)
-if ($owners.Count -eq 0) {
-  $matches=@(netstat -ano -p tcp | Select-String '(:11434\s+.*\s+LISTENING\s+\d+\s*$)')
-  $owners=@($matches | ForEach-Object { [int](($_.Line -split '\s+')[-1]) } | Select-Object -Unique)
-}
-$est=@(Get-NetTCPConnection -LocalPort 11434 -State Established -ErrorAction SilentlyContinue)
+$listen=@(Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction Stop)
+$owners=@($listen | Select-Object -ExpandProperty OwningProcess -Unique)
+$addresses=@($listen | Select-Object -ExpandProperty LocalAddress -Unique)
+$est=@(Get-NetTCPConnection -LocalPort 11434 -State Established -ErrorAction Stop)
+$nonlocal=@($est | Where-Object {
+  $_.LocalAddress -notin @('127.0.0.1','::1') -or
+  $_.RemoteAddress -notin @('127.0.0.1','::1')
+})
 $svc=@(Get-CimInstance Win32_Service |
   Where-Object { $_.ProcessId -gt 0 } | Select-Object -ExpandProperty ProcessId)
 [pscustomobject]@{
   processes=$rows
   listener_pids=@($owners)
+  listener_addresses=@($addresses)
   established_clients=@($est).Count
+  all_clients_loopback=(@($nonlocal).Count -eq 0)
   service_pids=@($svc)
 } | ConvertTo-Json -Depth 6 -Compress
 """
@@ -293,14 +309,22 @@ def recover_if_authorized(*, size_vram: int, free_mib: int,
     report["ollama_restart_environment_before"] = environment_signals(os.environ)
 
     audit = _windows_inventory()
+    # Persist safe scalar evidence even if validation declines the restart.
+    report["ollama_restart_process_audit"] = {
+        "native_process_count": len(audit.get("processes", [])),
+        "local_listener_count": len(audit.get("listener_pids", [])),
+        "busy_client_count": audit.get("established_clients"),
+        "listener_loopback_only": bool(
+            audit.get("listener_addresses")) and all(
+                a in ("127.0.0.1", "::1")
+                for a in audit.get("listener_addresses", [])),
+        "clients_loopback_only": audit.get("all_clients_loopback") is True,
+        "service_host_detected": any(
+            p in audit.get("service_pids", [])
+            for p in audit.get("listener_pids", [])),
+    }
     owners = validate_native_listener(audit, approved_install,
                                       getpass.getuser())
-    report["ollama_restart_process_audit"] = {
-        "native_process_count": len(audit["processes"]),
-        "local_listener_count": len(audit["listener_pids"]),
-        "busy_client_count": audit["established_clients"],
-        "service_host_detected": False,
-    }
     report["ollama_restart_attempted"] = True
     report["ollama_restart_stop"] = {"terminated_processes": 0,
                                       "forced_after_graceful_attempt": False}
