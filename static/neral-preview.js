@@ -109,18 +109,26 @@
     return /^(hallo|hi|hey|guten tag|guten morgen|guten abend|wer bist du|wie heißt du|wie heisst du|welches modell bist du|welches modell verwendest du|nein wie heißt du welches modell bist du|nein wie heisst du welches modell bist du|wie heißt du welches modell bist du)$/.test(plain)
       || /^was ist die hauptstadt von [a-zäöüß -]+$/.test(plain);
   }
-  // Web is explicitly opt-in; a keyword list must not drop factual follow-ups.
-  function shouldSearchWeb(question) {
+  // A checked Web toggle permits searches but does not upload every private
+  // conversation turn. Relevant questions and follow-ups to a previous search
+  // are searched; greetings and local small talk stay on-device.
+  function isSearchFollowup(question) {
+    return /^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu.test(String(question||"").trim());
+  }
+  function shouldSearchWeb(question,previousWebQuery="") {
     const q=String(question||"").trim();
-    return !!q&&!skipWebForLocalBasics(q);
+    if(!q||skipWebForLocalBasics(q)||
+       /^(?:hallo|hi|hey)[,! ]+wie geht(?:'s| es) dir[?!.]*$/iu.test(q))return false;
+    if(previousWebQuery&&isSearchFollowup(q))return true;
+    if(/\b(suche|such|suchen|recherchiere|recherchieren|recherche|websuche|internet|online|quellen|belege|links|news|nachrichten|aktuell|aktuelles|aktuelle|aktuellen|neuesten|neueste|neuster|heute|gestern|dieser woche|diese woche|live)\b/iu.test(q))return true;
+    return /^(?:wie funktioniert|wie arbeiten|woraus besteht|wie unterscheiden sich)\b/iu.test(q);
   }
   // Reuse only a previous query already sent to a web provider, never private
   // conversation turns or the model's response.
   function makeSearchQuery(question,previousWebQuery="") {
     const q=String(question||"").trim();
     const previous=String(previousWebQuery||"").trim();
-    const shortFollowup=/^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu;
-    if(previous&&shortFollowup.test(q)&&previous.length+1+q.length<=160)
+    if(previous&&isSearchFollowup(q)&&previous.length+1+q.length<=160)
       return previous+" "+q;
     return q;
   }
@@ -168,7 +176,7 @@
       "wird","werden","kann","this","that","from","with","uber","erklare",
       "erklaren","erklarst","kannst","konnen","mochtest","schwieriges",
       "kompliziertes","schrittweise","wieso","warum","mehr","gibt",
-      "gibt","denn","alles","stand"
+      "gibt","denn","alles","stand","nicht","funktioniert"
     ]);
     // Common domain acronyms are important even though shorter than 4 letters.
     const acronyms=new Set(["ber","dfs","gpu","cpu","api","sql","iss","usa"]);
@@ -627,7 +635,7 @@
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
       if($("useWebSearch").checked && !genericAttachmentOnly &&
-         shouldSearchWeb(text)) {
+         shouldSearchWeb(text,lastWebQuery)) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
         if(webQuery.length>160 || /[\r\n]/.test(webQuery))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
