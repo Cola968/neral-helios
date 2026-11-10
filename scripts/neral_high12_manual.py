@@ -28,6 +28,27 @@ TARGET = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
+# Only sanitized error codes are exported, never prompts or model text.
+_FAILURE_REASONS = {
+    "token_limit": "length_truncated",
+    "timeout": "timeout",
+    "empty_answer": "empty_response",
+    "incomplete": "incomplete_response",
+    "invalid_response": "invalid_response",
+    "http_error": "http_error",
+    "transport_error": "transport_error",
+    "model_error": "model_error",
+    "internal_error": "internal_error",
+    "server_503": "http_error",
+}
+_ERROR_NAMES = tuple(sorted(set(_FAILURE_REASONS.values()) | {
+    "missing_final_answer", "wrong_answer"
+}))
+_TECHNICAL = frozenset(_ERROR_NAMES) - {
+    "length_truncated", "missing_final_answer", "wrong_answer"
+}
+
+
 class High12GateError(ValueError):
     """Sanitized errors: no private question, answer, code or user path."""
 
@@ -79,6 +100,12 @@ def score_pairs(cases: list[dict], observations: list[dict], *,
     by_id = {c["id"]: c for c in cases}
     good = {arm: set() for arm in ARMS}
     failures = {arm: 0 for arm in ARMS}
+    errors = {arm: Counter({name: 0 for name in _ERROR_NAMES}) for arm in ARMS}
+    errors_by_domain = {
+        domain: {arm: Counter({name: 0 for name in _ERROR_NAMES})
+                 for arm in ARMS}
+        for domain in DOMAINS
+    }
     time_values = {arm: [] for arm in ARMS}
     by_domain = {
         domain: {"count": 4, "base_correct": 0, "high_correct": 0,
@@ -102,7 +129,8 @@ def score_pairs(cases: list[dict], observations: list[dict], *,
             obs = row["arms"][arm]
             if (type(obs) is not dict or
                     set(obs) != {"text", "complete", "failed", "seconds",
-                                 "model", "model_digest", "profile", "tool_used"}
+                                 "model", "model_digest", "profile", "tool_used",
+                                 "failure_reason"}
                     or type(obs["text"]) is not str
                     or len(obs["text"].encode("utf8")) > 32768
                     or obs["model"] != MODEL
@@ -111,6 +139,8 @@ def score_pairs(cases: list[dict], observations: list[dict], *,
                     or type(obs["complete"]) is not bool
                     or type(obs["failed"]) is not bool
                     or obs["complete"] == obs["failed"]
+                    or ((obs["failure_reason"] is None) != obs["complete"])
+                    or (obs["failed"] and obs["failure_reason"] not in _FAILURE_REASONS)
                     or (not obs["complete"] and obs["text"])
                     or type(obs["seconds"]) not in (int, float)
                     or not math.isfinite(obs["seconds"])
@@ -121,6 +151,18 @@ def score_pairs(cases: list[dict], observations: list[dict], *,
             failures[arm] += int(obs["failed"])
             time_values[arm].append(obs["seconds"])
             correct = _correct(case["answer"], obs["text"], obs["complete"])
+            if obs["failed"]:
+                error_kind = _FAILURE_REASONS[obs["failure_reason"]]
+            elif not correct:
+                from neral_numeric_final import extract_numeric_final
+                error_kind = ("missing_final_answer"
+                              if extract_numeric_final(obs["text"]) is None
+                              else "wrong_answer")
+            else:
+                error_kind = None
+            if error_kind is not None:
+                errors[arm][error_kind] += 1
+                errors_by_domain[case["domain"]][arm][error_kind] += 1
             outcomes[arm] = correct
             if correct:
                 good[arm].add(case["id"])
@@ -134,9 +176,21 @@ def score_pairs(cases: list[dict], observations: list[dict], *,
         raise High12GateError("Incomplete paired observation matrix")
     wins = len(good["neral_high"] - good["raw_qwen35"])
     losses = len(good["raw_qwen35"] - good["neral_high"])
-    # This 12-case result can reject an obvious regression, NOT prove equivalence.
+    technical = {
+        arm: sum(errors[arm][name] for name in _TECHNICAL)
+        for arm in ARMS
+    }
+    format_failures = {
+        arm: errors[arm]["length_truncated"] +
+             errors[arm]["missing_final_answer"]
+        for arm in ARMS
+    }
+    # The baseline can itself truncate. Real technical errors on either side
+    # still fail; extra HIGH length/format failures are regressions.
+    # This is NOT a blind holdout or automatic release authorization.
     pass_gate = (len(good["raw_qwen35"]) >= 3
-                 and not any(failures.values())
+                 and not any(technical.values())
+                 and format_failures["neral_high"] <= format_failures["raw_qwen35"]
                  and len(good["neral_high"]) >= len(good["raw_qwen35"]))
     return {
         "schema": 1,
@@ -149,6 +203,14 @@ def score_pairs(cases: list[dict], observations: list[dict], *,
         "paired_wins": wins, "paired_losses": losses,
         "paired_delta_pp": round((wins - losses) * 100 / 12, 3),
         "failed_calls": failures,
+        "error_counts": {arm: dict(errors[arm]) for arm in ARMS},
+        "technical_failures": technical,
+        "format_failures": format_failures,
+        "errors_by_domain": {
+            domain: {arm: dict(errors_by_domain[domain][arm]) for arm in ARMS}
+            for domain in DOMAINS
+        },
+        "seed_option_present": False,
         "median_seconds": {arm: round(statistics.median(time_values[arm]), 3)
                            for arm in ARMS},
         "by_domain": by_domain,
@@ -198,14 +260,25 @@ def run_gpu(*, authorize: str, target_sha: str, output: Path) -> bool:
             row = {"id": case["id"], "prompt_sha256":
                    hashlib.sha256(prompt.encode("utf8")).hexdigest(), "arms": {}}
             for arm in order:
-                answer, complete, failed, seconds, tool, _, _, _ = _run_one(
+                answer, complete, failed, seconds, tool, _, _, reason = _run_one(
                     arm, prompt, backend, client, headers)
+                if failed and reason == "model_error":
+                    # Record real local HTTP/transport evidence when available.
+                    diag = backend.last_inference_diagnostic
+                    if isinstance(diag, dict):
+                        status = diag.get("ollama_http_status")
+                        kind = diag.get("ollama_error_type")
+                        if type(status) is int and status >= 400:
+                            reason = "http_error"
+                        elif kind == "transport_error":
+                            reason = "transport_error"
                 row["arms"][arm] = {
                     "text": answer if complete else "",
                     "complete": complete, "failed": failed,
                     "seconds": round(seconds, 3),
                     "model": MODEL, "model_digest": digest,
-                    "profile": PROFILE, "tool_used": tool
+                    "profile": PROFILE, "tool_used": tool,
+                    "failure_reason": reason if failed else None,
                 }
             rows.append(row)
             if (index+1) % 2 == 0:
