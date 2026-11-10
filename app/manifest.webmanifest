@@ -1,0 +1,10 @@
+{
+  "name":"Helios",
+  "short_name":"Helios",
+  "description":"Local-first Neral AI workspace",
+  "start_url":"./index.html",
+  "display":"standalone",
+  "background_color":"#0b0d12",
+  "theme_color":"#0b0d12",
+  "icons":[]
+}

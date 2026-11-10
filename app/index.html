@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0b0f" />
+  <meta name="color-scheme" content="dark" />
+  <title>Helios</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Hauptnavigation">
+      <div class="brand-row">
+        <button class="brand" data-view="chat" aria-label="Helios Chat öffnen">
+          <span class="brand-mark" aria-hidden="true"><i></i></span>
+          <span class="brand-copy"><strong>Helios</strong><small>powered by Neral</small></span>
+        </button>
+        <button class="sidebar-icon" data-action="collapse" aria-label="Seitenleiste einklappen">‹</button>
+      </div>
+
+      <button class="new-chat" data-action="new-chat"><span>＋</span> Neuer Chat</button>
+
+      <nav class="nav-list">
+        <button class="nav-item" data-view="home"><span class="nav-icon">⌂</span><span>Home</span></button>
+        <button class="nav-item active" data-view="chat"><span class="nav-icon">◉</span><span>Chat</span></button>
+        <button class="nav-item" data-view="solve"><span class="nav-icon">∑</span><span>Solve</span><span class="nav-badge">Beta</span></button>
+        <button class="nav-item" data-view="projects"><span class="nav-icon">▦</span><span>Projects</span></button>
+      </nav>
+
+      <section class="sidebar-section" aria-label="Letzte Chats">
+        <div class="section-head"><span>Zuletzt</span><button aria-label="Chats durchsuchen">⌕</button></div>
+        <button class="history-item" data-history="ui"><strong>Helios UI verbessern</strong><small>gerade eben</small></button>
+        <button class="history-item" data-history="math"><strong>Gravitation & Kreisbahn</strong><small>heute</small></button>
+        <button class="history-item" data-history="model"><strong>Neral Training</strong><small>heute</small></button>
+      </section>
+
+      <div class="sidebar-footer">
+        <button class="runtime-card" data-action="model" aria-label="Neral Runtime öffnen">
+          <span class="status-dot preview"></span>
+          <span><strong>Neral 50M</strong><small>Preview · lokal</small></span>
+          <b>›</b>
+        </button>
+        <button class="sidebar-icon" data-action="settings" aria-label="Einstellungen">⚙</button>
+      </div>
+    </aside>
+
+    <main class="main-stage">
+      <header class="topbar">
+        <button class="mobile-brand mobile-only" data-view="chat" aria-label="Helios Chat"><span class="brand-mark mini"><i></i></span></button>
+        <div class="topbar-title">
+          <strong id="viewTitle">Chat</strong>
+          <span id="viewSubtitle">Direkt mit Helios arbeiten</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="model-pill" data-action="model"><span class="status-dot preview"></span><span>Neral 50M</span><small>local preview</small></button>
+          <button class="icon-btn" data-action="new-chat" aria-label="Neuer Chat">＋</button>
+          <button class="icon-btn" data-action="more" aria-label="Weitere Optionen">•••</button>
+        </div>
+      </header>
+
+      <section class="view" id="homeView">
+        <div class="content-wrap home-wrap">
+          <div class="home-hero">
+            <span class="eyebrow">HELIOS WORKSPACE</span>
+            <h1>Woran möchtest du weiterarbeiten?</h1>
+            <p>Chat, Solve und Projekte greifen auf dieselbe lokale Neral-Umgebung zu.</p>
+            <button class="hero-chat" data-open="chat"><span>Frag Helios …</span><b>↑</b></button>
+          </div>
+
+          <div class="section-heading"><div><h2>Schnell starten</h2><p>Direkt in den passenden Arbeitsmodus.</p></div></div>
+          <div class="quick-grid">
+            <button class="quick-card" data-open="chat"><span class="quick-icon">◉</span><strong>Chat</strong><small>Fragen, erklären, planen</small><b>↗</b></button>
+            <button class="quick-card" data-open="solve"><span class="quick-icon">∑</span><strong>Solve</strong><small>Mathe & Physik mit Rechenweg</small><b>↗</b></button>
+            <button class="quick-card" data-open="projects"><span class="quick-icon">▦</span><strong>Projects</strong><small>Kontext und Arbeit bündeln</small><b>↗</b></button>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="panel model-panel">
+              <div class="panel-head"><div><span class="eyebrow">LOKALES MODELL</span><h2>Neral 50M</h2></div><span class="badge preview-badge">Preview</span></div>
+              <p>Eigene Neral-Gewichte. Der App-Shell nutzt aktuell noch eine simulierte Antwortschicht, bis die Runtime angebunden ist.</p>
+              <div class="metric-row"><div><span>Parameter</span><strong>50.0M</strong></div><div><span>Runtime</span><strong>lokal</strong></div><div><span>Status</span><strong>Preview</strong></div></div>
+            </article>
+            <article class="panel recent-panel">
+              <div class="panel-head"><div><span class="eyebrow">WEITERARBEITEN</span><h2>Letzte Themen</h2></div></div>
+              <div class="mini-list"><button data-open="chat">Helios UI verbessern <span>›</span></button><button data-open="solve">Gravitation & Kreisbahn <span>›</span></button><button data-open="projects">Neral / Helios <span>›</span></button></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="view active" id="chatView">
+        <div class="chat-layout">
+          <div class="chat-thread" id="chatThread" aria-live="polite">
+            <div class="chat-empty" id="chatEmpty">
+              <div class="helios-orb" aria-hidden="true"><span></span></div>
+              <span class="eyebrow">HELIOS · LOCAL AI</span>
+              <h1>Was möchtest du herausfinden?</h1>
+              <p>Frag direkt, lass dir etwas erklären oder wechsle für Aufgaben in Solve.</p>
+              <div class="suggestion-grid">
+                <button data-prompt="Erkläre mir die Kreisbahn eines Satelliten einfach." data-suggest-mode="chat"><span>Physik</span><strong>Kreisbahn eines Satelliten erklären</strong><b>↗</b></button>
+                <button data-prompt="Hilf mir, die nächsten Entwicklungsschritte für Helios zu planen." data-suggest-mode="chat"><span>Planen</span><strong>Nächste Schritte für Helios</strong><b>↗</b></button>
+                <button data-prompt="Stelle F = m · a nach m um und erkläre jeden Schritt." data-suggest-mode="solve"><span>Solve</span><strong>Formel sauber umstellen</strong><b>↗</b></button>
+                <button data-prompt="Prüfe diese Aussage kritisch und nenne Unsicherheiten." data-suggest-mode="verify"><span>Verify</span><strong>Eine Aussage gegenprüfen</strong><b>↗</b></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="composer-dock">
+            <form class="composer" id="composerForm">
+              <textarea id="composerInput" rows="1" placeholder="Frag Helios …" aria-label="Nachricht an Helios"></textarea>
+              <div class="composer-footer">
+                <div class="composer-left">
+                  <button type="button" class="round-action" data-action="attach" aria-label="Datei anhängen">＋</button>
+                  <div class="mode-switch" role="group" aria-label="Arbeitsmodus">
+                    <button type="button" class="mode active" data-mode="chat">Chat</button>
+                    <button type="button" class="mode" data-mode="solve">Solve</button>
+                    <button type="button" class="mode" data-mode="verify">Verify</button>
+                  </div>
+                </div>
+                <div class="composer-right">
+                  <span class="composer-state" id="composerState">Neral 50M · Preview</span>
+                  <button type="button" class="round-action voice" data-action="voice" aria-label="Spracheingabe">◉</button>
+                  <button class="send-btn" type="submit" aria-label="Senden">↑</button>
+                </div>
+              </div>
+            </form>
+            <div class="composer-meta">Lokale Preview. Antworten können falsch oder unvollständig sein.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="solveView">
+        <div class="content-wrap narrow-wrap">
+          <div class="page-intro"><span class="eyebrow">SOLVE</span><h1>Von der Aufgabe zum nachvollziehbaren Rechenweg.</h1><p>Für Mathe und Physik: gegeben, gesucht, Ansatz, Umformung, Ergebnis und Prüfung.</p></div>
+          <div class="solve-card">
+            <div class="solve-input-head"><span>Aufgabe</span><span>Mathe · Physik</span></div>
+            <textarea placeholder="z. B. Stelle F = m · a nach m um und prüfe die Einheiten."></textarea>
+            <div class="solve-tools"><button>＋ Bild</button><button>fx Formel</button><button>Einheiten</button><button class="primary">Lösen <span>→</span></button></div>
+          </div>
+          <div class="feature-grid"><article class="panel"><span>01</span><h3>Verstehen</h3><p>Gegebenes, Gesuchtes und Einheiten sauber erfassen.</p></article><article class="panel"><span>02</span><h3>Herleiten</h3><p>Rechenweg sichtbar machen statt nur ein Ergebnis auszugeben.</p></article><article class="panel"><span>03</span><h3>Prüfen</h3><p>Plausibilität und Einheiten mit VERIFY kontrollieren.</p></article></div>
+        </div>
+      </section>
+
+      <section class="view" id="projectsView">
+        <div class="content-wrap">
+          <div class="page-intro row-intro"><div><span class="eyebrow">PROJECTS</span><h1>Kontext, der nicht nach einem Chat verschwindet.</h1><p>Chats, Dateien, Entscheidungen und spätere CASCADE/RIPPLE-Funktionen gehören hier zusammen.</p></div><button class="primary-button">＋ Neues Projekt</button></div>
+          <div class="project-grid">
+            <article class="project-card featured"><div class="project-icon">N</div><div class="project-copy"><span class="badge">AI</span><h2>Neral / Helios</h2><p>Modelltraining, Benchmarks und App-Entwicklung.</p><div class="project-meta"><span>12 Chats</span><span>7 Dateien</span><span>heute</span></div></div><b>↗</b></article>
+            <article class="project-card"><div class="project-icon">B</div><div class="project-copy"><span class="badge">AVIATION</span><h2>BER Entwicklung</h2><p>Routen, Airlines, Hub-Potenzial und Prognosen.</p><div class="project-meta"><span>8 Chats</span><span>gestern</span></div></div><b>↗</b></article>
+            <article class="project-card"><div class="project-icon">P</div><div class="project-copy"><span class="badge">PHYSICS</span><h2>Physik</h2><p>Gravitation, Astrophysik und Aufgaben.</p><div class="project-meta"><span>5 Chats</span><span>diese Woche</span></div></div><b>↗</b></article>
+          </div>
+        </div>
+      </section>
+
+      <nav class="bottom-nav" aria-label="Mobile Navigation">
+        <button class="active" data-view="chat"><span>◉</span>Chat</button>
+        <button data-view="solve"><span>∑</span>Solve</button>
+        <button data-view="projects"><span>▦</span>Projects</button>
+        <button data-view="home"><span>⌂</span>Home</button>
+      </nav>
+    </main>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="runtime-panel" id="runtimePanel" hidden aria-label="Neral Runtime">
+    <div class="runtime-head"><div><span class="eyebrow">RUNTIME</span><h2>Neral 50M</h2></div><button class="icon-btn" data-action="close-model" aria-label="Schließen">×</button></div>
+    <div class="runtime-status"><span class="status-dot preview"></span><div><strong>Local preview</strong><p>Die UI ist aktiv; die echte Neral-Inference wird im nächsten Integrationsschritt verbunden.</p></div></div>
+    <div class="runtime-grid"><div><span>Parameter</span><strong>50.012.976</strong></div><div><span>Provider</span><strong>Neral</strong></div><div><span>Cloud</span><strong>Keine</strong></div><div><span>App shell</span><strong>v0.2</strong></div></div>
+    <div class="runtime-note"><strong>Warum das sichtbar bleibt</strong><p>Helios soll klar zeigen, ob eine Antwort wirklich vom lokalen Neral-Modell stammt oder nur aus der Preview-Schicht kommt.</p></div>
+    <button class="panel-button" data-action="settings">Runtime-Einstellungen</button>
+  </aside>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="./app.js"></script>
+</body>
+</html>
