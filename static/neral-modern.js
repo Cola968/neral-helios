@@ -75,22 +75,32 @@
 
   // Live regions remain unobtrusive until something actually needs attention.
   // Files rejected by validation and denied microphones must never be invisible.
-  function watchStatusWarning(id,pattern){
+  function watchStatusWarning(id,pattern,show=()=>true){
     const node=byId(id);
-    if(!node)return;
+    if(!node)return null;
     const reflect=()=>{
       node.classList.toggle("neral-status-alert",
-        pattern.test(node.textContent||""));
+        show()&&pattern.test(node.textContent||""));
     };
     if(typeof MutationObserver!=="undefined"){
       const observer=new MutationObserver(reflect);
       observer.observe(node,{childList:true,characterData:true,subtree:true});
     }
     reflect();
+    return reflect;
   }
   watchStatusWarning("fileStatus",/abgelehnt|ungültig|fehler|zu groß|unzulässig/i);
   watchStatusWarning("voiceStatus",/fehlgeschlagen|verweigert|nicht verfügbar|konnte nicht|keine sprache|unterbrochen/i);
-  watchStatusWarning("localVoiceStatus",/fehlgeschlagen|verweigert|nicht verfügbar|konnte|fehlen|nicht installiert|fehler/i);
+  // Missing optional offline voice models are a setup state, not an
+  // unsolicited red error banner during an ordinary text conversation.
+  let localVoiceAttempted=false;
+  const reflectLocalVoice=watchStatusWarning("localVoiceStatus",
+    /fehlgeschlagen|verweigert|nicht verfügbar|konnte|fehlen|nicht installiert|fehler/i,
+    ()=>localVoiceAttempted);
+  byId("localVoiceStart")?.addEventListener("click",()=>{
+    localVoiceAttempted=true;
+    reflectLocalVoice?.();
+  });
 
   // A restored chat should scroll from its own already-rendered content.
   window.addEventListener("neral:load-chat",()=>{

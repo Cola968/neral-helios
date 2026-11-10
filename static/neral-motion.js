@@ -3,6 +3,20 @@
    Never fake percentages, token streaming or private reasoning traces. */
 (() => {
   const iconUrl="/static/icon.svg";
+  function favicon(host){
+    const img=document.createElement("img");
+    img.className="neral-live-site-icon";
+    img.src="/api/web/favicon?host="+encodeURIComponent(host);
+    img.alt="";
+    img.setAttribute("alt","");
+    img.setAttribute("aria-hidden","true");
+    img.loading="lazy";
+    img.decoding="async";
+    img.referrerPolicy="no-referrer";
+    img.addEventListener?.("load",()=>img.classList.add("neral-favicon-loaded"));
+    img.addEventListener?.("error",()=>img.remove());
+    return img;
+  }
   function makeActivity(label,phase){
     const row=document.createElement("div");
     row.className="neral-activity";
@@ -54,9 +68,23 @@
       line.textContent="Suchanbieter: "+[...providers]
         .map(n=>n==="DuckDuckGo HTML"?"DuckDuckGo":"Bing").join(" · ");
     }
+    function showSearchQuery(query){
+      if(!active||active.dataset.phase!=="searching"||
+         typeof query!=="string"||!query.trim()||
+         query.length>160||/[\r\n]/.test(query))return;
+      const box=detailsArea();
+      let line=box.querySelector(".neral-live-search-query");
+      if(!line){
+        line=document.createElement("div");
+        line.className="neral-live-search-query";
+        box.prepend?.(line);
+        if(!line.parentNode&&!box.children?.includes?.(line))box.append(line);
+      }
+      line.textContent="Suchanfrage: "+query;
+    }
     function showSource(source){
       if(!active || source?.reachable!==true || typeof source.url!=="string" ||
-         sourceHosts.size>=4)return;
+         sourceHosts.size>=5)return;
       let parsed;
       try{parsed=new URL(source.url);}catch{return;}
       const host=parsed.hostname.toLowerCase();
@@ -78,6 +106,13 @@
       link.href=parsed.href;link.target="_blank";link.rel="noopener noreferrer";
       link.setAttribute("title",String(source.title||host).slice(0,130));
       link.textContent=host.replace(/^www\./,"");
+      const thumb=document.createElement("span");
+      thumb.className="neral-live-icon-wrap";
+      thumb.setAttribute("aria-hidden","true");
+      thumb.textContent=host.replace(/^www\./,"").charAt(0).toUpperCase();
+      thumb.append(favicon(host));
+      if(typeof link.prepend==="function")link.prepend(thumb);
+      else link.append(thumb);
       line.append(link);
     }
     const labels={searching:"Sucht im Web",checking:"Prüft Code",
@@ -87,6 +122,9 @@
       if(detail.phase==="done"||detail.phase==="cancelled"||
          detail.phase==="error"){
         reset();return;
+      }
+      if(detail.phase==="search-query"){
+        showSearchQuery(detail.query);return;
       }
       if(detail.phase==="search-provider"){
         showProvider(detail.name);return;

@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 from threading import Thread
 import json
-from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url
+from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon
 
 
 def register_web_search_api(app, service=None):
@@ -79,6 +79,22 @@ def register_web_search_api(app, service=None):
             headers={"Cache-Control": "no-store, no-transform",
                      "X-Content-Type-Options": "nosniff",
                      "X-Accel-Buffering": "no"})
+
+    @app.get("/api/web/favicon")
+    def favicon_image():
+        """Same-origin favicon for a validated source hostname, never a URL proxy."""
+        if set(request.args) != {"host"}:
+            return jsonify(error="Nur ein Hostname erlaubt."), 400
+        host = request.args.get("host", "")
+        if not isinstance(host, str) or len(host) > 253:
+            return jsonify(error="Ungültiger Hostname."), 400
+        result = fetch_public_favicon(host)
+        if result is None:
+            return Response(status=404)
+        data, mime = result
+        return Response(data, mimetype=mime, headers={
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"
+        })
 
     @app.get("/api/web/search/status")
     def web_search_status():

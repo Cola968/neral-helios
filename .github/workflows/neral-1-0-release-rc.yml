@@ -1,5 +1,6 @@
 name: NERAL 1.0 release candidate - offline package and LIVE Windows PC smoke
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - '.github/workflows/neral-1-0-release-rc.yml'
@@ -99,6 +100,9 @@ on:
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-reference-ui.css'
+      - 'static/neral-clean-ui.css'
+      - 'static/neral-clean-ui.js'
+      - 'tests/test_neral_clean_ui.cjs'
       - 'static/neral-reference-ui.js'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
@@ -112,6 +116,8 @@ on:
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
       - 'tests/test_neral_source_reachability.py'
+      - 'tests/test_neral_favicon.py'
+      - 'tests/test_neral_favicon_ui.cjs'
       - 'tests/test_neral_1_0_live_streaming.py'
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
@@ -230,6 +236,9 @@ on:
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-reference-ui.css'
+      - 'static/neral-clean-ui.css'
+      - 'static/neral-clean-ui.js'
+      - 'tests/test_neral_clean_ui.cjs'
       - 'static/neral-reference-ui.js'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
@@ -298,6 +307,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_release_artifact_freshness.py -v
       - name: Verified public HTTPS source links and DNS-rebinding protections
         run: python -m unittest discover -s tests -p test_neral_source_reachability.py -v
+      - name: Trusted same-origin website favicon security
+        run: python -m unittest discover -s tests -p test_neral_favicon.py -v
       - name: Live web provider and verified source stream
         run: python -m unittest discover -s tests -p test_neral_live_sources.py -v
       - name: New voice and web plugin security/readiness contracts
@@ -342,6 +353,8 @@ jobs:
       - run: node --test tests/test_neral_dynamic_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --check static/neral-reference-ui.js
+      - run: node --check static/neral-clean-ui.js
+      - run: node --test tests/test_neral_clean_ui.cjs
       - run: node --test tests/test_neral_reference_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
       - run: python -m unittest discover -s tests -p test_neral_1_0_live_streaming.py -v
@@ -391,7 +404,7 @@ jobs:
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
+    if: ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
     needs: [cpu-contracts]
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 22
@@ -411,7 +424,7 @@ jobs:
           path: code
           clean: true
           persist-credentials: false
-          ref: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - name: Real local Ollama inventory, FAST, THINK and CSRF smoke - no downloads
         run: |
           $ErrorActionPreference='Stop'
@@ -469,7 +482,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
