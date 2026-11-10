@@ -216,6 +216,7 @@ def safe_first_turn_event(event: object) -> dict | None:
             or decision not in (
                 "tool", "final", "unstructured",
                 "deterministic_formal", "deterministic_rejected",
+                "extracted_formal", "extraction_fallback",
                 "unavailable_on_failure")):
         return None
     return {**counts, "done_reason": reason, "decision": decision}

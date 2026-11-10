@@ -8,6 +8,7 @@ model-extracted result verified. No code execution, network or dependencies.
 from __future__ import annotations
 
 import json
+import re
 from neral_formal_constraints import (
     PREFIX, InvalidFormalConstraints, try_solve_formal_constraints,
 )
@@ -25,7 +26,20 @@ EXTRACT_PROMPT = (
     '"exact source span"]}. '
     "Allowed queries: count or satisfiable. Variables have finite integer or "
     "Boolean domains. Relations use == != < <= > >= with right variable or "
-    "literal value. Use all_different only when the source explicitly says "
+    "literal value. For Boolean domains, you may add bool_rules: "
+    "a list of Boolean expression trees. Leaves are declared Boolean variable "
+    "names or true/false literals. Each node has op and args. Supported ops: "
+    "and, or, xor (parity), not, implies, eq; at_least nodes additionally "
+    "have integer min. Keep max nesting depth four, max eight variables, "
+    "and at most 32 total rules. "
+    "For a COMPLETE order of N explicitly distinct named items, use the "
+    "short schema form {ordering:[item names],rules:[rank comparisons],"
+    "query:count}; ordering entails ranks 1..N and all_different without "
+    "repeating each domain. Only derive this when every item appears once. "
+    "For an explicitly Boolean variable, domain [false,true] is implied. "
+    "For missing or unsupported semantics emit "
+    "kind none, NEVER silently discard a condition. "
+    "Use all_different only when the source explicitly says "
     "values are unique. Include verbatim quoted source spans proving where "
     "domains, ALL conditions and the requested query came from; all spans "
     "must appear unchanged in the user question. Set complete true only if "
@@ -81,10 +95,39 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
         return None
     rules = schema.get("rules")
     groups = schema.get("all_different", [])
+    boolean_rules = schema.get("bool_rules", [])
+    # Guard against extra invented variables/items in the model-generated
+    # schema. This is a source-consistency check, NOT semantic verification.
+    if "ordering" in schema:
+        names = schema["ordering"]
+        if (type(names) is not list
+                or not all(type(v) is str for v in names)):
+            return None
+        # For a complete order, one literal source span must enumerate
+        # every item; otherwise refuse to infer a complete set.
+        ordering_spans = [
+            span for span in evidence if type(span) is str
+            and all(re.search(r"(?<!\w)" + re.escape(v) + r"(?!\w)", span)
+                    for v in names)
+        ]
+        if not ordering_spans:
+            return None
+    else:
+        variables = schema.get("variables")
+        if type(variables) is not dict:
+            return None
+        names = list(variables)
+    if any(
+        type(name) is not str
+        or re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", question) is None
+        for name in names
+    ):
+        return None
     if (type(rules) is not list or type(groups) is not list
-            or len(rules) + len(groups) < 1
+            or type(boolean_rules) is not list
+            or len(rules) + len(groups) + len(boolean_rules) < 1
             or not 2 <= len(evidence) <= 32
-            or len(evidence) < len(rules) + len(groups) + 1
+            or len(evidence) < len(rules) + len(groups) + len(boolean_rules) + 1
             or any(type(span) is not str or not 4 <= len(span) <= 200
                    or span not in question for span in evidence)
             or len(set(evidence)) != len(evidence)):

@@ -162,6 +162,13 @@ class BenchmarkTelemetrySafety(unittest.TestCase):
         self.assertEqual(filtered, {"eval_count":2048,"prompt_eval_count":110,
                          "done_reason":"stop","decision":"unstructured"})
         self.assertNotIn("TOP_SECRET",str(filtered))
+        for decision in ("extracted_formal", "extraction_fallback"):
+            with self.subTest(decision=decision):
+                candidate = dict(event, decision=decision)
+                self.assertEqual(
+                    safe_first_turn_event(candidate)["decision"], decision)
+                self.assertNotIn("TOP_SECRET", str(safe_first_turn_event(candidate)))
+
         self.assertIsNone(safe_first_turn_event(
             {"eval_count":True,"prompt_eval_count":0,"done_reason":"stop",
              "decision":"tool"}))
