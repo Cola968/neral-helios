@@ -1,0 +1,74 @@
+name: NERAL 1.1 two-stage TIR observation CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_tir_experimental.py'
+      - 'neral_turn0_extractor.py'
+      - 'tests/test_neral_tir_turn0.py'
+      - 'requirements-tests-turn0.txt'
+      - 'scripts/neral_tir_logic_smoke.py'
+      - 'tests/test_neral_tir_logic_smoke.py'
+      - 'neral_formal_constraints.py'
+      - 'tests/test_neral_boolean_constraints.py'
+      - 'tests/test_neral_tir_structural.py'
+      - 'tests/test_neral_tir_observation.py'
+      - 'scripts/neral_tir12_manual.py'
+      - 'tests/test_neral_tir12_manual.py'
+      - 'tests/test_neral_tir12_workflow.py'
+      - '.github/workflows/neral-tir12-manual.yml'
+      - 'tests/test_neral_experimental_tir.py'
+      - '.github/workflows/neral-tir-observation-cpu.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_tir_experimental.py'
+      - 'neral_turn0_extractor.py'
+      - 'tests/test_neral_tir_turn0.py'
+      - 'requirements-tests-turn0.txt'
+      - 'scripts/neral_tir_logic_smoke.py'
+      - 'tests/test_neral_tir_logic_smoke.py'
+      - 'neral_formal_constraints.py'
+      - 'tests/test_neral_boolean_constraints.py'
+      - 'tests/test_neral_tir_structural.py'
+      - 'tests/test_neral_tir_observation.py'
+      - 'scripts/neral_tir12_manual.py'
+      - 'tests/test_neral_tir12_manual.py'
+      - 'tests/test_neral_tir12_workflow.py'
+      - '.github/workflows/neral-tir12-manual.yml'
+      - 'tests/test_neral_experimental_tir.py'
+      - '.github/workflows/neral-tir-observation-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  observation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - run: python -m pip install -r requirements-tests-turn0.txt
+      - name: TIR observation and baseline fallback contracts
+        run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
+      - name: Generic Boolean finite-domain CPU contracts
+        run: python -B -m unittest discover -s tests -p test_neral_boolean_constraints.py -v
+      - name: Turn-0 extractor and fallback contracts
+        run: python -B -m unittest discover -s tests -p test_neral_tir_turn0.py -v
+      - name: One-task smoke CPU contracts (no inference)
+        run: python -B -m unittest discover -s tests -p test_neral_tir_logic_smoke.py -v
+      - name: Structural constraints and first-turn telemetry contracts
+        run: python -B -m unittest discover -s tests -p test_neral_tir_structural.py -v
+      - name: Balanced TIR12 scoring, tool accounting and safety contracts
+        run: python -B -m unittest discover -s tests -p test_neral_tir12_manual.py -v
+      - name: TIR12 benchmark source syntax
+        run: python -B -m py_compile scripts/neral_tir12_manual.py
+      - name: Workflow exact-SHA and exclusive-GPU safety contract
+        run: python -B -m unittest discover -s tests -p test_neral_tir12_workflow.py -v
+      - name: Existing TIR sandbox and opt-in safety contracts
+        run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
