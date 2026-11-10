@@ -21,6 +21,7 @@ from scripts.neral_v6_compositional import (
     FAMILIES, PER_FAMILY, make_case, generate as compositional_data
 )
 from scripts.neral_reasoning_train_candidate import candidate, verify_case
+from scripts.neral_gradient_audit import summarize_gradient_logs
 
 AUTH = "TRAIN_NERAL_V6_R16_120_EXPERIMENTAL"
 SEED = 20261107
@@ -384,6 +385,8 @@ def _gpu_train(args, *, data_factory=build_experiment, steps=STEPS,
         "independent_transfer_proven":False,
         "adapter_promoted":False,
         "smoke_diagnostic_only":True,
+        "gradient_health":summarize_gradient_logs(
+            run_logs, max_grad_norm=config.max_grad_norm, expected_steps=STEPS),
         "recent_train_logs":run_logs[-12:],
     }
     (dest/"scalar-private.json").write_text(

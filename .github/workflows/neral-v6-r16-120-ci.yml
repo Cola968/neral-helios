@@ -3,15 +3,20 @@ on:
   pull_request:
     paths:
       - 'scripts/neral_v6_r16_gpu.py'
+      - 'scripts/neral_gradient_audit.py'
       - 'tests/test_neral_v6_r16_gpu.py'
+      - 'tests/test_neral_gradient_audit.py'
       - 'docs/NERAL_V6_R16_TRAINING.md'
+      - 'docs/NERAL_KARPATHY_GRADIENT_HEALTH.md'
       - '.github/workflows/neral-v6-r16-120-train.yml'
       - '.github/workflows/neral-v6-r16-120-ci.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/neral_v6_r16_gpu.py'
+      - 'scripts/neral_gradient_audit.py'
       - 'tests/test_neral_v6_r16_gpu.py'
+      - 'tests/test_neral_gradient_audit.py'
       - '.github/workflows/neral-v6-r16-120-ci.yml'
 permissions:
   contents: read
@@ -30,5 +35,7 @@ jobs:
           python-version: '3.12'
       - name: Validate 728 deterministic training examples and 100 isolated validation examples
         run: python -m unittest discover -s tests -p test_neral_v6_r16_gpu.py -v
+      - name: Verify sampled gradient telemetry on CPU
+        run: python -m unittest discover -s tests -p test_neral_gradient_audit.py -v
       - name: Compile the guarded local CUDA trainer
-        run: python -m py_compile scripts/neral_v6_r16_gpu.py
+        run: python -m py_compile scripts/neral_v6_r16_gpu.py scripts/neral_gradient_audit.py
