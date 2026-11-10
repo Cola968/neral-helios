@@ -472,6 +472,16 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 local_respond = high_backend.respond
             # Only a real local Ollama backend receives opt-in second review.
             deep_review = isinstance(high_backend, OllamaLocalBackend)
+            # Only the real, measured Qwen3.5 HIGH backend is eligible for
+            # one short final-only turn after Ollama signals a token limit.
+            # The direct Qwen baseline and non-HIGH/adapter backends stay as-is.
+            bounded_final = (
+                type(high_backend) is OllamaLocalBackend
+                and high_backend.model == "qwen3.5:9b"
+                and high_backend.inference_profile == "measured_nonthinking_2048"
+            )
+            if bounded_final:
+                local_respond = high_backend.respond_high_final
             if deep_review:
                 from neral_high_verified_first import direct_high_reply
                 direct = direct_high_reply(data)
@@ -487,7 +497,24 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 result = run_experimental_tir(data, high_backend.respond_chat)
                 return jsonify({**result, "experimental_tir": True,
                                 **_provenance(high_backend)})
+            before_events = (
+                len(high_backend.inference_diagnostic_events) if bounded_final else 0
+            )
             result = think_reply(data, local_respond, deep_review=deep_review)
+            if bounded_final:
+                new_events = high_backend.inference_diagnostic_events[before_events:]
+                recovered = any(
+                    row.get("final_recovery_succeeded") is True
+                    for row in new_events if isinstance(row, dict)
+                )
+                if recovered:
+                    result["calls_used"] += sum(
+                        row.get("final_recovery_attempted") is True
+                        for row in new_events if isinstance(row, dict)
+                    )
+                    result["completion_recovery_used"] = True
+                    if not result.get("verified"):
+                        result["verification_status"] = "final_after_length_unverified"
             return jsonify({**result, **_provenance(high_backend)})
         except OllamaCompletionError as exc:
             return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
