@@ -1,0 +1,22 @@
+# NERAL Cloud Beta blueprint; provision only after owner review.
+# A CPU gateway, NOT a 9B model host. Hugging Face providers perform inference.
+services:
+  - type: web
+    name: neral-cloud-beta
+    runtime: python
+    region: frankfurt
+    plan: free
+    branch: feature/neral-cloud-beta-20261027
+    autoDeployTrigger: off
+    buildCommand: python -m compileall -q neral_cloud
+    startCommand: python -m neral_cloud.server
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: NERAL_CLOUD_INFERENCE_ENABLED
+        value: "0"
+      - key: NERAL_HF_TOKEN
+        sync: false
+      - key: NERAL_BETA_ACCESS_KEY
+        sync: false

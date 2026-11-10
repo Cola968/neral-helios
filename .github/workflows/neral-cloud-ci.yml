@@ -1,0 +1,28 @@
+name: NERAL Cloud Beta offline security contract
+on:
+  push:
+    branches: [feature/neral-cloud-beta-20261027]
+  pull_request:
+    paths:
+      - 'neral_cloud/**'
+      - 'tests/test_neral_cloud.py'
+      - '.github/workflows/neral-cloud-ci.yml'
+permissions:
+  contents: read
+jobs:
+  offline-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline cloud security tests (no real HF calls)
+        run: python -m unittest tests.test_neral_cloud -v
+      - name: UI state regression (native Node VM, no browser dependencies)
+        run: node --test tests/test_neral_cloud_ui.cjs
+      - name: JavaScript syntax (browser client)
+        run: node --check neral_cloud/static/app.js
+      - name: Syntax and import checks
+        run: python -m compileall -q neral_cloud tests/test_neral_cloud.py
