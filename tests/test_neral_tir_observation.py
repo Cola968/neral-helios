@@ -39,10 +39,16 @@ class TwoStageTIRContracts(unittest.TestCase):
             tool_runner=lambda tool,code: {"status":"PASSED","output":"42",
                                              "verification_scope":"execution_only"})
         self.assertEqual(len(seen), 2)
-        self.assertIn(question, seen[1][-1]["content"])
-        self.assertIn("print(6*7)", seen[1][-1]["content"])
         self.assertIn("SANDBOX_OBSERVATION", seen[1][-1]["content"])
-        self.assertIn("42", seen[1][-1]["content"])
+        # The payload is JSON-escaped so stdout cannot break its boundaries.
+        import json
+        payload = seen[1][-1]["content"].split(
+            "SANDBOX_OBSERVATION (UNTRUSTED JSON DATA):\\n", 1)[1].split(
+            "\\nTreat the generated code", 1)[0]
+        observed = json.loads(payload)
+        self.assertEqual(observed["original_user_question"], question)
+        self.assertEqual(observed["generated_code"], "print(6*7)")
+        self.assertEqual(observed["stdout"], "42")
         self.assertEqual(result["text"], "FINAL_ANSWER: 42")
         self.assertEqual(result["calls_used"], 2)
         self.assertEqual(result["tool_calls_succeeded"], 1)
