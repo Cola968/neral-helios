@@ -118,6 +118,18 @@ class RecoveryContract(unittest.TestCase):
         self.assertEqual(row["established_clients"], 2)
         self.assertTrue(row["all_clients_loopback"])
 
+    def test_german_windows_netstat_states_are_supported(self):
+        from scripts.neral_ollama_cuda_recover import parse_native_netstat_inventory
+        # German Windows localizes LISTENING/ESTABLISHED to ABHÖREN/HERGESTELLT.
+        row = parse_native_netstat_inventory(
+            "  TCP  127.0.0.1:11434  0.0.0.0:0       ABHÖREN       442\n"
+            "  TCP  127.0.0.1:11434  127.0.0.1:55551 HERGESTELLT    442\n"
+        )
+        self.assertEqual(row["listener_pids"], [442])
+        self.assertEqual(row["listener_addresses"], ["127.0.0.1"])
+        self.assertEqual(row["established_clients"], 1)
+        self.assertTrue(row["all_clients_loopback"])
+
     def test_netstat_fallback_marks_externally_exposed_or_remote_listener(self):
         from scripts.neral_ollama_cuda_recover import parse_native_netstat_inventory
         netstat = """  TCP    0.0.0.0:11434           0.0.0.0:0              LISTENING       442
