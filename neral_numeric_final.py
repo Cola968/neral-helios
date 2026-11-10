@@ -7,18 +7,18 @@ from __future__ import annotations
 import re
 
 MAX_TEXT_LENGTH = 32768
-_NUMBER = r"[+-]?\\d{1,25}(?:[.,]\\d{1,25})?(?:/\\d{1,25})?"
-_VALUE = r"(?:x\\s*=\\s*)?" + _NUMBER
+_NUMBER = r"[+-]?\d{1,25}(?:[.,]\d{1,25})?(?:/\d{1,25})?"
+_VALUE = r"(?:x\s*=\s*)?" + _NUMBER
 _MARKER = re.compile(
-    r"^(?:FINAL(?:_ANSWER)?|ANTWORT|ANSWER|ERGEBNIS|RESULT)\\s*[:=]\\s*"
+    r"^(?:FINAL(?:_ANSWER)?|ANTWORT|ANSWER|ERGEBNIS|RESULT)\s*[:=]\s*"
     r"(?P<value>" + _VALUE + r")$", re.IGNORECASE)
 _HEAD = re.compile(
-    r"^(?:FINAL(?:_ANSWER)?|ANTWORT|ANSWER|ERGEBNIS|RESULT)\\s*[:=]",
+    r"^(?:FINAL(?:_ANSWER)?|ANTWORT|ANSWER|ERGEBNIS|RESULT)\s*[:=]",
     re.IGNORECASE)
 _NATURAL = re.compile(
-    r"^(?:Die\\s+Antwort|Das\\s+Ergebnis|The\\s+answer|The\\s+result)"
-    r"\\s+(?:ist|lautet|beträgt|is|equals)\\s+(?P<value>"
-    + _VALUE + r")\\.?$", re.IGNORECASE)
+    r"^(?:Die\s+Antwort|Das\s+Ergebnis|The\s+answer|The\s+result)"
+    r"\s+(?:ist|lautet|beträgt|is|equals)\s+(?P<value>"
+    + _VALUE + r")\.?$", re.IGNORECASE)
 _BARE = re.compile(r"^" + _VALUE + r"$", re.IGNORECASE)
 
 
@@ -32,7 +32,7 @@ def extract_numeric_final(text: str) -> str | None:
     """
     if not isinstance(text, str) or not 1 <= len(text) <= MAX_TEXT_LENGTH:
         return None
-    if any((ord(c) < 32 and c not in "\\t\\n\\r") or ord(c) == 127
+    if any((ord(c) < 32 and c not in "\t\n\r") or ord(c) == 127
            for c in text):
         return None
     lines = [line.strip() for line in text.splitlines() if line.strip()]
