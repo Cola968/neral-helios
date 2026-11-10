@@ -199,6 +199,28 @@ _TRANSIENT_FAILURES = frozenset({
 })
 
 
+def safe_first_turn_event(event: object) -> dict | None:
+    """Safe, scalar-only log payload; discard all model text and user content."""
+    if type(event) is not dict:
+        return None
+    counts = {}
+    for key in ("eval_count", "prompt_eval_count"):
+        value = event.get(key)
+        if value is not None and (
+                type(value) is not int or not 0 <= value <= 1_000_000):
+            return None
+        counts[key] = value
+    reason = event.get("done_reason")
+    decision = event.get("decision")
+    if (reason not in (None, "stop", "length", "load", "unload", "other")
+            or decision not in (
+                "tool", "final", "unstructured",
+                "deterministic_formal", "deterministic_rejected",
+                "unavailable_on_failure")):
+        return None
+    return {**counts, "done_reason": reason, "decision": decision}
+
+
 def _run_one(arm: str, question: str, backend, client, headers: dict):
     from neral_agent_autonomy import AgentModelError, OllamaCompletionError
     from neral_identity import build_identity_prompt
@@ -230,6 +252,11 @@ def _run_one(arm: str, question: str, backend, client, headers: dict):
     seconds = time.monotonic()-started
     if response.status_code == 503:
         packet = response.get_json(silent=True)
+        if arm == "neral_high_router" and type(packet) is dict:
+            event = safe_first_turn_event(packet.get("first_turn_telemetry"))
+            if event is not None:
+                print("NERAL_TIR_FIRST_TURN_SCALARS " +
+                      json.dumps(event, sort_keys=True), flush=True)
         code = packet.get("error_code") if isinstance(packet, dict) else None
         if code not in {
             "token_limit", "incomplete", "empty_answer",
@@ -245,6 +272,10 @@ def _run_one(arm: str, question: str, backend, client, headers: dict):
         triggered, succeeded = validated_tool_counts(packet)
         if packet.get("experimental_tir") is not True:
             raise PilotBlocked("C arm missing experimental provenance")
+        event = safe_first_turn_event(packet.get("first_turn_telemetry"))
+        if event is not None:
+            print("NERAL_TIR_FIRST_TURN_SCALARS " +
+                  json.dumps(event, sort_keys=True), flush=True)
     else:
         triggered = succeeded = int(packet.get("tool_used") is not None)
     return (packet["text"], True, False, seconds, packet.get("tool_used"),
