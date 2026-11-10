@@ -155,3 +155,59 @@ test("answer provenance displays selected HIGH foundation and does not claim fil
   assert.match(heading,/Anhänge verarbeitet/);
   assert.doesNotMatch(heading,/Anhänge ausgewertet/,"upload alone is not proof of content understanding");
 });
+
+test("each attachment chip exposes an accessible x remove button",async()=>{
+  const x=harness();await flush();
+  const image={name:"Screenshot 2024-04-07 165225.png",size:1840*1024};
+  x.element("projectFiles").files=[image];
+  x.handlers.get("projectFiles:change")();
+  const chip=x.element("attachmentChips").children[0];
+  assert.ok(chip,"selected file should render a chip");
+  const remove=chip.children.find(el=>el.tagName==="button");
+  assert.ok(remove,"chip needs an independently clickable remove button");
+  assert.equal(remove.textContent,"×");
+  assert.match(remove.getAttribute("aria-label"),/Screenshot 2024-04-07 165225\.png.*entfernen/i);
+  assert.equal(remove.getAttribute("type"),"button","must never submit the chat");
+});
+
+test("removing one of multiple attachments preserves the other, draft and local upload",async()=>{
+  const x=harness();await flush();
+  const first={name:"first.png",size:512};
+  const second={name:"second.pdf",size:1024};
+  x.element("projectFiles").files=[first,second];
+  x.element("projectFiles").value="C:\\fakepath\\first.png";
+  x.element("prompt").value="Bitte nur das zweite Dokument prüfen.";
+  x.handlers.get("projectFiles:change")();
+  const firstChip=x.element("attachmentChips").children[0];
+  firstChip.children.find(el=>el.tagName==="button").click();
+  assert.equal(x.element("prompt").value,"Bitte nur das zweite Dokument prüfen.");
+  assert.equal(x.element("projectFiles").value,"",
+    "clear stale native FileList after removing attachment");
+  assert.equal(x.element("attachmentChips").children.length,1);
+  assert.equal(x.element("attachmentChips").children[0].children.find(c=>c.className==="neral-attachment-chip-name").textContent,"second.pdf");
+  assert.doesNotMatch(x.element("fileStatus").textContent,/first\.png/);
+  assert.match(x.element("fileStatus").textContent,/second\.pdf/);
+  assert.equal(x.calls.some(c=>c.url.includes("attachment-chat")),false);
+  await x.handlers.get("chatForm:submit")({preventDefault(){}});
+  const sent=x.calls.find(c=>c.url==="/api/neral/preview/attachment-chat");
+  assert.deepEqual(sent.opts.body.getAll("files"),[second]);
+});
+
+test("removing final attachment leaves text-only chat and allows reselect",async()=>{
+  const x=harness();await flush();
+  const image={name:"photo.png",size:2048};
+  x.element("projectFiles").files=[image];
+  x.handlers.get("projectFiles:change")();
+  x.element("prompt").value="Hallo NERAL";
+  x.element("attachmentChips").children[0].children.find(el=>el.tagName==="button").click();
+  assert.equal(x.element("attachmentChips").children.length,0);
+  assert.match(x.element("fileStatus").textContent,/Keine Dateien ausgewählt/);
+  assert.equal(x.element("projectFiles").value,"");
+  assert.equal(x.element("prompt").value,"Hallo NERAL");
+  await x.handlers.get("chatForm:submit")({preventDefault(){}});
+  assert.equal(x.calls.filter(c=>c.url.includes("attachment-chat")).length,0);
+  assert.equal(x.calls.filter(c=>c.url==="/api/neral/chat/generate").length,1);
+  x.element("projectFiles").files=[image];
+  x.handlers.get("projectFiles:change")();
+  assert.equal(x.element("attachmentChips").children.length,1);
+});
