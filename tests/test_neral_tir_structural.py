@@ -115,6 +115,43 @@ class FirstTurnTelemetryContracts(unittest.TestCase):
         self.assertEqual(result["verification_status"],"base_fallback_unverified")
 
 
+
+class FirstTurnFailureHttpContracts(unittest.TestCase):
+    def test_token_limit_still_reports_first_turn_without_private_text(self):
+        from unittest.mock import patch
+        from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
+        from neral_preview_server import create_preview_app
+
+        class Fake(OllamaLocalBackend):
+            def unload(self):
+                return None
+            def respond_chat(self, turns):
+                self.last_inference_diagnostic = {
+                    "eval_count":2048, "prompt_eval_count":83,
+                    "done_reason":"length", "content":"PRIVATE_NOT_FOR_CLIENT"}
+                raise OllamaCompletionError("token_limit")
+            def respond_think(self, turns):
+                return self.respond_chat(turns)
+        low=Fake("qwen3:8b", inference_profile="legacy")
+        high=Fake("qwen3.5:9b", inference_profile="measured_nonthinking_2048")
+        client=create_preview_app(low, experimental_high_backend=high).test_client()
+        client.get("/",base_url="http://127.0.0.1:9690")
+        session=client.get("/api/neral/preview/session",
+                           base_url="http://127.0.0.1:9690")
+        with patch.dict("os.environ",{"NERAL_EXPERIMENTAL_TIR":"1"}):
+            response=client.post("/api/neral/chat/think",
+                json={"prompt":"Find solutions satisfying several constraints.",
+                      "experimental_tir":True},
+                headers={"X-Neral-CSRF":session.json["csrf"]},
+                base_url="http://127.0.0.1:9690")
+        self.assertEqual(response.status_code,503,response.get_json())
+        stats=response.json["first_turn_telemetry"]
+        self.assertEqual(stats["eval_count"],2048)
+        self.assertEqual(stats["done_reason"],"length")
+        self.assertEqual(stats["decision"],"unavailable_on_failure")
+        self.assertNotIn("PRIVATE_NOT_FOR_CLIENT",str(response.json))
+
+
 class BenchmarkTelemetrySafety(unittest.TestCase):
     def test_scalar_filter_never_leaks_arbitrary_payload(self):
         from scripts.neral_tir_hard_live import safe_first_turn_event
