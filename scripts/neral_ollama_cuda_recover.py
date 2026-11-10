@@ -154,6 +154,7 @@ def parse_native_netstat_inventory(output: str) -> dict:
     if type(output) is not str or len(output) > 131072:
         raise RecoveryRefused("netstat_process_audit_failed")
     listeners, addresses, established, local_clients = set(), set(), 0, True
+    port_rows, zero_peer = 0, 0
     for line in output.splitlines():
         parts = line.split()
         if len(parts) != 5 or parts[0].upper() != "TCP":
@@ -161,23 +162,31 @@ def parse_native_netstat_inventory(output: str) -> dict:
         local, remote, state, raw_pid = parts[1:]
         if not local.endswith(":11434"):
             continue
+        port_rows += 1
         if not raw_pid.isdecimal():
             raise RecoveryRefused("netstat_process_audit_failed")
         pid = int(raw_pid)
         local_ip = local[:-6].strip("[]")
         remote_ip = remote.rsplit(":", 1)[0].strip("[]")
-        if state.upper() in ("LISTEN", "LISTENING", "ABHÖREN"):
-            listeners.add(pid)
-            addresses.add(local_ip)
-        elif state.upper() in ("ESTABLISHED", "HERGESTELLT"):
+        # TCP listener rows have an unspecified peer and port zero.
+        # This invariant survives mojibake of localized Windows state names.
+        unspecified_peer = remote in ("0.0.0.0:0", "[::]:0", ":::0")
+        if unspecified_peer:
+            zero_peer += 1
+        if state.upper() in ("ESTABLISHED", "HERGESTELLT"):
             established += 1
             local_clients &= (local_ip in ("127.0.0.1", "::1")
                               and remote_ip in ("127.0.0.1", "::1"))
+        elif state.upper() in ("LISTEN", "LISTENING", "ABHÖREN") or unspecified_peer:
+            listeners.add(pid)
+            addresses.add(local_ip)
     return {
         "listener_pids": sorted(listeners),
         "listener_addresses": sorted(addresses),
         "established_clients": established,
         "all_clients_loopback": bool(local_clients),
+        "tcp_port_rows": port_rows,
+        "tcp_zero_peer_candidates": zero_peer,
     }
 
 
@@ -361,6 +370,8 @@ def recover_if_authorized(*, size_vram: int, free_mib: int,
     # Persist safe scalar evidence even if validation declines the restart.
     report["ollama_restart_process_audit"] = {
         "tcp_inventory_source": audit.get("tcp_inventory_source", "unknown"),
+        "tcp_port_rows": audit.get("tcp_port_rows"),
+        "tcp_zero_peer_candidates": audit.get("tcp_zero_peer_candidates"),
         "native_process_count": len(audit.get("processes", [])),
         "local_listener_count": len(audit.get("listener_pids", [])),
         "busy_client_count": audit.get("established_clients"),
