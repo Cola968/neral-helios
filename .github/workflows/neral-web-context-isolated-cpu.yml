@@ -1,0 +1,44 @@
+name: NERAL web and context isolated CPU verification
+on:
+  push:
+    branches:
+      - feat/neral-web-context-cpu-audit-20261111
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Isolated mocked search and compact evidence contract
+        run: python -B -m unittest discover -s tests -p 'test_neral_web_compact_cpu.py' -v
+      - name: Explicit 16K and unchanged 4K benchmark CPU contracts
+        run: python -B -m unittest discover -s tests -p 'test_neral_long_context_cpu.py' -v
+      - name: Existing measured profile regression
+        run: python -B -m unittest discover -s tests -p 'test_neral_optional_measured_inference.py' -v
+      - name: Real web chat frontend source syntax
+        run: node --check static/neral-preview.js
+      - name: Browser evidence injection tests with mocks
+        run: node --test tests/test_neral_chat_search_relevance.cjs
+  real-provider-connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    continue-on-error: true
+    env:
+      NERAL_WEB_LIVE_SMOKE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Live public DDG/Bing provider connectivity (never GPU)
+        run: python -B -m unittest tests.test_neral_web_compact_cpu.LiveProviderSmoke -v
