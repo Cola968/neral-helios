@@ -1,0 +1,62 @@
+name: Arctus350 carry steps v3 ONCE local protected dataset build
+# No model training and never automatically reruns during owner trip.
+on:
+  push:
+    branches: [data/arctus350-carry-steps-curriculum-v3-20261028]
+    paths:
+      - '.github/workflows/arctus350-carry-v3-local-build-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: arctus350-carry-v3-local-20261028-once
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_carry_curriculum_v3 -v
+  local-data-only:
+    if: contains(github.event.head_commit.message,'RUN_ONCE_LOCAL_CARRY_V3_20261028')
+    needs: contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: carry_v3_checkout
+          clean: false
+          persist-credentials: false
+      - name: Only Wednesday create separate private CPU dataset, no GPU use
+        run: |
+          $ErrorActionPreference='Stop'
+          $now=[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'W. Europe Standard Time')
+          if($now.ToString('yyyy-MM-dd') -ne '2026-10-28'){throw 'No local PC use while owner away Thursday through Sunday'}
+          $root=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $out=Join-Path $root 'runs\neraltalk350-column-carry-v3_${{github.run_id}}'
+          if(Test-Path -LiteralPath $out){throw 'Never overwrite source records'}
+          function W([string]$path){
+            $full=[IO.Path]::GetFullPath($path)
+            if($full -notmatch '^([A-Za-z]):\\'){throw 'Only local Windows drive supported'}
+            return "/mnt/"+$matches[1].ToLowerInvariant()+"/"+$full.Substring(3).Replace('\','/')
+          }
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'carry_v3_checkout'
+          $cmd="set -e; cd '$(W $repo)'; OPENBLAS_NUM_THREADS=1 ~/.venvs/neral-triton-py312/bin/python -u -m frontier350.arctus350_carry_curriculum_v3 --out '$(W $out)'"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Local private carry generator failed'}
+          Copy-Item -LiteralPath (Join-Path $out 'metadata_report.json') -Destination (Join-Path $repo 'neral_carry_v3_${{github.run_id}}_metadata.json')
+      - name: Export ONLY counts/checksums, NO 5100 synthetic prompts and no weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arctus350-column-carry-v3-meta-only
+          path: carry_v3_checkout/neral_carry_v3_*_metadata.json
+          retention-days: 7
+          if-no-files-found: warn

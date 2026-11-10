@@ -1,0 +1,21 @@
+name: Arctus350 carry-aware arithmetic v3 CPU contracts
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'frontier350/arctus350_carry_curriculum_v3.py'
+      - 'tests/test_arctus350_carry_curriculum_v3.py'
+      - '.github/workflows/arctus350-carry-curriculum-v3-tests.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.test_arctus350_carry_curriculum_v3 tests.test_arctus350_balanced_arithmetic_v2 tests.test_arctus350_math_specialist tests.test_arctus350_frozen_ffn_replay tests.test_arctus350_gradient_diagnostics tests.test_chat350_tools tests.test_chat350_web_core tests.test_chat350_tool_eval tests.test_chat350_runtime tests.test_chat350_knowledge -v
+      - run: python -m py_compile frontier350/arctus350_carry_curriculum_v3.py
