@@ -97,3 +97,10 @@ test("web activity displays the actual submitted query without fabricated image-
   assert.match(js,/neral-live-search-query/);
   assert.doesNotMatch(js,/Bildersuche tur[b]?ofan|Ausgeführte 3 Suchen/);
 });
+
+test("conversation clearing and switching invalidate the previous web query",()=>{
+  const js=read("static/neral-preview.js");
+  assert.match(js,/addEventListener\?\.\("neral:chat-cleared",\(\)=>\{lastWebQuery="";\}\)/);
+  assert.match(js,/addEventListener\?\.\("neral:load-chat",\(\)=>\{lastWebQuery="";\}\)/);
+  assert.match(js,/if\(!\$\("useWebSearch"\)\.checked\)lastWebQuery="";/);
+});
