@@ -23,6 +23,8 @@ on:
       - 'neral_preview_server.py'
       - 'neral_auto_update.py'
       - 'tests/test_neral_auto_update.py'
+      - 'scripts/neral_release_reuse.py'
+      - 'tests/test_neral_release_reuse.py'
       - 'neral_local_accounts.py'
       - 'static/neral-accounts.js'
       - 'static/neral-accounts.css'
@@ -150,6 +152,8 @@ on:
       - 'neral_preview_server.py'
       - 'neral_auto_update.py'
       - 'tests/test_neral_auto_update.py'
+      - 'scripts/neral_release_reuse.py'
+      - 'tests/test_neral_release_reuse.py'
       - 'neral_local_accounts.py'
       - 'static/neral-accounts.js'
       - 'static/neral-accounts.css'
@@ -278,6 +282,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_accounts.py -v
       - name: Offline source and EXE updater security tests
         run: python -m unittest discover -s tests -p test_neral_auto_update.py -v
+      - name: Reused immutable release tag and asset byte-for-byte verification
+        run: python -m unittest discover -s tests -p test_neral_release_reuse.py -v
       - name: New standalone app security, reproducible package and CSRF HTTP contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_standalone_release.py -v
       - name: Safe Ollama completion error classifications and fail-closed output
@@ -495,6 +501,10 @@ jobs:
     env:
       SOURCE_SHA: ${{ github.sha }}
     steps:
+      - name: Checkout current SHA for audited existing-release validation
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Fetch archive that passed CPU and live Windows-PC gates
         uses: actions/download-artifact@v4
         with:
@@ -525,7 +535,7 @@ jobs:
         shell: bash
         run: |
           tag="neral-preview-${SOURCE_SHA:0:12}"
-          gh release create "$tag" \
+          if gh release create "$tag" \
             dist/NERAL-1.0-Local-Preview.zip \
             dist/SHA256SUMS.txt \
             dist/SOURCE-COMMIT.txt \
@@ -535,3 +545,22 @@ jobs:
             --latest=false \
             --title "NERAL 1.0 Local Preview (${SOURCE_SHA:0:12})" \
             --notes "Direkter Windows-Download nach Linux/Windows-CPU-Gates und lokalem Windows-Ollama-Live-Test. ZIP entpacken, START HIER.txt lesen, Start NERAL 1.0 Local.cmd doppelklicken. Dies ist ein Release-Kandidat ohne Modellgewichte, kein stabiler 1.0-Release."
+          then
+            echo "Published new immutable NERAL release: $tag"
+          else
+            # A rerun must not overwrite the existing published archive.
+            # Reuse only if release metadata and all three assets match exactly.
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            mkdir -p "$tmp/existing"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json tagName,targetCommitish,isPrerelease,isDraft > "$tmp/metadata.json"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --dir "$tmp/existing" \
+              --pattern "NERAL-1.0-Local-Preview.zip" \
+              --pattern "SHA256SUMS.txt" \
+              --pattern "SOURCE-COMMIT.txt"
+            python -m scripts.neral_release_reuse \
+              --local-dir dist --existing-dir "$tmp/existing" \
+              --metadata-json "$tmp/metadata.json" --source-sha "$SOURCE_SHA"
+          fi
