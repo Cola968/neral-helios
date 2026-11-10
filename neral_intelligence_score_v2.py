@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 from neral_intelligence_score import nis_v1
@@ -37,7 +38,17 @@ WEIGHTS = {
 
 
 def _clamp(x: float) -> float:
-    return max(0.0, min(100.0, float(x)))
+    # NaN used to be silently converted into a perfect 100% component by
+    # min/max float ordering. This would artificially inflate NIS2.
+    if isinstance(x, bool):
+        raise ValueError("NIS2 components must be finite numeric values, not booleans")
+    try:
+        value = float(x)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("NIS2 components must be finite numeric values") from exc
+    if not math.isfinite(value):
+        raise ValueError("NIS2 components must be finite: NaN and infinity are invalid")
+    return max(0.0, min(100.0, value))
 
 
 def _mean(*values: float) -> float:
@@ -60,6 +71,100 @@ def generation_health(metrics: dict) -> float:
     return 0.30 * eos + 0.30 * repetition + 0.40 * utf8
 
 
+NIS2_REQUIRED_FILES = (
+    "free.json", "v3.json", "v4.json", "rawmath.json",
+    "targeted.json", "v5.json", "nis2_chat.json",
+)
+NIS2_CHAT_KEYS = frozenset((
+    "instruction_following_pct", "dialogue_state_pct", "truthfulness_pct",
+    "robustness_pct", "compositional_reasoning_pct",
+))
+
+
+def _validate_chat_evidence(chat: dict) -> None:
+    """Verify provenance and completeness before incorporating frozen chat evidence."""
+    if not isinstance(chat, dict):
+        raise ValueError("NIS2 frozen chat report must be a JSON object")
+    if chat.get("benchmark") != "nis2-chat-core-v1":
+        raise ValueError("NIS2 frozen chat suite name mismatch")
+    if chat.get("foreign_model_or_tool_assistance") is not False:
+        raise ValueError("NIS2 forbids model assistance and tools")
+    if chat.get("used_for_checkpoint_selection") is not False:
+        raise ValueError("NIS2 holdout may not be used for checkpoint selection")
+    for name in ("checkpoint_sha256", "suite_sha256"):
+        value = chat.get(name)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+            raise ValueError("NIS2 frozen chat evidence missing SHA-256: " + name)
+    scores = chat.get("scores")
+    if not isinstance(scores, dict) or NIS2_CHAT_KEYS - scores.keys():
+        raise ValueError("NIS2 frozen chat scores are incomplete")
+    for key in NIS2_CHAT_KEYS:
+        _clamp(scores[key])
+
+
+def _validate_checkpoint_lineage(directory: Path, chat: dict) -> None:
+    """Every NIS2 source report must belong to exactly the same raw checkpoint."""
+    origin = chat["checkpoint_sha256"].lower()
+    for filename in NIS2_REQUIRED_FILES:
+        if filename == "nis2_chat.json":
+            continue
+        item = _load(directory / filename)
+        if not isinstance(item, dict):
+            raise ValueError("NIS2 report is not an object: " + filename)
+        digest = item.get("checkpoint_sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+            raise ValueError("NIS2 report is missing checkpoint lineage: " + filename)
+        if digest.lower() != origin:
+            raise ValueError("NIS2 mixed checkpoints forbidden: " + filename)
+
+
+def nis2_evidence_status(report_dir: str | Path) -> dict:
+    """Return a truthful score status: never infer a score from partial evidence.
+
+    Checks the frozen chat provenance and mandatory report format. Structural
+    checks cannot prove benchmark independence or the authenticity of a
+    checkpoint: that requires a separate review of run IDs and hashes.
+    """
+    directory = Path(report_dir)
+    missing = sorted(name for name in NIS2_REQUIRED_FILES if not (directory / name).is_file())
+    invalid = []
+    if "nis2_chat.json" not in missing:
+        try:
+            frozen = _load(directory / "nis2_chat.json")
+            _validate_chat_evidence(frozen)
+        except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError):
+            invalid.append("nis2_chat")
+        else:
+            if not missing:
+                try:
+                    _validate_checkpoint_lineage(directory, frozen)
+                except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError):
+                    invalid.append("checkpoint_lineage")
+    if missing or invalid:
+        return {
+            "version": SCORE_VERSION, "status": "not_measured",
+            "nis2_score": None, "can_report_nis2": False,
+            "missing_files": missing, "invalid_evidence": invalid,
+            "methodology": "raw-model only; NIS 1.0 and Qwen-based product metrics excluded",
+        }
+    try:
+        report = score_report_dir(directory)
+    except (ValueError, KeyError, TypeError, OSError, json.JSONDecodeError) as exc:
+        return {
+            "version": SCORE_VERSION, "status": "not_measured",
+            "nis2_score": None, "can_report_nis2": False,
+            "missing_files": [], "invalid_evidence": ["required benchmark metrics incomplete"],
+            "methodology": "raw-model only; NIS 1.0 and Qwen-based product metrics excluded",
+        }
+    return {
+        "version": SCORE_VERSION, "status": "evidence_complete_unreviewed",
+        "nis2_score": report["score"], "can_report_nis2": True,
+        "missing_files": [], "invalid_evidence": [],
+        "bottleneck": report["bottleneck"],
+        "methodology": "structurally complete raw-model reports; run identity and heldout independence require review",
+    }
+
+
 def components_from_reports(report_dir: str | Path) -> dict[str, float]:
     report_dir = Path(report_dir)
     chat_path = report_dir / "nis2_chat.json"
@@ -72,7 +177,10 @@ def components_from_reports(report_dir: str | Path) -> dict[str, float]:
     raw = _load(report_dir / "rawmath.json")
     old = nis_v1(direct_metrics(free, v3, v4, raw))["components"]
     metrics = extract(report_dir)
-    chat = _load(chat_path)["scores"]
+    chat_report = _load(chat_path)
+    _validate_chat_evidence(chat_report)
+    _validate_checkpoint_lineage(report_dir, chat_report)
+    chat = chat_report["scores"]
 
     math_generalization = (
         0.45 * float(metrics["rawmath_exact_pct"])

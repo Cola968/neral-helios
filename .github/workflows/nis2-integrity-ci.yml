@@ -1,0 +1,26 @@
+name: NIS2 integrity (offline)
+on:
+  push:
+    branches: [fix/nis2-evidence-integrity-20261027]
+  pull_request:
+    paths:
+      - neral_intelligence_score_v2.py
+      - tests/test_nis2_integrity.py
+      - .github/workflows/nis2-integrity-ci.yml
+permissions:
+  contents: read
+jobs:
+  score-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_nis2_integrity -v
+      - name: Verify that historical partial evidence cannot be mislabeled as NIS2
+        run: |
+          python nis2_evidence_status.py evidence/roadmap_20260907/benchmarks/b1 > nis2_status.json
+          python -c "import json; s=json.load(open('nis2_status.json')); assert s['can_report_nis2'] is False and s['nis2_score'] is None and s['status']=='not_measured', s"
+      - run: python -m py_compile neral_intelligence_score_v2.py nis2_evidence_status.py

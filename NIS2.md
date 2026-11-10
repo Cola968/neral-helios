@@ -27,6 +27,32 @@ The arithmetic component is the weighted mean. NIS 2.0 then applies a balance te
 
 The geometric term floors each component at 5 only inside the balance calculation. This prevents one zero from collapsing the whole score while still penalizing a model whose average hides a severe capability hole. The report always names the lowest component as the current bottleneck. Missing NIS2 evidence is not silently imputed: a full NIS2 score requires the new frozen chat benchmark.
 
+## 27 October 2026 – evidence integrity and current status
+
+**No up-to-date NIS2 0–100 aggregate score is verified for Arctus 350M or
+NERAL Assistant.** The historical NIS 1.0 scores are not NIS2; the new
+Qwen3.5-9B integration is a separately trained external open-weight model
+and cannot be folded into an Arctus NIS2.
+
+The integrity gate now rejects NaN/infinite components (which formerly
+could be silently turned into a high score by Python min/max), verifies
+every required report, checks the immutable NIS2 frozen chat suite metadata,
+rejects tool-assisted evidence, and requires the same SHA-256 checkpoint
+identity across **all seven underlying benchmark reports**. No missing
+components may be imputed.
+
+Diagnostic command (read-only, no GPU needed):
+
+```bash
+python nis2_evidence_status.py evidence/roadmap_20260907/benchmarks/b1
+```
+
+If required NIS2 reports are missing or invalid, the JSON explicitly
+returns `"nis2_score": null` and `"status": "not_measured"`.
+Having the right report structure does **not** independently prove the
+benchmark was uncontaminated; original run IDs, actual checkpoint hashes,
+the frozen dataset fingerprint and test isolation must still be reviewed.
+
 ## New internal frozen suite
 
 `benchmark_nis2_chat50.py` adds 48 model-only cases covering five areas not directly measured by NIS1:
