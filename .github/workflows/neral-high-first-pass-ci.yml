@@ -9,6 +9,8 @@ on:
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_chat_stale_context.py'
       - 'tests/test_neral_high_format_audit.py'
+      - 'scripts/neral_same_base_ab_score.py'
+      - 'tests/test_neral_same_base_ab_score.py'
       - 'tests/test_neral_numeric_final_fallback.py'
       - '.github/workflows/neral-high-first-pass-ci.yml'
   push:
@@ -21,6 +23,8 @@ on:
       - 'tests/test_neral_think.py'
       - 'tests/test_neral_chat_stale_context.py'
       - 'tests/test_neral_high_format_audit.py'
+      - 'scripts/neral_same_base_ab_score.py'
+      - 'tests/test_neral_same_base_ab_score.py'
       - 'tests/test_neral_numeric_final_fallback.py'
       - '.github/workflows/neral-high-first-pass-ci.yml'
 permissions:
@@ -53,3 +57,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_high_format_audit.py -v
       - name: Bounded numeric final extraction and benchmark scorer fallback
         run: python -m unittest discover -s tests -p test_neral_numeric_final_fallback.py -v
+      - name: Whole paired Qwen / NERAL scorer contracts
+        run: python -m unittest discover -s tests -p test_neral_same_base_ab_score.py -v
+      - name: Development ratchet tests for HIGH and TIR
+        run: python -m unittest discover -s tests -p test_neral_dev_ratchet.py -v
