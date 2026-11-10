@@ -4,6 +4,8 @@ on:
     paths:
       - 'neral_tir_experimental.py'
       - 'tests/test_neral_tir_observation.py'
+      - 'scripts/neral_tir12_manual.py'
+      - 'tests/test_neral_tir12_manual.py'
       - 'tests/test_neral_experimental_tir.py'
       - '.github/workflows/neral-tir-observation-cpu.yml'
   push:
@@ -11,6 +13,8 @@ on:
     paths:
       - 'neral_tir_experimental.py'
       - 'tests/test_neral_tir_observation.py'
+      - 'scripts/neral_tir12_manual.py'
+      - 'tests/test_neral_tir12_manual.py'
       - 'tests/test_neral_experimental_tir.py'
       - '.github/workflows/neral-tir-observation-cpu.yml'
 permissions:
@@ -31,5 +35,9 @@ jobs:
       - run: python -m pip install -r requirements-neral-preview.txt
       - name: TIR observation and baseline fallback contracts
         run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
+      - name: Balanced TIR12 scoring, tool accounting and safety contracts
+        run: python -B -m unittest discover -s tests -p test_neral_tir12_manual.py -v
+      - name: TIR12 benchmark source syntax
+        run: python -B -m py_compile scripts/neral_tir12_manual.py
       - name: Existing TIR sandbox and opt-in safety contracts
         run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
