@@ -209,6 +209,34 @@ class EnvironmentInventoryContracts(unittest.TestCase):
         self.assertNotIn("num_gpu", packet["options"])
         self.assertNotIn("num_gpu", packet)
 
+class GpuReleaseAfterPreflight(unittest.TestCase):
+    def test_successful_gpu_probe_unloads_only_verified_high_model(self):
+        from scripts.neral_high12_probe import release_high_model_after_probe
+        report = {"gpu_residency_after": {"fully_gpu_per_ps": True}}
+        with (patch("scripts.neral_high12_probe._unload") as unload,
+              patch("scripts.neral_high12_probe._loaded", return_value={}) as loaded):
+            release_high_model_after_probe(report)
+        unload.assert_called_once_with("qwen3.5:9b")
+        loaded.assert_called_once_with()
+        self.assertTrue(report["gpu_released_for_followup"])
+
+    def test_release_rejects_unverified_gpu_or_remaining_resident_model(self):
+        from scripts.neral_high12_probe import release_high_model_after_probe
+        for report in ({}, {"gpu_residency_after": {"fully_gpu_per_ps": False}}):
+            with self.subTest(report=report), patch(
+                "scripts.neral_high12_probe._unload"
+            ) as unload, self.assertRaises(PreflightError):
+                release_high_model_after_probe(report)
+            unload.assert_not_called()
+        with (patch("scripts.neral_high12_probe._unload"),
+              patch("scripts.neral_high12_probe._loaded",
+                    return_value={"qwen3.5:9b": {"size": 7, "size_vram": 7}}),
+              self.assertRaisesRegex(PreflightError, "probe_left_model_resident")):
+            release_high_model_after_probe({
+                "gpu_residency_after": {"fully_gpu_per_ps": True},
+            })
+
+
 class PilotSelection(unittest.TestCase):
     def test_one_representative_math_case_deterministic(self):
         a = select_probe_case()
