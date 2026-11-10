@@ -335,7 +335,8 @@ def require_high_gpu_residency(ps: dict, report: dict) -> None:
         raise PreflightError("high_model_cpu_offload_detected")
 
 
-def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
+def run_probe(*, authorize: str, target_sha: str, output: Path,
+              restart_authorization: str = "") -> bool:
     if (authorize != AUTHORIZATION or type(target_sha) is not str
             or SHA.fullmatch(target_sha) is None):
         raise PreflightError("invalid_manual_authorization_or_sha")
@@ -396,8 +397,28 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         stage = "preload"
         _preload()
         stage = "ps_residency"
-        require_high_gpu_residency(
-            _ollama_json("/api/ps", timeout=8), report)
+        try:
+            require_high_gpu_residency(
+                _ollama_json("/api/ps", timeout=8), report)
+        except PreflightError as first_error:
+            if str(first_error) != "high_model_cpu_offload_detected":
+                raise
+            from scripts.neral_ollama_cuda_recover import (
+                recover_if_authorized, RecoveryRefused
+            )
+            stage = "cuda_daemon_recovery"
+            report["cuda_fallback_detected"] = True
+            recover_if_authorized(
+                size_vram=report["gpu_residency_before"]["size_vram_bytes"],
+                free_mib=report["nvidia_gpu"]["memory_free_mib"],
+                consent=restart_authorization,
+                report=report,
+            )
+            stage = "ps_after_cuda_recovery"
+            _preload()
+            require_high_gpu_residency(
+                _ollama_json("/api/ps", timeout=8), report)
+            report["cuda_recovery_verified_full_gpu"] = True
 
         stage = "one_direct_qwen_request"
         case = select_probe_case()
@@ -440,9 +461,13 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
     except PreflightError as exc:
         report["failure_stage"] = stage
         report["failure_code"] = str(exc)
-    except Exception:
+    except Exception as exc:
+        from scripts.neral_ollama_cuda_recover import RecoveryRefused
         report["failure_stage"] = stage
-        report["failure_code"] = "local_environment_or_ollama_error"
+        report["failure_code"] = (
+            str(exc) if isinstance(exc, RecoveryRefused)
+            else "local_environment_or_ollama_error"
+        )
     with output.open("x", encoding="utf8") as f:
         json.dump(report, f, ensure_ascii=False, sort_keys=True, allow_nan=False)
         f.write("\n")
@@ -461,12 +486,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--authorize", required=True)
     parser.add_argument("--target-sha", required=True)
+    parser.add_argument("--authorize-restart", default="")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     try:
         return 0 if run_probe(
             authorize=args.authorize, target_sha=args.target_sha,
-            output=args.out) else 1
+            output=args.out,
+            restart_authorization=args.authorize_restart) else 1
     except Exception:
         print("HIGH12_PREFLIGHT_ABORT: Invalid manual control or output setup", flush=True)
         return 2
