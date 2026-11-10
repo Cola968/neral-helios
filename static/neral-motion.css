@@ -122,6 +122,19 @@ dialog[open]{animation:neral-dialog-in 170ms ease-out both}
 .neral-attachment-chip-kind{font-size:10px;font-weight:650;letter-spacing:.02em;opacity:.7}
 .neral-attachment-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px}
 .neral-attachment-chip-size{white-space:nowrap;color:var(--muted,#969e97)}
+button.neral-attachment-chip-remove{
+  display:inline-flex;align-items:center;justify-content:center;
+  flex:0 0 22px;width:22px;height:22px;min-width:22px;
+  margin:0 -4px 0 1px;padding:0;border:0;border-radius:6px;
+  background:transparent;color:var(--muted,#969e97);
+  font:500 18px/1 system-ui,sans-serif;cursor:pointer
+}
+button.neral-attachment-chip-remove:hover{
+  background:var(--line,#e9ebe8);color:var(--text,#222)
+}
+button.neral-attachment-chip-remove:focus-visible{
+  outline:2px solid currentColor;outline-offset:1px
+}
 .message-tool[aria-pressed="true"]{transition:color 140ms ease}
 @media(prefers-reduced-motion:reduce){
   .neral-attachment-chip,.neral-motion-dots span{
