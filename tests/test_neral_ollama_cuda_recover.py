@@ -54,13 +54,14 @@ class RecoveryContract(unittest.TestCase):
             ],
             "listener_pids": [442],
             "established_clients": 0,
+            "listener_addresses": ["127.0.0.1"],
+            "all_clients_loopback": True,
             "service_pids": [],
         }
         self.assertEqual(validate_native_listener(correct, root, "runner"), [442])
         bads = [
             {**correct, "listener_pids": [200]},
             {**correct, "listener_pids": []},
-            {**correct, "established_clients": 1},
             {**correct, "service_pids": [442]},
             {**correct, "processes": [{**correct["processes"][0], "user": "other"}]},
             {**correct, "processes": [{**correct["processes"][0], "name": "docker.exe"}]},
@@ -70,6 +71,38 @@ class RecoveryContract(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(RecoveryRefused):
                 validate_native_listener(case, root, "runner")
 
+    def test_explicitly_authorized_restart_accepts_small_localhost_client_count(self):
+        # The manual restart consent warns that local Ollama chats can be interrupted.
+        root = "C:\\Users\\runner\\AppData\\Local\\Programs\\Ollama"
+        native = {"pid": 442, "name": "ollama.exe",
+                  "path": root + "\\ollama.exe", "user": "runner"}
+        row = {"processes": [native], "listener_pids": [442],
+               "listener_addresses": ["127.0.0.1"],
+               "all_clients_loopback": True, "established_clients": 2,
+               "service_pids": []}
+        self.assertEqual(validate_native_listener(row, root, "runner"), [442])
+
+    def test_rejects_nonlocal_or_unbounded_clients_with_distinct_reason(self):
+        root = "C:\\Users\\runner\\AppData\\Local\\Programs\\Ollama"
+        native = {"pid": 442, "name": "ollama.exe",
+                  "path": root + "\\ollama.exe", "user": "runner"}
+        good = {"processes": [native], "listener_pids": [442],
+                "listener_addresses": ["127.0.0.1"],
+                "all_clients_loopback": True, "established_clients": 0,
+                "service_pids": []}
+        cases = [
+            ({**good, "listener_addresses": ["0.0.0.0"]}, "ollama_listener_not_loopback"),
+            ({**good, "all_clients_loopback": False,
+              "established_clients": 1}, "nonlocal_ollama_client"),
+            ({**good, "established_clients": 9}, "too_many_connected_ollama_clients"),
+            ({**good, "listener_pids": []}, "ambiguous_ollama_listener"),
+            ({**good, "service_pids": [442]}, "foreign_or_service_listener"),
+        ]
+        for row, expected in cases:
+            with self.subTest(expected=expected), self.assertRaisesRegex(
+                    RecoveryRefused, expected):
+                validate_native_listener(row, root, "runner")
+
     @unittest.skipUnless(sys.platform == "win32", "Requires native Windows")
     def test_windows_powershell_inventory_returns_strict_metadata(self):
         from scripts.neral_ollama_cuda_recover import _windows_inventory
@@ -78,6 +111,8 @@ class RecoveryContract(unittest.TestCase):
         self.assertIsInstance(row["listener_pids"], list)
         self.assertIsInstance(row["service_pids"], list)
         self.assertIsInstance(row["established_clients"], int)
+        self.assertIsInstance(row["listener_addresses"], list)
+        self.assertIsInstance(row["all_clients_loopback"], bool)
 
 
 if __name__ == "__main__":
