@@ -2,6 +2,12 @@
 
 Ziel: Experimente dürfen den funktionierenden Standardpfad nicht ohne nachgewiesenen Nutzen ersetzen. Ein gescheiterter Entwicklungsversuch ist erlaubt; ein unbelegter Qualitätsgewinn in `main` ist es nicht.
 
+**Modelltraining:** LoRA-/QLoRA-/Adapter-Training ist für die NERAL-Roadmap dauerhaft gestrichen. Kein Training und keine Gewichts-Promotion in Teil 1 oder Teil 2. NERALs Entwicklungshebel sind Modell-Fundament, verifizierte Werkzeuge, Fehlerbehandlung und nachvollziehbare Messungen.
+
+**Teil 1 / HIGH:** Der [Entwicklungs-PR #503](https://github.com/Cola968/neral-helios/pull/503) entfernt ungeprüftes HIGH-Self-Review und den zusätzlichen HIGH-System-Prompt. Für nicht eindeutig als Oracle-Fall erkannte Fragen bleibt die erste Modellantwort erhalten. Keine Zusage auf identische Modellqualität ohne gepaarten Vergleich.
+
+**Antwortformat:** Die neue gemeinsame, begrenzte Extraktion erkennt eindeutige finale Zahlen auch bei kleinen Formatabweichungen; sie wertet nicht irgendeine Zahl aus Prosa. Die Auswertungsregel muss für Qwen und NERAL identisch sein und darf **historische Hard36-Zahlen nicht stillschweigend umdeuten**.
+
 ## 1. Was unverändert bleibt
 
 - **Release-Standard:** die bereits geprüften lokalen Qwen/Ollama-Pfade. Experimentelles TIR nur ausdrücklich pro Aufruf mit `experimental_tir=true` **und** lokal gesetztem `NERAL_EXPERIMENTAL_TIR=1`. Keine automatische Aktivierung für reale Nutzer.
@@ -16,6 +22,12 @@ Für jeden neuen **gepaarten** 36-Fall-Lauf gilt stattdessen:
 
 1. `raw_qwen35` und `neral_high_router` bearbeiten jeweils exakt denselben Satz (gleiche Aufgaben, dekodierendes Modell und Ausgabelimits). Die ursprüngliche Qwen-Antwort darf durch eine falsche Werkzeugausgabe nicht als korrekt gewertet werden.
 2. Der neue Router darf in diesem *Entwicklungsdiagnostik*-Lauf nicht unter die gleichzeitige Qwen-Basis fallen. Der CPU-Prüfer `python -m scripts.neral_dev_ratchet <scalar-summary.json>` meldet bei Abfall einen Fehlerstatus, prüft die gepaarten Gewinn-/Verlustzahlen und lehnt falsche Provenienz ab.
+Für Standard-HIGH ausdrücklich:
+`python -m scripts.neral_dev_ratchet scalar-summary.json --candidate-arm neral_high`.
+Für experimentelles TIR:
+`python -m scripts.neral_dev_ratchet scalar-summary.json --candidate-arm neral_high_router`.
+Beide benötigen den jeweiligen **gepaarten** Vergleich zur unveränderten Qwen-Basis desselben Laufs; ein grüner CPU-Unit-Test allein sagt nichts über die Antwortqualität.
+
 3. Dieses Ergebnis bleibt **entwicklungsspezifisch**. Selbst 30/36 hier sind kein Beweis für einen Gewinn auf unbekannten Problemfamilien, keine Auslieferungsfreigabe und kein Nachweis verbesserter Modellgewichte.
 4. Der Prüfer muss auf das originale, lokal erzeugte, skalare GitHub-Artefakt angewendet werden. Selbsterfundene Zahlen, ein künstliches Test-Fixture oder bloße Modellbehauptungen sind keine gültigen Belege. Die GitHub-CI prüft die Prüflogik; sie lässt **nicht** automatisch jede PR einen GPU-Benchmark ausführen.
 
