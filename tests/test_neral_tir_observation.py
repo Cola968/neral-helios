@@ -67,6 +67,43 @@ class TwoStageTIRContracts(unittest.TestCase):
         self.assertNotIn("41", out["text"])
         self.assertFalse(out["verified"])
 
+    def test_final_only_rescue_attaches_to_review_not_initial_tool_choice(self):
+        turns=messages("What is 6*7?" + SUFFIX)
+        seen=[]
+        def first(m):
+            seen.append([dict(x) for x in m])
+            return 'NERAL_EXECUTE_JSON: {"tool":"solve","code":"6*7"}'
+        def final_review(m):
+            seen.append([dict(x) for x in m])
+            self.assertIn("SANDBOX_OBSERVATION",m[-1]["content"])
+            return ("FINAL_ANSWER: 42", True)
+        out=run_experimental_tir(turns,first,finalize_review=final_review,
+            tool_runner=lambda *_: {"status":"PASSED","output":"42"})
+        self.assertEqual(len(seen),2)
+        self.assertEqual(out["text"],"FINAL_ANSWER: 42")
+        self.assertEqual(out["calls_used"],3)
+        self.assertEqual(out["tool_calls_succeeded"],1)
+        self.assertTrue(out["completion_recovery_used"])
+        self.assertFalse(out["verified"])
+
+    def test_broken_64_token_review_cannot_be_passed_off_as_tool_answer(self):
+        turns=messages("What is 6*7?" + SUFFIX)
+        seen=[]
+        replies=iter([
+            'NERAL_EXECUTE_JSON: {"tool":"solve","code":"6*7"}',
+            "FINAL_ANSWER: 42",
+        ])
+        def first(m):
+            seen.append([dict(x) for x in m])
+            return next(replies)
+        out=run_experimental_tir(turns,first,
+            finalize_review=lambda _: ("UNSURE", True),
+            tool_runner=lambda *_: {"status":"PASSED","output":"42"})
+        self.assertEqual(seen[-1],turns)
+        self.assertEqual(out["text"],"FINAL_ANSWER: 42")
+        self.assertEqual(out["verification_status"],"base_fallback_unverified")
+        self.assertFalse(out["verified"])
+
     def test_tool_failure_falls_back_to_unmodified_raw_qwen_message(self):
         turns = messages("Compute an exact value." + SUFFIX)
         seen = []
