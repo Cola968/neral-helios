@@ -145,14 +145,34 @@ def try_solve_formal_constraints(question: str) -> int | None:
                              object_pairs_hook=unique_keys)
     except (TypeError, ValueError):
         raise InvalidFormalConstraints("Invalid JSON") from None
-    if (type(payload) is not dict
-            or not {"variables", "rules", "query"} <= set(payload)
-            or set(payload) - {"variables", "rules", "query", "all_different", "bool_rules"}):
+    if type(payload) is not dict:
         raise InvalidFormalConstraints("Invalid top-level schema")
-    variables = payload["variables"]
+    # Generic compact total-order representation: all named items appear
+    # exactly once and their ranks are 1..N. This is a semantic schema,
+    # not a regex or a benchmark-specific text parser.
+    if "ordering" in payload:
+        if set(payload) != {"ordering", "rules", "query"}:
+            raise InvalidFormalConstraints("Ambiguous ordering schema")
+        ordering = payload["ordering"]
+        if (type(ordering) is not list
+                or not 2 <= len(ordering) <= MAX_VARIABLES
+                or any(type(name) is not str or not name.isidentifier()
+                       or not 1 <= len(name) <= 32 for name in ordering)
+                or len(set(ordering)) != len(ordering)):
+            raise InvalidFormalConstraints("Invalid total ordering")
+        variables = {name: list(range(1, len(ordering) + 1))
+                     for name in ordering}
+        distinct = [ordering]
+        boolean_rules = []
+    else:
+        if (not {"variables", "rules", "query"} <= set(payload)
+                or set(payload) -
+                {"variables", "rules", "query", "all_different", "bool_rules"}):
+            raise InvalidFormalConstraints("Invalid top-level schema")
+        variables = payload["variables"]
+        distinct = payload.get("all_different", [])
+        boolean_rules = payload.get("bool_rules", [])
     rules = payload["rules"]
-    distinct = payload.get("all_different", [])
-    boolean_rules = payload.get("bool_rules", [])
     query = payload["query"]
     if (type(variables) is not dict or not 1 <= len(variables) <= MAX_VARIABLES
             or type(rules) is not list or len(rules) > MAX_RULES
