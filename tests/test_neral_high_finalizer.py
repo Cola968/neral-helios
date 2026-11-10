@@ -74,6 +74,14 @@ class HighFinalizerTests(unittest.TestCase):
         self.assertEqual(err.exception.reason,"token_limit")
         self.assertEqual(len(wire.calls),2)
 
+    def test_tir_final_marker_is_never_silently_rewritten(self):
+        original="NERAL_FINAL_TEXT: "+("The observation is unresolved. "*12)
+        wire=Transport(packet("stop",original))
+        with patch("neral_agent_autonomy.local_only_opener",return_value=wire):
+            result=self.model().respond_high_final(REQUEST)
+        self.assertEqual(result,original)
+        self.assertEqual(len(wire.calls),1)
+
     def test_non_benchmark_chat_never_gets_a_second_final_turn(self):
         plain=[REQUEST[0],{"role":"user","content":"Explain turbofan aircraft engines."}]
         wire=Transport(packet("stop","Turbofans accelerate bypass air."))

@@ -513,12 +513,25 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                                      if bounded_final else None))
                 return jsonify({**result, "experimental_tir": True,
                                 **_provenance(high_backend)})
-            before_events = (
-                len(high_backend.inference_diagnostic_events) if bounded_final else 0
+            previous_event = (
+                high_backend.inference_diagnostic_events[-1]
+                if bounded_final and high_backend.inference_diagnostic_events
+                else None
             )
             result = think_reply(data, local_respond, deep_review=deep_review)
             if bounded_final:
-                new_events = high_backend.inference_diagnostic_events[before_events:]
+                events = high_backend.inference_diagnostic_events
+                if previous_event is None:
+                    new_events = events
+                else:
+                    previous_index = next(
+                        (i for i, event in enumerate(events)
+                         if event is previous_event), None
+                    )
+                    new_events = (
+                        events[previous_index + 1:]
+                        if previous_index is not None else []
+                    )
                 recovered = any(
                     row.get("final_recovery_succeeded") is True
                     for row in new_events if isinstance(row, dict)
