@@ -125,7 +125,8 @@ class GpuSamplerContracts(unittest.TestCase):
         from scripts.neral_high12_probe import parse_gpu_telemetry
         for line in ("", "101, 6000", "-1, 1", "100, -1", "ten, 2",
                      "12, 5, 42", "12, 5\\nprivate", "0.1, 50"):
-            with self.subTest(line=line), self.assertIsNone(parse_gpu_telemetry(line))
+            with self.subTest(line=line):
+                self.assertIsNone(parse_gpu_telemetry(line))
 
 
 
