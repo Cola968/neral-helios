@@ -110,6 +110,44 @@ class BooleanAlgebraContracts(unittest.TestCase):
         self.assertIsNone(parse_extracted_constraints(
             question,json.dumps(proposal)))
 
+    def test_all_different_full_assignment_uses_bounded_permutations(self):
+        import math
+        names="ABCDEFG"
+        variables={name:list(range(1,8)) for name in names}
+        formula={
+            "variables":variables,
+            "rules":[
+                {"left":"A","op":"<","right":"B"},
+                {"left":"C","op":"<","right":"D"},
+            ],
+            "all_different":[list(names)],
+            "query":"count",
+        }
+        # Two independent pairwise precedence constraints: 7!/4.
+        self.assertEqual(try_solve_formal_constraints(
+            PREFIX+json.dumps(formula)),math.factorial(7)//4)
+
+    def test_all_different_without_full_coverage_stays_bounded(self):
+        names="ABCDEFG"
+        base={
+            "variables":{v:list(range(1,8)) for v in names},
+            "rules":[],"query":"count",
+        }
+        with self.assertRaises(InvalidFormalConstraints):
+            try_solve_formal_constraints(PREFIX+json.dumps(base))
+        base["all_different"]=[list("ABCDEF")]
+        with self.assertRaises(InvalidFormalConstraints):
+            try_solve_formal_constraints(PREFIX+json.dumps(base))
+
+    def test_unbounded_permutations_rejected_even_with_all_different(self):
+        names="ABCDEFGH"
+        schema={
+            "variables":{v:list(range(1,10)) for v in names},
+            "rules":[],"all_different":[list(names)],"query":"count",
+        }
+        with self.assertRaises(InvalidFormalConstraints):
+            try_solve_formal_constraints(PREFIX+json.dumps(schema))
+
     def test_development_example_is_generic_not_hardcoded(self):
         variables={v:[False,True] for v in "ABCDEFG"}
         rules=[
