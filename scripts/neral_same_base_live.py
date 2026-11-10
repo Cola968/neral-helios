@@ -129,7 +129,12 @@ def checked_high_packet(packet: object) -> str:
             or not packet["text"].strip() or len(packet["text"].encode("utf8")) > 32768
             or packet.get("tool_used") not in TOOLS
             or type(packet.get("model_generated")) is not bool
-            or (packet.get("tool_used") is not None and packet["model_generated"] is True)):
+            or (packet.get("tool_used") is not None and packet["model_generated"] is True
+                and not (packet.get("verification_status") == "tool_observed_unverified"
+                         and packet.get("tool_output_reviewed") is True
+                         and packet.get("verified") is False
+                         and type(packet.get("tool_calls_succeeded")) is int
+                         and packet["tool_calls_succeeded"] >= 1))):
         raise PilotBlocked("Invalid HIGH provenance, tool evidence or complete answer")
     return packet["text"]
 
