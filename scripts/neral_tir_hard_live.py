@@ -215,7 +215,8 @@ def safe_first_turn_event(event: object) -> dict | None:
     if (reason not in (None, "stop", "length", "load", "unload", "other")
             or decision not in (
                 "tool", "final", "unstructured",
-                "deterministic_formal", "deterministic_rejected")):
+                "deterministic_formal", "deterministic_rejected",
+                "unavailable_on_failure")):
         return None
     return {**counts, "done_reason": reason, "decision": decision}
 
@@ -251,6 +252,11 @@ def _run_one(arm: str, question: str, backend, client, headers: dict):
     seconds = time.monotonic()-started
     if response.status_code == 503:
         packet = response.get_json(silent=True)
+        if arm == "neral_high_router" and type(packet) is dict:
+            event = safe_first_turn_event(packet.get("first_turn_telemetry"))
+            if event is not None:
+                print("NERAL_TIR_FIRST_TURN_SCALARS " +
+                      json.dumps(event, sort_keys=True), flush=True)
         code = packet.get("error_code") if isinstance(packet, dict) else None
         if code not in {
             "token_limit", "incomplete", "empty_answer",
