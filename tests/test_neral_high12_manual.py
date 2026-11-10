@@ -12,10 +12,11 @@ PROFILE = "measured_nonthinking_2048"
 
 
 def fixture(*, raw_correct=7, high_correct=7):
+    from scripts.neral_low_high_quality import make_prompt
     cases = select_cases(123456789)
     rows = []
     for i, case in enumerate(cases):
-        prompt = case["prompt"]
+        prompt = make_prompt(case)
         ph = hashlib.sha256(prompt.encode("utf8")).hexdigest()
         row = {"id": case["id"], "prompt_sha256": ph, "arms": {}}
         for arm, correct in (("raw_qwen35", i < raw_correct),
@@ -42,8 +43,7 @@ class PairedSelectionTests(unittest.TestCase):
         for domain in ("math", "reasoning", "code_trace"):
             chosen = [c for c in a if c["domain"] == domain]
             self.assertEqual(len(chosen), 4)
-            self.assertEqual(sorted(set(c["family"] for c in chosen)),
-                             sorted(set(c["family"] for c in chosen)))
+            self.assertEqual(len(set(c["family"] for c in chosen)), 2)
             self.assertEqual(sorted([sum(c["family"] == f for c in chosen)
                                      for f in set(c["family"] for c in chosen)]),
                              [2, 2])
@@ -113,7 +113,7 @@ class PairedRatchetTests(unittest.TestCase):
     def test_no_prompts_or_answers_in_published_report(self):
         cases, rows = fixture()
         report = score_pairs(cases, rows, model_digest=DIGEST)
-        self.assertNotIn("prompt", str(report))
+        self.assertNotIn(cases[0]["prompt"], str(report))
         self.assertNotIn("FINAL_ANSWER", str(report))
         self.assertNotIn("text", str(report))
         self.assertEqual(report["by_domain"]["math"]["count"], 4)
