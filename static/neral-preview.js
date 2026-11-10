@@ -580,6 +580,9 @@
   $("useWebSearch").addEventListener("change",()=>{
     if(!$("useWebSearch").checked)lastWebQuery="";
   });
+  // Conversation boundaries must not reuse search text from another chat.
+  browser.addEventListener?.("neral:chat-cleared",()=>{lastWebQuery="";});
+  browser.addEventListener?.("neral:load-chat",()=>{lastWebQuery="";});
   async function sendMessage(event) {
     event.preventDefault();
     if(busy) {errors.textContent="NERAL bearbeitet noch die vorherige Anfrage.";return;}
