@@ -421,8 +421,8 @@
       remove.className="neral-attachment-chip-remove";
       remove.textContent="×";
       remove.title="Anhang entfernen";
-      remove.setAttribute("aria-label",file.name+" entfernen");
-      remove.addEventListener("click",()=>{
+      remove.setAttribute?.("aria-label",file.name+" entfernen");
+      remove.addEventListener?.("click",()=>{
         // The selected files are owned by our own array, not the native
         // read-only FileList. Clear the input so the same file can be chosen
         // again immediately after removal.
