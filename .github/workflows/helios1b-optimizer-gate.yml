@@ -1,0 +1,78 @@
+name: Helios 1B optimizer feasibility gate
+
+on:
+  pull_request:
+    paths:
+      - 'helios1b/optimizer_gate.py'
+      - 'helios1b/model.py'
+      - 'helios1b/config.py'
+      - 'helios1b/data.py'
+      - 'helios1b/learning_experiment.py'
+      - 'helios1b/smoke_1b.py'
+      - '.github/workflows/helios1b-optimizer-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helios1b-optimizer-gate
+  cancel-in-progress: true
+
+jobs:
+  optimizer-gate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NERAL_HELIOS_PYTHON: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe
+
+    steps:
+      - name: Checkout exact PR revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Verify fused AdamW CUDA runtime
+        run: |
+          @echo off
+          if not exist "%NERAL_HELIOS_PYTHON%" exit /b 1
+          "%NERAL_HELIOS_PYTHON%" -c "import torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); p=torch.nn.Parameter(torch.ones(8,device='cuda',dtype=torch.bfloat16)); o=torch.optim.AdamW([p],fused=True); (p.sum()).backward(); o.step(); print({k:str(v.dtype) for k,v in o.state[p].items() if torch.is_tensor(v)})"
+          if errorlevel 1 exit /b 1
+
+      - name: Run BF16 optimizer precision learning A-B
+        run: |
+          @echo off
+          if not exist runner_reports mkdir runner_reports
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.optimizer_gate --mode proxy-ab --steps 60 --out runner_reports\OPTIMIZER_PROXY_AB.json
+          if errorlevel 1 exit /b 1
+
+      - name: Run full 1B optimizer-inclusive smoke
+        run: |
+          @echo off
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.optimizer_gate --mode full-smoke --seq 512 --batch 1 --warmup 1 --steps 2 --max-reserved-gib 11.25 --out runner_reports\FULL1B_OPTIMIZER_SMOKE.json
+          if errorlevel 1 exit /b 1
+
+      - name: Assert evidence-only upload
+        if: always()
+        run: |
+          @echo off
+          if not exist runner_reports exit /b 0
+          for %%E in (pt pth bin safetensors) do (
+            dir /b /s "runner_reports\*.%%E" >nul 2>nul
+            if not errorlevel 1 exit /b 1
+          )
+          if exist "runner_reports\tokenizer.json" exit /b 1
+          exit /b 0
+
+      - name: Upload numeric optimizer evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios1b-optimizer-gate-evidence
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 14

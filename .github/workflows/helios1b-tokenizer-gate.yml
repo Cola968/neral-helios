@@ -1,0 +1,98 @@
+name: Helios 1B pinned tokenizer gate
+
+on:
+  pull_request:
+    paths:
+      - 'helios1b/train_tokenizer_pinned.py'
+      - 'helios1b/train_tokenizer.py'
+      - 'helios1b/benchmark_tokenizer.py'
+      - '.github/workflows/helios1b-tokenizer-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helios1b-tokenizer-gate
+  cancel-in-progress: true
+
+jobs:
+  tokenizer32k:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NERAL_ASSETS_FALLBACK: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral
+
+    steps:
+      - name: Checkout exact PR revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Verify isolated tokenizer data runtime
+        run: |
+          @echo off
+          set "ASSETS=%NERAL_ASSETS_FALLBACK%"
+          if defined NERAL_ASSETS_ROOT set "ASSETS=%NERAL_ASSETS_ROOT%"
+          set "DATA_PY=%ASSETS%\frontier350_data_env\Scripts\python.exe"
+          if not exist "%DATA_PY%" (
+            echo tokenizer_data_python_missing
+            exit /b 1
+          )
+          "%DATA_PY%" -c "import datasets,huggingface_hub,tokenizers; print('TOKENIZER_DATA_RUNTIME_OK')"
+          if errorlevel 1 exit /b 1
+
+      - name: Train and audit fresh pinned-source 32k tokenizer
+        run: |
+          @echo off
+          set "ASSETS=%NERAL_ASSETS_FALLBACK%"
+          if defined NERAL_ASSETS_ROOT set "ASSETS=%NERAL_ASSETS_ROOT%"
+          set "DATA_PY=%ASSETS%\frontier350_data_env\Scripts\python.exe"
+          set "ROOT=%RUNNER_TEMP%\helios1b_tokenizer32k_v1"
+          if exist "%ROOT%" rmdir /s /q "%ROOT%"
+          "%DATA_PY%" -m helios1b.train_tokenizer_pinned --out-dir "%ROOT%" --vocab-size 32768 --training-chars 50000000 --eval-per-source 100 --min-total-reduction-pct 40
+          if errorlevel 1 exit /b 1
+
+          if not exist runner_reports mkdir runner_reports
+          copy /Y "%ROOT%\TOKENIZER_GATE.json" "runner_reports\TOKENIZER_GATE.json"
+
+          set "DEST=%ASSETS%\helios1b_assets\tokenizer32k_candidates\run_%GITHUB_RUN_ID%"
+          if exist "%DEST%" (
+            echo Refusing to overwrite existing tokenizer candidate: %DEST%
+            exit /b 1
+          )
+          mkdir "%DEST%"
+          copy /Y "%ROOT%\tokenizer.json" "%DEST%\tokenizer.json"
+          copy /Y "%ROOT%\TOKENIZER_GATE.json" "%DEST%\TOKENIZER_GATE.json"
+          echo Local tokenizer candidate persisted under run_%GITHUB_RUN_ID%
+
+      - name: Assert metadata-only upload
+        if: always()
+        run: |
+          @echo off
+          if not exist runner_reports exit /b 0
+          for %%E in (bin pt pth safetensors) do (
+            dir /b /s "runner_reports\*.%%E" >nul 2>nul
+            if not errorlevel 1 (
+              echo Forbidden corpus/model artifact extension: %%E
+              exit /b 1
+            )
+          )
+          if exist "runner_reports\tokenizer.json" (
+            echo Forbidden tokenizer artifact
+            exit /b 1
+          )
+          exit /b 0
+
+      - name: Upload tokenizer gate evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios1b-tokenizer-gate-evidence
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 14

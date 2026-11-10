@@ -1,0 +1,90 @@
+name: Helios 1B full-size GPU smoke
+
+on:
+  pull_request:
+    paths:
+      - 'helios1b/model.py'
+      - 'helios1b/config.py'
+      - 'helios1b/smoke_1b.py'
+      - 'tests/test_model1b_architecture.py'
+      - '.github/workflows/helios1b-full-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helios1b-full-gpu-smoke
+  cancel-in-progress: true
+
+jobs:
+  full1b:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NERAL_HELIOS_PYTHON: C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral\.venv\Scripts\python.exe
+
+    steps:
+      - name: Checkout exact PR revision
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Verify exact CUDA runtime
+        run: |
+          @echo off
+          if not exist "%NERAL_HELIOS_PYTHON%" (
+            echo exact_neral_python_missing
+            exit /b 1
+          )
+          "%NERAL_HELIOS_PYTHON%" -c "import json,torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(json.dumps({'torch':torch.__version__,'cuda':torch.version.cuda,'gpu':torch.cuda.get_device_name(0),'vram_gib':torch.cuda.get_device_properties(0).total_memory/2**30}))"
+          if errorlevel 1 exit /b 1
+          nvidia-smi --query-gpu=name,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+
+      - name: Re-run architecture checkpointing contract
+        run: |
+          @echo off
+          set "PYTEST_TMP=%RUNNER_TEMP%\pytest-helios1b-full"
+          if exist "%PYTEST_TMP%" rmdir /s /q "%PYTEST_TMP%"
+          "%NERAL_HELIOS_PYTHON%" -m pytest -q --basetemp "%PYTEST_TMP%" tests/test_model1b_architecture.py
+          if errorlevel 1 exit /b 1
+
+      - name: Run real 1B BF16 forward-backward smoke
+        run: |
+          @echo off
+          if not exist runner_reports mkdir runner_reports
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.smoke_1b --seq 256 --batch 1 --warmup 1 --steps 2 --max-reserved-gib 11.25 --out runner_reports\FULL1B_SMOKE_SEQ256.json
+          if errorlevel 1 exit /b 1
+          "%NERAL_HELIOS_PYTHON%" -m helios1b.smoke_1b --seq 512 --batch 1 --warmup 1 --steps 2 --max-reserved-gib 11.25 --out runner_reports\FULL1B_SMOKE_SEQ512.json
+          if errorlevel 1 exit /b 1
+
+      - name: Assert evidence-only upload
+        if: always()
+        run: |
+          @echo off
+          if not exist runner_reports exit /b 0
+          for %%E in (pt pth bin safetensors) do (
+            dir /b /s "runner_reports\*.%%E" >nul 2>nul
+            if not errorlevel 1 (
+              echo Forbidden model/corpus artifact extension: %%E
+              exit /b 1
+            )
+          )
+          if exist "runner_reports\tokenizer.json" (
+            echo Forbidden tokenizer artifact
+            exit /b 1
+          )
+          exit /b 0
+
+      - name: Upload numeric smoke evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios1b-full-gpu-smoke-evidence
+          path: runner_reports/
+          if-no-files-found: warn
+          retention-days: 14

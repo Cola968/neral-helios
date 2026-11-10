@@ -1,0 +1,30 @@
+name: Helios 1B foundation
+
+on:
+  pull_request:
+    paths:
+      - 'helios1b/**'
+      - 'tests/test_model1b_*.py'
+      - '.github/workflows/helios1b-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  proxy-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: |
+          python -m pip install pytest numpy
+          python -m pip install -r helios1b/requirements-tokenizer.txt
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile Helios 1B package
+        run: python -m compileall -q helios1b
+      - name: Run Helios 1B foundation tests
+        run: python -m pytest -q tests/test_model1b_architecture.py tests/test_model1b_tokenizer.py tests/test_model1b_resume.py tests/test_model1b_learning.py
