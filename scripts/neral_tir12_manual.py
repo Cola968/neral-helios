@@ -18,7 +18,7 @@ import secrets
 import time
 
 from scripts.neral_high12_manual import (
-    select_cases, score_pairs, _FAILURE_REASONS, High12GateError, MODEL, PROFILE,
+    select_cases, score_pairs, paired_case_seed, _FAILURE_REASONS, High12GateError, MODEL, PROFILE,
 )
 from scripts.neral_same_base_ab_score import TOOLS
 
@@ -124,6 +124,7 @@ def run_gpu(*, authorize: str, target_sha: str, high_sha: str,
     rows=[]
     try:
         for i,case in enumerate(cases):
+            backend.set_benchmark_seed(paired_case_seed(seed,case["id"]))
             prompt=make_prompt(case)
             obs={"id":case["id"],
                  "prompt_sha256":hashlib.sha256(prompt.encode("utf8")).hexdigest(),
@@ -142,10 +143,12 @@ def run_gpu(*, authorize: str, target_sha: str, high_sha: str,
             if (i+1)%2==0:
                 print("TIR12_PAIR_PROGRESS "+str(i+1)+"/12",flush=True)
     finally:
+        backend.set_benchmark_seed(None)
         backend.unload()
     if require_model(OllamaLocal(timeout=120).inventory())!=digest:
         raise Tir12GateError("Model digest changed")
     result=score_tir_pairs(cases,rows,model_digest=digest)
+    result["seed_option_present"]=True
     result["target_sha"]=target_sha
     result["high_sha"]=high_sha
     result["seed_commitment_sha256"]=hashlib.sha256(

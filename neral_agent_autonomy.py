@@ -110,6 +110,20 @@ class OllamaLocalBackend:
         # raw server exceptions. The GPU smoke reads these after each call.
         self.last_inference_diagnostic = None
         self.inference_diagnostic_events = []
+        self._benchmark_seed: int | None = None
+
+    def set_benchmark_seed(self, seed: int | None) -> None:
+        """Opt-in per-case seed only for isolated measured A/B benchmarks.
+
+        Normal NERAL chats keep the existing wire profile. The benchmark
+        runner owns both arms and clears this after its paired case.
+        """
+        if seed is not None and (
+                self.inference_profile != "measured_nonthinking_2048"
+                or type(seed) is not int or not 0 <= seed < 2**31):
+            raise ValueError("Ungültiger oder nicht unterstützter Benchmark-Seed.")
+        with self._inference_lock:
+            self._benchmark_seed = seed
 
     def respond(self, messages: list[dict]) -> str:
         # Agent tool selection needs strict JSON. Serialize with chat requests
@@ -262,6 +276,8 @@ class OllamaLocalBackend:
             if measured else
             {"temperature": 0, "num_predict": budget, "num_ctx": 4096}
         )
+        if measured and self._benchmark_seed is not None:
+            options["seed"] = self._benchmark_seed
         request_data = {
             "model": self.model,
             "messages": messages,

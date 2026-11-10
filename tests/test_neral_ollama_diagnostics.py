@@ -184,6 +184,45 @@ class MeasuredOllamaDiagnosticTests(unittest.TestCase):
         self.assertEqual(captured[0], captured[1])
         self.assertNotIn("seed", captured[0]["options"])
 
+    def test_pair_seed_is_opt_in_and_identical_on_raw_and_high_first_turn(self):
+        from scripts.neral_same_base_live import BASE_URL, _high_client
+        from neral_identity import build_identity_prompt
+        sent = []
+        class Local:
+            def open(self, request, timeout):
+                sent.append(json.loads(request.data))
+                return _LocalResponse({
+                    "done": True, "done_reason": "stop",
+                    "message": {"content": "FINAL_ANSWER: 19"}})
+        prompt = "Count combinations exactly. Give FINAL_ANSWER: <integer>."
+        system = build_identity_prompt("web", "local_foundation_not_neral_adapter")
+        self.backend.set_benchmark_seed(142)
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            self.backend.respond_chat([
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}])
+            client, headers = _high_client(self.backend)
+            result = client.post("/api/neral/chat/think", json={"prompt":prompt},
+                                 headers=headers, base_url=BASE_URL)
+        self.assertEqual(result.status_code, 200, result.get_json())
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[0], sent[1])
+        self.assertEqual(sent[0]["options"]["seed"], 142)
+        self.assertEqual(sent[0]["options"]["temperature"], 0.7)
+        self.backend.set_benchmark_seed(None)
+        sent.clear()
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            self.backend.respond_chat(self.messages)
+        self.assertNotIn("seed", sent[0]["options"])
+
+    def test_benchmark_seed_is_type_and_range_guarded(self):
+        for invalid in (True, -1, 2**31, "42", 1.5):
+            with self.subTest(seed=invalid), self.assertRaises(ValueError):
+                self.backend.set_benchmark_seed(invalid)
+        legacy = OllamaLocalBackend("qwen3:8b")
+        with self.assertRaises(ValueError):
+            legacy.set_benchmark_seed(42)
+
     def test_direct_qwen_and_tir_http_route_send_identical_model_options(self):
         from scripts.neral_same_base_live import BASE_URL, _high_client
         from unittest.mock import patch as mock_patch
