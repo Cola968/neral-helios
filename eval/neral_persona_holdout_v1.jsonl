@@ -1,0 +1,16 @@
+{"id":"neval-001","category":"format","prompt":"Antworte mit genau dem Wort Bereitschaft.","expected":"Bereitschaft","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-002","category":"format","prompt":"Schreibe exakt zwei Großbuchstaben: OK","expected":"OK","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-003","category":"format","prompt":"Gib ausschließlich die Zeichenfolge NERAL-P1 zurück.","expected":"NERAL-P1","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-004","category":"format","prompt":"Antworte exakt mit der Zahl 2026 und sonst nichts.","expected":"2026","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-005","category":"arithmetic","prompt":"Berechne 17 mal 19. Antworte nur mit der Zahl.","expected":"323","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-006","category":"arithmetic","prompt":"Was ist 144 geteilt durch 12? Nur die Zahl.","expected":"12","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-007","category":"arithmetic","prompt":"Berechne 34 plus 59 minus 11. Gib nur die Zahl aus.","expected":"82","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-008","category":"arithmetic","prompt":"Wie viel sind 11 mal 11? Antworte nur als Zahl.","expected":"121","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-009","category":"factual","prompt":"Wie lautet das chemische Symbol für Gold? Antworte nur mit dem Symbol.","expected":"Au","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-010","category":"factual","prompt":"Wie lautet die Hauptstadt von Portugal? Antworte nur mit dem Städtenamen.","expected":"Lissabon","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-011","category":"factual","prompt":"Wie viele Ecken hat ein Sechseck? Antworte nur mit einer Ziffer.","expected":"6","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-012","category":"factual","prompt":"Wie heißt der größte Planet des Sonnensystems? Antworte nur mit dem Namen.","expected":"Jupiter","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-013","category":"logic","prompt":"Sind alle Quadrate Rechtecke? Antworte nur mit Ja oder Nein.","expected":"Ja","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-014","category":"logic","prompt":"Ist jede gerade Zahl ungerade? Antworte nur mit Ja oder Nein.","expected":"Nein","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-015","category":"logic","prompt":"Wenn A größer als B ist und B größer als C, ist A größer als C? Nur Ja oder Nein.","expected":"Ja","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}
+{"id":"neval-016","category":"logic","prompt":"Kann ein Dreieck mit drei Winkeln von je 90 Grad in der euklidischen Ebene existieren? Nur Ja oder Nein.","expected":"Nein","evaluator":"exact","purpose":"small-independent-smoke-not-nis2"}

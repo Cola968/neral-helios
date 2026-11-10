@@ -1,0 +1,36 @@
+name: NERAL Personality SFT data integrity
+on:
+  push:
+    branches: [feature/neral-persona-training-data-20261027]
+  pull_request:
+    paths:
+      - 'neral_persona_data.py'
+      - 'data/neral_persona_seed_v1.jsonl'
+      - 'tests/test_neral_persona_data.py'
+      - 'tests/test_neral_persona_ollama_runner.py'
+      - 'tests/test_neral_persona_recorded_run.py'
+      - 'neral_persona_ollama_runner.py'
+      - 'neral_persona_style_review.py'
+      - 'eval/neral_persona_style_holdout_v1.jsonl'
+      - 'tests/test_neral_persona_style_review.py'
+      - '.github/workflows/neral-persona-data-ci.yml'
+permissions:
+  contents: read
+jobs:
+  sft-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate original, bounded SFT examples and reproducible export
+        run: python -m unittest tests.test_neral_persona_data tests.test_neral_persona_eval tests.test_neral_persona_ollama_runner tests.test_neral_persona_recorded_run tests.test_neral_persona_style_review -v
+      - name: Compile training data utility (no GPU or model download)
+        run: python -m py_compile neral_persona_data.py neral_persona_eval.py neral_persona_ollama_runner.py neral_persona_style_review.py
+      - name: Verify reproducible data export and draft-only training status
+        run: |
+          mkdir -p /tmp/neral-persona-check
+          python neral_persona_data.py --train /tmp/neral-persona-check/train.jsonl --manifest /tmp/neral-persona-check/manifest.json
+          python -c 'import json; x=json.load(open("/tmp/neral-persona-check/manifest.json")); assert x["training_executed"] is False and x["approved_for_training"] is False and x["example_count"] >= 30'
