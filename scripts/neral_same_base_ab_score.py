@@ -16,6 +16,8 @@ from collections import Counter
 import re
 import statistics
 
+from neral_numeric_final import extract_numeric_final
+
 ARMS = ("raw_qwen35", "neral_high", "neral_high_router")
 MODEL = "qwen3.5:9b"
 PROFILE = "measured_nonthinking_2048"
@@ -38,22 +40,15 @@ def _mcnemar(wins: int, losses: int) -> float:
 
 
 def _correct(gold: int, text: str, complete: bool) -> bool:
-    if not complete:
+    """Score a bounded unambiguous integer final, identically for every arm.
+
+    Never use the gold answer to select an arbitrary number from model prose.
+    Missing/truncated or contradictory answers remain incorrect.
+    """
+    if type(complete) is not bool or not complete:
         return False
-    lines = [s.strip() for s in text.splitlines() if s.strip()]
-    if not lines or len(lines) > 256:
-        return False
-    marked = [i for i, line in enumerate(lines) if re.match(r"FINAL(?:_ANSWER)?\s*:", line, re.I)]
-    if marked:
-        if len(marked) != 1 or marked[0] != len(lines) - 1:
-            return False
-        m = FINAL.fullmatch(lines[-1])
-        candidate = m.group(1) if m else None
-    elif len(lines) == 1 and INTEGER.fullmatch(lines[0]):
-        candidate = lines[0]
-    else:
-        return False
-    return candidate is not None and int(candidate) == gold
+    candidate = extract_numeric_final(text)
+    return candidate is not None and INTEGER.fullmatch(candidate) is not None and int(candidate) == gold
 
 
 def _p95(values: list[float]) -> float:
