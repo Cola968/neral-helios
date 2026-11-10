@@ -215,6 +215,19 @@ def _gpu_summary(row: dict) -> dict:
     }
 
 
+
+def require_high_gpu_residency(ps: dict, report: dict) -> None:
+    """Preserve the exact /api/ps VRAM measurements even when failing closed."""
+    loaded = running_model_summary(ps, allow_offload=True)
+    report["observed_loaded_models_after_preload"] = sorted(loaded)
+    if MODEL in loaded:
+        report["gpu_residency_before"] = _gpu_summary(loaded[MODEL])
+    if MODEL not in loaded or LOW_MODEL in loaded:
+        raise PreflightError("expected_only_high_model_resident")
+    if not model_fully_on_gpu(loaded[MODEL]):
+        raise PreflightError("high_model_cpu_offload_detected")
+
+
 def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
     if (authorize != AUTHORIZATION or type(target_sha) is not str
             or SHA.fullmatch(target_sha) is None):
@@ -270,12 +283,8 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         stage = "preload"
         _preload()
         stage = "ps_residency"
-        loaded = running_model_summary(_ollama_json("/api/ps", timeout=8))
-        if MODEL not in loaded or LOW_MODEL in loaded:
-            raise PreflightError("expected_only_high_model_resident")
-        report["gpu_residency_before"] = _gpu_summary(loaded[MODEL])
-        if not model_fully_on_gpu(loaded[MODEL]):
-            raise PreflightError("high_model_cpu_offload_detected")
+        require_high_gpu_residency(
+            _ollama_json("/api/ps", timeout=8), report)
 
         stage = "one_direct_qwen_request"
         case = select_probe_case()
