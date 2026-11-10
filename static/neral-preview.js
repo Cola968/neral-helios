@@ -132,6 +132,23 @@
       return previous+" "+q;
     return q;
   }
+  // Conservative <800 UTF-8-byte ceiling for the three evidence lines.
+  // The full source URL remains available to the citation UI, not the LLM.
+  function webClip(value,maxBytes) {
+    let result="",size=0;
+    const plain=String(value||"").replace(/<[^>]*>/g," ").replace(/\\s+/g," ").trim();
+    for(const ch of plain) {
+      const count=encoder.encode(ch).length;
+      if(size+count>maxBytes)break;
+      result+=ch;size+=count;
+    }
+    return result;
+  }
+  function webCompactSnippet(hit,index) {
+    const host=(String(hit.url||"").match(/^https:\\/\\/([^/]+)/i)||[])[1]||"";
+    return "["+(index+1)+"] "+webClip(hit.title,72)+
+      " | "+webClip(host,38)+" | "+webClip(hit.snippet,120);
+  }
   // Snippets are untrusted evidence, not independently read source pages.
   function webEvidencePrompt(question,evidence,attempted=true) {
     if(!attempted)return question;
@@ -667,15 +684,14 @@
         webAttempted=true;
         lastWebQuery=webQuery;
         sources=Array.isArray(search.results)
-          ? search.results.filter(hit=>hit.reachable===true && relevantSearchResult(webQuery,hit)).slice(0,5) : [];
+          ? search.results.filter(hit=>hit.reachable===true && relevantSearchResult(webQuery,hit)).slice(0,3) : [];
         // Fallback/one-shot search still gets truthful domains after completion.
         for(const source of sources)
           liveHandler({type:"source",source});
         motionActivity("search-done",mode,{count:sources.length,searches:1});
-        const evidence=sources.map((r,i)=>
-          "["+(i+1)+"] "+String(r.title||"").slice(0,110)+
-          " | "+String(r.url||"").slice(0,190)+
-          " | "+String(r.snippet||"").slice(0,190));
+        const evidence=sources.map((r,i)=>webCompactSnippet(r,i));
+        if(encoder.encode(evidence.join("\n")).length>=800)
+          throw new Error("Web-Belege überschreiten das kompakte Evidenzbudget.");
         while(evidence.length &&
               encoder.encode(webEvidencePrompt(text,evidence,true)).length>4000)
           evidence.pop();
