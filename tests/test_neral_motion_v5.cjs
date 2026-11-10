@@ -55,7 +55,8 @@ function searchFunctions(){
 }
 test("checked Web searches short factual follow-ups and reuses only a previous web query",()=>{
   const x=searchFunctions();
-  assert.equal(x.shouldSearchWeb("warum nicht"),true);
+  assert.equal(x.shouldSearchWeb("warum nicht"),false);
+  assert.equal(x.shouldSearchWeb("warum nicht","Turbofan-Triebwerk"),true);
   assert.equal(x.shouldSearchWeb("Wie funktioniert ein Turbofan?"),true);
   assert.equal(x.shouldSearchWeb("Hallo"),false);
   assert.equal(x.makeSearchQuery("warum nicht","Turbofan-Triebwerk"),"Turbofan-Triebwerk warum nicht");
