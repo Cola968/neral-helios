@@ -378,12 +378,12 @@ class OllamaLocalBackend:
                 and isinstance(messages, list) and messages
                 and isinstance(messages[-1], dict)
                 and isinstance(messages[-1].get("content"), str)
-                and re.search(r"\\bFINAL_ANSWER\\s*:", messages[-1]["content"], re.I)
+                and re.search(r"\bFINAL_ANSWER\s*:", messages[-1]["content"], re.I)
             )
             if (requested_final and len(answer) >= 220
                     and len(answer.encode("utf-8")) <= 16000
-                    and not re.search(r"(?m)^FINAL_ANSWER\\s*:", answer, re.I)
-                    and not re.fullmatch(r"[+-]?\\d{1,15}", answer.strip())):
+                    and not re.search(r"(?m)^FINAL_ANSWER\s*:", answer, re.I)
+                    and not re.fullmatch(r"[+-]?\d{1,15}", answer.strip())):
                 diagnostic["final_recovery_attempted"] = True
                 followup_turns = [dict(row) for row in messages] + [
                     {"role": "assistant", "content": answer},
@@ -401,7 +401,7 @@ class OllamaLocalBackend:
                     # Unlike a length-truncated first call, this reply DID
                     # finish. Preserve it if final-only extraction failed.
                     final = ""
-                if re.fullmatch(r"FINAL_ANSWER:\\s*[+-]?\\d{1,15}",
+                if re.fullmatch(r"FINAL_ANSWER:\s*[+-]?\d{1,15}",
                                 final.strip(), re.I):
                     diagnostic["final_recovery_succeeded"] = True
                     return final.strip()
