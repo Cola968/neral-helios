@@ -110,6 +110,35 @@ class BooleanAlgebraContracts(unittest.TestCase):
         self.assertIsNone(parse_extracted_constraints(
             question,json.dumps(proposal)))
 
+    def test_compact_generic_ordering_schema_counts_partial_orders(self):
+        import math
+        schema={
+            "ordering":list("ABCDEFG"),
+            "rules":[
+                {"left":"A","op":"<","right":"B"},
+                {"left":"C","op":"<","right":"D"},
+            ],
+            "query":"count",
+        }
+        self.assertEqual(try_solve_formal_constraints(
+            PREFIX+json.dumps(schema)),math.factorial(7)//4)
+        # No raw variable domains or benchmark-specific labels needed.
+        schema["ordering"]=["North","East","South","West"]
+        schema["rules"]=[{"left":"East","op":"<","right":"West"}]
+        self.assertEqual(try_solve_formal_constraints(
+            PREFIX+json.dumps(schema)),12)
+
+    def test_compact_ordering_rejects_ambiguous_or_unsafe_declarations(self):
+        for tokens in (["A","A"],[],["A"],["A","B",1],
+                       ["A","__import__('os')"],list("ABCDEFGHI")):
+            schema={"ordering":tokens,"rules":[],"query":"count"}
+            with self.subTest(tokens=tokens), self.assertRaises(InvalidFormalConstraints):
+                try_solve_formal_constraints(PREFIX+json.dumps(schema))
+        schema={"ordering":["A","B"],"rules":[],"query":"count",
+                "variables":{"A":[1,2]}}
+        with self.assertRaises(InvalidFormalConstraints):
+            try_solve_formal_constraints(PREFIX+json.dumps(schema))
+
     def test_all_different_full_assignment_uses_bounded_permutations(self):
         import math
         names="ABCDEFG"
