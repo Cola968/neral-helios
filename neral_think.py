@@ -17,6 +17,7 @@ from neral_agent_math import MathInputError, eval_python_expr, solve_math_symbol
 from neral_agent_python_trace import trusted_python_trace_question
 from neral_quantitative_oracles import trusted_quantitative_question
 from neral_logic_engine import trusted_logic_question
+from neral_numeric_final import extract_numeric_final
 
 MAX_RESPONSE = 32768
 MAX_THINK_SECONDS = 180
@@ -146,29 +147,14 @@ def _verified_match(candidate: str, expected: str) -> bool:
 
 
 def extract_final(raw: str) -> str | None:
-    """Single direct numerical answer or exactly one *last* explicit FINAL line."""
-    if not isinstance(raw, str) or not 1 <= len(raw) <= MAX_RESPONSE:
-        return None
-    if any((ord(char) < 32 and char not in "\t\n\r") or ord(char) == 127
-           for char in raw):
-        return None
-    rows = [row.strip() for row in raw.splitlines() if row.strip()]
-    if not rows or len(rows) > 256:
-        return None
-    marked = [_FINAL_LINE.fullmatch(row) for row in rows]
-    if any(marked):
-        if sum(match is not None for match in marked) != 1 or marked[-1] is None:
-            return None
-        answer = marked[-1].group(1).strip()
-    elif len(rows) == 1:
-        answer = rows[0]
-    else:
+    """Parse one terminal numerical answer, then enforce exact safe arithmetic."""
+    answer = extract_numeric_final(raw)
+    if answer is None:
         return None
     if _FINAL_VALUE.fullmatch(answer) is None:
         return None
-    # Exact conversion also rejects fraction zero-denominators and overflow.
-    eq = re.fullmatch(r"x\s*=\s*(.+)", answer, re.I)
-    return answer if _numeric(eq.group(1) if eq else answer) is not None else None
+    equation = re.fullmatch(r"x\\s*=\\s*(.+)", answer, re.I)
+    return answer if _numeric(equation.group(1) if equation else answer) is not None else None
 
 
 def trusted_math_question(prompt: str) -> dict | None:
