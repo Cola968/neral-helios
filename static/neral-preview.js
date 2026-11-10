@@ -136,7 +136,7 @@
   // The full source URL remains available to the citation UI, not the LLM.
   function webClip(value,maxBytes) {
     let result="",size=0;
-    const plain=String(value||"").replace(/<[^>]*>/g," ").replace(/\\s+/g," ").trim();
+    const plain=String(value||"").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
     for(const ch of plain) {
       const count=encoder.encode(ch).length;
       if(size+count>maxBytes)break;
@@ -145,7 +145,7 @@
     return result;
   }
   function webCompactSnippet(hit,index) {
-    const host=(String(hit.url||"").match(/^https:\\/\\/([^/]+)/i)||[])[1]||"";
+    const host=(String(hit.url||"").match(/^https:\/\/([^/]+)/i)||[])[1]||"";
     return "["+(index+1)+"] "+webClip(hit.title,72)+
       " | "+webClip(host,38)+" | "+webClip(hit.snippet,120);
   }
