@@ -1,5 +1,6 @@
 """Pure/CPU tests for opt-in Ollama daemon recovery; no real process mutations."""
 import unittest
+import sys
 from scripts.neral_ollama_cuda_recover import (
     safe_log_signals, recovery_eligible, validate_native_listener,
     environment_signals, RecoveryRefused,
@@ -68,6 +69,15 @@ class RecoveryContract(unittest.TestCase):
         for case in bads:
             with self.subTest(case=case), self.assertRaises(RecoveryRefused):
                 validate_native_listener(case, root, "runner")
+
+    @unittest.skipUnless(sys.platform == "win32", "Requires native Windows")
+    def test_windows_powershell_inventory_returns_strict_metadata(self):
+        from scripts.neral_ollama_cuda_recover import _windows_inventory
+        row = _windows_inventory()
+        self.assertIsInstance(row["processes"], list)
+        self.assertIsInstance(row["listener_pids"], list)
+        self.assertIsInstance(row["service_pids"], list)
+        self.assertIsInstance(row["established_clients"], int)
 
 
 if __name__ == "__main__":
