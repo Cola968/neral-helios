@@ -53,6 +53,19 @@ class High12GateError(ValueError):
     """Sanitized errors: no private question, answer, code or user path."""
 
 
+def paired_case_seed(batch_seed: int, case_id: str) -> int:
+    """Private deterministic per-task Ollama RNG seed, never published.
+
+    Both arms use the same initial seed. This controls sampling randomness;
+    it does NOT guarantee output identity, correctness or model superiority.
+    """
+    if (type(batch_seed) is not int or not 0 <= batch_seed < 2**64
+            or type(case_id) is not str or not 1 <= len(case_id) <= 100):
+        raise High12GateError("Invalid paired seed inputs")
+    data = ("neral-paired-v1:" + str(batch_seed) + ":" + case_id).encode("utf8")
+    return int.from_bytes(hashlib.sha256(data).digest()[:4], "big") & 0x7FFFFFFF
+
+
 def select_cases(seed: int) -> list[dict]:
     """Select two fresh variants of each Hard36 family, then mix case order."""
     if type(seed) is not int or not 0 <= seed < 2**64:
@@ -255,6 +268,8 @@ def run_gpu(*, authorize: str, target_sha: str, output: Path) -> bool:
     rows = []
     try:
         for index, case in enumerate(cases):
+            # Same case-specific sampling seed for raw Qwen and NERAL HIGH.
+            backend.set_benchmark_seed(paired_case_seed(seed, case["id"]))
             prompt = make_prompt(case)
             order = ARMS if index % 2 == 0 else tuple(reversed(ARMS))
             row = {"id": case["id"], "prompt_sha256":
@@ -284,10 +299,12 @@ def run_gpu(*, authorize: str, target_sha: str, output: Path) -> bool:
             if (index+1) % 2 == 0:
                 print(f"HIGH12_PAIR_PROGRESS {(index+1)}/12", flush=True)
     finally:
+        backend.set_benchmark_seed(None)
         backend.unload()
     if require_model(OllamaLocal(timeout=120).inventory()) != digest:
         raise High12GateError("Local model digest changed during comparison")
     result = score_pairs(cases, rows, model_digest=digest)
+    result["seed_option_present"] = True
     result["target_sha"] = target_sha
     result["seed_commitment_sha256"] = hashlib.sha256(str(seed).encode("ascii")).hexdigest()
     result["elapsed_type"] = "actual_local_inference_only"
