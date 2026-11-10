@@ -92,6 +92,98 @@ class MeasuredOllamaDiagnosticTests(unittest.TestCase):
         self.assertIsNone(diag["ollama_http_status"])
         self.assertNotIn("SECRET_HOST", str(diag))
 
+    def test_high_only_short_final_recovery_after_length(self):
+        sent = []
+        outputs = iter([
+            {"done": True, "done_reason": "length",
+             "message": {"content": "Private partial reasoning: 6+7 equals 13."}},
+            {"done": True, "done_reason": "stop",
+             "message": {"content": "FINAL_ANSWER: 13"}},
+        ])
+        class Local:
+            def open(self, request, timeout):
+                sent.append(json.loads(request.data))
+                return _LocalResponse(next(outputs))
+        turns = [
+            {"role": "system", "content": "NERAL"},
+            {"role": "user", "content": "Calculate 6+7. End with FINAL_ANSWER: <integer>."},
+        ]
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            answer = self.backend.respond_high_final(turns)
+        self.assertEqual(answer, "FINAL_ANSWER: 13")
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[0]["options"]["num_predict"], 2048)
+        self.assertEqual(sent[1]["options"]["num_predict"], 64)
+        self.assertEqual(sent[1]["options"]["temperature"], 0)
+        self.assertEqual(sent[1]["think"], False)
+        self.assertEqual(sent[1]["messages"][-2]["role"], "assistant")
+        self.assertEqual(sent[1]["messages"][-1]["role"], "user")
+        self.assertTrue(self.backend.last_inference_diagnostic["final_recovery_succeeded"])
+        self.assertNotIn("Private partial reasoning", str(self.backend.inference_diagnostic_events))
+
+    def test_raw_qwen_and_unrequested_final_never_trigger_rescue(self):
+        sent = []
+        class Local:
+            def open(self, request, timeout):
+                sent.append(json.loads(request.data))
+                return _LocalResponse({
+                    "done": True, "done_reason": "length",
+                    "message": {"content": "The reasoning is not complete."}})
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            with self.assertRaises(OllamaCompletionError) as raised:
+                self.backend.respond_chat(self.messages)
+        self.assertEqual(raised.exception.reason, "token_limit")
+        self.assertEqual(len(sent), 1)
+        sent.clear()
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            with self.assertRaises(OllamaCompletionError):
+                self.backend.respond_high_final(self.messages)
+        self.assertEqual(len(sent), 1)
+
+    def test_short_rescue_rejects_noncanonical_output(self):
+        sent = []
+        outputs = iter([
+            {"done": True, "done_reason": "length",
+             "message": {"content": "The solution is not clear."}},
+            {"done": True, "done_reason": "stop",
+             "message": {"content": "FINAL_ANSWER: 14 and maybe something else"}},
+        ])
+        class Local:
+            def open(self, request, timeout):
+                sent.append(json.loads(request.data))
+                return _LocalResponse(next(outputs))
+        messages = [{"role": "system", "content": "NERAL"},
+                    {"role": "user", "content": "Give FINAL_ANSWER: <integer>."}]
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            with self.assertRaises(OllamaCompletionError) as raised:
+                self.backend.respond_high_final(messages)
+        self.assertEqual(raised.exception.reason, "token_limit")
+        self.assertEqual(len(sent), 2)
+
+    def test_base_and_high_initial_wire_payloads_equal_for_non_oracle(self):
+        from scripts.neral_same_base_live import BASE_URL, _high_client
+        from neral_identity import build_identity_prompt
+        captured = []
+        class Local:
+            def open(self, request, timeout):
+                captured.append(json.loads(request.data))
+                return _LocalResponse({
+                    "done": True, "done_reason": "stop",
+                    "message": {"content": "FINAL_ANSWER: 19"}})
+        prompt = "How many distinct arrangements? Give FINAL_ANSWER: <integer>."
+        system = build_identity_prompt("web","local_foundation_not_neral_adapter")
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            self.backend.respond_chat([
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}])
+            client, headers = _high_client(self.backend)
+            response = client.post("/api/neral/chat/think",
+                json={"prompt":prompt}, base_url=BASE_URL, headers=headers)
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(captured[0], captured[1])
+        self.assertNotIn("seed", captured[0]["options"])
+
     def test_direct_qwen_and_tir_http_route_send_identical_model_options(self):
         from scripts.neral_same_base_live import BASE_URL, _high_client
         from unittest.mock import patch as mock_patch

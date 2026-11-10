@@ -141,6 +141,39 @@ class ThinkEngineTests(unittest.TestCase):
         self.assertEqual(out["verification_status"], "tool_fallback")
         self.assertFalse(out["hard_timeout_enforced"])
 
+    def test_high_preserves_requested_final_answer_footer(self):
+        prompt = (
+            "What integer does this small program print? Explain the computation.\n"
+            "Gib das Ergebnis in der letzten Zeile exakt als "
+            "FINAL_ANSWER: <integer> aus."
+        )
+        reply = "\n".join([
+            "First we inspect the complete loop and the initial values carefully.",
+            "Then we identify each relevant arithmetic transformation in order.",
+            "Next we follow the intermediate state after every loop iteration.",
+            "The final sum combines the updated values without any omission.",
+            "That sequence yields the exact integer required by the question.",
+            "FINAL_ANSWER: 42",
+        ])
+        self.assertGreaterEqual(len(reply), 220)
+        result = think_reply(messages(prompt), lambda _: reply, deep_review=True)
+        self.assertEqual(result["text"], reply)
+        self.assertEqual(result["final_answer"], "42")
+
+    def test_high_can_remove_unrequested_spurious_final_footer(self):
+        reply = "\n".join([
+            "This is a general explanation about working with Python loops.",
+            "It describes how loop bodies execute repeatedly on sequences.",
+            "The body may update state, accumulate results or inspect data.",
+            "Different iterations can follow the same logic in order.",
+            "There is no numerical question and no final answer requested.",
+            "FINAL_ANSWER: 42",
+        ])
+        self.assertGreaterEqual(len(reply), 220)
+        result = think_reply(messages("Erkläre eine Python-Schleife."),
+                             lambda _: reply, deep_review=True)
+        self.assertFalse(result["text"].endswith("FINAL_ANSWER: 42"))
+
     def test_no_model_response_on_unverifiable_question_is_error(self):
         with self.assertRaises(ThinkInputError):
             think_reply(messages("Erkläre Astrophysik."), lambda _: "")

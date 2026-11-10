@@ -54,7 +54,7 @@ class ChatRegressionTests(unittest.TestCase):
         self.assertEqual(out["review_status"], "stale_context_rejected")
         self.assertFalse(out["verified"])
 
-    def test_high_keeps_fresh_draft_when_self_review_regresses_to_previous_answer(self):
+    def test_high_keeps_fresh_first_reply_without_running_unverified_review(self):
         previous = "Der Pratt & Whitney PW1000 ist ein Getriebe-Turbofan und kein Turboprop."
         turns = [
             {"role":"system","content":"Du bist NERAL."},
@@ -65,7 +65,8 @@ class ChatRegressionTests(unittest.TestCase):
         responses = iter(("Ein Schwarzes Loch ist ein Bereich, aus dem kein Licht entkommt.", previous))
         out = think_reply(turns, lambda _: next(responses), deep_review=True)
         self.assertIn("Schwarzes Loch", out["text"])
-        self.assertEqual(out["review_status"], "review_rejected_stale")
+        self.assertEqual(out["review_status"], "disabled_unverified_review")
+        self.assertEqual(out["calls_used"], 1)
 
     def test_high_didactic_physics_discards_irrelevant_numeric_final_marker(self):
         explanation = (

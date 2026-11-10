@@ -1,0 +1,69 @@
+name: NERAL HIGH first-pass-only CPU regression
+on:
+  pull_request:
+    paths:
+      - 'neral_think.py'
+      - 'tests/test_neral_high_first_pass_only.py'
+      - 'tests/test_neral_high_finalizer.py'
+      - 'neral_agent_autonomy.py'
+      - 'tests/test_neral_1_0_high_depth.py'
+      - 'tests/test_neral_high_response_format.py'
+      - 'tests/test_neral_think.py'
+      - 'tests/test_neral_chat_stale_context.py'
+      - 'tests/test_neral_high_format_audit.py'
+      - 'scripts/neral_same_base_ab_score.py'
+      - 'tests/test_neral_same_base_ab_score.py'
+      - 'tests/test_neral_numeric_final_fallback.py'
+      - '.github/workflows/neral-high-first-pass-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_think.py'
+      - 'tests/test_neral_high_first_pass_only.py'
+      - 'tests/test_neral_high_finalizer.py'
+      - 'neral_agent_autonomy.py'
+      - 'tests/test_neral_1_0_high_depth.py'
+      - 'tests/test_neral_high_response_format.py'
+      - 'tests/test_neral_think.py'
+      - 'tests/test_neral_chat_stale_context.py'
+      - 'tests/test_neral_high_format_audit.py'
+      - 'scripts/neral_same_base_ab_score.py'
+      - 'tests/test_neral_same_base_ab_score.py'
+      - 'tests/test_neral_numeric_final_fallback.py'
+      - '.github/workflows/neral-high-first-pass-ci.yml'
+permissions:
+  contents: read
+jobs:
+  high-first-pass:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: First-pass quality and exact-math verification
+        run: python -m unittest discover -s tests -p test_neral_high_first_pass_only.py -v
+      - name: 64-token HIGH finalizer and cutoff contracts
+        run: python -m unittest discover -s tests -p test_neral_high_finalizer.py -v
+      - name: Existing HIGH/THINK contracts
+        run: python -m unittest discover -s tests -p test_neral_1_0_high_depth.py -v
+      - name: Existing code and JSON output contracts
+        run: python -m unittest discover -s tests -p test_neral_high_response_format.py -v
+      - name: Basic THINK parser and exact-oracle contracts
+        run: python -m unittest discover -s tests -p test_neral_think.py -v
+      - name: Multi-turn stale-context safety
+        run: python -m unittest discover -s tests -p test_neral_chat_stale_context.py -v
+      - name: Strict FINAL_ANSWER format audit (no rescore)
+        run: python -m unittest discover -s tests -p test_neral_high_format_audit.py -v
+      - name: Bounded numeric final extraction and benchmark scorer fallback
+        run: python -m unittest discover -s tests -p test_neral_numeric_final_fallback.py -v
+      - name: Whole paired Qwen / NERAL scorer contracts
+        run: python -m unittest discover -s tests -p test_neral_same_base_ab_score.py -v
+      - name: Development ratchet tests for HIGH and TIR
+        run: python -m unittest discover -s tests -p test_neral_dev_ratchet.py -v

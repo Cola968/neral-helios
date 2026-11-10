@@ -1,7 +1,6 @@
-"""HIGH must not quietly destroy an explicitly requested output format."""
+"""HIGH returns the first model reply without an unchecked format rewrite."""
 import json
 import unittest
-
 from neral_think import think_reply
 
 
@@ -12,81 +11,51 @@ def turns(question):
     ]
 
 
-def simulated_review(question, draft, revised):
+def first_pass(question, draft):
     calls = []
-    answers = iter((draft, revised))
     def respond(messages):
         calls.append(messages)
-        return next(answers)
+        if len(calls) > 1:
+            raise AssertionError("Do not execute a second unverified answer")
+        return draft
     result = think_reply(turns(question), respond, deep_review=True)
     return result, calls
 
 
 class HighFormatRetentionTests(unittest.TestCase):
-    def test_code_review_must_not_delete_requested_python_code(self):
+    def test_requested_python_code_fence_stays_intact(self):
         draft = "```python\ndef answer():\n    return 42\n```"
-        revised = "Eine Funktion wäre möglich. Hier ist eine allgemeine Erklärung."
-        result, calls = simulated_review(
-            "Schreibe Python-Code für eine Funktion.", draft, revised)
+        result, calls = first_pass("Schreibe Python-Code für eine Funktion.", draft)
         self.assertEqual(result["text"], draft)
-        self.assertEqual(result["calls_used"], 2)
-        self.assertEqual(result["review_passes"], 1)
-        self.assertEqual(result["review_status"], "review_rejected_format")
+        self.assertEqual(result["calls_used"], 1)
+        self.assertEqual(result["review_passes"], 0)
+        self.assertEqual(result["review_status"], "disabled_unverified_review")
         self.assertFalse(result["verified"])
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls, [turns("Schreibe Python-Code für eine Funktion.")])
 
-    def test_code_review_may_repair_code_if_output_format_survives(self):
-        draft = "```python\ndef answer():\n    return missing\n```"
-        revised = "```python\ndef answer():\n    return 42\n```"
-        result, calls = simulated_review(
-            "Schreibe Python-Code für eine Funktion.", draft, revised)
-        self.assertEqual(result["text"], revised)
-        self.assertEqual(result["review_status"], "completed_unverified")
-        self.assertEqual(len(calls), 2)
-
-    def test_code_review_cannot_change_declared_language(self):
-        draft = "```python\nprint(42)\n```"
-        revised = "```javascript\nconsole.log(42);\n```"
-        result, _ = simulated_review(
-            "Schreibe Python-Code für diese Aufgabe.", draft, revised)
-        self.assertEqual(result["text"], draft)
-        self.assertEqual(result["review_status"], "review_rejected_format")
-
-    def test_json_only_review_cannot_replace_valid_json_with_prose(self):
+    def test_json_only_stays_valid_json_and_remains_unverified(self):
         draft = '{"answer":42,"ok":true}'
-        revised = "Die Antwort lautet zweiundvierzig."
-        result, calls = simulated_review(
-            "Antworte ausschließlich mit gültigem JSON.", draft, revised)
+        result, calls = first_pass("Antworte ausschließlich mit gültigem JSON.", draft)
         self.assertEqual(result["text"], draft)
-        self.assertEqual(result["review_status"], "review_rejected_format")
-        self.assertEqual(result["calls_used"], 2)
-        self.assertEqual(len(calls), 2)
         self.assertEqual(json.loads(result["text"])["answer"], 42)
-
-    def test_json_only_review_can_replace_valid_json_with_valid_json(self):
-        draft = '{"answer":41}'
-        revised = '{"answer":42}'
-        result, _ = simulated_review(
-            "Antworte ausschließlich mit gültigem JSON.", draft, revised)
-        self.assertEqual(json.loads(result["text"])["answer"], 42)
-        self.assertEqual(result["review_status"], "completed_unverified")
+        self.assertEqual(result["calls_used"], 1)
         self.assertFalse(result["verified"])
+        self.assertEqual(len(calls), 1)
 
-    def test_explanation_about_json_is_not_treated_as_json_only_request(self):
-        draft = '{"ok":true}'
-        revised = "JSON ist ein Datenformat und benötigt ein gültiges Schema."
-        result, _ = simulated_review(
-            "Erkläre mir JSON anhand eines Beispiels.", draft, revised)
-        self.assertEqual(result["text"], revised)
-        self.assertEqual(result["review_status"], "completed_unverified")
-
-    def test_non_code_question_can_be_revised_to_plain_text(self):
+    def test_requested_language_not_rewritten(self):
         draft = "```python\nprint(42)\n```"
-        revised = "Ein Python-Beispiel hilft, aber die Erklärung lautet anders."
-        result, _ = simulated_review(
-            "Erkläre mir die Programmiergeschichte.", draft, revised)
-        self.assertEqual(result["text"], revised)
-        self.assertEqual(result["review_status"], "completed_unverified")
+        result, calls = first_pass("Schreibe Python-Code für diese Aufgabe.", draft)
+        self.assertIn("```python", result["text"])
+        self.assertEqual(len(calls), 1)
+
+    def test_normal_question_does_not_force_code_or_json_output(self):
+        result, calls = first_pass(
+            "Erkläre mir JSON anhand eines Beispiels.",
+            "JSON ist ein Datenformat und benötigt ein gültiges Schema.",
+        )
+        self.assertEqual(result["text"],
+                         "JSON ist ein Datenformat und benötigt ein gültiges Schema.")
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":
