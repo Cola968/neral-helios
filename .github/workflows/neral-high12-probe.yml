@@ -1,0 +1,173 @@
+name: NERAL HIGH12 one-task Ollama PS and timings preflight
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Type NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY (one GPU task, no training)'
+        required: true
+        type: string
+      target_sha:
+        description: 'Full 40-character active PR #503 head SHA'
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'scripts/neral_high12_probe.py'
+      - 'tests/test_neral_high12_probe.py'
+      - '.github/workflows/neral-high12-probe.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_high12_probe.py'
+      - 'tests/test_neral_high12_probe.py'
+      - '.github/workflows/neral-high12-probe.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  cpu:
+    name: Test request-parity and /api/ps contracts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - run: python -B -m unittest discover -s tests -p test_neral_high12_probe.py -v
+      - run: python -B -m py_compile scripts/neral_high12_probe.py
+
+  verify-pr:
+    name: Authorize exact PR #503 head SHA
+    needs: cpu
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AUTHORIZE: ${{ inputs.authorize }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+    outputs:
+      target_sha: ${{ steps.verify.outputs.target_sha }}
+    steps:
+      - id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != "Cola968/neral-helios" ||
+                "$AUTHORIZE" != "NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY" ||
+                ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Invalid authorization or target SHA' >&2
+            exit 1
+          fi
+          PR_JSON="$(gh api "repos/$GITHUB_REPOSITORY/pulls/503")"
+          export PR_JSON
+          python - <<'PY'
+          import json,os
+          p=json.loads(os.environ['PR_JSON'])
+          if not (p.get('state') == 'open' and
+                  p['head']['sha'] == os.environ['TARGET_SHA'] and
+                  p['head']['ref'] == 'fix/neral-high-first-pass-only-20261110' and
+                  p['head']['repo']['full_name'] == 'Cola968/neral-helios' and
+                  p['base']['ref'] == 'main' and
+                  p['base']['repo']['full_name'] == 'Cola968/neral-helios'):
+              raise SystemExit('PR #503 SHA no longer matches; refuse GPU start')
+          PY
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+
+  gpu-probe:
+    name: One real Qwen3.5 request, 45 s max, GPU-residency gate
+    needs: verify-pr
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ needs.verify-pr.outputs.target_sha }}
+      NERAL_EXPERIMENTAL_TIR: '0'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout trusted probe controller from main
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          clean: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        name: Checkout immutable PR #503 candidate for SHA verification only
+        with:
+          ref: ${{ needs.verify-pr.outputs.target_sha }}
+          path: candidate
+          clean: true
+          persist-credentials: false
+      - name: Confirm PR head and GPU availability
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios' -or
+              $env:TARGET_SHA -notmatch '^[0-9a-f]{40}$' -or
+              $env:NERAL_EXPERIMENTAL_TIR -ne '0') {throw 'Not an authorized probe'}
+          $actual=(& git -C (Join-Path $env:GITHUB_WORKSPACE 'candidate') rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA) {throw 'Wrong target SHA'}
+          $pr=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/pulls/503') | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $pr.head.sha -ne $env:TARGET_SHA -or
+              $pr.head.ref -ne 'fix/neral-high-first-pass-only-20261110') {throw 'PR head changed'}
+          $gpu=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if ($LASTEXITCODE -ne 0) {throw 'nvidia-smi unavailable'}
+          $row=($gpu | Select-Object -First 1) -split ','
+          if ($row.Count -ne 2 -or [int]$row[0].Trim() -lt 2000 -or
+              [int]$row[1].Trim() -gt 25) {throw 'GPU busy; no Ollama model evictions'}
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $base=Join-Path $root 'training-env-py312/Scripts/python.exe'
+          if (-not (Test-Path -LiteralPath $base -PathType Leaf)) {throw 'Existing local Python missing'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-high12-probe-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if (Test-Path -LiteralPath $venv) {throw 'Cannot overwrite environment'}
+          & $base -B -m venv $venv
+          if ($LASTEXITCODE -ne 0) {throw 'Isolated Python creation failed'}
+          $py=Join-Path $venv 'Scripts/python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'control/requirements-neral-preview.txt')
+          if ($LASTEXITCODE -ne 0) {throw 'Preview dependencies unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('HIGH12_PROBE_PY='+$py+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+      - name: Inspect /api/ps, unload LOW, preload HIGH, probe one raw chat at 45 seconds
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $dir=Join-Path $root 'neral_high12_probe_scalars'
+          if (Test-Path -LiteralPath $dir) {throw 'Refuse occupied report location'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          $env:PYTHONPATH=$root
+          Push-Location $root
+          try {
+            & $env:HIGH12_PROBE_PY -B -m scripts.neral_high12_probe --authorize NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY --target-sha $env:TARGET_SHA --out (Join-Path $dir 'report.json')
+            if ($LASTEXITCODE -ne 0) {throw 'One-task probe failed; see sanitized report'}
+          } finally {Pop-Location}
+      - name: Upload sanitized timing and GPU-residency report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-high12-one-task-probe
+          path: control/neral_high12_probe_scalars/report.json
+          retention-days: 14
+          if-no-files-found: warn
