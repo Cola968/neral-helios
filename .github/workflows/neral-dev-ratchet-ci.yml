@@ -1,0 +1,35 @@
+name: NERAL development ratchet CPU contracts
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_dev_ratchet.py'
+      - 'tests/test_neral_dev_ratchet.py'
+      - '.github/workflows/neral-dev-ratchet-ci.yml'
+      - 'docs/NERAL_RELEASE_RATCHET.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_dev_ratchet.py'
+      - 'tests/test_neral_dev_ratchet.py'
+      - '.github/workflows/neral-dev-ratchet-ci.yml'
+      - 'docs/NERAL_RELEASE_RATCHET.md'
+
+permissions:
+  contents: read
+
+jobs:
+  ratchet-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Real Hard36 summary format and paired nonregression logic
+        run: python -B -m unittest discover -s tests -p test_neral_dev_ratchet.py -v
+      - name: Source compile
+        run: python -B -m py_compile scripts/neral_dev_ratchet.py
