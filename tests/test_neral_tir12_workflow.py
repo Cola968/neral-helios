@@ -46,6 +46,15 @@ class Tir12WorkflowContracts(unittest.TestCase):
         self.assertNotIn("Start-Service",code)
         self.assertIn("throw 'Pre-installed offline Python Docker sandbox missing'",text)
 
+    def test_merged_high_and_tir_main_base_are_accepted_with_exact_shas(self):
+        text = WF.read_text("utf8")
+        self.assertIn('pr.get("base", {}).get("ref") == "main"', text)
+        self.assertIn('high.get("state") == "closed"', text)
+        self.assertIn('high.get("merged_at") is not None', text)
+        self.assertIn('high.get("head", {}).get("sha") == os.environ["HIGH_SHA"]', text)
+        self.assertIn('merge-base --is-ancestor $env:HIGH_SHA HEAD', text)
+        self.assertNotIn('high.get("state") == "open"', text)
+
     def test_scalar_only_and_no_models_or_prompt_upload(self):
         text=WF.read_text("utf8")
         self.assertIn('scripts/neral_tir12_manual.py',text)
