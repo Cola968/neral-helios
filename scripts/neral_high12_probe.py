@@ -408,6 +408,8 @@ def run_probe(*, authorize: str, target_sha: str, output: Path,
             )
             stage = "cuda_daemon_recovery"
             report["cuda_fallback_detected"] = True
+            report["gpu_residency_on_fallback"] = dict(
+                report["gpu_residency_before"])
             recover_if_authorized(
                 size_vram=report["gpu_residency_before"]["size_vram_bytes"],
                 free_mib=report["nvidia_gpu"]["memory_free_mib"],
