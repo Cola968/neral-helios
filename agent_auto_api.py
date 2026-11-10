@@ -29,6 +29,7 @@ def resolve_local_adapter_paths(home: Path, env) -> tuple[Path, Path, bool]:
 
 def register_autonomous_agent_api(app, workspace, backend=None):
     name = os.environ.get("NERAL_AGENT_OLLAMA_MODEL", "qwen3.5:9b")
+    ollama_profile = os.environ.get("NERAL_AGENT_INFERENCE_PROFILE", "legacy")
     if backend is None:
         engine = os.environ.get("NERAL_AGENT_BACKEND", "auto")
         if engine == "auto":
@@ -45,9 +46,9 @@ def register_autonomous_agent_api(app, workspace, backend=None):
                     backend = HFAdapterLocalBackend(base, adapter)
                 except (AgentModelError, OSError, ValueError):
                     # Preserve the previous legacy-auto Ollama fallback.
-                    backend = OllamaLocalBackend(name)
+                    backend = OllamaLocalBackend(name, inference_profile=ollama_profile)
             else:
-                backend = OllamaLocalBackend(name)
+                backend = OllamaLocalBackend(name, inference_profile=ollama_profile)
         elif engine == "hf_adapter":
             from neral_agent_hf import HFAdapterLocalBackend
             if os.environ.get("NERAL_AGENT_ADAPTER_CHANNEL")=="v5":
@@ -59,7 +60,7 @@ def register_autonomous_agent_api(app, workspace, backend=None):
                     raise ValueError("Für HF-Adapter sind lokale Modellpfade erforderlich.")
             backend = HFAdapterLocalBackend(base, adapter)
         elif engine == "ollama":
-            backend = OllamaLocalBackend(name)
+            backend = OllamaLocalBackend(name, inference_profile=ollama_profile)
         else:
             raise ValueError("Unbekanntes lokales Agentenmodell.")
     controller = AutonomousAgent(workspace, backend)
