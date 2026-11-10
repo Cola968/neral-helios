@@ -152,6 +152,7 @@ def _run_ephemeral_python(code: str) -> dict:
         return {"status": "FAILED", "error_type": "RuntimeError",
                 "traceback": "Empty or invalid program output"}
     return {"status": "PASSED", "output": result,
+            "stderr": completed.stderr.decode("utf-8", "replace").strip()[:512],
             "verification_scope": "execution_only"}
 
 
