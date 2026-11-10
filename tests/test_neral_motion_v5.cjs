@@ -44,3 +44,63 @@ test("only confirmed live search results may be injected or displayed",()=>{
   assert.match(js,/appendSources\(answerNode,sources\)/);
   assert.doesNotMatch(js,/if\(sources\.length\)appendSources\(sources\)/);
 });
+
+function searchFunctions(){
+  const source=read("static/neral-preview.js");
+  const start=source.indexOf("  function skipWebForLocalBasics(");
+  const end=source.indexOf("  function appendSources(",start);
+  assert.ok(start>=0&&end>start);
+  return vm.runInNewContext(source.slice(start,end)+
+    "\n({shouldSearchWeb,makeSearchQuery,webEvidencePrompt,normaliseSearchRefusal})",{});
+}
+test("checked Web searches short factual follow-ups and reuses only a previous web query",()=>{
+  const x=searchFunctions();
+  assert.equal(x.shouldSearchWeb("warum nicht"),false);
+  assert.equal(x.shouldSearchWeb("warum nicht","Turbofan-Triebwerk"),true);
+  assert.equal(x.shouldSearchWeb("Wie funktioniert ein Turbofan?"),true);
+  assert.equal(x.shouldSearchWeb("Hallo"),false);
+  assert.equal(x.makeSearchQuery("warum nicht","Turbofan-Triebwerk"),"Turbofan-Triebwerk warum nicht");
+  assert.equal(x.makeSearchQuery("Wie funktioniert ein Turbofan?","geheimes Passwort"),"Wie funktioniert ein Turbofan?");
+});
+test("a completed search never lets NERAL claim it cannot perform web search",()=>{
+  const x=searchFunctions();
+  const refusal="Ich kann im Moment keine Web-Suche durchführen, da ich keine Echtzeitinformationen habe.";
+  assert.match(x.webEvidencePrompt("Was gibt es Neues?",[],true),/Websuche.{0,100}ausgeführt/i);
+  assert.match(x.webEvidencePrompt("Was gibt es Neues?",[],true),/keine.{0,40}Treffer/i);
+  assert.doesNotMatch(x.webEvidencePrompt("Was gibt es Neues?",[],true),/bis 2024/i);
+  assert.match(x.normaliseSearchRefusal(refusal,2,true),/2.{0,40}Quellen|2.{0,40}Treffer/i);
+  assert.equal(x.normaliseSearchRefusal(refusal,0,false),refusal);
+  assert.equal(x.normaliseSearchRefusal("Ein Turbofan erzeugt Schub.",2,true),"Ein Turbofan erzeugt Schub.");
+});
+test("every reachable source is immediately visible with its own real favicon request",()=>{
+  const render=sourceRenderer(),actions=new El("div");actions.className="message-actions";
+  render({querySelector:()=>actions},["a","b","c","d"].map((x,i)=>({
+    title:"Quelle "+i,url:"https://"+x+".example.org/article",reachable:true
+  })));
+  const details=actions.querySelector(".neral-source-disclosure");
+  assert.equal(details.open,true,"source list must not be collapsed by default");
+  function collect(el,tag){return [...(el.tagName===tag.toUpperCase()?[el]:[]),
+    ...el.children.flatMap(x=>collect(x,tag))];}
+  const links=collect(details,"a"),icons=collect(details,"img");
+  assert.equal(links.length,4);
+  for(const link of links){
+    const host=new URL(link.href).hostname;
+    const ownIcon=collect(link,"img");
+    assert.equal(ownIcon.length,1);
+    assert.equal(ownIcon[0].src,"/api/web/favicon?host="+encodeURIComponent(host));
+  }
+  assert.ok(icons.length>=4);
+});
+test("web activity displays the actual submitted query without fabricated image-search steps",()=>{
+  const js=read("static/neral-motion.js");
+  assert.match(js,/search-query/);
+  assert.match(js,/neral-live-search-query/);
+  assert.doesNotMatch(js,/Bildersuche tur[b]?ofan|Ausgeführte 3 Suchen/);
+});
+
+test("conversation clearing and switching invalidate the previous web query",()=>{
+  const js=read("static/neral-preview.js");
+  assert.match(js,/addEventListener\?\.\("neral:chat-cleared",\(\)=>\{lastWebQuery="";\}\)/);
+  assert.match(js,/addEventListener\?\.\("neral:load-chat",\(\)=>\{lastWebQuery="";\}\)/);
+  assert.match(js,/if\(!\$\("useWebSearch"\)\.checked\)lastWebQuery="";/);
+});

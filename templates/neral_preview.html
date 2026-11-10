@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/static/neral-math.css">
   <link rel="stylesheet" href="/static/neral-formulas.css">
   <link rel="stylesheet" href="/static/neral-reference-ui.css">
+  <link rel="stylesheet" href="/static/neral-clean-ui.css">
   <script src="/static/neral-live-stream.js" defer></script>
   <script src="/static/vendor/katex/katex.min.js" defer></script>
   <script src="/static/vendor/katex/mhchem.min.js" defer></script>
@@ -29,6 +30,7 @@
   <script src="/static/neral-modern.js" defer></script>
   <script src="/static/neral-dynamic-ui.js" defer></script>
   <script src="/static/neral-reference-ui.js" defer></script>
+  <script src="/static/neral-clean-ui.js" defer></script>
 </head>
 <body>
   <div class="app-layout">
@@ -96,13 +98,7 @@
         </div>
         <div class="header-end">
           <div id="connection" role="status" class="connect" aria-live="polite">Verbinde lokal …</div>
-          <button type="button" id="themeToggle" aria-label="Dunkles Design einschalten"
-            aria-pressed="false" title="Dunkles Design">
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"
-              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 15a8 8 0 0 1-11-11 8 8 0 1 0 11 11Z"/>
-            </svg>
-          </button>
+
           <div id="headerToolsSlot"></div>
         </div>
       </header>
@@ -121,12 +117,21 @@
             <div id="attachmentChips" class="neral-attachment-chips" aria-label="Ausgewählte Anhänge"></div>
             <div class="toolbar composer-toolbar">
               <div class="composer-tools">
-                <label class="attach-control icon-button" title="Bilder oder Dokumente lokal anhängen">
+                <details id="quickAddMenu" class="quick-add-menu">
+                  <summary aria-label="Weitere Inhalte hinzufügen" title="Dateien und Formeln hinzufügen">
+                    <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                  </summary>
+                  <div class="quick-add-panel" role="group" aria-label="Inhalte hinzufügen">
+                <label class="attach-control quick-add-file" title="Bilder oder Dokumente lokal anhängen">
                   <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
-                  <span class="sr-only">Datei anhängen</span>
+                  <span>Dateien anhängen</span>
                   <input id="projectFiles" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.py,.js,.ts,.tsx,.json,.md,.txt,.csv,.html,.css,.log,.yml,.yaml" aria-label="Datei anhängen" aria-describedby="fileStatus">
                 </label>
-                <button id="formulaLibraryToggle" type="button" aria-controls="formulaLibraryPanel" aria-expanded="false" title="Formeln durchsuchen">∑ Formeln</button>
+                <button id="formulaLibraryToggle" type="button" class="quick-add-action" aria-controls="formulaLibraryPanel" aria-expanded="false" title="Formeln durchsuchen"><span aria-hidden="true">∑</span><span>Formelsammlung</span></button>
+                  </div>
+                </details>
+
+
                 <div class="modes" role="group" aria-label="Modus">
                   <label><input type="radio" name="mode" value="fast" checked> LOW</label>
                   <label><input type="radio" name="mode" value="think"> HIGH</label>
@@ -137,7 +142,7 @@
                     stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c4 4 4 14 0 18M12 3c-4 4-4 14 0 18"/>
                   </svg>
-                  <span>Websuche</span>
+                  <span>Web</span>
                 </label>
                 <details id="extraTools" class="tools-menu">
                   <summary title="Weitere Funktionen öffnen" aria-label="Weitere Funktionen">
@@ -146,6 +151,18 @@
                   </summary>
                   <div class="tools-panel">
                     <h2>Weitere Funktionen</h2>
+          <button type="button" id="themeToggle" class="secondary menu-action advanced-theme-action" aria-label="Dunkles Design einschalten"
+            aria-pressed="false" title="Dunkles Design">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 15a8 8 0 0 1-11-11 8 8 0 1 0 11 11Z"/>
+            </svg>
+              <span>Design wechseln</span>
+          </button>
+                <button id="voiceInput" type="button" class="secondary menu-action advanced-voice-action" aria-label="Browser-Mikrofon einschalten" title="Browser-Spracherkennung kann Audio an einen Browseranbieter übertragen">
+                  <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.7 11.5a6.3 6.3 0 0 0 12.6 0M12 18v3M8 21h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                  <span>Browser-Diktat</span>
+                </button>
                     <button id="codeCheck" type="button" class="secondary menu-action">Python-Syntax prüfen</button>
                     <button id="clear" type="button" class="secondary menu-action">Chatverlauf leeren</button>
                     <button id="showPrivacy" type="button" class="secondary menu-action">Datenschutz und Modellhinweise</button>
@@ -163,26 +180,28 @@
                 <div class="mode-dropdown">
                   <button type="button" id="modeDropdownTrigger" aria-haspopup="menu"
                     aria-expanded="false" aria-controls="modeDropdownMenu" title="Denkmodus auswählen">
-                    <span id="modeDropdownLabel">Niedrig</span>
+                    <span id="modeDropdownLabel">LOW</span>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                   </button>
                   <div id="modeDropdownMenu" class="mode-dropdown-menu" role="menu" aria-label="Denkmodus" hidden>
                     <button id="modeOptionLow" type="button" role="menuitemradio" aria-checked="true">
-                      Niedrig <span class="mode-check" aria-hidden="true">✓</span>
+                      LOW <span class="mode-check" aria-hidden="true">✓</span>
                     </button>
                     <button id="modeOptionHigh" type="button" role="menuitemradio" aria-checked="false">
-                      Hoch <span class="mode-check" aria-hidden="true">✓</span>
+                      HIGH <span class="mode-check" aria-hidden="true">✓</span>
                     </button>
                   </div>
                 </div>
-                <button id="voiceInput" type="button" class="secondary icon-button" aria-label="Browser-Mikrofon einschalten" title="Browser-Spracherkennung kann Audio an einen Browseranbieter übertragen">
-                  <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.7 11.5a6.3 6.3 0 0 0 12.6 0M12 18v3M8 21h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-                </button>
+
                 <button id="localVoiceStart" type="button" class="secondary voice-local" aria-label="Lokalen Sprachmodus starten oder stoppen" aria-pressed="false" aria-describedby="localVoiceStatus" title="Offline-Sprachmodus auf deinem PC">
                   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 9v6m4-9v12m4-15v18m4-14v10m4-8v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                   <span class="voice-label">Lokal sprechen</span>
                 </button>
-                <button id="stopRequest" type="button" class="secondary stop-request" disabled title="Stoppt den Browseraufruf. Ollama kann lokal weiterrechnen.">Stopp</button>
+                <button id="stopRequest" type="button" class="secondary stop-request" disabled
+                  aria-label="Antwort stoppen" title="Stoppt den Browseraufruf. Ollama kann lokal weiterrechnen.">
+                  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+                  <span class="sr-only">Stopp</span>
+                </button>
                 <button id="submit" class="send-button" type="submit" aria-label="Senden" title="Senden">
                   <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>

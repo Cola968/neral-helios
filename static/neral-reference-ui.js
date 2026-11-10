@@ -12,7 +12,7 @@
   if(!trigger||!menu||!low||!high||!radios.fast||!radios.think)return;
   const current=$("modeDropdownLabel");
   const entries={fast:low,think:high};
-  const labels={fast:"Niedrig",think:"Hoch"};
+  const labels={fast:"LOW",think:"HIGH"};
 
   function refresh(){
     const selected=radios.think.checked?"think":"fast";
