@@ -306,7 +306,18 @@ class OllamaLocalBackend:
             "keep_alive": "5m",
         }
         if require_json:
-            request_data["format"] = "json"
+            # Ollama's constrained JSON-schema decoding forces a JSON object
+            # from the first generated character. The strict source-grounded
+            # extractor still validates semantics and rejects kind=none.
+            request_data["format"] = (
+                {"type": "object", "properties": {
+                    "kind": {"type": "string", "enum": ["formal", "none"]},
+                    "complete": {"type": "boolean"},
+                    "schema": {"type": "object"},
+                    "evidence": {"type": "array", "items": {"type": "string"}},
+                }, "required": ["kind"]}
+                if extraction_only else "json"
+            )
         diagnostic = {
             "endpoint": "/api/chat", "model": self.model,
             "request_keys": sorted(request_data),
