@@ -110,6 +110,25 @@ class TimingDiagnostics(unittest.TestCase):
                                "eval_duration": -1})
 
 
+
+class GpuSamplerContracts(unittest.TestCase):
+    def test_gpu_monitor_sanitizes_utilization_samples(self):
+        from scripts.neral_high12_probe import parse_gpu_telemetry, summarize_gpu_samples
+        self.assertEqual(parse_gpu_telemetry("92, 6194"), (92, 6194))
+        summary = summarize_gpu_samples([(0, 6050), (94, 6030), (98, 6010)])
+        self.assertEqual(summary["gpu_util_samples_percent"], [0, 94, 98])
+        self.assertEqual(summary["gpu_util_peak_percent"], 98)
+        self.assertEqual(summary["samples_count"], 3)
+        self.assertEqual(summary["vram_used_peak_mib"], 6050)
+
+    def test_invalid_gpu_samples_rejected(self):
+        from scripts.neral_high12_probe import parse_gpu_telemetry
+        for line in ("", "101, 6000", "-1, 1", "100, -1", "ten, 2",
+                     "12, 5, 42", "12, 5\\nprivate", "0.1, 50"):
+            with self.subTest(line=line), self.assertIsNone(parse_gpu_telemetry(line))
+
+
+
 class PilotSelection(unittest.TestCase):
     def test_one_representative_math_case_deterministic(self):
         a = select_probe_case()
