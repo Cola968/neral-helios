@@ -401,7 +401,7 @@
   function renderAttachmentChips(files){
     const list=$("attachmentChips");
     if(!list || typeof list.replaceChildren!=="function")return;
-    const chips=files.map(file=>{
+    const chips=files.map((file,index)=>{
       const suffix=String(file.name).split(".").pop().toLowerCase();
       const label=["png","jpg","jpeg","webp"].includes(suffix)?"BILD":
         suffix==="pdf"?"PDF":suffix==="docx"?"DOCX":"DATEI";
@@ -416,7 +416,25 @@
       const size=document.createElement("span");
       size.className="neral-attachment-chip-size";
       size.textContent=(file.size/1024).toFixed(1)+" KB";
-      chip.append(kind,name,size);
+      const remove=document.createElement("button");
+      remove.type="button"; // Never submit the chat when removing a file.
+      remove.className="neral-attachment-chip-remove";
+      remove.textContent="×";
+      remove.title="Anhang entfernen";
+      remove.setAttribute("aria-label",file.name+" entfernen");
+      remove.addEventListener("click",()=>{
+        // The selected files are owned by our own array, not the native
+        // read-only FileList. Clear the input so the same file can be chosen
+        // again immediately after removal.
+        attachments=attachments.filter((_,i)=>i!==index);
+        fileInput.value="";
+        renderAttachmentChips(attachments);
+        fileStatus.textContent=attachments.length
+          ? "Ausgewählt: "+attachments.map(f=>f.name).join(", ")+
+            " · Übertragung ausschließlich an deinen lokalen NERAL beim Senden."
+          : "Keine Dateien ausgewählt.";
+      });
+      chip.append(kind,name,size,remove);
       return chip;
     });
     list.replaceChildren(...chips);
