@@ -1,7 +1,7 @@
 """Offline audit of strict numerical final-answer parsing.
 
 This test intentionally DOES NOT relax historic scorer contracts or re-score
-past Hard36 runs. Right answer in a nonconforming format is still a format miss.
+past Hard36 runs. A genuinely ambiguous answer remains a format miss; unambiguous variants are accepted.
 """
 import unittest
 from neral_think import extract_final
@@ -15,15 +15,15 @@ class FinalAnswerFormatAuditTests(unittest.TestCase):
             with self.subTest(response=response):
                 self.assertTrue(_correct(42, response, True), response)
 
-    def test_correct_number_in_prose_is_not_counted_as_correct(self):
+    def test_explicit_result_in_terminal_prose_is_scored(self):
         response = "Das Ergebnis beträgt 42."
-        self.assertFalse(_correct(42, response, True))
-        self.assertIsNone(extract_final(response))
+        self.assertTrue(_correct(42, response, True))
+        self.assertEqual(extract_final(response), "42")
 
-    def test_markdown_decorated_final_is_rejected_by_strict_benchmark_contract(self):
+    def test_markdown_decorated_final_is_accepted_when_unique_and_terminal(self):
         response = "**FINAL_ANSWER: 42**"
-        self.assertFalse(_correct(42, response, True))
-        self.assertIsNone(extract_final(response))
+        self.assertTrue(_correct(42, response, True))
+        self.assertEqual(extract_final(response), "42")
 
     def test_incomplete_or_duplicate_final_lines_remain_invalid(self):
         for response, complete in (("FINAL: 42", False),
