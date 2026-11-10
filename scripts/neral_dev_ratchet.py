@@ -11,7 +11,9 @@ import json
 from pathlib import Path
 
 
-def assess_hard36(summary: dict) -> dict:
+def assess_hard36(summary: dict, *, candidate_arm: str = "neral_high_router") -> dict:
+    if candidate_arm not in ("neral_high", "neral_high_router"):
+        raise ValueError("Unknown permitted HIGH comparison arm")
     if type(summary) is not dict:
         raise ValueError("Expected a JSON object")
     if (summary.get("status") != "NERAL_SAME_BASE_3ARM_DEVELOPMENT_DIAGNOSTIC"
@@ -27,8 +29,8 @@ def assess_hard36(summary: dict) -> dict:
     if type(arms) is not dict or type(paired) is not dict:
         raise ValueError("Missing paired scorer results")
     raw = arms.get("raw_qwen35")
-    candidate = arms.get("neral_high_router")
-    match = paired.get("neral_high_router_vs_raw_qwen35")
+    candidate = arms.get(candidate_arm)
+    match = paired.get(candidate_arm + "_vs_raw_qwen35")
     if any(type(v) is not dict for v in (raw, candidate, match)):
         raise ValueError("Missing same-run baseline, candidate or paired result")
 
@@ -43,6 +45,7 @@ def assess_hard36(summary: dict) -> dict:
 
     return {
         "scope": "hard36_development_only",
+        "candidate_arm": candidate_arm,
         "baseline_correct": baseline,
         "candidate_correct": result,
         "paired_wins": wins,
@@ -62,9 +65,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summary", type=Path,
                         help="Actual scalar-summary.json from a completed Hard36 GPU run")
+    parser.add_argument("--candidate-arm", choices=("neral_high", "neral_high_router"),
+                        default="neral_high_router",
+                        help="Candidate in the same original paired Hard36 report")
     args = parser.parse_args()
     try:
-        report = assess_hard36(json.loads(args.summary.read_text(encoding="utf-8")))
+        report = assess_hard36(json.loads(args.summary.read_text(encoding="utf-8")),
+                               candidate_arm=args.candidate_arm)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(report, sort_keys=True))
