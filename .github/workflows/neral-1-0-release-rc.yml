@@ -98,6 +98,9 @@ on:
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-reference-ui.css'
+      - 'static/neral-clean-ui.css'
+      - 'static/neral-clean-ui.js'
+      - 'tests/test_neral_clean_ui.cjs'
       - 'static/neral-reference-ui.js'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
@@ -230,6 +233,9 @@ on:
       - 'static/neral-dynamic-ui.css'
       - 'tests/test_neral_dynamic_ui.cjs'
       - 'static/neral-reference-ui.css'
+      - 'static/neral-clean-ui.css'
+      - 'static/neral-clean-ui.js'
+      - 'tests/test_neral_clean_ui.cjs'
       - 'static/neral-reference-ui.js'
       - 'static/neral-motion.css'
       - 'static/neral-motion.js'
@@ -344,6 +350,8 @@ jobs:
       - run: node --test tests/test_neral_dynamic_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_history.cjs
       - run: node --check static/neral-reference-ui.js
+      - run: node --check static/neral-clean-ui.js
+      - run: node --test tests/test_neral_clean_ui.cjs
       - run: node --test tests/test_neral_reference_ui.cjs
       - run: node --test tests/test_neral_1_0_preview_cancel_v2.cjs
       - run: python -m unittest discover -s tests -p test_neral_1_0_live_streaming.py -v

@@ -91,6 +91,8 @@ REQUIRED_FILES = (
     "static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2",
     "static/neral-reference-ui.css",
     "static/neral-reference-ui.js",
+    "static/neral-clean-ui.css",
+    "static/neral-clean-ui.js",
     "static/neral-motion.js",
     "static/neral-motion.css",
     "static/icon.svg",
