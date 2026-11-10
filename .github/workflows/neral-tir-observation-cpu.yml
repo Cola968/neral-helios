@@ -1,0 +1,35 @@
+name: NERAL 1.1 two-stage TIR observation CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_tir_experimental.py'
+      - 'tests/test_neral_tir_observation.py'
+      - 'tests/test_neral_experimental_tir.py'
+      - '.github/workflows/neral-tir-observation-cpu.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_tir_experimental.py'
+      - 'tests/test_neral_tir_observation.py'
+      - 'tests/test_neral_experimental_tir.py'
+      - '.github/workflows/neral-tir-observation-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  observation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: TIR observation and baseline fallback contracts
+        run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
+      - name: Existing TIR sandbox and opt-in safety contracts
+        run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
