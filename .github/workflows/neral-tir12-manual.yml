@@ -159,7 +159,10 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA) { throw 'Wrong candidate checkout SHA' }
           & git -C (Join-Path $env:GITHUB_WORKSPACE 'candidate') merge-base --is-ancestor $env:HIGH_SHA HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Pinned PR #503 HIGH SHA is not ancestor of PR #505' }
-          if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Local sandbox Docker unavailable' }
+          # Trust only the protected main controller script; never execute
+          # candidate PR code to resume local services or bypass Docker.
+          & (Join-Path $env:GITHUB_WORKSPACE 'control/scripts/neral_docker_desktop_preflight.ps1')
+          if ($LASTEXITCODE -ne 0) { throw 'Local Docker preflight failed' }
           & docker image inspect python:3.11-alpine *> $null
           if ($LASTEXITCODE -ne 0) { throw 'Pre-installed offline Python Docker sandbox missing' }
           $pr = gh api ('repos/' + $env:GITHUB_REPOSITORY + '/pulls/505') | ConvertFrom-Json

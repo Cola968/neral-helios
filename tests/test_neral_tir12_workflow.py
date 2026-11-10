@@ -29,6 +29,23 @@ class Tir12WorkflowContracts(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token,text)
 
+    def test_docker_desktop_recovery_is_bounded_and_no_sandbox_bypass(self):
+        text=WF.read_text("utf8")
+        script=ROOT/"scripts"/"neral_docker_desktop_preflight.ps1"
+        self.assertTrue(script.is_file())
+        code=script.read_text("utf8")
+        self.assertIn("neral_docker_desktop_preflight.ps1",text)
+        self.assertIn("Docker Desktop.exe",code)
+        self.assertIn("docker image inspect python:3.11-alpine",code)
+        self.assertIn("Test-DockerReady",code)
+        self.assertIn("Start-Sleep",code)
+        self.assertNotIn("docker pull ",code)
+        self.assertNotIn("docker system prune",code)
+        self.assertNotIn("taskkill",code)
+        self.assertNotIn("Stop-Process",code)
+        self.assertNotIn("Start-Service",code)
+        self.assertIn("throw 'Pre-installed offline Python Docker sandbox missing'",text)
+
     def test_scalar_only_and_no_models_or_prompt_upload(self):
         text=WF.read_text("utf8")
         self.assertIn('scripts/neral_tir12_manual.py',text)
