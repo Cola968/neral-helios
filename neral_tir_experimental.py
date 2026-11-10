@@ -197,6 +197,7 @@ def run_experimental_tir(
     respond: Callable[[list[dict]], str],
     *,
     tool_runner: Callable[[str, str], dict] = execute_tir_tool,
+    finalize_review: Callable[[list[dict]], tuple[str, bool]] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Bounded tool -> observation -> final, or raw-Qwen fallback.
@@ -209,7 +210,8 @@ def run_experimental_tir(
             or messages[0].get("role") != "system"
             or messages[-1].get("role") != "user"
             or any(type(row.get("content")) is not str for row in messages)
-            or not callable(respond) or not callable(tool_runner)):
+            or not callable(respond) or not callable(tool_runner)
+            or (finalize_review is not None and not callable(finalize_review))):
         raise ValueError("Invalid experimental TIR input")
     initial = clock()
     original = [dict(row) for row in messages]
@@ -300,8 +302,26 @@ def run_experimental_tir(
         }
     ]
     calls += 1
+    recovered_final = False
     try:
-        final_raw = respond(review_turns)
+        if finalize_review is None:
+            final_raw = respond(review_turns)
+        else:
+            # The specialized HIGH-only backend may make one additional 64-token
+            # closure after `done_reason=length`. It never runs for raw Qwen
+            # and never changes the first tool-decision call.
+            response = finalize_review(review_turns)
+            if (type(response) is not tuple or len(response) != 2
+                    or type(response[0]) is not str
+                    or type(response[1]) is not bool):
+                return base_fallback()
+            final_raw, recovered_final = response
+            if recovered_final:
+                calls += 1  # Account for extra inference, never hide its cost.
+                if suffix and re.fullmatch(
+                        r"FINAL_ANSWER:\s*[+-]?\d{1,15}", final_raw.strip(), re.I):
+                    # Only explicitly marked recovery gets this envelope.
+                    final_raw = _FINAL_PREFIX+" "+final_raw.strip()
     except Exception:
         return base_fallback()
     final = _accepted_final(final_raw, strict_integer=bool(suffix))
@@ -312,6 +332,7 @@ def run_experimental_tir(
         "verified": False, "verification_status": "tool_observed_unverified",
         "verification_scope": scope, "tool_used": tool_used,
         "tool_output_reviewed": True, "calls_used": calls,
+        "completion_recovery_used": recovered_final,
         "tool_calls_triggered": triggered, "tool_calls_succeeded": succeeded,
         "seconds": round(clock() - initial, 3),
     }
