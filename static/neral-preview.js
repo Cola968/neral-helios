@@ -150,6 +150,20 @@
   // Link reachability was verified by the local backend. Search excerpts are
   // not treated as an independently checked article or factual endorsement.
   function appendSources(answerNode,sources) {
+    function favicon(host,cssClass){
+      const image=document.createElement("img");
+      image.className=cssClass;
+      image.src="/api/web/favicon?host="+encodeURIComponent(host);
+      image.alt="";
+      image.setAttribute("alt","");
+      image.setAttribute("aria-hidden","true");
+      image.loading="lazy";
+      image.decoding="async";
+      image.referrerPolicy="no-referrer";
+      image.addEventListener?.("load",()=>image.classList.add("neral-favicon-loaded"));
+      image.addEventListener?.("error",()=>image.remove());
+      return image;
+    }
     const actions=answerNode?.querySelector?.(".message-actions");
     if(!actions||!Array.isArray(sources))return;
     const valid=[];
@@ -174,7 +188,8 @@
     valid.slice(0,3).forEach(v=>{
       const marker=document.createElement("span");
       marker.className="neral-source-mark";
-      marker.textContent=v.host.replace(/^www\./,"").slice(0,1).toUpperCase();
+      marker.textContent="◉"; // A neutral fallback if the site has no icon.
+      marker.append(favicon(v.host,"neral-source-favicon"));
       stack.append(marker);
     });
     const name=document.createElement("span");
@@ -193,7 +208,14 @@
       title.textContent=v.title;
       const domain=document.createElement("span");domain.className="neral-source-domain";
       domain.textContent=v.host;
-      link.append(title,domain);list.append(link);
+      const thumbnail=document.createElement("span");
+      thumbnail.className="neral-source-list-thumb";
+      thumbnail.setAttribute("aria-hidden","true");
+      thumbnail.textContent="◉";
+      thumbnail.append(favicon(v.host,"neral-source-list-icon"));
+      const meta=document.createElement("span");meta.className="neral-source-meta";
+      meta.append(title,domain);
+      link.append(thumbnail,meta);list.append(link);
     });
     details.append(summary,list);
     if(typeof actions.prepend==="function")actions.prepend(details);

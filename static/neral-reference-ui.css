@@ -440,3 +440,27 @@ html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
 @media(prefers-reduced-motion:reduce){
   .neral-live-site,.neral-activity-time{animation:none!important;transition:none!important}
 }
+
+/* Website favicons: same-origin images from public HTTPS domains only.
+   No arbitrary external favicon service, no SVG, neutral fallback if missing. */
+.neral-source-mark,.neral-source-list-thumb,.neral-live-icon-wrap{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  overflow:hidden;flex-shrink:0}
+.neral-source-mark{font-size:11px;font-weight:400;color:var(--nr-muted,#747474)}
+.neral-source-list-thumb{width:19px;height:19px;flex:0 0 19px;
+  border-radius:5px;background:var(--nr-sidebar,#f4f4f3);
+  color:var(--nr-muted,#777);font-size:11px}
+.neral-live-icon-wrap{width:15px;height:15px;flex:0 0 15px;
+  margin-right:5px;font-size:10px;color:var(--nr-muted,#808080)}
+.neral-source-favicon,.neral-source-list-icon,.neral-live-site-icon{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  background:var(--nr-bg,#fff);border-radius:inherit;
+  visibility:hidden;opacity:0}
+.neral-source-favicon.neral-favicon-loaded,
+.neral-source-list-icon.neral-favicon-loaded,
+.neral-live-site-icon.neral-favicon-loaded{visibility:visible;opacity:1}
+.neral-source-list .neral-source-link{flex-direction:row;align-items:center;gap:9px}
+.neral-source-meta{display:flex;flex-direction:column;gap:1px;min-width:0}
+@media(prefers-reduced-motion:reduce){
+  .neral-source-favicon,.neral-source-list-icon,.neral-live-site-icon{animation:none!important;transition:none!important}
+}
