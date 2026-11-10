@@ -351,7 +351,7 @@ class OllamaLocalBackend:
         try:
             with local_only_opener().open(
                     request, timeout=min(self.timeout, 90.0) if extraction_only
-                    else 90.0 if (thinking or measured) else self.timeout
+                    else 90.0 if (thinking or measured or interactive_large) else self.timeout
             ) as response:
                 diagnostic["ollama_http_status"] = getattr(response, "status", 200)
                 raw = response.read(128 * 1024 + 1)
