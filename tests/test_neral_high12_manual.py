@@ -52,6 +52,15 @@ class PairedSelectionTests(unittest.TestCase):
         a, b = select_cases(31415926), select_cases(31415927)
         self.assertNotEqual([x["prompt"] for x in a], [x["prompt"] for x in b])
 
+    def test_per_pair_seed_is_stable_not_constant_across_cases(self):
+        from scripts.neral_high12_manual import paired_case_seed
+        a = paired_case_seed(42, "reasoning-a")
+        self.assertEqual(a, paired_case_seed(42, "reasoning-a"))
+        self.assertNotEqual(a, paired_case_seed(42, "reasoning-b"))
+        self.assertNotEqual(a, paired_case_seed(43, "reasoning-a"))
+        self.assertIs(type(a), int)
+        self.assertTrue(0 <= a < 2**31)
+
     def test_invalid_seed_rejected(self):
         for seed in (True, -1, 2**64, "31415926"):
             with self.subTest(seed=seed), self.assertRaises(High12GateError):
