@@ -335,6 +335,22 @@ def require_high_gpu_residency(ps: dict, report: dict) -> None:
         raise PreflightError("high_model_cpu_offload_detected")
 
 
+def release_high_model_after_probe(report: dict) -> None:
+    """After verified inference, free only the known HIGH model for HIGH12.
+
+    The probe and paired benchmark use the same exclusive GPU but the probe
+    keeps Qwen resident for five minutes. Releasing it is not a daemon
+    restart and must never evict unexpected models or bypass verification.
+    """
+    if (type(report) is not dict
+            or report.get("gpu_residency_after", {}).get("fully_gpu_per_ps") is not True):
+        raise PreflightError("probe_gpu_verification_required_before_release")
+    _unload(MODEL)
+    if _loaded():
+        raise PreflightError("probe_left_model_resident")
+    report["gpu_released_for_followup"] = True
+
+
 def run_probe(*, authorize: str, target_sha: str, output: Path,
               restart_authorization: str = "") -> bool:
     if (authorize != AUTHORIZATION or type(target_sha) is not str
@@ -459,6 +475,8 @@ def run_probe(*, authorize: str, target_sha: str, output: Path,
         if MODEL not in loaded or LOW_MODEL in loaded:
             raise PreflightError("gpu_residency_changed")
         report["gpu_residency_after"] = _gpu_summary(loaded[MODEL])
+        stage = "release_after_successful_probe"
+        release_high_model_after_probe(report)
         report["status"] = "PASS"
     except PreflightError as exc:
         report["failure_stage"] = stage
