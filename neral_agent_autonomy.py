@@ -163,6 +163,18 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=False)
 
+    def respond_formal_extract(self, messages: list[dict]) -> str:
+        """Opt-in, local, nonthinking 384-token JSON constraint extraction.
+
+        No effect on raw Qwen, normal LOW/HIGH chat or model weights.
+        """
+        if (self.model != "qwen3.5:9b"
+                or self.inference_profile != "measured_nonthinking_2048"):
+            raise AgentModelError("Constraint extraction requires measured local HIGH.")
+        with self._inference_lock:
+            return self._respond(messages, require_json=True,
+                                 extraction_only=True)
+
     def respond_think(self, messages: list[dict]) -> str:
         # Separate, opt-in local reasoning channel. Do not return raw thoughts.
         with self._inference_lock:
@@ -258,16 +270,23 @@ class OllamaLocalBackend:
 
     def _respond(self, messages: list[dict], *, require_json: bool,
                  thinking: bool = False, final_only: bool = False,
-                 rescue_long_final: bool = False) -> str:
+                 rescue_long_final: bool = False,
+                 extraction_only: bool = False) -> str:
         if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
         if final_only and rescue_long_final:
             raise AgentModelError("Abschluss-Nachschlag darf nicht rekursiv sein.")
-        # Measured Qwen3.5 settings MUST be identical for raw and TIR.
+        if extraction_only and (not require_json or thinking
+                                or final_only or rescue_long_final):
+            raise AgentModelError("Invalid opt-in constraint extraction mode.")
+        # Raw Qwen and the existing TIR calls keep the exact 2,048-token
+        # measured profile. Only the NEW JSON extractor gets 384 tokens.
         measured = (self.inference_profile == "measured_nonthinking_2048"
-                    and not require_json)
+                    and (not require_json or extraction_only))
         budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
         options = (
+            {"temperature": 0, "num_predict": 384, "num_ctx": 4096}
+            if extraction_only else
             {"temperature": 0, "num_predict": 64, "num_ctx": 4096}
             if final_only else
             {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
