@@ -1,4 +1,4 @@
-"""NERAL HIGH coordinator: bounded local verification and optional second-pass review.
+"""NERAL HIGH coordinator: preserve the first model reply; verify only exact oracles.
 
 The verifier only handles fully recognized standalone arithmetic and affine
 equations, using NERAL's existing exact AST math functions. For everything else,
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
-import json
 import re
 import time
 from typing import Callable
@@ -21,7 +20,6 @@ from neral_logic_engine import trusted_logic_question
 
 MAX_RESPONSE = 32768
 MAX_THINK_SECONDS = 180
-MAX_REVIEW_DRAFT_BYTES = 2600
 # Only simple numeric or x = numeric finals. Never extract an arbitrary last number.
 _NUMBER = r"[+-]?\d{1,25}(?:[.,]\d{1,25})?(?:/\d{1,25})?"
 _FINAL_VALUE = re.compile(r"(?:x\s*=\s*)?" + _NUMBER + r"\Z", re.IGNORECASE)
@@ -49,74 +47,6 @@ _RETRY_FEEDBACK = (
     "Beende mit einer einzigen Zeile FINAL: <Ergebnis> "
     "oder FINAL: x = <Ergebnis>."
 )
-
-
-# HIGH uses a second separate local inference for non-oracle tasks.
-# The draft is an assistant message, not evidence of correctness.
-_HIGH_REVIEW_FEEDBACK = (
-    "HIGH – kritische Qualitätsprüfung deines vorherigen Entwurfs: "
-    "Kontrolliere die eigentliche Nutzerfrage, Annahmen, Rechenschritte, "
-    "Einheiten, Randfälle, mögliche Gegenbeispiele und offensichtliche "
-    "Faktenunsicherheit. Überarbeite die Antwort, wenn du einen Fehler "
-    "erkennst. Erfinde keine Quellen, Testläufe oder Prüfungen. "
-    "Gib jetzt ausschließlich die beste abschließende Antwort für "
-    "den ursprünglichen Nutzer aus, nicht eine Beschreibung dieser "
-    "Prüfrunde. Falls unsicher, benenne die Unsicherheit."
-)
-
-# Guard only explicitly requested structural formats. A second model pass
-# cannot prove semantic accuracy; reject it if it deletes clearly requested
-# code fences or turns valid requested JSON into prose.
-_CODE_REQUEST = re.compile(
-    r"\b(?:schreibe|schreib|erstelle|implementiere|implementier|erzeuge|"
-    r"write|create|implement)\b[^.\n]{0,130}"
-    r"\b(?:python|code|funktion|function|script|javascript|typescript|js|programm)\b",
-    re.IGNORECASE,
-)
-_JSON_ONLY_REQUEST = re.compile(
-    r"\b(?:nur|ausschließlich|only|als|as|gültigem|gültiges|valid)\b"
-    r"[^.\n]{0,60}\bjson\b"
-    r"|\bjson\b[^.\n]{0,60}\b(?:nur|ausschließlich|only)\b",
-    re.IGNORECASE,
-)
-_FENCE = re.compile(r"[ \t]*```([A-Za-z0-9_+-]{0,25})[ \t]*")
-
-
-def _code_fence_languages(reply: str) -> tuple[str, ...]:
-    fences = []
-    for line in reply.splitlines():
-        matched = _FENCE.fullmatch(line)
-        if matched is not None:
-            fences.append(matched.group(1).lower())
-    if len(fences) < 2 or len(fences) % 2:
-        return ()
-    if any(fences[index] for index in range(1, len(fences), 2)):
-        return ()
-    return tuple(fences[::2])
-
-
-def _valid_json_document(reply: str) -> bool:
-    try:
-        decoded = json.loads(reply)
-    except (ValueError, TypeError):
-        return False
-    return type(decoded) in (dict, list)
-
-
-def _review_preserves_format(question: str, draft: str, revised: str) -> bool:
-    if _CODE_REQUEST.search(question):
-        original_fences = _code_fence_languages(draft)
-        if original_fences:
-            new_fences = _code_fence_languages(revised)
-            if len(new_fences) < len(original_fences):
-                return False
-            if any(before and before != after
-                   for before, after in zip(original_fences, new_fences)):
-                return False
-    if (_JSON_ONLY_REQUEST.search(question) and _valid_json_document(draft)
-            and not _valid_json_document(revised)):
-        return False
-    return True
 
 
 def _stale_previous_answer(messages: list[dict], candidate: str) -> bool:
@@ -308,11 +238,12 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
                 clock: Callable[[], float] = time.monotonic,
                 max_seconds: int = MAX_THINK_SECONDS,
                 deep_review: bool = False) -> dict:
-    """HIGH: exact oracle retry or bounded two-pass review for open questions.
+    """HIGH: first-pass model answer, with exact-oracle retry when applicable.
 
-    deep_review=False preserves independent legacy THINK tool tests. The HTTP
-    HIGH route enables review. Self-review is not a proof of correctness.
-    Time is checked between calls, not during active GPU inference.
+    deep_review=True selects HTTP HIGH metadata, but does not append an
+    alternate instruction or run a second unverified model self-review.
+    The deterministic oracle path remains bounded and explicitly attributed.
+    Timing is checked between calls, never during active GPU inference.
     """
     _ensure_messages(messages)
     if not callable(respond) or type(max_seconds) is not int or not 1 <= max_seconds <= 300:
@@ -330,12 +261,17 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
         if oracle is None:
             oracle = trusted_logic_question(user_question)
     turns = [dict(row) for row in messages]
-    turns[0]["content"] += _THINK_SUFFIX
+    # Preserve Qwen's original prompt for HIGH. Legacy non-HIGH THINK keeps
+    # its existing output-format instruction for backward compatibility.
+    if not deep_review:
+        turns[0]["content"] += _THINK_SUFFIX
 
     raw = _call_once(respond, turns)
     used = 1
     review_passes = 0
-    review_status = "not_requested" if not deep_review else "not_needed_oracle"
+    review_status = ("not_requested" if not deep_review else
+                     "not_needed_oracle" if oracle is not None else
+                     "disabled_unverified_review")
     extracted = extract_final(raw)
     checked = bool(oracle is not None and extracted is not None
                    and _verified_match(extracted, oracle["answer"]))
@@ -351,42 +287,6 @@ def think_reply(messages: list[dict], respond: Callable[[list[dict]], str], *,
             extracted = extract_final(raw)
             checked = bool(extracted is not None and
                            _verified_match(extracted, oracle["answer"]))
-
-    # For open-ended work, ask a separate bounded review pass.
-    # Never present model self-review as deterministic verification.
-    if oracle is None and deep_review:
-        if len(raw.encode("utf-8")) > MAX_REVIEW_DRAFT_BYTES:
-            review_status = "skipped_long_draft"
-        elif clock() - initial >= max_seconds:
-            review_status = "skipped_time_budget"
-        else:
-            # Keep the real current question explicit in the review turn:
-            # Qwen can otherwise treat the synthetic review instruction as
-            # the new user question and drift back to a previous topic.
-            current_question = messages[-1]["content"][:700]
-            second_turns = turns + [
-                {"role": "assistant", "content": raw},
-                {"role": "user", "content": _HIGH_REVIEW_FEEDBACK
-                 + "\nAKTUELLE FRAGE: " + current_question
-                 + "\nBeantworte ausschließlich diese aktuelle Frage."},
-            ]
-            used += 1
-            try:
-                revised = _call_once(respond, second_turns)
-            except Exception:
-                # The initial answer is still available; do not leak a path,
-                # traceback, private checkpoint, or untrusted partial output.
-                review_status = "review_failed"
-            else:
-                review_passes = 1
-                if _stale_previous_answer(messages, revised):
-                    review_status = "review_rejected_stale"
-                elif _review_preserves_format(messages[-1]["content"], raw, revised):
-                    raw = revised
-                    extracted = extract_final(raw)
-                    review_status = "completed_unverified"
-                else:
-                    review_status = "review_rejected_format"
 
     elapsed = max(0.0, clock() - initial)
     common = {
