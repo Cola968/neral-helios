@@ -401,5 +401,6 @@ def run_experimental_tir(
         "tool_output_reviewed": True, "calls_used": calls,
         "completion_recovery_used": recovered_final,
         "tool_calls_triggered": triggered, "tool_calls_succeeded": succeeded,
+        "first_turn_telemetry": first_turn_telemetry,
         "seconds": round(clock() - initial, 3),
     }
