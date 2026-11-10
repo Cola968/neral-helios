@@ -158,10 +158,10 @@ $rows=@(Get-CimInstance Win32_Process | Where-Object { $names -contains $_.Name 
       path=[string]$_.ExecutablePath;user=[string]$own.User
     }
   })
-$listen=@(Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction Stop)
+$listen=@(Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue)
 $owners=@($listen | Select-Object -ExpandProperty OwningProcess -Unique)
 $addresses=@($listen | Select-Object -ExpandProperty LocalAddress -Unique)
-$est=@(Get-NetTCPConnection -LocalPort 11434 -State Established -ErrorAction Stop)
+$est=@(Get-NetTCPConnection -LocalPort 11434 -State Established -ErrorAction SilentlyContinue)
 $nonlocal=@($est | Where-Object {
   $_.LocalAddress -notin @('127.0.0.1','::1') -or
   $_.RemoteAddress -notin @('127.0.0.1','::1')
