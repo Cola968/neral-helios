@@ -18,6 +18,7 @@ from typing import Callable
 
 from neral_high_verified_first import split_task_and_format_instruction
 from neral_formal_constraints import InvalidFormalConstraints, try_solve_formal_constraints
+from neral_turn0_extractor import EXTRACT_PROMPT, parse_extracted_constraints
 
 # Qwen3.5's built-in Ollama parser treats <tool_call> as native XML and can
 # return HTTP 500 / silently discard its JSON contents. Use an application-
@@ -204,6 +205,7 @@ def run_experimental_tir(
     tool_runner: Callable[[str, str], dict] = execute_tir_tool,
     finalize_review: Callable[[list[dict]], tuple[str, bool]] | None = None,
     first_turn_diagnostic: Callable[[], dict] | None = None,
+    extract_constraints: Callable[[list[dict]], str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Bounded tool -> observation -> final, or raw-Qwen fallback.
@@ -218,7 +220,8 @@ def run_experimental_tir(
             or any(type(row.get("content")) is not str for row in messages)
             or not callable(respond) or not callable(tool_runner)
             or (finalize_review is not None and not callable(finalize_review))
-            or (first_turn_diagnostic is not None and not callable(first_turn_diagnostic))):
+            or (first_turn_diagnostic is not None and not callable(first_turn_diagnostic))
+            or (extract_constraints is not None and not callable(extract_constraints))):
         raise ValueError("Invalid experimental TIR input")
     initial = clock()
     original = [dict(row) for row in messages]
@@ -298,6 +301,41 @@ def run_experimental_tir(
             "verification_scope": "none", "calls_used": calls,
             "tool_calls_triggered": triggered,
             "tool_calls_succeeded": succeeded,
+            "first_turn_telemetry": first_turn_telemetry,
+            "seconds": round(clock() - initial, 3),
+        }
+
+    # Experimental, model-controlled Turn-0. The small JSON output is an
+    # untrusted proposed translation; exact solving cannot verify that the
+    # model captured every condition from the original natural language.
+    # Rejecting the proposal uses the untouched RAW-Qwen question, not
+    # another free-form TIR instruction. Multi-turn chats stay on legacy TIR.
+    if extract_constraints is not None and len(original) == 2:
+        calls += 1
+        extract_turns = [
+            {"role": "system", "content": EXTRACT_PROMPT},
+            {"role": "user", "content": core},
+        ]
+        try:
+            proposed = extract_constraints(extract_turns)
+        except Exception:
+            proposed = None  # Includes truncated JSON; never execute fragments.
+        solved = parse_extracted_constraints(core, proposed)
+        first_turn_telemetry = capture_first_turn(
+            "extracted_formal" if solved is not None else "extraction_fallback"
+        )
+        if solved is None:
+            fallback = base_fallback()
+            fallback["extraction_status"] = "fallback"
+            return fallback
+        return {
+            "text": "FINAL_ANSWER: " + str(solved) if suffix else str(solved),
+            "mode": "HIGH", "model_generated": True, "verified": False,
+            "verification_status": "model_extracted_schema_unverified",
+            "verification_scope": "model_extracted_finite_domain",
+            "tool_used": "neral_logic_exact", "tool_output_reviewed": False,
+            "calls_used": calls, "tool_calls_triggered": 1,
+            "tool_calls_succeeded": 1, "extraction_status": "accepted",
             "first_turn_telemetry": first_turn_telemetry,
             "seconds": round(clock() - initial, 3),
         }
