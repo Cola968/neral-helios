@@ -370,6 +370,41 @@ class OllamaLocalBackend:
             if not isinstance(answer, str) or not answer.strip():
                 # Never expose or substitute the private thinking channel.
                 raise OllamaCompletionError("empty_answer")
+            # A complete, lengthy reply can still omit the explicitly requested
+            # numeric FINAL marker. Only opt-in HIGH may request ONE short
+            # model-authored closure; raw Qwen and ordinary chats are unchanged.
+            requested_final = (
+                rescue_long_final and measured and not final_only
+                and isinstance(messages, list) and messages
+                and isinstance(messages[-1], dict)
+                and isinstance(messages[-1].get("content"), str)
+                and re.search(r"\\bFINAL_ANSWER\\s*:", messages[-1]["content"], re.I)
+            )
+            if (requested_final and len(answer) >= 220
+                    and len(answer.encode("utf-8")) <= 16000
+                    and not re.search(r"(?m)^FINAL_ANSWER\\s*:", answer, re.I)
+                    and not re.fullmatch(r"[+-]?\\d{1,15}", answer.strip())):
+                diagnostic["final_recovery_attempted"] = True
+                followup_turns = [dict(row) for row in messages] + [
+                    {"role": "assistant", "content": answer},
+                    {"role": "user", "content": (
+                        "Lies nur die vorherige Herleitung und gib exakt eine "
+                        "Zeile FINAL_ANSWER: <integer> aus, falls ein eindeutiges "
+                        "Ergebnis darin steht. Sonst UNSURE. Keine neue Rechnung."
+                    )},
+                ]
+                try:
+                    final = self._respond(
+                        followup_turns, require_json=False,
+                        thinking=False, final_only=True)
+                except AgentModelError:
+                    # Unlike a length-truncated first call, this reply DID
+                    # finish. Preserve it if final-only extraction failed.
+                    final = ""
+                if re.fullmatch(r"FINAL_ANSWER:\\s*[+-]?\\d{1,15}",
+                                final.strip(), re.I):
+                    diagnostic["final_recovery_succeeded"] = True
+                    return final.strip()
             return answer
         except urllib.error.HTTPError as exc:
             diagnostic["ollama_http_status"] = int(exc.code)
