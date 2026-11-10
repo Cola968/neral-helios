@@ -151,6 +151,108 @@ def _watch_gpu_activity(stop: threading.Event, samples: list[tuple[int, int]]) -
         stop.wait(5)
 
 
+def parse_nvidia_smi_snapshot(stdout: str) -> dict:
+    """Strict scalar RTX 4070 inventory; never upload arbitrary driver output."""
+    if type(stdout) is not str or len(stdout) > 512 or "\n" in stdout.strip():
+        raise PreflightError("invalid_nvidia_inventory")
+    fields = [field.strip() for field in stdout.strip().split(",")]
+    if len(fields) != 5:
+        raise PreflightError("invalid_nvidia_inventory")
+    name, total, used, free, driver = fields
+    if (re.fullmatch(r"[A-Za-z0-9 .+\-]{1,72}", name) is None
+            or "RTX 4070" not in name
+            or re.fullmatch(r"\d{2,4}\.\d{2,3}", driver) is None
+            or any(re.fullmatch(r"\d{1,6}", v) is None
+                   for v in (total, used, free))):
+        raise PreflightError("gpu_or_driver_not_expected")
+    total, used, free = map(int, (total, used, free))
+    if not 0 < total <= 131072 or not 0 <= used <= total or not 0 <= free <= total:
+        raise PreflightError("invalid_nvidia_memory")
+    return {
+        "gpu_name": name,
+        "memory_total_mib": total,
+        "memory_used_mib": used,
+        "memory_free_mib": free,
+        "driver_version": driver,
+    }
+
+
+def nvidia_gpu_inventory() -> dict:
+    """Read one NVIDIA adapter's name and memory, without user or PID data."""
+    try:
+        run = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,memory.free,driver_version",
+             "--format=csv,noheader,nounits"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, check=False, timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PreflightError("nvidia_smi_unavailable") from exc
+    if run.returncode != 0:
+        raise PreflightError("nvidia_smi_unavailable")
+    return parse_nvidia_smi_snapshot(run.stdout)
+
+
+def parse_ollama_process_inventory(output: str) -> dict:
+    """Validate ONLY process and listener counts: no paths, PIDs, usernames."""
+    if type(output) is not str or len(output) > 512:
+        raise PreflightError("invalid_ollama_process_inventory")
+    try:
+        row = json.loads(output)
+    except (TypeError, ValueError) as exc:
+        raise PreflightError("invalid_ollama_process_inventory") from exc
+    fields = {
+        "ollama_process_count", "llama_worker_count",
+        "listener_count", "unique_listener_owners",
+    }
+    if type(row) is not dict or set(row) != fields:
+        raise PreflightError("invalid_ollama_process_inventory")
+    if any(type(row[field]) is not int or not 0 <= row[field] <= 50
+           for field in fields):
+        raise PreflightError("invalid_ollama_process_inventory")
+    if row["unique_listener_owners"] > row["listener_count"]:
+        raise PreflightError("invalid_ollama_process_inventory")
+    if row["unique_listener_owners"] > 1:
+        raise PreflightError("multiple_distinct_ollama_listener_owners")
+    return {key: row[key] for key in sorted(fields)}
+
+
+def windows_ollama_process_inventory() -> dict:
+    """Read-only PowerShell/CIM check. Never launch or kill Ollama processes."""
+    if os.name != "nt":
+        return {"status": "not_windows"}
+    command = (
+        "$ErrorActionPreference='Stop';"
+        "$p=@(Get-CimInstance Win32_Process -Filter "
+        '"Name = \'ollama.exe\' OR Name = \'ollama app.exe\' '
+        'OR Name = \'ollama_llama_server.exe\'");'
+        "$l=@(Get-NetTCPConnection -LocalPort 11434 -State Listen "
+        "-ErrorAction SilentlyContinue);"
+        "$u=@($l | Select-Object -ExpandProperty OwningProcess -Unique);"
+        "[pscustomobject]@{"
+        "ollama_process_count=@($p | Where-Object { "
+        "$_.Name -eq 'ollama.exe' -or $_.Name -eq 'ollama app.exe' }).Count;"
+        "llama_worker_count=@($p | Where-Object { "
+        "$_.Name -eq 'ollama_llama_server.exe' }).Count;"
+        "listener_count=@($l).Count;"
+        "unique_listener_owners=@($u).Count"
+        "} | ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+             "-Command", command],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, check=False, timeout=9,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {"status": "inventory_unavailable"}
+    if result.returncode != 0:
+        return {"status": "inventory_unavailable"}
+    return parse_ollama_process_inventory(result.stdout.strip())
+
+
+
 def select_probe_case() -> dict:
     """One reproducible but unseen instance from the SAME HIGH12 generator."""
     from scripts.neral_high12_manual import select_cases
@@ -187,12 +289,17 @@ def _loaded() -> dict:
                                  allow_offload=True)
 
 
-def _unload(name: str) -> None:
+def model_unload_payload(name: str) -> dict:
+    """Unloads only approved model tags. Never stops or restarts the service."""
     if name not in (MODEL, LOW_MODEL):
         raise PreflightError("unapproved_model_eviction")
-    reply = _ollama_json("/api/chat", data={
+    return {
         "model": name, "messages": [], "stream": False, "keep_alive": 0,
-    }, timeout=15)
+    }
+
+
+def _unload(name: str) -> None:
+    reply = _ollama_json("/api/chat", data=model_unload_payload(name), timeout=15)
     if reply.get("done") is not True:
         raise PreflightError("model_eviction_not_confirmed")
 
@@ -242,7 +349,7 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
     report = {
         "schema": 1, "name": "NERAL_HIGH12_SINGLE_GPU_PREFLIGHT",
         "development_only": True, "model": MODEL, "profile": PROFILE,
-        "target_sha": target_sha, "case_count": 1, "client_timeout_seconds": 45,
+        "target_sha": target_sha, "case_count": 1, "client_timeout_seconds": 30,
         "format": "nonstream_chat", "thinking_enabled": False,
         "status": "FAILED", "failure_stage": None, "failure_code": None,
         "no_training": True, "no_large_benchmark": True,
@@ -256,6 +363,10 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         from scripts.neral_low_high_quality import make_prompt
         from neral_identity import build_identity_prompt
 
+        stage = "nvidia_smi"
+        report["nvidia_gpu"] = nvidia_gpu_inventory()
+        stage = "windows_ollama_process_inventory"
+        report["ollama_process_inventory"] = windows_ollama_process_inventory()
         stage = "digest"
         digest = require_model(OllamaLocal(timeout=20).inventory())
         if digest != ORIGINAL_DIGESTS[MODEL]:
@@ -271,14 +382,16 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         if LOW_MODEL in loaded:
             stage = "unload_qwen3_8b"
             _unload(LOW_MODEL)
-        if MODEL in loaded and not model_fully_on_gpu(loaded[MODEL]):
-            stage = "unload_offloaded_qwen35"
+        if MODEL in loaded:
+            # Always evict any already-loaded HIGH model before a fresh
+            # preload. This is not an Ollama service restart.
+            stage = "fresh_unload_qwen35"
             _unload(MODEL)
 
         stage = "ps_after_eviction"
         loaded = _loaded()
-        if LOW_MODEL in loaded:
-            raise PreflightError("low_model_still_resident")
+        if LOW_MODEL in loaded or MODEL in loaded:
+            raise PreflightError("model_still_resident_after_eviction")
 
         stage = "preload"
         _preload()
@@ -305,7 +418,7 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         watcher.start()
         try:
             try:
-                result = _ollama_json("/api/chat", data=request, timeout=45)
+                result = _ollama_json("/api/chat", data=request, timeout=30)
             except (TimeoutError, urllib.error.URLError) as exc:
                 report["wall_seconds"] = round(time.monotonic() - started, 3)
                 raise PreflightError("direct_qwen_client_timeout_or_transport") from exc
@@ -314,8 +427,8 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
             stop.set()
             watcher.join(timeout=4)
             report["gpu_activity_during_request"] = summarize_gpu_samples(samples)
-        if report["wall_seconds"] > 45.0:
-            raise PreflightError("direct_qwen_exceeded_45_seconds")
+        if report["wall_seconds"] > 30.0:
+            raise PreflightError("direct_qwen_exceeded_30_seconds")
         report["ollama"] = sanitized_timings(result)
 
         stage = "ps_after_completion"
