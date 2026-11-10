@@ -15,6 +15,8 @@ import re
 import time
 import urllib.error
 import urllib.request
+import subprocess
+import threading
 
 MODEL = "qwen3.5:9b"
 LOW_MODEL = "qwen3:8b"
@@ -106,6 +108,47 @@ def sanitized_timings(packet: dict) -> dict:
         "done_reason": "stop",
         "content_chars": len(packet["message"]["content"]),
     }
+
+
+
+def parse_gpu_telemetry(line: str) -> tuple[int, int] | None:
+    """Parse only numeric utilization% and used MiB; no process identifiers."""
+    if type(line) is not str or re.fullmatch(r"\s*\d{1,3}\s*,\s*\d{1,6}\s*", line) is None:
+        return None
+    numbers = [int(part.strip()) for part in line.split(",")]
+    if numbers[0] > 100 or numbers[1] > 131072:
+        return None
+    return numbers[0], numbers[1]
+
+
+def summarize_gpu_samples(samples: list[tuple[int, int]]) -> dict:
+    """Display activity while nonstreaming Ollama is awaiting a response."""
+    return {
+        "samples_count": len(samples),
+        "gpu_util_samples_percent": [row[0] for row in samples],
+        "gpu_util_peak_percent": max((row[0] for row in samples), default=None),
+        "vram_used_peak_mib": max((row[1] for row in samples), default=None),
+        "interpretation": "GPU activity only; cannot prove queue vs generation",
+    }
+
+
+def _watch_gpu_activity(stop: threading.Event, samples: list[tuple[int, int]]) -> None:
+    """Nine best-effort local telemetry polls, no web/network or raw logs."""
+    while not stop.is_set() and len(samples) < 9:
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used",
+                 "--format=csv,noheader,nounits"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, timeout=3, check=False,
+            )
+            if result.returncode == 0:
+                sample = parse_gpu_telemetry(result.stdout.strip())
+                if sample is not None:
+                    samples.append(sample)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        stop.wait(5)
 
 
 def select_probe_case() -> dict:
@@ -209,6 +252,9 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         stage = "ps_initial"
         loaded = _loaded()
         report["initial_loaded_models"] = sorted(loaded)
+        report["initial_ps_sizes"] = {
+            name: _gpu_summary(info) for name, info in loaded.items()
+        }
         if LOW_MODEL in loaded:
             stage = "unload_qwen3_8b"
             _unload(LOW_MODEL)
@@ -243,12 +289,22 @@ def run_probe(*, authorize: str, target_sha: str, output: Path) -> bool:
         report["probe_prompt_sha256"] = hashlib.sha256(prompt.encode("utf8")).hexdigest()
         request = measured_chat_payload(messages)
         started = time.monotonic()
+        samples = []
+        stop = threading.Event()
+        watcher = threading.Thread(
+            target=_watch_gpu_activity, args=(stop, samples), daemon=True)
+        watcher.start()
         try:
-            result = _ollama_json("/api/chat", data=request, timeout=45)
-        except (TimeoutError, urllib.error.URLError) as exc:
+            try:
+                result = _ollama_json("/api/chat", data=request, timeout=45)
+            except (TimeoutError, urllib.error.URLError) as exc:
+                report["wall_seconds"] = round(time.monotonic() - started, 3)
+                raise PreflightError("direct_qwen_client_timeout_or_transport") from exc
             report["wall_seconds"] = round(time.monotonic() - started, 3)
-            raise PreflightError("direct_qwen_client_timeout_or_transport") from exc
-        report["wall_seconds"] = round(time.monotonic() - started, 3)
+        finally:
+            stop.set()
+            watcher.join(timeout=4)
+            report["gpu_activity_during_request"] = summarize_gpu_samples(samples)
         if report["wall_seconds"] > 45.0:
             raise PreflightError("direct_qwen_exceeded_45_seconds")
         report["ollama"] = sanitized_timings(result)
