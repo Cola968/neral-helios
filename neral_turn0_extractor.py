@@ -25,7 +25,14 @@ EXTRACT_PROMPT = (
     '"exact source span"]}. '
     "Allowed queries: count or satisfiable. Variables have finite integer or "
     "Boolean domains. Relations use == != < <= > >= with right variable or "
-    "literal value. Use all_different only when the source explicitly says "
+    "literal value. For Boolean domains, you may add bool_rules: "
+    "a list of Boolean expression trees. Leaves are declared Boolean variable "
+    "names or true/false literals. Each node has op and args. Supported ops: "
+    "and, or, xor (parity), not, implies, eq; at_least nodes additionally "
+    "have integer min. Keep max nesting depth four, max eight variables, "
+    "and at most 32 total rules. For missing or unsupported semantics emit "
+    "kind none, NEVER silently discard a condition. "
+    "Use all_different only when the source explicitly says "
     "values are unique. Include verbatim quoted source spans proving where "
     "domains, ALL conditions and the requested query came from; all spans "
     "must appear unchanged in the user question. Set complete true only if "
@@ -81,10 +88,12 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
         return None
     rules = schema.get("rules")
     groups = schema.get("all_different", [])
+    boolean_rules = schema.get("bool_rules", [])
     if (type(rules) is not list or type(groups) is not list
-            or len(rules) + len(groups) < 1
+            or type(boolean_rules) is not list
+            or len(rules) + len(groups) + len(boolean_rules) < 1
             or not 2 <= len(evidence) <= 32
-            or len(evidence) < len(rules) + len(groups) + 1
+            or len(evidence) < len(rules) + len(groups) + len(boolean_rules) + 1
             or any(type(span) is not str or not 4 <= len(span) <= 200
                    or span not in question for span in evidence)
             or len(set(evidence)) != len(evidence)):
