@@ -96,7 +96,7 @@ jobs:
     needs: verify-target
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 35
+    timeout-minutes: 65
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
