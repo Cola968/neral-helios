@@ -56,6 +56,29 @@ class DevelopmentRatchetTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     assess_hard36(item)
 
+    def test_standard_high_candidate_is_separately_checked_against_raw(self):
+        # Synthetic paired fixture: actual Hard36 per-case observations are private.
+        item = summary()
+        item["paired"]["neral_high_vs_raw_qwen35"] = {"wins": 0, "losses": 15}
+        result = assess_hard36(item, candidate_arm="neral_high")
+        self.assertEqual(result["candidate_arm"], "neral_high")
+        self.assertEqual(result["candidate_correct"], 5)
+        self.assertEqual(result["baseline_correct"], 20)
+        self.assertFalse(result["development_gate_passed"])
+        self.assertFalse(result["promotion_allowed"])
+
+    def test_standard_high_tie_does_not_grant_release(self):
+        item = summary()
+        item["arms"]["neral_high"]["correct"] = 20
+        item["paired"]["neral_high_vs_raw_qwen35"] = {"wins": 2, "losses": 2}
+        result = assess_hard36(item, candidate_arm="neral_high")
+        self.assertTrue(result["development_gate_passed"])
+        self.assertFalse(result["promotion_allowed"])
+
+    def test_unknown_candidate_is_rejected(self):
+        with self.assertRaises(ValueError):
+            assess_hard36(summary(), candidate_arm="invented_arm")
+
 
 if __name__ == "__main__":
     unittest.main()
