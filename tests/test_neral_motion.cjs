@@ -238,7 +238,7 @@ test("attached files keep their own truthful status, without instantaneous fake 
 test("web searches require explicit search or freshness intent despite enabled toggle",()=>{
   const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
   assert.match(source,/function shouldSearchWeb\(question\)/);
-  assert.match(source,/\$\("useWebSearch"\)\.checked && !genericAttachmentOnly &&\s*shouldSearchWeb\(text\)/);
+  assert.match(source,/\$\("useWebSearch"\)\.checked && !genericAttachmentOnly &&\s*shouldSearchWeb\(text,lastWebQuery\)/);
   assert.doesNotMatch(source,/\$\("useWebSearch"\)\.checked && !skipWebForLocalBasics\(text\)/);
 });
 
@@ -256,7 +256,7 @@ test("search intent uses actual question rather than opt-in alone",()=>{
 
 test("invalid web queries are rejected before announcing a search",()=>{
   const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
-  const gate=source.indexOf("if(text.length>160");
+  const gate=source.indexOf("if(webQuery.length>160");
   const event=source.indexOf('motionActivity("searching",mode)');
   const request=source.indexOf('const search=typeof browser.NeralWebLive?.search');
   assert.ok(gate>=0 && gate<event && event<request);
