@@ -237,7 +237,7 @@ test("attached files keep their own truthful status, without instantaneous fake 
 });
 test("web searches require explicit search or freshness intent despite enabled toggle",()=>{
   const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
-  assert.match(source,/function shouldSearchWeb\(question\)/);
+  assert.match(source,/function shouldSearchWeb\(question,previousWebQuery/);
   assert.match(source,/\$\("useWebSearch"\)\.checked && !genericAttachmentOnly &&\s*shouldSearchWeb\(text,lastWebQuery\)/);
   assert.doesNotMatch(source,/\$\("useWebSearch"\)\.checked && !skipWebForLocalBasics\(text\)/);
 });
