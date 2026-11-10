@@ -1,0 +1,118 @@
+name: Neral 350M Frontier 1B Focus Data
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_1b_data_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-data-1b-focus
+  cancel-in-progress: false
+
+jobs:
+  build1bfocus:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded focus-data request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_1b_data_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw '1B focus-data request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,base_data_request_id,request_id,train_tokens,valid_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'build_1b_focus_data'){throw 'invalid focus-data action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.train_tokens -ne 500000000){throw 'focus-v1 is locked to 500M new train tokens'}
+          if([Int64]$r.valid_tokens -ne 100000){throw 'focus-v1 is locked to 100k local validation tokens'}
+          foreach($x in @($r.request_id,$r.base_data_request_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request identifier'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "base_id=$($r.base_data_request_id)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve seed corpus tokenizer and environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $seed=Join-Path $assets ('frontier350_bpe_foundation_1b_'+'${{ steps.req.outputs.base_id }}')
+          $seedManifest=Join-Path $seed 'manifest.json'
+          $seedDedupe=Join-Path $seed 'dedupe.sqlite3'
+          $root=Join-Path $assets ('frontier350_bpe_continuation_1b_'+'${{ steps.req.outputs.request_id }}')
+          foreach($p in @($python,$tokenizer,$seedManifest,$seedDedupe)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          if(Test-Path $root){throw "refusing existing focus corpus path: $root"}
+          $drive=(Get-Item $assets).PSDrive
+          if($drive.Free -lt 5GB){throw ('insufficient free disk for focus corpus: '+[math]::Round($drive.Free/1GB,2)+' GiB')}
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "seed=$seed" >> $env:GITHUB_OUTPUT
+          "seed_manifest=$seedManifest" >> $env:GITHUB_OUTPUT
+          "seed_dedupe=$seedDedupe" >> $env:GITHUB_OUTPUT
+          "root=$root" >> $env:GITHUB_OUTPUT
+
+      - name: Validate seed corpus and builder syntax
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/build_1b_focus_bpe_data.py frontier350/security_policy350_bpe.py
+          if($LASTEXITCODE -ne 0){throw 'focus data scripts do not compile'}
+          $root='${{ steps.env.outputs.seed }}'
+          $manifest='${{ steps.env.outputs.seed_manifest }}'
+          & '${{ steps.env.outputs.python }}' -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$manifest'),Path(r'$root'),Path(r'${{ steps.env.outputs.tokenizer }}')))"
+          if($LASTEXITCODE -ne 0){throw 'seed corpus failed admission re-check'}
+
+      - name: Build fresh targeted 500M continuation corpus
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/build_1b_focus_bpe_data.py --root '${{ steps.env.outputs.root }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --seed-manifest '${{ steps.env.outputs.seed_manifest }}' --seed-dedupe '${{ steps.env.outputs.seed_dedupe }}' --train-tokens 500000000 --valid-tokens 100000 --shard-tokens 50000000
+          if($LASTEXITCODE -ne 0){throw 'targeted continuation corpus build failed'}
+
+      - name: Fail-closed continuation corpus admission
+        run: |
+          $root='${{ steps.env.outputs.root }}'
+          $manifest=Join-Path $root 'manifest.json'
+          & '${{ steps.env.outputs.python }}' -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$manifest'),Path(r'$root'),Path(r'${{ steps.env.outputs.tokenizer }}')))"
+          if($LASTEXITCODE -ne 0){throw 'targeted continuation corpus rejected by admission gate'}
+          $m=Get-Content $manifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-1b-focus-v1'){throw 'wrong continuation profile'}
+          if([Int64]$m.train_tokens -ne 500000000){throw 'wrong focus train token count'}
+          if([Int64]$m.new_deduplicated_documents -le 0){throw 'focus corpus contains no newly admitted documents'}
+
+      - name: Data quality summary
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force frontier350_1b_focus_data_report | Out-Null
+          $manifest=Join-Path '${{ steps.env.outputs.root }}' 'manifest.json'
+          if(Test-Path $manifest -PathType Leaf){
+            Copy-Item $manifest frontier350_1b_focus_data_report\manifest.json -Force
+            $m=Get-Content $manifest -Raw|ConvertFrom-Json
+            Write-Host ('profile='+$m.continuation_profile)
+            Write-Host ('train_tokens='+$m.train_tokens)
+            Write-Host ('new_documents='+$m.new_deduplicated_documents)
+            Write-Host ('math_share='+$m.focus_shares.finemath)
+            Write-Host ('german_share='+$m.focus_shares.fineweb2_de)
+          }
+
+      - name: Upload metadata-only report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-1b-focus-data-${{ github.run_id }}
+          path: frontier350_1b_focus_data_report/
+          retention-days: 30
+          if-no-files-found: warn

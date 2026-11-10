@@ -1,0 +1,163 @@
+name: Neral 350M Frontier 1B Continuation
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_1b_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: neral-350m-frontier-1b
+  cancel-in-progress: false
+
+jobs:
+  train1b:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded 1B request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_1b_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw '1B continuation request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,base_data_request_id,data_request_id,execution_profile,request_id,stop_after_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'resume_500m_to_1b'){throw 'invalid 1B action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 1000000000){throw 'continuation locked to 1B cumulative tokens'}
+          if(@('stable-18k','arctus-23k-resume-candidate-v1') -notcontains $r.execution_profile){throw 'unsupported 1B execution profile'}
+          foreach($x in @($r.request_id,$r.data_request_id,$r.base_data_request_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request identifier'}}
+          "data_id=$($r.data_request_id)" >> $env:GITHUB_OUTPUT
+          "base_id=$($r.base_data_request_id)" >> $env:GITHUB_OUTPUT
+          "profile=$($r.execution_profile)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve admitted focus corpus original holdout and resumable checkpoint
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            $root=[IO.Path]::GetPathRoot($f)
+            if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"}
+            $d=$matches[1].ToLower()
+            $r=$f.Substring($root.Length).Replace('\','/')
+            return "/mnt/$d/$r"
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $source500=Join-Path $assets 'runs\neral350_frontier_compiled_500m\resume.pt'
+          $focus=Join-Path $assets ('frontier350_bpe_continuation_1b_'+'${{ steps.req.outputs.data_id }}')
+          $focusManifest=Join-Path $focus 'manifest.json'
+          $base=Join-Path $assets ('frontier350_bpe_foundation_1b_'+'${{ steps.req.outputs.base_id }}')
+          $baseManifest=Join-Path $base 'manifest.json'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $python=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $out=Join-Path $assets 'runs\neral350_frontier_compiled_1b'
+          foreach($p in @($source500,$focusManifest,$baseManifest,$tokenizer,$python)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          & $python -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$focusManifest'),Path(r'$focus'),Path(r'$tokenizer')))"
+          if($LASTEXITCODE -ne 0){throw 'focus corpus admission re-check failed'}
+          & $python -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$baseManifest'),Path(r'$base'),Path(r'$tokenizer')))"
+          if($LASTEXITCODE -ne 0){throw 'base holdout corpus admission re-check failed'}
+          $m=Get-Content $focusManifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-1b-focus-v1'){throw 'wrong focus corpus profile'}
+          if([Int64]$m.train_tokens -ne 500000000){throw 'focus corpus is not exactly 500M train tokens'}
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $partial=Join-Path $out 'resume.pt'
+          $resume=if(Test-Path $partial -PathType Leaf){$partial}else{$source500}
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "resume=$(W $resume)" >> $env:GITHUB_OUTPUT
+          "train=$(W (Join-Path $focus 'train'))" >> $env:GITHUB_OUTPUT
+          "valid=$(W (Join-Path $base 'valid'))" >> $env:GITHUB_OUTPUT
+          "out=$(W $out)" >> $env:GITHUB_OUTPUT
+          "out_win=$out" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+          "resume_source=$resume" >> $env:GITHUB_OUTPUT
+
+      - name: Resume Arctus only to 1B cumulative tokens
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $profile='${{ steps.req.outputs.profile }}'
+          if($profile -eq 'stable-18k'){
+            $profileArgs='--seq 512 --microbatch 4 --grad-accum 8 --eval-every 500 --save-every 500 --log-every 10 --compile-mode default --numerical-check-every 1'
+          } elseif($profile -eq 'arctus-23k-resume-candidate-v1') {
+            $profileArgs='--seq 512 --microbatch 8 --grad-accum 4 --eval-every 1000 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 20'
+          } else {
+            throw 'unreachable execution profile'
+          }
+          Write-Host "Resume source: ${{ steps.env.outputs.resume_source }}"
+          Write-Host "Execution profile: $profile"
+          if($profile -eq 'arctus-23k-resume-candidate-v1'){
+            Write-Host 'Performance target: 23k-24k BPE tok/s; candidate is not yet GPU-validated. Checkpoint cadence remains 500 updates for interruption safety.'
+          }
+          Write-Host 'Continuation curriculum: 35% FineWeb-Edu, 10% FineWeb, 20% German FineWeb2, 35% FineMath'
+          $repo='${{ steps.env.outputs.repo }}'
+          $outWin='${{ steps.env.outputs.out_win }}'
+          $metrics=Join-Path $outWin 'metrics.jsonl'
+          $diag=Join-Path $outWin 'workflow_diagnostic.txt'
+          $stderr=Join-Path $outWin 'train_stderr.log'
+          $stdout=Join-Path $outWin 'train_stdout.log'
+          Set-Content -Path $diag -Value ("run_id={0}`nprofile={1}`nresume={2}`nstarted_utc={3}" -f '${{ github.run_id }}',$profile,'${{ steps.env.outputs.resume_source }}',(Get-Date).ToUniversalTime().ToString('o'))
+          $telemetryArgs=@(
+            'frontier350\live_telemetry.py',
+            '--metrics',$metrics,
+            '--repo','${{ github.repository }}',
+            '--issue','97',
+            '--run-id','${{ github.run_id }}',
+            '--workflow','neral350-frontier-1b',
+            '--interval','60'
+          )
+          $telemetry=Start-Process -FilePath '${{ steps.env.outputs.python }}' -ArgumentList $telemetryArgs -PassThru -NoNewWindow
+          $trainExit=0
+          try {
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train }}' --valid-data '${{ steps.env.outputs.valid }}' --out '${{ steps.env.outputs.out }}' --target-tokens 10000000000 --stop-after-tokens 1000000000 --lr 0.0003 $profileArgs --resume '${{ steps.env.outputs.resume }}' --tokenizer-sha256 '${{ steps.env.outputs.tokenizer_sha }}' > >(tee -a '$stdout') 2> >(tee -a '$stderr' >&2)"
+            wsl.exe -- bash -lc $cmd
+            $trainExit=$LASTEXITCODE
+            Add-Content -Path $diag -Value ("`ntrain_exit={0}`nended_utc={1}" -f $trainExit,(Get-Date).ToUniversalTime().ToString('o'))
+          } catch {
+            Add-Content -Path $diag -Value ("`nworkflow_exception={0}`nended_utc={1}" -f $_.Exception.Message,(Get-Date).ToUniversalTime().ToString('o'))
+            throw
+          } finally {
+            if($trainExit -eq 0 -and -not $telemetry.HasExited){Wait-Process -Id $telemetry.Id -Timeout 70 -ErrorAction SilentlyContinue}
+            if(-not $telemetry.HasExited){Stop-Process -Id $telemetry.Id -Force -ErrorAction SilentlyContinue}
+          }
+          if($trainExit -ne 0){throw "bounded 1B continuation failed with exit code $trainExit; see train_stderr.log and workflow_diagnostic.txt"}
+
+      - name: Collect reports and diagnostics
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force frontier350_1b_report | Out-Null
+          $out='${{ steps.env.outputs.out_win }}'
+          if(-not[string]::IsNullOrWhiteSpace($out)){
+            foreach($n in @('summary.json','metrics.jsonl','workflow_diagnostic.txt','train_stderr.log','train_stdout.log')){
+              $p=Join-Path $out $n
+              if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_1b_report\$n -Force}
+            }
+          }
+
+      - name: Upload reports and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-1b-${{ github.run_id }}
+          path: frontier350_1b_report/
+          retention-days: 30
+          if-no-files-found: warn

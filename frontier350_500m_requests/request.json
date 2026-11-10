@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "resume_100m_to_500m",
+  "architecture": "frontier350-v1",
+  "stop_after_tokens": 500000000,
+  "data_request_id": "arctus1b-20260910-v1",
+  "request_id": "arctus500m-20260910-r2"
+}

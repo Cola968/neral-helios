@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "architecture": "frontier350-v1",
+  "tokenizer": "byte-bpe-16k-v1",
+  "status": "audited_local_lock",
+  "vocab_size": 16384,
+  "special_token_ids": {
+    "<|bos|>": 0,
+    "<|eos|>": 1,
+    "<|sep|>": 2,
+    "<|pad|>": 3
+  },
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "training_characters": 50000000,
+  "measurement": {
+    "eval_examples": 800,
+    "eval_utf8_bytes": 2935427,
+    "eval_bpe_tokens": 764260,
+    "bytes_per_bpe_token": 3.840874833171957,
+    "sequence_reduction_vs_raw_bytes_pct": 73.96426482416358,
+    "fineweb_edu_en_reduction_pct": 76.15054808356334,
+    "fineweb_en_reduction_pct": 75.58303379422246,
+    "fineweb2_de_reduction_pct": 72.21242578742661,
+    "finemath_reduction_pct": 72.10547504025764
+  },
+  "privacy_audit": {
+    "run_id": 34380334246,
+    "pass": true,
+    "mandatory_bytelevel_base_symbols": 256,
+    "learned_tokens_privacy_checked": 16124,
+    "suspicious_entry_count": 0
+  },
+  "source_run_id": 34379626653,
+  "source_revisions": {
+    "fineweb_edu_en": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+    "fineweb_en": "9bb295ddab0e05d785b879661af7260fed5140fc",
+    "fineweb2_de": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+    "finemath": "e92b25a616738fe95dc186b64dfb19f9c8525594"
+  },
+  "foreign_vocab_or_merges_loaded": false
+}

@@ -1,0 +1,93 @@
+name: Neral 350M Frontier Quality A-B
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_quality_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-quality-ab
+  cancel-in-progress: false
+
+jobs:
+  quality-ab:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+      - name: Validate explicit quality request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_quality_requests\request.json' -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,data_request_id,request_id,target_tokens,version'){throw 'unsupported quality request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'compare_frontier350_architectures'){throw 'invalid quality action'}
+          if([Int64]$r.target_tokens -lt 1000000 -or [Int64]$r.target_tokens -gt 5000000){throw 'quality token budget outside [1M,5M]'}
+          foreach($v in @($r.request_id,$r.data_request_id)){if($v -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}}
+          "target=$($r.target_tokens)" >> $env:GITHUB_OUTPUT
+          "data_id=$($r.data_request_id)" >> $env:GITHUB_OUTPUT
+      - name: Resolve exact admitted BPE corpus
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets = if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python = if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{Join-Path $assets '.venv\Scripts\python.exe'}
+          $data=Join-Path $assets ('frontier350_bpe_pilot_' + '${{ steps.req.outputs.data_id }}')
+          $tok=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $manifest=Join-Path $data 'manifest.json'
+          if(-not(Test-Path $python -PathType Leaf)){throw 'training Python missing'}
+          if(-not(Test-Path $data -PathType Container)){throw "BPE pilot corpus missing: $data"}
+          if(-not(Test-Path $manifest -PathType Leaf)){throw 'BPE manifest missing'}
+          if(-not(Test-Path $tok -PathType Leaf)){throw 'audited tokenizer missing'}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 unavailable'}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "data=$data" >> $env:GITHUB_OUTPUT
+          "tok=$tok" >> $env:GITHUB_OUTPUT
+          "manifest=$manifest" >> $env:GITHUB_OUTPUT
+      - name: Revalidate corpus before weight changes
+        run: |
+          $data='${{ steps.env.outputs.data }}'
+          & '${{ steps.env.outputs.python }}' -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'${{ steps.env.outputs.manifest }}'),Path(r'$data'),Path(r'${{ steps.env.outputs.tok }}')))"
+          if($LASTEXITCODE -ne 0){throw 'BPE corpus revalidation failed'}
+      - name: Compile architecture learning pilot
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/model350.py frontier350/train350_ab_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'quality pilot scripts do not compile'}
+      - name: Train Deep32 on identical bounded data
+        run: |
+          New-Item -ItemType Directory -Force frontier350_quality_report | Out-Null
+          & '${{ steps.env.outputs.python }}' -u frontier350/train350_ab_pilot.py --candidate deep32 --data-root '${{ steps.env.outputs.data }}' --target-tokens '${{ steps.req.outputs.target }}' --out frontier350_quality_report/deep32.json --seq 512 --microbatch 4
+          if($LASTEXITCODE -ne 0){throw 'Deep32 learning pilot failed'}
+      - name: Release Deep32 CUDA memory
+        run: |
+          & '${{ steps.env.outputs.python }}' -c "import torch; torch.cuda.empty_cache() if torch.cuda.is_available() else None"
+      - name: Train Wide24 on identical bounded data
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/train350_ab_pilot.py --candidate wide24 --data-root '${{ steps.env.outputs.data }}' --target-tokens '${{ steps.req.outputs.target }}' --out frontier350_quality_report/wide24.json --seq 512 --microbatch 4
+          if($LASTEXITCODE -ne 0){throw 'Wide24 learning pilot failed'}
+      - name: Compare without release-benchmark access
+        run: |
+          & '${{ steps.env.outputs.python }}' -c "import json;d=json.load(open('frontier350_quality_report/deep32.json'));w=json.load(open('frontier350_quality_report/wide24.json'));print(json.dumps({'deep32':{'val_ce':d['final_validation_ce'],'tps':d['tokens_per_second'],'vram':d['peak_vram_gb']},'wide24':{'val_ce':w['final_validation_ce'],'tps':w['tokens_per_second'],'vram':w['peak_vram_gb']},'val_ce_delta_wide_minus_deep':w['final_validation_ce']-d['final_validation_ce'],'speed_ratio_wide_over_deep':w['tokens_per_second']/d['tokens_per_second']}))"
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-quality-ab-${{ github.run_id }}
+          path: frontier350_quality_report/
+          retention-days: 30
+          if-no-files-found: warn

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "suite": "arctus-recovery-dev-v1",
+  "architecture": "frontier350-v1",
+  "checkpoint_processed_tokens": 1000003584,
+  "source_run": 34628971930,
+  "cases": 140,
+  "overall_accuracy_pct": 45.714285714285715,
+  "categories": {
+    "bilingual_pct": 35.0,
+    "code_pct": 70.0,
+    "factual_pct": 65.0,
+    "language_pct": 25.0,
+    "math_pct": 15.0,
+    "reasoning_pct": 45.0,
+    "science_pct": 65.0
+  },
+  "policy": "Development baseline only. Future curriculum/LR pilots may be compared against this larger suite, while the original frozen 1B audit remains untouched for final promotion. Do not train on these cases."
+}

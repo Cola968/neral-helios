@@ -1,0 +1,42 @@
+[
+  {
+    "profile": "math_language",
+    "elapsed_seconds": 0.3826544999901671,
+    "admission": {
+      "ok": true,
+      "schema": 2,
+      "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+      "train_tokens": 10000000,
+      "validation_tokens": 200000,
+      "sources": {
+        "fineweb_edu_en": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+        "fineweb_en": "9bb295ddab0e05d785b879661af7260fed5140fc",
+        "fineweb2_de": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+        "finemath": "e92b25a616738fe95dc186b64dfb19f9c8525594"
+      },
+      "licenses": [
+        "odc-by"
+      ]
+    }
+  },
+  {
+    "profile": "bilingual_math",
+    "elapsed_seconds": 0.37792240001726896,
+    "admission": {
+      "ok": true,
+      "schema": 2,
+      "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+      "train_tokens": 10000000,
+      "validation_tokens": 200000,
+      "sources": {
+        "fineweb_edu_en": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+        "fineweb_en": "9bb295ddab0e05d785b879661af7260fed5140fc",
+        "fineweb2_de": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+        "finemath": "e92b25a616738fe95dc186b64dfb19f9c8525594"
+      },
+      "licenses": [
+        "odc-by"
+      ]
+    }
+  }
+]

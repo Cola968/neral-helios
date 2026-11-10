@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "architecture": "frontier350-v1",
+  "sources": {
+    "fineweb_edu_en": {
+      "repo": "HuggingFaceFW/fineweb-edu",
+      "config": "sample-10BT",
+      "split": "train",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "license": "odc-by",
+      "role": "education"
+    },
+    "fineweb_en": {
+      "repo": "HuggingFaceFW/fineweb",
+      "config": "sample-10BT",
+      "split": "train",
+      "revision": "9bb295ddab0e05d785b879661af7260fed5140fc",
+      "license": "odc-by",
+      "role": "general"
+    },
+    "fineweb2_de": {
+      "repo": "HuggingFaceFW/fineweb-2",
+      "config": "deu_Latn",
+      "split": "train",
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "license": "odc-by",
+      "role": "german-general"
+    },
+    "finemath": {
+      "repo": "HuggingFaceTB/finemath",
+      "config": "finemath-3plus",
+      "split": "train",
+      "revision": "e92b25a616738fe95dc186b64dfb19f9c8525594",
+      "license": "odc-by",
+      "role": "math"
+    }
+  },
+  "origin": "Revisions measured and admitted by successful data pilot run 34378553049. Production corpus construction must not silently advance these SHAs."
+}

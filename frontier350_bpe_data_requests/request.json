@@ -1,0 +1,7 @@
+{
+  "action": "build_frontier350_bpe_pilot",
+  "request_id": "quality-ab-v1",
+  "target_tokens": 8000000,
+  "valid_tokens": 1000000,
+  "version": 1
+}

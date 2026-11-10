@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "action": "run_recovery_lr_pilot_v4",
+  "architecture": "frontier350-v1",
+  "request_id": "arctus-recovery-lr-20260912-r6",
+  "pilot_data_id": "arctus-recovery-lr-20260911-r2",
+  "stop_after_tokens": 1010000000,
+  "lrs": [0.0001, 0.000075, 0.00005]
+}

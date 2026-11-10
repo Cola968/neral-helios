@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "action": "run_recovery_lr_pilot",
+  "architecture": "frontier350-v1",
+  "request_id": "arctus-recovery-lr-20260911-r2",
+  "seed_data_request_id": "arctus1b-focus-20260910-v2",
+  "train_tokens": 20000000,
+  "valid_tokens": 200000,
+  "stop_after_tokens": 1020000000,
+  "lrs": [0.0003, 0.0002, 0.00015]
+}

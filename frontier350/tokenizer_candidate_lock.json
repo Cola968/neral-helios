@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "architecture": "frontier350-v1",
+  "candidate": "byte-bpe-16k-v1",
+  "source_run_id": 34379626653,
+  "local_source_dir": "frontier350_tokenizer_pilot_34379626653",
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd",
+  "vocab_size": 16384,
+  "special_token_ids": {
+    "<|bos|>": 0,
+    "<|eos|>": 1,
+    "<|sep|>": 2,
+    "<|pad|>": 3
+  },
+  "sequence_reduction_vs_raw_bytes_pct": 73.96426482416358,
+  "bytes_per_bpe_token": 3.840874833171957,
+  "source_revisions": {
+    "fineweb_edu_en": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+    "fineweb_en": "9bb295ddab0e05d785b879661af7260fed5140fc",
+    "fineweb2_de": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+    "finemath": "e92b25a616738fe95dc186b64dfb19f9c8525594"
+  },
+  "status": "audit_requested"
+}

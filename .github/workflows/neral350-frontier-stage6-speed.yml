@@ -1,0 +1,77 @@
+name: Neral 350M Frontier Stage-6 Speed
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_requests/speed_stage6_trainpath.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-stage6-speed
+  cancel-in-progress: false
+
+jobs:
+  stage6-speed:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded Stage-6 request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_requests\speed_stage6_trainpath.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'Stage-6 request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          if($r.action -ne 'speed_stage6_trainpath_frontier350'){throw 'wrong action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([int]$r.seq -ne 512){throw 'seq must be 512'}
+          if([int]$r.updates -gt 16 -or [int]$r.updates -lt 4){throw 'bounded updates violated'}
+
+      - name: Resolve WSL/data
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\','/';return "/mnt/$d/$r"}
+          $repo=W (Get-Location).Path
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $train=(W $assets)+'/frontier350_bpe_pilot_v1/train'
+          wsl.exe -- bash -lc "set -e; test -d '$train'; test -x ~/.venvs/neral-triton-py312/bin/python; ~/.venvs/neral-triton-py312/bin/python -c 'import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported()'"
+          if($LASTEXITCODE -ne 0){throw 'WSL/CUDA/data unavailable'}
+          "repo=$repo" >> $env:GITHUB_OUTPUT
+          "train=$train" >> $env:GITHUB_OUTPUT
+
+      - name: Run bounded compiler/prefetch sweep
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force frontier350_stage6_report | Out-Null
+          $repo='${{ steps.env.outputs.repo }}'; $train='${{ steps.env.outputs.train }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/speed_stage6_trainpath.py; ~/.venvs/neral-triton-py312/bin/python -u frontier350/speed_stage6_trainpath.py --train-data '$train' --out '$repo/frontier350_stage6_report/stage6_speed.json' --seq 512 --updates 12 --warmup 4"
+          if($LASTEXITCODE -ne 0){throw 'Stage-6 benchmark failed'}
+
+      - name: Print decision
+        if: always()
+        run: |
+          $p='frontier350_stage6_report\stage6_speed.json'
+          if(Test-Path $p){$r=Get-Content $p -Raw|ConvertFrom-Json; if($r.best){Write-Host ('best_tps='+$r.best.e2e_tokens_per_second);Write-Host ('vs_stage5_pct='+$r.best.vs_stage5_pct);Write-Host ('best_mode='+$r.best.compile_mode);Write-Host ('best_mb='+$r.best.microbatch);Write-Host ('best_prefetch='+$r.best.prefetch)}}
+
+      - name: Upload report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-stage6-speed-${{ github.run_id }}
+          path: frontier350_stage6_report/
+          retention-days: 30
+          if-no-files-found: warn

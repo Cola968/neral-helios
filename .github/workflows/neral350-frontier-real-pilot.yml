@@ -1,0 +1,147 @@
+name: Neral 350M Frontier Real Burn-in
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_requests/pilot.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-real-burnin
+  cancel-in-progress: false
+
+jobs:
+  burnin:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout locked Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit burn-in request
+        id: request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_requests\pilot.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'pilot request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,corpus_tokens,request_id,stop_after_tokens,target_tokens,tokenizer_sha256,version'){throw 'unsupported pilot request fields'}
+          if([int]$r.version -ne 1){throw 'unsupported pilot request version'}
+          if($r.action -ne 'burnin_frontier350'){throw 'wrong pilot action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.target_tokens -ne 10000000000){throw 'full schedule must be 10B'}
+          if([Int64]$r.stop_after_tokens -ne 25000000){throw 'first burn-in must stop at 25M'}
+          if([Int64]$r.corpus_tokens -ne 120000000){throw 'pilot corpus contract must be 120M'}
+          if($r.tokenizer_sha256 -ne '4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd'){throw 'unapproved tokenizer digest'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha256=$($r.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve CUDA, data environment and locked tokenizer
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{Join-Path $assets '.venv\Scripts\python.exe'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokRoot=Join-Path $assets 'frontier350_tokenizer_pilot_34379626653'
+          $tokenizer=Join-Path $tokRoot 'tokenizer.json'
+          $tokReport=Join-Path $tokRoot 'tokenizer_report.json'
+          if(-not(Test-Path $python -PathType Leaf)){throw "training Python missing: $python"}
+          if(-not(Test-Path $dataPython -PathType Leaf)){throw "data Python missing: $dataPython"}
+          if(-not(Test-Path $tokenizer -PathType Leaf)){throw "locked tokenizer missing: $tokenizer"}
+          if(-not(Test-Path $tokReport -PathType Leaf)){throw "tokenizer report missing: $tokReport"}
+          $digest=(Get-FileHash $tokenizer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -ne '${{ steps.request.outputs.tokenizer_sha256 }}'){throw "tokenizer digest mismatch: $digest"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__); print(torch.version.cuda)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed'}
+          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_report=$tokReport" >> $env:GITHUB_OUTPUT
+
+      - name: Compile locked training and data path
+        run: |
+          $python='${{ steps.env.outputs.python }}'
+          $dataPython='${{ steps.env.outputs.data_python }}'
+          & $python -m py_compile frontier350/model350.py frontier350/train350.py frontier350/trackio_bridge350.py training_observability.py
+          if($LASTEXITCODE -ne 0){throw 'training compile failed'}
+          & $dataPython -m py_compile frontier350/build_frontier_bpe_data.py frontier350/security_policy350_bpe.py frontier350/audit_tokenizer350.py frontier350/source_lock350.py
+          if($LASTEXITCODE -ne 0){throw 'data compile failed'}
+          & $python -c "import sys; sys.path.insert(0,'frontier350'); from model350 import Neral350M,FRONTIER_350; m=Neral350M(); r=m.parameter_report(); print(FRONTIER_350.to_dict()); print(r); assert r['total']==349825152"
+          if($LASTEXITCODE -ne 0){throw 'locked parameter contract failed'}
+
+      - name: Privacy and integrity audit locked tokenizer
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force frontier350_burnin_report | Out-Null
+          & '${{ steps.env.outputs.data_python }}' -u frontier350/audit_tokenizer350.py --tokenizer '${{ steps.env.outputs.tokenizer }}' --report '${{ steps.env.outputs.tokenizer_report }}' --out frontier350_burnin_report/tokenizer_audit.json
+          if($LASTEXITCODE -ne 0){throw 'tokenizer privacy audit failed'}
+
+      - name: Build or verify 120M locked BPE corpus
+        id: corpus
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path '${{ steps.env.outputs.assets }}' 'frontier350_bpe_pilot_v1'
+          $manifest=Join-Path $root 'manifest.json'
+          if(-not(Test-Path $manifest -PathType Leaf)){
+            if(Test-Path $root){Remove-Item $root -Recurse -Force}
+            & '${{ steps.env.outputs.data_python }}' -u frontier350/build_frontier_bpe_data.py --root $root --tokenizer '${{ steps.env.outputs.tokenizer }}' --target-tokens 120000000 --valid-tokens 10000000 --shard-tokens 25000000
+            if($LASTEXITCODE -ne 0){throw 'BPE corpus build failed'}
+          }
+          & '${{ steps.env.outputs.data_python }}' -c "import sys; from pathlib import Path; sys.path.insert(0,'frontier350'); from security_policy350_bpe import validate_manifest; print(validate_manifest(Path(r'$manifest'),Path(r'$root'),Path(r'${{ steps.env.outputs.tokenizer }}')))"
+          if($LASTEXITCODE -ne 0){throw 'BPE corpus admission failed'}
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "train=$(Join-Path $root 'train')" >> $env:GITHUB_OUTPUT
+          "valid=$(Join-Path $root 'valid')" >> $env:GITHUB_OUTPUT
+          "manifest=$manifest" >> $env:GITHUB_OUTPUT
+
+      - name: Start real Frontier 350M 10B-schedule burn-in
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}'
+          $python='${{ steps.env.outputs.python }}'
+          $out=Join-Path $assets 'runs\neral350_frontier_bpe_v1'
+          $telemetry=Join-Path $assets 'telemetry\neral350_frontier_bpe_v1'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          New-Item -ItemType Directory -Force $telemetry | Out-Null
+          $resume=Join-Path $out 'resume.pt'
+          $metrics=Join-Path $out 'metrics.jsonl'
+          $trainArgs=@('-u','frontier350/train350.py','--train-data','${{ steps.corpus.outputs.train }}','--valid-data','${{ steps.corpus.outputs.valid }}','--out',$out,'--target-tokens','10000000000','--stop-after-tokens','25000000','--seq','512','--microbatch','4','--grad-accum','8','--lr','0.0003','--warmup-frac','0.01','--eval-every','100','--save-every','100','--log-every','5','--eval-batches','12','--tokenizer-sha256','${{ steps.request.outputs.tokenizer_sha256 }}')
+          if(Test-Path $resume){$trainArgs += @('--resume',$resume)}
+          & $python -u frontier350/trackio_bridge350.py --metrics $metrics --telemetry-dir $telemetry --run-name 'frontier350-bpe-v1-burnin' -- $python @trainArgs
+          if($LASTEXITCODE -ne 0){throw 'real Frontier burn-in failed'}
+
+      - name: Prepare safe live report bundle
+        if: always()
+        run: |
+          $assets=if('${{ steps.env.outputs.assets }}'){'${{ steps.env.outputs.assets }}'}elseif($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $out=Join-Path $assets 'runs\neral350_frontier_bpe_v1'
+          $telemetry=Join-Path $assets 'telemetry\neral350_frontier_bpe_v1'
+          New-Item -ItemType Directory -Force frontier350_burnin_report | Out-Null
+          foreach($n in @('summary.json','metrics.jsonl')){$p=Join-Path $out $n; if(Test-Path $p){Copy-Item $p (Join-Path 'frontier350_burnin_report' $n) -Force}}
+          $tp=Join-Path $telemetry 'telemetry.jsonl'; if(Test-Path $tp){Copy-Item $tp frontier350_burnin_report\telemetry.jsonl -Force}
+          $manifest='${{ steps.corpus.outputs.manifest }}'; if($manifest -and(Test-Path $manifest)){Copy-Item $manifest frontier350_burnin_report\corpus_manifest.json -Force}
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-real-burnin-${{ github.run_id }}
+          path: frontier350_burnin_report/
+          retention-days: 30
+          if-no-files-found: warn

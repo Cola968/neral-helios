@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "speed_stage3_frontier350",
+  "architecture": "frontier350-v1",
+  "seq": 512,
+  "microbatches": [4, 5, 6],
+  "request_id": "stage3-native-rmsnorm-20260909"
+}

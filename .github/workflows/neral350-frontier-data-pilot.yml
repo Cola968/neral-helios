@@ -1,0 +1,96 @@
+name: Neral 350M Frontier Data Pilot
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350/build_frontier_data.py'
+      - 'frontier350/tokenizer350.py'
+      - 'frontier350/security_policy350.py'
+      - '.github/workflows/neral350-frontier-data-pilot.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-data-pilot
+  cancel-in-progress: true
+
+jobs:
+  data-pilot:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve isolated data environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets = if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $basePython = if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{Join-Path $assets '.venv\Scripts\python.exe'}
+          if(-not(Test-Path $basePython -PathType Leaf)){throw "Base Python missing: $basePython"}
+          $venv = Join-Path $assets 'frontier350_data_env'
+          $python = Join-Path $venv 'Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){
+            & $basePython -m venv $venv
+            if($LASTEXITCODE -ne 0){throw 'data venv creation failed'}
+          }
+          & $python -m pip install --disable-pip-version-check --quiet 'numpy>=2.0,<3' 'datasets>=4.0,<5' 'huggingface_hub>=0.34,<1'
+          if($LASTEXITCODE -ne 0){throw 'data dependencies failed'}
+          & $python -c "import datasets,huggingface_hub,numpy; print(datasets.__version__); print(huggingface_hub.__version__); print(numpy.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'data dependency import failed'}
+          $root=Join-Path $assets ('frontier350_data_pilot_' + $env:GITHUB_RUN_ID)
+          if(Test-Path $root){throw "Refusing existing pilot path: $root"}
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "root=$root" >> $env:GITHUB_OUTPUT
+
+      - name: Compile builder and security contracts
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/tokenizer350.py frontier350/build_frontier_data.py frontier350/security_policy350.py
+          if($LASTEXITCODE -ne 0){throw 'Frontier data scripts do not compile'}
+          & '${{ steps.env.outputs.python }}' -c "import sys; sys.path.insert(0,'frontier350'); from tokenizer350 import TOKENIZER,contract; s='Grüße 🌍 / math: 2+2=4'; ids=TOKENIZER.encode_document(s); assert ids[0]==256 and ids[-1]==257 and TOKENIZER.decode(ids)==s; print(contract())"
+          if($LASTEXITCODE -ne 0){throw 'byte tokenizer contract failed'}
+
+      - name: Build 20M audited foundation pilot
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.python }}' -u frontier350/build_frontier_data.py --root '${{ steps.env.outputs.root }}' --target-tokens 20000000 --valid-tokens 2000000 --shard-tokens 5000000
+          if($LASTEXITCODE -ne 0){throw 'Frontier HF data pilot failed'}
+
+      - name: Validate corpus admission
+        run: |
+          $root='${{ steps.env.outputs.root }}'
+          $manifest=Join-Path $root 'manifest.json'
+          & '${{ steps.env.outputs.python }}' -c "import sys; from pathlib import Path; sys.path.insert(0,'frontier350'); from security_policy350 import validate_manifest; print(validate_manifest(Path(r'$manifest'),Path(r'$root')))"
+          if($LASTEXITCODE -ne 0){throw 'Frontier data admission failed'}
+
+      - name: Prepare metadata-only report
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force frontier350_data_report | Out-Null
+          $root='${{ steps.env.outputs.root }}'
+          if($root){
+            $manifest=Join-Path $root 'manifest.json'
+            if(Test-Path $manifest -PathType Leaf){Copy-Item $manifest frontier350_data_report\manifest.json -Force}
+          }
+          Get-ChildItem frontier350_data_report -File | ForEach-Object { Write-Host $_.Name $_.Length }
+
+      - name: Upload metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-data-pilot-${{ github.run_id }}
+          path: frontier350_data_report/
+          retention-days: 30
+          if-no-files-found: warn

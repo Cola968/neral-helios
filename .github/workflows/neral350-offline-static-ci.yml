@@ -1,0 +1,118 @@
+name: Neral 350M Offline Static CI
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350/**/*.py'
+      - 'frontier350/*.json'
+      - '.github/workflows/neral350-offline-static-ci.yml'
+      - 'tests/test_arctus_recovery_hardening.py'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontier350/**/*.py'
+      - 'frontier350/*.json'
+      - '.github/workflows/neral350-offline-static-ci.yml'
+      - 'tests/test_arctus_recovery_hardening.py'
+
+permissions:
+  contents: read
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile Arctus training and speed sources
+        run: |
+          python -m py_compile \
+            frontier350/train350.py \
+            frontier350/train350_compiled.py \
+            frontier350/model350_fast.py \
+            frontier350/convert_checkpoint350_fast.py \
+            frontier350/speed_stage7_checkpoint_ab.py \
+            frontier350/speed_stage8_mb16_clip.py \
+            frontier350/build_weakness_recovery_pilot_bpe_data.py \
+            frontier350/eval_recovery_dev_v2.py \
+            frontier350/select_recovery_lr_pilot.py
+
+      - name: Install CPU regression-test dependencies
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy pytest
+
+      - name: Run recovery numerical and admission regression tests
+        run: python -m pytest -q tests/test_arctus_recovery_hardening.py
+
+      - name: Validate JSON research contracts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in [
+              Path('frontier350/recovery_source_candidates.json'),
+              Path('frontier350/arctus_recovery_dev_1b_baseline.json'),
+              Path('frontier350/perf24k_profile.json'),
+          ]:
+              json.loads(path.read_text(encoding='utf8'))
+              print('json-ok', path)
+          PY
+
+      - name: Assert resume and sampling hardening contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          eager = Path('frontier350/train350.py').read_text(encoding='utf8')
+          compiled = Path('frontier350/train350_compiled.py').read_text(encoding='utf8')
+
+          assert 'train_sampler_rng' in eager, 'eager trainer does not persist sampler RNG'
+          assert 'train_sampler_rng' in compiled, 'compiled trainer does not persist sampler RNG'
+          assert 'rng.setstate(ck["train_sampler_rng"])' in eager
+          assert 'rng.setstate(ck["train_sampler_rng"])' in compiled
+          assert 'validation_seed = args.seed + 999' in eager
+          assert 'validation_seed = args.seed + 999' in compiled
+          assert 'rng.randrange(0, len(a) - seq - 1)' not in eager
+          assert 'rng.randrange(0, len(a) - seq - 1)' not in compiled
+          assert 'rng.randrange(0, len(a) - seq)' in eager
+          assert 'rng.randrange(0, len(a) - seq)' in compiled
+          print('Arctus resume/sampling static contract OK')
+          PY
+
+      - name: Assert speed-gate safety contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          gate = Path('frontier350/speed_stage7_checkpoint_ab.py').read_text(encoding='utf8')
+          assert 'checkpoint_mutated": False' in gate
+          assert 'promotion_allowed": False' in gate
+          assert 'convert_optimizer' in gate
+          assert 'TOKENS_PER_UPDATE = 16_384' in gate
+          assert 'mode="default"' in gate
+          assert 'fullgraph=True' in gate
+          assert 'reduce-overhead' not in gate
+
+          stage8 = Path('frontier350/speed_stage8_mb16_clip.py').read_text(encoding='utf8')
+          assert 'checkpoint_mutated": False' in stage8
+          assert 'promotion_allowed": False' in stage8
+          assert 'TOKENS_PER_UPDATE = 16_384' in stage8
+          assert '(8, None)' in stage8
+          assert '(8, True)' in stage8
+          assert '(16, True)' in stage8
+          assert 'torch.save' not in stage8
+          assert 'atomic_save' not in stage8
+          assert 'foreach=foreach_clip' in stage8
+          assert 'mode="default"' in stage8
+          assert 'fullgraph=True' in stage8
+          assert 'reduce-overhead' not in stage8
+          print('Arctus Stage-7/8 speed gates remain report-only and checkpoint-native')
+          PY

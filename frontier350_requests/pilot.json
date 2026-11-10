@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "action": "burnin_frontier350",
+  "architecture": "frontier350-v1",
+  "request_id": "frontier350-bpe-v1-burnin-001",
+  "target_tokens": 10000000000,
+  "stop_after_tokens": 25000000,
+  "corpus_tokens": 120000000,
+  "tokenizer_sha256": "4a25bb40ad66e2d5a674d32e95bc0076d13cdb4decb4d508226124711e2aa7dd"
+}

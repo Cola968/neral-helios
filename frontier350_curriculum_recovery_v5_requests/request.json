@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "action": "run_curriculum_recovery_v5",
+  "architecture": "frontier350-v1",
+  "request_id": "arctus-curriculum-v5-20260912-r2",
+  "pilot_data_id": "arctus-recovery-lr-20260911-r2",
+  "stop_after_tokens": 1010003584,
+  "fixed_lr": 0.000075,
+  "profiles": [
+    "control",
+    "math_language",
+    "bilingual_math"
+  ]
+}

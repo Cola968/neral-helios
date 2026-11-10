@@ -1,0 +1,131 @@
+name: Neral 350M Frontier Stage-4 Triton
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_requests/speed_stage4_triton.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-stage4-triton
+  cancel-in-progress: false
+
+jobs:
+  stage4-triton:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit Stage-4 request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_requests\speed_stage4_triton.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'Stage-4 request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,request_id,seq,target_tps,version'){throw 'unsupported Stage-4 request fields'}
+          if([int]$r.version -ne 1){throw 'unsupported request version'}
+          if($r.action -ne 'speed_stage4_triton_frontier350'){throw 'wrong action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([int]$r.seq -ne 512){throw 'Stage-4 sequence contract must be 512'}
+          if([int]$r.target_tps -ne 15000){throw 'Stage-4 target must be 15000 tok/s'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+
+      - name: Resolve default WSL2 Ubuntu and CUDA paths
+        id: wsl
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not(Get-Command wsl.exe -ErrorAction SilentlyContinue)){throw 'WSL executable not installed'}
+
+          wsl.exe -- bash -lc "set -e; printf 'wsl-ok\n'; uname -a; python3 --version; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
+          if($LASTEXITCODE -ne 0){throw 'Default WSL distro/CUDA probe failed'}
+
+          function Convert-ToWslPath([string]$Path) {
+            $full=[System.IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$') {
+              throw "Unsupported Windows path for WSL conversion: $Path"
+            }
+            $drive=$matches[1].ToLower()
+            $rest=$matches[2] -replace '\\','/'
+            return "/mnt/$drive/$rest"
+          }
+
+          $repo=(Get-Location).Path
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $repoWsl=Convert-ToWslPath $repo
+          $assetsWsl=Convert-ToWslPath $assets
+
+          $trainWsl="$assetsWsl/frontier350_bpe_pilot_v1/train"
+          $outWsl="$repoWsl/frontier350_stage4_report/stage4_triton.json"
+
+          wsl.exe -- bash -lc "set -e; test -d '$trainWsl'; test -f '$repoWsl/frontier350/run_stage4_triton_wsl.sh'; printf 'repo=%s\ntrain=%s\n' '$repoWsl' '$trainWsl'"
+          if($LASTEXITCODE -ne 0){throw 'WSL data/repository path probe failed'}
+
+          "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
+          "train_wsl=$trainWsl" >> $env:GITHUB_OUTPUT
+          "out_wsl=$outWsl" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure C compiler for TorchInductor
+        run: |
+          $ErrorActionPreference='Stop'
+          wsl.exe -- bash -lc "if command -v gcc >/dev/null 2>&1 && command -v g++ >/dev/null 2>&1; then gcc --version | head -n1; g++ --version | head -n1; exit 0; fi; exit 42"
+          if($LASTEXITCODE -eq 42) {
+            Write-Host 'C/C++ compiler missing in WSL; installing build-essential as WSL root.'
+            wsl.exe -u root -- bash -lc "set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends build-essential"
+            if($LASTEXITCODE -ne 0){throw 'Failed to install build-essential in WSL'}
+          } elseif($LASTEXITCODE -ne 0) {
+            throw 'WSL compiler probe failed'
+          }
+          wsl.exe -- bash -lc "set -e; command -v gcc; command -v g++; gcc --version | head -n1; g++ --version | head -n1"
+          if($LASTEXITCODE -ne 0){throw 'C/C++ compiler still unavailable in WSL'}
+
+      - name: Prepare Triton and benchmark TorchInductor
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.wsl.outputs.repo_wsl }}'
+          $train='${{ steps.wsl.outputs.train_wsl }}'
+          $out='${{ steps.wsl.outputs.out_wsl }}'
+          New-Item -ItemType Directory -Force frontier350_stage4_report | Out-Null
+
+          wsl.exe -- bash -lc "set -e; tr -d '\r' < '$repo/frontier350/run_stage4_triton_wsl.sh' > /tmp/neral-stage4-triton.sh; chmod +x /tmp/neral-stage4-triton.sh; /tmp/neral-stage4-triton.sh '$repo' '$train' '$out'"
+          if($LASTEXITCODE -ne 0){throw 'Stage-4 WSL Triton bootstrap/benchmark failed'}
+
+      - name: Print Stage-4 decision
+        if: always()
+        run: |
+          $p='frontier350_stage4_report\stage4_triton.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw | ConvertFrom-Json
+            Write-Host ("target_reached=" + $r.target_reached)
+            Write-Host ("torch=" + $r.torch + " triton=" + $r.triton)
+            if($null -ne $r.best){
+              Write-Host ("best_tps=" + $r.best.e2e_tokens_per_second)
+              Write-Host ("best_layout=" + $r.best.layout)
+              Write-Host ("best_mb=" + $r.best.microbatch)
+              Write-Host ("best_compile=" + $r.best.compile_mode)
+            }
+          } else {
+            Write-Host 'No Stage-4 report produced.'
+          }
+
+      - name: Upload aggregate Stage-4 report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-stage4-triton-${{ github.run_id }}
+          path: frontier350_stage4_report/
+          retention-days: 30
+          if-no-files-found: warn

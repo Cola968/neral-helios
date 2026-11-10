@@ -1,0 +1,121 @@
+name: Neral 350M Frontier Stage-5 Speed
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_requests/speed_stage5_trainpath.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-stage5-speed
+  cancel-in-progress: false
+
+jobs:
+  stage5-speed:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit Stage-5 request
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_requests\speed_stage5_trainpath.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'Stage-5 request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,request_id,seq,target_tps,version'){throw 'unsupported Stage-5 request fields'}
+          if([int]$r.version -ne 1){throw 'unsupported request version'}
+          if($r.action -ne 'speed_stage5_trainpath_frontier350'){throw 'wrong action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([int]$r.seq -ne 512){throw 'Stage-5 sequence contract must be 512'}
+          if([int]$r.target_tps -ne 22000){throw 'Stage-5 target must be 22000 tok/s'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+
+      - name: Resolve WSL2 CUDA and data paths
+        id: wsl
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not(Get-Command wsl.exe -ErrorAction SilentlyContinue)){throw 'WSL executable not installed'}
+          wsl.exe -- bash -lc "set -e; uname -a; nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader"
+          if($LASTEXITCODE -ne 0){throw 'WSL/CUDA probe failed'}
+
+          function Convert-ToWslPath([string]$Path) {
+            $full=[System.IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$'){throw "Unsupported Windows path: $Path"}
+            $drive=$matches[1].ToLower()
+            $rest=$matches[2] -replace '\\','/'
+            return "/mnt/$drive/$rest"
+          }
+
+          $repoWsl=Convert-ToWslPath (Get-Location).Path
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $assetsWsl=Convert-ToWslPath $assets
+          $trainWsl="$assetsWsl/frontier350_bpe_pilot_v1/train"
+          $outWsl="$repoWsl/frontier350_stage5_report/stage5_speed.json"
+
+          wsl.exe -- bash -lc "set -e; test -d '$trainWsl'; test -f '$repoWsl/frontier350/run_stage5_trainpath_wsl.sh'; printf 'repo=%s\ntrain=%s\n' '$repoWsl' '$trainWsl'"
+          if($LASTEXITCODE -ne 0){throw 'WSL data/repository path probe failed'}
+
+          "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
+          "train_wsl=$trainWsl" >> $env:GITHUB_OUTPUT
+          "out_wsl=$outWsl" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure C compiler for TorchInductor
+        run: |
+          $ErrorActionPreference='Stop'
+          wsl.exe -- bash -lc "if command -v gcc >/dev/null 2>&1 && command -v g++ >/dev/null 2>&1; then exit 0; fi; exit 42"
+          if($LASTEXITCODE -eq 42) {
+            wsl.exe -u root -- bash -lc "set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends build-essential"
+            if($LASTEXITCODE -ne 0){throw 'Failed to install build-essential'}
+          } elseif($LASTEXITCODE -ne 0) {
+            throw 'WSL compiler probe failed'
+          }
+
+      - name: Run Stage-5 train-path sweep
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.wsl.outputs.repo_wsl }}'
+          $train='${{ steps.wsl.outputs.train_wsl }}'
+          $out='${{ steps.wsl.outputs.out_wsl }}'
+          New-Item -ItemType Directory -Force frontier350_stage5_report | Out-Null
+          wsl.exe -- bash -lc "set -e; tr -d '\r' < '$repo/frontier350/run_stage5_trainpath_wsl.sh' > /tmp/neral-stage5.sh; chmod +x /tmp/neral-stage5.sh; /tmp/neral-stage5.sh '$repo' '$train' '$out'"
+          if($LASTEXITCODE -ne 0){throw 'Stage-5 WSL benchmark failed'}
+
+      - name: Print Stage-5 decision
+        if: always()
+        run: |
+          $p='frontier350_stage5_report\stage5_speed.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw | ConvertFrom-Json
+            Write-Host ("target_reached=" + $r.target_reached)
+            if($null -ne $r.best){
+              Write-Host ("best_tps=" + $r.best.e2e_tokens_per_second)
+              Write-Host ("best_mb=" + $r.best.microbatch)
+              Write-Host ("best_fullgraph=" + $r.best.fullgraph)
+              Write-Host ("best_force_flash=" + $r.best.force_flash)
+            }
+          } else {
+            Write-Host 'No Stage-5 report produced.'
+          }
+
+      - name: Upload Stage-5 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-stage5-speed-${{ github.run_id }}
+          path: frontier350_stage5_report/
+          retention-days: 30
+          if-no-files-found: warn

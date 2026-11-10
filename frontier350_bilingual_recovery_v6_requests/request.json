@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "action": "run_bilingual_recovery_v6",
+  "architecture": "frontier350-v1",
+  "request_id": "arctus-bilingual-v6-20260912-r2",
+  "pilot_data_id": "arctus-recovery-lr-20260911-r2",
+  "stop_after_tokens": 1010003584,
+  "fixed_lr": 0.000075,
+  "profiles": ["xling_05", "xling_10", "xling_15"]
+}

@@ -1,0 +1,123 @@
+name: Neral 350M Frontier Compiled Burn-in
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_compiled_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-compiled-burnin
+  cancel-in-progress: false
+
+jobs:
+  compiled-burnin:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded authorization
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_compiled_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'compiled burn-in request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name | Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,request_id,stop_after_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1){throw 'unsupported request version'}
+          if($r.action -ne 'resume_compiled_burnin'){throw 'wrong action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 100000000){throw 'first compiled burn-in is locked to 100M cumulative tokens'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+
+      - name: Resolve WSL paths and current Frontier checkpoint
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function Convert-ToWslPath([string]$Path) {
+            $full=[System.IO.Path]::GetFullPath($Path)
+            if($full -notmatch '^([A-Za-z]):\\(.*)$'){throw "unsupported Windows path: $Path"}
+            $drive=$matches[1].ToLower()
+            $rest=$matches[2] -replace '\\','/'
+            return "/mnt/$drive/$rest"
+          }
+          $repo=(Get-Location).Path
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $source=Join-Path $assets 'runs\neral350_frontier_bpe_v1\resume.pt'
+          $train=Join-Path $assets 'frontier350_bpe_pilot_v1\train'
+          $valid=Join-Path $assets 'frontier350_bpe_pilot_v1\valid'
+          $out=Join-Path $assets 'runs\neral350_frontier_compiled_100m'
+          if(-not(Test-Path $source -PathType Leaf)){throw "missing checkpoint: $source"}
+          foreach($p in @($train,$valid)){if(-not(Test-Path $p -PathType Container)){throw "missing data: $p"}}
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $repoWsl=Convert-ToWslPath $repo
+          $sourceWsl=Convert-ToWslPath $source
+          $trainWsl=Convert-ToWslPath $train
+          $validWsl=Convert-ToWslPath $valid
+          $outWsl=Convert-ToWslPath $out
+
+          wsl.exe -- bash -lc "set -e; test -x ~/.venvs/neral-triton-py312/bin/python"
+          if($LASTEXITCODE -ne 0){throw 'WSL Python environment unavailable'}
+          wsl.exe -- bash -lc "set -e; test -f '$sourceWsl'; test -d '$trainWsl'; test -d '$validWsl'"
+          if($LASTEXITCODE -ne 0){throw 'WSL checkpoint/data path unavailable'}
+          wsl.exe -- bash -lc "set -e; ~/.venvs/neral-triton-py312/bin/python -c 'import torch; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0))'"
+          if($LASTEXITCODE -ne 0){throw 'WSL CUDA/BF16 environment unavailable'}
+
+          "repo_wsl=$repoWsl" >> $env:GITHUB_OUTPUT
+          "source_wsl=$sourceWsl" >> $env:GITHUB_OUTPUT
+          "train_wsl=$trainWsl" >> $env:GITHUB_OUTPUT
+          "valid_wsl=$validWsl" >> $env:GITHUB_OUTPUT
+          "out_wsl=$outWsl" >> $env:GITHUB_OUTPUT
+          "out_win=$out" >> $env:GITHUB_OUTPUT
+
+      - name: Fail-closed numerical compile gate on real checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force frontier350_compiled_report | Out-Null
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/validate_compile350.py --checkpoint '${{ steps.env.outputs.source_wsl }}' --valid-data '${{ steps.env.outputs.valid_wsl }}' --out '$repo/frontier350_compiled_report/compile_gate.json' --seq 256 --batch 1 --eval-batches 4"
+          if($LASTEXITCODE -ne 0){throw 'compile/eager equivalence gate rejected candidate'}
+
+      - name: Resume only to 100M cumulative tokens
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '${{ steps.env.outputs.train_wsl }}' --valid-data '${{ steps.env.outputs.valid_wsl }}' --out '${{ steps.env.outputs.out_wsl }}' --target-tokens 10000000000 --stop-after-tokens 100000000 --seq 512 --microbatch 4 --grad-accum 8 --lr 0.0003 --eval-every 250 --save-every 250 --log-every 10 --resume '${{ steps.env.outputs.source_wsl }}' --compile-mode default --numerical-check-every 1"
+          if($LASTEXITCODE -ne 0){throw 'bounded compiled burn-in failed'}
+
+      - name: Collect safe reports only
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force frontier350_compiled_report | Out-Null
+          $out='${{ steps.env.outputs.out_win }}'
+          if([string]::IsNullOrWhiteSpace($out)){
+            Write-Host 'No resolved output path; nothing to collect.'
+            exit 0
+          }
+          foreach($n in @('summary.json','metrics.jsonl')){
+            $p=Join-Path $out $n
+            if(Test-Path $p -PathType Leaf){Copy-Item $p frontier350_compiled_report\$n -Force}
+          }
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-compiled-burnin-${{ github.run_id }}
+          path: frontier350_compiled_report/
+          retention-days: 30
+          if-no-files-found: warn

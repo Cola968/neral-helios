@@ -1,0 +1,199 @@
+name: Neral 350M Curriculum Recovery V5
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_curriculum_recovery_v5_requests/request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-curriculum-recovery-v5
+  cancel-in-progress: true
+
+jobs:
+  curriculum-recovery-v5:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Validate bounded V5 request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_curriculum_recovery_v5_requests\request.json' -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,fixed_lr,pilot_data_id,profiles,request_id,stop_after_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'run_curriculum_recovery_v5'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 1010003584){throw 'V5 stop must be exactly 10M new tokens after immutable 1B checkpoint'}
+          if([math]::Abs([double]$r.fixed_lr-0.000075) -gt 1e-12){throw 'V5 LR must be fixed at 7.5e-5'}
+          $expected=@('control','math_language','bilingual_math')
+          $p=@($r.profiles)
+          if($p.Count -ne 3 -or (($p -join ',') -ne ($expected -join ','))){throw 'unexpected profile set'}
+          foreach($x in @($r.request_id,$r.pilot_data_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid id'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "pilot_id=$($r.pilot_data_id)" >> $env:GITHUB_OUTPUT
+          "stop=$($r.stop_after_tokens)" >> $env:GITHUB_OUTPUT
+          "lr=$($r.fixed_lr)" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Force frontier350_curriculum_recovery_v5_report | Out-Null
+          @{selected_lr=[double]$r.fixed_lr;selection_source='v5_fixed_after_v4_no_promotion';varying_axis='curriculum_only'} | ConvertTo-Json | Set-Content frontier350_curriculum_recovery_v5_report\experiment.json
+
+      - name: Resolve immutable assets and balanced pilot seed
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          if((Get-FileHash -LiteralPath $checkpoint -Algorithm SHA256).Hash.ToLower() -ne 'be1e0d2ae6b95b734fadd516dc012b8d92935c69ebe830d7358637cefb0e2498'){throw 'immutable 1B checkpoint digest differs'}
+          $seed=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.pilot_id }}')
+          $seedManifest=Join-Path $seed 'manifest.json';$seedDedupe=Join-Path $seed 'dedupe.sqlite3'
+          foreach($p in @($dataPython,$tokenizer,$checkpoint,$seedManifest,$seedDedupe)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          $m=Get-Content $seedManifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or $m.pilot_only -ne $true){throw 'wrong balanced pilot seed'}
+          if([Int64]$m.train_tokens -ne 20000000 -or [Int64]$m.validation_tokens -ne 200000){throw 'wrong balanced pilot seed size'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$($m.tokenizer.tokenizer_sha256)" >> $env:GITHUB_OUTPUT
+          "seed=$seed" >> $env:GITHUB_OUTPUT
+          "seed_wsl=$(W $seed)" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+
+      - name: Revalidate tooling and immutable checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.data_python }}' -m py_compile frontier350/build_weakness_recovery_pilot_bpe_data.py frontier350/security_policy350_bpe.py frontier350/verify_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/select_recovery_lr_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'tooling compile failed'}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1000000000 --max-tokens 1000032768"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'immutable 1B checkpoint verification failed'}
+
+      - name: Preflight disk
+        run: |
+          $assets='${{ steps.env.outputs.assets }}'
+          $root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets));$drive=Get-PSDrive -Name $root.Substring(0,1)
+          $freeGiB=[math]::Round($drive.Free/1GB,2)
+          Write-Host "free_disk_gib=$freeGiB"
+          if($drive.Free -lt 10GB){throw "insufficient free disk: ${freeGiB} GiB; need >= 10 GiB to retain passing candidates"}
+
+      - name: Build three local training-only source remixes
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}';$seed='${{ steps.env.outputs.seed }}';$tok='${{ steps.env.outputs.tokenizer }}';$py='${{ steps.env.outputs.data_python }}';$rid='${{ steps.req.outputs.request_id }}'
+          foreach($profile in @('control','math_language','bilingual_math')){
+            $root=Join-Path $assets ('frontier350_weakness_'+$rid+'_'+$profile)
+            if(Test-Path $root){throw "corpus output already exists: $root"}
+            & $py frontier350/remix_recovery_corpus.py --root $root --tokenizer $tok --seed $seed --profile $profile
+            if($LASTEXITCODE -ne 0){throw "corpus build failed: $profile"}
+            & $py -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$root\manifest.json'),Path(r'$root'),Path(r'$tok')))"
+            if($LASTEXITCODE -ne 0){throw "corpus admission failed: $profile"}
+            Copy-Item (Join-Path $root 'manifest.json') ("frontier350_curriculum_recovery_v5_report\${profile}_manifest.json") -Force
+          }
+
+      - name: Evaluate immutable 1B baseline on fixed validation
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_curriculum_recovery_v5_report/baseline_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'baseline validation failed'}
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_curriculum_recovery_v5_report/baseline_dev.json --expected-tokens 1000003584"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'fresh baseline development evaluation failed'}
+
+      - name: Train and evaluate V5 curricula sequentially
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck0='${{ steps.env.outputs.checkpoint_wsl }}';$seed='${{ steps.env.outputs.seed_wsl }}';$assets='${{ steps.env.outputs.assets }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}';$lr='${{ steps.req.outputs.lr }}'
+          foreach($profile in @('control','math_language','bilingual_math')){
+            $dataWin=Join-Path $assets ('frontier350_weakness_'+$rid+'_'+$profile);$data=W $dataWin
+            $outWin=Join-Path $assets ('runs\neral350_curriculum_v5_'+$rid+'_'+$profile)
+            if(Test-Path $outWin){throw "candidate output already exists: $outWin"}
+            New-Item -ItemType Directory -Force $outWin|Out-Null;$out=W $outWin
+            Write-Host ("Training V5 profile {0} at fixed LR {1}" -f $profile,$lr)
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$data/train' --valid-data '$seed/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$lr' --lr-schedule constant --resume-only --seq 512 --microbatch 8 --grad-accum 4 --eval-every 500 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 1 --resume '$ck0' --tokenizer-sha256 '$sha'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("training candidate failed: "+$profile)}
+            $ck=W (Join-Path $outWin 'resume.pt')
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$seed/valid' --out frontier350_curriculum_recovery_v5_report/${profile}_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "validation failed: $profile"}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_curriculum_recovery_v5_report/${profile}_dev.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd;if($LASTEXITCODE -ne 0){throw "dev evaluation failed: $profile"}
+            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src -PathType Leaf){Copy-Item $src ("frontier350_curriculum_recovery_v5_report\${profile}_$f") -Force}}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350_curriculum_recovery_v5_report/baseline_dev.json --baseline-validation frontier350_curriculum_recovery_v5_report/baseline_validation.json --candidate '$profile' '$lr' frontier350_curriculum_recovery_v5_report/${profile}_dev.json frontier350_curriculum_recovery_v5_report/${profile}_validation.json --out frontier350_curriculum_recovery_v5_report/${profile}_gate.json"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw "candidate gate error; retaining weights: $profile"}
+            $gate=Get-Content ("frontier350_curriculum_recovery_v5_report/${profile}_gate.json") -Raw|ConvertFrom-Json
+            if($gate.selection_allowed -ne $true){
+              $allowedRoot=[IO.Path]::GetFullPath((Join-Path $assets 'runs'))+[IO.Path]::DirectorySeparatorChar
+              $resolvedOut=[IO.Path]::GetFullPath($outWin)
+              if(-not $resolvedOut.StartsWith($allowedRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'unsafe candidate path'}
+              if(-not (Split-Path -Leaf $resolvedOut).StartsWith('neral350_curriculum_v5_'+$rid+'_')){throw 'unexpected candidate directory'}
+              foreach($name in @('resume.pt','best_validation.pt')){
+                $rejectedFile=Join-Path $resolvedOut $name
+                if(Test-Path -LiteralPath $rejectedFile){Remove-Item -LiteralPath $rejectedFile -Force}
+              }
+              Write-Host "Rejected by measured no-regression gate: $profile; reports retained"
+            } else { Write-Host "Preserved passing checkpoint: $outWin" }
+          }
+
+      - name: Select only a no-regression curriculum
+        id: select
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='${{ steps.env.outputs.repo_wsl }}';$lr='${{ steps.req.outputs.lr }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350_curriculum_recovery_v5_report/baseline_dev.json --baseline-validation frontier350_curriculum_recovery_v5_report/baseline_validation.json --candidate control '$lr' frontier350_curriculum_recovery_v5_report/control_dev.json frontier350_curriculum_recovery_v5_report/control_validation.json --candidate math_language '$lr' frontier350_curriculum_recovery_v5_report/math_language_dev.json frontier350_curriculum_recovery_v5_report/math_language_validation.json --candidate bilingual_math '$lr' frontier350_curriculum_recovery_v5_report/bilingual_math_dev.json frontier350_curriculum_recovery_v5_report/bilingual_math_validation.json --out frontier350_curriculum_recovery_v5_report/selection.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'V5 curriculum selector failed'}
+          $s=Get-Content frontier350_curriculum_recovery_v5_report\selection.json -Raw|ConvertFrom-Json
+          "selected=$($s.selected)" >> $env:GITHUB_OUTPUT
+          "allowed=$($s.selection_allowed)" >> $env:GITHUB_OUTPUT
+          Get-Content frontier350_curriculum_recovery_v5_report\selection.json
+
+      - name: Retain actual selected checkpoint without retraining
+        if: steps.select.outputs.allowed == 'True'
+        run: |
+          $ErrorActionPreference='Stop'
+          $profile='${{ steps.select.outputs.selected }}'
+          if($profile -notin @('control','math_language','bilingual_math')){throw 'invalid selected profile'}
+          $assets='${{ steps.env.outputs.assets }}';$rid='${{ steps.req.outputs.request_id }}'
+          $out=Join-Path (Join-Path $assets 'runs') ('neral350_curriculum_v5_'+$rid+'_'+$profile)
+          $ck=Join-Path $out 'resume.pt'
+          if(-not(Test-Path -LiteralPath $ck)){throw 'selected checkpoint missing'}
+          $hash=(Get-FileHash -LiteralPath $ck -Algorithm SHA256).Hash.ToLower()
+          $dev=Get-Content ("frontier350_curriculum_recovery_v5_report/${profile}_dev.json") -Raw|ConvertFrom-Json
+          if($hash -ne $dev.checkpoint_sha256){throw 'selected checkpoint differs from evaluated weights'}
+          @{profile=$profile;checkpoint=$ck;sha256=$hash;status='development_gate_passed';promotion_allowed=$false;next_stage='independent confirmation before release'} | ConvertTo-Json | Set-Content frontier350_curriculum_recovery_v5_report/retained_checkpoint.json
+
+      - name: Record no-promotion outcome
+        if: steps.select.outputs.allowed != 'True'
+        run: |
+          @{status='no_promotion';reason='no curriculum passed immutable development and validation floors';fixed_lr=[double]'${{ steps.req.outputs.lr }}'} | ConvertTo-Json | Set-Content frontier350_curriculum_recovery_v5_report\retained_checkpoint.json
+
+      - name: Upload V5 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-curriculum-recovery-v5-${{ github.run_id }}
+          path: frontier350_curriculum_recovery_v5_report/
+          retention-days: 30
+          if-no-files-found: warn

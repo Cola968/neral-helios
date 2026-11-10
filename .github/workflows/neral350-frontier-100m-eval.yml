@@ -1,0 +1,99 @@
+name: Neral 350M Frontier 100M Evaluation
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_eval_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-100m-eval
+  cancel-in-progress: false
+
+jobs:
+  eval100m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_eval_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw '100M eval request missing'}
+          $r=Get-Content $p -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,checkpoint_tokens,request_id,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'evaluate_100m_checkpoint'){throw 'invalid eval action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.checkpoint_tokens -ne 100000000){throw 'evaluation locked to 100M checkpoint'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+
+      - name: Resolve checkpoint, tokenizer and fixed validation data
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\','/';return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_100m\resume.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $valid=Join-Path $assets 'frontier350_bpe_pilot_v1\valid'
+          foreach($p in @($checkpoint,$tokenizer)){if(-not(Test-Path $p -PathType Leaf)){throw "missing file: $p"}}
+          if(-not(Test-Path $valid -PathType Container)){throw "missing validation data: $valid"}
+          wsl.exe -- bash -lc "set -e; test -x ~/.venvs/neral-triton-py312/bin/python"
+          if($LASTEXITCODE -ne 0){throw 'WSL Python unavailable'}
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "valid=$(W $valid)" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure pinned tokenizer runtime in WSL
+        run: |
+          $ErrorActionPreference='Stop'
+          wsl.exe -- bash -lc '~/.venvs/neral-triton-py312/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true; ~/.venvs/neral-triton-py312/bin/python -m pip install --disable-pip-version-check --quiet tokenizers==0.21.4; ~/.venvs/neral-triton-py312/bin/python -m pip show tokenizers | grep -F "Version: 0.21.4"'
+          if($LASTEXITCODE -ne 0){throw 'pinned tokenizer runtime unavailable'}
+
+      - name: Run fixed-protocol 100M evaluation
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force frontier350_eval_report | Out-Null
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/eval100m.py; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval100m.py --checkpoint '${{ steps.env.outputs.checkpoint }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --valid-data '${{ steps.env.outputs.valid }}' --out '$repo/frontier350_eval_report/eval100m.json' --seed 350100 --seq 512 --batch 2 --eval-batches 16 --max-new 48"
+          if($LASTEXITCODE -ne 0){throw '100M fixed evaluation failed'}
+
+      - name: Print analytical decision inputs
+        if: always()
+        run: |
+          $p='frontier350_eval_report\eval100m.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw|ConvertFrom-Json
+            Write-Host ('fixed_validation_loss='+$r.fixed_validation_loss)
+            Write-Host ('keyword_hit_rate='+$r.completion_keyword_hit_rate)
+            Write-Host ('eos_rate='+$r.eos_rate)
+            Write-Host ('repetition_4gram='+$r.mean_repetition_4gram)
+            Write-Host ('distinct_2gram='+$r.mean_distinct_2gram)
+            Write-Host ('empty_completion_rate='+$r.empty_completion_rate)
+          }
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-100m-eval-${{ github.run_id }}
+          path: frontier350_eval_report/
+          retention-days: 30
+          if-no-files-found: warn

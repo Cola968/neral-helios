@@ -1,0 +1,173 @@
+name: Neral 350M Recovery LR Pilot V4
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_recovery_pilot_v4_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-recovery-lr-pilot-v4
+  cancel-in-progress: false
+
+jobs:
+  recovery-lr-pilot-v4:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'frontier350_recovery_pilot_v4_requests\request.json' -Raw | ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,lrs,pilot_data_id,request_id,stop_after_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'run_recovery_lr_pilot_v4'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.stop_after_tokens -ne 1010000000){throw 'pilot stop must be 1.01B cumulative tokens'}
+          foreach($x in @($r.request_id,$r.pilot_data_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}}
+          $lrs=@($r.lrs);$expected=@(0.0001,0.000075,0.00005)
+          if($lrs.Count -ne 3){throw 'exactly three LR candidates required'}
+          for($i=0;$i -lt 3;$i++){if([math]::Abs([double]$lrs[$i]-$expected[$i]) -gt 1e-12){throw 'unexpected LR candidate set'}}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+          "pilot_id=$($r.pilot_data_id)" >> $env:GITHUB_OUTPUT
+          "stop=$($r.stop_after_tokens)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve immutable checkpoint and admitted pilot data
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $dataPython=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          $pilot=Join-Path $assets ('frontier350_bpe_recovery_pilot_'+'${{ steps.req.outputs.pilot_id }}')
+          $manifest=Join-Path $pilot 'manifest.json'
+          foreach($p in @($dataPython,$tokenizer,$checkpoint,$manifest)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          $m=Get-Content $manifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or $m.pilot_only -ne $true){throw 'wrong pilot corpus profile'}
+          if([Int64]$m.train_tokens -ne 20000000 -or [Int64]$m.validation_tokens -ne 200000){throw 'wrong pilot corpus size'}
+          $sha=[string]$m.tokenizer.tokenizer_sha256
+          if($sha -notmatch '^[0-9a-f]{64}$'){throw 'invalid tokenizer digest'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "pilot=$pilot" >> $env:GITHUB_OUTPUT
+          "pilot_wsl=$(W $pilot)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "tokenizer_wsl=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "tokenizer_sha=$sha" >> $env:GITHUB_OUTPUT
+          "data_python=$dataPython" >> $env:GITHUB_OUTPUT
+
+      - name: Recover disk space from failed r5 scratch and preflight
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='${{ steps.env.outputs.assets }}'
+          $runs=Join-Path $assets 'runs'
+          foreach($name in @('lr100u','lr75u','lr50u')){
+            $stale=Join-Path $runs ('neral350_recovery_arctus-recovery-lr-20260912-r5_'+$name)
+            if(Test-Path $stale){
+              Write-Host "Removing failed r5 scratch: $stale"
+              Remove-Item $stale -Recurse -Force
+            }
+          }
+          $root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets))
+          $drive=Get-PSDrive -Name $root.Substring(0,1)
+          $freeGiB=[math]::Round($drive.Free/1GB,2)
+          Write-Host "free_disk_gib=$freeGiB"
+          if($drive.Free -lt 4GB){throw "insufficient free disk after cleanup: ${freeGiB} GiB; need >= 4 GiB"}
+
+      - name: Revalidate pilot corpus and compile tooling
+        run: |
+          $ErrorActionPreference='Stop'
+          & '${{ steps.env.outputs.data_python }}' -m py_compile frontier350/security_policy350_bpe.py frontier350/verify_recovery_checkpoint.py frontier350/eval_validation_loss350.py frontier350/eval_recovery_dev_v2.py frontier350/select_recovery_lr_pilot.py
+          if($LASTEXITCODE -ne 0){throw 'tooling compile failed'}
+          $manifest=Join-Path '${{ steps.env.outputs.pilot }}' 'manifest.json'
+          & '${{ steps.env.outputs.data_python }}' -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$manifest'),Path(r'${{ steps.env.outputs.pilot }}'),Path(r'${{ steps.env.outputs.tokenizer }}')))"
+          if($LASTEXITCODE -ne 0){throw 'pilot corpus admission re-check failed'}
+
+      - name: Ensure WSL runtime and verify immutable 1B checkpoint
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $ck='${{ steps.env.outputs.checkpoint_wsl }}'
+          $sha='${{ steps.env.outputs.tokenizer_sha }}'
+          $cmd="set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh; ~/.venvs/neral-triton-py312/bin/python -u frontier350/verify_recovery_checkpoint.py --checkpoint '$ck' --tokenizer-sha256 '$sha' --min-tokens 1000000000 --max-tokens 1000032768"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'WSL runtime/checkpoint verification failed'}
+
+      - name: Evaluate immutable 1B baseline on pilot validation
+        run: |
+          New-Item -ItemType Directory -Force frontier350_recovery_pilot_v4_report | Out-Null
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$pilot='${{ steps.env.outputs.pilot_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$pilot/valid' --out frontier350_recovery_pilot_v4_report/baseline_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'baseline validation failed'}
+
+      - name: Run and evaluate LR candidates sequentially with bounded scratch
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\','/');return "/mnt/$d/$r"}
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck0='${{ steps.env.outputs.checkpoint_wsl }}';$pilot='${{ steps.env.outputs.pilot_wsl }}';$assets='${{ steps.env.outputs.assets }}';$tok='${{ steps.env.outputs.tokenizer_wsl }}';$sha='${{ steps.env.outputs.tokenizer_sha }}';$stop='${{ steps.req.outputs.stop }}';$rid='${{ steps.req.outputs.request_id }}'
+          $candidates=@(@{name='lr100u';lr='0.0001'},@{name='lr75u';lr='0.000075'},@{name='lr50u';lr='0.00005'})
+          foreach($c in $candidates){
+            $outWin=Join-Path $assets ('runs\neral350_recovery_'+$rid+'_'+$c.name)
+            if(Test-Path $outWin){throw "candidate output already exists: $outWin"}
+            New-Item -ItemType Directory -Force $outWin | Out-Null
+            $out=W $outWin
+            Write-Host ("Training {0} at LR {1}" -f $c.name,$c.lr)
+            $cmd="set -o pipefail; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/train350_compiled.py --train-data '$pilot/train' --valid-data '$pilot/valid' --out '$out' --target-tokens 10000000000 --stop-after-tokens '$stop' --lr '$($c.lr)' --seq 512 --microbatch 8 --grad-accum 4 --eval-every 500 --save-every 500 --log-every 20 --compile-mode default --compile-fullgraph --numerical-check-every 20 --resume '$ck0' --tokenizer-sha256 '$sha'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("training candidate failed: "+$c.name)}
+
+            $ck=W (Join-Path $outWin 'resume.pt')
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_validation_loss350.py --checkpoint '$ck' --valid-data '$pilot/valid' --out frontier350_recovery_pilot_v4_report/$($c.name)_validation.json --seq 512 --batch 4 --batches 32 --seed 351337"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("validation failed: "+$c.name)}
+            $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev_v2.py --checkpoint '$ck' --tokenizer '$tok' --out frontier350_recovery_pilot_v4_report/$($c.name)_dev.json --expected-tokens '$stop'"
+            wsl.exe -- bash -lc $cmd
+            if($LASTEXITCODE -ne 0){throw ("dev evaluation failed: "+$c.name)}
+            foreach($f in @('summary.json','metrics.jsonl')){$src=Join-Path $outWin $f;if(Test-Path $src -PathType Leaf){Copy-Item $src ("frontier350_recovery_pilot_v4_report\$($c.name)_$f") -Force}}
+
+            Write-Host ("Candidate {0} evaluated successfully; deleting scratch checkpoint" -f $c.name)
+            Remove-Item $outWin -Recurse -Force
+            $root=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($assets));$drive=Get-PSDrive -Name $root.Substring(0,1)
+            Write-Host ("free_disk_gib_after_{0}={1}" -f $c.name,[math]::Round($drive.Free/1GB,2))
+          }
+
+      - name: Select only a no-regression candidate
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/select_recovery_lr_pilot.py --baseline-dev frontier350/arctus_recovery_dev_1b_baseline.json --baseline-validation frontier350_recovery_pilot_v4_report/baseline_validation.json --candidate lr100u 0.0001 frontier350_recovery_pilot_v4_report/lr100u_dev.json frontier350_recovery_pilot_v4_report/lr100u_validation.json --candidate lr75u 0.000075 frontier350_recovery_pilot_v4_report/lr75u_dev.json frontier350_recovery_pilot_v4_report/lr75u_validation.json --candidate lr50u 0.00005 frontier350_recovery_pilot_v4_report/lr50u_dev.json frontier350_recovery_pilot_v4_report/lr50u_validation.json --out frontier350_recovery_pilot_v4_report/selection.json"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'recovery selector failed'}
+          Get-Content frontier350_recovery_pilot_v4_report\selection.json
+
+      - name: Copy pilot metadata
+        if: always()
+        run: |
+          $root='${{ steps.env.outputs.pilot }}'
+          if(-not[string]::IsNullOrWhiteSpace($root)){$m=Join-Path $root 'manifest.json';if(Test-Path $m -PathType Leaf){New-Item -ItemType Directory -Force frontier350_recovery_pilot_v4_report | Out-Null;Copy-Item $m frontier350_recovery_pilot_v4_report\pilot_manifest.json -Force}}
+
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-recovery-lr-pilot-v4-${{ github.run_id }}
+          path: frontier350_recovery_pilot_v4_report/
+          retention-days: 30
+          if-no-files-found: warn

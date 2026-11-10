@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "action": "validate_checkpoint_native_compile",
+  "architecture": "frontier350-v1",
+  "request_id": "compile-gate-REPLACE-ME"
+}

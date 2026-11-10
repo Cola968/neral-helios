@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "speed_stage5_trainpath_frontier350",
+  "architecture": "frontier350-v1",
+  "seq": 512,
+  "target_tps": 22000,
+  "request_id": "stage5-speed-20260909-r1"
+}

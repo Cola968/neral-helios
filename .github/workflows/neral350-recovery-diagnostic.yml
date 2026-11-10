@@ -1,0 +1,101 @@
+name: Neral 350M Recovery Diagnostic
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_recovery_eval_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-recovery-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  recovery_eval:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit recovery diagnostic request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_recovery_eval_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'recovery diagnostic request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,expected_tokens,request_id,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'evaluate_recovery_dev'){throw 'invalid action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.expected_tokens -lt 1000000000){throw 'expected_tokens must be at least 1B'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+          "expected_tokens=$($r.expected_tokens)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve 1B checkpoint and tokenizer
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){
+            $f=[IO.Path]::GetFullPath($Path)
+            $root=[IO.Path]::GetPathRoot($f)
+            if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"}
+            $d=$matches[1].ToLower(); $r=$f.Substring($root.Length).Replace('\','/')
+            return "/mnt/$d/$r"
+          }
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          foreach($p in @($checkpoint,$tokenizer)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          $report=Join-Path (Get-Location).Path 'frontier350_recovery_eval_report'
+          New-Item -ItemType Directory -Force $report | Out-Null
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "report=$(W $report)" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure stable WSL evaluation runtime
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh"
+          if($LASTEXITCODE -ne 0){throw 'WSL evaluation runtime bootstrap failed'}
+
+      - name: Validate recovery evaluator
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/eval_recovery_dev.py"
+          if($LASTEXITCODE -ne 0){throw 'recovery evaluator syntax check failed'}
+
+      - name: Run larger recovery development suite
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval_recovery_dev.py --checkpoint '${{ steps.env.outputs.checkpoint }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --out '${{ steps.env.outputs.report }}/recovery_dev_1b.json' --expected-tokens '${{ steps.req.outputs.expected_tokens }}'"
+          if($LASTEXITCODE -ne 0){throw 'recovery development evaluation failed'}
+
+      - name: Print recovery summary
+        run: |
+          $p='frontier350_recovery_eval_report\recovery_dev_1b.json'
+          $j=Get-Content $p -Raw|ConvertFrom-Json
+          Write-Host ('cases='+$j.cases)
+          Write-Host ('overall_accuracy_pct='+$j.overall_accuracy_pct)
+          foreach($x in $j.categories.PSObject.Properties){Write-Host ('category_'+$x.Name+'_pct='+$x.Value.accuracy_pct)}
+
+      - name: Upload recovery diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-recovery-diagnostic-${{ github.run_id }}
+          path: frontier350_recovery_eval_report/
+          retention-days: 30
+          if-no-files-found: error

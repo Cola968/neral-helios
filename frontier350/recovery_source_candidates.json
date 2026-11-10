@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "purpose": "research-only source candidates for Arctus recovery; none are admitted to training by this file",
+  "audit_date": "2026-09-11",
+  "candidates": [
+    {
+      "repo": "HuggingFaceTB/smollm-corpus",
+      "hub_type": "dataset",
+      "license_observed": "odc-by repository metadata",
+      "status": "promising_for_general_education_but_code_subset_not_admitted",
+      "possible_roles": ["small-model educational pretraining", "general educational diversity"],
+      "notes": "Hugging Face describes this corpus as curated high-quality educational/synthetic data designed for small language models. The Python-Edu subset is educational code filtered from Stack v2 and its dataset card explicitly directs users to The Stack v2 for the underlying data license, so repository-level ODC-BY metadata is not enough to admit Python-Edu into Neral. Cosmopedia is synthetic. FineWeb-Edu-dedup overlaps conceptually with an already admitted source. Do not admit any subset until exact revision, subset-specific license/provenance, dedupe, benchmark-separation and sample-quality checks are pinned."
+    },
+    {
+      "repo": "bigcode/the-stack-v2-dedup",
+      "hub_type": "dataset",
+      "license_observed": "other",
+      "hub_status_observed": "gated",
+      "hub_updated_observed": "2026-08-03",
+      "status": "rejected_for_now",
+      "possible_roles": ["code pretraining"],
+      "notes": "Current Hugging Face metadata marks The Stack v2 deduplicated release as gated with repository license 'other'. The dataset spans code with underlying source-level licensing concerns, so it is not admitted to Neral. Existing code capability should be preserved through replay of already admitted data until a dedicated provenance/license pipeline can enforce per-source policy."
+    },
+    {
+      "repo": "HuggingFaceTB/finemath",
+      "hub_type": "dataset",
+      "license_observed": "odc-by",
+      "status": "already_admitted_existing_source",
+      "possible_roles": ["math pretraining"],
+      "notes": "Already source-locked in Neral at a pinned revision. The recovery curriculum may vary only its share; it must not silently advance the revision. Hugging Face describes FineMath as mathematical educational web content with emphasis on explanations and step-by-step problem solving. It remains the only currently admitted source explicitly specialized for mathematics."
+    },
+    {
+      "repo": "HuggingFaceFW/fineweb-2",
+      "hub_type": "dataset",
+      "license_observed": "odc-by",
+      "status": "already_admitted_existing_source",
+      "possible_roles": ["german language", "bilingual preservation"],
+      "notes": "Hugging Face describes FineWeb2 as a reproducible multilingual pretraining dataset covering more than 1000 languages. Neral already source-locks the deu_Latn configuration at a pinned revision. Weakness pilots may increase the German share without changing that revision."
+    },
+    {
+      "repo": "HuggingFaceFW/fineweb-edu",
+      "hub_type": "dataset",
+      "license_observed": "odc-by",
+      "status": "already_admitted_existing_source",
+      "possible_roles": ["educational English", "science/reasoning preservation"],
+      "notes": "Hugging Face reports FineWeb-Edu as a 1.3T-token educational English corpus filtered from FineWeb. Neral already source-locks a pinned sample-10BT revision; recovery work may change proportions only through an explicit curriculum experiment, never by silently changing the source revision."
+    },
+    {
+      "repo": "HuggingFaceFW/fineweb",
+      "hub_type": "dataset",
+      "license_observed": "odc-by",
+      "status": "already_admitted_existing_source",
+      "possible_roles": ["general English", "language breadth preservation"],
+      "notes": "Hugging Face describes FineWeb as cleaned and deduplicated English CommonCrawl data. Neral already source-locks a pinned sample-10BT revision. Keep it as general-language replay rather than increasing narrow specialist data until no-regression pilots justify a change."
+    },
+    {
+      "repo": "OpenAssistant/oasst1",
+      "hub_type": "dataset",
+      "license_observed": "apache-2.0",
+      "status": "promising_for_later_post_training_not_foundation_admitted",
+      "possible_roles": ["instruction following", "dialogue", "German-English assistant behavior", "EOS/answer termination"],
+      "notes": "Hugging Face metadata describes OASST1 as human-generated and human-annotated, with 161,443 messages in 35 languages including English and German and 461,292 quality ratings. This remains the strongest currently audited candidate for a separate Helios SFT/post-training phase, but it stays excluded from foundation recovery until an exact revision, tree-to-dialogue formatting contract, contamination audit, EOS policy and regression gate are pinned."
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+name: Neral 350M Frontier Locked 1.1B Data
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_data1b_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-data-1b
+  cancel-in-progress: false
+
+jobs:
+  build1b:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit bounded request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_data1b_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw '1.1B data request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,request_id,target_tokens,valid_tokens,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'build_frontier350_bpe_1b'){throw 'invalid data action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.target_tokens -ne 1100000000){throw 'this workflow is locked to 1.10B total tokens'}
+          if([Int64]$r.valid_tokens -ne 50000000){throw 'this workflow is locked to 50M validation tokens'}
+          if($r.request_id -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request id'}
+          "request_id=$($r.request_id)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve locked tokenizer and data environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $python=Join-Path $assets 'frontier350_data_env\Scripts\python.exe'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          if(-not(Test-Path $python -PathType Leaf)){throw 'Frontier data Python missing'}
+          if(-not(Test-Path $tokenizer -PathType Leaf)){throw 'Audited Frontier tokenizer missing'}
+          $drive=(Get-Item $assets).PSDrive
+          if($drive.Free -lt 8GB){throw ('insufficient free disk for 1.1B corpus: '+[math]::Round($drive.Free/1GB,2)+' GiB')}
+          $root=Join-Path $assets ('frontier350_bpe_foundation_1b_' + '${{ steps.req.outputs.request_id }}')
+          if(Test-Path $root){throw "refusing existing corpus path: $root"}
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "tokenizer=$tokenizer" >> $env:GITHUB_OUTPUT
+          "root=$root" >> $env:GITHUB_OUTPUT
+
+      - name: Compile locked production builder
+        run: |
+          & '${{ steps.env.outputs.python }}' -m py_compile frontier350/source_lock350.py frontier350/build_frontier_bpe_data.py frontier350/security_policy350_bpe.py
+          if($LASTEXITCODE -ne 0){throw 'production data scripts do not compile'}
+
+      - name: Build fresh exact-deduplicated 1.10B corpus
+        run: |
+          & '${{ steps.env.outputs.python }}' -u frontier350/build_frontier_bpe_data.py --root '${{ steps.env.outputs.root }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --target-tokens 1100000000 --valid-tokens 50000000 --shard-tokens 50000000
+          if($LASTEXITCODE -ne 0){throw '1.10B locked corpus build failed'}
+
+      - name: Fail-closed corpus admission
+        run: |
+          $root='${{ steps.env.outputs.root }}'
+          $manifest=Join-Path $root 'manifest.json'
+          & '${{ steps.env.outputs.python }}' -c "import sys;from pathlib import Path;sys.path.insert(0,'frontier350');from security_policy350_bpe import validate_manifest;print(validate_manifest(Path(r'$manifest'),Path(r'$root'),Path(r'${{ steps.env.outputs.tokenizer }}')))"
+          if($LASTEXITCODE -ne 0){throw '1.10B corpus rejected by admission gate'}
+
+      - name: Data quality summary
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force frontier350_data1b_report | Out-Null
+          $manifest=Join-Path '${{ steps.env.outputs.root }}' 'manifest.json'
+          if(Test-Path $manifest -PathType Leaf){
+            Copy-Item $manifest frontier350_data1b_report\manifest.json -Force
+            $m=Get-Content $manifest -Raw|ConvertFrom-Json
+            Write-Host ('train_tokens='+$m.train_tokens)
+            Write-Host ('validation_tokens='+$m.validation_tokens)
+            Write-Host ('deduplicated_documents='+$m.deduplicated_documents)
+            Write-Host ('tokenizer_sha256='+$m.tokenizer.tokenizer_sha256)
+            Write-Host ('licenses='+($m.licenses -join ','))
+          }
+
+      - name: Upload metadata-only report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-data-1b-${{ github.run_id }}
+          path: frontier350_data1b_report/
+          retention-days: 30
+          if-no-files-found: warn

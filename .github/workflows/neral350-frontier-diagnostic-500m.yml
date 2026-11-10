@@ -1,0 +1,108 @@
+name: Neral 350M Frontier 500M Extended Diagnostic
+
+on:
+  push:
+    branches: [frontier/neral350-v1]
+    paths:
+      - 'frontier350_diagnostic_requests/request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-350m-frontier-diagnostic-500m
+  cancel-in-progress: false
+
+jobs:
+  diagnostic500m:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate explicit diagnostic request
+        id: req
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='frontier350_diagnostic_requests\request.json'
+          if(-not(Test-Path $p -PathType Leaf)){throw 'diagnostic request missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          $props=@($r.PSObject.Properties.Name|Sort-Object)
+          if(($props -join ',') -ne 'action,architecture,checkpoint_tokens,data_request_id,request_id,version'){throw 'unsupported request fields'}
+          if([int]$r.version -ne 1 -or $r.action -ne 'evaluate_extended_diagnostic'){throw 'invalid diagnostic action'}
+          if($r.architecture -ne 'frontier350-v1'){throw 'wrong architecture'}
+          if([Int64]$r.checkpoint_tokens -ne 500000000){throw 'diagnostic locked to 500M checkpoint'}
+          foreach($x in @($r.request_id,$r.data_request_id)){if($x -notmatch '^[A-Za-z0-9._-]{1,64}$'){throw 'invalid request identifier'}}
+          "data_id=$($r.data_request_id)" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve checkpoint tokenizer and held-out data
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);if($f -notmatch '^([A-Za-z]):\\(.*)$'){throw 'bad path'};$d=$matches[1].ToLower();$r=$matches[2] -replace '\\','/';return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_500m\resume.pt'
+          $tokenizer=Join-Path $assets 'frontier350_assets\tokenizer.json'
+          $data=Join-Path $assets ('frontier350_bpe_foundation_1b_'+'${{ steps.req.outputs.data_id }}')
+          $valid=Join-Path $data 'valid'
+          foreach($p in @($checkpoint,$tokenizer,$valid)){if(-not(Test-Path $p)){throw "missing required path: $p"}}
+          $report=Join-Path (Get-Location).Path 'frontier350_diagnostic_report'
+          New-Item -ItemType Directory -Force $report | Out-Null
+          "repo=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "tokenizer=$(W $tokenizer)" >> $env:GITHUB_OUTPUT
+          "valid=$(W $valid)" >> $env:GITHUB_OUTPUT
+          "report=$(W $report)" >> $env:GITHUB_OUTPUT
+
+      - name: Ensure stable WSL evaluation runtime
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; bash frontier350/ensure_eval_runtime.sh"
+          if($LASTEXITCODE -ne 0){throw 'WSL diagnostic runtime bootstrap failed'}
+
+      - name: Validate evaluator syntax
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/eval500m_diagnostic.py"
+          if($LASTEXITCODE -ne 0){throw 'diagnostic evaluator syntax check failed'}
+
+      - name: Run extended Arctus 500M diagnostic
+        run: |
+          $repo='${{ steps.env.outputs.repo }}'
+          wsl.exe -- bash -lc "set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -u frontier350/eval500m_diagnostic.py --checkpoint '${{ steps.env.outputs.checkpoint }}' --tokenizer '${{ steps.env.outputs.tokenizer }}' --valid-data '${{ steps.env.outputs.valid }}' --out-dir '${{ steps.env.outputs.report }}' --expected-tokens 500000000 --max-new 48 --val-seq 512 --val-batch 4 --val-batches 64"
+          if($LASTEXITCODE -ne 0){throw 'extended Arctus diagnostic failed'}
+
+      - name: Print diagnostic summary
+        if: always()
+        run: |
+          $p='frontier350_diagnostic_report\arctus500m_diagnostic.json'
+          if(Test-Path $p -PathType Leaf){
+            $r=Get-Content $p -Raw|ConvertFrom-Json
+            Write-Host ('checkpoint_tokens='+$r.checkpoint_processed_tokens)
+            Write-Host ('heldout_loss='+$r.heldout_validation.loss)
+            Write-Host ('heldout_ppl='+$r.heldout_validation.perplexity)
+            Write-Host ('preference_accuracy_pct='+$r.preference.accuracy_pct)
+            foreach($x in $r.preference.categories.PSObject.Properties){Write-Host ('category_'+$x.Name+'_pct='+$x.Value.accuracy_pct)}
+            Write-Host ('exact_instruction_pct='+$r.generation.exact.accuracy_pct)
+            Write-Host ('generation_eos_pct='+$r.generation.health.eos_pct)
+            Write-Host ('generation_repeat3_mean_pct='+$r.generation.health.mean_repeated_trigram_pct)
+            Write-Host ('decode_median_tok_s='+$r.generation.health.median_decode_tok_s)
+          }
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-frontier-diagnostic-500m-${{ github.run_id }}
+          path: frontier350_diagnostic_report/
+          retention-days: 30
+          if-no-files-found: warn

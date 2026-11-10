@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "evaluate_1b",
+  "architecture": "frontier350-v1",
+  "checkpoint_tokens": 1000000000,
+  "base_data_request_id": "arctus1b-20260910-v1",
+  "request_id": "arctus1b-eval-20260911-v1"
+}

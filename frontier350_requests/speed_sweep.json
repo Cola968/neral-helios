@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "action": "speed_sweep_frontier350",
+  "architecture": "frontier350-v1",
+  "seq": 512,
+  "microbatches": [4, 5, 6, 8],
+  "request_id": "rtx4070-speed-sweep-v1"
+}

@@ -1,0 +1,68 @@
+name: Neral 350M Stage7 Checkpoint Speed A-B
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-350m-stage7-checkpoint-speed
+  cancel-in-progress: false
+
+jobs:
+  checkpoint-speed-ab:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+
+    steps:
+      - name: Checkout trusted Frontier branch
+        uses: actions/checkout@v4
+        with:
+          ref: frontier/neral350-v1
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve immutable checkpoint and fixed pilot data
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          function W([string]$Path){$f=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::GetPathRoot($f);if($root -notmatch '^([A-Za-z]):\\$'){throw "bad path: $f"};$d=$matches[1].ToLower();$r=$f.Substring($root.Length).Replace('\\','/');return "/mnt/$d/$r"}
+          $assets=if($env:NERAL_ASSETS_ROOT){$env:NERAL_ASSETS_ROOT}else{'C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'}
+          $checkpoint=Join-Path $assets 'runs\neral350_frontier_compiled_1b\resume.pt'
+          $pilot=Join-Path $assets 'frontier350_bpe_recovery_pilot_arctus-recovery-lr-20260911-r2'
+          $manifest=Join-Path $pilot 'manifest.json'
+          foreach($p in @($checkpoint,$manifest)){if(-not(Test-Path $p -PathType Leaf)){throw "missing required file: $p"}}
+          $m=Get-Content $manifest -Raw|ConvertFrom-Json
+          if($m.continuation_profile -ne 'arctus-2b-balanced-pilot-v1' -or $m.pilot_only -ne $true){throw 'wrong fixed pilot corpus'}
+          "repo_wsl=$(W (Get-Location).Path)" >> $env:GITHUB_OUTPUT
+          "checkpoint_wsl=$(W $checkpoint)" >> $env:GITHUB_OUTPUT
+          "train_wsl=$(W (Join-Path $pilot 'train'))" >> $env:GITHUB_OUTPUT
+
+      - name: Compile and verify speed gate tooling
+        run: |
+          $repo='${{ steps.env.outputs.repo_wsl }}'
+          $cmd="set -e; cd '$repo'; ~/.venvs/neral-triton-py312/bin/python -m py_compile frontier350/model350.py frontier350/model350_fast.py frontier350/convert_checkpoint350_fast.py frontier350/speed_stage7_checkpoint_ab.py"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'speed gate tooling compile failed'}
+
+      - name: Run report-only real-checkpoint A-B
+        run: |
+          New-Item -ItemType Directory -Force frontier350_stage7_speed_report | Out-Null
+          $repo='${{ steps.env.outputs.repo_wsl }}';$ck='${{ steps.env.outputs.checkpoint_wsl }}';$data='${{ steps.env.outputs.train_wsl }}'
+          $cmd="set -e; cd '$repo'; export TORCHINDUCTOR_CACHE_DIR=~/.cache/neral_inductor; export CC=/usr/bin/gcc; export CXX=/usr/bin/g++; ~/.venvs/neral-triton-py312/bin/python -u frontier350/speed_stage7_checkpoint_ab.py --checkpoint '$ck' --train-data '$data' --out frontier350_stage7_speed_report/stage7.json --seq 512 --microbatch 8 --warmup 4 --updates 12 --seed 35700"
+          wsl.exe -- bash -lc $cmd
+          if($LASTEXITCODE -ne 0){throw 'Stage7 checkpoint speed A/B failed'}
+          Get-Content frontier350_stage7_speed_report\stage7.json
+
+      - name: Upload report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral350-stage7-checkpoint-speed-${{ github.run_id }}
+          path: frontier350_stage7_speed_report/
+          retention-days: 30
+          if-no-files-found: warn

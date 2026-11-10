@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "action": "resume_compiled_burnin",
+  "architecture": "frontier350-v1",
+  "stop_after_tokens": 100000000,
+  "request_id": "arctus100m-20260910-retry3"
+}

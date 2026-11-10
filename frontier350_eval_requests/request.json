@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "action": "evaluate_100m_checkpoint",
+  "architecture": "frontier350-v1",
+  "checkpoint_tokens": 100000000,
+  "request_id": "arctus100m-eval-20260910-r4"
+}

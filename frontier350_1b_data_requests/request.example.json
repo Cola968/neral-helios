@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "action": "build_1b_focus_data",
+  "architecture": "frontier350-v1",
+  "train_tokens": 500000000,
+  "valid_tokens": 100000,
+  "base_data_request_id": "arctus1b-20260910-v1",
+  "request_id": "arctus1b-focus-20260910-v1"
+}
