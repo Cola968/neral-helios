@@ -167,7 +167,7 @@ test("each attachment chip exposes an accessible x remove button",async()=>{
   assert.ok(remove,"chip needs an independently clickable remove button");
   assert.equal(remove.textContent,"×");
   assert.match(remove.getAttribute("aria-label"),/Screenshot 2024-04-07 165225\.png.*entfernen/i);
-  assert.equal(remove.getAttribute("type"),"button","must never submit the chat");
+  assert.equal(remove.type,"button","must never submit the chat");
 });
 
 test("removing one of multiple attachments preserves the other, draft and local upload",async()=>{
