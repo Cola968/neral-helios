@@ -41,6 +41,9 @@ def audit_candidate_report(report: dict) -> dict:
     Passing the screen permits *more independent evaluation*, never deployment.
     The 72-case development set has been inspected and is never release evidence.
     """
+    from scripts.neral_v6_fresh_dev_eval import report_exposes_locked_holdout
+    _require(not report_exposes_locked_holdout(report),
+             "Locked holdout material is not an input to this decision")
     _require(isinstance(report, dict), "Missing candidate report")
     _require(type(report.get("schema")) is int and report["schema"] == 1,
              "Untrusted schema")

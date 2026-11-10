@@ -1,0 +1,115 @@
+name: NERAL v6 verified-step targets, 120-step QLoRA (manual GPU only)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize:
+        description: 'Exact permit: TRAIN_NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL'
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  verified_step_train:
+    if: github.ref == 'refs/heads/main' && inputs.authorize == 'TRAIN_NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          clean: true
+          persist-credentials: false
+      - name: CPU contracts before any optimizer step
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local CUDA Python absent'}
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_v6_r16_gpu.py -v
+            if($LASTEXITCODE -ne 0){throw 'Verified-step CPU contract failed'}
+          } finally {Pop-Location}
+      - name: Train only the restored-arithmetic targets into a new folder
+        run: |
+          $ErrorActionPreference='Stop'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'control'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $model=Join-Path $env:USERPROFILE '.cache\neral\qwen25-smoke\c03e6d358207e414f1eca0bb1891e29f1db0e242\installed_models\hf-qwen25-coder-7b'
+          $v5=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\v5-r16-480-42378021782-1\adapter'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $dest=Join-Path $root "v6-verified-steps-120-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(-not(Test-Path -LiteralPath $model -PathType Container) -or
+             -not(Test-Path -LiteralPath $v5 -PathType Container) -or
+             (Test-Path -LiteralPath $dest)){
+            throw 'Pinned base or original v5 adapter missing, or output already exists'
+          }
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU unavailable'}
+          $parts=($raw|Select-Object -First 1)-split ','
+          if($parts.Count -ne 2 -or [int]$parts[0].Trim() -lt 10000 -or [int]$parts[1].Trim() -gt 20){
+            throw 'RTX 4070 is busy; no overlapping experiments'
+          }
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m scripts.neral_v6_r16_gpu --mode train-local-gpu --base $model --v5-adapter $v5 --out $dest --counterfactual-target verified_steps --authorize TRAIN_NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL
+            if($LASTEXITCODE -ne 0){throw 'Verified-step optimizer did not complete; no promotion'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"V6_EXP_ROOT=$dest"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Verify the new adapter and refuse promotion
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=$env:V6_EXP_ROOT
+          $report=Get-Content -LiteralPath (Join-Path $root 'scalar-private.json') -Raw|ConvertFrom-Json
+          $file=Join-Path $root 'candidate-adapter\adapter_model.safetensors'
+          $sha=(Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+          if($report.status -ne 'NERAL_V6_VERIFIED_STEPS_120_EXPERIMENTAL' -or
+             $report.steps_completed -ne 120 -or $report.train_rows -ne 728 -or
+             $report.validation_rows -ne 100 -or $report.lora_trainable_parameters -ne 40370176 -or
+             $report.candidate_adapter_sha256 -ne $sha -or
+             $sha -eq $report.predecessor_adapter_sha256 -or
+             $report.release_validated -ne $false -or $report.adapter_promoted -ne $false -or
+             $report.claimed_score_gain -ne $false){
+            throw 'Verified-step weight contract violated'
+          }
+          $scalar=[ordered]@{
+            schema=1
+            status=$report.status
+            isolated_change='restore_verified_arithmetic_in_128_counterfactual_targets'
+            train_rows=$report.train_rows
+            steps_completed=$report.steps_completed
+            predecessor_adapter_sha256=$report.predecessor_adapter_sha256
+            candidate_adapter_sha256=$report.candidate_adapter_sha256
+            validation_loss=$report.validation_loss
+            release_validated=$false
+            claimed_score_gain=$false
+            adapter_promoted=$false
+          }
+          $folder=Join-Path $env:GITHUB_WORKSPACE 'control\v6_verified_steps_scalar'
+          if(Test-Path -LiteralPath $folder){throw 'Scalar output path already exists'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop|Out-Null
+          ($scalar|ConvertTo-Json -Compress) | Set-Content -LiteralPath (Join-Path $folder 'summary.json') -Encoding utf8
+      - name: Upload aggregate statistics only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v6-verified-steps-scalar
+          path: control/v6_verified_steps_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: error

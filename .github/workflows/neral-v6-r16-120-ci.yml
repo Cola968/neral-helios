@@ -6,6 +6,7 @@ on:
       - 'tests/test_neral_v6_r16_gpu.py'
       - 'docs/NERAL_V6_R16_TRAINING.md'
       - '.github/workflows/neral-v6-r16-120-train.yml'
+      - '.github/workflows/neral-v6-verified-steps-train.yml'
       - '.github/workflows/neral-v6-r16-120-ci.yml'
   push:
     branches: [main]

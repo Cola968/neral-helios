@@ -1,0 +1,49 @@
+name: NERAL v6 retention and transfer compare CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_v6_slice_compare.py'
+      - 'scripts/neral_v6_measurement_slices.py'
+      - 'scripts/neral_v6_locked_holdout.py'
+      - 'tests/test_neral_v6_slice_compare.py'
+      - 'tests/test_neral_v6_measurement_slices.py'
+      - 'docs/NERAL_V6_VERIFIED_STEP_EXPERIMENT.md'
+      - '.github/workflows/neral-v6-slice-compare-ci.yml'
+      - '.github/workflows/neral-v6-slice-compare-gpu.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/neral_v6_slice_compare.py'
+      - 'scripts/neral_v6_measurement_slices.py'
+      - 'scripts/neral_v6_locked_holdout.py'
+      - 'tests/test_neral_v6_slice_compare.py'
+      - 'tests/test_neral_v6_measurement_slices.py'
+      - '.github/workflows/neral-v6-slice-compare-ci.yml'
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin the visible slices and dry-run the stub comparison
+        run: |
+          python -m unittest discover -s tests -p test_neral_v6_measurement_slices.py -v
+          python -m unittest discover -s tests -p test_neral_v6_slice_compare.py -v
+      - name: Compile
+        run: python -m py_compile scripts/neral_v6_slice_compare.py scripts/neral_v6_measurement_slices.py
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint the manual GPU workflow without running it
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -ignore 'label "neral-gpu" is unknown' .github/workflows/neral-v6-slice-compare-gpu.yml .github/workflows/neral-v6-slice-compare-ci.yml

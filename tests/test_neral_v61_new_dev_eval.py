@@ -68,6 +68,10 @@ class NewV61DevTests(unittest.TestCase):
         self.assertFalse(result["adapter_promoted"])
         self.assertEqual(result["paired"]["v61_vs_v5"]["regressions"],1)
         self.assertEqual(result["paired"]["v61_vs_v5"]["improvements"],1)
+        self.assertEqual(result["prompt_protocol"],"historical")
+        self.assertEqual(result["phase2_gate"]["decision"],"refuse")
+        self.assertFalse(result["phase2_gate"]["claimed_capability_gain"])
+        self.assertFalse(result["claimed_score_gain"])
         self.assertNotIn(cases[0]["prompt"],json.dumps(result))
 
     def test_local_weights_and_receipt_sha_validated_without_powershell_coercion(self):
@@ -101,6 +105,13 @@ class NewV61DevTests(unittest.TestCase):
             (candidate/"adapter_model.safetensors").write_bytes(b"tampered")
             with self.assertRaises(ValueError):
                 validate_local_candidate(p,candidate,v5,expected_v5_sha=expected_v5)
+
+    def test_matched_protocol_is_opt_in_and_historical_stays_default(self):
+        import inspect
+        from scripts.neral_v61_new_dev_eval import main
+        source=inspect.getsource(main)
+        self.assertIn('default="historical"', source)
+        self.assertIn("prompt_protocol=args.prompt_protocol", source)
 
     def test_evaluation_workflow_uses_python_receipt_validator(self):
         from pathlib import Path

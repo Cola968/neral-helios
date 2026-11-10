@@ -6,10 +6,13 @@ from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 
+from types import SimpleNamespace
+
 from scripts.neral_v6_fresh_dev_eval import (
     build_cases, suite_fingerprint, parse_answer, score_three_way, 
     check_source_isolation, validate_variant_output,
-    prepare_fewshot_messages, BASE_SHA, V5_SHA, V6_SHA,
+    prepare_fewshot_messages, messages_for_protocol, phase2_training_gate,
+    resolve_messages_factory, BASE_SHA, V5_SHA, V6_SHA,
 )
 
 
@@ -74,7 +77,71 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertFalse(report["release_validated"])
         self.assertFalse(report["independent_benchmark_proven"])
         self.assertEqual(report["scores"]["neral_v6"]["incomplete"],1)
+        self.assertEqual(report["prompt_protocol"],"historical")
+        self.assertEqual(report["phase2_gate"]["decision"],"refuse")
+        self.assertIn("historical_protocol_is_not_phase2_evidence",
+                      report["phase2_gate"]["reasons"])
+        self.assertFalse(report["phase2_gate"]["claimed_capability_gain"])
+        self.assertFalse(report["claimed_score_gain"])
         self.assertNotIn(cases[0]["prompt"],json.dumps(report))
+
+    def test_partitions_cover_the_suite_and_only_matched_fewshot_can_pass(self):
+        cases=build_cases()
+        def blank():
+            return {name:[{"id":c["id"],"text":c["answer"],"complete":True,
+                           "new_tokens":4} for c in cases]
+                    for name in ("qwen_fewshot","neral_v5","neral_v6")}
+        outputs=blank()
+        outputs["neral_v6"][0]["complete"]=False
+        outputs["neral_v6"][1]["text"]="FINAL_ANSWER: 999999"
+        outputs["neral_v6"][2]["text"]="Ich rechne noch "+cases[2]["answer"]
+        report=score_three_way(cases,outputs,prompt_protocol="matched_fewshot")
+        row=report["scores"]["neral_v6"]
+        self.assertEqual(row["strict_correct"],69)
+        self.assertEqual(row["wrong_readable_number"],1)
+        self.assertEqual(row["unreadable"],1)
+        self.assertEqual(row["incomplete"],1)
+        self.assertEqual(row["correct"],row["strict_correct"])
+        self.assertEqual(row["ungraded_completed"],row["unreadable"])
+        self.assertEqual(sum(row[k] for k in (
+            "strict_correct","wrong_readable_number","unreadable","incomplete")),72)
+        self.assertEqual(sum(row["per_domain"].values()),row["strict_correct"])
+        gate=report["phase2_gate"]
+        self.assertEqual(gate["decision"],"ok")
+        self.assertEqual(gate["phase2_training"],"v61_comparison_not_in_report")
+        self.assertFalse(gate["training_authorized"])
+        self.assertFalse(gate["claimed_score_gain"])
+        self.assertFalse(gate["release_validated"])
+        historical=dict(report,prompt_protocol="historical")
+        refused=phase2_training_gate(historical)
+        self.assertEqual(refused["decision"],"refuse")
+        self.assertEqual(refused["phase2_training"],"blocked")
+        zeroshot=phase2_training_gate(dict(report,prompt_protocol="matched_zeroshot"))
+        self.assertEqual(zeroshot["decision"],"refuse")
+        self.assertIn("matched_fewshot_required",zeroshot["reasons"])
+        claimed=phase2_training_gate(dict(report,claimed_score_gain=True))
+        self.assertEqual(claimed["decision"],"refuse")
+        self.assertIn("release_or_gain_claim:claimed_score_gain",claimed["reasons"])
+        broken=json.loads(json.dumps(report))
+        del broken["scores"]["neral_v6"]["wrong_readable_number"]
+        self.assertEqual(phase2_training_gate(broken)["decision"],"refuse")
+        ahead=json.loads(json.dumps(report))
+        ahead["scores"]["neral_v61"]=dict(ahead["scores"]["neral_v6"],
+                                          wrong_readable_number=0,strict_correct=70,
+                                          correct=70)
+        ahead["scores"]["neral_v5"]["wrong_readable_number"]=2
+        ahead["scores"]["neral_v5"]["strict_correct"]=70
+        ahead["scores"]["neral_v5"]["correct"]=70
+        skip=phase2_training_gate(ahead)
+        self.assertEqual(skip["decision"],"ok")
+        self.assertEqual(skip["phase2_training"],"skip_training")
+        self.assertFalse(skip["claimed_capability_gain"])
+        behind=json.loads(json.dumps(ahead))
+        behind["scores"]["neral_v61"]["wrong_readable_number"]=4
+        behind["scores"]["neral_v61"]["strict_correct"]=66
+        behind["scores"]["neral_v61"]["correct"]=66
+        self.assertEqual(phase2_training_gate(behind)["phase2_training"],
+                         "v61_has_more_wrong_readable_numbers")
 
     def test_misordered_missing_extra_and_tainted_data_rejected(self):
         cases=build_cases()
@@ -102,9 +169,48 @@ class Fresh72DevTests(unittest.TestCase):
         self.assertEqual(len(plain),2)
         self.assertEqual(plain,v6)
         self.assertEqual(plain[-1],msgs[-1])
+        matched=messages_for_protocol(case,"neral_v6","matched_fewshot")
+        zero=messages_for_protocol(case,"qwen_fewshot","matched_zeroshot")
+        self.assertEqual(matched, messages_for_protocol(case,"neral_v5","matched_fewshot"))
+        self.assertEqual(matched, msgs)
+        self.assertEqual(zero, messages_for_protocol(case,"neral_v6","matched_zeroshot"))
+        self.assertEqual(zero, plain)
+        self.assertEqual(messages_for_protocol(case,"qwen_fewshot"), msgs)
         self.assertEqual(len(V5_SHA),64)
         self.assertEqual(len(V6_SHA),64)
         self.assertEqual(len(BASE_SHA),40)
+
+    def test_prompt_factory_keeps_protocol_and_six_arm_override(self):
+        import inspect
+        from scripts.neral_v6_fresh_dev_eval import _gpu_variant
+        case=build_cases()[0]
+        historical=SimpleNamespace()
+        for variant in ("qwen_fewshot","neral_v5","neral_v6"):
+            self.assertEqual(
+                resolve_messages_factory(historical)(case, variant),
+                prepare_fewshot_messages(case, variant))
+        matched=SimpleNamespace(prompt_protocol="matched_fewshot")
+        fewshot=prepare_fewshot_messages(case, "qwen_fewshot")
+        for variant in ("qwen_fewshot","neral_v5","neral_v6"):
+            self.assertEqual(
+                resolve_messages_factory(matched)(case, variant), fewshot)
+        zero=SimpleNamespace(prompt_protocol="matched_zeroshot")
+        plain=prepare_fewshot_messages(case, "neral_v5")
+        self.assertEqual(resolve_messages_factory(zero)(case, "qwen_fewshot"), plain)
+        seen=[]
+        explicit=lambda row, variant: seen.append((row["id"], variant)) or ["kept"]
+        factory=resolve_messages_factory(
+            SimpleNamespace(prompt_protocol="matched_fewshot"), explicit)
+        self.assertIs(factory, explicit)
+        self.assertEqual(factory(case, "neral_v6"), ["kept"])
+        self.assertEqual(seen, [(case["id"], "neral_v6")])
+        with self.assertRaises(ValueError):
+            resolve_messages_factory(historical, messages_factory=object())
+        source=inspect.getsource(_gpu_variant)
+        self.assertIn("texts=messages_factory(case,args.variant)", source)
+        self.assertEqual(
+            inspect.signature(_gpu_variant).parameters["messages_factory"].default,
+            None)
 
 
 if __name__=="__main__":
