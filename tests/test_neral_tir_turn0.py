@@ -37,6 +37,28 @@ class ExtractionSchemaContracts(unittest.TestCase):
         self.assertEqual(EXTRACT_PROMPT.count("Example input:"), 1)
         self.assertIn("JSON", EXTRACT_PROMPT)
         self.assertNotIn("<tool_call", EXTRACT_PROMPT)
+        self.assertIn('"bool_rules":', EXTRACT_PROMPT)
+        self.assertIn('"op":"xor"', EXTRACT_PROMPT)
+        self.assertIn("first output character", EXTRACT_PROMPT)
+
+    def test_boolean_few_shot_round_trips_into_exact_solver(self):
+        question = ("A and B can each be True or False. "
+                    "A XOR B must be True. "
+                    "How many assignments satisfy all conditions?")
+        candidate = {
+            "kind": "formal", "complete": True,
+            "schema": {"variables": {"A": [False, True],
+                                      "B": [False, True]},
+                       "rules": [], "bool_rules": [
+                           {"op": "eq", "args": [
+                               {"op": "xor", "args": ["A", "B"]}, True]}],
+                       "query": "count"},
+            "evidence": ["A and B can each be True or False",
+                         "A XOR B must be True",
+                         "How many assignments satisfy all conditions?"],
+        }
+        self.assertEqual(parse_extracted_constraints(
+            question, json.dumps(candidate, separators=(",", ":"))), 2)
 
     def test_valid_model_extraction_is_a_computed_but_unverified_answer(self):
         self.assertEqual(parse_extracted_constraints(QUESTION, packet()), 3)
@@ -162,7 +184,10 @@ class OllamaExtractWireContracts(unittest.TestCase):
             b.respond_formal_extract(turns)
             b.respond_chat(turns)
         self.assertEqual(len(requests),2)
-        self.assertEqual(requests[0]["format"],"json")
+        self.assertEqual(requests[0]["format"]["type"],"object")
+        self.assertEqual(requests[0]["format"]["properties"]["kind"]["enum"],
+                         ["formal","none"])
+        self.assertNotIn("format", requests[1])
         self.assertFalse(requests[0]["think"])
         self.assertEqual(requests[0]["options"]["num_predict"],384)
         self.assertEqual(requests[0]["options"]["temperature"],0)
