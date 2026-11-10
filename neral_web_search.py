@@ -329,6 +329,45 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]
     return output
 
 
+def compact_fact_snippets(hits: list[dict], *, limit: int = 3) -> list[str]:
+    """Bounded *unverified search excerpts*, not fetched-page facts.
+
+    Every line uses at most 72 title + 38 host + 120 excerpt UTF-8 bytes
+    plus delimiters; at most 3 lines remain well below 800 UTF-8 bytes.
+    Search text is data, never an instruction or independently verified fact.
+    """
+    if type(hits) is not list or type(limit) is not int or not 1 <= limit <= 3:
+        raise WebSearchError("Ungültige Trefferliste oder Evidenzgrenze.")
+
+    def clipped(raw: str, size: int) -> str:
+        if type(raw) is not str:
+            return ""
+        plain = _clean(unescape(re.sub(r"<[^>]*>", " ", raw)), 3000)
+        return plain.encode("utf-8")[:size].decode("utf-8", "ignore").rstrip()
+
+    output: list[str] = []
+    seen: set[str] = set()
+    for hit in hits[:MAX_RESULTS]:
+        if type(hit) is not dict:
+            continue
+        url = safe_result_url(hit.get("url", ""))
+        if not url or url in seen:
+            continue
+        title = clipped(hit.get("title", ""), 72)
+        snippet = clipped(hit.get("snippet", ""), 120)
+        host = clipped(urlsplit(url).hostname or "", 38)
+        if not title or not snippet or not host:
+            continue
+        output.append(f"[{len(output)+1}] {title} | {host} | {snippet}")
+        seen.add(url)
+        if len(output) >= limit:
+            break
+    # Conservative UTF-8 byte ceiling; byte count is not a model-token count.
+    if len("\n".join(output).encode("utf-8")) >= 800:
+        raise WebSearchError("Suchauszüge überschreiten das Budget.")
+    return output
+
+
 class WebSearch:
     """A bounded, explicitly requested search. No external API key needed."""
     def __init__(self, *, opener=None, max_per_minute: int = 6):
