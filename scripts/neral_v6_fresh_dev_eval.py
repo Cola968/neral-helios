@@ -18,6 +18,8 @@ from pathlib import Path
 import re
 import subprocess
 
+from scripts.neral_dev_oracle import assert_independent_oracles
+
 BASE_SHA="c03e6d358207e414f1eca0bb1891e29f1db0e242"
 V5_SHA="2a89433bb69243b8b65b47b6492f7378b73c5e0f5a698cb549c38d7605e100d5"
 V6_SHA="8bdc878ae193f8d13dd5f71e1a9cef1aeb6800f92848c9095d4e8fa5860203fd"
@@ -175,6 +177,7 @@ def build_cases() -> list[dict]:
             coverage["domain_counts"]!=dict.fromkeys(DOMAINS,24) or
             coverage["unique_prompts"]!=72 or coverage["unique_families"]!=12):
         raise ValueError("New development suite coverage failure: "+str(coverage))
+    assert_independent_oracles(cases)
     return cases
 
 

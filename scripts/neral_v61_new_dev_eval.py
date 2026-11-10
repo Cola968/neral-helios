@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 from scripts import neral_v6_fresh_dev_eval as original
 from scripts.neral_decontamination import normalize, shingles
+from scripts.neral_dev_oracle import assert_independent_oracles
 
 STATUS="NERAL_V61_NEW_72_STRUCTURAL_DEV_NOT_RELEASE"
 V5_SHA=original.V5_SHA
@@ -155,6 +156,7 @@ def cases72():
         Counter(r["domain"] for r in results)!={"math":24,"reasoning":24,"code_trace":24} or
         len({(r["domain"],r["family"]) for r in results})!=12):
         raise ValueError("Not a complete independent-family development set")
+    assert_independent_oracles(results)
     return results
 
 

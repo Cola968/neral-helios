@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/neral_v61_new_dev_eval.py'
+      - 'scripts/neral_dev_oracle.py'
       - 'tests/test_neral_v61_new_dev_eval.py'
       - 'docs/NERAL_V61_NEW_DEV72.md'
       - '.github/workflows/neral-v61-dev72-ci.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/neral_v61_new_dev_eval.py'
+      - 'scripts/neral_dev_oracle.py'
       - 'tests/test_neral_v61_new_dev_eval.py'
 permissions:
   contents: read
