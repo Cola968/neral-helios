@@ -30,6 +30,17 @@ def _numeric_candidate(text: str) -> int | None:
     return None
 
 
+def _outcome(case: dict, obs: dict) -> str:
+    if not obs["complete"]:
+        return "failed_inference"
+    if _correct(case["answer"], obs["text"], True):
+        return "strict_correct"
+    candidate = _numeric_candidate(obs["text"])
+    if candidate is None:
+        return "no_unambiguous_numeric_final"
+    return "format_only_failure" if candidate == case["answer"] else "numeric_answer_wrong"
+
+
 def summarize_previous_private(private: dict) -> dict:
     payload = private.get("scorer_input")
     if (not isinstance(payload, dict)
@@ -43,6 +54,8 @@ def summarize_previous_private(private: dict) -> dict:
         raise ValueError("Unpaired private result")
     results = {a: {"by_domain": {}, "reasoning": {}} for a in ARMS}
     domains = sorted({c["domain"] for c in payload["cases"]})
+    if set(domains) != {"math", "reasoning", "code_trace"}:
+        raise ValueError("Invalid development domains")
     for arm in ARMS:
         for domain in domains:
             subset = [(by_id[row["id"]], row["arms"][arm])
@@ -55,6 +68,8 @@ def summarize_previous_private(private: dict) -> dict:
                 "strict_correct": sum(bool(_correct(c["answer"], obs["text"], obs["complete"]))
                                       for c, obs in subset),
             }
+            results[arm]["by_domain"][domain]["outcomes"] = dict(Counter(
+                _outcome(case, obs) for case, obs in subset))
         reasoning = [(by_id[row["id"]], row["arms"][arm])
                      for row in payload["observations"]
                      if by_id[row["id"]]["domain"] == "reasoning"]
@@ -75,9 +90,23 @@ def summarize_previous_private(private: dict) -> dict:
             else:
                 out["numeric_answer_wrong"] += 1
         results[arm]["reasoning"] = dict(out)
+    paired_losses = {}
+    for domain in domains:
+        counts = Counter()
+        for row in payload["observations"]:
+            case = by_id[row["id"]]
+            if case["domain"] != domain:
+                continue
+            raw = _outcome(case, row["arms"]["raw_qwen35"])
+            tir = _outcome(case, row["arms"]["neral_high_router"])
+            if raw == "strict_correct" and tir != "strict_correct":
+                counts[tir] += 1
+        paired_losses[domain] = dict(counts)
     return {
-        "source": "previous_private_hard36_42640667778_attempt2",
+        "source": "supplied_private_hard36",
         "read_only": True, "raw_answers_uploaded": False,
+        "tir_losses_vs_raw_by_domain": paired_losses,
+        "independent_holdout_verified": False,
         "note": ("Legacy http_error also counts raw local Ollama errors; "
                  "older files do not contain exact error codes. "
                  "Lenient parse is DIAGNOSTIC ONLY, not a score change."),
@@ -98,3 +127,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
