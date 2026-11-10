@@ -34,7 +34,7 @@ class LowHighMainContracts(unittest.TestCase):
         s = self.client.get("/api/neral/preview/session", base_url=HOST)
         self.headers = {"X-Neral-CSRF": s.json["csrf"]}
 
-    def test_low_one_model_call_high_two_local_reasoning_calls(self):
+    def test_low_and_high_preserve_one_model_call_each(self):
         prompt = "Erkläre die Entstehung eines Sterns."
         low = self.client.post("/api/neral/chat/generate", base_url=HOST,
             headers=self.headers, json={"prompt": prompt})
@@ -48,13 +48,13 @@ class LowHighMainContracts(unittest.TestCase):
             headers=self.headers, json={"prompt": prompt})
         self.assertEqual(high.status_code, 200, high.json)
         self.assertEqual(high.json["mode"], "HIGH")
-        self.assertEqual(high.json["calls_used"], 2)
-        self.assertEqual(high.json["review_passes"], 1)
-        self.assertEqual(high.json["review_status"], "completed_unverified")
+        self.assertEqual(high.json["calls_used"], 1)
+        self.assertEqual(high.json["review_passes"], 0)
+        self.assertEqual(high.json["review_status"], "disabled_unverified_review")
         self.assertEqual(high.json["text"],
-                         "Verbesserte Erklärung zur Gravitation. Modell-Selbstprüfung.")
+                         "Entwurf zur Gravitation.")
         self.assertFalse(high.json["verified"])
-        self.assertEqual(len(self.backend.high_calls), 2)
+        self.assertEqual(len(self.backend.high_calls), 1)
         self.assertEqual(self.backend.low_calls, 1)
         self.assertEqual(high.json["model_origin"],
                          "local_foundation_not_neral_adapter")
