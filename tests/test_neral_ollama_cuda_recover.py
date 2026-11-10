@@ -103,6 +103,36 @@ class RecoveryContract(unittest.TestCase):
                     RecoveryRefused, expected):
                 validate_native_listener(row, root, "runner")
 
+    def test_netstat_fallback_recovers_native_loopback_listener(self):
+        from scripts.neral_ollama_cuda_recover import parse_native_netstat_inventory
+        netstat = """Active Connections
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    127.0.0.1:11434        0.0.0.0:0              LISTENING       442
+  TCP    127.0.0.1:11434        127.0.0.1:59101        ESTABLISHED     442
+  TCP    127.0.0.1:59101        127.0.0.1:11434        ESTABLISHED     551
+  TCP    [::1]:11434            [::1]:58102            ESTABLISHED     442
+"""
+        row = parse_native_netstat_inventory(netstat)
+        self.assertEqual(row["listener_pids"], [442])
+        self.assertEqual(row["listener_addresses"], ["127.0.0.1"])
+        self.assertEqual(row["established_clients"], 2)
+        self.assertTrue(row["all_clients_loopback"])
+
+    def test_netstat_fallback_marks_externally_exposed_or_remote_listener(self):
+        from scripts.neral_ollama_cuda_recover import parse_native_netstat_inventory
+        netstat = """  TCP    0.0.0.0:11434           0.0.0.0:0              LISTENING       442
+  TCP    192.168.1.4:11434      192.168.1.9:51001     ESTABLISHED     442
+"""
+        row = parse_native_netstat_inventory(netstat)
+        self.assertEqual(row["listener_addresses"], ["0.0.0.0"])
+        self.assertFalse(row["all_clients_loopback"])
+        root = "C:\\Users\\runner\\AppData\\Local\\Programs\\Ollama"
+        row["processes"] = [{"pid": 442, "name": "ollama.exe",
+                             "path": root + "\\ollama.exe", "user": "runner"}]
+        row["service_pids"] = []
+        with self.assertRaisesRegex(RecoveryRefused, "ollama_listener_not_loopback"):
+            validate_native_listener(row, root, "runner")
+
     @unittest.skipUnless(sys.platform == "win32", "Requires native Windows")
     def test_windows_powershell_inventory_returns_strict_metadata(self):
         from scripts.neral_ollama_cuda_recover import _windows_inventory
