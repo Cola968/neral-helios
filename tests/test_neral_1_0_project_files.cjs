@@ -16,7 +16,7 @@ function harness(reply={}) {
       getAttribute(k){return attrs.get(k)||null;},
       querySelector(){return null;},
       append(...items){this.children.push(...items);},
-      replaceChildren(){this.children=[];},
+      replaceChildren(...items){this.children=items;},
       remove(){},focus(){},scrollHeight:0,scrollTop:0,
       requestSubmit(){return handlers.get("chatForm:submit")({preventDefault(){}})}
     };
