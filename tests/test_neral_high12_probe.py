@@ -151,6 +151,64 @@ class GpuSamplerContracts(unittest.TestCase):
 
 
 
+
+class EnvironmentInventoryContracts(unittest.TestCase):
+    def test_nvidia_smi_snapshot_parses_rtx4070_and_integer_mib(self):
+        from scripts.neral_high12_probe import parse_nvidia_smi_snapshot
+        sample = "NVIDIA GeForce RTX 4070, 12282, 204, 12078, 566.36"
+        report = parse_nvidia_smi_snapshot(sample)
+        self.assertEqual(report, {
+            "gpu_name": "NVIDIA GeForce RTX 4070",
+            "memory_total_mib": 12282,
+            "memory_used_mib": 204,
+            "memory_free_mib": 12078,
+            "driver_version": "566.36",
+        })
+
+    def test_nvidia_smi_rejects_garbage_and_no_rtx4070(self):
+        from scripts.neral_high12_probe import parse_nvidia_smi_snapshot
+        for sample in (
+            "", "NVIDIA RTX 4090, 24000, 2000, 22000, 566.36",
+            "NVIDIA GeForce RTX 4070, 12282, N/A, N/A, 566.36",
+            "NVIDIA GeForce RTX 4070, -100, 100, 100, 566.36",
+            "NVIDIA GeForce RTX 4070, 12282, 204, 12078, malicious/path",
+            "NVIDIA GeForce RTX 4070, 12000, 14000, 0, 566.36",
+            "NVIDIA GeForce RTX 4070, 12282, 204, 12078, 566.36\\nSECRET",
+        ):
+            with self.subTest(sample=sample), self.assertRaises(PreflightError):
+                parse_nvidia_smi_snapshot(sample)
+
+    def test_windows_process_inventory_uses_only_aggregate_counts(self):
+        from scripts.neral_high12_probe import parse_ollama_process_inventory
+        report = parse_ollama_process_inventory(
+            '{"ollama_process_count":1,"llama_worker_count":1,'
+            '"listener_count":2,"unique_listener_owners":1}')
+        self.assertEqual(report["unique_listener_owners"], 1)
+        self.assertEqual(report["llama_worker_count"], 1)
+        self.assertNotIn("pid", str(report).lower())
+
+    def test_unsafe_duplicate_ollama_listener_does_not_pass(self):
+        from scripts.neral_high12_probe import parse_ollama_process_inventory
+        with self.assertRaises(PreflightError):
+            parse_ollama_process_inventory(
+                '{"ollama_process_count":2,"llama_worker_count":1,'
+                '"listener_count":2,"unique_listener_owners":2}')
+
+    def test_fresh_unload_packet_only_allows_known_models(self):
+        from scripts.neral_high12_probe import model_unload_payload
+        self.assertEqual(model_unload_payload("qwen3.5:9b"), {
+            "model": "qwen3.5:9b", "messages": [],
+            "stream": False, "keep_alive": 0,
+        })
+        with self.assertRaises(PreflightError):
+            model_unload_payload("unknown-llm")
+
+    def test_probe_does_not_force_num_gpu_into_parity_request(self):
+        from scripts.neral_high12_probe import measured_chat_payload
+        packet = measured_chat_payload([{"role":"user","content":"test"}])
+        self.assertNotIn("num_gpu", packet["options"])
+        self.assertNotIn("num_gpu", packet)
+
 class PilotSelection(unittest.TestCase):
     def test_one_representative_math_case_deterministic(self):
         a = select_probe_case()

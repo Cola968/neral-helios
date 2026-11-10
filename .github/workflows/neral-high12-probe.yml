@@ -1,9 +1,9 @@
-name: NERAL HIGH12 one-task Ollama PS and timings preflight
+name: NERAL HIGH12 one-task GPU inventory and Ollama timings preflight
 on:
   workflow_dispatch:
     inputs:
       authorize:
-        description: 'Type NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY (one GPU task, no training)'
+        description: 'Type NERAL_HIGH12_PROBE_GPU_MANUAL_ONLY (one 30s request; no training)'
         required: true
         type: string
       target_sha:
@@ -86,7 +86,7 @@ jobs:
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
 
   gpu-probe:
-    name: One real Qwen3.5 request, 45 s max, GPU-residency gate
+    name: One Qwen3.5 request, 30s limit, NVIDIA and Ollama inventory gate
     needs: verify-pr
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, windows, x64, neral-gpu]
@@ -150,7 +150,7 @@ jobs:
           [IO.File]::AppendAllText($env:GITHUB_ENV,
             ('HIGH12_PROBE_PY='+$py+[Environment]::NewLine),
             [Text.UTF8Encoding]::new($false))
-      - name: Inspect /api/ps, unload LOW, preload HIGH, probe one raw chat at 45 seconds
+      - name: Capture nvidia-smi and Ollama listeners, clean reload HIGH, one 30s raw chat
         run: |
           $ErrorActionPreference='Stop'
           $root=Join-Path $env:GITHUB_WORKSPACE 'control'
