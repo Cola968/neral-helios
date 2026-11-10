@@ -130,11 +130,22 @@ def checked_high_packet(packet: object) -> str:
             or packet.get("tool_used") not in TOOLS
             or type(packet.get("model_generated")) is not bool
             or (packet.get("tool_used") is not None and packet["model_generated"] is True
-                and not (packet.get("verification_status") == "tool_observed_unverified"
-                         and packet.get("tool_output_reviewed") is True
-                         and packet.get("verified") is False
-                         and type(packet.get("tool_calls_succeeded")) is int
-                         and packet["tool_calls_succeeded"] >= 1))):
+                and not (
+                    (packet.get("verification_status") == "tool_observed_unverified"
+                     and packet.get("tool_output_reviewed") is True
+                     and packet.get("verified") is False)
+                    or (packet.get("verification_status") ==
+                        "model_extracted_schema_unverified"
+                        and packet.get("verification_scope") ==
+                        "model_extracted_finite_domain"
+                        and packet.get("tool_output_reviewed") is False
+                        and packet.get("verified") is False
+                        and packet.get("extraction_status") == "accepted")
+                ))
+            or (packet.get("tool_used") is not None
+                and packet["model_generated"] is True
+                and (type(packet.get("tool_calls_succeeded")) is not int
+                     or packet["tool_calls_succeeded"] < 1))):
         raise PilotBlocked("Invalid HIGH provenance, tool evidence or complete answer")
     return packet["text"]
 

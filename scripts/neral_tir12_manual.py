@@ -2,7 +2,7 @@
 
 One RTX 4070; 4 math, 4 reasoning and 4 code-trace cases.
 A = direct Qwen3.5, C = NERAL HIGH + experimental two-stage TIR.
-Same model/first-pass decoding, but DIFFERENT total calls and compute budget.
+Same foundation model, but 384-token greedy JSON Turn-0 in the TIR arm;\nraw Qwen and fallback use the unchanged 2,048-token sampling profile.\nDIFFERENT total calls and compute budget, not decoding parity.
 Never export model text, generated code, observations, seeds or user prompts.
 """
 from __future__ import annotations
@@ -90,7 +90,10 @@ def score_tir_pairs(cases: list[dict], observations: list[dict], *,
         model_weights_improved=False,release_approval=False,
         automatic_merge_allowed=False,independent_holdout_verified=False,
         experimental_tir=True,same_inference_budget=False,
-        first_pass_token_budget=2048,
+        raw_first_turn_token_budget=2048,
+        tir_turn0_token_budget=384,
+        tir_turn0_temperature=0,
+        tir_fallback_token_budget=2048,
         tool_calls_triggered=triggered,tool_calls_succeeded=succeeded,
         tool_attempt_fallback_signals=fallback_after_tool,
         limitations="Twelve known-family development tasks, with extra TIR/tool calls; no blind release guarantee.")
