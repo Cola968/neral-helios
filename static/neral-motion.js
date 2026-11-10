@@ -3,6 +3,20 @@
    Never fake percentages, token streaming or private reasoning traces. */
 (() => {
   const iconUrl="/static/icon.svg";
+  function favicon(host){
+    const img=document.createElement("img");
+    img.className="neral-live-site-icon";
+    img.src="/api/web/favicon?host="+encodeURIComponent(host);
+    img.alt="";
+    img.setAttribute("alt","");
+    img.setAttribute("aria-hidden","true");
+    img.loading="lazy";
+    img.decoding="async";
+    img.referrerPolicy="no-referrer";
+    img.addEventListener?.("load",()=>img.classList.add("neral-favicon-loaded"));
+    img.addEventListener?.("error",()=>img.remove());
+    return img;
+  }
   function makeActivity(label,phase){
     const row=document.createElement("div");
     row.className="neral-activity";
@@ -78,6 +92,13 @@
       link.href=parsed.href;link.target="_blank";link.rel="noopener noreferrer";
       link.setAttribute("title",String(source.title||host).slice(0,130));
       link.textContent=host.replace(/^www\./,"");
+      const thumb=document.createElement("span");
+      thumb.className="neral-live-icon-wrap";
+      thumb.setAttribute("aria-hidden","true");
+      thumb.textContent="◉";
+      thumb.append(favicon(host));
+      if(typeof link.prepend==="function")link.prepend(thumb);
+      else link.append(thumb);
       line.append(link);
     }
     const labels={searching:"Sucht im Web",checking:"Prüft Code",

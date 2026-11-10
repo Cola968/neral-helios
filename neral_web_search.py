@@ -124,6 +124,81 @@ def _probe_https(url: str, address: str, method: str = "HEAD") -> tuple[int, str
         connection.close()
 
 
+# Minimal website favicon retrieval, used only when the user has opted into
+# web search and the UI displays a verified public HTTPS source.
+# Browser pages never contact a third-party favicon aggregator.
+MAX_FAVICON_BYTES = 65536
+
+
+def _request_favicon(host: str, address: str) -> tuple[bytes, str]:
+    """Download /favicon.ico over TLS with DNS pinned to a validated public IP.
+
+    No redirects, no HTML parsing, no cookies and no arbitrary URL or port.
+    """
+    import http.client
+
+    class _PinnedIconHTTPS(http.client.HTTPSConnection):
+        def connect(self):
+            raw = socket.create_connection((address, 443), timeout=2.5)
+            try:
+                self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+            except Exception:
+                raw.close()
+                raise
+
+    conn = _PinnedIconHTTPS(host, timeout=2.5, context=ssl.create_default_context())
+    try:
+        conn.request("GET", "/favicon.ico", headers={
+            "User-Agent": "NERAL-Favicon/1.0", "Accept": "image/x-icon,image/png,image/webp,image/jpeg,image/gif",
+        })
+        response = conn.getresponse()
+        if response.status != 200:
+            return b"", ""
+        if response.length is not None and response.length > MAX_FAVICON_BYTES:
+            return b"", ""
+        content_type = response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()
+        return response.read(MAX_FAVICON_BYTES + 1), content_type
+    finally:
+        conn.close()
+
+
+def fetch_public_favicon(host: str) -> tuple[bytes, str] | None:
+    """Get small raster/icon bytes from a public HTTPS hostname, never internal IPs.
+
+    The image type is determined from bytes, not an untrusted Content-Type.
+    A missing favicon produces a normal local UI fallback; never fetch SVG.
+    """
+    import http.client
+    from urllib.parse import urlsplit
+    if not isinstance(host, str) or not re.fullmatch(r"[a-zA-Z0-9.-]{4,253}", host):
+        return None
+    if not safe_result_url("https://" + host + "/favicon.ico"):
+        return None
+    try:
+        entries = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM,
+                                      proto=socket.IPPROTO_TCP)
+        ips = {row[4][0] for row in entries}
+        if not ips or any(not ip_address(ip).is_global for ip in ips):
+            return None
+        address = sorted(ips, key=lambda ip: (":" in ip, ip))[0]
+        data, _declared_type = _request_favicon(host, address)
+        if not data or len(data) > MAX_FAVICON_BYTES:
+            return None
+        if data.startswith(b"\x00\x00\x01\x00"):
+            return data, "image/x-icon"
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return data, "image/png"
+        if data.startswith((b"GIF87a", b"GIF89a")):
+            return data, "image/gif"
+        if data.startswith(b"\xff\xd8\xff"):
+            return data, "image/jpeg"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return data, "image/webp"
+        return None
+    except (OSError, ValueError, TimeoutError, http.client.HTTPException):
+        return None
+
+
 def verify_public_https_url(value: str) -> str | None:
     """Return a publicly reachable HTTPS URL, or nothing. Not content verification.
 

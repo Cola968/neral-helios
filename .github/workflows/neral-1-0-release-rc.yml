@@ -111,6 +111,8 @@ on:
       - 'tests/test_neral_1_0_codecheck_files.py'
       - 'tests/test_neral_1_0_local_preview.py'
       - 'tests/test_neral_source_reachability.py'
+      - 'tests/test_neral_favicon.py'
+      - 'tests/test_neral_favicon_ui.cjs'
       - 'tests/test_neral_1_0_live_streaming.py'
       - 'tests/neral_1_0_windows_extracted_launcher_smoke.ps1'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
@@ -296,6 +298,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_1_0_release_artifact_freshness.py -v
       - name: Verified public HTTPS source links and DNS-rebinding protections
         run: python -m unittest discover -s tests -p test_neral_source_reachability.py -v
+      - name: Trusted same-origin website favicon security
+        run: python -m unittest discover -s tests -p test_neral_favicon.py -v
       - name: Live web provider and verified source stream
         run: python -m unittest discover -s tests -p test_neral_live_sources.py -v
       - name: New voice and web plugin security/readiness contracts
