@@ -181,9 +181,11 @@ class HighMustBeBetter(unittest.TestCase):
         self.assertEqual(calls[0][0], "LOW")
         self.assertEqual(calls[1][0], "HIGH")
         self.assertEqual(calls[0][1], calls[1][1])
-        self.assertEqual(calls[3][0], "HIGH")
-        self.assertEqual(calls[5][0], "LOW")
-        self.assertEqual(calls[3][1], calls[5][1])
+        # Alternating order over cases: case 0 LOW→HIGH, case 1 HIGH→LOW.
+        # HIGH no longer inserts an extra unverified second model call.
+        self.assertEqual(calls[2][0], "HIGH")
+        self.assertEqual(calls[3][0], "LOW")
+        self.assertEqual(calls[2][1], calls[3][1])
 
     def test_identical_question_prompt_for_both_modes(self):
         case = generate_cases()[0]
