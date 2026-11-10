@@ -224,6 +224,7 @@ class MeasuredOllamaDiagnosticTests(unittest.TestCase):
             legacy.set_benchmark_seed(42)
 
     def test_direct_qwen_and_tir_http_route_send_identical_model_options(self):
+        """Turn-0 is intentionally new; RAW fallback still has identical wire options."""
         from scripts.neral_same_base_live import BASE_URL, _high_client
         from unittest.mock import patch as mock_patch
         sent = []
@@ -245,13 +246,26 @@ class MeasuredOllamaDiagnosticTests(unittest.TestCase):
                           "experimental_tir":True},
                     base_url=BASE_URL,headers=headers)
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertGreaterEqual(len(sent),2)
+        # Direct raw -> 384-token extractor -> exact raw Qwen fallback.
+        self.assertEqual(len(sent),3)
         keys = ("model", "think", "options", "keep_alive", "stream")
+        raw, extract, fallback = (item["payload"] for item in sent)
+        self.assertEqual({k:raw[k] for k in keys},
+                         {k:fallback[k] for k in keys})
+        self.assertEqual(raw["options"]["num_predict"], 2048)
+        self.assertNotIn("format",raw)
+        self.assertNotIn("format",fallback)
+        self.assertEqual(extract["format"],"json")
+        self.assertEqual(extract["options"]["num_predict"],384)
+        self.assertEqual(extract["options"]["temperature"],0)
+        self.assertFalse(extract["think"])
+        self.assertEqual(response.json["verification_status"],
+                         "base_fallback_unverified")
+        self.assertEqual(response.json["first_turn_telemetry"]["decision"],
+                         "extraction_fallback")
         for item in sent:
             self.assertEqual(item["endpoint"], "http://127.0.0.1:11434/api/chat")
-            self.assertEqual({k:item["payload"][k] for k in keys},
-                             {k:sent[0]["payload"][k] for k in keys})
-            self.assertIs(item["payload"]["think"], False)
+            self.assertFalse(item["payload"]["think"])
 
 
 if __name__ == "__main__":
