@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       high_sha:
-        description: 'Full current PR #503 HEAD, must be an ancestor of PR #505'
+        description: 'Merged PR #503 HEAD, must be an ancestor of PR #505'
         required: true
         type: string
   pull_request:
@@ -94,18 +94,20 @@ jobs:
               and pr.get("head", {}).get("sha") == os.environ["TARGET_SHA"]
               and pr.get("head", {}).get("ref") == "feat/neral-1-1-tir-observation-fallback-20261110"
               and pr.get("head", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
-              and pr.get("base", {}).get("ref") == "fix/neral-high-first-pass-only-20261110"
+              and pr.get("base", {}).get("ref") == "main"
               and pr.get("base", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
           )
           high = json.loads(os.environ["PR_HIGH_JSON"])
           high_ok = (
-              high.get("number") == 503 and high.get("state") == "open"
+              high.get("number") == 503 and high.get("state") == "closed"
+              and high.get("merged_at") is not None
+              and high.get("base", {}).get("ref") == "main"
               and high.get("head", {}).get("sha") == os.environ["HIGH_SHA"]
               and high.get("head", {}).get("ref") == "fix/neral-high-first-pass-only-20261110"
               and high.get("head", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
           )
           if not (ok and high_ok):
-              raise SystemExit("Exact stacked PR #503 / #505 SHA pairing changed")
+              raise SystemExit("Exact merged HIGH #503 / main-based TIR #505 SHA pairing changed")
           print("PR #505 source head and exact SHA verified")
           PY
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
