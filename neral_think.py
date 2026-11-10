@@ -153,7 +153,7 @@ def extract_final(raw: str) -> str | None:
         return None
     if _FINAL_VALUE.fullmatch(answer) is None:
         return None
-    equation = re.fullmatch(r"x\\s*=\\s*(.+)", answer, re.I)
+    equation = re.fullmatch(r"x\s*=\s*(.+)", answer, re.I)
     return answer if _numeric(equation.group(1) if equation else answer) is not None else None
 
 
