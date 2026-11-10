@@ -264,7 +264,7 @@ class WebSearch:
         self._hits = deque()
         self._lock = threading.Lock()
 
-    def search(self, query: str) -> dict:
+    def search(self, query: str, on_provider=None) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
         cleaned = _clean(query, MAX_QUERY_CHARS + 1)
@@ -295,6 +295,8 @@ class WebSearch:
             return raw.decode("utf-8", errors="replace")
 
         contacted.append("DuckDuckGo HTML")
+        if on_provider is not None:
+            on_provider("DuckDuckGo HTML")
         ddg_problem = False
         try:
             markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned), "text/html", "text/html")
@@ -308,6 +310,8 @@ class WebSearch:
         provider = "DuckDuckGo HTML"
         if not results:
             contacted.append("Bing RSS")
+            if on_provider is not None:
+                on_provider("Bing RSS")
             rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss"
             try:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")

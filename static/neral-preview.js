@@ -548,15 +548,31 @@
         if(text.length>160 || /[\r\n]/.test(text))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
-        const search=await json("/api/web/search",{
-          method:"POST",
-          headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
-          body:JSON.stringify({query:text,verify_links:true}),
-          signal:AbortSignal.any([signal,AbortSignal.timeout(28000)])
-        });
+        const searchSignal=AbortSignal.any([signal,AbortSignal.timeout(28000)]);
+        const liveHandler=event=>{
+          if(controller.signal.aborted||startedEpoch!==conversationEpoch ||
+             activeRequest!==controller)return;
+          if(event.type==="provider")
+            motionActivity("search-provider",mode,{name:event.name});
+          else if(event.type==="source"&&event.source?.reachable===true&&
+                  relevantSearchResult(text,event.source))
+            motionActivity("source-found",mode,{source:event.source});
+        };
+        const search=typeof browser.NeralWebLive?.search==="function"
+          ? await browser.NeralWebLive.search({
+              query:text,csrf,signal:searchSignal,onEvent:liveHandler})
+          : await json("/api/web/search",{
+              method:"POST",
+              headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
+              body:JSON.stringify({query:text,verify_links:true}),
+              signal:searchSignal
+            });
         if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
         sources=Array.isArray(search.results)
           ? search.results.filter(hit=>hit.reachable===true && relevantSearchResult(text,hit)).slice(0,3) : [];
+        // Fallback/one-shot search still gets truthful domains after completion.
+        for(const source of sources)
+          liveHandler({type:"source",source});
         motionActivity("search-done",mode,{count:sources.length,
           searches:Array.isArray(search.providers_contacted)?search.providers_contacted.length:1});
         const evidence=sources.map((r,i)=>

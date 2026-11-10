@@ -94,5 +94,6 @@ test("widgets animate their real data only and native controls remain accessible
   assert.match(motion,/\.neral-activity-history\[open\]\s+\.neral-activity-history-list/);
   assert.match(motion,/\.neral-activity-disclosure\[open\]\s+\.neral-activity-history-list/);
   const js=read("static/neral-motion.js");
-  assert.doesNotMatch(js,/Math\.random|setInterval|innerHTML|new Function/);
+  assert.doesNotMatch(js,/Math\.random|innerHTML|new Function/);
+  assert.match(js,/Date\.now\(\)/, "Display time must use real elapsed wall-clock time");
 });

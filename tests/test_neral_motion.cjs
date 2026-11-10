@@ -171,7 +171,7 @@ test("motion contract keeps text stable, reduced motion and keyboard-visible con
   assert.match(css,/dialog\[open\]/);
   assert.match(css,/#voiceInput\[aria-pressed="true"\]/);
   assert.match(css,/#neralComparePanel\[aria-busy="true"\]/);
-  assert.doesNotMatch(js,/Math\.random|setInterval|innerHTML|token.*setTimeout/);
+  assert.doesNotMatch(js,/Math\.random|innerHTML|token.*setTimeout/);
   assert.match(js,/aria-live/);
 });
 test("local preview announces real stages and removes indicator on abort and finally",()=>{
@@ -258,7 +258,7 @@ test("invalid web queries are rejected before announcing a search",()=>{
   const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
   const gate=source.indexOf("if(text.length>160");
   const event=source.indexOf('motionActivity("searching",mode)');
-  const request=source.indexOf('const search=await json("/api/web/search"');
+  const request=source.indexOf('const search=typeof browser.NeralWebLive?.search');
   assert.ok(gate>=0 && gate<event && event<request);
 });
 
