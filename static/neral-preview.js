@@ -678,7 +678,9 @@
           evidence.pop();
         // Display only the hits that the model actually received.
         sources=sources.slice(0,evidence.length);
-        modelPrompt=webEvidencePrompt(text,evidence,true);
+        // No relevant evidence means the model sees the original question,
+        // not irrelevant links or a manufactured knowledge context.
+        if(evidence.length)modelPrompt=webEvidencePrompt(text,evidence,true);
       }
       let path="/api/neral/chat/"+mode;
       let options={
