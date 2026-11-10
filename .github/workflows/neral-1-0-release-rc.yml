@@ -1,5 +1,6 @@
 name: NERAL 1.0 release candidate - offline package and LIVE Windows PC smoke
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - '.github/workflows/neral-1-0-release-rc.yml'
@@ -401,7 +402,7 @@ jobs:
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
+    if: ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&  (github.head_ref == 'release/neral-1-0-standalone-preview-20261108' || github.head_ref == 'feat/neral-1-0-voice-websearch-main-20261108'))
     needs: [cpu-contracts]
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 22
@@ -421,7 +422,7 @@ jobs:
           path: code
           clean: true
           persist-credentials: false
-          ref: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - name: Real local Ollama inventory, FAST, THINK and CSRF smoke - no downloads
         run: |
           $ErrorActionPreference='Stop'
@@ -479,7 +480,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

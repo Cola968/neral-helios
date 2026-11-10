@@ -69,12 +69,26 @@ class ReleaseArtifactFreshness(unittest.TestCase):
 
     def test_release_main_checkout_and_artifact_require_live_pc_gate(self):
         wf=WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("ref: ${{ github.event_name == 'push' && github.sha",wf)
+        self.assertEqual(wf.count("ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"), 2)
         self.assertIn("needs: [cpu-contracts, local-windows-pc]",wf)
         self.assertIn("if-no-files-found: error",wf)
         self.assertIn("SHA256SUMS.txt",wf)
         self.assertNotIn("cancel-in-progress: true",wf)
 
+
+    def test_manual_rc_runs_only_from_main_and_cannot_publish_direct_release(self):
+        wf = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("\n  workflow_dispatch:\n", wf)
+        live_pc = wf.split("\n  local-windows-pc:\n", 1)[1].split(
+            "\n  package-rc:\n", 1)[0]
+        self.assertIn(
+            "((github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
+            "&& github.ref == 'refs/heads/main')", live_pc)
+        self.assertIn("needs: [cpu-contracts]", live_pc)
+        self.assertIn("cancel-in-progress: false", live_pc)
+        publish = wf.split("\n  public-preview-download:\n", 1)[1]
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", publish)
+        self.assertNotIn("workflow_dispatch", publish)
 
     def test_verified_preview_has_public_one_click_download_not_actions_artifact_only(self):
         """No Actions sign-in or double nested artifact ZIP for end users."""
