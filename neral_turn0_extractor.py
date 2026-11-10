@@ -107,7 +107,7 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
         # every item; otherwise refuse to infer a complete set.
         ordering_spans = [
             span for span in evidence if type(span) is str
-            and all(re.search(r"(?<!\\w)" + re.escape(v) + r"(?!\\w)", span)
+            and all(re.search(r"(?<!\w)" + re.escape(v) + r"(?!\w)", span)
                     for v in names)
         ]
         if not ordering_spans:
@@ -119,7 +119,7 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
         names = list(variables)
     if any(
         type(name) is not str
-        or re.search(r"(?<!\\w)" + re.escape(name) + r"(?!\\w)", question) is None
+        or re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", question) is None
         for name in names
     ):
         return None
