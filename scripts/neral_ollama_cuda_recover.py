@@ -145,6 +145,42 @@ def validate_native_listener(data: dict, approved_install: str,
     return app_pids + other_pids + [owner]
 
 
+def parse_native_netstat_inventory(output: str) -> dict:
+    """Inspect Windows netstat -ano TCP rows; never expose addresses or PIDs.
+
+    This is a fallback only when Get-NetTCPConnection cannot see the listener.
+    A PID is still subject to the full user/path/service checks before restart.
+    """
+    if type(output) is not str or len(output) > 131072:
+        raise RecoveryRefused("netstat_process_audit_failed")
+    listeners, addresses, established, local_clients = set(), set(), 0, True
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) != 5 or parts[0].upper() != "TCP":
+            continue
+        local, remote, state, raw_pid = parts[1:]
+        if not local.endswith(":11434"):
+            continue
+        if not raw_pid.isdecimal():
+            raise RecoveryRefused("netstat_process_audit_failed")
+        pid = int(raw_pid)
+        local_ip = local[:-6].strip("[]")
+        remote_ip = remote.rsplit(":", 1)[0].strip("[]")
+        if state.upper() == "LISTENING":
+            listeners.add(pid)
+            addresses.add(local_ip)
+        elif state.upper() == "ESTABLISHED":
+            established += 1
+            local_clients &= (local_ip in ("127.0.0.1", "::1")
+                              and remote_ip in ("127.0.0.1", "::1"))
+    return {
+        "listener_pids": sorted(listeners),
+        "listener_addresses": sorted(addresses),
+        "established_clients": established,
+        "all_clients_loopback": bool(local_clients),
+    }
+
+
 def _windows_inventory() -> dict:
     """PowerShell queries native Windows PID ownership without uploading PIDs."""
     ps = r"""
@@ -186,6 +222,19 @@ $svc=@(Get-CimInstance Win32_Service |
         data = json.loads(p.stdout)
         if not isinstance(data, dict):
             raise ValueError("not dict")
+        if not data.get("listener_pids"):
+            # Win32/CIM can briefly return zero listeners even though the
+            # native localhost Ollama API responds. Fall back to netstat,
+            # but preserve strict loopback, PID, path and owner validation.
+            ns = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                capture_output=True, text=True, timeout=7, check=False)
+            if ns.returncode != 0:
+                raise RecoveryRefused("netstat_process_audit_failed")
+            data.update(parse_native_netstat_inventory(ns.stdout))
+            data["tcp_inventory_source"] = "netstat"
+        else:
+            data["tcp_inventory_source"] = "get_net_tcp_connection"
         return data
     except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
         raise RecoveryRefused("windows_process_audit_failed") from exc
@@ -311,6 +360,7 @@ def recover_if_authorized(*, size_vram: int, free_mib: int,
     audit = _windows_inventory()
     # Persist safe scalar evidence even if validation declines the restart.
     report["ollama_restart_process_audit"] = {
+        "tcp_inventory_source": audit.get("tcp_inventory_source", "unknown"),
         "native_process_count": len(audit.get("processes", [])),
         "local_listener_count": len(audit.get("listener_pids", [])),
         "busy_client_count": audit.get("established_clients"),
