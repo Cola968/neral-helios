@@ -154,6 +154,19 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=True)
 
+    def respond_high_final(self, messages: list[dict]) -> str:
+        """HIGH-only, opt-in bounded final line recovery after model truncation.
+
+        RAW Qwen and other callers retain strict original failure behavior.
+        The partial response stays inside this local call and is never logged.
+        """
+        if (self.model != "qwen3.5:9b"
+                or self.inference_profile != "measured_nonthinking_2048"):
+            raise AgentModelError("Kurzer HIGH-Abschluss nur im gemessenen Profil.")
+        with self._inference_lock:
+            return self._respond(messages, require_json=False,
+                                 thinking=False, rescue_long_final=True)
+
     def respond_chat_stream(self, messages: list[dict]):
         """Yield actual Ollama FAST content chunks, never simulated tokens.
 
@@ -230,14 +243,19 @@ class OllamaLocalBackend:
                 raise AgentModelError("Lokaler Modell-Datenstrom nicht verfügbar.") from exc
 
     def _respond(self, messages: list[dict], *, require_json: bool,
-                 thinking: bool = False) -> str:
-        if require_json and thinking:
+                 thinking: bool = False, final_only: bool = False,
+                 rescue_long_final: bool = False) -> str:
+        if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
+        if final_only and rescue_long_final:
+            raise AgentModelError("Abschluss-Nachschlag darf nicht rekursiv sein.")
         # Measured Qwen3.5 settings MUST be identical for raw and TIR.
         measured = (self.inference_profile == "measured_nonthinking_2048"
                     and not require_json)
         budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
         options = (
+            {"temperature": 0, "num_predict": 64, "num_ctx": 4096}
+            if final_only else
             {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
              "min_p": 0.0, "presence_penalty": 1.5,
              "repeat_penalty": 1.0, "num_predict": 2048, "num_ctx": 4096}
@@ -271,6 +289,8 @@ class OllamaLocalBackend:
             "content_length": None,
             "thinking_length": None,
             "done_reason": None,
+            "final_recovery_attempted": False,
+            "final_recovery_succeeded": False,
         }
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
@@ -303,6 +323,45 @@ class OllamaLocalBackend:
             if (packet.get("done", True) is not True or
                     reason not in ("stop", None) or
                     (measured and (packet.get("done") is not True or reason != "stop"))):
+                # NERAL HIGH may try ONE local final-only follow-up. Never
+                # mask errors for the paired raw-Qwen baseline. The extra turn
+                # can be wrong: it is a *model* answer, never a verified oracle.
+                original_question = (
+                    messages[-1].get("content") if messages
+                    and isinstance(messages[-1], dict) else None)
+                partial = message.get("content") if isinstance(message, dict) else None
+                eligible = (
+                    reason == "length" and rescue_long_final and measured
+                    and packet.get("done") is True and not final_only
+                    and isinstance(original_question, str)
+                    and re.search(r"\\bFINAL_ANSWER\\s*:", original_question, re.I)
+                    and isinstance(partial, str)
+                    and 10 <= len(partial.encode("utf-8")) <= 16000
+                    and not re.search(r"(?m)^FINAL_ANSWER\\s*:", partial, re.I)
+                )
+                if eligible:
+                    diagnostic["final_recovery_attempted"] = True
+                    followup_turns = [dict(row) for row in messages] + [
+                        {"role": "assistant", "content": partial},
+                        {"role": "user", "content": (
+                            "Schließe die bisherige Herleitung ab. Gib nur "
+                            "FINAL_ANSWER: <integer> als eine einzige Zeile aus. "
+                            "Wenn die Lösung aus dem bisherigen Text nicht "
+                            "bestimmbar ist, antworte UNSURE. Keine neue "
+                            "ausführliche Herleitung und kein Raten."
+                        )},
+                    ]
+                    try:
+                        followup = self._respond(
+                            followup_turns, require_json=False,
+                            thinking=False, final_only=True)
+                    except AgentModelError:
+                        raise OllamaCompletionError("token_limit")
+                    if re.fullmatch(
+                            r"FINAL_ANSWER:\\s*[+-]?\\d{1,15}",
+                            followup.strip(), re.I):
+                        diagnostic["final_recovery_succeeded"] = True
+                        return followup.strip()
                 raise OllamaCompletionError(
                     "token_limit" if reason == "length" else "incomplete")
             if not isinstance(message, dict):
