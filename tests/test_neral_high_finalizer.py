@@ -58,7 +58,7 @@ class HighFinalizerTests(unittest.TestCase):
 
     def test_complete_long_reply_with_missing_final_can_be_closed_once(self):
         model=self.model()
-        wire=Transport(packet("stop","After enumerating cases I obtain the value 42.\nFurther notes."),
+        wire=Transport(packet("stop","After enumerating cases I obtain the value 42. "+"I check each case for duplicates. "*12+"Further notes."),
                        packet("stop","FINAL_ANSWER: 42"))
         with patch("neral_agent_autonomy.local_only_opener",return_value=wire):
             result=model.respond_high_final(REQUEST)
