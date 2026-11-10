@@ -17,6 +17,7 @@ import time
 from typing import Callable
 
 from neral_high_verified_first import split_task_and_format_instruction
+from neral_formal_constraints import InvalidFormalConstraints, try_solve_formal_constraints
 
 # Qwen3.5's built-in Ollama parser treats <tool_call> as native XML and can
 # return HTTP 500 / silently discard its JSON contents. Use an application-
@@ -202,6 +203,7 @@ def run_experimental_tir(
     *,
     tool_runner: Callable[[str, str], dict] = execute_tir_tool,
     finalize_review: Callable[[list[dict]], tuple[str, bool]] | None = None,
+    first_turn_diagnostic: Callable[[], dict] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Bounded tool -> observation -> final, or raw-Qwen fallback.
@@ -215,16 +217,70 @@ def run_experimental_tir(
             or messages[-1].get("role") != "user"
             or any(type(row.get("content")) is not str for row in messages)
             or not callable(respond) or not callable(tool_runner)
-            or (finalize_review is not None and not callable(finalize_review))):
+            or (finalize_review is not None and not callable(finalize_review))
+            or (first_turn_diagnostic is not None and not callable(first_turn_diagnostic))):
         raise ValueError("Invalid experimental TIR input")
     initial = clock()
     original = [dict(row) for row in messages]
     core, suffix = split_task_and_format_instruction(original[-1]["content"])
+    # Only a canonical, explicitly tagged schema bypasses the model.
+    # Never classify natural-language questions using benchmark keywords.
+    if len(original) == 2:
+        try:
+            formal = try_solve_formal_constraints(core)
+        except InvalidFormalConstraints:
+            return {
+                "text": "Die formalen Nebenbedingungen sind ungültig oder zu groß.",
+                "mode": "HIGH", "model_generated": False, "verified": False,
+                "verification_status": "formal_schema_rejected",
+                "verification_scope": "none", "calls_used": 0,
+                "tool_calls_triggered": 0, "tool_calls_succeeded": 0,
+                "first_turn_telemetry": {
+                    "eval_count": None, "prompt_eval_count": None,
+                    "done_reason": None, "decision": "deterministic_rejected"},
+                "seconds": round(clock() - initial, 3),
+            }
+        if formal is not None:
+            answer = ("FINAL_ANSWER: " + str(formal)) if suffix else str(formal)
+            return {
+                "text": answer, "mode": "HIGH", "model_generated": False,
+                "verified": True, "verification_status": "formal_schema_exact",
+                "verification_scope": "explicit_finite_domain_schema",
+                "tool_used": "neral_logic_exact", "calls_used": 0,
+                "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
+                "first_turn_telemetry": {
+                    "eval_count": None, "prompt_eval_count": None,
+                    "done_reason": None, "decision": "deterministic_formal"},
+                "seconds": round(clock() - initial, 3),
+            }
     turns = [dict(row) for row in original]
     if suffix:
         turns[-1]["content"] = core
     turns[0]["content"] += _PROMPT
     calls = triggered = succeeded = 0
+    first_turn_telemetry = {
+        "eval_count": None, "prompt_eval_count": None,
+        "done_reason": None, "decision": "unstructured",
+    }
+
+    def capture_first_turn(decision: str) -> dict:
+        """Whitelisted scalar telemetry; never capture prompts or model text."""
+        try:
+            source = first_turn_diagnostic() if first_turn_diagnostic else None
+        except Exception:
+            source = None
+        if type(source) is not dict:
+            source = {}
+        counts = {}
+        for key in ("eval_count", "prompt_eval_count"):
+            n = source.get(key)
+            counts[key] = n if type(n) is int and 0 <= n <= 1_000_000 else None
+        reason = source.get("done_reason")
+        return {
+            **counts, "done_reason": reason if reason in (
+                "stop", "length", "load", "unload", "other") else None,
+            "decision": decision,
+        }
 
     def base_fallback() -> dict:
         nonlocal calls
@@ -242,11 +298,17 @@ def run_experimental_tir(
             "verification_scope": "none", "calls_used": calls,
             "tool_calls_triggered": triggered,
             "tool_calls_succeeded": succeeded,
+            "first_turn_telemetry": first_turn_telemetry,
             "seconds": round(clock() - initial, 3),
         }
 
     calls += 1
     first = respond(turns)
+    first_turn_telemetry = capture_first_turn(
+        "tool" if parse_tool_call(first) is not None else
+        "final" if _accepted_final(first, strict_integer=bool(suffix)) is not None
+        else "unstructured"
+    )
     if type(first) is not str or not first.strip() or len(first) > 32768:
         return base_fallback()
     parsed = parse_tool_call(first)
@@ -259,6 +321,7 @@ def run_experimental_tir(
             "verified": False, "verification_status": "not_available",
             "verification_scope": "none", "calls_used": calls,
             "tool_calls_triggered": 0, "tool_calls_succeeded": 0,
+            "first_turn_telemetry": first_turn_telemetry,
             "seconds": round(clock() - initial, 3),
         }
 
