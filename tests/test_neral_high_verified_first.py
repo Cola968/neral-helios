@@ -87,7 +87,7 @@ class HighVerifiedFirstTests(unittest.TestCase):
         self.assertEqual(r.json["model_origin"], "local_foundation_not_neral_adapter")
         self.assertEqual(backend.calls, 0)
 
-    def test_open_question_still_uses_model_review(self):
+    def test_open_question_uses_first_model_reply_without_review(self):
         backend = StubBackend()
         client = create_preview_app(backend).test_client()
         client.get("/", base_url=HOST)
@@ -97,8 +97,8 @@ class HighVerifiedFirstTests(unittest.TestCase):
                         json={"prompt": "Erkläre die Entstehung eines Sterns."})
         self.assertEqual(r.status_code, 200, r.json)
         self.assertFalse(r.json["verified"])
-        self.assertEqual(r.json["calls_used"], 2)
-        self.assertEqual(backend.calls, 2)
+        self.assertEqual(r.json["calls_used"], 1)
+        self.assertEqual(backend.calls, 1)
 
 
 if __name__ == "__main__":
