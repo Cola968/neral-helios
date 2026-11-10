@@ -334,10 +334,10 @@ class OllamaLocalBackend:
                     reason == "length" and rescue_long_final and measured
                     and packet.get("done") is True and not final_only
                     and isinstance(original_question, str)
-                    and re.search(r"\\bFINAL_ANSWER\\s*:", original_question, re.I)
+                    and re.search(r"\bFINAL_ANSWER\s*:", original_question, re.I)
                     and isinstance(partial, str)
                     and 10 <= len(partial.encode("utf-8")) <= 16000
-                    and not re.search(r"(?m)^FINAL_ANSWER\\s*:", partial, re.I)
+                    and not re.search(r"(?m)^FINAL_ANSWER\s*:", partial, re.I)
                 )
                 if eligible:
                     diagnostic["final_recovery_attempted"] = True
@@ -358,7 +358,7 @@ class OllamaLocalBackend:
                     except AgentModelError:
                         raise OllamaCompletionError("token_limit")
                     if re.fullmatch(
-                            r"FINAL_ANSWER:\\s*[+-]?\\d{1,15}",
+                            r"FINAL_ANSWER:\s*[+-]?\d{1,15}",
                             followup.strip(), re.I):
                         diagnostic["final_recovery_succeeded"] = True
                         return followup.strip()
