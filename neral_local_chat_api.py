@@ -494,7 +494,23 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             prepare_model(high_backend)
             if experimental_tir:
                 from neral_tir_experimental import run_experimental_tir
-                result = run_experimental_tir(data, high_backend.respond_chat)
+                def bounded_observation_review(turns):
+                    # FIRST TIR/tool proposal and raw-Qwen fallback are unchanged.
+                    # Only the post-observation review may use a bounded
+                    # final-only turn in the measured HIGH profile.
+                    before = len(high_backend.inference_diagnostic_events)
+                    text = high_backend.respond_high_final(turns)
+                    events = high_backend.inference_diagnostic_events[before:]
+                    recovered = any(
+                        isinstance(row, dict)
+                        and row.get("final_recovery_succeeded") is True
+                        for row in events
+                    )
+                    return text, recovered
+                result = run_experimental_tir(
+                    data, high_backend.respond_chat,
+                    finalize_review=(bounded_observation_review
+                                     if bounded_final else None))
                 return jsonify({**result, "experimental_tir": True,
                                 **_provenance(high_backend)})
             before_events = (
