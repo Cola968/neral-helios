@@ -4,8 +4,10 @@ CPU-only; no Ollama GPU, network, cloud, generated code or personal data.
 """
 from __future__ import annotations
 import json
+import copy
 import unittest
 from unittest.mock import patch
+from jsonschema import Draft202012Validator
 
 from neral_turn0_extractor import EXTRACT_PROMPT, parse_extracted_constraints
 from neral_tir_experimental import run_experimental_tir
@@ -33,8 +35,8 @@ def messages(question):
 
 
 class ExtractionSchemaContracts(unittest.TestCase):
-    def test_single_few_shot_and_strict_json_without_xml(self):
-        self.assertEqual(EXTRACT_PROMPT.count("Example input:"), 1)
+    def test_one_shot_per_logic_family_and_strict_json_without_xml(self):
+        self.assertEqual(EXTRACT_PROMPT.count("Example input:"), 2)
         self.assertIn("JSON", EXTRACT_PROMPT)
         self.assertNotIn("<tool_call", EXTRACT_PROMPT)
         self.assertIn('"bool_rules":', EXTRACT_PROMPT)
@@ -164,12 +166,136 @@ class ExtractionSchemaContracts(unittest.TestCase):
 
 
 class OllamaExtractWireContracts(unittest.TestCase):
+    def extraction_format(self, question):
+        from neral_agent_autonomy import OllamaLocalBackend
+        requests = []
+        class Local:
+            def open(self, request, timeout):
+                requests.append(json.loads(request.data))
+                class Response:
+                    def __enter__(self): return self
+                    def __exit__(self, *args): return False
+                    def read(self, *args):
+                        return json.dumps({"done": True, "done_reason": "stop",
+                            "message": {"content": '{"kind":"none"}'}}).encode()
+                return Response()
+        backend = OllamaLocalBackend("qwen3.5:9b", timeout=90,
+                                    inference_profile="measured_nonthinking_2048")
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            backend.respond_formal_extract(messages(question))
+        schema = requests[0]["format"]
+        Draft202012Validator.check_schema(schema)
+        return Draft202012Validator(schema)
+
+    def test_prerecognized_logic_cannot_emit_none_or_empty_constraints(self):
+        questions = [
+            "P and Q are Boolean variables. P XOR Q is true. Count assignments.",
+            "P und Q sind boolesche Variablen. Genau eine ist wahr. Wie viele Belegungen?",
+            "Put Ada, Ben, Cy in a complete order, each exactly once. Ada precedes Ben. Count orders.",
+            "Ada, Ben, Cy stehen in einer Reihenfolge, jede Person genau einmal. Ada vor Ben. Wie viele Anordnungen?",
+        ]
+        for question in questions:
+            validator = self.extraction_format(question)
+            for candidate in ({"kind": "none"}, {"kind": "formal"},
+                              {"kind": "formal", "complete": True, "schema": {},
+                               "evidence": ["source domain", "source query"]}):
+                with self.subTest(question=question, candidate=candidate):
+                    self.assertFalse(validator.is_valid(candidate))
+
+    def test_wire_schema_rejects_missing_fields_extras_bad_ops_and_empty_domains(self):
+        validator = self.extraction_format(QUESTION)
+        valid = json.loads(packet())
+        valid["schema"]["variables"] = [
+            {"name": "A", "domain": [1, 2, 3]},
+            {"name": "B", "domain": [1, 2, 3]},
+        ]
+        self.assertTrue(validator.is_valid(valid))
+        invalid = []
+        for key in valid:
+            row = copy.deepcopy(valid)
+            del row[key]
+            invalid.append(row)
+        for change in ({"complete": False}, {"code": "print(1)"},
+                       {"evidence": []}, {"evidence": ["only one span"]}):
+            invalid.append({**valid, **change})
+        for change in ({"variables": {}}, {"variables": []},
+                       {"variables": [{"name": "A", "domain": []}]},
+                       {"variables": [{"name": "A", "domain": [1], "code": "eval"}]},
+                       {"rules": []}, {"query": "explain"}, {"code": "eval"},
+                       {"rules": [{"left": "A", "op": "exec", "right": "B"}]},
+                       {"rules": [{"left": "A", "op": "<", "right": "B", "value": 1}]}):
+            invalid.append({**valid, "schema": {**valid["schema"], **change}})
+        for row in invalid:
+            with self.subTest(candidate=row):
+                self.assertFalse(validator.is_valid(row))
+
+    def test_variable_list_normalizes_without_losing_domains_or_allowing_duplicates(self):
+        candidate = json.loads(packet())
+        variables = [{"name": "A", "domain": [1, 2, 3]},
+                     {"name": "B", "domain": [1, 2, 3]}]
+        candidate["schema"]["variables"] = variables
+        self.assertEqual(parse_extracted_constraints(QUESTION, json.dumps(candidate)), 3)
+        for invalid in ([], variables + [variables[0]],
+                        [{"name": "A", "domain": [1], "code": "eval"}],
+                        [{"name": [], "domain": [1]}], ["A"]):
+            candidate["schema"]["variables"] = invalid
+            self.assertIsNone(parse_extracted_constraints(QUESTION, json.dumps(candidate)))
+
+    def test_actual_prompt_examples_are_source_grounded_solvable_and_wire_valid(self):
+        # Parse the literal examples the model actually receives, not a copy.
+        examples = EXTRACT_PROMPT.split("Example input: ")[1:]
+        self.assertEqual(len(examples), 2)
+        for section, expected in zip(examples, (2, 3)):
+            question, encoded = section.split("Example JSON: ", 1)
+            candidate, _ = json.JSONDecoder().raw_decode(encoded)
+            self.assertTrue(self.extraction_format(question).is_valid(candidate))
+            self.assertEqual(parse_extracted_constraints(
+                question, json.dumps(candidate, separators=(",", ":"))), expected)
+
+    def test_nonconstraint_question_can_still_abstain(self):
+        self.assertTrue(self.extraction_format("Explain rain.").is_valid({"kind": "none"}))
+
+    def test_boolean_arity_depth_and_ordering_bounds_are_closed_on_the_wire(self):
+        question = ("P and Q are Boolean variables. P XOR Q is true. Count assignments.")
+        validator = self.extraction_format(question)
+        candidate = {"kind": "formal", "complete": True, "schema": {
+            "variables": [{"name": "P", "domain": [False, True]},
+                          {"name": "Q", "domain": [False, True]}],
+            "rules": [], "bool_rules": [{"op": "xor", "args": ["P", "Q"]}],
+            "query": "count"}, "evidence": ["Boolean variables", "Count assignments"]}
+        self.assertTrue(validator.is_valid(candidate))
+        nested = "P"
+        for _ in range(5):
+            nested = {"op": "not", "args": [nested]}
+        for rule in ({"op": "not", "args": ["P", "Q"]},
+                     {"op": "eq", "args": ["P"]},
+                     {"op": "xor", "args": []},
+                     {"op": "exec", "args": ["P"]},
+                     {"op": "at_least", "args": ["P", "Q"]}, nested):
+            candidate["schema"]["bool_rules"] = [rule]
+            self.assertFalse(validator.is_valid(candidate))
+        candidate["schema"] = {"ordering": ["Ada", "Ben"], "rules": [
+            {"left": "Ada", "op": "<", "right": "Ben"}], "query": "count"}
+        self.assertTrue(validator.is_valid(candidate))
+        for items in ([], ["Ada"], list("ABCDEFGHI")):
+            candidate["schema"]["ordering"] = items
+            self.assertFalse(validator.is_valid(candidate))
+
+    def test_all_generated_reasoning_cases_remove_the_abstention_branch(self):
+        from scripts.neral_high12_manual import select_cases
+        for case in select_cases(123456):
+            if case["domain"] == "reasoning":
+                with self.subTest(family=case["family"]):
+                    self.assertFalse(self.extraction_format(case["prompt"]).is_valid({"kind":"none"}))
+
     def test_only_extractor_uses_json_384_temp0_and_raw_remains_2048(self):
         from neral_agent_autonomy import OllamaLocalBackend
         requests=[]
+        timeouts=[]
         class Local:
             def open(self,request,timeout):
                 requests.append(json.loads(request.data))
+                timeouts.append(timeout)
                 class Response:
                     def __enter__(self): return self
                     def __exit__(self,*args): return False
@@ -177,21 +303,21 @@ class OllamaExtractWireContracts(unittest.TestCase):
                         return json.dumps({"done":True,"done_reason":"stop",
                             "eval_count":64,"message":{"content":"{\"kind\":\"none\"}"}}).encode()
                 return Response()
-        b=OllamaLocalBackend("qwen3.5:9b", timeout=90,
+        b=OllamaLocalBackend("qwen3.5:9b", timeout=30,
                             inference_profile="measured_nonthinking_2048")
         turns=messages("Explain rain.")
         with patch("neral_agent_autonomy.local_only_opener",return_value=Local()):
             b.respond_formal_extract(turns)
             b.respond_chat(turns)
         self.assertEqual(len(requests),2)
-        self.assertEqual(requests[0]["format"]["type"],"object")
-        self.assertEqual(requests[0]["format"]["properties"]["kind"]["enum"],
-                         ["formal","none"])
+        self.assertIsInstance(requests[0]["format"], dict)
+        self.assertTrue(Draft202012Validator(requests[0]["format"]).is_valid({"kind":"none"}))
         self.assertNotIn("format", requests[1])
         self.assertFalse(requests[0]["think"])
         self.assertEqual(requests[0]["options"]["num_predict"],384)
         self.assertEqual(requests[0]["options"]["temperature"],0)
         self.assertEqual(requests[1]["options"]["num_predict"],2048)
+        self.assertEqual(timeouts, [30, 90])
         self.assertNotIn("format",requests[1])
 
 if __name__ == "__main__":

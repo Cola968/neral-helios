@@ -306,18 +306,14 @@ class OllamaLocalBackend:
             "keep_alive": "5m",
         }
         if require_json:
-            # Ollama's constrained JSON-schema decoding forces a JSON object
-            # from the first generated character. The strict source-grounded
-            # extractor still validates semantics and rejects kind=none.
-            request_data["format"] = (
-                {"type": "object", "properties": {
-                    "kind": {"type": "string", "enum": ["formal", "none"]},
-                    "complete": {"type": "boolean"},
-                    "schema": {"type": "object"},
-                    "evidence": {"type": "array", "items": {"type": "string"}},
-                }, "required": ["kind"]}
-                if extraction_only else "json"
-            )
+            if extraction_only:
+                from neral_turn0_extractor import extraction_response_format
+                # Classify only the current user data, never the system's
+                # worked examples. Recognized logic tasks cannot decode none.
+                question = messages[-1]["content"]
+                request_data["format"] = extraction_response_format(question)
+            else:
+                request_data["format"] = "json"
         diagnostic = {
             "endpoint": "/api/chat", "model": self.model,
             "request_keys": sorted(request_data),
@@ -346,7 +342,8 @@ class OllamaLocalBackend:
         # Proxy handler is disabled. No cloud provider and no raw error logging.
         try:
             with local_only_opener().open(
-                    request, timeout=90.0 if (thinking or measured) else self.timeout
+                    request, timeout=min(self.timeout, 90.0) if extraction_only
+                    else 90.0 if (thinking or measured) else self.timeout
             ) as response:
                 diagnostic["ollama_http_status"] = getattr(response, "status", 200)
                 raw = response.read(128 * 1024 + 1)

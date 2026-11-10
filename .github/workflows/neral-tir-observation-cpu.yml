@@ -5,6 +5,9 @@ on:
       - 'neral_tir_experimental.py'
       - 'neral_turn0_extractor.py'
       - 'tests/test_neral_tir_turn0.py'
+      - 'requirements-tests-turn0.txt'
+      - 'scripts/neral_tir_logic_smoke.py'
+      - 'tests/test_neral_tir_logic_smoke.py'
       - 'neral_formal_constraints.py'
       - 'tests/test_neral_boolean_constraints.py'
       - 'tests/test_neral_tir_structural.py'
@@ -21,6 +24,9 @@ on:
       - 'neral_tir_experimental.py'
       - 'neral_turn0_extractor.py'
       - 'tests/test_neral_tir_turn0.py'
+      - 'requirements-tests-turn0.txt'
+      - 'scripts/neral_tir_logic_smoke.py'
+      - 'tests/test_neral_tir_logic_smoke.py'
       - 'neral_formal_constraints.py'
       - 'tests/test_neral_boolean_constraints.py'
       - 'tests/test_neral_tir_structural.py'
@@ -47,12 +53,15 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements-neral-preview.txt
+      - run: python -m pip install -r requirements-tests-turn0.txt
       - name: TIR observation and baseline fallback contracts
         run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
       - name: Generic Boolean finite-domain CPU contracts
         run: python -B -m unittest discover -s tests -p test_neral_boolean_constraints.py -v
       - name: Turn-0 extractor and fallback contracts
         run: python -B -m unittest discover -s tests -p test_neral_tir_turn0.py -v
+      - name: One-task smoke CPU contracts (no inference)
+        run: python -B -m unittest discover -s tests -p test_neral_tir_logic_smoke.py -v
       - name: Structural constraints and first-turn telemetry contracts
         run: python -B -m unittest discover -s tests -p test_neral_tir_structural.py -v
       - name: Balanced TIR12 scoring, tool accounting and safety contracts
