@@ -78,15 +78,15 @@ class ReleaseArtifactFreshness(unittest.TestCase):
 
     def test_manual_rc_runs_only_from_main_and_cannot_publish_direct_release(self):
         wf = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("\\n  workflow_dispatch:\\n", wf)
-        live_pc = wf.split("\\n  local-windows-pc:\\n", 1)[1].split(
-            "\\n  package-rc:\\n", 1)[0]
+        self.assertIn("\n  workflow_dispatch:\n", wf)
+        live_pc = wf.split("\n  local-windows-pc:\n", 1)[1].split(
+            "\n  package-rc:\n", 1)[0]
         self.assertIn(
             "((github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
             "&& github.ref == 'refs/heads/main')", live_pc)
         self.assertIn("needs: [cpu-contracts]", live_pc)
         self.assertIn("cancel-in-progress: false", live_pc)
-        publish = wf.split("\\n  public-preview-download:\\n", 1)[1]
+        publish = wf.split("\n  public-preview-download:\n", 1)[1]
         self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", publish)
         self.assertNotIn("workflow_dispatch", publish)
 
