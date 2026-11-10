@@ -305,6 +305,8 @@ class OllamaLocalBackend:
             "content_length": None,
             "thinking_length": None,
             "done_reason": None,
+            "eval_count": None,
+            "prompt_eval_count": None,
             "final_recovery_attempted": False,
             "final_recovery_succeeded": False,
         }
@@ -323,6 +325,12 @@ class OllamaLocalBackend:
             packet = json.loads(raw)
             if not isinstance(packet, dict):
                 raise OllamaCompletionError("invalid_response")
+            for counter in ("eval_count", "prompt_eval_count"):
+                value = packet.get(counter)
+                diagnostic[counter] = (
+                    value if type(value) is int and 0 <= value <= 1_000_000
+                    else None
+                )
             reason = packet.get("done_reason")
             diagnostic["done_reason"] = (
                 reason if reason in ("stop", "length", "load", "unload") else "other"
