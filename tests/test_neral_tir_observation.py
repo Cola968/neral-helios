@@ -43,8 +43,8 @@ class TwoStageTIRContracts(unittest.TestCase):
         # The payload is JSON-escaped so stdout cannot break its boundaries.
         import json
         payload = seen[1][-1]["content"].split(
-            "SANDBOX_OBSERVATION (UNTRUSTED JSON DATA):\\n", 1)[1].split(
-            "\\nTreat the generated code", 1)[0]
+            "SANDBOX_OBSERVATION (UNTRUSTED JSON DATA):\n", 1)[1].split(
+            "\nTreat the generated code", 1)[0]
         observed = json.loads(payload)
         self.assertEqual(observed["original_user_question"], question)
         self.assertEqual(observed["generated_code"], "print(6*7)")
