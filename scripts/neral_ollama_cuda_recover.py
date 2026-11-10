@@ -166,10 +166,10 @@ def parse_native_netstat_inventory(output: str) -> dict:
         pid = int(raw_pid)
         local_ip = local[:-6].strip("[]")
         remote_ip = remote.rsplit(":", 1)[0].strip("[]")
-        if state.upper() == "LISTENING":
+        if state.upper() in ("LISTEN", "LISTENING", "ABHÖREN"):
             listeners.add(pid)
             addresses.add(local_ip)
-        elif state.upper() == "ESTABLISHED":
+        elif state.upper() in ("ESTABLISHED", "HERGESTELLT"):
             established += 1
             local_clients &= (local_ip in ("127.0.0.1", "::1")
                               and remote_ip in ("127.0.0.1", "::1"))
