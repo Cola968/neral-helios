@@ -455,6 +455,10 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="TIR erfordert das lokale Qwen3.5:9B Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        # These references retain no user text and are only used on 503.
+        first_turn_probe_armed = False
+        first_turn_prior_event = None
+        first_turn_actual_event = None
         try:
             started = time.monotonic()
             identity = _runtime_identity_reply(data[-1]["content"], high_backend)
@@ -512,10 +516,14 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 # Identity comparison survives the fixed-size diagnostic ring
                 # buffer even after more than 24 prior model calls.
                 previous_event = high_backend.last_inference_diagnostic
+                first_turn_prior_event = previous_event
+                first_turn_probe_armed = True
                 def first_turn_diagnostic():
+                    nonlocal first_turn_actual_event
                     event = high_backend.last_inference_diagnostic
                     if event is previous_event or type(event) is not dict:
                         return {}
+                    first_turn_actual_event = event
                     return event
                 result = run_experimental_tir(
                     data, high_backend.respond_chat,
@@ -557,8 +565,30 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         result["verification_status"] = "final_after_length_unverified"
             return jsonify({**result, **_provenance(high_backend)})
         except OllamaCompletionError as exc:
-            return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
-                           error_code=exc.reason), 503
+            error_packet = {"error": _SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                            "error_code": exc.reason}
+            if experimental_tir and first_turn_probe_armed:
+                # A failed first call can still record its Ollama token count
+                # and done_reason. Never return partial content or thoughts.
+                event = first_turn_actual_event
+                if event is None:
+                    current = high_backend.last_inference_diagnostic
+                    if (current is not first_turn_prior_event
+                            and type(current) is dict):
+                        event = current
+                if type(event) is dict:
+                    def bounded_count(key):
+                        n = event.get(key)
+                        return n if type(n) is int and 0 <= n <= 1_000_000 else None
+                    reason = event.get("done_reason")
+                    error_packet["first_turn_telemetry"] = {
+                        "eval_count": bounded_count("eval_count"),
+                        "prompt_eval_count": bounded_count("prompt_eval_count"),
+                        "done_reason": reason if reason in (
+                            "stop", "length", "load", "unload", "other") else None,
+                        "decision": "unavailable_on_failure",
+                    }
+            return jsonify(error_packet), 503
         except AgentModelError:
             # A local Ollama transport/backend failure is distinct from
             # exhausted tokens and from unexpected application exceptions.
