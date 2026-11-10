@@ -51,7 +51,7 @@ function searchFunctions(){
   const end=source.indexOf("  function appendSources(",start);
   assert.ok(start>=0&&end>start);
   return vm.runInNewContext(source.slice(start,end)+
-    "\\n({shouldSearchWeb,makeSearchQuery,webEvidencePrompt,normaliseSearchRefusal})",{});
+    "\n({shouldSearchWeb,makeSearchQuery,webEvidencePrompt,normaliseSearchRefusal})",{});
 }
 test("checked Web searches short factual follow-ups and reuses only a previous web query",()=>{
   const x=searchFunctions();
