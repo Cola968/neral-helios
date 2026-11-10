@@ -145,6 +145,26 @@ class RecoveryContract(unittest.TestCase):
         with self.assertRaisesRegex(RecoveryRefused, "ollama_listener_not_loopback"):
             validate_native_listener(row, root, "runner")
 
+    def test_netstat_windows_console_codepage_is_not_needed_for_listener_detection(self):
+        from scripts.neral_ollama_cuda_recover import parse_native_netstat_inventory
+        # State may be mojibake (OEM CP850 bytes decoded with cp1252).
+        row = parse_native_netstat_inventory(
+            "  TCP   127.0.0.1:11434   0.0.0.0:0   ABH™REN   442\n"
+        )
+        self.assertEqual(row["listener_pids"], [442])
+        self.assertEqual(row["listener_addresses"], ["127.0.0.1"])
+        self.assertEqual(row["tcp_port_rows"], 1)
+        self.assertEqual(row["tcp_zero_peer_candidates"], 1)
+
+    def test_port_rows_without_zero_peer_remain_nonlisteners(self):
+        from scripts.neral_ollama_cuda_recover import parse_native_netstat_inventory
+        row = parse_native_netstat_inventory(
+            "  TCP   127.0.0.1:11434   127.0.0.1:59842  HERGESTELLT  442\n"
+        )
+        self.assertEqual(row["listener_pids"], [])
+        self.assertEqual(row["tcp_port_rows"], 1)
+        self.assertEqual(row["tcp_zero_peer_candidates"], 0)
+
     @unittest.skipUnless(sys.platform == "win32", "Requires native Windows")
     def test_windows_powershell_inventory_returns_strict_metadata(self):
         from scripts.neral_ollama_cuda_recover import _windows_inventory
