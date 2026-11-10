@@ -1,0 +1,75 @@
+name: Neral Performance V2 Orion
+
+on:
+  push:
+    branches:
+      - perf/orion-neral-fastpath-v1
+    paths:
+      - 'orion100.py'
+      - 'fastpath50.py'
+      - 'probe_perf_v2.py'
+      - 'test_perf_v2.py'
+      - 'DATA_SCALE_V2.md'
+      - 'PERFORMANCE_SPRINT_20260908.md'
+      - '.github/workflows/perf-v2-orion.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check torch pytest
+      - run: python -m pytest -q test_perf_v2.py
+
+  rtx4070-probe:
+    needs: contracts
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 120
+    concurrency:
+      group: neral-gpu-exclusive-training
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate local CUDA environment
+        id: env
+        run: |
+          $ErrorActionPreference='Stop'
+          $assets='C:\Users\astad\Documents\Codex\2026-09-05\lo\outputs\neral'
+          $python=Join-Path $assets '.venv\Scripts\python.exe'
+          if(-not(Test-Path $python -PathType Leaf)){throw "Python missing: $python"}
+          & $python -c "import torch; assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(); print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'CUDA/BF16 validation failed.'}
+          "python=$python" >> $env:GITHUB_OUTPUT
+      - name: Run CPU contracts in local ML environment
+        run: |
+          & '${{ steps.env.outputs.python }}' -m pytest -q test_perf_v2.py
+          if($LASTEXITCODE -ne 0){throw 'Fast-path contracts failed.'}
+      - name: Measure real BF16 training throughput
+        run: |
+          & '${{ steps.env.outputs.python }}' -u probe_perf_v2.py --out perf_v2_reports --seq 256 512 1024 2048 4096 --token-budget 8192 --warmup 2 --steps 4
+          if($LASTEXITCODE -ne 0){throw 'Performance probe failed.'}
+      - name: Reject private model or corpus artifacts
+        if: always()
+        run: |
+          if(Test-Path perf_v2_reports){
+            $bad=Get-ChildItem perf_v2_reports -Recurse -File|Where-Object{$_.Extension -in '.pt','.pth','.bin','.safetensors','.parquet','.gz'}
+            if($bad){throw 'Private checkpoint/corpus found in performance reports.'}
+          }
+      - name: Upload performance reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-perf-v2-${{ github.run_id }}
+          path: perf_v2_reports/
+          if-no-files-found: warn
+          retention-days: 30
