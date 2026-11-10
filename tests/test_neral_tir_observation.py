@@ -15,6 +15,27 @@ def messages(question):
 
 
 class TwoStageTIRContracts(unittest.TestCase):
+    def test_router_asks_for_tool_decision_before_lengthy_computation(self):
+        """The opt-in TIR prompt must not spend the first turn solving."""
+        from neral_tir_experimental import _PROMPT
+        self.assertIn("IMMEDIATELY emit NERAL_EXECUTE_JSON:", _PROMPT)
+        self.assertIn("Do NOT write a derivation before the tool packet", _PROMPT)
+        self.assertIn("non-computational questions", _PROMPT)
+        self.assertNotIn("<tool_call", _PROMPT)
+        seen = []
+        def respond(turns):
+            seen.append([dict(item) for item in turns])
+            return 'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(17*13)"}' if len(seen) == 1 else 'NERAL_FINAL_TEXT: FINAL_ANSWER: 221'
+        result = run_experimental_tir(
+            messages("Compute 17*13 exactly." + SUFFIX), respond,
+            tool_runner=lambda *_: {"status":"PASSED","output":"221",
+                                      "verification_scope":"execution_only"})
+        self.assertEqual(result["tool_calls_triggered"], 1)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(result["text"], "FINAL_ANSWER: 221")
+        self.assertEqual(seen[0][0]["role"], "system")
+        self.assertIn("IMMEDIATELY emit NERAL_EXECUTE_JSON:", seen[0][0]["content"])
+
     def test_short_declared_plan_before_tool_packet_allowed_but_random_preamble_denied(self):
         self.assertEqual(parse_tool_call(
             'NERAL_PLAN: Ich berechne 6 mal 7 direkt.\n'
