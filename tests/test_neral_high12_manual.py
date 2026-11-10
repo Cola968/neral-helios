@@ -27,7 +27,7 @@ def fixture(*, raw_correct=7, high_correct=7):
                 "complete": True, "failed": False, "seconds": 1.25,
                 "model": MODEL, "model_digest": DIGEST,
                 "profile": PROFILE,
-                "tool_used": None,
+                "tool_used": None, "failure_reason": None,
             }
         rows.append(row)
     return cases, rows
@@ -106,9 +106,53 @@ class PairedRatchetTests(unittest.TestCase):
 
     def test_high_errors_are_not_a_pass(self):
         cases, rows = fixture()
-        rows[0]["arms"]["neral_high"].update(text="",complete=False,failed=True)
+        rows[0]["arms"]["neral_high"].update(text="",complete=False,failed=True, failure_reason="timeout")
         result = score_pairs(cases, rows, model_digest=DIGEST)
         self.assertFalse(result["development_gate_passed"])
+
+    def test_length_truncation_is_not_a_server_outage(self):
+        cases, rows = fixture(raw_correct=8, high_correct=8)
+        index = next(i for i,c in enumerate(cases) if c["domain"] == "reasoning")
+        for arm in ("raw_qwen35", "neral_high"):
+            rows[index]["arms"][arm].update(
+                text="", complete=False, failed=True, failure_reason="token_limit")
+        report = score_pairs(cases, rows, model_digest=DIGEST)
+        self.assertEqual(report["error_counts"]["raw_qwen35"]["length_truncated"], 1)
+        self.assertEqual(report["error_counts"]["neral_high"]["length_truncated"], 1)
+        self.assertEqual(report["technical_failures"]["neral_high"], 0)
+        self.assertEqual(report["errors_by_domain"]["reasoning"]["neral_high"]["length_truncated"], 1)
+        self.assertTrue(report["development_gate_passed"])
+
+    def test_real_technical_errors_block_even_when_both_sides_fail(self):
+        cases, rows = fixture(raw_correct=8, high_correct=8)
+        for arm in ("raw_qwen35", "neral_high"):
+            rows[0]["arms"][arm].update(
+                text="", complete=False, failed=True, failure_reason="timeout")
+        report = score_pairs(cases, rows, model_digest=DIGEST)
+        self.assertEqual(report["technical_failures"]["raw_qwen35"], 1)
+        self.assertEqual(report["technical_failures"]["neral_high"], 1)
+        self.assertFalse(report["development_gate_passed"])
+
+    def test_extra_high_truncation_or_missing_final_fails(self):
+        cases, rows = fixture(raw_correct=8, high_correct=8)
+        rows[0]["arms"]["neral_high"].update(
+            text="", complete=False, failed=True, failure_reason="token_limit")
+        report = score_pairs(cases, rows, model_digest=DIGEST)
+        self.assertFalse(report["development_gate_passed"])
+        cases, rows = fixture(raw_correct=8, high_correct=8)
+        rows[0]["arms"]["neral_high"]["text"] = "The answer is somewhere above."
+        report = score_pairs(cases, rows, model_digest=DIGEST)
+        self.assertFalse(report["development_gate_passed"])
+        self.assertEqual(report["error_counts"]["neral_high"]["missing_final_answer"], 1)
+
+    def test_untrustworthy_failure_reason_rejected(self):
+        cases, rows = fixture()
+        rows[0]["arms"]["neral_high"]["failure_reason"] = "token_limit"
+        with self.assertRaises(High12GateError):
+            score_pairs(cases, rows, model_digest=DIGEST)
+        rows[0]["arms"]["neral_high"]["failure_reason"] = "invented"
+        with self.assertRaises(High12GateError):
+            score_pairs(cases, rows, model_digest=DIGEST)
 
     def test_no_prompts_or_answers_in_published_report(self):
         cases, rows = fixture()
