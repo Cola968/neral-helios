@@ -1,0 +1,112 @@
+name: NERAL FAST vs THINK paired GPU quick-check (read-only)
+on:
+  pull_request:
+    paths:
+      - scripts/neral_fast_think_ab.py
+      - tests/test_neral_fast_think_ab.py
+      - .github/workflows/neral-fast-think-ab-ci.yml
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  cpu:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/neral-fast-think-ab-20261108'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read-only paired accuracy contract
+        run: python -B -m unittest discover -s tests -p test_neral_fast_think_ab.py -v
+  gpu:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/neral-fast-think-ab-20261108'
+    needs: [cpu]
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 38
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: src
+          clean: true
+          persist-credentials: false
+      - name: Check installed Python, Ollama, GPU idle
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Local Python unavailable'}
+          $control=Join-Path $env:GITHUB_WORKSPACE 'src'
+          Push-Location $control
+          try{
+            $env:PYTHONPATH=$control
+            & $py -B -m unittest discover -s tests -p test_neral_fast_think_ab.py -v
+            if($LASTEXITCODE -ne 0){throw 'Unit tests failed'}
+            & $py -B -m scripts.neral_v7_foundation_tournament --mode inventory
+            if($LASTEXITCODE -ne 0){throw 'No installed local Ollama model'}
+          } finally {Pop-Location}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU unavailable'}
+          $fields=($raw | Select-Object -First 1)-split ','
+          if($fields.Count -ne 2 -or [int]$fields[0].Trim() -lt 4500 -or [int]$fields[1].Trim() -gt 20){
+            throw 'GPU occupied: no benchmark'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            "NERAL_AB_PY=$py"+[Environment]::NewLine+
+            "NERAL_AB_CONTROL=$control"+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+      - name: Actual paired Qwen3 FAST vs THINK GPU inference
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research'
+          $out=Join-Path $root "fast-think-ab-private-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if(Test-Path -LiteralPath $out){throw 'Output exists'}
+          Push-Location $env:NERAL_AB_CONTROL
+          try{
+            $env:PYTHONPATH=$env:NERAL_AB_CONTROL
+            & $env:NERAL_AB_PY -B -m scripts.neral_fast_think_ab --model qwen3:8b --out $out --cases 6 --tokens 2048
+            if($LASTEXITCODE -ne 0){throw 'GPU comparison did not complete'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,"NERAL_AB_OUTPUT=$out"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+      - name: Validate scalar-only report
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Get-Content -LiteralPath (Join-Path $env:NERAL_AB_OUTPUT 'scalar-summary.json') -Raw | ConvertFrom-Json
+          if($report.status -ne 'NERAL_FAST_THINK_DEVELOPMENT_DIAGNOSTIC' -or
+             $report.n_per_mode -ne 6 -or $report.model -ne 'qwen3:8b' -or
+             $report.token_budget_each -ne 2048 -or
+             $report.tools_compared -ne $false -or
+             $report.model_weights_changed -ne $false -or
+             $report.release_validated -ne $false -or
+             $report.model_superiority_proven -ne $false){
+            throw 'Invalid bounded developer diagnostic'
+          }
+          $dest=Join-Path $env:NERAL_AB_CONTROL 'ab_scalar'
+          if(Test-Path -LiteralPath $dest){throw 'No overwrite'}
+          New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:NERAL_AB_OUTPUT 'scalar-summary.json') -Destination (Join-Path $dest 'summary.json')
+      - name: Export aggregate-only metrics, never private answers
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-fast-think-ab-scalar-only
+          path: src/ab_scalar/summary.json
+          if-no-files-found: error
+          retention-days: 14
