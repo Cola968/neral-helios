@@ -1,0 +1,25 @@
+# Cloud-only dependency watch for NERAL/Helios.
+# No auto-merge, no private registry credentials, no model download/training.
+# Live only after this configuration is reviewed and merged to default branch.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:17"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps(python)"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:27"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps(actions)"
