@@ -383,6 +383,7 @@ class OllamaLocalBackend:
             if (requested_final and len(answer) >= 220
                     and len(answer.encode("utf-8")) <= 16000
                     and not re.search(r"(?m)^FINAL_ANSWER\s*:", answer, re.I)
+                    and not re.search(r"(?m)^NERAL_FINAL_TEXT\s*:", answer, re.I)
                     and not re.fullmatch(r"[+-]?\d{1,15}", answer.strip())):
                 diagnostic["final_recovery_attempted"] = True
                 followup_turns = [dict(row) for row in messages] + [
