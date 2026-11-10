@@ -86,7 +86,7 @@ jobs:
           pr = json.loads(os.environ["PR_JSON"])
           ok = (
               pr.get("state") == "open"
-              and pr.get("number") == 503
+              and pr.get("number") == 505
               and pr.get("head", {}).get("sha") == os.environ["TARGET_SHA"]
               and pr.get("head", {}).get("ref") == "feat/neral-1-1-tir-observation-fallback-20261110"
               and pr.get("head", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
