@@ -121,9 +121,15 @@ def validate_native_listener(data: dict, approved_install: str,
                 or user.casefold().split("\\")[-1] != current_user.casefold()):
             raise RecoveryRefused("unexpected_ollama_process")
         by_pid[pid] = p
-    if owner not in by_pid:
+    if owner not in by_pid or any(pid in service_pids for pid in by_pid):
         raise RecoveryRefused("ollama_listener_not_user_native")
-    return [owner]
+    # Stop the tray application first to avoid its immediate server respawn,
+    # then the local daemon owner. All PIDs have been user/path validated.
+    app_pids = sorted(pid for pid,p in by_pid.items()
+                      if p["name"] == "ollama app.exe" and pid != owner)
+    other_pids = sorted(pid for pid,p in by_pid.items()
+                        if p["name"] == "ollama.exe" and pid != owner)
+    return app_pids + other_pids + [owner]
 
 
 def _windows_inventory() -> dict:
@@ -206,8 +212,8 @@ def _terminate_native_owner(owner_pid: int, approved_install: str) -> dict:
     # Recheck PID/path immediately before action to avoid stale PID reuse.
     command = r"""
 $ErrorActionPreference='Stop'
-$pidToStop=[int]$args[0]
-$root=$args[1].TrimEnd('\')
+$pidToStop=[int]$env:NERAL_RECOVERY_OWNER_PID
+$root=$env:NERAL_RECOVERY_INSTALL_DIR.TrimEnd('\')
 $p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$pidToStop)
 if ($null -eq $p -or $p.Name -notin @('ollama.exe','ollama app.exe') -or
     -not $p.ExecutablePath.StartsWith(($root+'\'),[StringComparison]::OrdinalIgnoreCase)) {
@@ -227,10 +233,14 @@ if (-not $proc.HasExited) {
 [pscustomobject]@{stopped=$true;forced=$forced} | ConvertTo-Json -Compress
 """
     try:
+        safe_env = os.environ.copy()
+        safe_env["NERAL_RECOVERY_OWNER_PID"] = str(owner_pid)
+        safe_env["NERAL_RECOVERY_INSTALL_DIR"] = approved_install
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-             command, str(owner_pid), approved_install],
-            capture_output=True, text=True, timeout=12, check=False,
+             command],
+            env=safe_env, capture_output=True, text=True,
+            timeout=12, check=False,
         )
         if result.returncode != 0:
             raise RecoveryRefused("native_ollama_stop_failed")
@@ -292,8 +302,13 @@ def recover_if_authorized(*, size_vram: int, free_mib: int,
         "service_host_detected": False,
     }
     report["ollama_restart_attempted"] = True
-    report["ollama_restart_stop"] = _terminate_native_owner(
-        owners[0], approved_install)
+    report["ollama_restart_stop"] = {"terminated_processes": 0,
+                                      "forced_after_graceful_attempt": False}
+    for pid in owners:
+        status = _terminate_native_owner(pid, approved_install)
+        report["ollama_restart_stop"]["terminated_processes"] += 1
+        report["ollama_restart_stop"]["forced_after_graceful_attempt"] |= (
+            status["forced_after_graceful_attempt"])
     # The local endpoint must actually shut down; otherwise never start 2nd.
     for _ in range(15):
         if not _check_tags():
