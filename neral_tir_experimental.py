@@ -359,9 +359,9 @@ def _exact_source_python_answer(
         return reject("python_unsupported_calls")
     prints = [call for call in calls if call.func.id == "print"]
     if (len(prints) != 1 or len(prints[0].args) != 1
-            or not original.body
-            or not isinstance(original.body[-1], ast.Expr)
-            or original.body[-1].value is not prints[0]):
+            or not executed.body
+            or not isinstance(executed.body[-1], ast.Expr)
+            or executed.body[-1].value is not prints[0]):
         return reject("python_not_single_final_print")
     return ("FINAL_ANSWER: " + stdout) if strict_integer else stdout
 
