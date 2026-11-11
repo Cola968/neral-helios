@@ -556,22 +556,26 @@ def run_experimental_tir(
     except Exception:
         return base_fallback()
     final = _accepted_final(final_raw, strict_integer=bool(suffix))
+    # Verification requires independent matching of the actual user's
+    # unchanged Python AST and the sandbox stdout. A model's agreeing review
+    # alone can NEVER raise verified=True.
+    exact = _exact_source_python_answer(
+        core, tool, code, stdout, stderr, strict_integer=bool(suffix))
+    if exact is not None and (final == exact or final is None
+                              or final == "UNVERIFIED"):
+        return {
+            "text": exact, "mode": "HIGH", "model_generated": False,
+            "verified": True, "verification_status": "verified",
+            "verification_scope": "exact_user_python_execution",
+            "tool_used": tool_used, "tool_output_reviewed": True,
+            "review_method": "deterministic_source_identity",
+            "calls_used": calls, "completion_recovery_used": recovered_final,
+            "tool_calls_triggered": triggered,
+            "tool_calls_succeeded": succeeded,
+            "first_turn_telemetry": first_turn_telemetry,
+            "seconds": round(clock() - initial, 3),
+        }
     if final is None or final == "UNVERIFIED":
-        exact = _exact_source_python_answer(
-            core, tool, code, stdout, stderr, strict_integer=bool(suffix))
-        if exact is not None:
-            return {
-                "text": exact, "mode": "HIGH", "model_generated": False,
-                "verified": True, "verification_status": "verified",
-                "verification_scope": "exact_user_python_execution",
-                "tool_used": tool_used, "tool_output_reviewed": True,
-                "review_method": "deterministic_source_identity",
-                "calls_used": calls, "completion_recovery_used": recovered_final,
-                "tool_calls_triggered": triggered,
-                "tool_calls_succeeded": succeeded,
-                "first_turn_telemetry": first_turn_telemetry,
-                "seconds": round(clock() - initial, 3),
-            }
         return base_fallback()
     return {
         "text": final, "mode": "HIGH", "model_generated": True,
