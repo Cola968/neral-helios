@@ -1513,3 +1513,148 @@ class CpuAutoBooleanDeclarationAndReviewReason(unittest.TestCase):
         q = "What exact integer does this Python program print: secret_417?"
         out = self.review(q, "print(5)", "5")
         self.assertNotIn("secret_417", str(out.get("review_match_reason")))
+
+
+class BooleanTokensAndPrintOnlyReviewCPU(unittest.TestCase):
+    """Regression cases, not a reconstruction of model-generated GPU schemas."""
+
+    @staticmethod
+    def run_boolean(question, variables, rules, evidence):
+        proposal = json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {"variables": variables, "rules": [],
+                       "bool_rules": rules, "query": "count"},
+            "evidence": evidence,
+        }, separators=(",", ":"))
+        reasons, details, tags = [], [], []
+        answer = parse_extracted_constraints(
+            question, proposal, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details,
+            ast_check_code_sink=tags)
+        return answer, reasons, details, tags
+
+    def test_boolean_literal_strings_and_numeric_tokens_are_constants_not_names(self):
+        for literal, truth in (
+            ("true", True), ("True", True), ("false", False),
+            ("False", False), ("1", True), ("0", False),
+            (1, True), (0, False),
+        ):
+            with self.subTest(token=literal):
+                state = "True" if truth else "False"
+                question = ("How many Boolean assignments to A,B satisfy ALL: "
+                            "A XOR B is True; A is " + state +
+                            "? Return one integer.")
+                answer, reasons, details, tags = self.run_boolean(
+                    question, {"A": [False, True], "B": [False, True]},
+                    [{"op": "xor", "args": ["A", "B"]},
+                     {"op": "eq", "args": ["A", literal]}],
+                    ["How many Boolean assignments to A,B",
+                     "A XOR B is True", "A is " + state,
+                     "Return one integer"])
+                self.assertEqual(answer, 1)
+                self.assertEqual(reasons, ["accepted"])
+                self.assertEqual(details, [])
+                self.assertEqual(tags, ["boolean_literal_token"])
+
+    def test_declared_variable_named_true_is_not_silently_retyped(self):
+        question = ("How many Boolean assignments to true,B satisfy ALL: "
+                    "true XOR B is True? Return one integer.")
+        result = self.run_boolean(
+            question, {"true": [False, True], "B": [False, True]},
+            [{"op": "xor", "args": ["true", "B"]}],
+            ["How many Boolean assignments to true,B",
+             "true XOR B is True", "Return one integer"])
+        self.assertEqual(result, (2, ["accepted"], [], []))
+
+    def test_initials_map_only_with_unique_explicit_boolean_names(self):
+        question = ("How many Boolean assignments to Alice,Bob satisfy ALL: "
+                    "Alice XOR Bob is True? Return one integer.")
+        result = self.run_boolean(
+            question, {"Alice": [False, True], "Bob": [False, True]},
+            [{"op": "xor", "args": ["A", "B"]}],
+            ["How many Boolean assignments to Alice,Bob",
+             "Alice XOR Bob is True", "Return one integer"])
+        self.assertEqual(result, (2, ["accepted"], [], ["initial_letter_token"]))
+
+    def test_duplicate_initials_remain_ambiguous(self):
+        question = ("How many Boolean assignments to Alice,Anna satisfy ALL: "
+                    "Alice XOR Anna is True? Return one integer.")
+        result = self.run_boolean(
+            question, {"Alice": [False, True], "Anna": [False, True]},
+            [{"op": "xor", "args": ["A", "Anna"]}],
+            ["How many Boolean assignments to Alice,Anna",
+             "Alice XOR Anna is True", "Return one integer"])
+        self.assertEqual(result[0], None)
+        self.assertEqual(result[1], ["solver_type_error"])
+        self.assertEqual(result[2], ["completely_undeclared_name"])
+        self.assertEqual(result[3], ["initial_letter_token"])
+
+    def test_unknown_name_does_not_auto_register_and_reports_scalar(self):
+        question = ("How many Boolean assignments to Alice,Bob satisfy ALL: "
+                    "Alice XOR Bob is True? Return one integer.")
+        result = self.run_boolean(
+            question, {"Alice": [False, True], "Bob": [False, True]},
+            [{"op": "xor", "args": ["Alice", "CONFIDENTIAL_Z99"]}],
+            ["How many Boolean assignments to Alice,Bob",
+             "Alice XOR Bob is True", "Return one integer"])
+        self.assertEqual(result[0], None)
+        self.assertEqual(result[1], ["solver_type_error"])
+        self.assertEqual(result[2], ["completely_undeclared_name"])
+        self.assertEqual(result[3], ["unmapped_identifier"])
+        self.assertNotIn("CONFIDENTIAL_Z99", str(result[1:]))
+
+    def test_no_initial_mapping_without_explicit_source_boolean_introduction(self):
+        question = ("How many assignments to Alice,Bob satisfy ALL: "
+                    "Alice XOR Bob is True? Return one integer.")
+        result = self.run_boolean(
+            question, {"Alice": [False, True], "Bob": [False, True]},
+            [{"op": "xor", "args": ["A", "B"]}],
+            ["How many assignments to Alice,Bob",
+             "Alice XOR Bob is True", "Return one integer"])
+        self.assertIsNone(result[0])
+        self.assertEqual(result[3], ["unmapped_identifier"])
+
+    @staticmethod
+    def review(question, code, answer):
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " +
+            json.dumps({"tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: " + answer,
+        ])
+        return run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": answer})
+
+    def test_only_appended_print_of_final_assigned_name_is_verifiable(self):
+        question = ("What integer does this program output after execution:\n"
+                    "value = 2 + 3")
+        result = self.review(question, "value=2+3\nprint(value)", "5")
+        self.assertTrue(result["verified"])
+        self.assertTrue(result["tool_output_reviewed"])
+        self.assertEqual(result["review_method"], "exact_user_ast_match")
+        self.assertEqual(result["verification_status"], "verified")
+
+    def test_only_appended_print_of_last_pure_expression_is_verifiable(self):
+        question = ("What is the value of the final Python expression? "
+                    "What does it output:\nx=2\nx+3")
+        result = self.review(question, "x = 2\nx + 3\nprint(x + 3)", "5")
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["review_method"], "exact_user_ast_match")
+
+    def test_appended_print_of_unrelated_constant_cannot_verify(self):
+        question = ("What is the value after execution:\nvalue = 2+3")
+        result = self.review(question, "value = 2+3\nprint(999)", "999")
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
+
+    def test_changed_original_computation_plus_correct_print_is_not_verified(self):
+        question = ("What is the value after execution:\nvalue=2+3")
+        result = self.review(question, "value=2+4\nprint(value)", "6")
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
+
+    def test_existing_print_cannot_gain_duplicate_print(self):
+        question = ("What does this program print:\nprint(2+3)")
+        result = self.review(question, "print(2+3)\nprint(5)", "5")
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
