@@ -56,6 +56,27 @@ class AstFirstMismatchNodeCPU(unittest.TestCase):
                 self.assertEqual(reasons, ["body_statement_modified"])
                 self.assertEqual(nodes, [expected])
 
+    def test_fresh_alias_of_original_print_expression_is_output_only(self):
+        source = "value=2\\nprint(value+3)"
+        executed = "value=2\\n_result=value+3\\nprint(_result)"
+        answer, reasons, nodes = self.compare(source, executed)
+        self.assertEqual(answer, "FINAL_ANSWER: 5")
+        self.assertEqual(reasons, [])
+        self.assertEqual(nodes, [])
+
+    def test_changed_print_value_cannot_be_verified_as_read_only(self):
+        source = "value=2\\nprint(value+3)"
+        for executed in (
+            "value=2\\n_result=value+4\\nprint(_result)",
+            "value=2\\nprint(value+4)",
+            "value=2\\nprint(5)",
+            "value=2\\nprint(value+3)\\nprint(value+3)",
+        ):
+            with self.subTest(executed=executed):
+                answer, reasons, _ = self.compare(source, executed)
+                self.assertIsNone(answer)
+                self.assertTrue(reasons)
+
     def test_matched_ast_and_proven_constant_fold_do_not_emit_diff(self):
         for src, changed in (
             ("v=2+3\nprint(v)", "v=5\nprint(v)"),
@@ -138,6 +159,50 @@ class MinimalUnsatCoreCPU(unittest.TestCase):
         self.assertEqual(t["unsat_core_size"], 2)
         self.assertNotIn("relaxed_constraint_index", t)
 
+    def test_singleton_self_contradiction_is_indexed_and_recounted_unverified(self):
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A is True; B is False? Return one integer.")
+        clauses = [
+            {"op":"eq","args":["A",{"op":"not","args":["A"]}]},
+            {"op":"eq","args":["A",True]},
+            {"op":"eq","args":["B",False]},
+        ]
+        result, event = analyze(q, clauses, evidence=[
+            "How many Boolean assignments to A,B",
+            "A is True", "B is False", "Return one integer"])
+        self.assertEqual(result, 0)
+        self.assertEqual(event["unsat_core_size"], 1)
+        self.assertEqual(event["unsat_core_index"], 0)
+        self.assertEqual(event["relaxed_constraint_index"], 0)
+        self.assertEqual(event["solver_relaxation_count_bucket"], "single_solution")
+        self.assertEqual(event["solver_relaxation_status"], "single_candidate")
+
+    def test_directly_stated_self_contradiction_is_not_discarded(self):
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A equals NOT A; B is False? Return one integer.")
+        clauses = [
+            {"op":"eq","args":["A",{"op":"not","args":["A"]}]},
+            {"op":"eq","args":["B",False]},
+        ]
+        result, event = analyze(q, clauses, evidence=[
+            "How many Boolean assignments to A,B",
+            "A equals NOT A", "B is False", "Return one integer"])
+        self.assertEqual(result, 0)
+        self.assertEqual(event["unsat_core_size"], 1)
+        self.assertEqual(event["unsat_core_index"], 0)
+        self.assertNotIn("relaxed_constraint_index", event)
+
+    def test_singleton_unsat_with_multiple_remaining_solutions_not_marked_unique(self):
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A can be true or false; B can be true or false? Return one integer.")
+        clauses = [
+            {"op":"eq","args":["A",{"op":"not","args":["A"]}]},
+        ]
+        result,event=analyze(q,clauses)
+        self.assertEqual(result,0)
+        self.assertEqual(event["unsat_core_index"],0)
+        self.assertNotIn("relaxed_constraint_index",event)
+
     def test_large_assignment_space_is_not_exhaustively_recomputed(self):
         q = ("How many integer assignments to A,B,C,D,E,F,G,H satisfy ALL: "
              "A equals zero; A equals one? Return one integer.")
@@ -158,6 +223,8 @@ class MinimalUnsatCoreCPU(unittest.TestCase):
     def test_telemetry_rejects_excessive_or_malformed_core_metadata(self):
         valid = {"decision": "extraction_fallback", "done_reason": "stop",
                  "unsat_core_size": 3, "relaxed_constraint_index": 0}
+        valid["unsat_core_index"] = 1
+        self.assertEqual(safe_first_turn_event(valid)["unsat_core_index"], 1)
         self.assertEqual(safe_first_turn_event(valid)["unsat_core_size"], 3)
         self.assertEqual(safe_first_turn_event(valid)["relaxed_constraint_index"], 0)
         for value in (-1, True, 50, "private text"):
