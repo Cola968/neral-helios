@@ -34,6 +34,14 @@ def messages(question):
             {"role": "user", "content": question}]
 
 
+def model_trace_messages(question):
+    """Exercise the model-controlled tool review, not the direct one-turn path."""
+    return [messages(question)[0],
+            {"role": "user", "content": "Earlier unrelated chat."},
+            {"role": "assistant", "content": "Understood."},
+            {"role": "user", "content": question}]
+
+
 class ExtractionSchemaContracts(unittest.TestCase):
     def test_one_shot_per_logic_family_and_strict_json_without_xml(self):
         self.assertEqual(EXTRACT_PROMPT.count("Example input:"), 2)
@@ -877,7 +885,7 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
         self.assertEqual(result["verification_scope"], "exact_user_python_execution")
         self.assertEqual(result["tool_used"], "neral_python_sandbox")
         self.assertEqual(result["tool_calls_succeeded"], 1)
-        self.assertEqual(len(events), 2)  # No unreviewed Qwen fallback
+        self.assertEqual(len(events), 0)  # Unchanged source bypasses Qwen entirely
 
     def test_modified_code_does_not_get_verified_from_stdout(self):
         question = ("What exact integer does this Python program print?\n"
@@ -1153,7 +1161,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
             "NERAL_FINAL_TEXT: FINAL_ANSWER: 99",
         ])
         result = run_experimental_tir(
-            messages(question + SUFFIX), lambda _: next(replies),
+            model_trace_messages(question + SUFFIX), lambda _: next(replies),
             tool_runner=lambda *_: {"status": "PASSED", "output": "5"},
         )
         self.assertEqual(result["text"], "FINAL_ANSWER: 99")
@@ -1173,7 +1181,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
             "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
         ])
         result = run_experimental_tir(
-            messages(question + SUFFIX), lambda _: next(replies),
+            model_trace_messages(question + SUFFIX), lambda _: next(replies),
             tool_runner=lambda *_: {"status": "PASSED", "output": "6"},
         )
         self.assertTrue(result["tool_output_reviewed"])
@@ -1306,7 +1314,7 @@ class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
             "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
         ])
         result = run_experimental_tir(
-            messages(question + SUFFIX), lambda _: next(replies),
+            model_trace_messages(question + SUFFIX), lambda _: next(replies),
             tool_runner=lambda *_: {"status": "PASSED", "output": "6"})
         self.assertFalse(result["verified"])
         self.assertEqual(result["verification_status"], "tool_observed_unverified")
@@ -1334,7 +1342,7 @@ class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
             "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
         ])
         result = run_experimental_tir(
-            messages(question + SUFFIX), lambda _: next(replies),
+            model_trace_messages(question + SUFFIX), lambda _: next(replies),
             tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
         self.assertFalse(result["verified"])
         self.assertNotEqual(result.get("review_method"), "exact_user_ast_match")
@@ -1459,7 +1467,7 @@ class CpuAutoBooleanDeclarationAndReviewReason(unittest.TestCase):
             if suffix else "NERAL_FINAL_TEXT: " + result,
         ])
         return run_experimental_tir(
-            messages(question + (SUFFIX if suffix else "")),
+            model_trace_messages(question + (SUFFIX if suffix else "")),
             lambda _: next(responses),
             tool_runner=lambda *_: {"status": "PASSED", "output": result},
         )
@@ -1622,7 +1630,7 @@ class BooleanTokensAndPrintOnlyReviewCPU(unittest.TestCase):
             "NERAL_FINAL_TEXT: FINAL_ANSWER: " + answer,
         ])
         return run_experimental_tir(
-            messages(question + SUFFIX), lambda _: next(replies),
+            model_trace_messages(question + SUFFIX), lambda _: next(replies),
             tool_runner=lambda *_: {"status": "PASSED", "output": answer})
 
     def test_only_appended_print_of_final_assigned_name_is_verifiable(self):

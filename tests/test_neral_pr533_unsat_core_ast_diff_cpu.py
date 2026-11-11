@@ -95,6 +95,8 @@ class AstFirstMismatchNodeCPU(unittest.TestCase):
         question = "What integer does this Python program print:\na=3\nprint(a)"
         result = run_experimental_tir(
             [{"role": "system", "content": "NERAL"},
+             {"role": "user", "content": "Earlier unrelated chat."},
+             {"role": "assistant", "content": "Understood."},
              {"role": "user", "content": question}],
             lambda _: next(calls),
             tool_runner=lambda *_: {
