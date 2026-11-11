@@ -1310,7 +1310,7 @@ class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
             tool_runner=lambda *_: {"status": "PASSED", "output": "6"})
         self.assertFalse(result["verified"])
         self.assertEqual(result["verification_status"], "tool_observed_unverified")
-        self.assertEqual(result.get("review_match_reason"), "python_ast_mismatch")
+        self.assertEqual(result.get("review_match_reason"), "ast_structure_mismatch")
 
     def test_untrusted_random_program_cannot_be_verified_even_if_output_matches(self):
         question = ("What does this Python program print?\n"
