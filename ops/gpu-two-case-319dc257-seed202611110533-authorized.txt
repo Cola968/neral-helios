@@ -1,0 +1,1 @@
+Explicit user authorization: exactly two GPU tasks, seed 202611110533, PR #533 SHA 319dc25749d208ea7113ef82b43cb0045eb44f4d. Full TIR12 only when both strict tasks pass. Not a release approval.
