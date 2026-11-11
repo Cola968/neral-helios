@@ -19,7 +19,7 @@ function harness({ignoreAbort=false}={}){
       addEventListener(name,fn){handlers.set(id+":"+name,fn);},
       querySelector(){if(id==="chatForm")return {value:"fast"};return null;},
       append(...x){this.children.push(...x);if(id==="messages")rendered.push(...x);},
-      replaceChildren(){this.children=[];if(id==="messages")rendered.length=0;},
+      replaceChildren(...items){this.children=items;if(id==="messages"){rendered.length=0;rendered.push(...items);}},
       remove(){},focus(){},setAttribute(){},
       scrollHeight:0,scrollTop:0
     };
