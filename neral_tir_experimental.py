@@ -18,7 +18,9 @@ from typing import Callable
 
 from neral_high_verified_first import split_task_and_format_instruction
 from neral_formal_constraints import InvalidFormalConstraints, try_solve_formal_constraints
-from neral_turn0_extractor import EXTRACT_PROMPT, parse_extracted_constraints
+from neral_turn0_extractor import (EXTRACT_PROMPT, EXTRACTION_RESULT_CODES,
+                                  SOLVER_REJECTION_DETAIL_CODES,
+                                  AST_CHECK_CODES, parse_extracted_constraints)
 
 # Qwen3.5's built-in Ollama parser treats <tool_call> as native XML and can
 # return HTTP 500 / silently discard its JSON contents. Use an application-
@@ -105,6 +107,43 @@ def parse_tool_call(answer: str) -> tuple[str, str] | None:
     if any(ord(c) < 32 and c not in "\n\r\t" for c in packet["code"]):
         return None
     return packet["tool"], packet["code"]
+
+
+def _unwrap_repair_json(generated: object) -> tuple[object, str]:
+    """Strip bounded PRESENTATION wrappers only on the one solver feedback turn.
+
+    Do not parse or repair the JSON itself here. Duplicate keys, evidence,
+    variables, full clause set, AST types and solver limits remain validated by
+    parse_extracted_constraints. A second object or trailing prose is rejected.
+    """
+    if type(generated) is not str:
+        return generated, "invalid_response"
+    if len(generated.encode("utf-8")) > 4096:
+        return generated, "invalid_wrapping"
+    text = generated.strip()
+    if "\x60\x60\x60" in text:
+        opening = re.search(r"\x60\x60\x60(?:json)?[ \t]*\r?\n", text, re.I)
+        if (opening is None or text.count("\x60\x60\x60") != 2
+                or not text.endswith("\x60\x60\x60")):
+            return generated, "invalid_wrapping"
+        prefix = text[:opening.start()].strip()
+        body = text[opening.end():-3].strip()
+        label = "prefixed_fenced_json" if prefix else "fenced_json"
+    else:
+        start = text.find("{")
+        if start < 0:
+            return generated, "invalid_wrapping"
+        prefix = text[:start].strip()
+        body = text[start:]
+        label = "prefixed_json" if prefix else "plain_json"
+
+    # A short lead-in is presentation, not an additional source of authority.
+    # Keep braces, JSON arrays, backticks and controls outside the object fatal.
+    if (len(prefix.encode("utf-8")) > 256
+            or any(char in "{}[]\x60" or ord(char) < 32 for char in prefix)
+            or not body.startswith("{") or not body.endswith("}")):
+        return generated, "invalid_wrapping"
+    return body, label
 
 
 def _run_ephemeral_python(code: str) -> dict:
@@ -1010,12 +1049,29 @@ def run_experimental_tir(
                 revised = extract_constraints(repair_turns)
             except Exception:
                 revised = None
+            revised, repair_format = _unwrap_repair_json(revised)
+            first_turn_telemetry["solver_repair_input_format"] = repair_format
             second_rejection: list[str] = []
+            second_solver_details: list[str] = []
+            second_ast_codes: list[str] = []
             second_structural: list[dict] = []
             revised_count = parse_extracted_constraints(
                 core, revised,
                 rejection_reason_sink=second_rejection,
+                solver_rejection_detail_sink=second_solver_details,
+                ast_check_code_sink=second_ast_codes,
                 structural_telemetry_sink=second_structural)
+            if (second_rejection and second_rejection[-1] != "accepted"
+                    and second_rejection[-1] in EXTRACTION_RESULT_CODES):
+                first_turn_telemetry["solver_repair_rejection_reason"] = (
+                    second_rejection[-1])
+            if (second_solver_details and
+                    second_solver_details[-1] in SOLVER_REJECTION_DETAIL_CODES):
+                first_turn_telemetry["solver_repair_solver_detail"] = (
+                    second_solver_details[-1])
+            if second_ast_codes and second_ast_codes[-1] in AST_CHECK_CODES:
+                first_turn_telemetry["solver_repair_ast_check_code"] = (
+                    second_ast_codes[-1])
             if type(revised_count) is int and revised_count > 0:
                 solved = revised_count
                 repaired = True
