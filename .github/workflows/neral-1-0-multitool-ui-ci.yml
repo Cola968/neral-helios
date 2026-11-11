@@ -6,6 +6,8 @@ on:
       - 'static/neral-preview.css'
       - 'templates/neral_preview.html'
       - 'tests/test_neral_1_0_preview_cancel_v2.cjs'
+      - 'tests/test_neral_web_search_state.cjs'
+      - 'tests/test_neral_chat_search_relevance.cjs'
       - 'tests/test_neral_1_0_preview_history.cjs'
       - 'tests/test_neral_1_0_voice_client.cjs'
       - 'tests/test_neral_1_0_project_files.cjs'
@@ -35,4 +37,4 @@ jobs:
       - name: No-code JS syntax and protected multi-tool interaction tests
         run: |
           node --check static/neral-preview.js
-          node --test tests/test_neral_1_0_preview_cancel_v2.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_project_files.cjs
+          node --test tests/test_neral_1_0_preview_cancel_v2.cjs tests/test_neral_1_0_preview_history.cjs tests/test_neral_1_0_voice_client.cjs tests/test_neral_1_0_project_files.cjs tests/test_neral_web_search_state.cjs tests/test_neral_chat_search_relevance.cjs
