@@ -1685,3 +1685,57 @@ class BooleanTokensAndPrintOnlyReviewCPU(unittest.TestCase):
         self.assertIsNone(safe_first_turn_event({
             **event, "ast_check_code": "boolean_literal_token:private_data"
         }))
+
+
+    def test_terminal_pure_expression_may_be_wrapped_in_print(self):
+        question = ("What integer does this Python program output:\n"
+                    "x=2\nx+3")
+        result = self.review(question, "x = 2\nprint(x+3)", "5")
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["review_method"], "exact_user_ast_match")
+
+    def test_initial_alias_success_reaches_safe_first_turn_telemetry(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        q = ("How many Boolean assignments to Alice,Bob satisfy ALL: "
+             "Alice XOR Bob is True? Return one integer.")
+        proposed = json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {"variables": {"Alice": [False, True],
+                                     "Bob": [False, True]},
+                       "rules": [],
+                       "bool_rules": [{"op": "xor", "args": ["A", "B"]}],
+                       "query": "count"},
+            "evidence": ["How many Boolean assignments to Alice,Bob",
+                         "Alice XOR Bob is True", "Return one integer"],
+        })
+        result = run_experimental_tir(
+            messages(q), lambda _: "FINAL_ANSWER: 0",
+            extract_constraints=lambda _: proposed)
+        self.assertEqual(result["extraction_status"], "accepted")
+        event = safe_first_turn_event(result["first_turn_telemetry"])
+        self.assertEqual(event["ast_check_code"], "initial_letter_token")
+
+    def test_unmapped_identifier_failure_reaches_safe_first_turn_telemetry(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        q = ("How many Boolean assignments to Alice,Bob satisfy ALL: "
+             "Alice XOR Bob is True? Return one integer.")
+        proposed = json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {"variables": {"Alice": [False, True],
+                                     "Bob": [False, True]},
+                       "rules": [],
+                       "bool_rules": [{"op": "xor",
+                                      "args": ["Alice", "secret_unknown_42"]}],
+                       "query": "count"},
+            "evidence": ["How many Boolean assignments to Alice,Bob",
+                         "Alice XOR Bob is True", "Return one integer"],
+        })
+        result = run_experimental_tir(
+            messages(q), lambda _: "FINAL_ANSWER: 0",
+            extract_constraints=lambda _: proposed)
+        self.assertEqual(result["extraction_status"], "fallback")
+        event = safe_first_turn_event(result["first_turn_telemetry"])
+        self.assertEqual(event["ast_check_code"], "unmapped_identifier")
+        self.assertEqual(event["solver_rejection_detail"],
+                         "completely_undeclared_name")
+        self.assertNotIn("secret_unknown_42", str(event))
