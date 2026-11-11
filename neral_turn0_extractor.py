@@ -927,12 +927,12 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
                         and other.get("op") == "not"
                         and other.get("args") == [variable]
                         and variable in variables):
-                    pattern = r"(?<!\\w)" + re.escape(variable) + r"(?!\\w)"
+                    pattern = r"(?<!\w)" + re.escape(variable) + r"(?!\w)"
                     return any(
                         len(re.findall(pattern, clue, re.I)) >= 2
-                        and re.search(r"\\b(?:not|negat(?:ed|ion)?|nicht)\\b|¬|!",
+                        and re.search(r"\b(?:not|negat(?:ed|ion)?|nicht)\b|¬|!",
                                       clue, re.I)
-                        and re.search(r"\\b(?:equals?|iff|equiv(?:alent)?|is)\\b|==|=",
+                        and re.search(r"\b(?:equals?|iff|equiv(?:alent)?|is)\b|==|=",
                                       clue, re.I)
                         for clue in source_clues
                     )
