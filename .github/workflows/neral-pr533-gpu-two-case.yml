@@ -1,7 +1,7 @@
 name: NERAL PR533 EXACT 2-case GPU diagnostic
 on:
   push:
-    branches: [ops/neral-pr533-gpu-two-case-r3-20261111]
+    branches: [ops/neral-pr533-gpu-two-case-679cdd77-20261111]
 permissions:
   contents: read
 jobs:
@@ -17,6 +17,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -B -m py_compile scripts/neral_pr533_two_case_gpu.py
+      - run: python -B -m unittest discover -s tests -p test_neral_pr533_gate_contract.py -v
       - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt
       - run: python -B -m unittest discover -s tests -p test_neral_tir_turn0.py -v
       - run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
@@ -24,7 +25,7 @@ jobs:
     name: TWO tasks only on local RTX 4070
     needs: verify-cpu
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 25
+    timeout-minutes: 100
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
@@ -32,7 +33,7 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     env:
-      TARGET_SHA: '176e3e96c77af2b1ae254297a89a3de052c81bd0'
+      TARGET_SHA: '679cdd773c871b877d2bf226cdac3e8f7370ef27'
       NERAL_EXPERIMENTAL_TIR: '1'
       NERAL_TWO_CASES_ONLY: '1'
       HF_HUB_OFFLINE: '1'
@@ -43,7 +44,7 @@ jobs:
       - name: Checkout pinned PR533 candidate
         uses: actions/checkout@v4
         with:
-          ref: '176e3e96c77af2b1ae254297a89a3de052c81bd0'
+          ref: '679cdd773c871b877d2bf226cdac3e8f7370ef27'
           path: candidate
           persist-credentials: false
           fetch-depth: 0
@@ -84,6 +85,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Preview dependencies unavailable'}
           [IO.File]::AppendAllText($env:GITHUB_ENV,('TWO_CASE_PY='+$py+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
       - name: Execute EXACTLY one code and one logic case
+        id: two_case_gate
         run: |
           $ErrorActionPreference='Stop'
           $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
@@ -99,6 +101,29 @@ jobs:
             & $env:TWO_CASE_PY -B (Join-Path $control 'scripts/neral_pr533_two_case_gpu.py') --authorize NERAL_PR533_GPU_TWO_CASES_ONLY --target-sha $env:TARGET_SHA --out $out
             if($LASTEXITCODE -ne 0){throw 'One or more two-case gates not met; see scalar report'}
           } finally { Pop-Location }
+      - name: Run TIR12 only if BOTH strict GPU gates passed
+        if: steps.two_case_gate.outcome == 'success'
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $folder=Join-Path $env:RUNNER_TEMP ('neral-pr533-tir12-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $folder){throw 'Refuse occupied TIR12 result path'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+          $out=Join-Path $folder 'summary.json'
+          $env:PYTHONPATH=$candidate
+          Push-Location $candidate
+          try {
+            & $env:TWO_CASE_PY -B -m scripts.neral_tir12_manual --authorize NERAL_TIR12_GPU_MANUAL_ONLY --target-sha $env:TARGET_SHA --high-sha 42071009bfe41e2fba1478d742a00f0cb88d6ab5 --out $out
+            if($LASTEXITCODE -ne 0){throw 'TIR12 development ratchet failed; see scalar report'}
+          } finally { Pop-Location }
+      - name: Upload conditional TIR12 scalar benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr533-conditional-tir12-scalars
+          path: ${{ runner.temp }}/neral-pr533-tir12-${{ github.run_id }}/summary.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload scalar-only two-case result, even when gate fails
         if: always()
         uses: actions/upload-artifact@v4
