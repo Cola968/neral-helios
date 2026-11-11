@@ -495,3 +495,48 @@ html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
 @media(max-width:520px){
   .message-actions .neral-source-link{flex-basis:100%;max-width:100%}
 }
+
+
+/* Source citations: quiet card reveal, factual search previews, no fabricated progress. */
+@keyframes neral-source-appear{
+  from{opacity:0;transform:translateY(5px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.message-actions .neral-source-disclosure>summary{
+  gap:9px;padding:5px 3px 9px;min-height:31px;
+  color:var(--nr-text,#333);font-weight:600}
+.message-actions .neral-source-disclosure>summary::after{
+  content:"▾";font-size:11px;opacity:.55;margin-left:1px;
+  transition:transform .16s ease}
+.message-actions .neral-source-disclosure:not([open])>summary::after{transform:rotate(-90deg)}
+.message-actions .neral-source-list{gap:9px}
+.message-actions .neral-source-link{
+  position:relative;flex-basis:225px;max-width:min(320px,100%);
+  min-height:68px;padding:10px 28px 10px 11px;
+  border-radius:12px;background:var(--nr-bg,#fff);
+  box-shadow:0 1px 3px #00000008;
+  transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease;
+  animation:neral-source-appear .26s ease-out both}
+.message-actions .neral-source-link:hover,
+.message-actions .neral-source-link:focus-visible{
+  transform:translateY(-2px);border-color:var(--nr-muted,#a6a6a6);
+  box-shadow:0 4px 12px #0000000d}
+.message-actions .neral-source-link::after{
+  content:"↗";position:absolute;right:11px;top:10px;
+  font-size:12px;color:var(--nr-muted,#777);opacity:.8}
+.neral-source-card-heading{display:flex;align-items:baseline;gap:5px;min-width:0}
+.neral-source-index{flex:0 0 auto;font-size:10px;font-weight:650;
+  color:var(--nr-muted,#666);font-variant-numeric:tabular-nums}
+.message-actions .neral-source-snippet{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow:hidden;font-size:10.5px;line-height:1.35;
+  color:var(--nr-muted,#777);overflow-wrap:anywhere}
+.neral-source-empty{
+  display:block;flex:1 1 100%;padding:5px 2px 8px;
+  color:var(--nr-muted,#777);font-size:11px;
+  animation:neral-source-appear .22s ease-out both}
+@media(prefers-reduced-motion:reduce){
+  .message-actions .neral-source-link,.neral-source-empty,
+  .message-actions .neral-source-disclosure>summary::after{
+    animation:none!important;transition:none!important;transform:none!important}
+}
