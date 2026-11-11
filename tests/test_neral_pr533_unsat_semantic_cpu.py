@@ -183,7 +183,7 @@ class StrictSemanticIntegerProofCPU(unittest.TestCase):
              {"role":"user","content":question + SUFFIX}],
             lambda _: self.fail("Unchanged source must bypass model rewrite"),
             tool_runner=runner)
-        self.assertEqual(seen, [("python_sandbox", "value=2+3\\nprint(value)")])
+        self.assertEqual(seen, [("python_sandbox", "value=2+3\nprint(value)")])
         self.assertTrue(result["verified"])
         self.assertEqual(result["review_method"], "exact_user_ast_match")
         self.assertEqual(result["verification_scope"],
