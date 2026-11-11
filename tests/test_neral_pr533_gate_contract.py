@@ -59,13 +59,22 @@ class TwoTaskGate(unittest.TestCase):
                 first_turn_telemetry={"extraction_rejection_reason": "solver_type_error"})]),
             (True, False))
 
-    def test_gpu_workflow_contains_no_tir12_step(self):
+    def test_gpu_workflow_gates_tir12_behind_both_case_success(self):
         from pathlib import Path
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/neral-pr533-gpu-two-case.yml").read_text("utf-8")
         self.assertIn("Execute EXACTLY one code and one logic case", workflow)
-        self.assertNotIn("scripts.neral_tir12_manual", workflow)
-        self.assertNotIn("Run TIR12", workflow)
+        self.assertIn("if: steps.two_case_gate.outcome == 'success'", workflow)
+        self.assertIn("scripts.neral_tir12_manual", workflow)
+        self.assertIn(
+            "ref: '319dc25749d208ea7113ef82b43cb0045eb44f4d'", workflow)
+        self.assertIn("NERAL_PR533_APPROVE_GPU_GATE", workflow)
+
+    def test_b_requires_verification_not_only_solver_execution(self):
+        for value in (False, None):
+            with self.subTest(value=value):
+                self.assertEqual(evaluate_two_case_gate(
+                    [a(), b(answer_correct=True, verified=value)]), (True, False))
 
     def test_review_reason_is_whitelisted_scalar_only(self):
         self.assertEqual(safe_review_reason("ast_structure_mismatch"),
