@@ -60,6 +60,20 @@ class SolverScalarDiagnostics(unittest.TestCase):
         self.assertEqual(event[0]["extracted_constraint_count"], 1)
         self.assertEqual(event[0]["expected_sentence_clues"], 2)
 
+    def test_grouped_and_counts_independent_conjuncts(self):
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A is True; B is True? Return one integer.")
+        clauses = [
+            {"op": "eq", "args": ["A", True]},
+            {"op": "eq", "args": ["B", True]}]
+        events = []
+        result = parse_extracted_constraints(
+            q, packet(q, [{"op": "and", "args": clauses}]),
+            structural_telemetry_sink=events)
+        self.assertEqual(result, 1)
+        self.assertEqual(events[0]["extracted_constraint_count"], 2)
+        self.assertEqual(events[0]["expected_sentence_clues"], 2)
+
     def test_literal_context_distinguishes_cardinality_and_comparison(self):
         q = ("How many Boolean assignments to A,B satisfy ALL: "
              "At least two of A B True hold; B is True? Return one integer.")
