@@ -1,0 +1,1 @@
+Explicit user approval: run reproducible A/B RTX 4070 cases only on PR533 candidate 6f5ecb4ec19fe557036a4c1920488837cb14ddfc, seed 202611110533; inspect scalar telemetry and the task generator. Do not weaken preflight or elevate unverified counterfactual solver answers.
