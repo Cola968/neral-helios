@@ -42,7 +42,6 @@ _SAFE_SOLVER_REJECTIONS = {
     "Invalid variable domain": ("solver_type_error", "variable_domain_type"),
     "Invalid comparison value": ("solver_type_error", "comparison_value_type"),
     "Incompatible comparison types": ("solver_type_error", "comparison_types"),
-    "Invalid Boolean cardinality": ("solver_type_error", "boolean_cardinality"),
     "Invalid Boolean cardinality threshold": ("solver_type_error", "boolean_cardinality_threshold"),
     "Duplicate Boolean cardinality variables": ("solver_type_error", "boolean_cardinality_duplicate_variable"),
     "Duplicate JSON member": ("solver_syntax_error", "duplicate_json_member"),
