@@ -17,14 +17,20 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "5e84d07592b538ce2d7966ab2fbb7f89e85c70bc"
+TARGET_SHA = "c9c4d615bf142c1572085901e061f0afa3a80bda"
 SEED = 202611110533
 
 
 def safe_review_reason(reason: object) -> str | None:
     """Output only fixed diagnostic codes, never arbitrary model/user text."""
-    from neral_tir_experimental import _PYTHON_AST_REVIEW_CODES
-    return reason if type(reason) is str and reason in _PYTHON_AST_REVIEW_CODES else None
+    allowed = frozenset({
+        "python_no_eligible_execution", "user_source_not_extracted",
+        "python_question_not_output", "user_code_parse_error",
+        "executed_code_parse_error", "ast_structure_mismatch",
+        "python_unsupported_ast", "python_unsupported_calls",
+        "python_not_single_final_print",
+    })
+    return reason if type(reason) is str and reason in allowed else None
 
 
 def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
