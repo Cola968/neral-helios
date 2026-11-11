@@ -322,3 +322,58 @@ class OllamaExtractWireContracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Turn0RouterDiagnosticRegression(unittest.TestCase):
+    def test_explicit_none_continues_to_model_driven_python_tool_decision(self):
+        # Not a benchmark case: proves the router works for arbitrary code.
+        original = messages("What does a local Python sum of 6 and 7 produce?")
+        decisions = []
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(sum([6,7]))"}',
+            "NERAL_FINAL_TEXT: 13",
+        ])
+        def model(turns):
+            decisions.append([dict(row) for row in turns])
+            return next(replies)
+        executed = []
+        def tool(tool, code):
+            executed.append((tool, code))
+            return {"status": "PASSED", "output": "13",
+                    "verification_scope": "execution_only"}
+        result = run_experimental_tir(
+            original, model, extract_constraints=lambda _: '{"kind":"none"}',
+            tool_runner=tool, first_turn_diagnostic=lambda: {
+                "eval_count": 6, "done_reason": "stop", "prompt_eval_count": 500})
+        self.assertEqual(result["text"], "13")
+        self.assertEqual(result["tool_calls_triggered"], 1)
+        self.assertEqual(result["tool_calls_succeeded"], 1)
+        self.assertEqual(result["calls_used"], 3)
+        self.assertEqual(executed, [("python_sandbox", "print(sum([6,7]))")])
+        self.assertIn("NERAL_EXECUTE_JSON:", decisions[0][0]["content"])
+        self.assertEqual(result["first_turn_telemetry"]["decision"], "extraction_none")
+
+    def test_parser_reports_safe_rejection_enum_without_disclosing_text(self):
+        errors = []
+        result = parse_extracted_constraints(QUESTION, packet(evidence=["unquoted"] * 3),
+                                             rejection_reason_sink=errors)
+        self.assertIsNone(result)
+        self.assertEqual(errors, ["evidence_invalid"])
+        self.assertNotIn("unquoted", errors[0])
+        errors = []
+        self.assertIsNone(parse_extracted_constraints(
+            QUESTION, '{"kind":"none"}', rejection_reason_sink=errors))
+        self.assertEqual(errors, ["kind_none"])
+
+    def test_invalid_formal_stays_closed_and_never_executes_fallback_tool(self):
+        question = "How many valid assignments exist for A and B?"
+        observed=[]
+        out=run_experimental_tir(
+            messages(question),
+            lambda turns: (observed.append([dict(t) for t in turns]) or
+                           "Not enough information."),
+            extract_constraints=lambda _: '{"kind":"formal","complete":true}',
+            tool_runner=lambda *_:self.fail("Invalid proposals must not execute"))
+        self.assertEqual(out["tool_calls_succeeded"],0)
+        self.assertEqual(out["verification_status"],"base_fallback_unverified")
+        self.assertEqual(len(observed),1)
