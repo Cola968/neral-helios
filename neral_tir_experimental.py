@@ -224,6 +224,63 @@ _PYTHON_AST_REVIEW_CODES = frozenset({
 })
 
 
+def _terminal_print_only_equivalence(original, executed) -> bool:
+    """Allow only output instrumentation of the source's last value.
+
+    The executed program must preserve every original statement's AST and
+    append a single print(x) of the last assigned name, or a print(expr)
+    of the final pure expression (appended or replacing that expression).
+    This must not bless arbitrary generated print statements or modified
+    computation. Built-in allowlisting still runs after this check.
+    """
+    import ast
+
+    if not original.body or not executed.body:
+        return False
+    if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+           and n.func.id == "print" for n in ast.walk(original)):
+        return False
+    last = executed.body[-1]
+    if not (isinstance(last, ast.Expr)
+            and isinstance(last.value, ast.Call)
+            and isinstance(last.value.func, ast.Name)
+            and last.value.func.id == "print"
+            and len(last.value.args) == 1
+            and not last.value.keywords):
+        return False
+
+    def same(a, b):
+        return ast.dump(a, include_attributes=False) == ast.dump(
+            b, include_attributes=False)
+
+    if len(executed.body) == len(original.body) + 1:
+        if not all(same(a, b) for a, b in zip(
+                original.body, executed.body[:-1])):
+            return False
+    elif len(executed.body) == len(original.body):
+        if not all(same(a, b) for a, b in zip(
+                original.body[:-1], executed.body[:-1])):
+            return False
+        if not isinstance(original.body[-1], ast.Expr):
+            return False
+    else:
+        return False
+
+    source_last = original.body[-1]
+    output_arg = last.value.args[0]
+    if isinstance(source_last, ast.Expr):
+        # Use the source's final value, without generating a new algorithm.
+        return same(output_arg, source_last.value)
+    if (len(executed.body) == len(original.body) + 1
+            and isinstance(source_last, (ast.Assign, ast.AugAssign))):
+        targets = (source_last.targets if isinstance(source_last, ast.Assign)
+                   else [source_last.target])
+        return (len(targets) == 1 and isinstance(targets[0], ast.Name)
+                and isinstance(output_arg, ast.Name)
+                and output_arg.id == targets[0].id)
+    return False
+
+
 def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
         stderr: str, *, strict_integer: bool,
@@ -284,8 +341,9 @@ def _exact_source_python_answer(
         executed = ast.parse(executed_code)
     except (SyntaxError, ValueError, TypeError, MemoryError):
         return reject("executed_code_parse_error")
-    if ast.dump(original, include_attributes=False) != ast.dump(
-            executed, include_attributes=False):
+    if (ast.dump(original, include_attributes=False) != ast.dump(
+            executed, include_attributes=False)
+            and not _terminal_print_only_equivalence(original, executed)):
         return reject("ast_structure_mismatch")
     nodes = list(ast.walk(original))
     if (len(nodes) > 250 or any(
