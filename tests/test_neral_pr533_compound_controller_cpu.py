@@ -130,6 +130,103 @@ class OneTurnConstraintRepairCPU(unittest.TestCase):
         self.assertEqual(r["verification_status"],"base_fallback_unverified")
         self.assertEqual(r["first_turn_telemetry"]["solver_repair_status"],"retry_unsat")
 
+    def test_repair_accepts_markdown_fence_and_leading_explanation(self):
+        for lead, label in (
+            ("", "fenced_json"),
+            ("Hier ist das korrigierte Schema:\n", "prefixed_fenced_json"),
+        ):
+            with self.subTest(label=label):
+                wrapped = lead + "\x60\x60\x60json\n" + json.dumps(GOOD) + "\n\x60\x60\x60"
+                proposals = iter((json.dumps(BAD), wrapped))
+                r = run_experimental_tir(
+                    messages(Q), lambda _: self.fail("Valid repaired schema must solve"),
+                    extract_constraints=lambda _: next(proposals))
+                self.assertEqual(r["text"], "1")
+                self.assertEqual(r["extraction_status"], "repaired")
+                self.assertEqual(r["first_turn_telemetry"]["solver_repair_status"], "repaired")
+                self.assertEqual(r["first_turn_telemetry"]["solver_repair_input_format"], label)
+                self.assertFalse(r["verified"])
+
+    def test_repair_accepts_leading_plain_text_and_whitespace(self):
+        revised = "Here is the corrected schema:\n" + json.dumps(GOOD) + " \n"
+        proposals = iter((json.dumps(BAD), revised))
+        r = run_experimental_tir(
+            messages(Q), lambda _: self.fail("Valid repaired schema must solve"),
+            extract_constraints=lambda _: next(proposals))
+        self.assertEqual(r["text"], "1")
+        self.assertEqual(r["first_turn_telemetry"]["solver_repair_input_format"],
+                         "prefixed_json")
+
+    def test_repair_six_clauses_solves_twelve_without_dropping_clues(self):
+        question = (
+            "How many Boolean assignments to A,B,C,D,E,F,G satisfy ALL: "
+            "(A XOR C XOR F) is False; (B OR D) is True; E = NOT F; "
+            "(A AND G) is False; C implies G; "
+            "at least 2 of the seven variables are True? Return one integer."
+        )
+        clauses = [
+            {"op": "eq", "args": [{"op": "xor", "args": ["A", "C", "F"]}, False]},
+            {"op": "or", "args": ["B", "D"]},
+            {"op": "eq", "args": ["E", {"op": "not", "args": ["F"]}]},
+            {"op": "eq", "args": [{"op": "and", "args": ["A", "G"]}, False]},
+            {"op": "implies", "args": ["C", "G"]},
+            {"op": "at_least", "min": 2,
+             "args": ["A", "B", "C", "D", "E", "F", "G"]},
+        ]
+        evidence = [
+            "How many Boolean assignments to A,B,C,D,E,F,G",
+            "(A XOR C XOR F) is False", "(B OR D) is True", "E = NOT F",
+            "(A AND G) is False", "C implies G",
+            "at least 2 of the seven variables are True", "Return one integer",
+        ]
+        good = {"kind": "formal", "complete": True,
+                "schema": {"variables": {n: [False, True] for n in "ABCDEFG"},
+                           "rules": [], "bool_rules": clauses, "query": "count"},
+                "evidence": evidence}
+        bad = json.loads(json.dumps(good))
+        bad["schema"]["bool_rules"].append(False)
+        proposals = iter((json.dumps(bad),
+                          "Repaired:\n\x60\x60\x60json\n"
+                          + json.dumps(good) + "\n\x60\x60\x60"))
+        r = run_experimental_tir(
+            messages(question), lambda _: self.fail("Six correct clauses should solve"),
+            extract_constraints=lambda _: next(proposals))
+        self.assertEqual(r["text"], "12")
+        self.assertEqual(r["extraction_status"], "repaired")
+        self.assertEqual(r["tool_calls_succeeded"], 1)
+        self.assertFalse(r["verified"])  # Model translation is never certified.
+
+    def test_repair_rejection_reports_safe_scalar_reason(self):
+        proposals = iter((json.dumps(BAD), "Repaired: {bad JSON}"))
+        r = run_experimental_tir(
+            messages(Q), lambda _: "Raw answer",
+            extract_constraints=lambda _: next(proposals))
+        tele = r["first_turn_telemetry"]
+        self.assertEqual(tele["solver_repair_status"], "retry_rejected")
+        self.assertEqual(tele["solver_repair_rejection_reason"], "invalid_json")
+        self.assertNotIn("bad JSON", str(tele))
+
+    def test_repair_does_not_strip_extra_payload_or_relax_validation(self):
+        malicious = (
+            "Corrected schema:\n\x60\x60\x60json\n" + json.dumps(GOOD)
+            + "\n\x60\x60\x60\nAdditional answer: 1"
+        )
+        bad_evidence = json.loads(json.dumps(GOOD))
+        bad_evidence["evidence"][1] = "invented evidence not in question"
+        for revised in (malicious, json.dumps(GOOD) + "\n" + json.dumps(GOOD),
+                        json.dumps(bad_evidence),
+                        "Only prose, no JSON"):
+            with self.subTest(revised=revised[:20]):
+                proposals = iter((json.dumps(BAD), revised))
+                r = run_experimental_tir(
+                    messages(Q), lambda _: "Raw answer",
+                    extract_constraints=lambda _: next(proposals))
+                self.assertEqual(r["text"], "Raw answer")
+                self.assertFalse(r["verified"])
+                self.assertEqual(r["tool_calls_succeeded"], 0)
+                self.assertEqual(r["first_turn_telemetry"]["solver_repair_status"],
+                                 "retry_rejected")
+
     def test_malformed_retry_falls_back_unverified(self):
         proposals=iter((json.dumps(BAD),"INVALID"))
         seen=[]
