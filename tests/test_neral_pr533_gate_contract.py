@@ -29,6 +29,24 @@ class TwoTaskGate(unittest.TestCase):
     def test_both_strict_gates_pass(self):
         self.assertEqual(evaluate_two_case_gate([a(), b()]), (True, True))
 
+    def test_a_accepts_only_proven_integer_ast_semantics(self):
+        self.assertEqual(evaluate_two_case_gate([
+            a(review_method="semantic_execution_match",
+              verification_scope="proven_integer_ast_equivalence"),
+            b()]), (True, True))
+        for variation in (
+            {"review_method": "semantic_execution_match",
+             "verification_scope": "execution_only"},
+            {"review_method": "semantic_execution_match",
+             "verification_scope": "exact_user_python_execution"},
+            {"review_method": "semantic_execution_match",
+             "verification_scope": "proven_integer_ast_equivalence",
+             "verified": False},
+        ):
+            with self.subTest(variation=variation):
+                self.assertEqual(evaluate_two_case_gate(
+                    [a(**variation), b()]), (False, True))
+
     def test_a_requires_actual_verified_exact_ast(self):
         for variation in (
             {"verified": False},
@@ -67,7 +85,7 @@ class TwoTaskGate(unittest.TestCase):
         self.assertIn("if: steps.two_case_gate.outcome == 'success'", workflow)
         self.assertIn("scripts.neral_tir12_manual", workflow)
         self.assertIn(
-            "ref: '319dc25749d208ea7113ef82b43cb0045eb44f4d'", workflow)
+            "ref: 'ca06dc0801d67063829f0436b83ff5b144dd4d54'", workflow)
         self.assertIn("NERAL_PR533_APPROVE_GPU_GATE", workflow)
 
     def test_b_requires_verification_not_only_solver_execution(self):
