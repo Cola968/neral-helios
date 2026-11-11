@@ -1045,7 +1045,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
                     "C AND A is True? Return one integer.")
         generated = self._boolean_packet(
             question, {"A": [False, True], "C": [1, 2]},
-            {"op": "and", "args": ["A", "B"]},
+            {"op": "and", "args": ["A", "B", "C"]},
             rules=[{"left": "C", "op": "<", "value": 2}],
             evidence=[
                 "How many Boolean assignments to A,B,C",
