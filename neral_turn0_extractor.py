@@ -64,7 +64,8 @@ SOLVER_REJECTION_DETAIL_CODES = frozenset(
 # More specific Boolean leaf categories; all are fixed scalar-only labels.
 SOLVER_REJECTION_DETAIL_CODES = SOLVER_REJECTION_DETAIL_CODES | frozenset({
     "missing_boolean_declaration", "non_boolean_domain",
-    "unknown_boolean_reference",
+    "unknown_boolean_reference", "casing_mismatch",
+    "completely_undeclared_name",
 })
 
 
@@ -142,6 +143,65 @@ def _boolean_ast_references(bool_rules: list) -> set[str] | None:
     return seen if all(visit(node, 0) for node in bool_rules) else None
 
 
+
+
+def _canonicalize_boolean_ast_names(schema: dict) -> dict:
+    """Bind only unique declared Boolean aliases in expression leaf positions.
+
+    Casefold and boundary whitespace are presentation-tolerant ONLY in the
+    bool_rules AST. Numeric relations, domains, declarations and source text
+    remain unchanged. Ambiguous casefold collisions must reach the solver
+    unchanged and be rejected rather than guessed.
+    """
+    if type(schema) is not dict or type(schema.get("variables")) is not dict:
+        return schema
+    variables = schema["variables"]
+    trees = schema.get("bool_rules")
+    if type(trees) is not list or len(trees) > 32 or len(variables) > 8:
+        return schema
+    buckets = {}
+    for name in variables:
+        if type(name) is not str or not 1 <= len(name) <= 32:
+            return schema
+        buckets.setdefault(name.strip().casefold(), []).append(name)
+
+    changed = False
+    visited = [0]
+
+    def rewrite(node, depth):
+        nonlocal changed
+        visited[0] += 1
+        if depth > 5 or visited[0] > 128:
+            raise ValueError("Invalid Boolean tree for canonicalization")
+        if type(node) is bool:
+            return node
+        if type(node) is str:
+            if node in variables:
+                return node
+            candidates = buckets.get(node.strip().casefold(), ())
+            if len(candidates) != 1:
+                return node
+            candidate = candidates[0]
+            domain = variables[candidate]
+            if (type(domain) is list and domain
+                    and all(type(x) is bool for x in domain)):
+                changed = True
+                return candidate
+            return node
+        if type(node) is not dict or type(node.get("args")) is not list:
+            raise ValueError("Non-canonicalizable Boolean tree")
+        if (node.get("op") not in (
+                "and", "or", "xor", "not", "implies", "eq", "at_least")
+                or len(node["args"]) > 8):
+            raise ValueError("Unsupported Boolean tree")
+        return {**node, "args": [rewrite(child, depth + 1)
+                                 for child in node["args"]]}
+    try:
+        rewritten = [rewrite(expr, 0) for expr in trees]
+    except (ValueError, RecursionError):
+        return schema
+    return {**schema, "bool_rules": rewritten} if changed else schema
+
 def _first_boolean_leaf_rejection(question: str, schema: dict) -> str | None:
     """Identify the first invalid AST leaf without exposing its identifier.
 
@@ -169,8 +229,23 @@ def _first_boolean_leaf_rejection(question: str, schema: dict) -> str | None:
             continue
         if type(node) is str:
             if node not in variables:
-                return ("missing_boolean_declaration"
-                        if node in known_source else "unknown_boolean_reference")
+                # Exact source-declared names absent from the schema are
+                # different from unresolved aliases or wholly invented names.
+                if node in known_source:
+                    return "missing_boolean_declaration"
+                candidates = [
+                    key for key in variables
+                    if type(key) is str
+                    and key.strip().casefold() == node.strip().casefold()
+                ]
+                if not candidates:
+                    return "completely_undeclared_name"
+                if len(candidates) == 1:
+                    domain = variables[candidates[0]]
+                    if (type(domain) is not list or not domain
+                            or any(type(v) is not bool for v in domain)):
+                        return "non_boolean_domain"
+                return "casing_mismatch"
             domain = variables[node]
             if (type(domain) is not list or not domain
                     or any(type(value) is not bool for value in domain)):
@@ -492,6 +567,7 @@ def parse_extracted_constraints(question: str, generated: str, *,
         return reject("evidence_duplicate")
     # Source-grounded normalization runs ONLY after all quote and source-name
     # checks, immediately before the immutable fail-closed finite solver.
+    schema = _canonicalize_boolean_ast_names(schema)
     schema = _infer_source_boolean_domains(question, schema)
     try:
         numeric = try_solve_formal_constraints(
