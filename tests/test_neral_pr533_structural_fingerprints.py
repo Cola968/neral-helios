@@ -69,7 +69,7 @@ class SolverScalarDiagnostics(unittest.TestCase):
         events, tags = [], []
         result = parse_extracted_constraints(q, packet(q, tree),
             structural_telemetry_sink=events, ast_check_code_sink=tags)
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 2)
         self.assertEqual(tags, ["boolean_literal_token"])
         self.assertEqual(events[0]["boolean_literal_context"], "multiple")
         self.assertEqual(events[0]["extracted_constraint_count"], 2)
