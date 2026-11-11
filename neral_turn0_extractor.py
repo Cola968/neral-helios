@@ -161,17 +161,28 @@ def extraction_response_format(question: str) -> dict:
     return {**result, "$defs": definitions}
 
 
-def parse_extracted_constraints(question: str, generated: str) -> int | None:
+def parse_extracted_constraints(question: str, generated: str, *,
+                                rejection_reason_sink: list[str] | None = None) -> int | None:
     """Return schema-only exact result, None on any uncertainty/malformed output.
 
     Even a successful number is *unverified against the natural language*.
     Only an explicit, bounded source-grounded candidate may reach the solver.
     """
+    def reject(code: str) -> None:
+        if type(rejection_reason_sink) is list:
+            rejection_reason_sink.append(code)  # safe fixed enum, never model text
+        return None
+
+    def accept() -> int:
+        if type(rejection_reason_sink) is list:
+            rejection_reason_sink.append("accepted")
+        return numeric
+
     if (type(question) is not str or not 1 <= len(question.encode("utf-8")) <= 4096
             or type(generated) is not str
             or not 2 <= len(generated.encode("utf-8")) <= 4096
             or not generated.startswith("{") or not generated.endswith("}")):
-        return None
+        return reject("invalid_input")
 
     def no_duplicate_keys(pairs):
         result = {}
@@ -184,30 +195,30 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
     try:
         candidate = json.loads(generated, object_pairs_hook=no_duplicate_keys)
     except (ValueError, TypeError, RecursionError):
-        return None
+        return reject("invalid_json")
     if type(candidate) is not dict:
-        return None
+        return reject("invalid_json")
     if candidate == {"kind": "none"}:
-        return None
+        return reject("invalid_envelope")
     if set(candidate) != {"kind", "complete", "schema", "evidence"}:
-        return None
+        return reject("invalid_envelope")
     if candidate["kind"] != "formal" or candidate["complete"] is not True:
-        return None
+        return reject("incomplete_formal")
     schema = candidate["schema"]
     evidence = candidate["evidence"]
     if type(schema) is not dict or type(evidence) is not list:
-        return None
+        return reject("invalid_structure")
     if type(schema.get("variables")) is list:
         declarations = schema["variables"]
         variables = {}
         if not 1 <= len(declarations) <= 8:
-            return None
+            return reject("invalid_variables")
         for declaration in declarations:
             if (type(declaration) is not dict
                     or set(declaration) != {"name", "domain"}
                     or type(declaration["name"]) is not str
                     or declaration["name"] in variables):
-                return None
+                return reject("invalid_variables")
             variables[declaration["name"]] = declaration["domain"]
         schema = {**schema, "variables": variables}
     rules = schema.get("rules")
@@ -219,7 +230,7 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
         names = schema["ordering"]
         if (type(names) is not list
                 or not all(type(v) is str for v in names)):
-            return None
+            return reject("invalid_ordering")
         # For a complete order, one literal source span must enumerate
         # every item; otherwise refuse to infer a complete set.
         ordering_spans = [
@@ -228,18 +239,18 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
                     for v in names)
         ]
         if not ordering_spans:
-            return None
+            return reject("ordering_evidence_missing")
     else:
         variables = schema.get("variables")
         if type(variables) is not dict:
-            return None
+            return reject("invalid_variables")
         names = list(variables)
     if any(
         type(name) is not str
         or re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", question) is None
         for name in names
     ):
-        return None
+        return reject("variable_not_in_source")
     if (type(rules) is not list or type(groups) is not list
             or type(boolean_rules) is not list
             or len(rules) + len(groups) + len(boolean_rules) < 1
@@ -248,7 +259,7 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
             or any(type(span) is not str or not 4 <= len(span) <= 200
                    or span not in question for span in evidence)
             or len(set(evidence)) != len(evidence)):
-        return None
+        return reject("evidence_invalid")
     try:
         numeric = try_solve_formal_constraints(
             PREFIX + json.dumps(schema, ensure_ascii=False,
@@ -256,5 +267,5 @@ def parse_extracted_constraints(question: str, generated: str) -> int | None:
         )
     except (InvalidFormalConstraints, TypeError, ValueError,
             OverflowError, RecursionError):
-        return None
-    return numeric if type(numeric) is int else None
+        return reject("solver_rejected")
+    return accept() if type(numeric) is int else reject("solver_no_integer")
