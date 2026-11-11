@@ -119,7 +119,7 @@
   // Do not pass such requests to an offline model and invite a false refusal.
   // Checking the box, not this text alone, remains the privacy consent.
   function explicitlyRequestsWeb(question) {
-    return /\\b(?:websuche|internetrecherche)\\b|\\b(?:suche|such|recherchiere|recherchier)\\b.{0,60}\\b(?:im internet|im web|online)\\b/iu.test(String(question||""));
+    return /\b(?:websuche|internetrecherche)\b|\b(?:suche|such|recherchiere|recherchier)\b.{0,60}\b(?:im internet|im web|online)\b/iu.test(String(question||""));
   }
   function shouldSearchWeb(question,previousWebQuery="") {
     const q=String(question||"").trim();
