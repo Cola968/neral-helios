@@ -921,7 +921,7 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
             "tool_output_reviewed": True,
             "verification_scope": "exact_user_python_execution",
             "verification_status": "verified",
-            "review_method": "deterministic_source_identity",
+            "review_method": "exact_user_ast_match",
             "verified": True,
             "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
         }
@@ -1009,7 +1009,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
             ],
         }, separators=(",", ":"))
 
-    def test_bool_ast_unknown_typo_gets_scalar_unknown_boolean_reference(self):
+    def test_bool_ast_casefold_alias_is_canonicalized(self):
         question = ("How many Boolean assignments to A,B satisfy ALL: "
                     "A XOR B is True? Return one integer.")
         generated = self._boolean_packet(
@@ -1020,9 +1020,9 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
         actual = parse_extracted_constraints(
             question, generated, rejection_reason_sink=reasons,
             solver_rejection_detail_sink=details)
-        self.assertIsNone(actual)
-        self.assertEqual(reasons, ["solver_type_error"])
-        self.assertEqual(details, ["unknown_boolean_reference"])
+        self.assertEqual(actual, 2)
+        self.assertEqual(reasons, ["accepted"])
+        self.assertEqual(details, [])
         self.assertNotIn('"b"', str(details))
 
     def test_bool_ast_declared_non_boolean_domain_gets_scalar_type_code(self):
@@ -1099,7 +1099,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
         event = safe_first_turn_event(result["first_turn_telemetry"])
         self.assertEqual(event["extraction_rejection_reason"], "solver_type_error")
         self.assertEqual(event["solver_rejection_detail"],
-                         "unknown_boolean_reference")
+                         "completely_undeclared_name")
         self.assertNotIn("bb_secret", str(event))
         for injected in ("bb_secret", "unknown_boolean_reference:bb_secret"):
             with self.subTest(injected=injected):
@@ -1136,7 +1136,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
         self.assertEqual(result["verification_scope"],
                          "exact_user_python_execution")
         self.assertEqual(result["review_method"],
-                         "deterministic_source_identity")
+                         "exact_user_ast_match")
         self.assertEqual(result["text"], "FINAL_ANSWER: 12")
 
     def test_model_review_disagreeing_with_tool_output_must_not_be_verified(self):
@@ -1159,7 +1159,7 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
         self.assertEqual(result["verification_status"],
                          "tool_observed_unverified")
         self.assertNotEqual(result.get("review_method"),
-                            "deterministic_source_identity")
+                            "exact_user_ast_match")
 
     def test_regular_review_of_generated_code_is_not_verified_by_exit_zero(self):
         question = ("What exact integer does this Python program print? "
@@ -1298,7 +1298,8 @@ class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
         question = ("What exact integer does this Python program print? "
                     "You may execute it:\nx=2\nprint(x+3)")
         replies = iter([
-            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"x=2\nprint(x+4)"}',
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": "x=2\nprint(x+4)"}),
             "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
         ])
         result = run_experimental_tir(
