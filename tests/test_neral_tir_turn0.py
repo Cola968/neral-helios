@@ -359,7 +359,7 @@ class Turn0RouterDiagnosticRegression(unittest.TestCase):
         result = parse_extracted_constraints(QUESTION, packet(evidence=["unquoted"] * 3),
                                              rejection_reason_sink=errors)
         self.assertIsNone(result)
-        self.assertEqual(errors, ["evidence_invalid"])
+        self.assertEqual(errors, ["evidence_quote_invalid"])
         self.assertNotIn("unquoted", errors[0])
         errors = []
         self.assertIsNone(parse_extracted_constraints(
@@ -378,3 +378,111 @@ class Turn0RouterDiagnosticRegression(unittest.TestCase):
         self.assertEqual(out["tool_calls_succeeded"],0)
         self.assertEqual(out["verification_status"],"base_fallback_unverified")
         self.assertEqual(len(observed),1)
+
+class EvidenceFormatAndToolDirectiveContracts(unittest.TestCase):
+    """Synthetic CPU cases: the private GPU JSON was never retained."""
+
+    def test_source_quotes_allow_whitespace_and_terminal_punctuation_variations(self):
+        variants = [
+            "each   choose a number from 1 to 3",
+            "A must be smaller than B!",
+            "How many assignments are possible",
+        ]
+        rejections = []
+        self.assertEqual(parse_extracted_constraints(
+            QUESTION, packet(evidence=variants),
+            rejection_reason_sink=rejections), 3)
+        self.assertEqual(rejections, ["accepted"])
+
+    def test_three_conditions_can_share_one_source_grounded_quote(self):
+        question = ("A, B, C are Boolean variables. "
+                    "A XOR B must be True; B OR C must be True; "
+                    "A OR C must be True. "
+                    "How many assignments satisfy all conditions?")
+        tree = lambda op, x, y: {
+            "op": "eq",
+            "args": [{"op": op, "args": [x, y]}, True],
+        }
+        candidate = {
+            "kind": "formal", "complete": True,
+            "schema": {
+                "variables": {"A": [False, True], "B": [False, True],
+                              "C": [False, True]},
+                "rules": [], "bool_rules": [
+                    tree("xor", "A", "B"), tree("or", "B", "C"),
+                    tree("or", "A", "C"),
+                ], "query": "count",
+            },
+            "evidence": [
+                "A, B, C are Boolean variables",
+                "A XOR B must be True; B OR C must be True; A OR C must be True",
+                "How many assignments satisfy all conditions?",
+            ],
+        }
+        reasons = []
+        self.assertEqual(parse_extracted_constraints(
+            question, json.dumps(candidate, separators=(",", ":")),
+            rejection_reason_sink=reasons), 2)
+        self.assertEqual(reasons, ["accepted"])
+
+    def test_different_meaning_or_unquoted_paraphrase_is_still_rejected(self):
+        for evidence in (
+            ["each select a number between 1 and 3",
+             "A must be less than B", "How many assignments are possible?"],
+            ["each choose a number from 1 to 3",
+             "A must NOT be smaller than B", "How many assignments are possible?"],
+        ):
+            with self.subTest(evidence=evidence):
+                reasons = []
+                self.assertIsNone(parse_extracted_constraints(
+                    QUESTION, packet(evidence=evidence),
+                    rejection_reason_sink=reasons))
+                self.assertEqual(reasons, ["evidence_quote_invalid"])
+
+    def test_normalized_duplicate_and_missing_quotes_report_distinct_codes(self):
+        cases = (
+            (["A must be smaller than B",
+              "A must be smaller than B.",
+              "How many assignments are possible?"], "evidence_duplicate"),
+            (EVIDENCE[:1], "evidence_count_invalid"),
+            (["tiny", "A must be smaller than B",
+              "How many assignments are possible?"], "evidence_quote_invalid"),
+        )
+        for evidence, expected in cases:
+            with self.subTest(expected=expected):
+                reasons = []
+                self.assertIsNone(parse_extracted_constraints(
+                    QUESTION, packet(evidence=evidence),
+                    rejection_reason_sink=reasons))
+                self.assertEqual(reasons, [expected])
+
+    def test_none_handoff_explicitly_requires_python_sandbox_for_code_tasks(self):
+        original = messages(
+            "What exact integer does this local Python program print?\\n"
+            "data=[2,3]\\nprint(sum(data))")
+        observed = []
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(sum([2,3]))"}',
+            "NERAL_FINAL_TEXT: 5",
+        ])
+        def respond(turns):
+            observed.append([dict(x) for x in turns])
+            return next(replies)
+        executed = []
+        def tool(tool_name, code):
+            executed.append((tool_name, code))
+            return {"status": "PASSED", "output": "5",
+                    "verification_scope": "execution_only"}
+        result = run_experimental_tir(
+            original, respond, extract_constraints=lambda _: '{"kind":"none"}',
+            tool_runner=tool)
+        self.assertEqual(result["text"], "5")
+        self.assertEqual(result["tool_calls_succeeded"], 1)
+        self.assertEqual(executed, [("python_sandbox", "print(sum([2,3]))")])
+        directive = observed[0][0]["content"]
+        self.assertIn("CONSTRAINT EXTRACTOR ABSTAINED", directive)
+        self.assertIn("python_sandbox", directive)
+        self.assertIn("MUST", directive)
+        self.assertIn("before", directive.lower())
+        self.assertNotIn("CONSTRAINT EXTRACTOR ABSTAINED",
+                         observed[1][0]["content"].replace("SANDBOX_OBSERVATION", ""))
