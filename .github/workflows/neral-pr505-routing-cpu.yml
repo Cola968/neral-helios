@@ -24,6 +24,26 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
       - name: Structural routing and syntax
         run: python -B -m unittest discover -s tests -p test_neral_tir_structural.py -v
+      - name: CPU contract DirectUserSourceCPU.test_direct_original_code_no_model_rewrite
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_direct_original_code_no_model_rewrite
+      - name: CPU contract DirectUserSourceCPU.test_fix_request_must_not_run_original_code_as_solution
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_fix_request_must_not_run_original_code_as_solution
+      - name: CPU contract DirectUserSourceCPU.test_never_auto_execute_unsafe_or_ambiguous_source
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_never_auto_execute_unsafe_or_ambiguous_source
+      - name: CPU contract DirectUserSourceCPU.test_sandbox_unavailable_fails_closed
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_sandbox_unavailable_fails_closed
+      - name: CPU contract DirectUserSourceCPU.test_terminal_fenced_python_runs_unchanged
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_terminal_fenced_python_runs_unchanged
+      - name: CPU contract OneTurnConstraintRepairCPU.test_malformed_retry_falls_back_unverified
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_malformed_retry_falls_back_unverified
+      - name: CPU contract OneTurnConstraintRepairCPU.test_multiple_assignments_count_not_blocked_by_one_solution_gate
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_multiple_assignments_count_not_blocked_by_one_solution_gate
+      - name: CPU contract OneTurnConstraintRepairCPU.test_no_retry_on_unrelated_parser_failure
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_no_retry_on_unrelated_parser_failure
+      - name: CPU contract OneTurnConstraintRepairCPU.test_only_one_retry_even_if_retry_is_unsat
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_only_one_retry_even_if_retry_is_unsat
+      - name: CPU contract OneTurnConstraintRepairCPU.test_unsat_feedback_one_retry_and_solver_result
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_unsat_feedback_one_retry_and_solver_result
       - name: PR533 compound direct source and one-turn solver repair CPU
         run: python -B -m unittest discover -s tests -p test_neral_pr533_compound_controller_cpu.py -v
       - name: PR533 deeper singleton UNSAT and Expr diagnostics
