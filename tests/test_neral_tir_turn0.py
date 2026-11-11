@@ -1338,3 +1338,178 @@ class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
             tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
         self.assertFalse(result["verified"])
         self.assertNotEqual(result.get("review_method"), "exact_user_ast_match")
+
+
+class CpuAutoBooleanDeclarationAndReviewReason(unittest.TestCase):
+    """CPU-only regression on source-grounded Boolean declarations and safe review reasons."""
+
+    @staticmethod
+    def seven_case():
+        question = (
+            "Let A,B,C,D,E,F,G be Boolean variables. "
+            "Count the assignments satisfying (A XOR C XOR F) is True; "
+            "(B OR D) is True; E = NOT F; (A AND G) is False; "
+            "C implies G. Return one integer."
+        )
+        schema = {
+            "variables": [{"name": name, "domain": [False, True]}
+                          for name in "ABCDEF"],
+            "rules": [],
+            "bool_rules": [
+                {"op": "xor", "args": ["A", "C", "F"]},
+                {"op": "or", "args": ["B", "D"]},
+                {"op": "eq", "args": ["E", {"op": "not", "args": ["F"]}]},
+                {"op": "not", "args": [{"op": "and", "args": ["A", "G"]}]},
+                {"op": "implies", "args": ["C", "G"]},
+            ],
+            "query": "count",
+        }
+        evidence = [
+            "Let A,B,C,D,E,F,G be Boolean variables",
+            "(A XOR C XOR F) is True",
+            "(B OR D) is True",
+            "E = NOT F",
+            "(A AND G) is False",
+            "C implies G",
+            "Return one integer",
+        ]
+        return question, schema, evidence
+
+    @staticmethod
+    def packet(schema, evidence):
+        return json.dumps(
+            {"kind": "formal", "complete": True,
+             "schema": schema, "evidence": evidence},
+            separators=(",", ":"),
+        )
+
+    def test_missing_seventh_boolean_declared_in_source_is_registered(self):
+        q, schema, evidence = self.seven_case()
+        reasons, details = [], []
+        answer = parse_extracted_constraints(
+            q, self.packet(schema, evidence),
+            rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details)
+        from copy import deepcopy
+        complete = deepcopy(schema)
+        complete["variables"].append({"name": "G", "domain": [False, True]})
+        baseline = parse_extracted_constraints(
+            q, self.packet(complete, evidence))
+        self.assertIsInstance(baseline, int)
+        self.assertEqual(answer, baseline)
+        self.assertEqual(reasons, ["accepted"])
+        self.assertEqual(details, [])
+
+    def test_unknown_eighth_identifier_not_in_source_is_not_auto_declared(self):
+        q, schema, evidence = self.seven_case()
+        schema["bool_rules"][0]["args"][-1] = "H"
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            q, self.packet(schema, evidence),
+            rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["completely_undeclared_name"])
+
+    def test_reserved_operator_identifier_is_not_auto_declared(self):
+        q, schema, evidence = self.seven_case()
+        # Even when the source mentions an operator, it is not a variable.
+        q += " AND is a logical connective."
+        schema["bool_rules"][0]["args"][-1] = "AND"
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            q, self.packet(schema, evidence),
+            rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["completely_undeclared_name"])
+
+    def test_numeric_relation_context_prevents_boolean_auto_declare(self):
+        q, schema, evidence = self.seven_case()
+        q += " G must be less than F."
+        evidence.append("G must be less than F")
+        schema["rules"].append({"left": "G", "op": "<", "right": "F"})
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            q, self.packet(schema, evidence),
+            rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertNotEqual(reasons, ["accepted"])
+
+    def test_eight_variable_hard_limit_not_bypassed(self):
+        q, schema, evidence = self.seven_case()
+        q = q.replace("A,B,C,D,E,F,G", "A,B,C,D,E,F,G,H,I")
+        q = q.replace("C implies G", "C implies G; H XOR I is True")
+        evidence = [e.replace("A,B,C,D,E,F,G", "A,B,C,D,E,F,G,H,I")
+                    .replace("C implies G", "C implies G; H XOR I is True")
+                    for e in evidence]
+        schema["bool_rules"].append({"op": "xor", "args": ["H", "I"]})
+        reasons = []
+        self.assertIsNone(parse_extracted_constraints(
+            q, self.packet(schema, evidence),
+            rejection_reason_sink=reasons))
+        self.assertNotEqual(reasons, ["accepted"])
+
+    @staticmethod
+    def review(question, code, result, suffix=True):
+        responses = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: " + result
+            if suffix else "NERAL_FINAL_TEXT: " + result,
+        ])
+        return run_experimental_tir(
+            messages(question + (SUFFIX if suffix else "")),
+            lambda _: next(responses),
+            tool_runner=lambda *_: {"status": "PASSED", "output": result},
+        )
+
+    def test_source_absent_reason_visible_on_successful_review(self):
+        out = self.review(
+            "What exact integer does this Python program print? print(2+3)",
+            "print(2+3)", "5",
+        )
+        self.assertTrue(out["tool_output_reviewed"])
+        self.assertFalse(out["verified"])
+        self.assertEqual(out["review_match_reason"], "user_source_not_extracted")
+
+    def test_user_code_parse_reason_is_distinct(self):
+        out = self.review(
+            "What exact integer does this Python program print:\n"
+            "for x in :\n    print(x)",
+            "print(5)", "5",
+        )
+        self.assertFalse(out["verified"])
+        self.assertEqual(out["review_match_reason"], "user_code_parse_error")
+
+    def test_executed_code_parse_reason_is_distinct(self):
+        out = self.review(
+            "What exact integer does this Python program print:\nprint(5)",
+            "print(", "5",
+        )
+        self.assertFalse(out["verified"])
+        self.assertEqual(out["review_match_reason"], "executed_code_parse_error")
+
+    def test_ast_structure_mismatch_reason_is_distinct(self):
+        out = self.review(
+            "What exact integer does this Python program print:\nprint(5)",
+            "print(6)", "6",
+        )
+        self.assertFalse(out["verified"])
+        self.assertEqual(out["review_match_reason"], "ast_structure_mismatch")
+
+    def test_matching_ast_keeps_verified_and_exact_user_ast_match(self):
+        out = self.review(
+            "What exact integer does this Python program print:\n"
+            "values = [1,2]\nprint(sum(values))",
+            "# comment\nvalues=[1, 2]\nprint( sum(values) )", "3",
+        )
+        self.assertTrue(out["verified"])
+        self.assertEqual(out["verification_status"], "verified")
+        self.assertEqual(out["review_method"], "exact_user_ast_match")
+        self.assertTrue(out["tool_output_reviewed"])
+
+    def test_fallback_review_reason_does_not_leak_input_text(self):
+        q = "What exact integer does this Python program print: secret_417?"
+        out = self.review(q, "print(5)", "5")
+        self.assertNotIn("secret_417", str(out.get("review_match_reason")))
