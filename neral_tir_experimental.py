@@ -224,6 +224,7 @@ def run_experimental_tir(
     first_turn_diagnostic: Callable[[], dict] | None = None,
     extract_constraints: Callable[[list[dict]], str] | None = None,
     extraction_rejection_sink: list[str] | None = None,
+    solver_rejection_detail_sink: list[str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Bounded tool -> observation -> final, or raw-Qwen fallback.
@@ -241,7 +242,9 @@ def run_experimental_tir(
             or (first_turn_diagnostic is not None and not callable(first_turn_diagnostic))
             or (extract_constraints is not None and not callable(extract_constraints))
             or (extraction_rejection_sink is not None
-                and type(extraction_rejection_sink) is not list)):
+                and type(extraction_rejection_sink) is not list)
+            or (solver_rejection_detail_sink is not None
+                and type(solver_rejection_detail_sink) is not list)):
         raise ValueError("Invalid experimental TIR input")
     initial = clock()
     original = [dict(row) for row in messages]
@@ -281,6 +284,7 @@ def run_experimental_tir(
         turns[-1]["content"] = core
     turns[0]["content"] += _PROMPT
     calls = triggered = succeeded = 0
+    tool_used = None  # Persist only successfully executed tool provenance.
     first_turn_telemetry = {
         "eval_count": None, "prompt_eval_count": None,
         "done_reason": None, "decision": "unstructured",
@@ -321,6 +325,8 @@ def run_experimental_tir(
             "verification_scope": "none", "calls_used": calls,
             "tool_calls_triggered": triggered,
             "tool_calls_succeeded": succeeded,
+            "tool_used": tool_used if succeeded else None,
+            "tool_output_reviewed": False,  # Fallback answer did not review it.
             "first_turn_telemetry": first_turn_telemetry,
             "seconds": round(clock() - initial, 3),
         }
@@ -341,8 +347,11 @@ def run_experimental_tir(
         except Exception:
             proposed = None  # Includes truncated JSON; never execute fragments.
         rejection = extraction_rejection_sink if extraction_rejection_sink is not None else []
+        solver_details = (solver_rejection_detail_sink
+                          if solver_rejection_detail_sink is not None else [])
         solved = parse_extracted_constraints(
-            core, proposed, rejection_reason_sink=rejection)
+            core, proposed, rejection_reason_sink=rejection,
+            solver_rejection_detail_sink=solver_details)
         reason = rejection[-1] if rejection else None
         first_turn_telemetry = capture_first_turn(
             "extracted_formal" if solved is not None else
@@ -351,6 +360,10 @@ def run_experimental_tir(
         # Only fixed rejection labels; raw JSON and user text stay private.
         if reason is not None:
             first_turn_telemetry["extraction_rejection_reason"] = reason
+        if solver_details:
+            from neral_turn0_extractor import SOLVER_REJECTION_DETAIL_CODES
+            if solver_details[-1] in SOLVER_REJECTION_DETAIL_CODES:
+                first_turn_telemetry["solver_rejection_detail"] = solver_details[-1]
         if solved is None:
             if reason != "kind_none":
                 fallback = base_fallback()
@@ -401,7 +414,7 @@ def run_experimental_tir(
 
     tool, code = parsed
     triggered = 1
-    tool_used = "neral_math_exact" if tool == "solve" else "neral_python_sandbox"
+    tool_candidate = "neral_math_exact" if tool == "solve" else "neral_python_sandbox"
     try:
         result = tool_runner(tool, code)
     except Exception:
@@ -417,6 +430,7 @@ def run_experimental_tir(
                    for c in stdout + stderr)):
         return base_fallback()
     succeeded = 1
+    tool_used = tool_candidate
     scope = result.get("verification_scope", "execution_only")
     if type(scope) is not str or len(scope) > 80:
         scope = "execution_only"
