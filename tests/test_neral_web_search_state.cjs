@@ -64,3 +64,19 @@ test("plain imperative Suche nach ... requires Web consent, not a model refusal"
   assert.match(elements.error.textContent,/Web.*aktivier|aktivier.*Web/i);
   assert.equal(elements.prompt.value,question);
 });
+
+test("stale Qwen refusal is replaced only after a real search, including 'externe Websuche'",()=>{
+  const src=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=src.indexOf("  function normaliseSearchRefusal(");
+  const end=src.indexOf("  function relevantSearchResult(",start);
+  const clean=vm.runInNewContext(src.slice(start,end)+"\nnormaliseSearchRefusal");
+  const first="Ich habe eine interne Suche durchgeführt. Da keine externe Websuche oder Dateizugriff in diesem Chat aktiv ist, basiert diese Antwort auf meinem trainierten Wissen.";
+  const second="Ich kann keine externe Websuche durchführen oder aktuelle Daten aus dem Internet abrufen, da dafür notwendige Werkzeuge nicht verfügbar sind.";
+  for(const sentence of [first,second]){
+    assert.doesNotMatch(clean(sentence,2,true),/keine externe Websuche/i);
+    assert.match(clean(sentence,2,true),/2 erreichbare Treffer/);
+    assert.equal(clean(sentence,2,false),sentence,
+      "Never rewrite a genuine offline response without a completed web search");
+  }
+  assert.match(clean(second,0,true),/keine passenden erreichbaren Treffer/i);
+});
