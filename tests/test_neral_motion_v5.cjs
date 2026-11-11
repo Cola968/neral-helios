@@ -41,7 +41,8 @@ test("only confirmed live search results may be injected or displayed",()=>{
   const js=read("static/neral-preview.js");
   assert.match(js,/verify_links:\s*true/);
   assert.match(js,/hit\.reachable===true/);
-  assert.match(js,/appendSources\(answerNode,sources\)/);
+  assert.match(js,/if\(webAttempted\)appendSources\(answerNode,sources,true\)/);
+  assert.match(js,/if\(source\?\.reachable!==true/);
   assert.doesNotMatch(js,/if\(sources\.length\)appendSources\(sources\)/);
 });
 
