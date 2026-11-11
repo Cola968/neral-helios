@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Refuse if #505 changed or HIGH parent mismatch
         shell: bash
@@ -42,12 +42,12 @@ jobs:
       TRANSFORMERS_OFFLINE: '1'
       HF_DATASETS_OFFLINE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout EXACT PR #505 candidate without changing its SHA
         uses: actions/checkout@v4
         with:
-          ref: \${{ env.TARGET_SHA }}
+          ref: ${{ env.TARGET_SHA }}
           persist-credentials: false
           fetch-depth: 0
       - name: Verify candidate, local Docker, Ollama, and idle GPU
@@ -117,6 +117,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: neral-pr505-one-logic-gated-tir12-scalars
-          path: \${{ runner.temp }}/neral-tir12-after-smoke-\${{ github.run_id }}/summary.json
+          path: ${{ runner.temp }}/neral-tir12-after-smoke-${{ github.run_id }}/summary.json
           retention-days: 14
           if-no-files-found: ignore
