@@ -61,6 +61,11 @@ _SAFE_SOLVER_REJECTIONS = {
 SOLVER_REJECTION_DETAIL_CODES = frozenset(
     reason for _, reason in _SAFE_SOLVER_REJECTIONS.values()
 )
+# More specific Boolean leaf categories; all are fixed scalar-only labels.
+SOLVER_REJECTION_DETAIL_CODES = SOLVER_REJECTION_DETAIL_CODES | frozenset({
+    "missing_boolean_declaration", "non_boolean_domain",
+    "unknown_boolean_reference",
+})
 
 
 def _source_quote_key(text: str) -> str:
@@ -135,6 +140,49 @@ def _boolean_ast_references(bool_rules: list) -> set[str] | None:
     if type(bool_rules) is not list or len(bool_rules) > 32:
         return None
     return seen if all(visit(node, 0) for node in bool_rules) else None
+
+
+def _first_boolean_leaf_rejection(question: str, schema: dict) -> str | None:
+    """Identify the first invalid AST leaf without exposing its identifier.
+
+    This mirrors the finite solver's depth-first left-to-right leaf traversal.
+    It is diagnostic only: it cannot repair or authorize the formal schema.
+    Source-enumerated but absent identifiers are missing declarations;
+    unrecognized aliases/typos are unknown references. No fuzzy matching.
+    """
+    if type(schema) is not dict:
+        return None
+    variables = schema.get("variables")
+    trees = schema.get("bool_rules")
+    if type(variables) is not dict or type(trees) is not list:
+        return None
+    known_source = _explicit_boolean_names(question)
+    # Explicit bounded traversal; no executable model code or logs.
+    stack = [(node, 0) for node in reversed(trees)]
+    checked = 0
+    while stack:
+        node, depth = stack.pop()
+        checked += 1
+        if checked > 128 or depth > 5:
+            return None
+        if type(node) is bool:
+            continue
+        if type(node) is str:
+            if node not in variables:
+                return ("missing_boolean_declaration"
+                        if node in known_source else "unknown_boolean_reference")
+            domain = variables[node]
+            if (type(domain) is not list or not domain
+                    or any(type(value) is not bool for value in domain)):
+                return "non_boolean_domain"
+            continue
+        if type(node) is not dict:
+            return None
+        args = node.get("args")
+        if type(args) is not list or len(args) > 8:
+            return None
+        stack.extend((child, depth + 1) for child in reversed(args))
+    return None
 
 
 def _infer_source_boolean_domains(question: str, schema: dict) -> dict:
@@ -455,6 +503,10 @@ def parse_extracted_constraints(question: str, generated: str, *,
         if safe is None:
             return reject("solver_rejected")
         category, detail = safe
+        if detail == "boolean_variable_type":
+            refined = _first_boolean_leaf_rejection(question, schema)
+            if refined in SOLVER_REJECTION_DETAIL_CODES:
+                detail = refined
         if type(solver_rejection_detail_sink) is list:
             solver_rejection_detail_sink.append(detail)
         return reject(category)
