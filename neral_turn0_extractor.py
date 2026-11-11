@@ -23,6 +23,7 @@ EXTRACTION_RESULT_CODES = frozenset({
     "evidence_duplicate", "solver_rejected", "solver_no_integer", "accepted",
     "solver_syntax_error", "solver_type_error", "solver_unsupported_constraint",
     "solver_bounds_exceeded", "solver_schema_error",
+    "solver_unsat_fallback",
 })
 
 
@@ -574,10 +575,53 @@ def extraction_response_format(question: str) -> dict:
     return {**result, "$defs": definitions}
 
 
+# Diagnostic counts are only syntactic hints; evidence spans are not
+# guaranteed to correspond one-to-one with actual source conditions.
+def _expected_semicolon_clues(question: str) -> int | None:
+    """Count explicitly separated clauses only in an unambiguous ALL block."""
+    match = re.search(r"\\bsatisfy\\s+ALL\\s*:\\s*(.*?)(?:\\?\\s*Return\\b|\\?\\s*$)",
+                      question, re.I | re.S)
+    if not match:
+        return None
+    clues = [part.strip() for part in match.group(1).split(";")]
+    if (not 2 <= len(clues) <= 32
+            or any(not 3 <= len(part) <= 200 for part in clues)):
+        return None
+    return len(clues)
+
+
+def _boolean_literal_context(schema: dict) -> str | None:
+    """Classify only AST structure; never expose generated variable tokens."""
+    trees = schema.get("bool_rules", [])
+    if type(trees) is not list or len(trees) > 32:
+        return None
+    seen: set[str] = set()
+    walked = [0]
+
+    def visit(node, parent: str | None, depth: int):
+        walked[0] += 1
+        if walked[0] > 128 or depth > 5:
+            return
+        if type(node) is bool:
+            seen.add(parent if parent in ("at_least", "exactly", "eq")
+                     else "standalone" if parent is None else "other")
+            return
+        if type(node) is dict and type(node.get("args")) is list:
+            if type(node.get("op")) is not str:
+                return
+            for child in node["args"][:8]:
+                visit(child, node["op"], depth + 1)
+
+    for expr in trees:
+        visit(expr, None, 0)
+    return ("multiple" if len(seen) > 1 else next(iter(seen), None))
+
+
 def parse_extracted_constraints(question: str, generated: str, *,
                                 rejection_reason_sink: list[str] | None = None,
                                 solver_rejection_detail_sink: list[str] | None = None,
-                                ast_check_code_sink: list[str] | None = None) -> int | None:
+                                ast_check_code_sink: list[str] | None = None,
+                                structural_telemetry_sink: list[dict] | None = None) -> int | None:
     """Return schema-only exact result, None on any uncertainty/malformed output.
 
     Even a successful number is *unverified against the natural language*.
@@ -687,6 +731,24 @@ def parse_extracted_constraints(question: str, generated: str, *,
     schema = _canonicalize_boolean_ast_names(schema)
     schema = _normalize_boolean_leaf_tokens(question, schema, ast_check_code_sink)
     schema = _infer_source_boolean_domains(question, schema)
+    extracted_count = (len(schema.get("rules", []))
+                       + len(schema.get("bool_rules", []))
+                       + len(schema.get("all_different", [])))
+    clue_count = _expected_semicolon_clues(question)
+    literal_context = _boolean_literal_context(schema)
+
+    def record_solver_bucket(value: int) -> None:
+        # Scalar-only diagnostics, not a semantic accuracy certificate.
+        if type(structural_telemetry_sink) is list:
+            structural_telemetry_sink.append({
+                "solver_solution_count_bucket": (
+                    "zero_unsat" if value == 0 else
+                    "single_solution" if value == 1 else "multiple_solutions"),
+                "extracted_constraint_count": (
+                    extracted_count if 0 <= extracted_count <= 32 else None),
+                "expected_sentence_clues": clue_count,
+                "boolean_literal_context": literal_context,
+            })
     try:
         numeric = try_solve_formal_constraints(
             PREFIX + json.dumps(schema, ensure_ascii=False,
@@ -708,4 +770,12 @@ def parse_extracted_constraints(question: str, generated: str, *,
         # Unrecognized runtime errors are deliberately not turned into
         # fabricated solver categories or exposed through exception text.
         return reject("solver_rejected")
-    return accept() if type(numeric) is int else reject("solver_no_integer")
+    if type(numeric) is not int:
+        return reject("solver_no_integer")
+    record_solver_bucket(numeric)
+    # Inferred zero is mathematically valid for the proposed schema but it
+    # cannot prove that the language-to-schema translation is correct.
+    # Fail closed into the existing unverified raw-model fallback.
+    if numeric == 0:
+        return reject("solver_unsat_fallback")
+    return accept()
