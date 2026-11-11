@@ -158,27 +158,27 @@ class ScalarRejectionOnLaterTokenLimit(unittest.TestCase):
         from unittest.mock import patch
         from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
         from neral_preview_server import create_preview_app
-        class Fake(OllamaLocalBackend):
-            def unload(self):
-                return None
-            def respond_formal_extract(self, turns):
-                self.last_inference_diagnostic = {
-                    "eval_count": 287, "prompt_eval_count": 800,
-                    "done_reason": "stop",
-                    "content": "PRIVATE_MODEL_JSON_NOT_AUDITED"}
-                return '{"kind":"formal","complete":true}'
-            def respond_chat(self, turns):
-                raise OllamaCompletionError("token_limit")
-            def respond_think(self, turns):
-                return self.respond_chat(turns)
-        low = Fake("qwen3:8b")
-        high = Fake("qwen3.5:9b",
-                    inference_profile="measured_nonthinking_2048")
+
+        def fake_extract(backend, turns):
+            backend.last_inference_diagnostic = {
+                "eval_count": 287, "prompt_eval_count": 800,
+                "done_reason": "stop", "content": "PRIVATE_MODEL_JSON_NOT_AUDITED"}
+            return '{"kind":"formal","complete":true}'
+
+        def fake_chat(backend, turns):
+            raise OllamaCompletionError("token_limit")
+
+        low = OllamaLocalBackend("qwen3:8b")
+        high = OllamaLocalBackend("qwen3.5:9b",
+                                 inference_profile="measured_nonthinking_2048")
         client = create_preview_app(low, experimental_high_backend=high).test_client()
         client.get("/", base_url="http://127.0.0.1:9690")
         session = client.get("/api/neral/preview/session",
                              base_url="http://127.0.0.1:9690")
-        with patch.dict("os.environ",{"NERAL_EXPERIMENTAL_TIR":"1"}):
+        with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "1"}), patch.object(
+                OllamaLocalBackend, "respond_formal_extract", fake_extract), patch.object(
+                OllamaLocalBackend, "respond_chat", fake_chat), patch(
+                "neral_local_chat_api.prepare_model", lambda *_: None):
             response = client.post("/api/neral/chat/think",
                 json={"prompt": "Count complete arrangements subject to constraints.",
                       "experimental_tir": True},
