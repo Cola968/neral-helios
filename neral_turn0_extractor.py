@@ -579,7 +579,7 @@ def extraction_response_format(question: str) -> dict:
 # guaranteed to correspond one-to-one with actual source conditions.
 def _expected_semicolon_clues(question: str) -> int | None:
     """Count explicitly separated clauses only in an unambiguous ALL block."""
-    match = re.search(r"\\bsatisfy\\s+ALL\\s*:\\s*(.*?)(?:\\?\\s*Return\\b|\\?\\s*$)",
+    match = re.search(r"\bsatisfy\s+ALL\s*:\s*(.*?)(?:\?\s*Return\b|\?\s*$)",
                       question, re.I | re.S)
     if not match:
         return None
