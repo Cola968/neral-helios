@@ -523,8 +523,12 @@ def run_experimental_tir(
               "correctness proof. If the observation is insufficient, reply "
               "NERAL_FINAL_TEXT: UNVERIFIED. Otherwise reply with "
               "NERAL_FINAL_TEXT: followed by the final user-facing answer. "
-            + ("Your final content MUST be exactly FINAL_ANSWER: <integer>."
+            + ("For the requested final integer the COMPLETE response MUST "
+               "be NERAL_FINAL_TEXT: FINAL_ANSWER: <integer>, never a bare "
+               "FINAL_ANSWER: value. Do not repeat the tool packet."
                if suffix else
+               "For integer-answer requests the envelope is "
+               "NERAL_FINAL_TEXT: FINAL_ANSWER: <integer>. "
                "Do not repeat the tool packet, observation or raw stdout.")
         }
     ]
@@ -553,6 +557,21 @@ def run_experimental_tir(
         return base_fallback()
     final = _accepted_final(final_raw, strict_integer=bool(suffix))
     if final is None or final == "UNVERIFIED":
+        exact = _exact_source_python_answer(
+            core, tool, code, stdout, stderr, strict_integer=bool(suffix))
+        if exact is not None:
+            return {
+                "text": exact, "mode": "HIGH", "model_generated": False,
+                "verified": True, "verification_status": "verified",
+                "verification_scope": "exact_user_python_execution",
+                "tool_used": tool_used, "tool_output_reviewed": True,
+                "review_method": "deterministic_source_identity",
+                "calls_used": calls, "completion_recovery_used": recovered_final,
+                "tool_calls_triggered": triggered,
+                "tool_calls_succeeded": succeeded,
+                "first_turn_telemetry": first_turn_telemetry,
+                "seconds": round(clock() - initial, 3),
+            }
         return base_fallback()
     return {
         "text": final, "mode": "HIGH", "model_generated": True,
