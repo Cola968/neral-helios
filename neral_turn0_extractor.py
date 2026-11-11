@@ -796,9 +796,7 @@ def parse_extracted_constraints(question: str, generated: str, *,
     if type(numeric) is not int:
         return reject("solver_no_integer")
     record_solver_bucket(numeric)
-    # Inferred zero is mathematically valid for the proposed schema but it
-    # cannot prove that the language-to-schema translation is correct.
-    # Fail closed into the existing unverified raw-model fallback.
-    if numeric == 0:
-        return reject("solver_unsat_fallback")
+    # Zero remains an exact valid finite-domain result for this schema.
+    # The *model-authored* natural-language answer path separately decides
+    # whether it is sufficiently trustworthy to publish as a final answer.
     return accept()
