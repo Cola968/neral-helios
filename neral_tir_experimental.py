@@ -237,7 +237,7 @@ def _exact_source_python_answer(
         source = fenced.group("code")
         intro = question[:fenced.start()]
     else:
-        intro, sep, source = question.rpartition(":\n")
+        intro, sep, source = question.partition(":\n")
         if not sep:
             return None
     # This is an answer-verification gate, NEVER a benchmark-specific route.
