@@ -70,6 +70,11 @@ class TwoTaskGate(unittest.TestCase):
     def test_review_reason_is_whitelisted_scalar_only(self):
         self.assertEqual(safe_review_reason("ast_structure_mismatch"),
                          "ast_structure_mismatch")
+        for category in ("extra_trailing_statements",
+                         "leading_setup_statements",
+                         "body_statement_modified", "function_wrapped"):
+            with self.subTest(category=category):
+                self.assertEqual(safe_review_reason(category), category)
         for bad in ("CUSTOM_PRIVATE_USER_CODE", {"secret": "payload"}, ["bad"], 12):
             self.assertIsNone(safe_review_reason(bad))
 
