@@ -1,7 +1,9 @@
 """CPU-only gate contracts for the isolated PR533 GPU diagnostic."""
 import unittest
 from scripts.neral_pr533_two_case_gpu import (evaluate_two_case_gate, safe_review_reason,
-                                           safe_ast_diff_node)
+                                           safe_ast_diff_node,
+                                           safe_ast_diff_expr_type,
+                                           safe_ast_diff_scalars)
 
 
 def a(**overrides):
@@ -104,6 +106,34 @@ class TwoTaskGate(unittest.TestCase):
                 self.assertEqual(safe_ast_diff_node(token), token)
         for token in ("secrets", "<script>", {"code": "private"}, True):
             self.assertIsNone(safe_ast_diff_node(token))
+
+    def test_safely_export_ast_expr_pair_and_bounded_statement_positions(self):
+        packet = {
+            "ast_diff_expr_type": "Call_vs_Subscript",
+            "ast_diff_statement_index": 5,
+            "user_stmt_count": 8,
+            "exec_stmt_count": 9,
+        }
+        self.assertEqual(safe_ast_diff_scalars(packet), packet)
+        self.assertEqual(safe_ast_diff_expr_type("Name_vs_BinOp"),
+                         "Name_vs_BinOp")
+        for invalid in (
+            "Call_vs_Assign", "Call_vs_<private>", "Secret_vs_Call",
+            "Call_v_Call", "A"*200, True, {"code":"private"}
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertIsNone(safe_ast_diff_expr_type(invalid))
+                self.assertEqual(
+                    safe_ast_diff_scalars({**packet,
+                                           "ast_diff_expr_type": invalid}), {})
+        for invalid in (True, -1, 129, "5"):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(
+                    safe_ast_diff_scalars({**packet,
+                                           "ast_diff_statement_index": invalid}),
+                    {})
+        self.assertEqual(safe_ast_diff_scalars(
+            {**packet, "ast_diff_statement_index": 10}), {})
 
     def test_review_reason_is_whitelisted_scalar_only(self):
         self.assertEqual(safe_review_reason("ast_structure_mismatch"),
