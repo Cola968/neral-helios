@@ -64,6 +64,58 @@ class OneStepRelaxationCPU(unittest.TestCase):
         self.assertEqual(events[0]["solver_relaxation_status"],
                          "no_ungrounded_literal")
 
+    def test_nested_conjunction_is_only_flattened_for_single_drop(self):
+        events = []
+        candidate = propose(
+            {"op":"and","args":[OR,B_FALSE,A_FALSE]}, LITERAL)
+        self.assertEqual(parse_extracted_constraints(
+            Q, candidate, structural_telemetry_sink=events), 0)
+        self.assertEqual(events[0]["solver_relaxation_status"],
+                         "single_candidate")
+
+    def test_two_unsupported_conflicting_literals_are_ambiguous(self):
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A OR B is True; B can be True or False? Return one integer.")
+        data = json.dumps({
+            "kind":"formal","complete":True,
+            "schema":{"variables":{"A":[False,True],"B":[False,True]},
+                      "rules":[],"bool_rules":[
+                          OR,
+                          {"op":"eq","args":["A", True]},
+                          {"op":"eq","args":["A", False]},
+                          LITERAL],
+                      "query":"count"},
+            "evidence":["How many Boolean assignments to A,B",
+                        "A OR B is True", "B can be True or False",
+                        "Return one integer"]})
+        events = []
+        self.assertEqual(parse_extracted_constraints(
+            q, data, structural_telemetry_sink=events), 0)
+        self.assertEqual(events[0]["solver_relaxation_status"],
+                         "ambiguous_candidates")
+        self.assertNotIn("solver_relaxation_count_bucket", events[0])
+
+    def test_two_drops_required_never_relax_as_one_step(self):
+        events = []
+        self.assertEqual(parse_extracted_constraints(
+            Q, propose(OR,B_FALSE,A_FALSE,A_FALSE,LITERAL),
+            structural_telemetry_sink=events), 0)
+        self.assertEqual(events[0]["solver_relaxation_status"],
+                         "no_positive_single_drop")
+
+    def test_safe_telemetry_exports_only_fixed_relaxation_categories(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        event = {"decision":"extraction_fallback",
+                 "done_reason":"stop", "eval_count":302,
+                 "prompt_eval_count":864,
+                 "solver_solution_count_bucket":"zero_unsat",
+                 "solver_relaxation_status":"single_candidate",
+                 "solver_relaxation_count_bucket":"single_solution"}
+        self.assertEqual(safe_first_turn_event(event)["solver_relaxation_status"],
+                         "single_candidate")
+        event["solver_relaxation_status"] = "private source leak"
+        self.assertIsNone(safe_first_turn_event(event))
+
     def test_raw_baseline_fallback_remains_unverified_even_with_candidate(self):
         responses=[]
         result=run_experimental_tir(
