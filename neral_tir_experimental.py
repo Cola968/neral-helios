@@ -219,6 +219,8 @@ _PYTHON_AST_REVIEW_CODES = frozenset({
     "python_no_eligible_execution", "user_source_not_extracted",
     "python_question_not_output", "user_code_parse_error",
     "executed_code_parse_error", "ast_structure_mismatch",
+    "extra_trailing_statements", "leading_setup_statements",
+    "body_statement_modified", "function_wrapped",
     "python_unsupported_ast",
     "python_unsupported_calls", "python_not_single_final_print",
 })
@@ -312,6 +314,44 @@ def _terminal_print_only_equivalence(original, executed) -> bool:
         return False
     return same(final.value.args[0], ast.Name(id=alias, ctx=ast.Load()))
 
+def _ast_structural_mismatch_code(original, executed) -> str:
+    """Privacy-safe cause of a failed ordered AST identity check.
+
+    Classifying a source subtree is not proof of equivalent execution;
+    source-preservation verification remains strict and fail closed.
+    """
+    import ast
+
+    def same(a, b):
+        return ast.dump(a, include_attributes=False) == ast.dump(
+            b, include_attributes=False)
+
+    original_body = original.body
+    executed_body = executed.body
+    if not original_body or not executed_body:
+        return "body_statement_modified"
+
+    def block_offset(body) -> int | None:
+        if len(body) < len(original_body):
+            return None
+        for offset in range(len(body) - len(original_body) + 1):
+            if all(same(x, y) for x, y in zip(
+                    original_body, body[offset:offset + len(original_body)])):
+                return offset
+        return None
+
+    for node in executed_body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if block_offset(node.body) is not None:
+                return "function_wrapped"
+
+    offset = block_offset(executed_body)
+    if offset is not None:
+        return ("leading_setup_statements" if offset > 0
+                else "extra_trailing_statements")
+    return "body_statement_modified"
+
+
 def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
         stderr: str, *, strict_integer: bool,
@@ -375,7 +415,7 @@ def _exact_source_python_answer(
     if (ast.dump(original, include_attributes=False) != ast.dump(
             executed, include_attributes=False)
             and not _terminal_print_only_equivalence(original, executed)):
-        return reject("ast_structure_mismatch")
+        return reject(_ast_structural_mismatch_code(original, executed))
     # Inspect the actually executed AST: a source with no print can still
     # have one safely appended final print after a proven AST-prefix match.
     nodes = list(ast.walk(executed))
