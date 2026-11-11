@@ -17,7 +17,7 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "3a2ac7fa268865990199cbf595ff214fcf1c6e64"
+TARGET_SHA = "176e3e96c77af2b1ae254297a89a3de052c81bd0"
 SEED = 202611110533
 
 
@@ -95,6 +95,16 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "http_status": status,
                 "answer_correct": bool(good),
                 "tool_used": packet.get("tool_used") if status == 200 else None,
+                "tool_output_reviewed": (packet.get("tool_output_reviewed")
+                                         if type(packet.get("tool_output_reviewed")) is bool
+                                         else None),
+                "verification_status": (packet.get("verification_status")
+                                        if packet.get("verification_status") in (
+                                            "base_fallback_unverified",
+                                            "tool_observed_unverified",
+                                            "model_extracted_schema_unverified",
+                                            "not_available", "final_after_length_unverified"
+                                        ) else None),
                 "tool_calls_triggered": started_count,
                 "tool_calls_succeeded": successful_count,
                 "first_turn_telemetry": first,
