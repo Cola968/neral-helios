@@ -800,13 +800,16 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
                 self.assertIsNone(answer)
                 self.assertNotEqual(reasons, ["accepted"])
 
+        # A unique case-only alias now deliberately canonicalizes to A.
         trial = deepcopy(schema)
         trial["bool_rules"][0]["args"][0]["args"][0] = "a"
         reasons = []
-        self.assertIsNone(parse_extracted_constraints(
+        expected = parse_extracted_constraints(
+            question, packet(schema=schema, evidence=evidence))
+        self.assertEqual(parse_extracted_constraints(
             question, packet(schema=trial, evidence=evidence),
-            rejection_reason_sink=reasons))
-        self.assertNotEqual(reasons, ["accepted"])
+            rejection_reason_sink=reasons), expected)
+        self.assertEqual(reasons, ["accepted"])
 
     def test_no_implicit_boolean_domain_without_explicit_source_declaration(self):
         question = ("How many assignments to A and B are possible? "
