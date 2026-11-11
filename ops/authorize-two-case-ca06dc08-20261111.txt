@@ -1,0 +1,1 @@
+User authorized exact 2-task GPU gate on RTX4070 for PR #533 commit ca06dc0801d67063829f0436b83ff5b144dd4d54, seed 202611110533, only once all 19 checks passed; conditional TIR12 only if both strict gates pass.
