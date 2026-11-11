@@ -17,7 +17,7 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "1f332020423daf4bf8034b98aa532f9ba0493cb6"
+TARGET_SHA = "8c212dd0ad91dfbee92d56f80fd77610a9b8257e"
 SEED = 202611110533
 
 
@@ -119,6 +119,18 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "review_method": (packet.get("review_method")
                                   if packet.get("review_method") ==
                                   "exact_user_ast_match" else None),
+                "review_match_reason": (packet.get("review_match_reason")
+                                        if packet.get("review_match_reason") in (
+                                            "user_source_not_extracted",
+                                            "user_code_parse_error",
+                                            "executed_code_parse_error",
+                                            "ast_structure_mismatch",
+                                            "python_no_eligible_execution",
+                                            "python_question_not_output",
+                                            "python_unsupported_ast",
+                                            "python_unsupported_calls",
+                                            "python_not_single_final_print",
+                                        ) else None),
                 "extraction_status": (packet.get("extraction_status")
                                       if packet.get("extraction_status") in (
                                           "accepted", "fallback") else None),
