@@ -989,3 +989,191 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
         self.assertTrue(result["tool_output_reviewed"])
         self.assertEqual(result["verification_status"], "tool_observed_unverified")
         self.assertFalse(result["verified"])
+
+
+class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
+    """Safe CPU-only replays; the private 374-token GPU proposal was not saved."""
+
+    @staticmethod
+    def _boolean_packet(question, variables, bool_rule, *, rules=None, evidence=None):
+        return json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {
+                "variables": variables, "rules": rules or [],
+                "bool_rules": [bool_rule], "query": "count",
+            },
+            "evidence": evidence or [
+                "How many Boolean assignments to A,B",
+                "A XOR B is True",
+                "Return one integer",
+            ],
+        }, separators=(",", ":"))
+
+    def test_bool_ast_unknown_typo_gets_scalar_unknown_boolean_reference(self):
+        question = ("How many Boolean assignments to A,B satisfy ALL: "
+                    "A XOR B is True? Return one integer.")
+        generated = self._boolean_packet(
+            question, {"A": [False, True], "B": [False, True]},
+            {"op": "xor", "args": ["A", "b"]},
+        )
+        reasons, details = [], []
+        actual = parse_extracted_constraints(
+            question, generated, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details)
+        self.assertIsNone(actual)
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["unknown_boolean_reference"])
+        self.assertNotIn('"b"', str(details))
+
+    def test_bool_ast_declared_non_boolean_domain_gets_scalar_type_code(self):
+        question = ("How many Boolean assignments to A,B satisfy ALL: "
+                    "A XOR B is True? Return one integer.")
+        generated = self._boolean_packet(
+            question, {"A": [False, True], "B": [1, 2]},
+            {"op": "xor", "args": ["A", "B"]},
+        )
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            question, generated, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["non_boolean_domain"])
+
+    def test_bool_ast_missing_declared_source_variable_after_safe_inference_refusal(self):
+        question = ("How many Boolean assignments to A,B,C satisfy ALL: "
+                    "A XOR B is True; C is less than 2; "
+                    "C AND A is True? Return one integer.")
+        generated = self._boolean_packet(
+            question, {"A": [False, True], "C": [1, 2]},
+            {"op": "and", "args": ["A", "B"]},
+            rules=[{"left": "C", "op": "<", "value": 2}],
+            evidence=[
+                "How many Boolean assignments to A,B,C",
+                "A XOR B is True",
+                "C is less than 2",
+                "C AND A is True",
+                "Return one integer",
+            ],
+        )
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            question, generated, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["missing_boolean_declaration"])
+
+    def test_bool_ast_existing_source_declared_missing_variable_still_auto_repairs(self):
+        question = ("How many Boolean assignments to A,B satisfy ALL: "
+                    "A XOR B is True? Return one integer.")
+        generated = self._boolean_packet(
+            question, {"A": [False, True]},
+            {"op": "xor", "args": ["A", "B"]},
+        )
+        reasons, details = [], []
+        result = parse_extracted_constraints(
+            question, generated, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details)
+        self.assertEqual(result, 2)
+        self.assertEqual(reasons, ["accepted"])
+        self.assertEqual(details, [])
+
+    def test_ast_scalar_diagnostic_propagates_without_variable_names(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        question = ("How many Boolean assignments to A,B satisfy ALL: "
+                    "A XOR B is True? Return one integer.")
+        generated = self._boolean_packet(
+            question, {"A": [False, True], "B": [False, True]},
+            {"op": "xor", "args": ["A", "bb_secret"]},
+        )
+        rejection, details = [], []
+        result = run_experimental_tir(
+            messages(question), lambda _: "FINAL_ANSWER: 0",
+            extract_constraints=lambda _: generated,
+            extraction_rejection_sink=rejection,
+            solver_rejection_detail_sink=details,
+            first_turn_diagnostic=lambda: {
+                "eval_count": 374, "prompt_eval_count": 839,
+                "done_reason": "stop",
+            },
+        )
+        event = safe_first_turn_event(result["first_turn_telemetry"])
+        self.assertEqual(event["extraction_rejection_reason"], "solver_type_error")
+        self.assertEqual(event["solver_rejection_detail"],
+                         "unknown_boolean_reference")
+        self.assertNotIn("bb_secret", str(event))
+        for injected in ("bb_secret", "unknown_boolean_reference:bb_secret"):
+            with self.subTest(injected=injected):
+                bad = {**event, "solver_rejection_detail": injected}
+                self.assertIsNone(safe_first_turn_event(bad))
+
+    def test_regular_model_review_is_verified_only_with_exact_original_python_proof(self):
+        question = (
+            "What exact integer does this Python program print? "
+            "You may execute the program in an offline sandbox:\n"
+            "data = [1, 3, 5]\n"
+            "for i in range(len(data)):\n"
+            "    data[i] += i\n"
+            "print(sum(data))"
+        )
+        code = question.split("sandbox:\n", 1)[1]
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 12",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            extract_constraints=lambda _: '{"kind":"none"}',
+            tool_runner=lambda *_: {
+                "status": "PASSED", "output": "12",
+                "verification_scope": "execution_only",
+            },
+        )
+        self.assertEqual(result["tool_calls_succeeded"], 1)
+        self.assertTrue(result["tool_output_reviewed"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertEqual(result["verification_scope"],
+                         "exact_user_python_execution")
+        self.assertEqual(result["review_method"],
+                         "deterministic_source_identity")
+        self.assertEqual(result["text"], "FINAL_ANSWER: 12")
+
+    def test_model_review_disagreeing_with_tool_output_must_not_be_verified(self):
+        question = ("What exact integer does this Python program print? "
+                    "You may execute the program in an offline sandbox:\n"
+                    "print(2+3)")
+        code = "print(2+3)"
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 99",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "5"},
+        )
+        self.assertEqual(result["text"], "FINAL_ANSWER: 99")
+        self.assertTrue(result["tool_output_reviewed"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_status"],
+                         "tool_observed_unverified")
+        self.assertNotEqual(result.get("review_method"),
+                            "deterministic_source_identity")
+
+    def test_regular_review_of_generated_code_is_not_verified_by_exit_zero(self):
+        question = ("What exact integer does this Python program print? "
+                    "You may execute the program in an offline sandbox:\n"
+                    "print(2+3)")
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(6)"}',
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "6"},
+        )
+        self.assertTrue(result["tool_output_reviewed"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_status"],
+                         "tool_observed_unverified")
