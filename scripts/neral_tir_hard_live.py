@@ -217,7 +217,8 @@ def safe_first_turn_event(event: object) -> dict | None:
                 "tool", "final", "unstructured",
                 "deterministic_formal", "deterministic_rejected",
                 "extracted_formal", "extraction_fallback",
-                "extraction_none", "unavailable_on_failure")):
+                "extraction_none", "unavailable_on_failure",
+                "direct_python_source")):
         return None
     from neral_turn0_extractor import (
         EXTRACTION_RESULT_CODES, SOLVER_REJECTION_DETAIL_CODES,
@@ -231,6 +232,10 @@ def safe_first_turn_event(event: object) -> dict | None:
     from neral_turn0_extractor import AST_CHECK_CODES
     ast_code = event.get("ast_check_code")
     if ast_code is not None and ast_code not in AST_CHECK_CODES:
+        return None
+    repair_status = event.get("solver_repair_status")
+    if repair_status is not None and repair_status not in (
+            "repaired", "retry_unsat", "retry_rejected"):
         return None
     bucket = event.get("solver_solution_count_bucket")
     if bucket is not None and bucket not in (
@@ -286,6 +291,8 @@ def safe_first_turn_event(event: object) -> dict | None:
             source_counts[key] = value
     return {**counts, "done_reason": reason, "decision": decision,
             **source_counts,
+            **({"solver_repair_status": repair_status}
+               if repair_status is not None else {}),
             **({"solver_solution_count_bucket": bucket} if bucket is not None else {}),
             **({"solver_relaxation_status": relaxation_status}
                if relaxation_status is not None else {}),
