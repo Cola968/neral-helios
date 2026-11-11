@@ -1,5 +1,6 @@
 """Outbound link verification never contacts private services or trusts search hits."""
 import unittest
+import http.client
 from unittest.mock import patch
 from flask import Flask
 from neral_web_api import register_web_search_api
@@ -23,6 +24,13 @@ class SourceReachability(unittest.TestCase):
         with patch('neral_web_search.socket.getaddrinfo',return_value=PUBLIC_IP),patch('neral_web_search._probe_https',return_value=(200,None)) as probe:
             self.assertEqual(verify_public_https_url('https://example.org/article'), 'https://example.org/article')
             self.assertTrue(probe.called)
+    def test_malformed_https_response_does_not_crash_entire_search(self):
+        """A badly formed response is not evidence that an HTTPS URL is reachable."""
+        with patch('neral_web_search.socket.getaddrinfo',return_value=PUBLIC_IP), \
+             patch('neral_web_search._probe_https',
+                   side_effect=http.client.BadStatusLine('malformed HTTPS reply')):
+            self.assertIsNone(verify_public_https_url('https://example.org/article'))
+
     def test_unreachable_source_is_not_promoted(self):
         with patch('neral_web_search.socket.getaddrinfo',return_value=PUBLIC_IP),patch('neral_web_search._probe_https',return_value=(404,None)):
             self.assertIsNone(verify_public_https_url('https://example.org/not-found'))
