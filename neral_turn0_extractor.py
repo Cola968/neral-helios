@@ -43,6 +43,8 @@ _SAFE_SOLVER_REJECTIONS = {
     "Invalid comparison value": ("solver_type_error", "comparison_value_type"),
     "Incompatible comparison types": ("solver_type_error", "comparison_types"),
     "Invalid Boolean cardinality": ("solver_type_error", "boolean_cardinality"),
+    "Invalid Boolean cardinality threshold": ("solver_type_error", "boolean_cardinality_threshold"),
+    "Duplicate Boolean cardinality variables": ("solver_type_error", "boolean_cardinality_duplicate_variable"),
     "Duplicate JSON member": ("solver_syntax_error", "duplicate_json_member"),
     "Invalid JSON": ("solver_syntax_error", "invalid_json"),
     "Malformed Boolean AST": ("solver_syntax_error", "malformed_boolean_ast"),
