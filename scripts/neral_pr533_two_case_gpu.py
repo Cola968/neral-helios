@@ -50,6 +50,7 @@ def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
     )
     b_ok = (
         b.get("answer_correct") is True
+        and b.get("verified") is True
         and b.get("tool_calls_succeeded") == 1
     )
     return a_ok, b_ok
