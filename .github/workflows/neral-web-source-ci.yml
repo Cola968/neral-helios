@@ -1,0 +1,30 @@
+name: NERAL verified HTTPS search-source CPU regression
+on:
+  pull_request:
+    paths:
+      - 'neral_web_search.py'
+      - 'neral_web_api.py'
+      - 'tests/test_neral_source_reachability.py'
+      - '.github/workflows/neral-web-source-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'neral_web_search.py'
+      - 'neral_web_api.py'
+      - 'tests/test_neral_source_reachability.py'
+      - '.github/workflows/neral-web-source-ci.yml'
+permissions:
+  contents: read
+jobs:
+  source-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install preview-only test dependencies
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: HTTPS source reachability and DNS rebinding protections (mock network)
+        run: python -B -m unittest discover -s tests -p test_neral_source_reachability.py -v
