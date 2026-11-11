@@ -359,6 +359,63 @@ def _first_ast_diff_node_type(original, executed) -> str:
     return label if label in AST_DIFF_NODE_CODES else "Other"
 
 
+# Only expression-class names and bounded statement positions leave this module.
+AST_EXPR_VALUE_KINDS = frozenset({
+    "Call", "Constant", "Name", "BinOp", "UnaryOp", "Subscript",
+    "Attribute", "Compare", "BoolOp", "IfExp", "List", "Tuple",
+    "Dict", "Set", "ListComp", "DictComp", "SetComp", "GeneratorExp",
+    "Lambda", "JoinedStr", "FormattedValue", "Await", "Yield",
+    "YieldFrom", "NamedExpr", "NotExpr", "None", "Other",
+})
+
+
+def _first_ast_diff_details(original, executed) -> dict:
+    """Scalar-only first differing top-level statement and Expr.value types.
+
+    An AST Expr represents an expression *statement*. Its value cannot be
+    ast.Assign (which is a statement, not an expression); report 'NotExpr'
+    when the opposing node is not an Expr and 'None' when it is absent.
+    """
+    import ast
+
+    user_body = original.body if isinstance(original, ast.Module) else []
+    exec_body = executed.body if isinstance(executed, ast.Module) else []
+    user_count, exec_count = len(user_body), len(exec_body)
+    if user_count > 128 or exec_count > 128:
+        return {}
+    diff_index = next((
+        i for i, (a, b) in enumerate(zip(user_body, exec_body))
+        if ast.dump(a, include_attributes=False)
+           != ast.dump(b, include_attributes=False)
+    ), None)
+    if diff_index is None:
+        if user_count == exec_count:
+            return {}
+        diff_index = min(user_count, exec_count)
+
+    def expr_value_type(node):
+        if node is None:
+            return "None"
+        if not isinstance(node, ast.Expr):
+            return "NotExpr"
+        label = type(node.value).__name__
+        return label if label in AST_EXPR_VALUE_KINDS else "Other"
+
+    user_node = (user_body[diff_index]
+                 if diff_index < user_count else None)
+    exec_node = (exec_body[diff_index]
+                 if diff_index < exec_count else None)
+    details = {
+        "ast_diff_statement_index": diff_index,
+        "user_stmt_count": user_count,
+        "exec_stmt_count": exec_count,
+    }
+    if isinstance(user_node, ast.Expr) or isinstance(exec_node, ast.Expr):
+        details["ast_diff_expr_type"] = (
+            expr_value_type(user_node) + "_vs_" + expr_value_type(exec_node))
+    return details
+
+
 def _ast_structural_mismatch_code(original, executed) -> str:
     """Privacy-safe cause of a failed ordered AST identity check.
 
@@ -516,7 +573,8 @@ def _exact_source_python_answer(
         stderr: str, *, strict_integer: bool,
         diagnostic: list[str] | None = None,
         review_method_sink: list[str] | None = None,
-        ast_diff_node_sink: list[str] | None = None) -> str | None:
+        ast_diff_node_sink: list[str] | None = None,
+        ast_diff_details_sink: list[dict] | None = None) -> str | None:
     """Verify an unchanged, deterministic user-supplied Python AST.
 
     Only presentation changes are tolerated (Markdown fence around SOURCE,
@@ -594,9 +652,13 @@ def _exact_source_python_answer(
         )
         if not canonical_match:
             reason = _ast_structural_mismatch_code(original, executed)
-            if reason == "body_statement_modified" and type(ast_diff_node_sink) is list:
-                ast_diff_node_sink.append(
-                    _first_ast_diff_node_type(original, executed))
+            if reason == "body_statement_modified":
+                if type(ast_diff_node_sink) is list:
+                    ast_diff_node_sink.append(
+                        _first_ast_diff_node_type(original, executed))
+                if type(ast_diff_details_sink) is list:
+                    ast_diff_details_sink.append(
+                        _first_ast_diff_details(original, executed))
             return reject(reason)
         review_method = "semantic_execution_match"
     # Inspect the actually executed AST: a source with no print can still
@@ -936,11 +998,13 @@ def run_experimental_tir(
     review_reasons: list[str] = []
     review_methods: list[str] = []
     ast_diff_nodes: list[str] = []
+    ast_diff_details: list[dict] = []
     exact = _exact_source_python_answer(
         core, tool, code, stdout, stderr,
         strict_integer=bool(suffix), diagnostic=review_reasons,
         review_method_sink=review_methods,
-        ast_diff_node_sink=ast_diff_nodes)
+        ast_diff_node_sink=ast_diff_nodes,
+        ast_diff_details_sink=ast_diff_details)
     if exact is not None and (final == exact or final is None
                               or final == "UNVERIFIED"):
         return {
@@ -970,6 +1034,9 @@ def run_experimental_tir(
            if review_reasons else {}),
         **({"ast_diff_node": ast_diff_nodes[-1]}
            if ast_diff_nodes and ast_diff_nodes[-1] in AST_DIFF_NODE_CODES
+           else {}),
+        **(ast_diff_details[-1]
+           if ast_diff_details and type(ast_diff_details[-1]) is dict
            else {}),
         "tool_calls_triggered": triggered, "tool_calls_succeeded": succeeded,
         "first_turn_telemetry": first_turn_telemetry,
