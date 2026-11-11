@@ -53,6 +53,23 @@ exit /b 78
 @echo off
 exit /b 27
 '@ | Set-Content -LiteralPath (Join-Path $badPythonDir 'python.cmd') -Encoding Ascii
+    # -CheckOnly must not report successful readiness for unsupported Python.
+    $badCheckOnlyRejected=$false
+    try {
+        $env:PATH="$badPythonDir;$bin;$oldPath"
+        try {
+            & $starter -CheckOnly -Model qwen3:8b
+        }catch{
+            if([string]$_ -match 'Python 3\.11\+'){ $badCheckOnlyRejected=$true }
+        }
+    }finally{
+        $env:PATH="$bin;$oldPath"
+    }
+    if(-not $badCheckOnlyRejected){throw 'CheckOnly falsely reported success without Python 3.11+'}
+    if(Test-Path -LiteralPath (Join-Path $app 'local_state\preview-venv')){
+        throw 'CheckOnly unexpectedly created a preview virtual environment'
+    }
+
     $unsupportedRejected=$false
     try {
         $env:PATH="$badPythonDir;$bin;$oldPath"
