@@ -24,5 +24,7 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
       - name: Structural routing and syntax
         run: python -B -m unittest discover -s tests -p test_neral_tir_structural.py -v
+      - name: PR533 literal cardinality and AST equivalence regression
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_boolean_ast_gpu_regression.py -v
       - name: TIR12 CPU scoring regression
         run: python -B -m unittest discover -s tests -p test_neral_tir12_manual.py -v
