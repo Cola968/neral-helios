@@ -17,7 +17,7 @@ def a(**overrides):
 
 def b(**overrides):
     row = {
-        "answer_correct": True, "tool_calls_succeeded": 1,
+        "answer_correct": True, "verified": True, "tool_calls_succeeded": 1,
         "tool_used": "neral_math_exact",
         "first_turn_telemetry": {"extraction_rejection_reason": "accepted"},
     }
@@ -37,6 +37,8 @@ class TwoTaskGate(unittest.TestCase):
             {"verification_scope": "execution_only"},
             {"answer_correct": False},
             {"tool_calls_succeeded": 0},
+            {"verified": False},
+            {"verified": None},
             {"tool_used": None},
         ):
             with self.subTest(variation=variation):
@@ -56,6 +58,14 @@ class TwoTaskGate(unittest.TestCase):
                 tool_calls_succeeded=0,
                 first_turn_telemetry={"extraction_rejection_reason": "solver_type_error"})]),
             (True, False))
+
+    def test_gpu_workflow_contains_no_tir12_step(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/neral-pr533-gpu-two-case.yml").read_text("utf-8")
+        self.assertIn("Execute EXACTLY one code and one logic case", workflow)
+        self.assertNotIn("scripts.neral_tir12_manual", workflow)
+        self.assertNotIn("Run TIR12", workflow)
 
     def test_review_reason_is_whitelisted_scalar_only(self):
         self.assertEqual(safe_review_reason("ast_structure_mismatch"),
