@@ -1,0 +1,1 @@
+Explicit user authorization: run exactly two RTX4070 cases A and B, candidate SHA 3b4f127f357780ab40aa589f24265c2ad15be17f, seed 202611110533; execute full TIR12 immediately only if BOTH strict gates pass. Never relax AST/source verification or GPU resource preflight.
