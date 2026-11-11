@@ -1,0 +1,109 @@
+name: NERAL PR533 EXACT 2-case GPU diagnostic
+on:
+  push:
+    branches: [ops/neral-pr533-gpu-two-case-20261111]
+permissions:
+  contents: read
+jobs:
+  verify-cpu:
+    name: CPU syntax and TIR router regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -B -m py_compile scripts/neral_pr533_two_case_gpu.py
+      - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt
+      - run: python -B -m unittest discover -s tests -p test_neral_tir_turn0.py -v
+      - run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
+  two-case-gpu:
+    name: TWO tasks only on local RTX 4070
+    needs: verify-cpu
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      TARGET_SHA: '055be26319440726395771a8874726bbf08f6f48'
+      NERAL_EXPERIMENTAL_TIR: '1'
+      NERAL_TWO_CASES_ONLY: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout pinned PR533 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: '055be26319440726395771a8874726bbf08f6f48'
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout two-case diagnostic controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: operation
+          persist-credentials: false
+      - name: Checkout trusted protected-main Docker preflight
+        uses: actions/checkout@v4
+        with:
+          ref: '94ccac3fa9f14a7bf8ca65900c32a4e48d72b9d1'
+          path: trusted
+          persist-credentials: false
+      - name: Verify SHA, offline Docker sandbox, GPU capacity and Python
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Wrong repo'}
+          $candidate = Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $sha = (& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -ne $env:TARGET_SHA){throw 'Wrong PR533 SHA'}
+          & git -C $candidate merge-base --is-ancestor 8781670ef978c8e5cfceba96d940a31f062754fd HEAD
+          if($LASTEXITCODE -ne 0){throw 'PR505 base not ancestor'}
+          & (Join-Path $env:GITHUB_WORKSPACE 'trusted/scripts/neral_docker_desktop_preflight.ps1')
+          $raw = & nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU telemetry missing'}
+          $gpu = ($raw | Select-Object -First 1) -split ','
+          if($gpu.Count -ne 2 -or [int]$gpu[0].Trim() -lt 7000 -or [int]$gpu[1].Trim() -gt 25){throw 'GPU busy'}
+          $base = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Local Python 3.12 missing'}
+          $venv = Join-Path $env:RUNNER_TEMP ('pr533-two-case-venv-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse occupied venv'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'venv failed'}
+          $py=Join-Path $venv 'Scripts/python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $candidate 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Preview dependencies unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('TWO_CASE_PY='+$py+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+      - name: Execute EXACTLY one code and one logic case
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $control=Join-Path $env:GITHUB_WORKSPACE 'operation'
+          $folder=Join-Path $env:RUNNER_TEMP ('neral-pr533-two-case-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $folder){throw 'Refuse occupied scalar artifact folder'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+          $out=Join-Path $folder 'summary.json'
+          $env:PYTHONPATH=$candidate
+          $env:NERAL_CANDIDATE_DIR=$candidate
+          Push-Location $candidate
+          try {
+            & $env:TWO_CASE_PY -B (Join-Path $control 'scripts/neral_pr533_two_case_gpu.py') --authorize NERAL_PR533_GPU_TWO_CASES_ONLY --target-sha $env:TARGET_SHA --out $out
+            if($LASTEXITCODE -ne 0){throw 'One or more two-case gates not met; see scalar report'}
+          } finally { Pop-Location }
+      - name: Upload scalar-only two-case result, even when gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr533-two-case-scalars
+          path: ${{ runner.temp }}/neral-pr533-two-case-${{ github.run_id }}/summary.json
+          if-no-files-found: warn
+          retention-days: 14
