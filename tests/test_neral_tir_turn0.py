@@ -706,3 +706,202 @@ class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
                 fixed.add(call.args[0].value)
         self.assertEqual(set(_SAFE_SOLVER_REJECTIONS), fixed)
         self.assertEqual(len(fixed), 27)
+
+
+class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
+    """New CPU-only regressions; the 374-token GPU schema is unavailable."""
+
+    @staticmethod
+    def boolean_question():
+        return ("How many Boolean assignments to A,B,C,D,E,F,G satisfy ALL: "
+                "(A XOR C XOR F) is True; (B OR D) is True; E = NOT F; "
+                "(A AND G) is False; C implies G; "
+                "at least 1 of the seven variables are True? Return one integer.")
+
+    @staticmethod
+    def boolean_schema():
+        # Mirrors the general Boolean AST shape, NOT recovered GPU output.
+        return {
+            "variables": {name: [False, True] for name in "ABCDEFG"},
+            "rules": [],
+            "bool_rules": [
+                {"op": "eq", "args": [
+                    {"op": "xor", "args": ["A", "C", "F"]}, True]},
+                {"op": "or", "args": ["B", "D"]},
+                {"op": "eq", "args": ["E", {"op": "not", "args": ["F"]}]},
+                {"op": "not", "args": [{"op": "and", "args": ["A", "G"]}]},
+                {"op": "implies", "args": ["C", "G"]},
+                {"op": "at_least", "args": list("ABCDEFG"), "min": 1},
+            ],
+            "query": "count",
+        }
+
+    def logic_evidence(self):
+        q = self.boolean_question()
+        return [q[:min(125, q.index(":")+1)],
+                "(A XOR C XOR F) is True",
+                "(B OR D) is True",
+                "E = NOT F",
+                "(A AND G) is False",
+                "C implies G",
+                "at least 1 of the seven variables are True?",
+                "Return one integer."]
+
+    def test_infer_binary_integer_domain_only_for_source_declared_bool_vars(self):
+        schema = self.boolean_schema()
+        from copy import deepcopy
+        trial = deepcopy(schema)
+        trial["variables"]["C"] = [0, 1]
+        trial["variables"]["G"] = [1, 0]
+        reason, details = [], []
+        actual = parse_extracted_constraints(
+            self.boolean_question(), packet(schema=trial, evidence=self.logic_evidence()),
+            rejection_reason_sink=reason, solver_rejection_detail_sink=details)
+        baseline = parse_extracted_constraints(
+            self.boolean_question(), packet(schema=schema, evidence=self.logic_evidence()))
+        self.assertIsInstance(actual, int)
+        self.assertEqual(actual, baseline)
+        self.assertEqual(reason, ["accepted"])
+        self.assertEqual(details, [])
+
+    def test_infer_missing_boolean_declaration_only_when_explicitly_named_in_source(self):
+        from copy import deepcopy
+        schema = self.boolean_schema()
+        expected = parse_extracted_constraints(
+            self.boolean_question(), packet(schema=schema, evidence=self.logic_evidence()))
+        trial = deepcopy(schema)
+        del trial["variables"]["G"]
+        reasons = []
+        actual = parse_extracted_constraints(
+            self.boolean_question(), packet(schema=trial, evidence=self.logic_evidence()),
+            rejection_reason_sink=reasons)
+        self.assertEqual(actual, expected)
+        self.assertEqual(reasons, ["accepted"])
+
+    def test_bool_domain_inference_rejects_nonbinary_and_case_conflicts(self):
+        from copy import deepcopy
+        question = self.boolean_question()
+        evidence = self.logic_evidence()
+        schema = self.boolean_schema()
+        for change in (
+            lambda t: t["variables"].update(C=[0, 2]),
+            lambda t: t["variables"].update(C=[1, 1]),
+            lambda t: t["variables"].update(C=[1, False]),
+            lambda t: t["variables"].update(G=[1, 0, 2]),
+        ):
+            trial = deepcopy(schema)
+            change(trial)
+            with self.subTest(domain=trial["variables"]), self.assertRaises(AssertionError):
+                # Explicitly expect rejection, never a silently inferred solution.
+                reasons = []
+                answer = parse_extracted_constraints(
+                    question, packet(schema=trial, evidence=evidence),
+                    rejection_reason_sink=reasons)
+                self.assertIsNotNone(answer)
+
+        trial = deepcopy(schema)
+        trial["bool_rules"][0]["args"][0]["args"][0] = "a"
+        reasons = []
+        self.assertIsNone(parse_extracted_constraints(
+            question, packet(schema=trial, evidence=evidence),
+            rejection_reason_sink=reasons))
+        self.assertNotEqual(reasons, ["accepted"])
+
+    def test_no_implicit_boolean_domain_without_explicit_source_declaration(self):
+        question = ("How many assignments to A and B are possible? "
+                    "A must be less than B.")
+        schema = {"variables": {"A": [0, 1], "B": [0, 1]},
+                  "rules": [], "bool_rules": [
+                      {"op": "and", "args": ["A", "B"]}], "query": "count"}
+        evidence = ["How many assignments to A and B are possible?",
+                    "A must be less than B."]
+        reason = []
+        self.assertIsNone(parse_extracted_constraints(
+            question, packet(schema=schema, evidence=evidence),
+            rejection_reason_sink=reason))
+        self.assertEqual(reason, ["solver_type_error"])
+
+    def test_model_review_must_demand_unambiguous_final_envelope(self):
+        from neral_tir_experimental import run_experimental_tir
+        original = messages("What does this program print? (Python)\nprint(2+3)")
+        decisions = []
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(2+3)"}',
+            "NERAL_FINAL_TEXT: 5",
+        ])
+        def model(turns):
+            decisions.append(turns)
+            return next(replies)
+        result = run_experimental_tir(
+            original, model, tool_runner=lambda *_: {
+                "status": "PASSED", "output": "5", "verification_scope": "execution_only"})
+        self.assertIn("NERAL_FINAL_TEXT: FINAL_ANSWER:", decisions[1][-1]["content"]
+                      + " NERAL_FINAL_TEXT: FINAL_ANSWER:" if False else decisions[1][-1]["content"])
+        self.assertTrue(result["tool_output_reviewed"])
+
+    def test_exact_source_python_stdout_is_adopted_if_llm_review_abstains(self):
+        question = (
+            "What exact integer does this Python program print? "
+            "You may execute the program in an offline sandbox:\n"
+            "data = [1, 3, 5]\n"
+            "for i in range(len(data)):\n"
+            "    data[i] += i\n"
+            "print(sum(data))"
+        )
+        code = question.split("sandbox:\n", 1)[1]
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: UNVERIFIED",
+        ])
+        events = []
+        def model(turns):
+            events.append(turns)
+            return next(replies)
+        result = run_experimental_tir(
+            messages(question + SUFFIX), model,
+            extract_constraints=lambda _: '{"kind":"none"}',
+            tool_runner=lambda *_: {
+                "status": "PASSED", "output": "12",
+                "verification_scope": "execution_only",
+            })
+        # Running the EXACT user-supplied deterministic program proves its print.
+        self.assertEqual(result["text"], "FINAL_ANSWER: 12")
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertTrue(result["verified"])
+        self.assertTrue(result["tool_output_reviewed"])
+        self.assertEqual(result["verification_scope"], "exact_user_python_execution")
+        self.assertEqual(result["tool_used"], "neral_python_sandbox")
+        self.assertEqual(result["tool_calls_succeeded"], 1)
+        self.assertEqual(len(events), 2)  # No unreviewed Qwen fallback
+
+    def test_modified_code_does_not_get_verified_from_stdout(self):
+        question = ("What exact integer does this Python program print?\n"
+                    "print(2+3)")
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(99)"}',
+            "NERAL_FINAL_TEXT: UNVERIFIED",
+            "FINAL_ANSWER: 5",
+        ])
+        result = run_experimental_tir(
+            messages(question), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "99"})
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["tool_output_reviewed"])
+        self.assertEqual(result["verification_status"], "base_fallback_unverified")
+
+    def test_non_deterministic_source_code_is_not_automatically_verified(self):
+        question = ("What does this Python program print?\n"
+                    "import random\nprint(random.randint(1,9))")
+        code = "import random\nprint(random.randint(1,9))"
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: UNVERIFIED",
+            "I cannot verify the future random outcome.",
+        ])
+        result = run_experimental_tir(
+            messages(question), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "7"})
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["tool_output_reviewed"])
