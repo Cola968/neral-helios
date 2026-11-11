@@ -102,6 +102,10 @@ _BOOL_SOURCE_PATTERNS = (
     re.compile(r"\bBoolean\s+variables?\s*:\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\b", re.I),
     re.compile(r"\b([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+are\s+Boolean\s+variables\b", re.I),
     re.compile(r"\b([A-Za-z_]\w*(?:\s+and\s+[A-Za-z_]\w*)+)\s+can\s+each\s+be\s+True\s+or\s+False\b", re.I),
+    # Explicit typed variable introductions beyond "Boolean assignments to".
+    # This handles natural-language naming without guessing model-only symbols.
+    re.compile(r"\b(?:let|assume)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+be\s+Boolean\s+variables?\b", re.I),
+    re.compile(r"\b(?:seven|six|five|four|three|two|eight|[2-8])\s+Boolean\s+variables?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\b", re.I),
 )
 
 
