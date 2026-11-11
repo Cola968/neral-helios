@@ -60,9 +60,14 @@ def _compile_boolean(expr, variables: dict, depth: int, node_budget: list[int]):
         raise InvalidFormalConstraints("Malformed Boolean AST")
     op = expr["op"]
     if type(op) is not str or op not in (
-            "and", "or", "xor", "not", "implies", "eq", "at_least"):
+            "and", "or", "xor", "not", "implies", "eq", "at_least", "exactly"):
         raise InvalidFormalConstraints("Unknown Boolean operator")
-    keys = {"op", "args", "min"} if op == "at_least" else {"op", "args"}
+    if op == "at_least":
+        keys = {"op", "args", "min"}
+    elif op == "exactly":
+        keys = {"op", "args", "count"}
+    else:
+        keys = {"op", "args"}
     if set(expr) != keys:
         raise InvalidFormalConstraints("Unexpected Boolean AST members")
     args = expr["args"]
@@ -72,13 +77,17 @@ def _compile_boolean(expr, variables: dict, depth: int, node_budget: list[int]):
         raise InvalidFormalConstraints("NOT expects one argument")
     if op in ("implies", "eq") and len(args) != 2:
         raise InvalidFormalConstraints("Binary operator expects two arguments")
-    if op in ("and", "or", "xor", "at_least") and len(args) < 2:
+    if op in ("and", "or", "xor", "at_least", "exactly") and len(args) < 2:
         raise InvalidFormalConstraints("Operator requires two or more arguments")
-    if op == "at_least":
-        minimum = expr["min"]
-        if (type(minimum) is not int or not 1 <= minimum <= len(args)
-                or any(type(arg) is not str for arg in args)
-                or len(set(args)) != len(args)):
+    if op in ("at_least", "exactly"):
+        minimum = expr["min"] if op == "at_least" else expr["count"]
+        # Each argument is a Boolean term. Constants and nested AND/OR/EQ
+        # are legitimate terms; the child compiler checks types and bounds.
+        # Duplicate plain variable entries are rejected to avoid accidental
+        # double-counting from an untrusted extracted schema.
+        names = [arg for arg in args if type(arg) is str]
+        if (type(minimum) is not int or not 0 <= minimum <= len(args)
+                or len(names) != len(set(names))):
             raise InvalidFormalConstraints("Invalid Boolean cardinality")
     else:
         minimum = None
@@ -113,6 +122,8 @@ def _eval_boolean(node, assignment: dict) -> bool:
                 == _eval_boolean(args[1], assignment))
     if op == "at_least":
         return sum(_eval_boolean(arg, assignment) for arg in args) >= minimum
+    if op == "exactly":
+        return sum(_eval_boolean(arg, assignment) for arg in args) == minimum
     raise InvalidFormalConstraints("Unrecognized compiled operator")
 
 
