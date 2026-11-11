@@ -192,7 +192,7 @@ class MinimalUnsatCoreCPU(unittest.TestCase):
         self.assertEqual(event["unsat_core_index"], 0)
         self.assertNotIn("relaxed_constraint_index", event)
 
-    def test_singleton_unsat_with_multiple_remaining_solutions_not_marked_unique(self):
+    def test_singleton_unsat_multiple_remaining_solutions_is_diagnostic_not_proof(self):
         q = ("How many Boolean assignments to A,B satisfy ALL: "
              "A can be true or false; B can be true or false? Return one integer.")
         clauses = [
@@ -201,7 +201,10 @@ class MinimalUnsatCoreCPU(unittest.TestCase):
         result,event=analyze(q,clauses)
         self.assertEqual(result,0)
         self.assertEqual(event["unsat_core_index"],0)
-        self.assertNotIn("relaxed_constraint_index",event)
+        self.assertEqual(event["post_relaxation_solution_count"],4)
+        self.assertEqual(event["relaxed_constraint_index"],0)
+        self.assertEqual(event["solver_relaxation_status"],"single_candidate")
+        self.assertEqual(event["solver_relaxation_count_bucket"],"multiple_solutions")
 
     def test_large_assignment_space_is_not_exhaustively_recomputed(self):
         q = ("How many integer assignments to A,B,C,D,E,F,G,H satisfy ALL: "
