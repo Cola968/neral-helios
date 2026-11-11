@@ -243,5 +243,37 @@ class OneTurnConstraintRepairCPU(unittest.TestCase):
         self.assertEqual(len(seen),1)
         self.assertFalse(r["verified"])
 
+class SolverRepairTelemetryExportCPU(unittest.TestCase):
+    def test_second_turn_rejection_is_preserved_in_safe_gpu_scalars(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        event = {
+            "eval_count": 374, "prompt_eval_count": 839,
+            "done_reason": "stop", "decision": "extraction_fallback",
+            "solver_repair_status": "retry_rejected",
+            "solver_repair_input_format": "prefixed_fenced_json",
+            "solver_repair_rejection_reason": "solver_schema_error",
+            "solver_repair_solver_detail": "boolean_cardinality_threshold",
+            "solver_repair_ast_check_code": "boolean_literal_token",
+            "model_text": "PRIVATE_MODEL_REPLY",
+        }
+        safe = safe_first_turn_event(event)
+        self.assertIsNotNone(safe)
+        for key in ("solver_repair_status", "solver_repair_input_format",
+                    "solver_repair_rejection_reason", "solver_repair_solver_detail",
+                    "solver_repair_ast_check_code"):
+            self.assertEqual(safe[key], event[key])
+        self.assertNotIn("PRIVATE_MODEL_REPLY", str(safe))
+
+    def test_invalid_repair_diagnostics_cannot_be_exported(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        base = {"eval_count": 200, "prompt_eval_count": 700,
+                "done_reason": "stop", "decision": "extraction_fallback"}
+        for key in ("solver_repair_input_format", "solver_repair_rejection_reason",
+                    "solver_repair_solver_detail", "solver_repair_ast_check_code"):
+            with self.subTest(key=key):
+                self.assertIsNone(safe_first_turn_event({
+                    **base, key: "PRIVATE_MODEL_REPLY"}))
+
+
 if __name__=="__main__":
     unittest.main()
