@@ -59,7 +59,7 @@ exit /b 27
         try {
             & $starter -PrepareOnly -Model qwen3:8b
         }catch{
-            if([string]$_ -match 'Python 3\\.11\\+'){ $unsupportedRejected=$true }
+            if([string]$_ -match 'Python 3\.11\+'){ $unsupportedRejected=$true }
         }
     }finally{
         $env:PATH="$bin;$oldPath"
