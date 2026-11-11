@@ -104,7 +104,10 @@ jobs:
           if not ok:
               raise SystemExit("ONE_LOGIC_GATE_FAILED: TIR12 MUST NOT start")
           '@
-          & $env:ONELOGIC_PY -B -c $code
+          $scriptPath=Join-Path $env:RUNNER_TEMP ('neral-pr505-one-logic-'+$env:GITHUB_RUN_ID+'.py')
+          if(Test-Path -LiteralPath $scriptPath){throw 'Refuse occupied smoke script'}
+          [IO.File]::WriteAllText($scriptPath,$code,[Text.UTF8Encoding]::new($false))
+          & $env:ONELOGIC_PY -B $scriptPath
           if($LASTEXITCODE -ne 0){throw 'One logic extraction failed; TIR12 is blocked'}
       - name: Prepare offline Docker only AFTER successful one-logic smoke
         run: |
