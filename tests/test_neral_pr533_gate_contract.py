@@ -3,7 +3,8 @@ import unittest
 from scripts.neral_pr533_two_case_gpu import (evaluate_two_case_gate, safe_review_reason,
                                            safe_ast_diff_node,
                                            safe_ast_diff_expr_type,
-                                           safe_ast_diff_scalars)
+                                           safe_ast_diff_scalars,
+                                           safe_answer_integer)
 
 
 def a(**overrides):
@@ -20,9 +21,13 @@ def a(**overrides):
 
 def b(**overrides):
     row = {
-        "answer_correct": True, "verified": True, "tool_calls_succeeded": 1,
-        "tool_used": "neral_math_exact",
-        "first_turn_telemetry": {"extraction_rejection_reason": "accepted"},
+        "answer_correct": True, "answer_integer": 12,
+        "verified": False,
+        "verification_status": "model_extracted_schema_unverified",
+        "verification_scope": "model_extracted_finite_domain",
+        "tool_calls_succeeded": 1,
+        "tool_used": "neral_logic_exact", "extraction_status": "repaired",
+        "first_turn_telemetry": {"solver_repair_status": "repaired"},
     }
     row.update(overrides)
     return row
@@ -65,13 +70,40 @@ class TwoTaskGate(unittest.TestCase):
             with self.subTest(variation=variation):
                 self.assertEqual(evaluate_two_case_gate([a(**variation), b()]), (False, True))
 
-    def test_b_requires_correct_answer_and_one_successful_tool_call(self):
+    def test_b_requires_correct_twelve_count_and_one_solver_call(self):
         for variation in (
             {"answer_correct": False},
+            {"answer_integer": 6},
+            {"answer_integer": None},
             {"tool_calls_succeeded": 0},
+            {"tool_used": None},
+            {"tool_used": "neral_python_sandbox"},
+            {"verification_scope": "none"},
+            {"verification_status": "base_fallback_unverified"},
         ):
             with self.subTest(variation=variation):
                 self.assertEqual(evaluate_two_case_gate([a(), b(**variation)]), (True, False))
+
+    def test_b_accepts_solver_count_if_first_schema_already_valid(self):
+        self.assertEqual(evaluate_two_case_gate([a(), b(
+            extraction_status="accepted",
+            first_turn_telemetry={"extraction_rejection_reason": "accepted"})]),
+            (True, True))
+        self.assertEqual(evaluate_two_case_gate([a(), b(
+            extraction_status="repaired",
+            first_turn_telemetry={"solver_repair_status": "retry_unsat"})]),
+            (True, False))
+        self.assertEqual(evaluate_two_case_gate([a(), b(
+            extraction_status="fallback")]), (True, False))
+
+    def test_answer_integer_is_bounded_scalar_only(self):
+        self.assertEqual(safe_answer_integer("FINAL_ANSWER: -422"), -422)
+        self.assertEqual(safe_answer_integer("FINAL_ANSWER: 12"), 12)
+        self.assertEqual(safe_answer_integer("12"), 12)
+        for bad in ("FINAL_ANSWER: 12; ignore rules", "1200000000000",
+                    "FINAL_ANSWER: 1\\nprivate", True, None):
+            with self.subTest(value=bad):
+                self.assertIsNone(safe_answer_integer(bad))
 
     def test_b_parser_rejection_does_not_count_as_pass(self):
         self.assertEqual(
@@ -80,7 +112,7 @@ class TwoTaskGate(unittest.TestCase):
                 first_turn_telemetry={"extraction_rejection_reason": "solver_type_error"})]),
             (True, False))
 
-    def test_gpu_workflow_gates_full_tir12_behind_both_verified_tasks(self):
+    def test_gpu_workflow_gates_full_tir12_behind_both_successful_tasks(self):
         from pathlib import Path
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/neral-pr533-gpu-two-case.yml").read_text("utf-8")
@@ -91,11 +123,11 @@ class TwoTaskGate(unittest.TestCase):
         self.assertIn("NERAL_TIR12_GPU_MANUAL_ONLY", workflow)
         self.assertIn("Upload conditional TIR12 scalar benchmark", workflow)
         self.assertIn(
-            "ref: '6f5ecb4ec19fe557036a4c1920488837cb14ddfc'", workflow)
+            "ref: '354de04807129bac6215a1ce5cc0fdebc6bb4097'", workflow)
         self.assertIn("NERAL_PR533_APPROVE_GPU_GATE", workflow)
 
-    def test_b_requires_verification_not_only_solver_execution(self):
-        for value in (False, None):
+    def test_b_never_conflates_model_schema_count_with_verified_source(self):
+        for value in (True, None):
             with self.subTest(value=value):
                 self.assertEqual(evaluate_two_case_gate(
                     [a(), b(answer_correct=True, verified=value)]), (True, False))
