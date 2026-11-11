@@ -1177,3 +1177,160 @@ class AstLeafDiagnosticsAndReviewedProofCPU(unittest.TestCase):
         self.assertFalse(result["verified"])
         self.assertEqual(result["verification_status"],
                          "tool_observed_unverified")
+
+
+class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
+    """CPU regressions for unambiguous aliases and exact supplied-code AST."""
+
+    @staticmethod
+    def document(variables, tree):
+        return json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {"variables": variables, "rules": [],
+                       "bool_rules": [tree], "query": "count"},
+            "evidence": ["How many Boolean assignments to Alpha,Beta",
+                         "Alpha XOR Beta is True", "Return one integer"],
+        })
+
+    def test_casefold_and_boundary_whitespace_are_canonicalized(self):
+        question = ("How many Boolean assignments to Alpha,Beta satisfy ALL: "
+                    "Alpha XOR Beta is True? Return one integer")
+        doc = self.document({"Alpha": [False, True], "Beta": [False, True]},
+                            {"op": "xor", "args": [" alpha ", "\tBETA "]})
+        reasons, details = [], []
+        self.assertEqual(parse_extracted_constraints(
+            question, doc, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details), 2)
+        self.assertEqual(reasons, ["accepted"])
+        self.assertEqual(details, [])
+
+    def test_recursive_operator_alias_normalization(self):
+        question = ("How many Boolean assignments to Alpha,Beta satisfy ALL: "
+                    "Alpha XOR Beta is True? Return one integer")
+        doc = self.document({"Alpha": [False, True], "Beta": [False, True]},
+                            {"op": "not", "args": [
+                                {"op": "implies", "args": [" ALPHA ", " beta "]}]})
+        self.assertEqual(parse_extracted_constraints(question, doc), 1)
+
+    def test_casefold_collision_is_rejected_and_reported_safely(self):
+        question = ("How many Boolean assignments to Alpha,alpha satisfy ALL: "
+                    "Alpha XOR alpha is True? Return one integer")
+        doc = json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {"variables": {"Alpha": [False, True], "alpha": [False, True]},
+                       "rules": [],
+                       "bool_rules": [{"op": "xor", "args": [" ALPHA ", "alpha"]}],
+                       "query": "count"},
+            "evidence": ["How many Boolean assignments to Alpha,alpha",
+                         "Alpha XOR alpha is True", "Return one integer"],
+        })
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            question, doc, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["casing_mismatch"])
+
+    def test_no_canonical_match_reports_completely_undeclared_name(self):
+        question = ("How many Boolean assignments to Alpha,Beta satisfy ALL: "
+                    "Alpha XOR Beta is True? Return one integer")
+        private = "model_secret_identifier"
+        doc = self.document({"Alpha": [False, True], "Beta": [False, True]},
+                            {"op": "xor", "args": ["Alpha", private]})
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            question, doc, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["completely_undeclared_name"])
+        self.assertNotIn(private, str(details))
+
+    def test_non_boolean_declaration_never_gets_coerced(self):
+        question = ("How many Boolean assignments to Alpha,Beta satisfy ALL: "
+                    "Alpha XOR Beta is True? Return one integer")
+        doc = self.document({"Alpha": [1, 2], "Beta": [False, True]},
+                            {"op": "xor", "args": [" alpha ", "Beta"]})
+        reasons, details = [], []
+        self.assertIsNone(parse_extracted_constraints(
+            question, doc, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
+        self.assertEqual(details, ["non_boolean_domain"])
+
+    def test_exact_source_ast_match_ignores_markdown_comments_crlf_and_indent(self):
+        fence = chr(96)*3
+        question = (
+            "What exact integer does this Python program print?\n"
+            + fence + "python\n"
+            + "    values=[2,3]\n"
+            + "    # unchanged computation\n"
+            + "    print(sum(values))\n"
+            + fence
+        )
+        code = "values = [2,3]\r\nprint( sum(values) )\r\n# same tree"
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 5",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertEqual(result["review_method"], "exact_user_ast_match")
+
+    def test_plain_code_ast_match_ignores_trailing_comments(self):
+        question = ("What exact integer does this Python program print? "
+                    "You may execute it:\nx=2\nprint(x+3)")
+        code = "# harmless comment\nx = 2\nprint( x + 3 )"
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 5",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["review_method"], "exact_user_ast_match")
+
+    def test_changed_code_is_not_verified_and_diagnoses_ast_mismatch(self):
+        question = ("What exact integer does this Python program print? "
+                    "You may execute it:\nx=2\nprint(x+3)")
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"x=2\nprint(x+4)"}',
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "6"})
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_status"], "tool_observed_unverified")
+        self.assertEqual(result.get("review_match_reason"), "python_ast_mismatch")
+
+    def test_untrusted_random_program_cannot_be_verified_even_if_output_matches(self):
+        question = ("What does this Python program print?\n"
+                    "import random\nprint(random.randint(1,9))")
+        code = "import random\nprint(random.randint(1,9))"
+        replies = iter([
+            "NERAL_EXECUTE_JSON: " + json.dumps({
+                "tool": "python_sandbox", "code": code}),
+            "NERAL_FINAL_TEXT: 5",
+        ])
+        result = run_experimental_tir(
+            messages(question), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
+        self.assertFalse(result["verified"])
+
+    def test_wrong_review_number_never_verified_despite_identical_ast(self):
+        question = ("What exact integer does this Python program print? "
+                    "You may execute it:\nprint(2+3)")
+        replies = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(2+3)"}',
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 6",
+        ])
+        result = run_experimental_tir(
+            messages(question + SUFFIX), lambda _: next(replies),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
+        self.assertFalse(result["verified"])
+        self.assertNotEqual(result.get("review_method"), "exact_user_ast_match")
