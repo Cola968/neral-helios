@@ -258,6 +258,21 @@ def safe_first_turn_event(event: object) -> dict | None:
     if (relaxed_index is not None
             and (type(relaxed_index) is not int or not 0 <= relaxed_index < 32)):
         return None
+    from neral_turn0_extractor import UNSAT_CLAUSE_OP_CODES
+    unsat_op = event.get("unsat_clause_op")
+    if unsat_op is not None and (type(unsat_op) is not str
+                                 or unsat_op not in UNSAT_CLAUSE_OP_CODES
+                                 or core_size != 1):
+        return None
+    unsat_has_literal = event.get("unsat_clause_has_literal")
+    if unsat_has_literal is not None and (
+            type(unsat_has_literal) is not bool or core_size != 1):
+        return None
+    post_count = event.get("post_relaxation_solution_count")
+    if post_count is not None and (
+            type(post_count) is not int or not 0 <= post_count <= 4096
+            or core_size != 1):
+        return None
     literal_context = event.get("boolean_literal_context")
     if literal_context is not None and literal_context not in (
             "at_least", "exactly", "eq", "standalone", "other", "multiple"):
@@ -278,6 +293,11 @@ def safe_first_turn_event(event: object) -> dict | None:
                if relaxation_bucket is not None else {}),
             **({"unsat_core_size": core_size} if core_size is not None else {}),
             **({"unsat_core_index": core_index} if core_index is not None else {}),
+            **({"unsat_clause_op": unsat_op} if unsat_op is not None else {}),
+            **({"unsat_clause_has_literal": unsat_has_literal}
+               if unsat_has_literal is not None else {}),
+            **({"post_relaxation_solution_count": post_count}
+               if post_count is not None else {}),
             **({"relaxed_constraint_index": relaxed_index}
                if relaxed_index is not None else {}),
             **({"boolean_literal_context": literal_context}
