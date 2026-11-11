@@ -648,6 +648,13 @@ def _boolean_literal_context(schema: dict) -> str | None:
 SOLVER_RELAXATION_STATUS_CODES = frozenset({
     "not_applicable", "no_ungrounded_literal", "candidate_limit",
     "no_positive_single_drop", "single_candidate", "ambiguous_candidates",
+    "source_clause_protected", "source_clue_scope_unknown",
+    "post_relaxation_zero", "post_relaxation_unavailable",
+})
+UNSAT_CLAUSE_OP_CODES = frozenset({
+    "and", "or", "xor", "not", "implies", "eq", "at_least", "exactly",
+    "==", "!=", "<", "<=", ">", ">=", "all_different",
+    "constant", "variable", "unknown",
 })
 
 
@@ -865,9 +872,54 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
         elif satisfiable != 1:
             return {}
     details = {"unsat_core_size": len(active)}
-    if len(active) == 1:
-        # Stable original index after deterministic subset-minimal reduction.
-        details["unsat_core_index"] = active[0]
+    singleton = len(active) == 1
+    singleton_count = None
+    if singleton:
+        # Fixed original index, even when source checking later rejects
+        # deletion. The count is computed independently of that rejection.
+        idx = active[0]
+        details["unsat_core_index"] = idx
+        kind, node = clauses[idx]
+        if kind == "all_different":
+            operator = "all_different"
+        elif type(node) is dict:
+            operator = node.get("op")
+        elif type(node) is bool:
+            operator = "constant"
+        elif type(node) is str:
+            operator = "variable"
+        else:
+            operator = "unknown"
+        details["unsat_clause_op"] = (
+            operator if operator in UNSAT_CLAUSE_OP_CODES else "unknown")
+
+        stack = [(node, 0)]
+        seen = 0
+        has_literal = False
+        while stack and seen < 128:
+            item, depth = stack.pop()
+            seen += 1
+            if type(item) is bool:
+                has_literal = True
+                break
+            if depth >= 6:
+                continue
+            if type(item) is dict:
+                stack.extend((child, depth + 1)
+                             for child in item.values())
+            elif type(item) is list:
+                stack.extend((child, depth + 1) for child in item[:8])
+        details["unsat_clause_has_literal"] = has_literal
+
+        retained = [i for i in range(len(clauses)) if i != idx]
+        singleton_count = solve(retained, query="count")
+        if (type(singleton_count) is int
+                and 0 <= singleton_count <= 4096):
+            details["post_relaxation_solution_count"] = singleton_count
+            if singleton_count == 0:
+                details["solver_relaxation_status"] = "post_relaxation_zero"
+        else:
+            details["solver_relaxation_status"] = "post_relaxation_unavailable"
     if not active:
         return details
 
@@ -875,10 +927,16 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
         r"\bsatisfy\s+ALL\s*:\s*(.*?)(?:\?\s*Return\b|\?\s*$)",
         question, re.I | re.S)
     if clue_match is None:
+        if singleton:
+            details.setdefault("solver_relaxation_status",
+                               "source_clue_scope_unknown")
         return details
     source_clues = [part.strip() for part in clue_match.group(1).split(";")]
     if (not 2 <= len(source_clues) <= 32 or
             any(not 3 <= len(x) <= 200 for x in source_clues)):
+        if singleton:
+            details.setdefault("solver_relaxation_status",
+                               "source_clue_scope_unknown")
         return details
 
     def mentioned_names(node) -> set[str]:
@@ -945,17 +1003,28 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
     for idx in active:
         kind, expr = clauses[idx]
         if kind == "all_different":
+            if singleton:
+                details.setdefault("solver_relaxation_status",
+                                   "source_clause_protected")
             continue
         names = mentioned_names(expr)
-        if (singleton_is_directly_source_stated(expr, names)
-                if len(active) == 1 else not no_direct_clue_for(names)):
+        if singleton:
+            if singleton_is_directly_source_stated(expr, names):
+                details.setdefault("solver_relaxation_status",
+                                   "source_clause_protected")
+                continue
+            # For count tasks, 2+ valid assignments is a valid count.
+            # Still only a model-schema *diagnosis*: no automatic answer.
+            if type(singleton_count) is int and singleton_count > 0:
+                viable.append((idx, singleton_count))
+            continue
+        if not no_direct_clue_for(names):
             continue
         remaining = [j for j in range(len(clauses)) if j != idx]
         if solve(remaining) != 1:
             continue
         count = solve(remaining, query="count")
-        if (type(count) is int and count > 0
-                and (len(active) != 1 or count == 1)):
+        if type(count) is int and count > 0:
             viable.append((idx, count))
 
     if len(viable) == 1:
