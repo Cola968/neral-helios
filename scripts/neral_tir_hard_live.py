@@ -217,9 +217,15 @@ def safe_first_turn_event(event: object) -> dict | None:
                 "tool", "final", "unstructured",
                 "deterministic_formal", "deterministic_rejected",
                 "extracted_formal", "extraction_fallback",
-                "unavailable_on_failure")):
+                "extraction_none", "unavailable_on_failure")):
         return None
-    return {**counts, "done_reason": reason, "decision": decision}
+    from neral_turn0_extractor import EXTRACTION_RESULT_CODES
+    rejected = event.get("extraction_rejection_reason")
+    if rejected is not None and rejected not in EXTRACTION_RESULT_CODES:
+        return None
+    return {**counts, "done_reason": reason, "decision": decision,
+            **({"extraction_rejection_reason": rejected}
+               if rejected is not None else {})}
 
 
 def _run_one(arm: str, question: str, backend, client, headers: dict):
