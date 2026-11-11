@@ -705,7 +705,7 @@ class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
                     and isinstance(call.args[0].value, str)):
                 fixed.add(call.args[0].value)
         self.assertEqual(set(_SAFE_SOLVER_REJECTIONS), fixed)
-        self.assertEqual(len(fixed), 27)
+        self.assertEqual(len(fixed), 28)
 
 
 class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
