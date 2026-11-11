@@ -447,6 +447,70 @@ def _fold_bounded_integer_constants(tree):
     return SafeFold().visit(copy.deepcopy(tree))
 
 
+def _terminal_print_alias_equivalence(original, executed) -> bool:
+    """Proof of presentation-only rewrite: print(EXPR) -> t=EXPR;print(t).
+
+    All preceding statements must remain AST-identical and t must be fresh.
+    EXPR is restricted to read-only, call-free expression nodes so that
+    the value is computed once, exactly as in the user's original print.
+    A changed expression or any additional output is not equivalent.
+    """
+    import ast
+
+    if not original.body or len(executed.body) != len(original.body) + 1:
+        return False
+
+    def same(a, b):
+        return ast.dump(a, include_attributes=False) == ast.dump(
+            b, include_attributes=False)
+
+    prefix = original.body[:-1]
+    if not all(same(a, b) for a, b in zip(prefix, executed.body[:len(prefix)])):
+        return False
+    source_last = original.body[-1]
+    if (not isinstance(source_last, ast.Expr)
+            or not isinstance(source_last.value, ast.Call)
+            or not isinstance(source_last.value.func, ast.Name)
+            or source_last.value.func.id != "print"
+            or len(source_last.value.args) != 1
+            or source_last.value.keywords):
+        return False
+    source_prints = [n for n in ast.walk(original)
+                     if isinstance(n, ast.Call)
+                     and isinstance(n.func, ast.Name) and n.func.id == "print"]
+    if len(source_prints) != 1:
+        return False
+    expression = source_last.value.args[0]
+    safe_expr_nodes = frozenset({
+        "Name", "Load", "Constant", "Tuple", "List", "Subscript",
+        "Slice", "BinOp", "UnaryOp", "Add", "Sub", "Mult",
+        "Div", "FloorDiv", "Mod", "Pow", "UAdd", "USub",
+    })
+    expr_nodes = list(ast.walk(expression))
+    if (len(expr_nodes) > 50
+            or any(type(node).__name__ not in safe_expr_nodes
+                   for node in expr_nodes)):
+        return False
+    helper, last = executed.body[-2:]
+    if (not isinstance(helper, ast.Assign)
+            or len(helper.targets) != 1
+            or not isinstance(helper.targets[0], ast.Name)
+            or not same(helper.value, expression)):
+        return False
+    alias = helper.targets[0].id
+    source_names = {n.id for n in ast.walk(original) if isinstance(n, ast.Name)}
+    if (alias in source_names or alias in _PURE_PYTHON_CALLS
+            or alias == "int" or not alias.isidentifier()):
+        return False
+    if (not isinstance(last, ast.Expr)
+            or not isinstance(last.value, ast.Call)
+            or not isinstance(last.value.func, ast.Name)
+            or last.value.func.id != "print"
+            or len(last.value.args) != 1 or last.value.keywords):
+        return False
+    return same(last.value.args[0], ast.Name(id=alias, ctx=ast.Load()))
+
+
 def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
         stderr: str, *, strict_integer: bool,
@@ -511,8 +575,11 @@ def _exact_source_python_answer(
         return reject("executed_code_parse_error")
     original_same = (ast.dump(original, include_attributes=False)
                      == ast.dump(executed, include_attributes=False))
-    source_preserved = original_same or _terminal_print_only_equivalence(
-        original, executed)
+    source_preserved = (
+        original_same
+        or _terminal_print_only_equivalence(original, executed)
+        or _terminal_print_alias_equivalence(original, executed)
+    )
     review_method = "exact_user_ast_match" if source_preserved else None
     if not source_preserved:
         # Do not equate matching output or a successful exit with semantic
