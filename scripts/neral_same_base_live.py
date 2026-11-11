@@ -161,7 +161,7 @@ def checked_high_packet(packet: object) -> str:
                 and not (
                     packet.get("tool_used") == "neral_python_sandbox"
                     and packet.get("verification_status") == "verified"
-                    and packet.get("review_method") == "deterministic_source_identity"
+                    and packet.get("review_method") == "exact_user_ast_match"
                     and packet.get("verified") is True
                     and packet.get("model_generated") is False
                     and packet.get("tool_output_reviewed") is True
