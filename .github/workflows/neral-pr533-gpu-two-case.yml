@@ -1,7 +1,7 @@
 name: NERAL PR533 EXACT 2-case GPU diagnostic
 on:
   push:
-    branches: [ops/neral-pr533-gpu-two-case-r6-20261111]
+    branches: [ops/neral-pr533-gpu-two-case-r7-20261111]
 permissions:
   contents: read
 jobs:
