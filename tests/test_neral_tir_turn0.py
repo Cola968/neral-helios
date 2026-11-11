@@ -1642,13 +1642,13 @@ class BooleanTokensAndPrintOnlyReviewCPU(unittest.TestCase):
         self.assertEqual(result["review_method"], "exact_user_ast_match")
 
     def test_appended_print_of_unrelated_constant_cannot_verify(self):
-        question = ("What is the value after execution:\nvalue = 2+3")
+        question = ("What does this program output after execution:\nvalue = 2+3")
         result = self.review(question, "value = 2+3\nprint(999)", "999")
         self.assertFalse(result["verified"])
         self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
 
     def test_changed_original_computation_plus_correct_print_is_not_verified(self):
-        question = ("What is the value after execution:\nvalue=2+3")
+        question = ("What does this program output after execution:\nvalue=2+3")
         result = self.review(question, "value=2+4\nprint(value)", "6")
         self.assertFalse(result["verified"])
         self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
@@ -1658,3 +1658,30 @@ class BooleanTokensAndPrintOnlyReviewCPU(unittest.TestCase):
         result = self.review(question, "print(2+3)\nprint(5)", "5")
         self.assertFalse(result["verified"])
         self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
+
+
+    def test_boolean_ast_literal_success_code_survives_safe_first_turn_telemetry(self):
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A XOR B is True; A is True? Return one integer.")
+        proposed = json.dumps({
+            "kind": "formal", "complete": True,
+            "schema": {"variables": {"A": [False, True], "B": [False, True]},
+                       "rules": [], "bool_rules": [
+                           {"op": "xor", "args": ["A", "B"]},
+                           {"op": "eq", "args": ["A", "true"]}],
+                       "query": "count"},
+            "evidence": ["How many Boolean assignments to A,B",
+                         "A XOR B is True", "A is True", "Return one integer"],
+        })
+        result = run_experimental_tir(
+            messages(q), lambda _: "FINAL_ANSWER: 0",
+            extract_constraints=lambda _: proposed)
+        self.assertEqual(result["extraction_status"], "accepted")
+        event = safe_first_turn_event(result["first_turn_telemetry"])
+        self.assertEqual(event["ast_check_code"], "boolean_literal_token")
+        self.assertEqual(event["extraction_rejection_reason"], "accepted")
+        self.assertNotIn("true", str(event.get("ast_check_code")))
+        self.assertIsNone(safe_first_turn_event({
+            **event, "ast_check_code": "boolean_literal_token:private_data"
+        }))
