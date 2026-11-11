@@ -139,16 +139,16 @@ class MinimalUnsatCoreCPU(unittest.TestCase):
         self.assertNotIn("relaxed_constraint_index", t)
 
     def test_large_assignment_space_is_not_exhaustively_recomputed(self):
-        q = ("How many integer assignments to A,B satisfy ALL: "
+        q = ("How many integer assignments to A,B,C,D,E,F,G,H satisfy ALL: "
              "A equals zero; A equals one? Return one integer.")
-        variables = {"A": list(range(100)), "B": list(range(100))}
+        variables = {name: list(range(4)) for name in "ABCDEFGH"}
         obj = {
             "kind": "formal", "complete": True,
             "schema": {"variables": variables,
                        "rules": [{"left": "A", "op": "==", "value": 0},
                                  {"left": "A", "op": "==", "value": 1}],
                        "bool_rules": [], "query": "count"},
-            "evidence": ["How many integer assignments to A,B",
+            "evidence": ["How many integer assignments to A,B,C,D,E,F,G,H",
                          "A equals zero", "A equals one", "Return one integer"]}
         events = []
         self.assertEqual(parse_extracted_constraints(q, json.dumps(obj),
