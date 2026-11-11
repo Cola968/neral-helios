@@ -36,7 +36,7 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     env:
-      TARGET_SHA: '3b4f127f357780ab40aa589f24265c2ad15be17f'
+      TARGET_SHA: '6f5ecb4ec19fe557036a4c1920488837cb14ddfc'
       NERAL_EXPERIMENTAL_TIR: '1'
       NERAL_TWO_CASES_ONLY: '1'
       HF_HUB_OFFLINE: '1'
@@ -47,7 +47,7 @@ jobs:
       - name: Checkout pinned PR533 candidate
         uses: actions/checkout@v4
         with:
-          ref: '3b4f127f357780ab40aa589f24265c2ad15be17f'
+          ref: '6f5ecb4ec19fe557036a4c1920488837cb14ddfc'
           path: candidate
           persist-credentials: false
           fetch-depth: 0
