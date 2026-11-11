@@ -352,10 +352,61 @@ def _ast_structural_mismatch_code(original, executed) -> str:
     return "body_statement_modified"
 
 
+def _fold_bounded_integer_constants(tree):
+    """Copy an AST and prove only literal-int +, -, * and unary +/- folds.
+
+    No evaluation of identifiers, function calls, loops or user code.
+    Both input and executed trees are canonicalized independently.
+    Python int semantics make these bounded literal folds exact.
+    """
+    import ast
+    import copy
+
+    class SafeFold(ast.NodeTransformer):
+        def visit_BinOp(self, node):
+            node = self.generic_visit(node)
+            if (not isinstance(node.left, ast.Constant)
+                    or not isinstance(node.right, ast.Constant)
+                    or type(node.left.value) is not int
+                    or type(node.right.value) is not int):
+                return node
+            left, right = node.left.value, node.right.value
+            if abs(left) > 1_000_000 or abs(right) > 1_000_000:
+                return node
+            if isinstance(node.op, ast.Add):
+                value = left + right
+            elif isinstance(node.op, ast.Sub):
+                value = left - right
+            elif isinstance(node.op, ast.Mult):
+                value = left * right
+            else:
+                return node
+            if abs(value) > 1_000_000:
+                return node
+            return ast.copy_location(ast.Constant(value=value), node)
+
+        def visit_UnaryOp(self, node):
+            node = self.generic_visit(node)
+            if (not isinstance(node.operand, ast.Constant)
+                    or type(node.operand.value) is not int
+                    or abs(node.operand.value) > 1_000_000):
+                return node
+            if isinstance(node.op, ast.USub):
+                value = -node.operand.value
+            elif isinstance(node.op, ast.UAdd):
+                value = +node.operand.value
+            else:
+                return node
+            return ast.copy_location(ast.Constant(value=value), node)
+
+    return SafeFold().visit(copy.deepcopy(tree))
+
+
 def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
         stderr: str, *, strict_integer: bool,
-        diagnostic: list[str] | None = None) -> str | None:
+        diagnostic: list[str] | None = None,
+        review_method_sink: list[str] | None = None) -> str | None:
     """Verify an unchanged, deterministic user-supplied Python AST.
 
     Only presentation changes are tolerated (Markdown fence around SOURCE,
@@ -412,10 +463,25 @@ def _exact_source_python_answer(
         executed = ast.parse(executed_code)
     except (SyntaxError, ValueError, TypeError, MemoryError):
         return reject("executed_code_parse_error")
-    if (ast.dump(original, include_attributes=False) != ast.dump(
-            executed, include_attributes=False)
-            and not _terminal_print_only_equivalence(original, executed)):
-        return reject(_ast_structural_mismatch_code(original, executed))
+    original_same = (ast.dump(original, include_attributes=False)
+                     == ast.dump(executed, include_attributes=False))
+    source_preserved = original_same or _terminal_print_only_equivalence(
+        original, executed)
+    review_method = "exact_user_ast_match" if source_preserved else None
+    if not source_preserved:
+        # Do not equate matching output or a successful exit with semantic
+        # equivalence. Only bounded, literal-integer AST rewrites qualify.
+        canonical_source = _fold_bounded_integer_constants(original)
+        canonical_executed = _fold_bounded_integer_constants(executed)
+        canonical_match = (
+            ast.dump(canonical_source, include_attributes=False)
+            == ast.dump(canonical_executed, include_attributes=False)
+            or _terminal_print_only_equivalence(
+                canonical_source, canonical_executed)
+        )
+        if not canonical_match:
+            return reject(_ast_structural_mismatch_code(original, executed))
+        review_method = "semantic_execution_match"
     # Inspect the actually executed AST: a source with no print can still
     # have one safely appended final print after a proven AST-prefix match.
     nodes = list(ast.walk(executed))
@@ -434,6 +500,8 @@ def _exact_source_python_answer(
             or not isinstance(executed.body[-1], ast.Expr)
             or executed.body[-1].value is not prints[0]):
         return reject("python_not_single_final_print")
+    if type(review_method_sink) is list:
+        review_method_sink.append(review_method)
     return ("FINAL_ANSWER: " + stdout) if strict_integer else stdout
 
 
@@ -749,17 +817,22 @@ def run_experimental_tir(
     # unchanged Python AST and the sandbox stdout. A model's agreeing review
     # alone can NEVER raise verified=True.
     review_reasons: list[str] = []
+    review_methods: list[str] = []
     exact = _exact_source_python_answer(
         core, tool, code, stdout, stderr,
-        strict_integer=bool(suffix), diagnostic=review_reasons)
+        strict_integer=bool(suffix), diagnostic=review_reasons,
+        review_method_sink=review_methods)
     if exact is not None and (final == exact or final is None
                               or final == "UNVERIFIED"):
         return {
             "text": exact, "mode": "HIGH", "model_generated": False,
             "verified": True, "verification_status": "verified",
-            "verification_scope": "exact_user_python_execution",
+            "verification_scope": (
+                "proven_integer_ast_equivalence"
+                if review_methods == ["semantic_execution_match"]
+                else "exact_user_python_execution"),
             "tool_used": tool_used, "tool_output_reviewed": True,
-            "review_method": "exact_user_ast_match",
+            "review_method": review_methods[-1],
             "calls_used": calls, "completion_recovery_used": recovered_final,
             "tool_calls_triggered": triggered,
             "tool_calls_succeeded": succeeded,
