@@ -91,7 +91,7 @@ class TwoTaskGate(unittest.TestCase):
         self.assertIn("NERAL_TIR12_GPU_MANUAL_ONLY", workflow)
         self.assertIn("Upload conditional TIR12 scalar benchmark", workflow)
         self.assertIn(
-            "ref: '3b4f127f357780ab40aa589f24265c2ad15be17f'", workflow)
+            "ref: '6f5ecb4ec19fe557036a4c1920488837cb14ddfc'", workflow)
         self.assertIn("NERAL_PR533_APPROVE_GPU_GATE", workflow)
 
     def test_b_requires_verification_not_only_solver_execution(self):
