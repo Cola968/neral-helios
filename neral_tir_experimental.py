@@ -598,6 +598,14 @@ def run_experimental_tir(
             ast_check_code_sink=ast_details,
             structural_telemetry_sink=structural_details)
         reason = rejection[-1] if rejection else None
+        if solved == 0:
+            # Zero is a valid answer to the proposed schema, but the
+            # model-generated translation may be inconsistent or incomplete.
+            # Do not publish it as an authoritative natural-language answer.
+            solved = None
+            reason = "solver_unsat_fallback"
+            if rejection:
+                rejection[-1] = reason
         first_turn_telemetry = capture_first_turn(
             "extracted_formal" if solved is not None else
             "extraction_none" if reason == "kind_none" else "extraction_fallback"
