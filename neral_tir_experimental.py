@@ -58,6 +58,23 @@ _PROMPT = (
     "followed by the answer instead of a tool packet. Do not return "
     "unprefixed guesses for computational requests."
 )
+# Added only after the extractor explicitly reports kind=none. This is not
+# a benchmark keyword router and does not authorize tools on its own.
+_POST_NONE_TOOL_PROMPT = (
+    "\nCONSTRAINT EXTRACTOR ABSTAINED. This means only that the "
+    "finite-domain logic solver was not applicable; it DOES NOT mean Python "
+    "or arithmetic tools are disabled. For tasks involving Python execution, "
+    "debugging code, tracing program output, exact arithmetic, or numeric "
+    "computations, you MUST request a real local tool BEFORE producing an "
+    "answer. Your NEXT response for such a task must be exactly one "
+    "NERAL_EXECUTE_JSON: object, not an analysis, prediction, derivation, or "
+    "NERAL_FINAL_TEXT: answer. Use python_sandbox for Python and multistep "
+    "computations, and solve for simple arithmetic or linear equations. "
+    "Write minimal, self-contained safe Python using only the standard "
+    "library and print a single result. Do not invent tool results. "
+    "If computation is genuinely unnecessary, NERAL_FINAL_TEXT: is allowed."
+)
+
 # The retry is task-agnostic. No benchmark wording or regex route.
 _CHOICE_RETRY = (
     "Your previous answer did not contain an explicit tool decision. "
@@ -342,6 +359,7 @@ def run_experimental_tir(
             # Explicit abstention means the *formal solver* is inapplicable,
             # not that Python/math tools are forbidden. Let the preexisting
             # model-driven TIR tool controller decide for this request.
+            turns[0]["content"] += _POST_NONE_TOOL_PROMPT
         else:
             return {
             "text": "FINAL_ANSWER: " + str(solved) if suffix else str(solved),
