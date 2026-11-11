@@ -216,9 +216,10 @@ _PURE_PYTHON_CALLS = frozenset({"print", "sum", "len", "range", "abs", "min", "m
 
 
 _PYTHON_AST_REVIEW_CODES = frozenset({
-    "python_no_eligible_execution", "python_source_not_found",
-    "python_question_not_output", "python_parse_failed",
-    "python_ast_mismatch", "python_unsupported_ast",
+    "python_no_eligible_execution", "user_source_not_extracted",
+    "python_question_not_output", "user_code_parse_error",
+    "executed_code_parse_error", "ast_structure_mismatch",
+    "python_unsupported_ast",
     "python_unsupported_calls", "python_not_single_final_print",
 })
 
@@ -264,7 +265,7 @@ def _exact_source_python_answer(
     else:
         intro, sep, source = text.partition(":\n")
         if not sep or not source.strip():
-            return reject("python_source_not_found")
+            return reject("user_source_not_extracted")
 
     # De-indentation preserves nested control flow. It does not change
     # expressions or rewrite variable names. Python's AST ignores comments.
@@ -277,12 +278,15 @@ def _exact_source_python_answer(
         return reject("python_question_not_output")
     try:
         original = ast.parse(source)
+    except (SyntaxError, ValueError, TypeError, MemoryError):
+        return reject("user_code_parse_error")
+    try:
         executed = ast.parse(executed_code)
     except (SyntaxError, ValueError, TypeError, MemoryError):
-        return reject("python_parse_failed")
+        return reject("executed_code_parse_error")
     if ast.dump(original, include_attributes=False) != ast.dump(
             executed, include_attributes=False):
-        return reject("python_ast_mismatch")
+        return reject("ast_structure_mismatch")
     nodes = list(ast.walk(original))
     if (len(nodes) > 250 or any(
             type(node).__name__ not in _PURE_SOURCE_PYTHON
