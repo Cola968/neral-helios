@@ -119,7 +119,9 @@
   // Do not pass such requests to an offline model and invite a false refusal.
   // Checking the box, not this text alone, remains the privacy consent.
   function explicitlyRequestsWeb(question) {
-    return /\b(?:websuche|internetrecherche)\b|\b(?:suche|such|recherchiere|recherchier)\b.{0,60}\b(?:im internet|im web|online)\b/iu.test(String(question||""));
+    const q=String(question||"").trim();
+    return /\b(?:websuche|internetrecherche)\b|\b(?:suche|such|recherchiere|recherchier)\b.{0,60}\b(?:im internet|im web|online)\b/iu.test(q)
+      || /^(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\s+nach\b/iu.test(q);
   }
   function shouldSearchWeb(question,previousWebQuery="") {
     const q=String(question||"").trim();
@@ -158,7 +160,7 @@
   // Other model answers and genuine tool failures remain untouched.
   function normaliseSearchRefusal(answer,count,searchPerformed) {
     if(!searchPerformed||typeof answer!=="string")return answer;
-    const refusal=/^\s*ich\s+(?:kann|habe)\b[\s\S]{0,160}?(?:keine\s+web[-\s]?suche|keinen\s+zugriff\s+auf\s+(?:das\s+)?internet|keinen\s+zugriff\s+auf\s+externe\s+quellen)/iu;
+    const refusal=/\bich\s+(?:kann|habe)\b[\s\S]{0,550}?(?:keine\s+(?:externe\s+)?web[-\s]?suche|keinen\s+zugriff\s+auf\s+(?:das\s+)?internet|keinen\s+zugriff\s+auf\s+externe\s+quellen|nicht\s+auf\s+das\s+internet\s+zugreifen)/iu;
     if(!refusal.test(answer))return answer;
     return count>0
       ? "Die lokale Websuche hat "+count+" erreichbare Treffer gefunden. "+
@@ -169,8 +171,12 @@
   }
   function relevantSearchResult(question,hit) {
     if(!hit || typeof hit.title!=="string" || typeof hit.url!=="string")return false;
+    // German adjective suffix: "Berliner" and "Berlin" are the same topical stem.
+    const normalizeToken=word=>word.length>=7&&word.endsWith("er")
+      ? word.slice(0,-2) : word;
     const tokens=text=>(String(text||"").toLowerCase().normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g,"").match(/[a-z0-9]{3,}/g)||[]);
+      .replace(/[\u0300-\u036f]/g,"").match(/[a-z0-9]{3,}/g)||[])
+      .map(normalizeToken);
     const generic=new Set([
       "suche","suchen","such","recherche","recherchiere","recherchieren",
       "aktuell","aktuellen","aktuelle","aktuelles","neueste","neuesten","neuer",
@@ -182,7 +188,9 @@
       "wird","werden","kann","this","that","from","with","uber","erklare",
       "erklaren","erklarst","kannst","konnen","mochtest","schwieriges",
       "kompliziertes","schrittweise","wieso","warum","mehr","gibt",
-      "gibt","denn","alles","stand","nicht","funktioniert"
+      "gibt","denn","alles","stand","nicht","funktioniert",
+      "nach","dem","der","den","des","die","das","und","zum","zur",
+      "aus","mit","auf","fur","im","von","ueber","uber"
     ]);
     // Common domain acronyms are important even though shorter than 4 letters.
     const acronyms=new Set(["ber","dfs","gpu","cpu","api","sql","iss","usa"]);
@@ -200,7 +208,7 @@
   // A citation belongs to the exact answer whose prompt received the evidence.
   // Link reachability was verified by the local backend. Search excerpts are
   // not treated as an independently checked article or factual endorsement.
-  function appendSources(answerNode,sources) {
+  function appendSources(answerNode,sources,searchAttempted=false) {
     function favicon(host,cssClass){
       const image=document.createElement("img");
       image.className=cssClass;
@@ -227,9 +235,20 @@
          /(?:^|\.)(?:localhost|local|internal|test|invalid)$/i.test(parsed.hostname))continue;
       if(valid.some(v=>v.url===parsed.href))continue;
       valid.push({url:parsed.href,host:parsed.hostname,
-        title:String(source.title||parsed.hostname).slice(0,160)});
+        title:String(source.title||parsed.hostname).slice(0,160),
+        snippet:String(source.snippet||"").slice(0,180)});
     }
-    if(!valid.length)return;
+    if(!valid.length){
+      if(searchAttempted){
+        const note=document.createElement("span");
+        note.className="neral-source-empty";
+        note.setAttribute("role","status");
+        note.textContent="Websuche durchgeführt · keine passenden erreichbaren Treffer";
+        if(typeof actions.prepend==="function")actions.prepend(note);
+        else actions.append(note);
+      }
+      return;
+    }
     const details=document.createElement("details");
     details.className="neral-source-disclosure";
     details.open=true; // Each verified source is visible until the user collapses it.
@@ -250,9 +269,9 @@
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
     const note=document.createElement("p");note.className="neral-source-notice";
-    note.textContent="Links beim Suchen erreichbar · Inhalte nicht unabhängig geprüft";
+    note.textContent="Suchtreffer mit erreichbarer HTTPS-Adresse · Seiteninhalte nicht unabhängig geprüft";
     list.append(note);
-    valid.forEach(v=>{
+    valid.forEach((v,index)=>{
       const link=document.createElement("a");link.className="neral-source-link";
       link.href=v.url;link.target="_blank";link.rel="noopener noreferrer";
       link.setAttribute("target","_blank");link.setAttribute("rel","noopener noreferrer");
@@ -266,7 +285,19 @@
       thumbnail.textContent=v.host.replace(/^www\./,"").charAt(0).toUpperCase();
       thumbnail.append(favicon(v.host,"neral-source-list-icon"));
       const meta=document.createElement("span");meta.className="neral-source-meta";
-      meta.append(title,domain);
+      const indexTag=document.createElement("span");
+      indexTag.className="neral-source-index";
+      indexTag.textContent="["+String(index+1)+"]";
+      const header=document.createElement("span");
+      header.className="neral-source-card-heading";
+      header.append(indexTag,title);
+      meta.append(header,domain);
+      if(v.snippet){
+        const snippet=document.createElement("span");
+        snippet.className="neral-source-snippet";
+        snippet.textContent=v.snippet;
+        meta.append(snippet);
+      }
       link.append(thumbnail,meta);list.append(link);
     });
     details.append(summary,list);
@@ -802,7 +833,7 @@
       }
       motionActivity("archive",mode);
       completedTurn=true;
-      if(sources.length)appendSources(answerNode,sources);
+      if(webAttempted)appendSources(answerNode,sources,true);
       memory.push({role:"user",content:text},{role:"assistant",content:result.text});
       browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
         detail:{user:text,assistant:result.text}
