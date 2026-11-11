@@ -219,13 +219,20 @@ def safe_first_turn_event(event: object) -> dict | None:
                 "extracted_formal", "extraction_fallback",
                 "extraction_none", "unavailable_on_failure")):
         return None
-    from neral_turn0_extractor import EXTRACTION_RESULT_CODES
+    from neral_turn0_extractor import (
+        EXTRACTION_RESULT_CODES, SOLVER_REJECTION_DETAIL_CODES,
+    )
     rejected = event.get("extraction_rejection_reason")
     if rejected is not None and rejected not in EXTRACTION_RESULT_CODES:
         return None
+    detail = event.get("solver_rejection_detail")
+    if detail is not None and detail not in SOLVER_REJECTION_DETAIL_CODES:
+        return None
     return {**counts, "done_reason": reason, "decision": decision,
             **({"extraction_rejection_reason": rejected}
-               if rejected is not None else {})}
+               if rejected is not None else {}),
+            **({"solver_rejection_detail": detail}
+               if detail is not None else {})}
 
 
 def _run_one(arm: str, question: str, backend, client, headers: dict):
