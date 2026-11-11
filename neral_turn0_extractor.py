@@ -954,7 +954,8 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
         if solve(remaining) != 1:
             continue
         count = solve(remaining, query="count")
-        if type(count) is int and count > 0:
+        if (type(count) is int and count > 0
+                and (len(active) != 1 or count == 1)):
             viable.append((idx, count))
 
     if len(viable) == 1:
@@ -1103,9 +1104,13 @@ def parse_extracted_constraints(question: str, generated: str, *,
                 details.update(_single_step_unsat_relaxation(
                     question, schema, evidence))
             core_details = _bounded_minimal_unsat_core(question, schema)
-            if "relaxed_constraint_index" in core_details:
-                # Core-grounded, unique single deletion takes precedence
-                # over any isolated literal heuristic.
+            if core_details.get("unsat_core_size") == 1:
+                # Never allow an older literal heuristic to override an
+                # explicitly grounded or non-unique singleton-core decision.
+                details.pop("relaxed_constraint_index", None)
+                details.pop("solver_relaxation_count_bucket", None)
+                details.pop("solver_relaxation_status", None)
+            elif "relaxed_constraint_index" in core_details:
                 details.pop("relaxed_constraint_index", None)
             details.update(core_details)
         if type(structural_telemetry_sink) is list:
