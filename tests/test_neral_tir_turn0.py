@@ -580,25 +580,31 @@ class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
                          "A XOR B must be True",
                          "How many assignments satisfy all conditions?"],
         }
-        reasons = []
+        reasons, details = [], []
         self.assertIsNone(parse_extracted_constraints(
-            question, json.dumps(formal), rejection_reason_sink=reasons))
+            question, json.dumps(formal), rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
         self.assertEqual(reasons, ["solver_unsupported_constraint"])
+        self.assertEqual(details, ["boolean_operator"])
         self.assertNotIn("nand", str(reasons))
 
     def test_solver_malformed_relation_is_syntax_error(self):
         broken = {**SCHEMA, "rules": [{"left": "A", "right": "B"}]}
-        reasons = []
+        reasons, details = [], []
         self.assertIsNone(parse_extracted_constraints(
-            QUESTION, packet(schema=broken), rejection_reason_sink=reasons))
+            QUESTION, packet(schema=broken), rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
         self.assertEqual(reasons, ["solver_syntax_error"])
+        self.assertEqual(details, ["malformed_relation"])
 
     def test_solver_comparison_type_mismatch_is_type_error(self):
         mixed = {**SCHEMA, "variables": {"A": [1, 2], "B": [False, True]}}
-        reasons = []
+        reasons, details = [], []
         self.assertIsNone(parse_extracted_constraints(
-            QUESTION, packet(schema=mixed), rejection_reason_sink=reasons))
+            QUESTION, packet(schema=mixed), rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
         self.assertEqual(reasons, ["solver_type_error"])
+        self.assertEqual(details, ["comparison_types"])
 
     def test_solver_search_budget_rejection_has_safe_bounds_code(self):
         question = ("A B C D E F each can be 0 through 11. "
@@ -614,10 +620,12 @@ class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
                          "A must be smaller than B",
                          "Count valid assignments."],
         })
-        reasons = []
+        reasons, details = [], []
         self.assertIsNone(parse_extracted_constraints(
-            question, doc, rejection_reason_sink=reasons))
+            question, doc, rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details))
         self.assertEqual(reasons, ["solver_bounds_exceeded"])
+        self.assertEqual(details, ["search_space_hard_cap"])
 
     def test_unsatisfiable_is_a_valid_zero_not_a_solver_exception(self):
         schema = {
@@ -627,10 +635,12 @@ class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
                 {"left": "A", "op": "!=", "value": 1},
             ], "query": "count",
         }
-        reasons = []
+        reasons, details = [], []
         self.assertEqual(parse_extracted_constraints(
-            QUESTION, packet(schema=schema), rejection_reason_sink=reasons), 0)
+            QUESTION, packet(schema=schema), rejection_reason_sink=reasons,
+            solver_rejection_detail_sink=details), 0)
         self.assertEqual(reasons, ["accepted"])
+        self.assertEqual(details, [])
 
     def test_unknown_solver_error_message_is_not_disclosed(self):
         from neral_formal_constraints import InvalidFormalConstraints
@@ -648,16 +658,51 @@ class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
         def raw(turns):
             responses.append(turns)
             return "FINAL_ANSWER: 3"
-        event = []
+        event, solver_detail = [], []
         report = run_experimental_tir(
             messages(QUESTION), raw,
             extract_constraints=lambda _: packet(schema=schema),
             extraction_rejection_sink=event,
+            solver_rejection_detail_sink=solver_detail,
             first_turn_diagnostic=lambda: {
                 "eval_count": 374, "prompt_eval_count": 839, "done_reason": "stop",
             })
         self.assertEqual(report["first_turn_telemetry"]["extraction_rejection_reason"],
                          "solver_syntax_error")
         self.assertEqual(event, ["solver_syntax_error"])
+        self.assertEqual(solver_detail, ["malformed_relation"])
+        self.assertEqual(report["first_turn_telemetry"]["solver_rejection_detail"],
+                         "malformed_relation")
+        from scripts.neral_tir_hard_live import safe_first_turn_event
+        public = safe_first_turn_event(report["first_turn_telemetry"])
+        self.assertEqual(public["solver_rejection_detail"], "malformed_relation")
+        with self.subTest("Do not accept arbitrary model detail strings"):
+            self.assertIsNone(safe_first_turn_event({
+                **report["first_turn_telemetry"],
+                "solver_rejection_detail": "private generated code",
+            }))
         self.assertEqual(report["tool_calls_succeeded"], 0)
         self.assertEqual(len(responses), 1)
+
+
+    def test_solver_reason_map_is_exhaustive_for_static_solver_exceptions(self):
+        """Future solver validation must not silently collapse known reasons."""
+        import ast
+        import inspect
+        import neral_formal_constraints
+        from neral_turn0_extractor import _SAFE_SOLVER_REJECTIONS
+        tree = ast.parse(inspect.getsource(neral_formal_constraints))
+        fixed = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise):
+                continue
+            call = node.exc
+            if (isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id == "InvalidFormalConstraints"
+                    and len(call.args) == 1
+                    and isinstance(call.args[0], ast.Constant)
+                    and isinstance(call.args[0].value, str)):
+                fixed.add(call.args[0].value)
+        self.assertEqual(set(_SAFE_SOLVER_REJECTIONS), fixed)
+        self.assertEqual(len(fixed), 27)
