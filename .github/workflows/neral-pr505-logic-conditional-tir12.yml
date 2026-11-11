@@ -1,0 +1,129 @@
+name: NERAL PR505 one-logic GPU gate then conditional TIR12
+on:
+  push:
+    branches: [ops/neral-505-one-logic-gate-20261111]
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+env:
+  TARGET_SHA: '8781670ef978c8e5cfceba96d940a31f062754fd'
+  HIGH_SHA: '42071009bfe41e2fba1478d742a00f0cb88d6ab5'
+jobs:
+  verify-immutable-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: \${{ github.token }}
+    steps:
+      - name: Refuse if #505 changed or HIGH parent mismatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "Cola968/neral-helios"
+          test "$GITHUB_REF" = "refs/heads/ops/neral-505-one-logic-gate-20261111"
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/pulls/505" --jq '.head.sha')"
+          test "$actual" = "$TARGET_SHA"
+          ref="$(gh api "repos/$GITHUB_REPOSITORY/pulls/505" --jq '.head.ref')"
+          test "$ref" = "feat/neral-1-1-tir-observation-fallback-20261110"
+          high="$(gh api "repos/$GITHUB_REPOSITORY/pulls/503" --jq '.head.sha')"
+          test "$high" = "$HIGH_SHA"
+          echo "Immutable PR #505 / merged HIGH #503 pin verified."
+  logic-gpu:
+    name: Exactly one logic extraction on local RTX 4070
+    needs: verify-immutable-pr
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 18
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GH_TOKEN: \${{ github.token }}
+    steps:
+      - name: Checkout EXACT PR #505 candidate without changing its SHA
+        uses: actions/checkout@v4
+        with:
+          ref: \${{ env.TARGET_SHA }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify candidate, local Docker, Ollama, and idle GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $actual=(& git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA){throw 'Unexpected PR checkout SHA'}
+          & git merge-base --is-ancestor $env:HIGH_SHA HEAD
+          if($LASTEXITCODE -ne 0){throw 'HIGH SHA is not ancestor'}
+          $pr=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/pulls/505') | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $pr.head.sha -ne $env:TARGET_SHA){throw 'PR SHA changed'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Offline Docker sandbox missing'}
+          $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU telemetry unavailable'}
+          $gpu=($raw | Select-Object -First 1) -split ','
+          if($gpu.Count -ne 2 -or [int]$gpu[0].Trim() -lt 7000 -or [int]$gpu[1].Trim() -gt 25){throw 'GPU busy or unavailable'}
+          $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Local Python venv missing'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-pr505-logic-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse occupied environment'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'venv creation failed'}
+          $py=Join-Path $venv 'Scripts/python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-cache-dir --no-input -r requirements-neral-preview.txt
+          if($LASTEXITCODE -ne 0){throw 'Preview test dependencies unavailable'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('ONELOGIC_PY='+$py+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+      - name: Exactly one extraction, count tokens and gate on solver correctness
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          $code=@'
+          import json, sys
+          from neral_agent_autonomy import OllamaLocalBackend
+          from scripts.neral_tir_logic_smoke import run_smoke, AUTHORIZATION
+          original = OllamaLocalBackend.respond_formal_extract
+          def observed(self, messages):
+              result = original(self, messages)
+              event = self.last_inference_diagnostic or {}
+              fields = {key:event.get(key) for key in
+                        ("eval_count","prompt_eval_count","done_reason","content_length","thinking_length")}
+              print("TURN0_SAFE_TELEMETRY="+json.dumps(fields,sort_keys=True),flush=True)
+              return result
+          OllamaLocalBackend.respond_formal_extract = observed
+          report=run_smoke(authorize=AUTHORIZATION,target_sha="8781670ef978c8e5cfceba96d940a31f062754fd")
+          print("ONE_LOGIC_RESULT="+json.dumps(report,sort_keys=True),flush=True)
+          ok = (report.get("passed") is True
+                and report.get("answer_correct") is True
+                and type(report.get("successful_tool_calls")) is int
+                and report["successful_tool_calls"] >= 1
+                and report.get("extraction_calls") == 1)
+          if not ok:
+              raise SystemExit("ONE_LOGIC_GATE_FAILED: TIR12 MUST NOT start")
+          '@
+          & $env:ONELOGIC_PY -B -c $code
+          if($LASTEXITCODE -ne 0){throw 'One logic extraction failed; TIR12 is blocked'}
+  dispatch-tir12-only-after-gate:
+    name: Dispatch full TIR12 only if real solver succeeded
+    needs: logic-gpu
+    if: \${{ needs.logic-gpu.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: \${{ github.token }}
+    steps:
+      - name: Revalidate the exact candidate before dispatching 12 cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/505" --jq '.head.sha')" = "$TARGET_SHA"
+          gh workflow run neral-tir12-manual.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f authorize=NERAL_TIR12_GPU_MANUAL_ONLY \
+            -f target_sha="$TARGET_SHA" \
+            -f high_sha="$HIGH_SHA"
+          echo 'One logic gate passed; TIR12 guarded exact-SHA workflow dispatched.'
