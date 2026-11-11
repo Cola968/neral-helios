@@ -21,7 +21,46 @@ EXTRACTION_RESULT_CODES = frozenset({
     "invalid_ordering", "ordering_evidence_missing", "variable_not_in_source",
     "evidence_invalid", "evidence_count_invalid", "evidence_quote_invalid",
     "evidence_duplicate", "solver_rejected", "solver_no_integer", "accepted",
+    "solver_syntax_error", "solver_type_error", "solver_unsupported_constraint",
+    "solver_bounds_exceeded", "solver_schema_error",
 })
+
+
+# Only exact static messages emitted by our own finite-domain solver are
+# classified. Unknown/dynamic exception messages are NEVER returned or logged.
+# Detail codes identify the rejecting validation step without model text.
+_SAFE_SOLVER_REJECTIONS = {
+    "Schema exceeds size limit": ("solver_bounds_exceeded", "input_size_limit"),
+    "Boolean AST exceeds bounds": ("solver_bounds_exceeded", "boolean_ast_bounds"),
+    "Search space exceeds hard cap": ("solver_bounds_exceeded", "search_space_hard_cap"),
+    "Unsupported operator": ("solver_unsupported_constraint", "relation_operator"),
+    "Unknown Boolean operator": ("solver_unsupported_constraint", "boolean_operator"),
+    "Unrecognized compiled operator": ("solver_unsupported_constraint", "compiled_operator"),
+    "Unknown or non-Boolean AST variable": ("solver_type_error", "boolean_variable_type"),
+    "Unknown lhs variable": ("solver_type_error", "unknown_lhs_variable"),
+    "Unknown rhs variable": ("solver_type_error", "unknown_rhs_variable"),
+    "Invalid variable domain": ("solver_type_error", "variable_domain_type"),
+    "Invalid comparison value": ("solver_type_error", "comparison_value_type"),
+    "Incompatible comparison types": ("solver_type_error", "comparison_types"),
+    "Invalid Boolean cardinality": ("solver_type_error", "boolean_cardinality"),
+    "Duplicate JSON member": ("solver_syntax_error", "duplicate_json_member"),
+    "Invalid JSON": ("solver_syntax_error", "invalid_json"),
+    "Malformed Boolean AST": ("solver_syntax_error", "malformed_boolean_ast"),
+    "Unexpected Boolean AST members": ("solver_syntax_error", "boolean_ast_members"),
+    "Malformed relation": ("solver_syntax_error", "malformed_relation"),
+    "Invalid top-level schema": ("solver_schema_error", "top_level_schema"),
+    "Ambiguous ordering schema": ("solver_schema_error", "ordering_schema"),
+    "Invalid total ordering": ("solver_schema_error", "total_ordering"),
+    "Invalid schema dimensions": ("solver_schema_error", "schema_dimensions"),
+    "Invalid Boolean arguments": ("solver_schema_error", "boolean_arguments"),
+    "NOT expects one argument": ("solver_schema_error", "not_arity"),
+    "Binary operator expects two arguments": ("solver_schema_error", "binary_arity"),
+    "Operator requires two or more arguments": ("solver_schema_error", "variadic_arity"),
+    "Invalid all_different group": ("solver_schema_error", "all_different_group"),
+}
+SOLVER_REJECTION_DETAIL_CODES = frozenset(
+    reason for _, reason in _SAFE_SOLVER_REJECTIONS.values()
+)
 
 
 def _source_quote_key(text: str) -> str:
@@ -199,7 +238,8 @@ def extraction_response_format(question: str) -> dict:
 
 
 def parse_extracted_constraints(question: str, generated: str, *,
-                                rejection_reason_sink: list[str] | None = None) -> int | None:
+                                rejection_reason_sink: list[str] | None = None,
+                                solver_rejection_detail_sink: list[str] | None = None) -> int | None:
     """Return schema-only exact result, None on any uncertainty/malformed output.
 
     Even a successful number is *unverified against the natural language*.
@@ -309,7 +349,16 @@ def parse_extracted_constraints(question: str, generated: str, *,
             PREFIX + json.dumps(schema, ensure_ascii=False,
                                 separators=(",", ":"), allow_nan=False)
         )
-    except (InvalidFormalConstraints, TypeError, ValueError,
-            OverflowError, RecursionError):
+    except InvalidFormalConstraints as exc:
+        safe = _SAFE_SOLVER_REJECTIONS.get(str(exc))
+        if safe is None:
+            return reject("solver_rejected")
+        category, detail = safe
+        if type(solver_rejection_detail_sink) is list:
+            solver_rejection_detail_sink.append(detail)
+        return reject(category)
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        # Unrecognized runtime errors are deliberately not turned into
+        # fabricated solver categories or exposed through exception text.
         return reject("solver_rejected")
     return accept() if type(numeric) is int else reject("solver_no_integer")
