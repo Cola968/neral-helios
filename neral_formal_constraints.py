@@ -86,9 +86,10 @@ def _compile_boolean(expr, variables: dict, depth: int, node_budget: list[int]):
         # Duplicate plain variable entries are rejected to avoid accidental
         # double-counting from an untrusted extracted schema.
         names = [arg for arg in args if type(arg) is str]
-        if (type(minimum) is not int or not 0 <= minimum <= len(args)
-                or len(names) != len(set(names))):
-            raise InvalidFormalConstraints("Invalid Boolean cardinality")
+        if type(minimum) is not int or not 0 <= minimum <= len(args):
+            raise InvalidFormalConstraints("Invalid Boolean cardinality threshold")
+        if len(names) != len(set(names)):
+            raise InvalidFormalConstraints("Duplicate Boolean cardinality variables")
     else:
         minimum = None
     compiled = tuple(
