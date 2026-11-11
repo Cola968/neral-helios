@@ -205,7 +205,7 @@ def execute_tir_tool(tool: str, code: str) -> dict:
 # Narrow deterministic review for unchanged, self-contained, user-supplied
 # Python only. Not a general fallback from a successful tool execution.
 _PURE_SOURCE_PYTHON = frozenset({
-    "Module", "Assign", "AugAssign", "For", "If", "Expr",
+    "Module", "Assign", "AnnAssign", "AugAssign", "For", "If", "Expr",
     "Name", "Load", "Store", "Constant", "List", "Tuple",
     "Subscript", "Slice", "BinOp", "UnaryOp", "BoolOp",
     "Compare", "Call", "Add", "Sub", "Mult", "FloorDiv", "Mod",
@@ -225,13 +225,14 @@ _PYTHON_AST_REVIEW_CODES = frozenset({
 
 
 def _terminal_print_only_equivalence(original, executed) -> bool:
-    """Allow only output instrumentation of the source's last value.
+    """Prove a preserved source AST with narrowly allowed output instrumentation.
 
-    The executed program must preserve every original statement's AST and
-    append a single print(x) of the last assigned name, or a print(expr)
-    of the final pure expression (appended or replacing that expression).
-    This must not bless arbitrary generated print statements or modified
-    computation. Built-in allowlisting still runs after this check.
+    Accepted: replacing a terminal expression with print(expression);
+    appending print(last result); or adding ONE fresh alias (optionally
+    annotated as int) of that result followed by print(alias).
+    A loose subtree search would let the model modify the user's algorithm;
+    verification therefore requires an exact, ordered statement prefix.
+    Multiple prints or reassigning an existing variable are never equivalent.
     """
     import ast
 
@@ -240,46 +241,76 @@ def _terminal_print_only_equivalence(original, executed) -> bool:
     if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
            and n.func.id == "print" for n in ast.walk(original)):
         return False
-    last = executed.body[-1]
-    if not (isinstance(last, ast.Expr)
-            and isinstance(last.value, ast.Call)
-            and isinstance(last.value.func, ast.Name)
-            and last.value.func.id == "print"
-            and len(last.value.args) == 1
-            and not last.value.keywords):
+    final = executed.body[-1]
+    if not (isinstance(final, ast.Expr)
+            and isinstance(final.value, ast.Call)
+            and isinstance(final.value.func, ast.Name)
+            and final.value.func.id == "print"
+            and len(final.value.args) == 1
+            and not final.value.keywords):
         return False
 
     def same(a, b):
         return ast.dump(a, include_attributes=False) == ast.dump(
             b, include_attributes=False)
 
-    if len(executed.body) == len(original.body) + 1:
-        if not all(same(a, b) for a, b in zip(
-                original.body, executed.body[:-1])):
+    source_last = original.body[-1]
+    if isinstance(source_last, ast.Expr):
+        expected = source_last.value
+    elif isinstance(source_last, (ast.Assign, ast.AugAssign)):
+        targets = (source_last.targets if isinstance(source_last, ast.Assign)
+                   else [source_last.target])
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
             return False
-    elif len(executed.body) == len(original.body):
-        if not all(same(a, b) for a, b in zip(
-                original.body[:-1], executed.body[:-1])):
-            return False
-        if not isinstance(original.body[-1], ast.Expr):
-            return False
+        expected = ast.Name(id=targets[0].id, ctx=ast.Load())
     else:
         return False
 
-    source_last = original.body[-1]
-    output_arg = last.value.args[0]
-    if isinstance(source_last, ast.Expr):
-        # Use the source's final value, without generating a new algorithm.
-        return same(output_arg, source_last.value)
-    if (len(executed.body) == len(original.body) + 1
-            and isinstance(source_last, (ast.Assign, ast.AugAssign))):
-        targets = (source_last.targets if isinstance(source_last, ast.Assign)
-                   else [source_last.target])
-        return (len(targets) == 1 and isinstance(targets[0], ast.Name)
-                and isinstance(output_arg, ast.Name)
-                and output_arg.id == targets[0].id)
-    return False
+    prefix = original.body
+    if (len(executed.body) == len(prefix)
+            and isinstance(source_last, ast.Expr)
+            and all(same(a, b) for a, b in zip(prefix[:-1],
+                                               executed.body[:-1]))):
+        return same(final.value.args[0], expected)
 
+    if (len(executed.body) == len(prefix) + 1
+            and all(same(a, b) for a, b in zip(prefix,
+                                               executed.body[:-1]))):
+        return same(final.value.args[0], expected)
+
+    if len(executed.body) != len(prefix) + 2:
+        return False
+    if not all(same(a, b) for a, b in zip(prefix,
+                                          executed.body[:len(prefix)])):
+        return False
+    helper = executed.body[-2]
+    if isinstance(helper, ast.Assign):
+        if len(helper.targets) != 1 or not isinstance(helper.targets[0], ast.Name):
+            return False
+        alias = helper.targets[0].id
+        value = helper.value
+    elif isinstance(helper, ast.AnnAssign):
+        if (not isinstance(helper.target, ast.Name)
+                or not isinstance(helper.annotation, ast.Name)
+                or helper.annotation.id != "int" or helper.value is None
+                or helper.simple != 1):
+            return False
+        alias = helper.target.id
+        value = helper.value
+    else:
+        return False
+
+    source_names = {n.id for n in ast.walk(original)
+                    if isinstance(n, ast.Name)}
+    # Do not shadow names used in the original program or call allowlist.
+    if (alias in source_names
+            or alias in _PURE_PYTHON_CALLS
+            or alias == "int"
+            or not alias.isidentifier()):
+        return False
+    if not same(value, expected):
+        return False
+    return same(final.value.args[0], ast.Name(id=alias, ctx=ast.Load()))
 
 def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
