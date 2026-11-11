@@ -207,6 +207,7 @@ def verify_public_https_url(value: str) -> str | None:
     pinned to the validated address while the TLS hostname remains authenticated.
     """
     import socket
+    import http.client
     from urllib.parse import urljoin, urlsplit
     url = safe_result_url(value)
     for _ in range(3):  # at most two redirects
@@ -230,7 +231,7 @@ def verify_public_https_url(value: str) -> str | None:
                 url = safe_result_url(urljoin(url, location))
                 continue
             return None
-        except (OSError, TimeoutError, ValueError, ssl.SSLError):
+        except (OSError, TimeoutError, ValueError, ssl.SSLError, http.client.HTTPException):
             return None
     return None
 
