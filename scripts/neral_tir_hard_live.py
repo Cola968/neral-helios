@@ -245,6 +245,14 @@ def safe_first_turn_event(event: object) -> dict | None:
     if relaxation_bucket is not None and relaxation_bucket not in (
             "single_solution", "multiple_solutions"):
         return None
+    core_size = event.get("unsat_core_size")
+    if (core_size is not None
+            and (type(core_size) is not int or not 1 <= core_size <= 12)):
+        return None
+    relaxed_index = event.get("relaxed_constraint_index")
+    if (relaxed_index is not None
+            and (type(relaxed_index) is not int or not 0 <= relaxed_index < 32)):
+        return None
     literal_context = event.get("boolean_literal_context")
     if literal_context is not None and literal_context not in (
             "at_least", "exactly", "eq", "standalone", "other", "multiple"):
@@ -263,6 +271,9 @@ def safe_first_turn_event(event: object) -> dict | None:
                if relaxation_status is not None else {}),
             **({"solver_relaxation_count_bucket": relaxation_bucket}
                if relaxation_bucket is not None else {}),
+            **({"unsat_core_size": core_size} if core_size is not None else {}),
+            **({"relaxed_constraint_index": relaxed_index}
+               if relaxed_index is not None else {}),
             **({"boolean_literal_context": literal_context}
                if literal_context is not None else {}),
             **({"extraction_rejection_reason": rejected}
