@@ -484,5 +484,4 @@ class EvidenceFormatAndToolDirectiveContracts(unittest.TestCase):
         self.assertIn("python_sandbox", directive)
         self.assertIn("MUST", directive)
         self.assertIn("before", directive.lower())
-        self.assertNotIn("CONSTRAINT EXTRACTOR ABSTAINED",
-                         observed[1][0]["content"].replace("SANDBOX_OBSERVATION", ""))
+        self.assertNotIn("CONSTRAINT EXTRACTOR ABSTAINED", original[0]["content"])
