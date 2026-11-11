@@ -57,7 +57,9 @@ test("irrelevant search hits never contaminate model prompt",async()=>{
   ]);
   assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
   const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
-  assert.equal(body.prompt,"Suche: Ist PW1000 ein Turbofan oder Turboprop?");
+  assert.match(body.prompt,/NERAL-WEBSTATUS/);
+  assert.match(body.prompt,/keine passenden Treffer/);
+  assert.ok(body.prompt.endsWith("Suche: Ist PW1000 ein Turbofan oder Turboprop?"));
   assert.doesNotMatch(body.prompt,/ChatGPT jailbreak/);
 });
 
@@ -68,7 +70,9 @@ test("electric fields follow-up rejects unrelated TV links",async()=>{
   ]);
   assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
   const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
-  assert.equal(body.prompt,"Suche elektrische Felder und Stromkreise");
+  assert.match(body.prompt,/NERAL-WEBSTATUS/);
+  assert.match(body.prompt,/keine passenden Treffer/);
+  assert.ok(body.prompt.endsWith("Suche elektrische Felder und Stromkreise"));
   assert.doesNotMatch(body.prompt,/VOX|Fernsehprogramm/);
 });
 test("generic word explain must not validate a physics search hit",async()=>{
