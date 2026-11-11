@@ -754,7 +754,10 @@ def _single_step_unsat_relaxation(question: str, schema: dict,
                 OverflowError, RecursionError):
             continue
         if type(count) is int and count > 0:
-            viable.append(count)
+            stable_index = (len(numeric_rules) +
+                            len(schema.get("all_different", [])) + index
+                            if kind == "bool" else index)
+            viable.append((stable_index, count))
     if not viable:
         return {"solver_relaxation_status": "no_positive_single_drop"}
     if len(viable) != 1:
@@ -762,8 +765,175 @@ def _single_step_unsat_relaxation(question: str, schema: dict,
     return {
         "solver_relaxation_status": "single_candidate",
         "solver_relaxation_count_bucket": (
-            "single_solution" if viable[0] == 1 else "multiple_solutions"),
+            "single_solution" if viable[0][1] == 1 else "multiple_solutions"),
+        "relaxed_constraint_index": viable[0][0],
     }
+
+
+def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
+    """Diagnose a subset-minimal UNSAT core; never assert source semantics.
+
+    Clause order/index: rules, all_different, flattened top-level AND
+    conjuncts of bool_rules. Every deletion is rechecked by the existing
+    bounded solver. A successful relaxation is a *model-schema candidate*,
+    never an independently verified answer to the user's question.
+    """
+    import math
+
+    if schema.get("query") != "count":
+        return {}
+    variables = schema.get("variables")
+    if type(variables) is not dict or not 1 <= len(variables) <= 8:
+        return {}
+    try:
+        state_count = math.prod(len(v) for v in variables.values())
+    except (TypeError, ValueError, OverflowError):
+        return {}
+    # The main solver may allow 100k enumerations; this extra diagnostic
+    # deliberately stays far below that resource ceiling.
+    if state_count > 4096:
+        return {}
+
+    rules = schema.get("rules", [])
+    groups = schema.get("all_different", [])
+    bool_rules = schema.get("bool_rules", [])
+    if any(type(group) is not list for group in (rules, groups, bool_rules)):
+        return {}
+
+    flat_bool = []
+    walked = [0]
+    def flatten(node, depth):
+        walked[0] += 1
+        if walked[0] > 128 or depth > 5:
+            raise ValueError("Bounded Boolean flattening only")
+        if type(node) is dict and node.get("op") == "and":
+            children = node.get("args")
+            if type(children) is not list or not 2 <= len(children) <= 8:
+                raise ValueError("Invalid AND structure")
+            for child in children:
+                flatten(child, depth + 1)
+        else:
+            flat_bool.append(node)
+    try:
+        for item in bool_rules:
+            flatten(item, 0)
+    except (ValueError, TypeError, RecursionError):
+        return {}
+
+    clauses = (
+        [("rules", x) for x in rules] +
+        [("all_different", x) for x in groups] +
+        [("bool_rules", x) for x in flat_bool]
+    )
+    if not 1 <= len(clauses) <= 12:
+        return {}
+
+    def solve(indices: list[int], *, query="satisfiable") -> int | None:
+        selected = {key: [] for key in ("rules", "all_different", "bool_rules")}
+        for i in indices:
+            kind, value = clauses[i]
+            selected[kind].append(value)
+        if "ordering" in schema:
+            # The ordering solver contains an implicit all-different
+            # constraint that cannot be deleted through this interface.
+            candidate = {
+                "ordering": schema["ordering"],
+                "rules": selected["rules"], "query": query,
+            }
+        else:
+            candidate = {
+                "variables": variables,
+                **selected, "query": query,
+            }
+        try:
+            return try_solve_formal_constraints(
+                PREFIX + json.dumps(candidate, ensure_ascii=False,
+                                    separators=(",", ":"), allow_nan=False))
+        except (InvalidFormalConstraints, ValueError, TypeError,
+                OverflowError, RecursionError):
+            return None
+
+    # A subset-minimal UNSAT core, not a minimum-cardinality proof.
+    active = list(range(len(clauses)))
+    for i in range(len(clauses)):
+        reduced = [idx for idx in active if idx != i]
+        satisfiable = solve(reduced)
+        if satisfiable is None:
+            return {}
+        if satisfiable == 0:
+            active = reduced
+        elif satisfiable != 1:
+            return {}
+    details = {"unsat_core_size": len(active)}
+    if not active:
+        return details
+
+    clue_match = re.search(
+        r"\bsatisfy\s+ALL\s*:\s*(.*?)(?:\?\s*Return\b|\?\s*$)",
+        question, re.I | re.S)
+    if clue_match is None:
+        return details
+    source_clues = [part.strip() for part in clue_match.group(1).split(";")]
+    if (not 2 <= len(source_clues) <= 32 or
+            any(not 3 <= len(x) <= 200 for x in source_clues)):
+        return details
+
+    def mentioned_names(node) -> set[str]:
+        result = set()
+        walked_nodes = [0]
+        def walk(value, depth):
+            walked_nodes[0] += 1
+            if walked_nodes[0] > 64 or depth > 5:
+                return
+            if type(value) is str:
+                if value in variables:
+                    result.add(value)
+            elif type(value) is dict:
+                for key in ("left", "right", "args"):
+                    if key in value:
+                        walk(value[key], depth + 1)
+            elif type(value) is list:
+                for child in value[:8]:
+                    walk(child, depth + 1)
+        walk(node, 0)
+        return result
+
+    def no_direct_clue_for(variables_in_clause: set[str]) -> bool:
+        if not variables_in_clause:
+            return False
+        def quotes_all(clue):
+            return all(re.search(
+                r"(?<!\w)" + re.escape(name) + r"(?!\w)", clue
+            ) is not None for name in variables_in_clause)
+        return not any(quotes_all(part) for part in source_clues)
+
+    # One deletion from the complete model, never a generalized repair.
+    # Keep explicit source clues even if deleting them would create a
+    # mathematically attractive (but logically unjustified) unique answer.
+    viable = []
+    for idx in active:
+        kind, expr = clauses[idx]
+        if kind == "all_different":
+            continue
+        names = mentioned_names(expr)
+        if not no_direct_clue_for(names):
+            continue
+        remaining = [j for j in range(len(clauses)) if j != idx]
+        if solve(remaining) != 1:
+            continue
+        count = solve(remaining, query="count")
+        if type(count) is int and count > 0:
+            viable.append((idx, count))
+
+    if len(viable) == 1:
+        idx, count = viable[0]
+        details["relaxed_constraint_index"] = idx
+        details["solver_relaxation_status"] = "single_candidate"
+        details["solver_relaxation_count_bucket"] = (
+            "single_solution" if count == 1 else "multiple_solutions")
+    elif len(viable) > 1:
+        details["solver_relaxation_status"] = "ambiguous_candidates"
+    return details
 
 
 def parse_extracted_constraints(question: str, generated: str, *,
@@ -894,11 +1064,18 @@ def parse_extracted_constraints(question: str, generated: str, *,
             "expected_sentence_clues": clue_count,
             "boolean_literal_context": literal_context,
         }
-        if (value == 0 and extracted_count is not None and
-                clue_count is not None and extracted_count > clue_count and
-                literal_context == "multiple"):
-            details.update(_single_step_unsat_relaxation(
-                question, schema, evidence))
+        if value == 0:
+            if (extracted_count is not None and clue_count is not None
+                    and extracted_count > clue_count and
+                    literal_context == "multiple"):
+                details.update(_single_step_unsat_relaxation(
+                    question, schema, evidence))
+            core_details = _bounded_minimal_unsat_core(question, schema)
+            if "relaxed_constraint_index" in core_details:
+                # Core-grounded, unique single deletion takes precedence
+                # over any isolated literal heuristic.
+                details.pop("relaxed_constraint_index", None)
+            details.update(core_details)
         if type(structural_telemetry_sink) is list:
             structural_telemetry_sink.append(details)
     try:
