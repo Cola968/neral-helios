@@ -17,7 +17,7 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "6f5ecb4ec19fe557036a4c1920488837cb14ddfc"
+TARGET_SHA = "354de04807129bac6215a1ce5cc0fdebc6bb4097"
 SEED = 202611110533
 
 
@@ -87,6 +87,17 @@ def safe_ast_diff_scalars(packet: object) -> dict:
     }
 
 
+def safe_answer_integer(value: object) -> int | None:
+    """Only a complete numeric final answer, never model prose or code."""
+    if type(value) is not str or len(value) > 80:
+        return None
+    match = re.fullmatch(r"(?:FINAL_ANSWER:\s*)?(-?\d{1,12})", value.strip())
+    if match is None:
+        return None
+    number = int(match.group(1))
+    return number if -1_000_000_000 <= number <= 1_000_000_000 else None
+
+
 def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
     """Fail closed: neither a parser rejection nor mere tool execution proves correctness."""
     if type(rows) is not list or len(rows) != 2:
@@ -107,10 +118,22 @@ def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
         and a.get("tool_used") == "neral_python_sandbox"
         and a.get("tool_calls_succeeded") == 1
     )
+    # This is a solver-checked *model translation*, not a source-verified
+    # proof. Honest provenance is mandatory; raw LLM fallback never qualifies.
+    extraction = b.get("extraction_status")
     b_ok = (
         b.get("answer_correct") is True
-        and b.get("verified") is True
+        and type(b.get("answer_integer")) is int
+        and b["answer_integer"] == 12
+        and b.get("verified") is False
+        and b.get("verification_status") == "model_extracted_schema_unverified"
+        and b.get("verification_scope") == "model_extracted_finite_domain"
+        and b.get("tool_used") == "neral_logic_exact"
         and b.get("tool_calls_succeeded") == 1
+        and extraction in ("accepted", "repaired")
+        and (extraction == "accepted" or (
+            type(b.get("first_turn_telemetry")) is dict
+            and b["first_turn_telemetry"].get("solver_repair_status") == "repaired"))
     )
     return a_ok, b_ok
 
@@ -188,12 +211,15 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "family": case["family"],
                 "http_status": status,
                 "answer_correct": bool(good),
+                "answer_integer": safe_answer_integer(packet.get("text")) if status == 200 else None,
                 "verified": packet.get("verified") if type(packet.get("verified")) is bool else None,
                 "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match", "semantic_execution_match") else None,
                 "review_match_reason": safe_review_reason(packet.get("review_match_reason")),
                 "ast_diff_node": safe_ast_diff_node(packet.get("ast_diff_node")),
                 **safe_ast_diff_scalars(packet),
-                "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "proven_integer_ast_equivalence", "none", "execution_only", "model_extracted_schema_unverified") else None,
+                "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "proven_integer_ast_equivalence", "none", "execution_only", "model_extracted_finite_domain") else None,
+                "extraction_status": packet.get("extraction_status")
+                    if packet.get("extraction_status") in ("accepted", "repaired", "fallback") else None,
                 "tool_used": packet.get("tool_used") if status == 200 else None,
                 "tool_output_reviewed": (packet.get("tool_output_reviewed")
                                          if type(packet.get("tool_output_reviewed")) is bool
