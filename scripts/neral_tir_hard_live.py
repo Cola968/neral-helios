@@ -237,6 +237,22 @@ def safe_first_turn_event(event: object) -> dict | None:
     if repair_status is not None and repair_status not in (
             "repaired", "retry_unsat", "retry_rejected"):
         return None
+    repair_format = event.get("solver_repair_input_format")
+    if repair_format is not None and repair_format not in (
+            "plain_json", "prefixed_json", "fenced_json",
+            "prefixed_fenced_json", "invalid_response", "invalid_wrapping"):
+        return None
+    repair_rejection = event.get("solver_repair_rejection_reason")
+    if (repair_rejection is not None
+            and repair_rejection not in EXTRACTION_RESULT_CODES):
+        return None
+    repair_detail = event.get("solver_repair_solver_detail")
+    if (repair_detail is not None
+            and repair_detail not in SOLVER_REJECTION_DETAIL_CODES):
+        return None
+    repair_ast = event.get("solver_repair_ast_check_code")
+    if repair_ast is not None and repair_ast not in AST_CHECK_CODES:
+        return None
     bucket = event.get("solver_solution_count_bucket")
     if bucket is not None and bucket not in (
             "zero_unsat", "single_solution", "multiple_solutions"):
@@ -293,6 +309,14 @@ def safe_first_turn_event(event: object) -> dict | None:
             **source_counts,
             **({"solver_repair_status": repair_status}
                if repair_status is not None else {}),
+            **({"solver_repair_input_format": repair_format}
+               if repair_format is not None else {}),
+            **({"solver_repair_rejection_reason": repair_rejection}
+               if repair_rejection is not None else {}),
+            **({"solver_repair_solver_detail": repair_detail}
+               if repair_detail is not None else {}),
+            **({"solver_repair_ast_check_code": repair_ast}
+               if repair_ast is not None else {}),
             **({"solver_solution_count_bucket": bucket} if bucket is not None else {}),
             **({"solver_relaxation_status": relaxation_status}
                if relaxation_status is not None else {}),
