@@ -551,10 +551,12 @@ def run_experimental_tir(
                           if solver_rejection_detail_sink is not None else [])
         ast_details = (ast_check_code_sink
                        if ast_check_code_sink is not None else [])
+        structural_details: list[dict] = []
         solved = parse_extracted_constraints(
             core, proposed, rejection_reason_sink=rejection,
             solver_rejection_detail_sink=solver_details,
-            ast_check_code_sink=ast_details)
+            ast_check_code_sink=ast_details,
+            structural_telemetry_sink=structural_details)
         reason = rejection[-1] if rejection else None
         first_turn_telemetry = capture_first_turn(
             "extracted_formal" if solved is not None else
@@ -571,6 +573,10 @@ def run_experimental_tir(
             from neral_turn0_extractor import AST_CHECK_CODES
             if ast_details[-1] in AST_CHECK_CODES:
                 first_turn_telemetry["ast_check_code"] = ast_details[-1]
+        if structural_details:
+            # Parser owns the only source of these bounded scalar measurements;
+            # neither model text nor schema is copied into telemetry.
+            first_turn_telemetry.update(structural_details[-1])
         if solved is None:
             if reason != "kind_none":
                 fallback = base_fallback()
