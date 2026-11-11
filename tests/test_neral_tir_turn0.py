@@ -115,20 +115,21 @@ class ExtractionSchemaContracts(unittest.TestCase):
         self.assertEqual(report["first_turn_telemetry"]["eval_count"],94)
         self.assertEqual(report["first_turn_telemetry"]["decision"],"extracted_formal")
 
-    def test_nonformal_refusal_uses_untouched_qwen_not_old_tir_prompt(self):
+    def test_nonformal_refusal_keeps_tool_decision_model_controlled(self):
         original=messages("How does rain form?")
         observed=[]
         def respond(turns):
             observed.append([dict(row) for row in turns])
-            return "Rain forms after condensation."
+            return "NERAL_FINAL_TEXT: Rain forms after condensation."
         report=run_experimental_tir(original,respond,
                 extract_constraints=lambda _: '{"kind":"none"}')
-        self.assertEqual(observed,[original])
+        self.assertEqual(len(observed),1)
+        self.assertNotEqual(observed[0],original)
         self.assertEqual(report["text"],"Rain forms after condensation.")
         self.assertEqual(report["calls_used"],2)
         self.assertEqual(report["tool_calls_succeeded"],0)
-        self.assertEqual(report["verification_status"],"base_fallback_unverified")
-        self.assertEqual(report["first_turn_telemetry"]["decision"],"extraction_fallback")
+        self.assertEqual(report["first_turn_telemetry"]["decision"],"extraction_none")
+        self.assertEqual(report["first_turn_telemetry"]["extraction_rejection_reason"],"kind_none")
 
     def test_malformed_or_semantically_unsupported_falls_back_without_executing_code(self):
         for proposed in ("not JSON", packet(complete=False),
