@@ -1,0 +1,160 @@
+"""Explicit, exactly two-case live PR #533 GPU diagnostic; not TIR12.
+
+A: code_trace nested_mutation_trace, expects kind=none -> python_sandbox.
+B: reasoning seven_variable_logic, captures parser rejection or direct solve.
+Uses fresh deterministic instances of original benchmark families; historic
+private TIR12 seed/prompts are not recoverable. No generated text or prompts
+are published. The true model can still fail; do not treat this as release.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import time
+
+AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
+TARGET_SHA = "055be26319440726395771a8874726bbf08f6f48"
+SEED = 202611110533
+
+
+def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
+    if (authorize != AUTHORIZE or target_sha != TARGET_SHA
+            or os.environ.get("NERAL_EXPERIMENTAL_TIR") != "1"
+            or os.environ.get("NERAL_TWO_CASES_ONLY") != "1"):
+        raise ValueError("Not authorized for exactly two PR533 cases")
+    report_path = Path(report_path)
+    if (report_path.exists() or report_path.is_symlink()
+            or report_path.suffix != ".json"
+            or not report_path.parent.is_dir()):
+        raise ValueError("Refuse non-fresh scalar report")
+
+    # The script lives in a separate operations branch. The candidate itself
+    # is checked out into a clean pinned directory by the Windows workflow.
+    candidate = Path(os.environ["NERAL_CANDIDATE_DIR"])
+    current = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=candidate,
+        capture_output=True, text=True, check=True, timeout=8)
+    if current.stdout.strip() != TARGET_SHA:
+        raise ValueError("Wrong candidate revision")
+
+    from scripts.neral_foundation_2048_retest import ORIGINAL_DIGESTS
+    from scripts.neral_high12_manual import MODEL, PROFILE, paired_case_seed
+    from scripts.neral_v7_foundation_tournament import OllamaLocal
+    from scripts.neral_same_base_live import _high_client, require_model, BASE_URL
+    from scripts.neral_tir_hard_live import generate_hard_cases, safe_first_turn_event
+    from scripts.neral_low_high_quality import make_prompt
+    from scripts.neral_same_base_ab_score import _correct
+    from neral_agent_autonomy import OllamaLocalBackend
+
+    digest = require_model(OllamaLocal(timeout=120).inventory())
+    if digest != ORIGINAL_DIGESTS[MODEL]:
+        raise ValueError("Installed model digest changed")
+    cases = generate_hard_cases(SEED)
+    chosen = [
+        next(c for c in cases if c["domain"] == "code_trace"
+             and c["family"] == "nested_mutation_trace"
+             and c["id"].endswith("-00")),
+        next(c for c in cases if c["domain"] == "reasoning"
+             and c["family"] == "seven_variable_logic"
+             and c["id"].endswith("-00")),
+    ]
+    if len({c["id"] for c in chosen}) != 2:
+        raise ValueError("Expected exactly two unique tasks")
+    backend = OllamaLocalBackend(MODEL, timeout=90, inference_profile=PROFILE)
+    client, headers = _high_client(backend)
+    reports = []
+    try:
+        for case in chosen:
+            backend.set_benchmark_seed(paired_case_seed(SEED, case["id"]))
+            started = time.monotonic()
+            response = client.post(
+                "/api/neral/chat/think",
+                json={"prompt": make_prompt(case), "experimental_tir": True},
+                headers=headers, base_url=BASE_URL,
+            )
+            packet = response.get_json(silent=True)
+            if type(packet) is not dict:
+                packet = {}
+            first = safe_first_turn_event(packet.get("first_turn_telemetry"))
+            status = response.status_code
+            if status not in (200, 503):
+                raise ValueError("Unexpected THINK HTTP status")
+            good = (status == 200 and _correct(
+                case["answer"], packet.get("text", ""), True))
+            started_count = packet.get("tool_calls_triggered", 0)
+            successful_count = packet.get("tool_calls_succeeded", 0)
+            if type(started_count) is not int or type(successful_count) is not int:
+                started_count = successful_count = 0
+            event = {
+                "domain": case["domain"],
+                "family": case["family"],
+                "http_status": status,
+                "answer_correct": bool(good),
+                "tool_used": packet.get("tool_used") if status == 200 else None,
+                "tool_calls_triggered": started_count,
+                "tool_calls_succeeded": successful_count,
+                "first_turn_telemetry": first,
+                "error_code": packet.get("error_code") if status == 503 else None,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+            }
+            # Never emit the user question, generated program, JSON response or seed.
+            print("PR533_TWO_CASE_SCALARS " + json.dumps(event, sort_keys=True), flush=True)
+            reports.append(event)
+    finally:
+        backend.set_benchmark_seed(None)
+        backend.unload()
+
+    a, b = reports
+    a_ok = (a["first_turn_telemetry"] is not None
+            and a["first_turn_telemetry"].get("decision") == "extraction_none"
+            and a["first_turn_telemetry"].get("extraction_rejection_reason") == "kind_none"
+            and a["tool_used"] == "neral_python_sandbox"
+            and a["tool_calls_succeeded"] >= 1)
+    b_diag = b["first_turn_telemetry"] or {}
+    b_ok = (b["tool_calls_succeeded"] >= 1
+            or isinstance(b_diag.get("extraction_rejection_reason"), str))
+    report = {
+        "status": "NERAL_PR533_TWO_CASE_DEVELOPMENT_ONLY",
+        "target_sha": TARGET_SHA,
+        "model_digest": digest,
+        "case_count": 2,
+        "cases": reports,
+        "case_a_none_to_python_passed": a_ok,
+        "case_b_parser_observed_or_solver_passed": b_ok,
+        "two_case_gate_passed": a_ok and b_ok,
+        "no_original_tir12_seed_or_outputs_replayed": True,
+        "release_approval": False,
+    }
+    with report_path.open("x", encoding="utf-8") as out:
+        json.dump(report, out, sort_keys=True, allow_nan=False)
+        out.write("\n")
+    print("PR533_TWO_CASE_GATE=" + json.dumps({
+        "case_a_none_to_python_passed": a_ok,
+        "case_b_parser_observed_or_solver_passed": b_ok,
+        "two_case_gate_passed": a_ok and b_ok,
+    }, sort_keys=True), flush=True)
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--authorize", required=True)
+    parser.add_argument("--target-sha", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        result = run_two(
+            authorize=args.authorize, target_sha=args.target_sha, report_path=args.out)
+    except Exception as exc:
+        # No exception body: model output and paths stay local.
+        print("PR533_TWO_CASE_ABORT=" + type(exc).__name__, flush=True)
+        return 2
+    return 0 if result["two_case_gate_passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
