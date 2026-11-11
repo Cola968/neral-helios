@@ -87,6 +87,104 @@ def _source_contains_quote(question: str, quote: str) -> bool:
     # Word boundaries prevent partial variable names and truncated integers.
     return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", source) is not None
 
+
+# Explicit source declarations are the only authority for inferred Boolean
+# domains. AST usage alone cannot declare a new variable, nor can a
+# case-insensitive match create aliases or repair a semantic contradiction.
+_BOOL_SOURCE_PATTERNS = (
+    re.compile(r"\bBoolean\s+assignments?\s+to\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\b", re.I),
+    re.compile(r"\bBoolean\s+variables?\s*:\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\b", re.I),
+    re.compile(r"\b([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+are\s+Boolean\s+variables\b", re.I),
+    re.compile(r"\b([A-Za-z_]\w*(?:\s+and\s+[A-Za-z_]\w*)+)\s+can\s+each\s+be\s+True\s+or\s+False\b", re.I),
+)
+
+
+def _explicit_boolean_names(question: str) -> set[str]:
+    """Recognize only unambiguous, enumerated Boolean source declarations."""
+    groups = []
+    for pattern in _BOOL_SOURCE_PATTERNS:
+        for found in pattern.finditer(question):
+            names = re.split(r"\s*,\s*|\s+and\s+", found.group(1))
+            if (1 <= len(names) <= 8
+                    and len(names) == len(set(names))
+                    and all(len(name) <= 32 and name.isidentifier()
+                            for name in names)):
+                groups.append(frozenset(names))
+    # If competing declarations disagree, inference is unsafe.
+    return set(groups[0]) if groups and all(group == groups[0] for group in groups) else set()
+
+
+def _boolean_ast_references(bool_rules: list) -> set[str] | None:
+    """Read bounded string leaves without executing or rewriting model AST."""
+    seen = set()
+    def visit(node, depth):
+        if depth > 5:
+            return False
+        if type(node) is bool:
+            return True
+        if type(node) is str:
+            seen.add(node)
+            return True
+        if type(node) is not dict or type(node.get("args")) is not list:
+            return False
+        if node.get("op") not in (
+                "and", "or", "xor", "not", "implies", "eq", "at_least"):
+            return False
+        return len(node["args"]) <= 8 and all(
+            visit(child, depth + 1) for child in node["args"])
+    if type(bool_rules) is not list or len(bool_rules) > 32:
+        return None
+    return seen if all(visit(node, 0) for node in bool_rules) else None
+
+
+def _infer_source_boolean_domains(question: str, schema: dict) -> dict:
+    """Normalize ONLY definite 0/1 encodings and source-named AST-only vars.
+
+    Existing non-binary, mixed-type and numeric-constraint declarations are
+    NEVER overridden. The trusted solver still validates all hard caps and
+    model-authored AST operations.
+    """
+    names = _explicit_boolean_names(question)
+    if not names or type(schema.get("variables")) is not dict:
+        return schema
+    refs = _boolean_ast_references(schema.get("bool_rules", []))
+    if not refs or not refs <= names:
+        return schema
+    variables = schema["variables"]
+    if len(variables) > 8 or len(variables) + len(refs - variables.keys()) > 8:
+        return schema
+    # Numeric relations / uniqueness constraints could make 0/1 genuine
+    # numeric domains; never convert a variable used in both modes.
+    relations = schema.get("rules", [])
+    groups = schema.get("all_different", [])
+    if type(relations) is not list or type(groups) is not list:
+        return schema
+    numeric = set()
+    for rule in relations:
+        if type(rule) is not dict:
+            return schema
+        for key in ("left", "right"):
+            if type(rule.get(key)) is str:
+                numeric.add(rule[key])
+    for group in groups:
+        if type(group) is not list:
+            return schema
+        numeric.update(x for x in group if type(x) is str)
+    if refs & numeric:
+        return schema
+    repaired = dict(variables)
+    for name in refs:
+        if name not in variables:
+            repaired[name] = [False, True]
+            continue
+        domain = variables[name]
+        if (type(domain) is list and len(domain) == 2
+                and all(type(value) is int and value in (0, 1)
+                        for value in domain)
+                and len(set(domain)) == 2):
+            repaired[name] = [bool(value) for value in domain]
+    return {**schema, "variables": repaired}
+
 EXTRACT_PROMPT = (
     "You are ONLY a finite-domain constraint extractor. Answer exactly one "
     "compact JSON object, with no Markdown, explanation, Python, or preamble. "
@@ -344,6 +442,9 @@ def parse_extracted_constraints(question: str, generated: str, *,
         return reject("evidence_quote_invalid")
     if len({_source_quote_key(span) for span in evidence}) != len(evidence):
         return reject("evidence_duplicate")
+    # Source-grounded normalization runs ONLY after all quote and source-name
+    # checks, immediately before the immutable fail-closed finite solver.
+    schema = _infer_source_boolean_domains(question, schema)
     try:
         numeric = try_solve_formal_constraints(
             PREFIX + json.dumps(schema, ensure_ascii=False,
