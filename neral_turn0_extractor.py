@@ -590,6 +590,32 @@ def _expected_semicolon_clues(question: str) -> int | None:
     return len(clues)
 
 
+def _extracted_clue_count(schema: dict) -> int | None:
+    """Count top-level conjuncts; AND grouping is not a missing-clue signal."""
+    rules = schema.get("rules", [])
+    bool_rules = schema.get("bool_rules", [])
+    distinct = schema.get("all_different", [])
+    if any(type(group) is not list or len(group) > 32
+           for group in (rules, bool_rules, distinct)):
+        return None
+    count = len(rules) + len(distinct)
+    stack = [(node, 0) for node in bool_rules]
+    visits = 0
+    while stack:
+        node, depth = stack.pop()
+        visits += 1
+        if visits > 128 or depth > 5:
+            return None
+        if type(node) is dict and node.get("op") == "and":
+            args = node.get("args")
+            if type(args) is not list or not 2 <= len(args) <= 8:
+                return None
+            stack.extend((arg, depth + 1) for arg in args)
+        else:
+            count += 1
+    return count if 0 <= count <= 32 else None
+
+
 def _boolean_literal_context(schema: dict) -> str | None:
     """Classify only AST structure; never expose generated variable tokens."""
     trees = schema.get("bool_rules", [])
@@ -731,9 +757,7 @@ def parse_extracted_constraints(question: str, generated: str, *,
     schema = _canonicalize_boolean_ast_names(schema)
     schema = _normalize_boolean_leaf_tokens(question, schema, ast_check_code_sink)
     schema = _infer_source_boolean_domains(question, schema)
-    extracted_count = (len(schema.get("rules", []))
-                       + len(schema.get("bool_rules", []))
-                       + len(schema.get("all_different", [])))
+    extracted_count = _extracted_clue_count(schema)
     clue_count = _expected_semicolon_clues(question)
     literal_context = _boolean_literal_context(schema)
 
@@ -744,8 +768,7 @@ def parse_extracted_constraints(question: str, generated: str, *,
                 "solver_solution_count_bucket": (
                     "zero_unsat" if value == 0 else
                     "single_solution" if value == 1 else "multiple_solutions"),
-                "extracted_constraint_count": (
-                    extracted_count if 0 <= extracted_count <= 32 else None),
+                "extracted_constraint_count": extracted_count,
                 "expected_sentence_clues": clue_count,
                 "boolean_literal_context": literal_context,
             })
