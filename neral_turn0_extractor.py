@@ -199,7 +199,7 @@ def parse_extracted_constraints(question: str, generated: str, *,
     if type(candidate) is not dict:
         return reject("invalid_json")
     if candidate == {"kind": "none"}:
-        return reject("invalid_envelope")
+        return reject("kind_none")
     if set(candidate) != {"kind", "complete", "schema", "evidence"}:
         return reject("invalid_envelope")
     if candidate["kind"] != "formal" or candidate["complete"] is not True:
