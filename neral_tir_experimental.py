@@ -345,7 +345,9 @@ def _exact_source_python_answer(
             executed, include_attributes=False)
             and not _terminal_print_only_equivalence(original, executed)):
         return reject("ast_structure_mismatch")
-    nodes = list(ast.walk(original))
+    # Inspect the actually executed AST: a source with no print can still
+    # have one safely appended final print after a proven AST-prefix match.
+    nodes = list(ast.walk(executed))
     if (len(nodes) > 250 or any(
             type(node).__name__ not in _PURE_SOURCE_PYTHON
             for node in nodes)):
