@@ -228,11 +228,17 @@ def safe_first_turn_event(event: object) -> dict | None:
     detail = event.get("solver_rejection_detail")
     if detail is not None and detail not in SOLVER_REJECTION_DETAIL_CODES:
         return None
+    from neral_turn0_extractor import AST_CHECK_CODES
+    ast_code = event.get("ast_check_code")
+    if ast_code is not None and ast_code not in AST_CHECK_CODES:
+        return None
     return {**counts, "done_reason": reason, "decision": decision,
             **({"extraction_rejection_reason": rejected}
                if rejected is not None else {}),
             **({"solver_rejection_detail": detail}
-               if detail is not None else {})}
+               if detail is not None else {}),
+            **({"ast_check_code": ast_code}
+               if ast_code is not None else {})}
 
 
 def _run_one(arm: str, question: str, backend, client, headers: dict):
