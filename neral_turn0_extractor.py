@@ -206,6 +206,111 @@ def _canonicalize_boolean_ast_names(schema: dict) -> dict:
         return schema
     return {**schema, "bool_rules": rewritten} if changed else schema
 
+
+AST_CHECK_CODES = frozenset({
+    "boolean_literal_token", "initial_letter_token", "unmapped_identifier",
+})
+
+
+def _normalize_boolean_leaf_tokens(
+        question: str, schema: dict, code_sink: list[str] | None = None
+) -> dict:
+    """Resolve Boolean literal leaves and unique, source-grounded initials.
+
+    Only model-authored *Boolean expression leaves* are rewritten. A name
+    declared as a Boolean variable always takes precedence over a literal.
+    Full entity names must be explicitly introduced in the question before
+    their unique first letters can be bound; unrecognized names remain
+    unresolved. This step never creates new source entities or changes rules.
+    """
+    if type(schema) is not dict or type(schema.get("variables")) is not dict:
+        return schema
+    variables = schema["variables"]
+    trees = schema.get("bool_rules")
+    if (type(trees) is not list or len(trees) > 32
+            or not 1 <= len(variables) <= 8):
+        return schema
+
+    declared = _explicit_boolean_names(question)
+    # Initial aliases are allowed only for a full, proven source declaration
+    # of the exact semantic entity names in the model's variables table.
+    allow_initials = (
+        bool(declared)
+        and set(variables) <= declared
+        and all(type(name) is str and name.isidentifier()
+                and 2 <= len(name) <= 32 for name in variables)
+    )
+    first_letters: dict[str, list[str]] = {}
+    if allow_initials:
+        for name in variables:
+            first_letters.setdefault(name[0].casefold(), []).append(name)
+
+    detected = set()
+    changed = False
+    visited = [0]
+    operators = frozenset((
+        "and", "or", "xor", "not", "implies", "eq", "at_least"
+    ))
+
+    def rewrite(node, depth):
+        nonlocal changed
+        visited[0] += 1
+        if depth > 5 or visited[0] > 128:
+            raise ValueError("Boolean AST normalization budget exceeded")
+        if type(node) is bool:
+            return node
+        if type(node) is int and node in (0, 1):
+            detected.add("boolean_literal_token")
+            changed = True
+            return bool(node)
+        if type(node) is str:
+            if node in variables:
+                return node
+            trimmed = node.strip()
+            # Whitespace/case aliases were handled by the earlier
+            # canonicalizer; never turn a named variable into a literal.
+            token = trimmed.casefold()
+            if token in ("true", "false", "1", "0"):
+                detected.add("boolean_literal_token")
+                changed = True
+                return token in ("true", "1")
+            if (allow_initials and len(trimmed) == 1 and trimmed.isalpha()
+                    and token not in operators):
+                options = first_letters.get(token, ())
+                if options:
+                    detected.add("initial_letter_token")
+                    if len(options) == 1:
+                        candidate = options[0]
+                        domain = variables[candidate]
+                        if (type(domain) is list and domain
+                                and all(type(x) is bool for x in domain)):
+                            changed = True
+                            return candidate
+                    return node
+            detected.add("unmapped_identifier")
+            return node
+        if type(node) is not dict or type(node.get("args")) is not list:
+            raise ValueError("Unexpected Boolean AST leaf")
+        if node.get("op") not in operators or len(node["args"]) > 8:
+            raise ValueError("Unexpected Boolean expression")
+        return {**node, "args": [rewrite(arg, depth + 1)
+                                 for arg in node["args"]]}
+
+    try:
+        normalized = [rewrite(tree, 0) for tree in trees]
+    except (ValueError, RecursionError, TypeError):
+        return schema
+    if type(code_sink) is list and detected:
+        code = next(
+            (key for key in ("unmapped_identifier", "initial_letter_token",
+                             "boolean_literal_token") if key in detected),
+            None,
+        )
+        if code in AST_CHECK_CODES:
+            code_sink.append(code)
+    return {**schema, "bool_rules": normalized} if changed else schema
+
+
 def _first_boolean_leaf_rejection(question: str, schema: dict) -> str | None:
     """Identify the first invalid AST leaf without exposing its identifier.
 
@@ -464,7 +569,8 @@ def extraction_response_format(question: str) -> dict:
 
 def parse_extracted_constraints(question: str, generated: str, *,
                                 rejection_reason_sink: list[str] | None = None,
-                                solver_rejection_detail_sink: list[str] | None = None) -> int | None:
+                                solver_rejection_detail_sink: list[str] | None = None,
+                                ast_check_code_sink: list[str] | None = None) -> int | None:
     """Return schema-only exact result, None on any uncertainty/malformed output.
 
     Even a successful number is *unverified against the natural language*.
@@ -572,6 +678,7 @@ def parse_extracted_constraints(question: str, generated: str, *,
     # Source-grounded normalization runs ONLY after all quote and source-name
     # checks, immediately before the immutable fail-closed finite solver.
     schema = _canonicalize_boolean_ast_names(schema)
+    schema = _normalize_boolean_leaf_tokens(question, schema, ast_check_code_sink)
     schema = _infer_source_boolean_domains(question, schema)
     try:
         numeric = try_solve_formal_constraints(
