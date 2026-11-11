@@ -206,6 +206,7 @@ def run_experimental_tir(
     finalize_review: Callable[[list[dict]], tuple[str, bool]] | None = None,
     first_turn_diagnostic: Callable[[], dict] | None = None,
     extract_constraints: Callable[[list[dict]], str] | None = None,
+    extraction_rejection_sink: list[str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Bounded tool -> observation -> final, or raw-Qwen fallback.
@@ -221,7 +222,9 @@ def run_experimental_tir(
             or not callable(respond) or not callable(tool_runner)
             or (finalize_review is not None and not callable(finalize_review))
             or (first_turn_diagnostic is not None and not callable(first_turn_diagnostic))
-            or (extract_constraints is not None and not callable(extract_constraints))):
+            or (extract_constraints is not None and not callable(extract_constraints))
+            or (extraction_rejection_sink is not None
+                and type(extraction_rejection_sink) is not list)):
         raise ValueError("Invalid experimental TIR input")
     initial = clock()
     original = [dict(row) for row in messages]
@@ -320,15 +323,27 @@ def run_experimental_tir(
             proposed = extract_constraints(extract_turns)
         except Exception:
             proposed = None  # Includes truncated JSON; never execute fragments.
-        solved = parse_extracted_constraints(core, proposed)
+        rejection = extraction_rejection_sink if extraction_rejection_sink is not None else []
+        solved = parse_extracted_constraints(
+            core, proposed, rejection_reason_sink=rejection)
+        reason = rejection[-1] if rejection else None
         first_turn_telemetry = capture_first_turn(
-            "extracted_formal" if solved is not None else "extraction_fallback"
+            "extracted_formal" if solved is not None else
+            "extraction_none" if reason == "kind_none" else "extraction_fallback"
         )
+        # Only fixed rejection labels; raw JSON and user text stay private.
+        if reason is not None:
+            first_turn_telemetry["extraction_rejection_reason"] = reason
         if solved is None:
-            fallback = base_fallback()
-            fallback["extraction_status"] = "fallback"
-            return fallback
-        return {
+            if reason != "kind_none":
+                fallback = base_fallback()
+                fallback["extraction_status"] = "fallback"
+                return fallback
+            # Explicit abstention means the *formal solver* is inapplicable,
+            # not that Python/math tools are forbidden. Let the preexisting
+            # model-driven TIR tool controller decide for this request.
+        else:
+            return {
             "text": "FINAL_ANSWER: " + str(solved) if suffix else str(solved),
             "mode": "HIGH", "model_generated": True, "verified": False,
             "verification_status": "model_extracted_schema_unverified",
@@ -338,11 +353,14 @@ def run_experimental_tir(
             "tool_calls_succeeded": 1, "extraction_status": "accepted",
             "first_turn_telemetry": first_turn_telemetry,
             "seconds": round(clock() - initial, 3),
-        }
+            }
 
     calls += 1
     first = respond(turns)
-    first_turn_telemetry = capture_first_turn(
+    # Keep the actual initial extractor telemetry when the model chooses the
+    # non-formal TIR path; this second call is not the first turn.
+    if first_turn_telemetry.get("decision") != "extraction_none":
+        first_turn_telemetry = capture_first_turn(
         "tool" if parse_tool_call(first) is not None else
         "final" if _accepted_final(first, strict_integer=bool(suffix)) is not None
         else "unstructured"
