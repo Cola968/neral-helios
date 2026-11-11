@@ -138,7 +138,7 @@ def _boolean_ast_references(bool_rules: list) -> set[str] | None:
         if type(node) is not dict or type(node.get("args")) is not list:
             return False
         if node.get("op") not in (
-                "and", "or", "xor", "not", "implies", "eq", "at_least"):
+                "and", "or", "xor", "not", "implies", "eq", "at_least", "exactly"):
             return False
         return len(node["args"]) <= 8 and all(
             visit(child, depth + 1) for child in node["args"])
@@ -195,7 +195,7 @@ def _canonicalize_boolean_ast_names(schema: dict) -> dict:
         if type(node) is not dict or type(node.get("args")) is not list:
             raise ValueError("Non-canonicalizable Boolean tree")
         if (node.get("op") not in (
-                "and", "or", "xor", "not", "implies", "eq", "at_least")
+                "and", "or", "xor", "not", "implies", "eq", "at_least", "exactly")
                 or len(node["args"]) > 8):
             raise ValueError("Unsupported Boolean tree")
         return {**node, "args": [rewrite(child, depth + 1)
@@ -249,7 +249,7 @@ def _normalize_boolean_leaf_tokens(
     changed = False
     visited = [0]
     operators = frozenset((
-        "and", "or", "xor", "not", "implies", "eq", "at_least"
+        "and", "or", "xor", "not", "implies", "eq", "at_least", "exactly"
     ))
 
     def rewrite(node, depth):
@@ -436,8 +436,10 @@ EXTRACT_PROMPT = (
     "literal (use exactly one of right/value). For Boolean domains, add bool_rules: "
     "a list of Boolean expression trees. Leaves are declared Boolean variable "
     "names or true/false literals. Each node has op and args. Supported ops: "
-    "and, or, xor (parity), not, implies, eq; at_least nodes additionally "
-    "have integer min. Keep max nesting depth four, max eight variables, "
+    "and, or, xor (parity), not, implies, eq; at_least nodes have "
+    "integer min; exactly nodes have integer count. These cardinality "
+    "nodes count true Boolean terms, including true/false literals and "
+    "nested Boolean subexpressions. Keep max nesting depth four, max eight variables, "
     "and at most 32 total rules. "
     "For a COMPLETE order of N explicitly distinct named items, use the "
     "short schema form {ordering:[item names],rules:[rank comparisons],"
