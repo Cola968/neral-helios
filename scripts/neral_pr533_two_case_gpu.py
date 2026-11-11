@@ -17,8 +17,30 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "176e3e96c77af2b1ae254297a89a3de052c81bd0"
+TARGET_SHA = "679cdd773c871b877d2bf226cdac3e8f7370ef27"
 SEED = 202611110533
+
+
+def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
+    """Fail closed: neither a parser rejection nor mere tool execution proves correctness."""
+    if type(rows) is not list or len(rows) != 2:
+        raise ValueError("Require exactly two observations")
+    a, b = rows
+    if type(a) is not dict or type(b) is not dict:
+        raise ValueError("Invalid GPU observation")
+    a_ok = (
+        a.get("answer_correct") is True
+        and a.get("verified") is True
+        and a.get("review_method") == "exact_user_ast_match"
+        and a.get("verification_scope") == "exact_user_python_execution"
+        and a.get("tool_used") == "neral_python_sandbox"
+        and a.get("tool_calls_succeeded") == 1
+    )
+    b_ok = (
+        b.get("answer_correct") is True
+        and b.get("tool_calls_succeeded") == 1
+    )
+    return a_ok, b_ok
 
 
 def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
@@ -94,6 +116,9 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "family": case["family"],
                 "http_status": status,
                 "answer_correct": bool(good),
+                "verified": packet.get("verified") if type(packet.get("verified")) is bool else None,
+                "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match",) else None,
+                "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "none", "execution_only", "model_extracted_schema_unverified") else None,
                 "tool_used": packet.get("tool_used") if status == 200 else None,
                 "tool_output_reviewed": (packet.get("tool_output_reviewed")
                                          if type(packet.get("tool_output_reviewed")) is bool
@@ -103,7 +128,8 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                                             "base_fallback_unverified",
                                             "tool_observed_unverified",
                                             "model_extracted_schema_unverified",
-                                            "not_available", "final_after_length_unverified"
+                                            "not_available", "final_after_length_unverified",
+                                            "verified"
                                         ) else None),
                 "tool_calls_triggered": started_count,
                 "tool_calls_succeeded": successful_count,
@@ -118,23 +144,15 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
         backend.set_benchmark_seed(None)
         backend.unload()
 
-    a, b = reports
-    a_ok = (a["first_turn_telemetry"] is not None
-            and a["first_turn_telemetry"].get("decision") == "extraction_none"
-            and a["first_turn_telemetry"].get("extraction_rejection_reason") == "kind_none"
-            and a["tool_used"] == "neral_python_sandbox"
-            and a["tool_calls_succeeded"] >= 1)
-    b_diag = b["first_turn_telemetry"] or {}
-    b_ok = (b["tool_calls_succeeded"] >= 1
-            or isinstance(b_diag.get("extraction_rejection_reason"), str))
+    a_ok, b_ok = evaluate_two_case_gate(reports)
     report = {
         "status": "NERAL_PR533_TWO_CASE_DEVELOPMENT_ONLY",
         "target_sha": TARGET_SHA,
         "model_digest": digest,
         "case_count": 2,
         "cases": reports,
-        "case_a_none_to_python_passed": a_ok,
-        "case_b_parser_observed_or_solver_passed": b_ok,
+        "case_a_verified_exact_user_ast_passed": a_ok,
+        "case_b_solver_correct_passed": b_ok,
         "two_case_gate_passed": a_ok and b_ok,
         "no_original_tir12_seed_or_outputs_replayed": True,
         "release_approval": False,
@@ -143,8 +161,8 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
         json.dump(report, out, sort_keys=True, allow_nan=False)
         out.write("\n")
     print("PR533_TWO_CASE_GATE=" + json.dumps({
-        "case_a_none_to_python_passed": a_ok,
-        "case_b_parser_observed_or_solver_passed": b_ok,
+        "case_a_verified_exact_user_ast_passed": a_ok,
+        "case_b_solver_correct_passed": b_ok,
         "two_case_gate_passed": a_ok and b_ok,
     }, sort_keys=True), flush=True)
     return report
