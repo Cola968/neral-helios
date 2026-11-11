@@ -170,24 +170,24 @@ class StrictSemanticIntegerProofCPU(unittest.TestCase):
                 self.assertEqual(methods, [])
                 self.assertEqual(reasons,["body_statement_modified"])
 
-    def test_full_tir_api_reports_proven_semantic_method(self):
-        responses = iter([
-            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox",'
-            '"code":"value=5\\nprint(value)"}',
-            "NERAL_FINAL_TEXT: FINAL_ANSWER: 5",
-        ])
+    def test_full_tir_api_prefers_exact_user_code_over_model_rewrite(self):
         question = ("What integer does this Python program print:" +
                     chr(10) + "value=2+3" + chr(10) + "print(value)")
+        seen = []
+        def runner(tool, code):
+            seen.append((tool, code))
+            return {"status": "PASSED", "output": "5", "stderr": "",
+                    "verification_scope": "execution_only"}
         result = run_experimental_tir(
             [{"role":"system","content":"NERAL"},
              {"role":"user","content":question + SUFFIX}],
-            lambda _: next(responses),
-            tool_runner=lambda *_: {"status":"PASSED", "output":"5",
-                                     "stderr":"", "verification_scope":"execution_only"})
+            lambda _: self.fail("Unchanged source must bypass model rewrite"),
+            tool_runner=runner)
+        self.assertEqual(seen, [("python_sandbox", "value=2+3\\nprint(value)")])
         self.assertTrue(result["verified"])
-        self.assertEqual(result["review_method"], "semantic_execution_match")
+        self.assertEqual(result["review_method"], "exact_user_ast_match")
         self.assertEqual(result["verification_scope"],
-                         "proven_integer_ast_equivalence")
+                         "exact_user_python_execution")
         self.assertEqual(result["text"], "FINAL_ANSWER: 5")
 
     def test_no_unjustified_verification_for_overloaded_or_dynamic_arithmetic(self):
