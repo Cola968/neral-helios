@@ -104,16 +104,17 @@ class ExactUserAstOutputCPU(unittest.TestCase):
             ("FINAL_ANSWER: 5", []))
 
     def test_unrelated_helper_or_mutation_does_not_verify(self):
-        for code in (
-            "value=2+3\nanswer=999\nprint(answer)",
-            "value=2+3\nvalue=6\nprint(value)",
-            "value=2+4\nanswer=value\nprint(answer)",
-            "value=2+3\nanswer: int = 999\nprint(answer)",
+        for code, reason in (
+            ("value=2+3\nanswer=999\nprint(answer)", "extra_trailing_statements"),
+            ("value=2+3\nvalue=6\nprint(value)", "extra_trailing_statements"),
+            ("value=2+4\nanswer=value\nprint(answer)", "body_statement_modified"),
+            ("value=2+3\nanswer: int = 999\nprint(answer)",
+             "extra_trailing_statements"),
         ):
             with self.subTest(code=code):
                 result, reasons = self.review("value=2+3", code)
                 self.assertIsNone(result)
-                self.assertEqual(reasons, ["ast_structure_mismatch"])
+                self.assertEqual(reasons, [reason])
 
     def test_extra_prints_cannot_change_original_program_output(self):
         result, reasons = self.review(
