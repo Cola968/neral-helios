@@ -865,6 +865,9 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
         elif satisfiable != 1:
             return {}
     details = {"unsat_core_size": len(active)}
+    if len(active) == 1:
+        # Stable original index after deterministic subset-minimal reduction.
+        details["unsat_core_index"] = active[0]
     if not active:
         return details
 
@@ -907,16 +910,45 @@ def _bounded_minimal_unsat_core(question: str, schema: dict) -> dict:
             ) is not None for name in variables_in_clause)
         return not any(quotes_all(part) for part in source_clues)
 
-    # One deletion from the complete model, never a generalized repair.
-    # Keep explicit source clues even if deleting them would create a
-    # mathematically attractive (but logically unjustified) unique answer.
+    def singleton_is_directly_source_stated(node, names: set[str]) -> bool:
+        """For a simple self-contradictory equivalence, test the *relation*.
+
+        A source statement mentioning A is not proof that it asserts A == NOT A.
+        For unfamiliar operator structures remain conservative: a clue using
+        all variables protects the original clause from deletion.
+        """
+        if (type(node) is dict and node.get("op") == "eq"
+                and type(node.get("args")) is list
+                and len(node["args"]) == 2):
+            lhs, rhs = node["args"]
+            for variable, other in ((lhs, rhs), (rhs, lhs)):
+                if (type(variable) is str
+                        and type(other) is dict
+                        and other.get("op") == "not"
+                        and other.get("args") == [variable]
+                        and variable in variables):
+                    pattern = r"(?<!\\w)" + re.escape(variable) + r"(?!\\w)"
+                    return any(
+                        len(re.findall(pattern, clue, re.I)) >= 2
+                        and re.search(r"\\b(?:not|negat(?:ed|ion)?|nicht)\\b|¬|!",
+                                      clue, re.I)
+                        and re.search(r"\\b(?:equals?|iff|equiv(?:alent)?|is)\\b|==|=",
+                                      clue, re.I)
+                        for clue in source_clues
+                    )
+        return not no_direct_clue_for(names)
+
+    # A singleton core is a counterfactual repair hypothesis, not evidence
+    # that the original source condition was invalid. Keep the real UNSAT
+    # result unverified; never silently replace it with the relaxed answer.
     viable = []
     for idx in active:
         kind, expr = clauses[idx]
         if kind == "all_different":
             continue
         names = mentioned_names(expr)
-        if not no_direct_clue_for(names):
+        if (singleton_is_directly_source_stated(expr, names)
+                if len(active) == 1 else not no_direct_clue_for(names)):
             continue
         remaining = [j for j in range(len(clauses)) if j != idx]
         if solve(remaining) != 1:
