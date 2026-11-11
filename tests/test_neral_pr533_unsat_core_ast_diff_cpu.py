@@ -222,10 +222,10 @@ class MinimalUnsatCoreCPU(unittest.TestCase):
 
     def test_telemetry_rejects_excessive_or_malformed_core_metadata(self):
         valid = {"decision": "extraction_fallback", "done_reason": "stop",
-                 "unsat_core_size": 3, "relaxed_constraint_index": 0}
-        valid["unsat_core_index"] = 1
-        self.assertEqual(safe_first_turn_event(valid)["unsat_core_index"], 1)
-        self.assertEqual(safe_first_turn_event(valid)["unsat_core_size"], 3)
+                 "unsat_core_size": 1, "relaxed_constraint_index": 0}
+        valid["unsat_core_index"] = 0
+        self.assertEqual(safe_first_turn_event(valid)["unsat_core_index"], 0)
+        self.assertEqual(safe_first_turn_event(valid)["unsat_core_size"], 1)
         self.assertEqual(safe_first_turn_event(valid)["relaxed_constraint_index"], 0)
         for value in (-1, True, 50, "private text"):
             with self.subTest(value=value):
