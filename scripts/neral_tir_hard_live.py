@@ -232,7 +232,26 @@ def safe_first_turn_event(event: object) -> dict | None:
     ast_code = event.get("ast_check_code")
     if ast_code is not None and ast_code not in AST_CHECK_CODES:
         return None
+    bucket = event.get("solver_solution_count_bucket")
+    if bucket is not None and bucket not in (
+            "zero_unsat", "single_solution", "multiple_solutions"):
+        return None
+    literal_context = event.get("boolean_literal_context")
+    if literal_context is not None and literal_context not in (
+            "at_least", "exactly", "eq", "standalone", "other", "multiple"):
+        return None
+    source_counts = {}
+    for key in ("extracted_constraint_count", "expected_sentence_clues"):
+        value = event.get(key)
+        if value is not None and (type(value) is not int or not 0 <= value <= 32):
+            return None
+        if value is not None:
+            source_counts[key] = value
     return {**counts, "done_reason": reason, "decision": decision,
+            **source_counts,
+            **({"solver_solution_count_bucket": bucket} if bucket is not None else {}),
+            **({"boolean_literal_context": literal_context}
+               if literal_context is not None else {}),
             **({"extraction_rejection_reason": rejected}
                if rejected is not None else {}),
             **({"solver_rejection_detail": detail}
