@@ -331,6 +331,7 @@ def run_experimental_tir(
     extract_constraints: Callable[[list[dict]], str] | None = None,
     extraction_rejection_sink: list[str] | None = None,
     solver_rejection_detail_sink: list[str] | None = None,
+    ast_check_code_sink: list[str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Bounded tool -> observation -> final, or raw-Qwen fallback.
@@ -350,7 +351,9 @@ def run_experimental_tir(
             or (extraction_rejection_sink is not None
                 and type(extraction_rejection_sink) is not list)
             or (solver_rejection_detail_sink is not None
-                and type(solver_rejection_detail_sink) is not list)):
+                and type(solver_rejection_detail_sink) is not list)
+            or (ast_check_code_sink is not None
+                and type(ast_check_code_sink) is not list)):
         raise ValueError("Invalid experimental TIR input")
     initial = clock()
     original = [dict(row) for row in messages]
@@ -455,9 +458,12 @@ def run_experimental_tir(
         rejection = extraction_rejection_sink if extraction_rejection_sink is not None else []
         solver_details = (solver_rejection_detail_sink
                           if solver_rejection_detail_sink is not None else [])
+        ast_details = (ast_check_code_sink
+                       if ast_check_code_sink is not None else [])
         solved = parse_extracted_constraints(
             core, proposed, rejection_reason_sink=rejection,
-            solver_rejection_detail_sink=solver_details)
+            solver_rejection_detail_sink=solver_details,
+            ast_check_code_sink=ast_details)
         reason = rejection[-1] if rejection else None
         first_turn_telemetry = capture_first_turn(
             "extracted_formal" if solved is not None else
@@ -470,6 +476,10 @@ def run_experimental_tir(
             from neral_turn0_extractor import SOLVER_REJECTION_DETAIL_CODES
             if solver_details[-1] in SOLVER_REJECTION_DETAIL_CODES:
                 first_turn_telemetry["solver_rejection_detail"] = solver_details[-1]
+        if ast_details:
+            from neral_turn0_extractor import AST_CHECK_CODES
+            if ast_details[-1] in AST_CHECK_CODES:
+                first_turn_telemetry["ast_check_code"] = ast_details[-1]
         if solved is None:
             if reason != "kind_none":
                 fallback = base_fallback()
