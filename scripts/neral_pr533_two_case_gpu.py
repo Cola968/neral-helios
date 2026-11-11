@@ -27,6 +27,8 @@ def safe_review_reason(reason: object) -> str | None:
         "python_no_eligible_execution", "user_source_not_extracted",
         "python_question_not_output", "user_code_parse_error",
         "executed_code_parse_error", "ast_structure_mismatch",
+        "extra_trailing_statements", "leading_setup_statements",
+        "body_statement_modified", "function_wrapped",
         "python_unsupported_ast", "python_unsupported_calls",
         "python_not_single_final_print",
     })
