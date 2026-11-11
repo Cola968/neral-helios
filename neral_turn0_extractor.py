@@ -533,6 +533,10 @@ def extraction_response_format(question: str) -> dict:
                 "op": {"const": "at_least"}, "args": array(child, 2, 8),
                 "min": {"type": "integer", "minimum": 0, "maximum": 8},
             }))
+            alternatives.append(obj({
+                "op": {"const": "exactly"}, "args": array(child, 2, 8),
+                "count": {"type": "integer", "minimum": 0, "maximum": 8},
+            }))
         definitions[f"bool_{depth}"] = {"anyOf": alternatives}
     # Ollama/llama.cpp does not enforce minProperties/propertyNames. A list
     # uses supported minItems and closed objects, so {} cannot be a shortcut.
