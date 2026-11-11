@@ -115,6 +115,12 @@
   function isSearchFollowup(question) {
     return /^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu.test(String(question||"").trim());
   }
+  // Explicit user requests for external lookup need an enabled Web toggle.
+  // Do not pass such requests to an offline model and invite a false refusal.
+  // Checking the box, not this text alone, remains the privacy consent.
+  function explicitlyRequestsWeb(question) {
+    return /\\b(?:websuche|internetrecherche)\\b|\\b(?:suche|such|recherchiere|recherchier)\\b.{0,60}\\b(?:im internet|im web|online)\\b/iu.test(String(question||""));
+  }
   function shouldSearchWeb(question,previousWebQuery="") {
     const q=String(question||"").trim();
     if(!q||skipWebForLocalBasics(q)||
@@ -591,6 +597,10 @@
     if(!text || encoder.encode(text).length>4096) {
       errors.textContent="Nachricht zu lang oder leer.";return;
     }
+    if(explicitlyRequestsWeb(text) && !$("useWebSearch").checked){
+      errors.textContent="Websuche ist ausgeschaltet. Bitte den Schalter „Web“ aktivieren und die Anfrage erneut senden.";
+      return;
+    }
     const mode=form.querySelector('input[name="mode"]:checked')?.value==="think"
        ? "think":"generate";
     if(listening)cancelRecognition();
@@ -681,9 +691,10 @@
           evidence.pop();
         // Display only the hits that the model actually received.
         sources=sources.slice(0,evidence.length);
-        // No relevant evidence means the model sees the original question,
-        // not irrelevant links or a manufactured knowledge context.
-        if(evidence.length)modelPrompt=webEvidencePrompt(text,evidence,true);
+        // The search was really executed even when no topic-matched source
+        // survived filtering. Tell the model the truthful empty-result status,
+        // without passing irrelevant third-party snippets or invented facts.
+        modelPrompt=webEvidencePrompt(text,evidence,true);
       }
       let path="/api/neral/chat/"+mode;
       let options={
@@ -837,11 +848,11 @@
     conversationEpoch++;
     if(activeRequest&&!activeRequest.signal.aborted)activeRequest.abort();
     stopAudio();
-    if(recognizer && listening) recognizer.abort();
-    setListening(false);
+    cancelRecognition();
     prompt.value="";
     attachments=[];
     fileInput.value="";
+    renderAttachmentChips([]);
     fileStatus.textContent="Keine Dateien ausgewählt.";
     memory.length=0;
     messages.replaceChildren();
