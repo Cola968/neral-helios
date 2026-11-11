@@ -215,62 +215,92 @@ _PURE_SOURCE_PYTHON = frozenset({
 _PURE_PYTHON_CALLS = frozenset({"print", "sum", "len", "range", "abs", "min", "max"})
 
 
+_PYTHON_AST_REVIEW_CODES = frozenset({
+    "python_no_eligible_execution", "python_source_not_found",
+    "python_question_not_output", "python_parse_failed",
+    "python_ast_mismatch", "python_unsupported_ast",
+    "python_unsupported_calls", "python_not_single_final_print",
+})
+
+
 def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
-        stderr: str, *, strict_integer: bool) -> str | None:
-    """Prove the printed integer only for unmodified deterministic source."""
+        stderr: str, *, strict_integer: bool,
+        diagnostic: list[str] | None = None) -> str | None:
+    """Verify an unchanged, deterministic user-supplied Python AST.
+
+    Only presentation changes are tolerated (Markdown fence around SOURCE,
+    comment-only differences, CRLF, blank lines, and common indentation).
+    Semantic code changes still fail closed; no model-authored transformation
+    can claim verified=True. Reasons are scalar enums, never raw source.
+    """
     import ast
+    import textwrap
+
+    def reject(reason: str) -> None:
+        if reason not in _PYTHON_AST_REVIEW_CODES:
+            raise AssertionError("Unapproved exact-source review diagnostic")
+        if type(diagnostic) is list:
+            diagnostic.append(reason)
+        return None
+
     if (tool != "python_sandbox" or type(question) is not str
             or type(code) is not str or type(stderr) is not str
             or stderr or not _INTEGER.fullmatch(stdout)
             or len(question.encode("utf-8")) > 4096):
-        return None
-    # Match one terminal fenced Python program, or the literal final
-    # program after a colon + newline. The AST must be identical to the
-    # code that was actually executed in the trusted isolated sandbox.
+        return reject("python_no_eligible_execution")
+
+    text = question.replace("\r\n", "\n").replace("\r", "\n")
+    # Accept only one *terminal* fenced Python source or a literal program
+    # after the first final-colon-plus-newline separator in the user question.
     fenced = re.search(
-        r"(?:^|\n)\x60{3}(?:python|py)\s*\n"
-        r"(?P<code>[\s\S]{1,3500}?)\n\x60{3}\s*\Z",
-        question, re.I,
+        r"(?:^|\n)\x60{3}(?:python|py)[ \t]*\n"
+        r"(?P<code>[\s\S]{1,3500}?)\n\x60{3}[ \t]*\Z",
+        text, re.I,
     )
     if fenced:
         source = fenced.group("code")
-        intro = question[:fenced.start()]
+        intro = text[:fenced.start()]
     else:
-        intro, sep, source = question.partition(":\n")
-        if not sep:
-            return None
-    # This is an answer-verification gate, NEVER a benchmark-specific route.
+        intro, sep, source = text.partition(":\n")
+        if not sep or not source.strip():
+            return reject("python_source_not_found")
+
+    # De-indentation preserves nested control flow. It does not change
+    # expressions or rewrite variable names. Python's AST ignores comments.
+    source = textwrap.dedent(source)
+    executed_code = code.replace("\r\n", "\n").replace("\r", "\n")
     if (not re.search(r"\b(?:print|prints|printed|output|ausgabe)\b", intro, re.I)
             or re.search(
                 r"\b(?:fix|modify|correct|repair|change|rewrite|debug|"
                 r"korrigier|reparier|ändere)\b", intro, re.I)):
-        return None
+        return reject("python_question_not_output")
     try:
         original = ast.parse(source)
-        executed = ast.parse(code)
+        executed = ast.parse(executed_code)
     except (SyntaxError, ValueError, TypeError, MemoryError):
-        return None
+        return reject("python_parse_failed")
     if ast.dump(original, include_attributes=False) != ast.dump(
             executed, include_attributes=False):
-        return None
+        return reject("python_ast_mismatch")
     nodes = list(ast.walk(original))
     if (len(nodes) > 250 or any(
             type(node).__name__ not in _PURE_SOURCE_PYTHON
             for node in nodes)):
-        return None
+        return reject("python_unsupported_ast")
     calls = [node for node in nodes if isinstance(node, ast.Call)]
     if (not calls or any(type(call.func) is not ast.Name
                          or call.func.id not in _PURE_PYTHON_CALLS
                          or call.keywords for call in calls)):
-        return None
+        return reject("python_unsupported_calls")
     prints = [call for call in calls if call.func.id == "print"]
     if (len(prints) != 1 or len(prints[0].args) != 1
             or not original.body
             or not isinstance(original.body[-1], ast.Expr)
             or original.body[-1].value is not prints[0]):
-        return None
+        return reject("python_not_single_final_print")
     return ("FINAL_ANSWER: " + stdout) if strict_integer else stdout
+
 
 def _accepted_final(response: str, strict_integer: bool) -> str | None:
     """Extract a model-authored terminal answer, NEVER stdout directly."""
@@ -559,8 +589,10 @@ def run_experimental_tir(
     # Verification requires independent matching of the actual user's
     # unchanged Python AST and the sandbox stdout. A model's agreeing review
     # alone can NEVER raise verified=True.
+    review_reasons: list[str] = []
     exact = _exact_source_python_answer(
-        core, tool, code, stdout, stderr, strict_integer=bool(suffix))
+        core, tool, code, stdout, stderr,
+        strict_integer=bool(suffix), diagnostic=review_reasons)
     if exact is not None and (final == exact or final is None
                               or final == "UNVERIFIED"):
         return {
@@ -568,7 +600,7 @@ def run_experimental_tir(
             "verified": True, "verification_status": "verified",
             "verification_scope": "exact_user_python_execution",
             "tool_used": tool_used, "tool_output_reviewed": True,
-            "review_method": "deterministic_source_identity",
+            "review_method": "exact_user_ast_match",
             "calls_used": calls, "completion_recovery_used": recovered_final,
             "tool_calls_triggered": triggered,
             "tool_calls_succeeded": succeeded,
@@ -583,6 +615,8 @@ def run_experimental_tir(
         "verification_scope": scope, "tool_used": tool_used,
         "tool_output_reviewed": True, "calls_used": calls,
         "completion_recovery_used": recovered_final,
+        **({"review_match_reason": review_reasons[-1]}
+           if review_reasons else {}),
         "tool_calls_triggered": triggered, "tool_calls_succeeded": succeeded,
         "first_turn_telemetry": first_turn_telemetry,
         "seconds": round(clock() - initial, 3),
