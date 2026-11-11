@@ -643,6 +643,129 @@ def _boolean_literal_context(schema: dict) -> str | None:
     return ("multiple" if len(seen) > 1 else next(iter(seen), None))
 
 
+# Fixed, non-sensitive diagnostic categories for one-step *proposals* only.
+# A relaxed result is NEVER independently verified against the user's text.
+SOLVER_RELAXATION_STATUS_CODES = frozenset({
+    "not_applicable", "no_ungrounded_literal", "candidate_limit",
+    "no_positive_single_drop", "single_candidate", "ambiguous_candidates",
+})
+
+
+def _single_step_unsat_relaxation(question: str, schema: dict,
+                                  evidence: list[str]) -> dict:
+    """Retry one missing-source Boolean equality at a time, never auto-answer.
+
+    Only literal assignments in an overdetermined model-authored count schema
+    are candidates. A source-stated assignment is protected even if the model
+    failed to quote it. Nested conjunctions are flattened equivalently before
+    trying one deletion. No model code or raw schema is exported.
+    """
+    if schema.get("query") != "count":
+        return {"solver_relaxation_status": "not_applicable"}
+    variables = schema.get("variables")
+    if type(variables) is not dict or type(evidence) is not list:
+        return {"solver_relaxation_status": "not_applicable"}
+
+    flat = []
+    visited = [0]
+
+    def flatten(node, depth):
+        visited[0] += 1
+        if depth > 5 or visited[0] > 128:
+            raise ValueError("Constraint flattening budget exceeded")
+        if type(node) is dict and node.get("op") == "and":
+            args = node.get("args")
+            if type(args) is not list or not 2 <= len(args) <= 8:
+                raise ValueError("Invalid conjunctive schema")
+            for arg in args:
+                flatten(arg, depth + 1)
+        else:
+            flat.append(node)
+
+    try:
+        for rule in schema.get("bool_rules", []):
+            flatten(rule, 0)
+    except (ValueError, TypeError, RecursionError):
+        return {"solver_relaxation_status": "not_applicable"}
+    if len(flat) > 32:
+        return {"solver_relaxation_status": "not_applicable"}
+
+    numeric_rules = schema.get("rules", [])
+    if type(numeric_rules) is not list:
+        return {"solver_relaxation_status": "not_applicable"}
+
+    def literal_assignment(node):
+        if type(node) is not dict:
+            return None
+        if node.get("op") == "eq" and type(node.get("args")) is list:
+            args = node["args"]
+            if len(args) == 2:
+                for name, value in (args, args[::-1]):
+                    if type(name) is str and type(value) is bool:
+                        return name, value
+        if (node.get("op") == "==" and
+                set(node) == {"left", "op", "value"} and
+                type(node["left"]) is str and type(node["value"]) is bool):
+            return node["left"], node["value"]
+        return None
+
+    def explicitly_stated(name: str, value: bool) -> bool:
+        token = "true" if value else "false"
+        pattern = (r"(?<!\w)" + re.escape(name) +
+                   r"\s*(?:is|must\s+be|equals|==|=)\s*" +
+                   token + r"(?!\w)")
+        # The source itself is authoritative; evidence quotes are secondary.
+        return bool(re.search(pattern, question, re.I) or
+                    any(type(span) is str and re.search(pattern, span, re.I)
+                        for span in evidence))
+
+    candidates = []
+    for i, node in enumerate(flat):
+        pair = literal_assignment(node)
+        if (pair is not None and pair[0] in variables
+                and all(type(v) is bool for v in variables[pair[0]])
+                and not explicitly_stated(*pair)):
+            candidates.append(("bool", i))
+    for i, node in enumerate(numeric_rules):
+        pair = literal_assignment(node)
+        if (pair is not None and pair[0] in variables
+                and all(type(v) is bool for v in variables[pair[0]])
+                and not explicitly_stated(*pair)):
+            candidates.append(("rule", i))
+    if not candidates:
+        return {"solver_relaxation_status": "no_ungrounded_literal"}
+    if len(candidates) > 8:
+        return {"solver_relaxation_status": "candidate_limit"}
+
+    viable = []
+    for kind, index in candidates:
+        alternative = {
+            **schema,
+            "bool_rules": [row for j, row in enumerate(flat)
+                           if not (kind == "bool" and j == index)],
+            "rules": [row for j, row in enumerate(numeric_rules)
+                      if not (kind == "rule" and j == index)],
+        }
+        try:
+            count = try_solve_formal_constraints(
+                PREFIX + json.dumps(alternative, ensure_ascii=False,
+                                    separators=(",", ":"), allow_nan=False))
+        except (InvalidFormalConstraints, TypeError, ValueError,
+                OverflowError, RecursionError):
+            continue
+        if type(count) is int and count > 0:
+            viable.append(count)
+    if not viable:
+        return {"solver_relaxation_status": "no_positive_single_drop"}
+    if len(viable) != 1:
+        return {"solver_relaxation_status": "ambiguous_candidates"}
+    return {
+        "solver_relaxation_status": "single_candidate",
+        "solver_relaxation_count_bucket": (
+            "single_solution" if viable[0] == 1 else "multiple_solutions"),
+    }
+
+
 def parse_extracted_constraints(question: str, generated: str, *,
                                 rejection_reason_sink: list[str] | None = None,
                                 solver_rejection_detail_sink: list[str] | None = None,
@@ -762,16 +885,22 @@ def parse_extracted_constraints(question: str, generated: str, *,
     literal_context = _boolean_literal_context(schema)
 
     def record_solver_bucket(value: int) -> None:
-        # Scalar-only diagnostics, not a semantic accuracy certificate.
+        # Scalar-only diagnostics, never a certificate for model translation.
+        details = {
+            "solver_solution_count_bucket": (
+                "zero_unsat" if value == 0 else
+                "single_solution" if value == 1 else "multiple_solutions"),
+            "extracted_constraint_count": extracted_count,
+            "expected_sentence_clues": clue_count,
+            "boolean_literal_context": literal_context,
+        }
+        if (value == 0 and extracted_count is not None and
+                clue_count is not None and extracted_count > clue_count and
+                literal_context == "multiple"):
+            details.update(_single_step_unsat_relaxation(
+                question, schema, evidence))
         if type(structural_telemetry_sink) is list:
-            structural_telemetry_sink.append({
-                "solver_solution_count_bucket": (
-                    "zero_unsat" if value == 0 else
-                    "single_solution" if value == 1 else "multiple_solutions"),
-                "extracted_constraint_count": extracted_count,
-                "expected_sentence_clues": clue_count,
-                "boolean_literal_context": literal_context,
-            })
+            structural_telemetry_sink.append(details)
     try:
         numeric = try_solve_formal_constraints(
             PREFIX + json.dumps(schema, ensure_ascii=False,
