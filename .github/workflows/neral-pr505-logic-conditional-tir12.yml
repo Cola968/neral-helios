@@ -50,15 +50,19 @@ jobs:
           ref: ${{ env.TARGET_SHA }}
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify candidate, local Docker, Ollama, and idle GPU
+      - name: Checkout pinned trusted main Docker preflight only
+        uses: actions/checkout@v4
+        with:
+          ref: 94ccac3fa9f14a7bf8ca65900c32a4e48d72b9d1
+          path: control
+          persist-credentials: false
+      - name: Verify candidate SHA and idle GPU
         run: |
           $ErrorActionPreference='Stop'
           $actual=(& git rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA){throw 'Unexpected PR checkout SHA'}
           & git merge-base --is-ancestor $env:HIGH_SHA HEAD
           if($LASTEXITCODE -ne 0){throw 'HIGH SHA is not ancestor'}
-          & docker image inspect python:3.11-alpine *> $null
-          if($LASTEXITCODE -ne 0){throw 'Offline Docker sandbox missing'}
           $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
           if($LASTEXITCODE -ne 0){throw 'GPU telemetry unavailable'}
           $gpu=($raw | Select-Object -First 1) -split ','
@@ -102,6 +106,11 @@ jobs:
           '@
           & $env:ONELOGIC_PY -B -c $code
           if($LASTEXITCODE -ne 0){throw 'One logic extraction failed; TIR12 is blocked'}
+      - name: Prepare offline Docker only AFTER successful one-logic smoke
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'control/scripts/neral_docker_desktop_preflight.ps1')
+          if($LASTEXITCODE -ne 0){throw 'Offline Docker Linux sandbox unavailable; TIR12 blocked'}
       - name: Run full paired TIR12 only after mini smoke passed
         run: |
           $ErrorActionPreference='Stop'
