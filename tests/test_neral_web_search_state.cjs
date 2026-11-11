@@ -55,3 +55,12 @@ test("search with zero relevant sources informs model that a search actually ran
   assert.match(modelCall.body.prompt,/keine passenden Treffer/);
   assert.match(modelCall.body.prompt,/URSPRÜNGLICHE FRAGE/);
 });
+
+test("plain imperative Suche nach ... requires Web consent, not a model refusal", async()=>{
+  const question="suche nach dem berliner flughafen";
+  const {calls,elements}=await runPrompt(question,{web:false});
+  assert.equal(calls.filter(c=>c.url==="/api/web/search").length,0);
+  assert.equal(calls.filter(c=>c.url==="/api/neral/chat/generate").length,0);
+  assert.match(elements.error.textContent,/Web.*aktivier|aktivier.*Web/i);
+  assert.equal(elements.prompt.value,question);
+});
