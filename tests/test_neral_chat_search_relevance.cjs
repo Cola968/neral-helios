@@ -82,3 +82,17 @@ test("generic word explain must not validate a physics search hit",async()=>{
   const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
   assert.equal(body.prompt,"Kannst du ein kompliziertes Physikthema erklären?");
 });
+
+test("German inflected place lookup retains verified relevant airport source", async()=>{
+  const calls=await exercise("suche nach dem berliner flughafen",[
+    {title:"Flughafen Berlin Brandenburg – Informationen",url:"https://berlin-airport.de/de.html",
+     snippet:"Anreise und Terminals am Flughafen Berlin Brandenburg",reachable:true},
+    {title:"Rezept für Berliner Pfannkuchen",url:"https://example.org/rezept",
+     snippet:"Gebäck zum Backen",reachable:true}
+  ]);
+  assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
+  const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
+  assert.match(body.prompt,/Flughafen Berlin Brandenburg/);
+  assert.doesNotMatch(body.prompt,/Rezept für Berliner Pfannkuchen/);
+  assert.doesNotMatch(body.prompt,/keine passenden Treffer/);
+});
