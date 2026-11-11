@@ -57,20 +57,20 @@ class AstFirstMismatchNodeCPU(unittest.TestCase):
                 self.assertEqual(nodes, [expected])
 
     def test_fresh_alias_of_original_print_expression_is_output_only(self):
-        source = "value=2\\nprint(value+3)"
-        executed = "value=2\\n_result=value+3\\nprint(_result)"
+        source = "value=2\nprint(value+3)"
+        executed = "value=2\n_result=value+3\nprint(_result)"
         answer, reasons, nodes = self.compare(source, executed)
         self.assertEqual(answer, "FINAL_ANSWER: 5")
         self.assertEqual(reasons, [])
         self.assertEqual(nodes, [])
 
     def test_changed_print_value_cannot_be_verified_as_read_only(self):
-        source = "value=2\\nprint(value+3)"
+        source = "value=2\nprint(value+3)"
         for executed in (
-            "value=2\\n_result=value+4\\nprint(_result)",
-            "value=2\\nprint(value+4)",
-            "value=2\\nprint(5)",
-            "value=2\\nprint(value+3)\\nprint(value+3)",
+            "value=2\n_result=value+4\nprint(_result)",
+            "value=2\nprint(value+4)",
+            "value=2\nprint(5)",
+            "value=2\nprint(value+3)\nprint(value+3)",
         ):
             with self.subTest(executed=executed):
                 answer, reasons, _ = self.compare(source, executed)
