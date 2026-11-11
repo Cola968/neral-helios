@@ -67,6 +67,11 @@ if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
         if(-not $candidate){throw 'Python 3.11+ fehlt. Bitte Python installieren.'}
         $base=$candidate.Source
     }
+    # Reject unsupported Python before consent, venv creation or pip.
+    & $base -B -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)'
+    if($LASTEXITCODE -ne 0){
+        throw 'Python 3.11+ ist erforderlich. Bitte kompatibles Python installieren; keine Pakete wurden installiert.'
+    }
     if($env:NERAL_PREVIEW_INSTALL_CONSENT -ne '1'){
         Write-Host 'NERAL benoetigt einmalig Flask und Waitress aus PyPI (Internet). Keine Modelle werden heruntergeladen.' -ForegroundColor Yellow
         $consent=Read-Host 'Isolierte Python-Webserverumgebung anlegen und Pakete installieren? (J/N)'
