@@ -1,7 +1,7 @@
 name: NERAL PR533 EXACT 2-case GPU diagnostic
 on:
   push:
-    branches: [ops/neral-pr533-gpu-two-case-r7-20261111]
+    branches: [ops/neral-pr533-gpu-two-case-r8-20261111]
 permissions:
   contents: read
 jobs:
@@ -32,7 +32,7 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     env:
-      TARGET_SHA: '1f332020423daf4bf8034b98aa532f9ba0493cb6'
+      TARGET_SHA: '8c212dd0ad91dfbee92d56f80fd77610a9b8257e'
       NERAL_EXPERIMENTAL_TIR: '1'
       NERAL_TWO_CASES_ONLY: '1'
       HF_HUB_OFFLINE: '1'
@@ -43,7 +43,7 @@ jobs:
       - name: Checkout pinned PR533 candidate
         uses: actions/checkout@v4
         with:
-          ref: '1f332020423daf4bf8034b98aa532f9ba0493cb6'
+          ref: '8c212dd0ad91dfbee92d56f80fd77610a9b8257e'
           path: candidate
           persist-credentials: false
           fetch-depth: 0
