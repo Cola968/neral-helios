@@ -1,6 +1,6 @@
 """CPU-only gate contracts for the isolated PR533 GPU diagnostic."""
 import unittest
-from scripts.neral_pr533_two_case_gpu import evaluate_two_case_gate
+from scripts.neral_pr533_two_case_gpu import evaluate_two_case_gate, safe_review_reason
 
 
 def a(**overrides):
@@ -56,6 +56,12 @@ class TwoTaskGate(unittest.TestCase):
                 tool_calls_succeeded=0,
                 first_turn_telemetry={"extraction_rejection_reason": "solver_type_error"})]),
             (True, False))
+
+    def test_review_reason_is_whitelisted_scalar_only(self):
+        self.assertEqual(safe_review_reason("ast_structure_mismatch"),
+                         "ast_structure_mismatch")
+        for bad in ("CUSTOM_PRIVATE_USER_CODE", {"secret": "payload"}, ["bad"], 12):
+            self.assertIsNone(safe_review_reason(bad))
 
 
 if __name__ == "__main__":

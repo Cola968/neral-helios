@@ -24,6 +24,9 @@ jobs:
   two-case-gpu:
     name: TWO tasks only on local RTX 4070
     needs: verify-cpu
+    # Editing the controller must never auto-consume the user's GPU.
+    # Only a later deliberately named, separately authorized push can run it.
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, 'NERAL_PR533_APPROVE_GPU_GATE') }}
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 100
     concurrency:
@@ -33,7 +36,7 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     env:
-      TARGET_SHA: '679cdd773c871b877d2bf226cdac3e8f7370ef27'
+      TARGET_SHA: '5e84d07592b538ce2d7966ab2fbb7f89e85c70bc'
       NERAL_EXPERIMENTAL_TIR: '1'
       NERAL_TWO_CASES_ONLY: '1'
       HF_HUB_OFFLINE: '1'
@@ -44,7 +47,7 @@ jobs:
       - name: Checkout pinned PR533 candidate
         uses: actions/checkout@v4
         with:
-          ref: '679cdd773c871b877d2bf226cdac3e8f7370ef27'
+          ref: '5e84d07592b538ce2d7966ab2fbb7f89e85c70bc'
           path: candidate
           persist-credentials: false
           fetch-depth: 0

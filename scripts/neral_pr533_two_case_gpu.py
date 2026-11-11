@@ -17,8 +17,14 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "679cdd773c871b877d2bf226cdac3e8f7370ef27"
+TARGET_SHA = "5e84d07592b538ce2d7966ab2fbb7f89e85c70bc"
 SEED = 202611110533
+
+
+def safe_review_reason(reason: object) -> str | None:
+    """Output only fixed diagnostic codes, never arbitrary model/user text."""
+    from neral_tir_experimental import _PYTHON_AST_REVIEW_CODES
+    return reason if type(reason) is str and reason in _PYTHON_AST_REVIEW_CODES else None
 
 
 def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
@@ -118,6 +124,7 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "answer_correct": bool(good),
                 "verified": packet.get("verified") if type(packet.get("verified")) is bool else None,
                 "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match",) else None,
+                "review_match_reason": safe_review_reason(packet.get("review_match_reason")),
                 "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "none", "execution_only", "model_extracted_schema_unverified") else None,
                 "tool_used": packet.get("tool_used") if status == 200 else None,
                 "tool_output_reviewed": (packet.get("tool_output_reviewed")
