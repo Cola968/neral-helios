@@ -1,0 +1,1 @@
+User explicitly authorized GPU run: exactly two tasks A and B on RTX 4070, candidate 40d66edbbae1f1b80e8fa97aa6e3c6a7681a577a, seed 202611110533. Full TIR12 must not run. Safety preflight remains unchanged.
