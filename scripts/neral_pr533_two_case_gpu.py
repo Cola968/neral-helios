@@ -17,7 +17,7 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "319dc25749d208ea7113ef82b43cb0045eb44f4d"
+TARGET_SHA = "ca06dc0801d67063829f0436b83ff5b144dd4d54"
 SEED = 202611110533
 
 
@@ -45,8 +45,13 @@ def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
     a_ok = (
         a.get("answer_correct") is True
         and a.get("verified") is True
-        and a.get("review_method") == "exact_user_ast_match"
-        and a.get("verification_scope") == "exact_user_python_execution"
+        and (
+            (a.get("review_method") == "exact_user_ast_match"
+             and a.get("verification_scope") == "exact_user_python_execution")
+            or
+            (a.get("review_method") == "semantic_execution_match"
+             and a.get("verification_scope") == "proven_integer_ast_equivalence")
+        )
         and a.get("tool_used") == "neral_python_sandbox"
         and a.get("tool_calls_succeeded") == 1
     )
@@ -132,9 +137,9 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "http_status": status,
                 "answer_correct": bool(good),
                 "verified": packet.get("verified") if type(packet.get("verified")) is bool else None,
-                "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match",) else None,
+                "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match", "semantic_execution_match") else None,
                 "review_match_reason": safe_review_reason(packet.get("review_match_reason")),
-                "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "none", "execution_only", "model_extracted_schema_unverified") else None,
+                "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "proven_integer_ast_equivalence", "none", "execution_only", "model_extracted_schema_unverified") else None,
                 "tool_used": packet.get("tool_used") if status == 200 else None,
                 "tool_output_reviewed": (packet.get("tool_output_reviewed")
                                          if type(packet.get("tool_output_reviewed")) is bool
