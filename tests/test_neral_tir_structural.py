@@ -177,8 +177,7 @@ class ScalarRejectionOnLaterTokenLimit(unittest.TestCase):
                              base_url="http://127.0.0.1:9690")
         with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "1"}), patch.object(
                 OllamaLocalBackend, "respond_formal_extract", fake_extract), patch.object(
-                OllamaLocalBackend, "respond_chat", fake_chat), patch(
-                "neral_local_chat_api.prepare_model", lambda *_: None):
+                OllamaLocalBackend, "respond_chat", fake_chat):
             response = client.post("/api/neral/chat/think",
                 json={"prompt": "Count complete arrangements subject to constraints.",
                       "experimental_tir": True},
