@@ -249,6 +249,11 @@ def safe_first_turn_event(event: object) -> dict | None:
     if (core_size is not None
             and (type(core_size) is not int or not 1 <= core_size <= 12)):
         return None
+    core_index = event.get("unsat_core_index")
+    if (core_index is not None
+            and (type(core_index) is not int or not 0 <= core_index < 12
+                 or core_size != 1)):
+        return None
     relaxed_index = event.get("relaxed_constraint_index")
     if (relaxed_index is not None
             and (type(relaxed_index) is not int or not 0 <= relaxed_index < 32)):
@@ -272,6 +277,7 @@ def safe_first_turn_event(event: object) -> dict | None:
             **({"solver_relaxation_count_bucket": relaxation_bucket}
                if relaxation_bucket is not None else {}),
             **({"unsat_core_size": core_size} if core_size is not None else {}),
+            **({"unsat_core_index": core_index} if core_index is not None else {}),
             **({"relaxed_constraint_index": relaxed_index}
                if relaxed_index is not None else {}),
             **({"boolean_literal_context": literal_context}
