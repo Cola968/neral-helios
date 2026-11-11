@@ -124,8 +124,8 @@ class StrictSemanticIntegerProofCPU(unittest.TestCase):
             '"code":"value=5\\nprint(value)"}',
             "NERAL_FINAL_TEXT: FINAL_ANSWER: 5",
         ])
-        question = ("What integer does this Python program print:\\n"
-                    "value=2+3\\nprint(value)")
+        question = ("What integer does this Python program print:" +
+                    chr(10) + "value=2+3" + chr(10) + "print(value)")
         result = run_experimental_tir(
             [{"role":"system","content":"NERAL"},
              {"role":"user","content":question + SUFFIX}],
