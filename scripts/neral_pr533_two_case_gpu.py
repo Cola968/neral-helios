@@ -17,7 +17,7 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "6397cd6baa5173b34602ddf622095364a4905113"
+TARGET_SHA = "1f332020423daf4bf8034b98aa532f9ba0493cb6"
 SEED = 202611110533
 
 
@@ -118,7 +118,7 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                                        ) else None),
                 "review_method": (packet.get("review_method")
                                   if packet.get("review_method") ==
-                                  "deterministic_source_identity" else None),
+                                  "exact_user_ast_match" else None),
                 "extraction_status": (packet.get("extraction_status")
                                       if packet.get("extraction_status") in (
                                           "accepted", "fallback") else None),
@@ -145,7 +145,8 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                    and a["tool_output_reviewed"] is True
                    and a["verification_status"] == "verified"
                    and a["verified"] is True
-                   and a["verification_scope"] == "exact_user_python_execution")
+                   and a["verification_scope"] == "exact_user_python_execution"
+                   and a["review_method"] == "exact_user_ast_match")
     b_diag = b["first_turn_telemetry"] or {}
     b_solver_ok = (
         b["http_status"] == 200
