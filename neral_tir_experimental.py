@@ -314,6 +314,51 @@ def _terminal_print_only_equivalence(original, executed) -> bool:
         return False
     return same(final.value.args[0], ast.Name(id=alias, ctx=ast.Load()))
 
+# Only fixed AST class labels, never source snippets or model-defined strings.
+AST_DIFF_NODE_CODES = frozenset({
+    "Assign", "AnnAssign", "AugAssign", "For", "AsyncFor", "While",
+    "If", "Expr", "Call", "FunctionDef", "AsyncFunctionDef",
+    "Return", "With", "AsyncWith", "Try", "Match", "Raise",
+    "Pass", "Delete", "Import", "ImportFrom", "Other",
+})
+
+
+def _first_ast_diff_node_type(original, executed) -> str:
+    """Classify the earliest unmatched top-level statement without AST data.
+
+    We report an Expr's changed direct function call as 'Call'. For changes
+    inside compound statements, their enclosing statement (e.g. For) is
+    the first mismatch. Raw identifiers, values and locations never escape.
+    """
+    import ast
+
+    def matching(a, b):
+        return ast.dump(a, include_attributes=False) == ast.dump(
+            b, include_attributes=False)
+    a_body = original.body if isinstance(original, ast.Module) else []
+    b_body = executed.body if isinstance(executed, ast.Module) else []
+    for a, b in zip(a_body, b_body):
+        if matching(a, b):
+            continue
+        if (isinstance(a, ast.Expr) and isinstance(b, ast.Expr)
+                and isinstance(a.value, ast.Call)
+                and isinstance(b.value, ast.Call)):
+            label = "Call"
+        else:
+            label = type(a).__name__
+        return label if label in AST_DIFF_NODE_CODES else "Other"
+    # A trailing or missing statement is also a structural mismatch.
+    extra = (a_body[len(b_body)] if len(a_body) > len(b_body)
+             else b_body[len(a_body)] if len(b_body) > len(a_body)
+             else None)
+    if extra is None:
+        return "Other"
+    label = ("Call" if isinstance(extra, ast.Expr)
+             and isinstance(extra.value, ast.Call)
+             else type(extra).__name__)
+    return label if label in AST_DIFF_NODE_CODES else "Other"
+
+
 def _ast_structural_mismatch_code(original, executed) -> str:
     """Privacy-safe cause of a failed ordered AST identity check.
 
@@ -406,7 +451,8 @@ def _exact_source_python_answer(
         question: str, tool: str, code: str, stdout: str,
         stderr: str, *, strict_integer: bool,
         diagnostic: list[str] | None = None,
-        review_method_sink: list[str] | None = None) -> str | None:
+        review_method_sink: list[str] | None = None,
+        ast_diff_node_sink: list[str] | None = None) -> str | None:
     """Verify an unchanged, deterministic user-supplied Python AST.
 
     Only presentation changes are tolerated (Markdown fence around SOURCE,
@@ -480,7 +526,11 @@ def _exact_source_python_answer(
                 canonical_source, canonical_executed)
         )
         if not canonical_match:
-            return reject(_ast_structural_mismatch_code(original, executed))
+            reason = _ast_structural_mismatch_code(original, executed)
+            if reason == "body_statement_modified" and type(ast_diff_node_sink) is list:
+                ast_diff_node_sink.append(
+                    _first_ast_diff_node_type(original, executed))
+            return reject(reason)
         review_method = "semantic_execution_match"
     # Inspect the actually executed AST: a source with no print can still
     # have one safely appended final print after a proven AST-prefix match.
@@ -818,10 +868,12 @@ def run_experimental_tir(
     # alone can NEVER raise verified=True.
     review_reasons: list[str] = []
     review_methods: list[str] = []
+    ast_diff_nodes: list[str] = []
     exact = _exact_source_python_answer(
         core, tool, code, stdout, stderr,
         strict_integer=bool(suffix), diagnostic=review_reasons,
-        review_method_sink=review_methods)
+        review_method_sink=review_methods,
+        ast_diff_node_sink=ast_diff_nodes)
     if exact is not None and (final == exact or final is None
                               or final == "UNVERIFIED"):
         return {
@@ -849,6 +901,9 @@ def run_experimental_tir(
         "completion_recovery_used": recovered_final,
         **({"review_match_reason": review_reasons[-1]}
            if review_reasons else {}),
+        **({"ast_diff_node": ast_diff_nodes[-1]}
+           if ast_diff_nodes and ast_diff_nodes[-1] in AST_DIFF_NODE_CODES
+           else {}),
         "tool_calls_triggered": triggered, "tool_calls_succeeded": succeeded,
         "first_turn_telemetry": first_turn_telemetry,
         "seconds": round(clock() - initial, 3),
