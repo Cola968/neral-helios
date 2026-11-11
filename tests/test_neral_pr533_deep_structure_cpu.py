@@ -170,6 +170,8 @@ class ExprMismatchStructureCPU(unittest.TestCase):
         ])
         result = run_experimental_tir(
             [{"role": "system", "content": "NERAL"},
+             {"role": "user", "content": "Earlier discussion."},
+             {"role": "assistant", "content": "Prior reply."},
              {"role": "user", "content":
               "What integer does this Python program print:\nx=2\nprint(x)"}],
             lambda _: next(calls),
