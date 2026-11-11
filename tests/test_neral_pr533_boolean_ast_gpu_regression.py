@@ -48,6 +48,18 @@ class BooleanCardinalityCPU(unittest.TestCase):
                 with self.assertRaises(InvalidFormalConstraints):
                     self.solve(expression)
 
+    def test_cardinality_error_codes_identify_exact_rejection_predicate(self):
+        for expr, expected in (
+            ({"op": "at_least", "min": -1, "args": ["A", "B"]},
+             "Invalid Boolean cardinality threshold"),
+            ({"op": "at_least", "min": 1, "args": ["A", "A"]},
+             "Duplicate Boolean cardinality variables"),
+        ):
+            with self.subTest(expr=expr):
+                with self.assertRaises(InvalidFormalConstraints) as caught:
+                    self.solve(expr)
+                self.assertEqual(str(caught.exception), expected)
+
     def test_extractor_literal_is_not_counted_as_variable(self):
         question = ("How many Boolean assignments to A,B satisfy ALL: "
                     "At least two of A, B, True are True? Return one integer.")
