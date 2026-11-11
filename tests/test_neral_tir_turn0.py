@@ -485,3 +485,179 @@ class EvidenceFormatAndToolDirectiveContracts(unittest.TestCase):
         self.assertIn("MUST", directive)
         self.assertIn("before", directive.lower())
         self.assertNotIn("CONSTRAINT EXTRACTOR ABSTAINED", original[0]["content"])
+
+
+class SolverRejectionAndToolProvenanceCPU(unittest.TestCase):
+    """CPU-only replay of safe synthetic failures; no raw GPU model text exists."""
+
+    def test_successful_python_tool_name_survives_unverified_final_fallback(self):
+        from scripts.neral_same_base_live import checked_high_packet
+        responses = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(sum([2,3]))"}',
+            "NERAL_FINAL_TEXT: UNVERIFIED",
+            "FINAL_ANSWER: 5",
+        ])
+        runs = []
+        def model(turns):
+            runs.append([dict(x) for x in turns])
+            return next(responses)
+        result = run_experimental_tir(
+            messages("Calculate output of this Python program: print(sum([2,3]))"),
+            model, extract_constraints=lambda _: '{"kind":"none"}',
+            tool_runner=lambda tool, code: {
+                "status": "PASSED", "output": "5",
+                "verification_scope": "execution_only",
+            })
+        self.assertEqual(len(runs), 3)
+        self.assertEqual(result["text"], "FINAL_ANSWER: 5")
+        self.assertEqual(result["tool_calls_triggered"], 1)
+        self.assertEqual(result["tool_calls_succeeded"], 1)
+        self.assertEqual(result.get("tool_used"), "neral_python_sandbox")
+        self.assertEqual(result["verification_status"], "base_fallback_unverified")
+        self.assertIs(result["verified"], False)
+        self.assertIs(result.get("tool_output_reviewed"), False)
+        self.assertEqual(result["verification_scope"], "none")
+        self.assertEqual(checked_high_packet({
+            **result, "model": "qwen3.5:9b",
+            "inference_profile": "measured_nonthinking_2048",
+            "model_origin": "local_foundation_not_neral_adapter",
+            "adapter_loaded": False,
+        }), "FINAL_ANSWER: 5")
+
+    def test_failed_tool_has_no_successful_tool_name(self):
+        responses = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"solve","code":"1/0"}',
+            "FINAL_ANSWER: 3",
+        ])
+        result = run_experimental_tir(
+            messages("Compute 1/0 and explain"), lambda _: next(responses),
+            tool_runner=lambda *_: {"status": "FAILED", "output": ""})
+        self.assertEqual(result["tool_calls_triggered"], 1)
+        self.assertEqual(result["tool_calls_succeeded"], 0)
+        self.assertIsNone(result.get("tool_used"))
+        self.assertIs(result.get("tool_output_reviewed"), False)
+
+    def test_checker_rejects_forged_fallback_tool_provenance(self):
+        from scripts.neral_same_base_live import checked_high_packet, PilotBlocked
+        packet_ = {
+            "model": "qwen3.5:9b", "inference_profile": "measured_nonthinking_2048",
+            "model_origin": "local_foundation_not_neral_adapter",
+            "adapter_loaded": False, "mode": "HIGH",
+            "text": "FINAL_ANSWER: 5", "model_generated": True,
+            "verified": False, "verification_status": "base_fallback_unverified",
+            "verification_scope": "none",
+            "tool_used": "neral_python_sandbox",
+            "tool_output_reviewed": False,
+            "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
+        }
+        self.assertEqual(checked_high_packet(packet_), "FINAL_ANSWER: 5")
+        for change in [
+            {"tool_calls_succeeded": 0},
+            {"tool_calls_triggered": 0},
+            {"tool_output_reviewed": True},
+            {"verified": True},
+            {"verification_scope": "numeric_final_only"},
+            {"tool_used": "shell"},
+        ]:
+            with self.subTest(change=change), self.assertRaises(PilotBlocked):
+                checked_high_packet({**packet_, **change})
+
+    def test_solver_unsupported_boolean_operator_diagnosed_without_text_leak(self):
+        from copy import deepcopy
+        question = ("A and B are Boolean variables. "
+                    "A XOR B must be True. "
+                    "How many assignments satisfy all conditions?")
+        from neral_turn0_extractor import parse_extracted_constraints
+        formal = {
+            "kind": "formal", "complete": True,
+            "schema": {
+                "variables": {"A": [False, True], "B": [False, True]},
+                "rules": [], "bool_rules": [
+                    {"op": "nand", "args": ["A", "B"]}],
+                "query": "count",
+            },
+            "evidence": ["A and B are Boolean variables",
+                         "A XOR B must be True",
+                         "How many assignments satisfy all conditions?"],
+        }
+        reasons = []
+        self.assertIsNone(parse_extracted_constraints(
+            question, json.dumps(formal), rejection_reason_sink=reasons))
+        self.assertEqual(reasons, ["solver_unsupported_constraint"])
+        self.assertNotIn("nand", str(reasons))
+
+    def test_solver_malformed_relation_is_syntax_error(self):
+        broken = {**SCHEMA, "rules": [{"left": "A", "right": "B"}]}
+        reasons = []
+        self.assertIsNone(parse_extracted_constraints(
+            QUESTION, packet(schema=broken), rejection_reason_sink=reasons))
+        self.assertEqual(reasons, ["solver_syntax_error"])
+
+    def test_solver_comparison_type_mismatch_is_type_error(self):
+        mixed = {**SCHEMA, "variables": {"A": [1, 2], "B": [False, True]}}
+        reasons = []
+        self.assertIsNone(parse_extracted_constraints(
+            QUESTION, packet(schema=mixed), rejection_reason_sink=reasons))
+        self.assertEqual(reasons, ["solver_type_error"])
+
+    def test_solver_search_budget_rejection_has_safe_bounds_code(self):
+        question = ("A B C D E F each can be 0 through 11. "
+                    "A must be smaller than B. Count valid assignments.")
+        schema = {
+            "variables": {name: list(range(12)) for name in "ABCDEF"},
+            "rules": [{"left": "A", "op": "<", "right": "B"}],
+            "query": "count",
+        }
+        doc = json.dumps({
+            "kind": "formal", "complete": True, "schema": schema,
+            "evidence": ["A B C D E F each can be 0 through 11",
+                         "A must be smaller than B",
+                         "Count valid assignments."],
+        })
+        reasons = []
+        self.assertIsNone(parse_extracted_constraints(
+            question, doc, rejection_reason_sink=reasons))
+        self.assertEqual(reasons, ["solver_bounds_exceeded"])
+
+    def test_unsatisfiable_is_a_valid_zero_not_a_solver_exception(self):
+        schema = {
+            "variables": {"A": [0, 1], "B": [0, 1]},
+            "rules": [
+                {"left": "A", "op": "==", "value": 1},
+                {"left": "A", "op": "!=", "value": 1},
+            ], "query": "count",
+        }
+        reasons = []
+        self.assertEqual(parse_extracted_constraints(
+            QUESTION, packet(schema=schema), rejection_reason_sink=reasons), 0)
+        self.assertEqual(reasons, ["accepted"])
+
+    def test_unknown_solver_error_message_is_not_disclosed(self):
+        from neral_formal_constraints import InvalidFormalConstraints
+        with patch("neral_turn0_extractor.try_solve_formal_constraints",
+                   side_effect=InvalidFormalConstraints("secret private context")):
+            reasons = []
+            self.assertIsNone(parse_extracted_constraints(
+                QUESTION, packet(), rejection_reason_sink=reasons))
+        self.assertEqual(reasons, ["solver_rejected"])
+        self.assertNotIn("secret", str(reasons))
+
+    def test_solver_specific_reason_codes_remain_scalar_only_through_tir(self):
+        schema = {**SCHEMA, "rules": [{"left": "A", "right": "B"}]}
+        responses = []
+        def raw(turns):
+            responses.append(turns)
+            return "FINAL_ANSWER: 3"
+        event = []
+        report = run_experimental_tir(
+            messages(QUESTION), raw,
+            extract_constraints=lambda _: packet(schema=schema),
+            extraction_rejection_sink=event,
+            first_turn_diagnostic=lambda: {
+                "eval_count": 374, "prompt_eval_count": 839, "done_reason": "stop",
+            })
+        self.assertEqual(report["first_turn_telemetry"]["extraction_rejection_reason"],
+                         "solver_syntax_error")
+        self.assertEqual(event, ["solver_syntax_error"])
+        self.assertEqual(report["tool_calls_succeeded"], 0)
+        self.assertEqual(len(responses), 1)
