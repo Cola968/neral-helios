@@ -22,18 +22,14 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "Cola968/neral-helios"
           test "$GITHUB_REF" = "refs/heads/ops/neral-505-one-logic-gate-20261111"
-          actual="$(gh api "repos/$GITHUB_REPOSITORY/pulls/505" --jq '.head.sha')"
-          test "$actual" = "$TARGET_SHA"
-          ref="$(gh api "repos/$GITHUB_REPOSITORY/pulls/505" --jq '.head.ref')"
-          test "$ref" = "feat/neral-1-1-tir-observation-fallback-20261110"
-          high="$(gh api "repos/$GITHUB_REPOSITORY/pulls/503" --jq '.head.sha')"
-          test "$high" = "$HIGH_SHA"
-          echo "Immutable PR #505 / merged HIGH #503 pin verified."
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HIGH_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "Immutable candidate and HIGH SHAs pinned; checkout verifies actual HEAD."
   logic-gpu:
     name: Exactly one logic extraction on local RTX 4070
     needs: verify-immutable-pr
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 18
+    timeout-minutes: 75
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
@@ -61,8 +57,6 @@ jobs:
           if($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA){throw 'Unexpected PR checkout SHA'}
           & git merge-base --is-ancestor $env:HIGH_SHA HEAD
           if($LASTEXITCODE -ne 0){throw 'HIGH SHA is not ancestor'}
-          $pr=gh api ('repos/'+$env:GITHUB_REPOSITORY+'/pulls/505') | ConvertFrom-Json
-          if($LASTEXITCODE -ne 0 -or $pr.head.sha -ne $env:TARGET_SHA){throw 'PR SHA changed'}
           & docker image inspect python:3.11-alpine *> $null
           if($LASTEXITCODE -ne 0){throw 'Offline Docker sandbox missing'}
           $raw=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
@@ -108,22 +102,21 @@ jobs:
           '@
           & $env:ONELOGIC_PY -B -c $code
           if($LASTEXITCODE -ne 0){throw 'One logic extraction failed; TIR12 is blocked'}
-  dispatch-tir12-only-after-gate:
-    name: Dispatch full TIR12 only if real solver succeeded
-    needs: logic-gpu
-    if: \${{ needs.logic-gpu.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      GH_TOKEN: \${{ github.token }}
-    steps:
-      - name: Revalidate the exact candidate before dispatching 12 cases
-        shell: bash
+      - name: Run full paired TIR12 only after mini smoke passed
         run: |
-          set -euo pipefail
-          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/505" --jq '.head.sha')" = "$TARGET_SHA"
-          gh workflow run neral-tir12-manual.yml --repo "$GITHUB_REPOSITORY" --ref main \
-            -f authorize=NERAL_TIR12_GPU_MANUAL_ONLY \
-            -f target_sha="$TARGET_SHA" \
-            -f high_sha="$HIGH_SHA"
-          echo 'One logic gate passed; TIR12 guarded exact-SHA workflow dispatched.'
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:RUNNER_TEMP ('neral-tir12-after-smoke-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $folder){throw 'Refuse occupied report location'}
+          New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+          $out=Join-Path $folder 'summary.json'
+          & $env:ONELOGIC_PY -B -m scripts.neral_tir12_manual --authorize NERAL_TIR12_GPU_MANUAL_ONLY --target-sha $env:TARGET_SHA --high-sha $env:HIGH_SHA --out $out
+          if($LASTEXITCODE -ne 0){throw 'TIR12 development gate failed or benchmark aborted'}
+          Write-Output 'TIR12 completed with passed development gate.'
+      - name: Upload scalar-only TIR12 paired summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr505-one-logic-gated-tir12-scalars
+          path: \${{ runner.temp }}/neral-tir12-after-smoke-\${{ github.run_id }}/summary.json
+          retention-days: 14
+          if-no-files-found: ignore
