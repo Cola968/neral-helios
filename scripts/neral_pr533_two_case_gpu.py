@@ -47,6 +47,46 @@ def safe_ast_diff_node(value: object) -> str | None:
     return value if type(value) is str and value in allowed else None
 
 
+# Exact, non-sensitive AST class categories; 'Assign' is not Expr.value.
+_AST_EXPR_KINDS = frozenset({
+    "Call", "Constant", "Name", "BinOp", "UnaryOp", "Subscript",
+    "Attribute", "Compare", "BoolOp", "IfExp", "List", "Tuple",
+    "Dict", "Set", "ListComp", "DictComp", "SetComp", "GeneratorExp",
+    "Lambda", "JoinedStr", "FormattedValue", "Await", "Yield",
+    "YieldFrom", "NamedExpr", "NotExpr", "None", "Other",
+})
+
+
+def safe_ast_diff_expr_type(value: object) -> str | None:
+    if type(value) is not str or len(value) > 80:
+        return None
+    pair = value.split("_vs_")
+    if len(pair) != 2 or not all(x in _AST_EXPR_KINDS for x in pair):
+        return None
+    return value
+
+
+def safe_ast_diff_scalars(packet: object) -> dict:
+    """Reject entire set if a position or expression class is malformed."""
+    if type(packet) is not dict:
+        return {}
+    expr_type = safe_ast_diff_expr_type(packet.get("ast_diff_expr_type"))
+    index = packet.get("ast_diff_statement_index")
+    user = packet.get("user_stmt_count")
+    executed = packet.get("exec_stmt_count")
+    if (expr_type is None or type(index) is not int
+            or type(user) is not int or type(executed) is not int
+            or not 0 <= user <= 128 or not 0 <= executed <= 128
+            or not 0 <= index < max(user, executed)):
+        return {}
+    return {
+        "ast_diff_expr_type": expr_type,
+        "ast_diff_statement_index": index,
+        "user_stmt_count": user,
+        "exec_stmt_count": executed,
+    }
+
+
 def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
     """Fail closed: neither a parser rejection nor mere tool execution proves correctness."""
     if type(rows) is not list or len(rows) != 2:
@@ -152,6 +192,7 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match", "semantic_execution_match") else None,
                 "review_match_reason": safe_review_reason(packet.get("review_match_reason")),
                 "ast_diff_node": safe_ast_diff_node(packet.get("ast_diff_node")),
+                **safe_ast_diff_scalars(packet),
                 "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "proven_integer_ast_equivalence", "none", "execution_only", "model_extracted_schema_unverified") else None,
                 "tool_used": packet.get("tool_used") if status == 200 else None,
                 "tool_output_reviewed": (packet.get("tool_output_reviewed")
