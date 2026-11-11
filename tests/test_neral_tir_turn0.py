@@ -791,13 +791,14 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
         ):
             trial = deepcopy(schema)
             change(trial)
-            with self.subTest(domain=trial["variables"]), self.assertRaises(AssertionError):
-                # Explicitly expect rejection, never a silently inferred solution.
+            with self.subTest(domain=trial["variables"]):
+                # Do not infer an inconsistent or non-binary domain.
                 reasons = []
                 answer = parse_extracted_constraints(
                     question, packet(schema=trial, evidence=evidence),
                     rejection_reason_sink=reasons)
-                self.assertIsNotNone(answer)
+                self.assertIsNone(answer)
+                self.assertNotEqual(reasons, ["accepted"])
 
         trial = deepcopy(schema)
         trial["bool_rules"][0]["args"][0]["args"][0] = "a"
@@ -835,8 +836,8 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
         result = run_experimental_tir(
             original, model, tool_runner=lambda *_: {
                 "status": "PASSED", "output": "5", "verification_scope": "execution_only"})
-        self.assertIn("NERAL_FINAL_TEXT: FINAL_ANSWER:", decisions[1][-1]["content"]
-                      + " NERAL_FINAL_TEXT: FINAL_ANSWER:" if False else decisions[1][-1]["content"])
+        self.assertIn("NERAL_FINAL_TEXT: FINAL_ANSWER:",
+                      decisions[1][-1]["content"])
         self.assertTrue(result["tool_output_reviewed"])
 
     def test_exact_source_python_stdout_is_adopted_if_llm_review_abstains(self):
@@ -905,3 +906,86 @@ class BooleanSourceInferenceAndExactCodeExecution(unittest.TestCase):
             tool_runner=lambda *_: {"status": "PASSED", "output": "7"})
         self.assertFalse(result["verified"])
         self.assertFalse(result["tool_output_reviewed"])
+
+
+    def test_forged_exact_source_provenance_is_rejected_by_packet_gate(self):
+        from scripts.neral_same_base_live import checked_high_packet, PilotBlocked
+        valid = {
+            "mode": "HIGH", "model": "qwen3.5:9b",
+            "inference_profile": "measured_nonthinking_2048",
+            "model_origin": "local_foundation_not_neral_adapter",
+            "adapter_loaded": False,
+            "text": "FINAL_ANSWER: 12",
+            "tool_used": "neral_python_sandbox",
+            "model_generated": False,
+            "tool_output_reviewed": True,
+            "verification_scope": "exact_user_python_execution",
+            "verification_status": "verified",
+            "review_method": "deterministic_source_identity",
+            "verified": True,
+            "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
+        }
+        self.assertEqual(checked_high_packet(valid), "FINAL_ANSWER: 12")
+        for mutation in (
+            {"tool_used": "neral_math_exact"},
+            {"tool_output_reviewed": False},
+            {"review_method": "model_review"},
+            {"verification_status": "base_fallback_unverified"},
+            {"verified": False},
+            {"verification_scope": "exact_user_python_execution",
+             "tool_calls_succeeded": 0},
+            {"tool_calls_triggered": 0},
+            {"model_generated": True},
+        ):
+            with self.subTest(mutation=mutation), self.assertRaises(PilotBlocked):
+                checked_high_packet({**valid, **mutation})
+
+    def test_bool_source_declarations_are_case_sensitive_and_do_not_guess(self):
+        q = ("How many Boolean assignments to Alpha,Beta satisfy ALL: "
+             "Alpha AND Beta is True? Count assignments.")
+        schema = {
+            "variables": {"Alpha": [0, 1]},
+            "rules": [],
+            "bool_rules": [{"op": "and", "args": ["Alpha", "beta"]}],
+            "query": "count",
+        }
+        pkt = packet(
+            schema=schema,
+            evidence=["How many Boolean assignments to Alpha,Beta",
+                      "Alpha AND Beta is True", "Count assignments."])
+        reason = []
+        self.assertIsNone(parse_extracted_constraints(
+            q, pkt, rejection_reason_sink=reason))
+        self.assertNotEqual(reason, ["accepted"])
+
+    def test_bool_inference_does_not_retype_numeric_constraint_variable(self):
+        q = ("How many Boolean assignments to A,B satisfy ALL: "
+             "A is less than B; A AND B is True? Count assignments.")
+        schema = {
+            "variables": {"A": [0, 1], "B": [0, 1]},
+            "rules": [{"left": "A", "op": "<", "right": "B"}],
+            "bool_rules": [{"op": "and", "args": ["A", "B"]}],
+            "query": "count",
+        }
+        reason = []
+        self.assertIsNone(parse_extracted_constraints(
+            q, packet(schema=schema, evidence=[
+                "How many Boolean assignments to A,B",
+                "A is less than B",
+                "A AND B is True", "Count assignments."]),
+            rejection_reason_sink=reason))
+        self.assertEqual(reason, ["solver_type_error"])
+
+    def test_valid_review_envelope_uses_observed_result_but_is_not_global_verification(self):
+        responses = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(2+3)"}',
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 5",
+        ])
+        result = run_experimental_tir(
+            messages("How many ways can X be arranged?" + SUFFIX),
+            lambda _: next(responses),
+            tool_runner=lambda *_: {"status": "PASSED", "output": "5"})
+        self.assertEqual(result["text"], "FINAL_ANSWER: 5")
+        self.assertTrue(result["tool_output_reviewed"])
+        self.assertEqual(result["verification_status"], "tool_observed_unverified")
+        self.assertFalse(result["verified"])
