@@ -17,7 +17,7 @@ import subprocess
 import time
 
 AUTHORIZE = "NERAL_PR533_GPU_TWO_CASES_ONLY"
-TARGET_SHA = "ca06dc0801d67063829f0436b83ff5b144dd4d54"
+TARGET_SHA = "40d66edbbae1f1b80e8fa97aa6e3c6a7681a577a"
 SEED = 202611110533
 
 
@@ -33,6 +33,18 @@ def safe_review_reason(reason: object) -> str | None:
         "python_not_single_final_print",
     })
     return reason if type(reason) is str and reason in allowed else None
+
+
+def safe_ast_diff_node(value: object) -> str | None:
+    """Only bounded AST labels from the candidate; never user code or names."""
+    allowed = frozenset({
+        "Assign", "AnnAssign", "AugAssign", "For", "AsyncFor",
+        "While", "If", "Expr", "Call", "FunctionDef",
+        "AsyncFunctionDef", "Return", "With", "AsyncWith",
+        "Try", "Match", "Raise", "Pass", "Delete",
+        "Import", "ImportFrom", "Other",
+    })
+    return value if type(value) is str and value in allowed else None
 
 
 def evaluate_two_case_gate(rows: list[dict]) -> tuple[bool, bool]:
@@ -139,6 +151,7 @@ def run_two(*, authorize: str, target_sha: str, report_path: Path) -> dict:
                 "verified": packet.get("verified") if type(packet.get("verified")) is bool else None,
                 "review_method": packet.get("review_method") if packet.get("review_method") in ("exact_user_ast_match", "semantic_execution_match") else None,
                 "review_match_reason": safe_review_reason(packet.get("review_match_reason")),
+                "ast_diff_node": safe_ast_diff_node(packet.get("ast_diff_node")),
                 "verification_scope": packet.get("verification_scope") if packet.get("verification_scope") in ("exact_user_python_execution", "proven_integer_ast_equivalence", "none", "execution_only", "model_extracted_schema_unverified") else None,
                 "tool_used": packet.get("tool_used") if status == 200 else None,
                 "tool_output_reviewed": (packet.get("tool_output_reviewed")
