@@ -236,6 +236,15 @@ def safe_first_turn_event(event: object) -> dict | None:
     if bucket is not None and bucket not in (
             "zero_unsat", "single_solution", "multiple_solutions"):
         return None
+    from neral_turn0_extractor import SOLVER_RELAXATION_STATUS_CODES
+    relaxation_status = event.get("solver_relaxation_status")
+    if (relaxation_status is not None
+            and relaxation_status not in SOLVER_RELAXATION_STATUS_CODES):
+        return None
+    relaxation_bucket = event.get("solver_relaxation_count_bucket")
+    if relaxation_bucket is not None and relaxation_bucket not in (
+            "single_solution", "multiple_solutions"):
+        return None
     literal_context = event.get("boolean_literal_context")
     if literal_context is not None and literal_context not in (
             "at_least", "exactly", "eq", "standalone", "other", "multiple"):
@@ -250,6 +259,10 @@ def safe_first_turn_event(event: object) -> dict | None:
     return {**counts, "done_reason": reason, "decision": decision,
             **source_counts,
             **({"solver_solution_count_bucket": bucket} if bucket is not None else {}),
+            **({"solver_relaxation_status": relaxation_status}
+               if relaxation_status is not None else {}),
+            **({"solver_relaxation_count_bucket": relaxation_bucket}
+               if relaxation_bucket is not None else {}),
             **({"boolean_literal_context": literal_context}
                if literal_context is not None else {}),
             **({"extraction_rejection_reason": rejected}
