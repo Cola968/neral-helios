@@ -118,6 +118,26 @@ class StrictSemanticIntegerProofCPU(unittest.TestCase):
                 self.assertEqual(methods, [])
                 self.assertEqual(reasons,["body_statement_modified"])
 
+    def test_full_tir_api_reports_proven_semantic_method(self):
+        responses = iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox",'
+            '"code":"value=5\\nprint(value)"}',
+            "NERAL_FINAL_TEXT: FINAL_ANSWER: 5",
+        ])
+        question = ("What integer does this Python program print:\\n"
+                    "value=2+3\\nprint(value)")
+        result = run_experimental_tir(
+            [{"role":"system","content":"NERAL"},
+             {"role":"user","content":question + SUFFIX}],
+            lambda _: next(responses),
+            tool_runner=lambda *_: {"status":"PASSED", "output":"5",
+                                     "stderr":"", "verification_scope":"execution_only"})
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["review_method"], "semantic_execution_match")
+        self.assertEqual(result["verification_scope"],
+                         "proven_integer_ast_equivalence")
+        self.assertEqual(result["text"], "FINAL_ANSWER: 5")
+
     def test_no_unjustified_verification_for_overloaded_or_dynamic_arithmetic(self):
         for before, after in (
             ("value=x+3\nprint(value)","value=5\nprint(value)"),
