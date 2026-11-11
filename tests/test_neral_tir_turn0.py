@@ -1310,7 +1310,7 @@ class AstCanonicalNamesAndSourceCodeReviewCPU(unittest.TestCase):
             tool_runner=lambda *_: {"status": "PASSED", "output": "6"})
         self.assertFalse(result["verified"])
         self.assertEqual(result["verification_status"], "tool_observed_unverified")
-        self.assertEqual(result.get("review_match_reason"), "ast_structure_mismatch")
+        self.assertEqual(result.get("review_match_reason"), "body_statement_modified")
 
     def test_untrusted_random_program_cannot_be_verified_even_if_output_matches(self):
         question = ("What does this Python program print?\n"
@@ -1496,7 +1496,7 @@ class CpuAutoBooleanDeclarationAndReviewReason(unittest.TestCase):
             "print(6)", "6",
         )
         self.assertFalse(out["verified"])
-        self.assertEqual(out["review_match_reason"], "ast_structure_mismatch")
+        self.assertEqual(out["review_match_reason"], "body_statement_modified")
 
     def test_matching_ast_keeps_verified_and_exact_user_ast_match(self):
         out = self.review(
@@ -1645,19 +1645,19 @@ class BooleanTokensAndPrintOnlyReviewCPU(unittest.TestCase):
         question = ("What does this program output after execution:\nvalue = 2+3")
         result = self.review(question, "value = 2+3\nprint(999)", "999")
         self.assertFalse(result["verified"])
-        self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
+        self.assertEqual(result["review_match_reason"], "extra_trailing_statements")
 
     def test_changed_original_computation_plus_correct_print_is_not_verified(self):
         question = ("What does this program output after execution:\nvalue=2+3")
         result = self.review(question, "value=2+4\nprint(value)", "6")
         self.assertFalse(result["verified"])
-        self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
+        self.assertEqual(result["review_match_reason"], "body_statement_modified")
 
     def test_existing_print_cannot_gain_duplicate_print(self):
         question = ("What does this program print:\nprint(2+3)")
         result = self.review(question, "print(2+3)\nprint(5)", "5")
         self.assertFalse(result["verified"])
-        self.assertEqual(result["review_match_reason"], "ast_structure_mismatch")
+        self.assertEqual(result["review_match_reason"], "extra_trailing_statements")
 
 
     def test_boolean_ast_literal_success_code_survives_safe_first_turn_telemetry(self):
