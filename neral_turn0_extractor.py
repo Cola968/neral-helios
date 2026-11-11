@@ -13,6 +13,14 @@ from neral_formal_constraints import (
     PREFIX, InvalidFormalConstraints, try_solve_formal_constraints,
 )
 
+# Scalar-only diagnostic labels; never contain generated text, prompts or paths.
+EXTRACTION_RESULT_CODES = frozenset({
+    "invalid_input", "invalid_json", "kind_none", "invalid_envelope",
+    "incomplete_formal", "invalid_structure", "invalid_variables",
+    "invalid_ordering", "ordering_evidence_missing", "variable_not_in_source",
+    "evidence_invalid", "solver_rejected", "solver_no_integer", "accepted",
+})
+
 EXTRACT_PROMPT = (
     "You are ONLY a finite-domain constraint extractor. Answer exactly one "
     "compact JSON object, with no Markdown, explanation, Python, or preamble. "
@@ -169,6 +177,8 @@ def parse_extracted_constraints(question: str, generated: str, *,
     Only an explicit, bounded source-grounded candidate may reach the solver.
     """
     def reject(code: str) -> None:
+        if code not in EXTRACTION_RESULT_CODES:
+            raise AssertionError("Non-enumerated parser rejection code")
         if type(rejection_reason_sink) is list:
             rejection_reason_sink.append(code)  # safe fixed enum, never model text
         return None
