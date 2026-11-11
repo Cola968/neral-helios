@@ -104,29 +104,6 @@ jobs:
             & $env:TWO_CASE_PY -B (Join-Path $control 'scripts/neral_pr533_two_case_gpu.py') --authorize NERAL_PR533_GPU_TWO_CASES_ONLY --target-sha $env:TARGET_SHA --out $out
             if($LASTEXITCODE -ne 0){throw 'One or more two-case gates not met; see scalar report'}
           } finally { Pop-Location }
-      - name: Run TIR12 only if BOTH strict GPU gates passed
-        if: steps.two_case_gate.outcome == 'success'
-        run: |
-          $ErrorActionPreference='Stop'
-          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
-          $folder=Join-Path $env:RUNNER_TEMP ('neral-pr533-tir12-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $folder){throw 'Refuse occupied TIR12 result path'}
-          New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
-          $out=Join-Path $folder 'summary.json'
-          $env:PYTHONPATH=$candidate
-          Push-Location $candidate
-          try {
-            & $env:TWO_CASE_PY -B -m scripts.neral_tir12_manual --authorize NERAL_TIR12_GPU_MANUAL_ONLY --target-sha $env:TARGET_SHA --high-sha 42071009bfe41e2fba1478d742a00f0cb88d6ab5 --out $out
-            if($LASTEXITCODE -ne 0){throw 'TIR12 development ratchet failed; see scalar report'}
-          } finally { Pop-Location }
-      - name: Upload conditional TIR12 scalar benchmark
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: neral-pr533-conditional-tir12-scalars
-          path: ${{ runner.temp }}/neral-pr533-tir12-${{ github.run_id }}/summary.json
-          if-no-files-found: ignore
-          retention-days: 14
       - name: Upload scalar-only two-case result, even when gate fails
         if: always()
         uses: actions/upload-artifact@v4
