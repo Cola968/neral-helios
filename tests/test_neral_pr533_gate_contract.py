@@ -86,7 +86,7 @@ class TwoTaskGate(unittest.TestCase):
         self.assertIn("if: steps.two_case_gate.outcome == 'success'", workflow)
         self.assertIn("scripts.neral_tir12_manual", workflow)
         self.assertIn(
-            "ref: 'ca06dc0801d67063829f0436b83ff5b144dd4d54'", workflow)
+            "ref: '40d66edbbae1f1b80e8fa97aa6e3c6a7681a577a'", workflow)
         self.assertIn("NERAL_PR533_APPROVE_GPU_GATE", workflow)
 
     def test_b_requires_verification_not_only_solver_execution(self):
