@@ -78,13 +78,15 @@ class TwoTaskGate(unittest.TestCase):
                 first_turn_telemetry={"extraction_rejection_reason": "solver_type_error"})]),
             (True, False))
 
-    def test_gpu_workflow_gates_tir12_behind_both_case_success(self):
+    def test_gpu_workflow_is_strictly_two_case_only_without_tir12(self):
         from pathlib import Path
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/neral-pr533-gpu-two-case.yml").read_text("utf-8")
         self.assertIn("Execute EXACTLY one code and one logic case", workflow)
-        self.assertIn("if: steps.two_case_gate.outcome == 'success'", workflow)
-        self.assertIn("scripts.neral_tir12_manual", workflow)
+        self.assertIn("Upload scalar-only two-case result", workflow)
+        self.assertNotIn("scripts.neral_tir12_manual", workflow)
+        self.assertNotIn("Run full TIR12", workflow)
+        self.assertNotIn("conditional-tir12", workflow)
         self.assertIn(
             "ref: '40d66edbbae1f1b80e8fa97aa6e3c6a7681a577a'", workflow)
         self.assertIn("NERAL_PR533_APPROVE_GPU_GATE", workflow)
