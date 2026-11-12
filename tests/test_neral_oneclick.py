@@ -231,5 +231,57 @@ class OneClickTests(unittest.TestCase):
             self.assertEqual(install.call_args.args[0],staged)
 
 
+    def test_gui_boot_callback_starts_local_http_and_enables_chat_with_updater_present(self):
+        """Regression for e72480c: update polling worked but root.after(boot) disappeared."""
+        import sys
+        import types
+        from unittest.mock import Mock
+
+        scheduled=[]
+        controls=[]
+        root=Mock()
+        root.winfo_exists.return_value=True
+        root.after.side_effect=lambda delay,callback: scheduled.append((delay,callback))
+
+        class Button:
+            def __init__(self,parent,**options):
+                self.options=dict(options)
+                controls.append(self)
+            def pack(self,**kw):pass
+            def configure(self,**kw):self.options.update(kw)
+
+        class Variable:
+            def __init__(self,**options):self.value=options.get("value","")
+            def set(self,value):self.value=value
+
+        fake_tk=types.SimpleNamespace(
+            Tk=lambda:root,Label=lambda *a,**kw:Mock(),
+            Frame=lambda *a,**kw:Mock(),Button=Button,StringVar=Variable,
+            messagebox=types.SimpleNamespace(showwarning=Mock(),showerror=Mock()))
+        server=Mock()
+        with patch.dict(sys.modules,{
+                    "tkinter":fake_tk,
+                    "waitress":types.SimpleNamespace(create_server=Mock(return_value=server)),
+                    "neral_preview_server":types.SimpleNamespace(create_preview_app=Mock(return_value=Mock()))}), \
+             patch.object(neral_oneclick.sys,"frozen",True,create=True), \
+             patch.object(neral_oneclick,"_port_taken",return_value=False), \
+             patch.object(neral_oneclick,"ensure_existing_local_model",return_value=("qwen3.5:9b",None)), \
+             patch.object(neral_oneclick,"backend_for_model",return_value=Mock()), \
+             patch.object(neral_oneclick.threading,"Thread",return_value=Mock()) as thread, \
+             patch.object(neral_oneclick.webbrowser,"open") as browser:
+            neral_oneclick.start_app()
+            chat=next(b for b in controls if b.options.get("text")=="Chat öffnen")
+            self.assertEqual(chat.options["state"],"disabled")
+            boot_callbacks=[callback for delay,callback in scheduled if delay==100]
+            self.assertEqual(len(boot_callbacks),1,
+                "The native Tk boot timer must be scheduled independently of update checking")
+            boot_callbacks[0]()
+            self.assertEqual(chat.options["state"],"normal")
+            thread.return_value.start.assert_called_once()
+            self.assertTrue(any(delay==250 for delay,_ in scheduled))
+            next(callback for delay,callback in scheduled if delay==250)()
+            browser.assert_called_once_with(neral_oneclick.URL)
+
+
 if __name__=="__main__":
     unittest.main()

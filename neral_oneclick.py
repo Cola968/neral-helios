@@ -364,6 +364,9 @@ def start_app() -> None:
             root.after(150, process_update_events)
 
     update_button.configure(command=start_update_check)
+    # Always start the local HTTP server independently of update checks.
+    # Losing this timer leaves the chat button disabled indefinitely.
+    root.after(100, boot)
     root.after(150, process_update_events)
     # The old launcher already checked in the background. Keep that behavior,
     # but show a usable manual check at all times; installing always needs a click.
