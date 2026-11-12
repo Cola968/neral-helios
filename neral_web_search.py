@@ -23,7 +23,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BING_ENDPOINT = "https://www.bing.com/search"
 MAX_RESPONSE_BYTES = 600_000
-MAX_RESULTS = 5
+MAX_RESULTS = 10
 MAX_QUERY_CHARS = 160
 
 
@@ -128,9 +128,10 @@ def _probe_https(url: str, address: str, method: str = "HEAD") -> tuple[int, str
 # web search and the UI displays a verified public HTTPS source.
 # Browser pages never contact a third-party favicon aggregator.
 MAX_FAVICON_BYTES = 65536
+FAVICON_PATHS = ("/favicon.ico", "/favicon-32x32.png", "/apple-touch-icon.png")
 
 
-def _request_favicon(host: str, address: str) -> tuple[bytes, str]:
+def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tuple[bytes, str]:
     """Download /favicon.ico over TLS with DNS pinned to a validated public IP.
 
     No redirects, no HTML parsing, no cookies and no arbitrary URL or port.
@@ -146,9 +147,11 @@ def _request_favicon(host: str, address: str) -> tuple[bytes, str]:
                 raw.close()
                 raise
 
+    if path not in FAVICON_PATHS:
+        raise ValueError("Only fixed public favicon paths are permitted.")
     conn = _PinnedIconHTTPS(host, timeout=2.5, context=ssl.create_default_context())
     try:
-        conn.request("GET", "/favicon.ico", headers={
+        conn.request("GET", path, headers={
             "User-Agent": "NERAL-Favicon/1.0", "Accept": "image/x-icon,image/png,image/webp,image/jpeg,image/gif",
         })
         response = conn.getresponse()
@@ -181,19 +184,22 @@ def fetch_public_favicon(host: str) -> tuple[bytes, str] | None:
         if not ips or any(not ip_address(ip).is_global for ip in ips):
             return None
         address = sorted(ips, key=lambda ip: (":" in ip, ip))[0]
-        data, _declared_type = _request_favicon(host, address)
-        if not data or len(data) > MAX_FAVICON_BYTES:
-            return None
-        if data.startswith(b"\x00\x00\x01\x00"):
-            return data, "image/x-icon"
-        if data.startswith(b"\x89PNG\r\n\x1a\n"):
-            return data, "image/png"
-        if data.startswith((b"GIF87a", b"GIF89a")):
-            return data, "image/gif"
-        if data.startswith(b"\xff\xd8\xff"):
-            return data, "image/jpeg"
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            return data, "image/webp"
+        # Public sites often use a PNG instead of /favicon.ico.
+        # Only these fixed paths are checked, with one DNS validation/pinned IP.
+        for path in FAVICON_PATHS:
+            data, _declared_type = _request_favicon(host, address, path)
+            if not data or len(data) > MAX_FAVICON_BYTES:
+                continue
+            if data.startswith(b"\x00\x00\x01\x00"):
+                return data, "image/x-icon"
+            if data.startswith(b"\x89PNG\r\n\x1a\n"):
+                return data, "image/png"
+            if data.startswith((b"GIF87a", b"GIF89a")):
+                return data, "image/gif"
+            if data.startswith(b"\xff\xd8\xff"):
+                return data, "image/jpeg"
+            if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+                return data, "image/webp"
         return None
     except (OSError, ValueError, TimeoutError, http.client.HTTPException):
         return None
@@ -223,7 +229,7 @@ def verify_public_https_url(value: str) -> str | None:
             # Use the first resolved public socket address; avoid DNS rebinding.
             address = sorted(ips, key=lambda ip: (":" in ip, ip))[0]
             status, location = _probe_https(url, address)
-            if status == 405:  # Some real sites reject HEAD.
+            if status in (403, 405):  # Some real sites block HEAD but accept GET.
                 status, location = _probe_https(url, address, "GET")
             if 200 <= status < 300:
                 return url
