@@ -22,7 +22,7 @@ def run():
     events = [json.loads(line) for line in response.response]
     result = next((event["result"] for event in events if event.get("type") == "result"), {})
     hits = result.get("results", [])
-    favicon_hosts = ("github.com", "www.nasa.gov", "x.ai")
+    favicon_hosts = ("grok.com", "x.ai", "github.com", "www.nasa.gov")
     icons = {host: bool(fetch_public_favicon(host)) for host in favicon_hosts}
     report = {
         "query": QUERY,
