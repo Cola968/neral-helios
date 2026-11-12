@@ -10,9 +10,11 @@ on:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both]
+        options: [readiness, logic, transfer, both, tir12]
 permissions:
   contents: read
+  pull-requests: read
+  actions: read
 jobs:
   docker-readiness:
     if: >-
@@ -57,7 +59,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
       inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
-      (inputs.mode == 'logic' || inputs.mode == 'transfer' || inputs.mode == 'both')
+      (inputs.mode == 'logic' || inputs.mode == 'transfer' || inputs.mode == 'both' || inputs.mode == 'tir12')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -81,6 +83,10 @@ jobs:
         working-directory: candidate
       - name: Validate isolated live probe syntax
         run: python -B -m py_compile scripts/neral_pr533_two_gate_live.py
+      - name: Run original TIR12 scoring and paired ratchet CPU contracts
+        if: inputs.mode == 'tir12'
+        working-directory: candidate
+        run: python -B -m unittest discover -s tests -p test_neral_tir12_manual.py -v
       - name: Fresh logic-transfer oracle CPU contracts
         if: inputs.mode == 'transfer'
         run: |
@@ -232,3 +238,161 @@ jobs:
             & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_logic_transfer.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate
             if($LASTEXITCODE -ne 0){throw 'Synthetic transfer gate not all passed; no TIR12 claim'}
           } finally { Pop-Location }
+
+  # Manual-only candidate baseline from immutable main scorer 94ccac3fa9f14a7bf8ca65900c32a4e48d72b9d1.
+  verify-target:
+    name: Verify pinned PR #533 baseline SHA
+    needs: cpu-preflight
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' && inputs.mode == 'tir12'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AUTHORIZE: ${{ inputs.authorize }}
+      TARGET_SHA: 'd280516e1a28a1cbdbc5b6b9b89d694769f6292f'
+      HIGH_SHA: '42071009bfe41e2fba1478d742a00f0cb88d6ab5'
+    outputs:
+      target_sha: ${{ steps.verify.outputs.target_sha }}
+      high_sha: ${{ steps.verify.outputs.high_sha }}
+    steps:
+      - id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != "Cola968/neral-helios" ||
+                "$AUTHORIZE" != "NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY" ||
+                ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ||
+                ! "$HIGH_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Authorization, repository or exact SHA invalid' >&2
+            exit 1
+          fi
+          PR_JSON="$(gh api "repos/$GITHUB_REPOSITORY/pulls/533")"
+          PR_HIGH_JSON="$(gh api "repos/$GITHUB_REPOSITORY/pulls/503")"
+          export PR_JSON PR_HIGH_JSON
+          python - <<'PY'
+          import json, os, sys
+          pr = json.loads(os.environ["PR_JSON"])
+          ok = (
+              pr.get("state") == "open"
+              and pr.get("number") == 533
+              and pr.get("head", {}).get("sha") == os.environ["TARGET_SHA"]
+              and pr.get("head", {}).get("ref") == "fix/neral-pr505-tir-cpu-routing-diagnostics-20261111"
+              and pr.get("head", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
+              and pr.get("base", {}).get("ref") == "feat/neral-1-1-tir-observation-fallback-20261110"
+              and pr.get("base", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
+          )
+          high = json.loads(os.environ["PR_HIGH_JSON"])
+          high_ok = (
+              high.get("number") == 503 and high.get("state") == "closed"
+              and high.get("merged_at") is not None
+              and high.get("base", {}).get("ref") == "main"
+              and high.get("head", {}).get("sha") == os.environ["HIGH_SHA"]
+              and high.get("head", {}).get("ref") == "fix/neral-high-first-pass-only-20261110"
+              and high.get("head", {}).get("repo", {}).get("full_name") == "Cola968/neral-helios"
+          )
+          if not (ok and high_ok):
+              raise SystemExit("Exact merged HIGH #503 / main-based TIR #505 SHA pairing changed")
+          print("PR #533 source head and exact SHA verified")
+          PY
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "high_sha=$HIGH_SHA" >> "$GITHUB_OUTPUT"
+
+  gpu-paired:
+    name: PR533 pinned TIR12 paired GPU benchmark
+    needs: verify-target
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' && inputs.mode == 'tir12'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 65
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ needs.verify-target.outputs.target_sha }}
+      HIGH_SHA: ${{ needs.verify-target.outputs.high_sha }}
+      NERAL_EXPERIMENTAL_TIR: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout controller from protected default-branch workflow SHA
+        uses: actions/checkout@v4
+        with:
+          ref: '94ccac3fa9f14a7bf8ca65900c32a4e48d72b9d1'
+          path: control
+          persist-credentials: false
+          clean: true
+      - name: Checkout exact PR #533 candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-target.outputs.target_sha }}
+          path: candidate
+          persist-credentials: false
+          clean: true
+          fetch-depth: 0
+      - name: Verify immutable HEAD, pinned Qwen and free local GPU
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios' -or
+              $env:NERAL_EXPERIMENTAL_TIR -ne '1' -or
+              $env:TARGET_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Rejected benchmark environment' }
+          $actual = (& git -C (Join-Path $env:GITHUB_WORKSPACE 'candidate') rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA) { throw 'Wrong candidate checkout SHA' }
+          & git -C (Join-Path $env:GITHUB_WORKSPACE 'candidate') merge-base --is-ancestor $env:HIGH_SHA HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned PR #503 HIGH SHA is not ancestor of PR #533' }
+          # Trust only the protected main controller script; never execute
+          # candidate PR code to resume local services or bypass Docker.
+          & (Join-Path $env:GITHUB_WORKSPACE 'control/scripts/neral_docker_desktop_preflight.ps1')
+          if ($LASTEXITCODE -ne 0) { throw 'Local Docker preflight failed' }
+          & docker image inspect python:3.11-alpine *> $null
+          if ($LASTEXITCODE -ne 0) { throw 'Pre-installed offline Python Docker sandbox missing' }
+          $pr = gh api ('repos/' + $env:GITHUB_REPOSITORY + '/pulls/533') | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $pr.head.sha -ne $env:TARGET_SHA -or
+              $pr.head.ref -ne 'fix/neral-pr505-tir-cpu-routing-diagnostics-20261111') {
+            throw 'PR changed after preflight; refuse GPU work'
+          }
+          $gpu = & nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if ($LASTEXITCODE -ne 0) { throw 'GPU telemetry unavailable' }
+          $v = ($gpu | Select-Object -First 1) -split ','
+          if ($v.Count -ne 2 -or [int]$v[0].Trim() -lt 7000 -or
+              [int]$v[1].Trim() -gt 25) { throw 'GPU busy; benchmark not started' }
+          $base = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if (-not (Test-Path -LiteralPath $base -PathType Leaf)) {
+            throw 'Existing local Python 3.12 unavailable'
+          }
+          $envDir = Join-Path $env:RUNNER_TEMP ('neral-tir12-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT)
+          if (Test-Path -LiteralPath $envDir) { throw 'Refuse to overwrite existing Python environment' }
+          & $base -B -m venv $envDir
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create isolated Python environment' }
+          $py = Join-Path $envDir 'Scripts/python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'candidate/requirements-neral-preview.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to install required local Python dependencies' }
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('TIR12_PY=' + $py + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Run exactly 12 paired tasks, Qwen direct vs two-stage experimental HIGH + TIR
+        id: gate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $control = Join-Path $env:GITHUB_WORKSPACE 'control'
+          $candidate = Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir = Join-Path $control 'neral_tir12_scalar'
+          if (Test-Path -LiteralPath $dir) { throw 'Refuse existing report directory' }
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          $env:PYTHONPATH = $candidate
+          Push-Location $candidate
+          try {
+            & $env:TIR12_PY -B (Join-Path $control 'scripts/neral_tir12_manual.py') --authorize NERAL_TIR12_GPU_MANUAL_ONLY --target-sha $env:TARGET_SHA --high-sha $env:HIGH_SHA --out (Join-Path $dir 'summary.json')
+            if ($LASTEXITCODE -ne 0) { throw 'Candidate did not pass the paired development ratchet or inference failed' }
+          } finally { Pop-Location }
+      - name: Upload scalar-only paired result (even on model regression)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr533-tir12-paired-scalars
+          path: control/neral_tir12_scalar/summary.json
+          retention-days: 14
+          if-no-files-found: warn
