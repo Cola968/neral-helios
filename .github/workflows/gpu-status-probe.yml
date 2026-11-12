@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         description: 'Exact manual NERAL_PROD_DUAL_BLIND100_EXPLICIT; no training'
+      resume_run_id:
+        required: false
+        type: string
+        default: '43253441865'
+        description: 'Immutable Actions artifact containing previously completed 26 prospective pairs'
       mode:
         required: true
         type: choice
@@ -890,7 +895,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1c5a202fa74e071004a8c6320fdde3be3c1ff9d0'
+          ref: '4bddb32228b63a257715d50c3fe025716ef1b886'
           persist-credentials: false
           path: candidate
       - uses: actions/setup-python@v5
@@ -902,6 +907,7 @@ jobs:
           python -B -m unittest discover -s tests -p 'test_neral_dual_routing_product_api.py' -v
           python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
           python -B -m unittest discover -s tests -p 'test_neral_blind_100_cpu.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_blind_retry_resume_cpu.py' -v
           python -B -m py_compile neral_preview_server.py neral_dual_routing.py scripts/neral_blind_100_gpu.py
         working-directory: candidate
   prodblind100-gpu:
@@ -926,11 +932,11 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       HF_HUB_OFFLINE: '1'
       TRANSFORMERS_OFFLINE: '1'
-      NERAL_PROD_BLIND_SHA: '1c5a202fa74e071004a8c6320fdde3be3c1ff9d0'
+      NERAL_PROD_BLIND_SHA: '4bddb32228b63a257715d50c3fe025716ef1b886'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1c5a202fa74e071004a8c6320fdde3be3c1ff9d0'
+          ref: '4bddb32228b63a257715d50c3fe025716ef1b886'
           persist-credentials: false
           clean: true
           path: candidate
@@ -972,6 +978,20 @@ jobs:
             & $env:NERAL_BLIND_PY -B -m scripts.neral_blind_100_gpu --authorize NERAL_PROD_DUAL_BLIND100_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $env:NERAL_BLIND_DIR 'old100-api-pilot.json') --pilot
             if($LASTEXITCODE -ne 0){throw 'Production API pilot on already known task failed; do not touch blind cases'}
           } finally {Pop-Location}
+      - name: Download original 26-case raw+scalar checkpoint from the fixed earlier GPU run
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-prod-dual-blind100-raw-and-metrics
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.NERAL_BLIND_DIR }}/resume-source
+      - name: Verify prior checkpoint exists before touching any new blind question
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:NERAL_BLIND_DIR 'resume-source'
+          foreach($p in @('blind100-manifest.json','blind100-results.progress.jsonl','blind100-results.full_raw.jsonl')){
+            if(-not (Test-Path -LiteralPath (Join-Path $src $p) -PathType Leaf)){throw 'The prior 26-case checkpoint artifact is incomplete'}
+          }
       - name: Seal the 100 previously unseen tasks and verify disjointness to ALL prior datasets
         run: |
           $ErrorActionPreference='Stop'
@@ -985,7 +1005,7 @@ jobs:
           $ErrorActionPreference='Stop'
           Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
           try {
-            & $env:NERAL_BLIND_PY -B -m scripts.neral_blind_100_gpu --authorize NERAL_PROD_DUAL_BLIND100_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --corpus (Join-Path $env:NERAL_BLIND_DIR 'blind100-frozen.jsonl') --manifest (Join-Path $env:NERAL_BLIND_DIR 'blind100-manifest.json') --out (Join-Path $env:NERAL_BLIND_DIR 'blind100-results.json')
+            & $env:NERAL_BLIND_PY -B -m scripts.neral_blind_100_gpu --authorize NERAL_PROD_DUAL_BLIND100_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --corpus (Join-Path $env:NERAL_BLIND_DIR 'blind100-frozen.jsonl') --manifest (Join-Path $env:NERAL_BLIND_DIR 'blind100-manifest.json') --resume-from (Join-Path $env:NERAL_BLIND_DIR 'resume-source') --resume-run-id ${{ inputs.resume_run_id }} --out (Join-Path $env:NERAL_BLIND_DIR 'blind100-results.json')
             if($LASTEXITCODE -ne 0){throw 'Prospective GPU benchmark failed; no partial result is promotable'}
           } finally {Pop-Location}
       - name: Retain complete SYNTHETIC raw base/dual answers, model residency and signed hash receipts
@@ -999,5 +1019,6 @@ jobs:
             ${{ env.NERAL_BLIND_DIR }}/blind100-results.json
             ${{ env.NERAL_BLIND_DIR }}/blind100-results.progress.jsonl
             ${{ env.NERAL_BLIND_DIR }}/blind100-results.full_raw.jsonl
+            ${{ env.NERAL_BLIND_DIR }}/blind100-results.failure.json
           retention-days: 14
           if-no-files-found: warn
