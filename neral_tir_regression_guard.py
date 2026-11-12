@@ -75,6 +75,17 @@ def choose_guarded_tir_reply(
             or not callable(raw_respond) or not callable(clock)):
         raise ValueError("Invalid conservative TIR selection input")
 
+    # A deterministic safety refusal must stay a refusal. Do not substitute
+    # a plausible but unexecuted model guess after a sandbox failure.
+    if (report.get("verified") is False
+            and report.get("model_generated") is False
+            and report.get("verification_status") in {
+                "formal_schema_rejected", "not_available"}
+            and report.get("verification_scope") == "none"
+            and _valid_raw(report.get("text"))):
+        return {**report, "selection_policy": "explicit_safe_refusal",
+                "response_source": "deterministic_safety_refusal"}
+
     if _is_independently_verified(report):
         return {**report, "selection_policy": "independently_verified_tir",
                 "response_source": "verified_tir"}
