@@ -90,7 +90,10 @@ def main(argv=None) -> int:
     parser.add_argument("--live", action="store_true", help="explicitly run two locally installed Ollama models")
     parser.add_argument("--qlora-model", help="local Ollama tag for QLoRA variant; no model downloaded")
     parser.add_argument("--base-model", help="local Ollama tag for unchanged base model")
+    parser.add_argument("--diagnostics-file", help="create a LOCAL JSON report with unredacted old-case model responses and timing; requires --live")
     args = parser.parse_args(argv)
+    if args.diagnostics_file and not args.live:
+        parser.error("--diagnostics-file requires --live")
     if not args.live:
         print(json.dumps({"status": "live_not_requested", "case": args.case,
                           "verified": False, "safe_to_promote": False}))
@@ -98,6 +101,25 @@ def main(argv=None) -> int:
     if (not args.qlora_model or not args.base_model
             or args.qlora_model == args.base_model):
         parser.error("--live requires two explicitly named, different local model tags")
+    if args.diagnostics_file:
+        # Explicit opt-in file stored locally only; never overwrite a
+        # previous measurement or ship raw generated text to GitHub.
+        from pathlib import Path
+        from scripts.neral_nl_schema_diagnostics import collect_live_diagnostics
+        output_path = Path(args.diagnostics_file)
+        if output_path.exists():
+            raise FileExistsError("Diagnostic file exists; choose a new path")
+        report = collect_live_diagnostics(
+            args.case, args.qlora_model, args.base_model)
+        with output_path.open("x", encoding="utf-8") as output:
+            json.dump(report, output, ensure_ascii=False, indent=2)
+        print(json.dumps({
+            "case": args.case,
+            "diagnostics_file": str(output_path),
+            "consensus_status": report["consensus_status"],
+            "verified": False, "safe_to_promote": False,
+        }, ensure_ascii=False))
+        return 0 if report["consensus_status"] == "consensus_unverified" else 1
     try:
         a = make_local_extractor(args.qlora_model)
         b = make_local_extractor(args.base_model)
