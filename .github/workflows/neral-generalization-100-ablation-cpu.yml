@@ -1,0 +1,27 @@
+name: NERAL QLoRA pure-weight ablation and dual-route CPU contracts
+on:
+  push:
+    branches: [verify/neral-qwen35-ablation-dual-20261112]
+  pull_request:
+    paths:
+      - 'scripts/neral_generalization_100_ablation.py'
+      - 'tests/test_neral_generalization_100_ablation_cpu.py'
+      - '.github/workflows/neral-generalization-100-ablation-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  ablation-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Run real PR537 guard/ablation routing/scoring tests
+        run: python -B -m unittest discover -s tests -p 'test_neral_generalization_100_*.py' -v
+      - name: Validate no-training run code compiles
+        run: python -B -m py_compile scripts/neral_generalization_100_ablation.py
