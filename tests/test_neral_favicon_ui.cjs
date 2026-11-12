@@ -78,3 +78,19 @@ test("source cards use brief hover and entry motion, respecting reduced motion",
  assert.match(css,/\.neral-source-link:hover/);
  assert.match(css,/prefers-reduced-motion:reduce[\s\S]*neral-source-link/);
 });
+
+
+test("live search eagerly fetches icons before the transient status disappears",()=>{
+ const listeners=new Map(),area=new El("main");
+ vm.runInNewContext(read("static/neral-motion.js"),{
+   window:{addEventListener:(name,fn)=>listeners.set(name,fn)},
+   document:{getElementById:id=>id==="messages"?area:null,createElement:t=>new El(t)},
+   URL,Date,MutationObserver:class {}
+ },{timeout:1500});
+ const fire=(phase,extra={})=>listeners.get("neral:activity")({detail:{phase,...extra}});
+ fire("searching");
+ fire("source-found",{source:{url:"https://example.org/ber",reachable:true,title:"Berlin Airport"}});
+ const img=area.querySelector(".neral-live-site-icon");
+ assert.ok(img);
+ assert.equal(img.loading,"eager","A short-lived live-search row must not defer its favicon fetch");
+});
