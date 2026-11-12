@@ -103,7 +103,7 @@ Unsloth / PEFT / bitsandbytes, aktuelle Versionen für Qwen3.5, Torch
 mit passendem CUDA-Treiber, echtes 9B-Checkpoint lokal verfügbar.
 **Vorher Ollama entladen** und VRAM prüfen; 12 GiB sind knapp.
 Default: NF4, Rank 8, 2.048 Token, Batch 1, Gradientenakkumulation 8,
-Checkpointing, 60 Optimierungsschritte. Diese Konfiguration ist
+Checkpointing, standardmäßig eine vollständige Epoche (720/8≈90 Optimierungsschritte), alternativ zwei Epochen. Diese Konfiguration ist
 **noch nicht** als erfolgreiches 9B-GPU-Training validiert.
 
 ```bash
@@ -111,7 +111,7 @@ python -B -m scripts.neral_qlora_train \
   --train .data/neral_qlora/train.jsonl \
   --holdout datasets/neral_qwen35_holdout_v1.jsonl \
   --out .data/neral_qlora/run001 \
-  --model unsloth/Qwen3.5-9B --max-steps 60
+  --model unsloth/Qwen3.5-9B --epochs 1
 ```
 
 Nur wenn Training und Adapter validiert sind:
