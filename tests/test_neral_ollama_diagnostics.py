@@ -215,6 +215,35 @@ class MeasuredOllamaDiagnosticTests(unittest.TestCase):
             self.backend.respond_chat(self.messages)
         self.assertNotIn("seed", sent[0]["options"])
 
+    def test_repair_turn_gets_1536_tokens_without_changing_first_extract_or_raw(self):
+        """RED: only the bounded second schema attempt may use a larger budget."""
+        seen = []
+        class Local:
+            def open(self, request, timeout):
+                seen.append(json.loads(request.data))
+                return _LocalResponse({
+                    "done": True, "done_reason": "stop",
+                    "message": {"content": '{"kind":"none"}', "thinking": ""},
+                })
+        turns = [
+            {"role": "system", "content": "You are a strict JSON extractor."},
+            {"role": "user", "content": (
+                "How many Boolean assignments to A,B have A XOR B true? "
+                "Return one integer.")},
+        ]
+        with patch("neral_agent_autonomy.local_only_opener", return_value=Local()):
+            self.backend.respond_formal_extract(turns)
+            self.backend.respond_formal_extract(turns, repair_turn=True)
+            self.backend.respond_chat(self.messages)
+        self.assertEqual([x["options"]["num_predict"] for x in seen],
+                         [384, 1536, 2048])
+        self.assertTrue(all(x["think"] is False for x in seen))
+        self.assertEqual(seen[0]["format"], seen[1]["format"])
+        self.assertNotIn("format", seen[2])
+        self.assertEqual(seen[1]["options"]["temperature"], 0)
+        with self.assertRaises((ValueError, AgentModelError)):
+            self.backend.respond_formal_extract(turns, repair_turn="true")
+
     def test_benchmark_seed_is_type_and_range_guarded(self):
         for invalid in (True, -1, 2**31, "42", 1.5):
             with self.subTest(seed=invalid), self.assertRaises(ValueError):
