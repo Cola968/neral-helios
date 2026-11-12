@@ -94,3 +94,17 @@ test("explicit German search submits the subject, not the imperative sentence",(
   assert.equal(getQuery("warum?", "grok ai"),"grok ai warum?");
   assert.equal(getQuery("Welche Flugzeuge nutzt Condor?"),"Welche Flugzeuge nutzt Condor?");
 });
+
+
+test("verified web hits override stale Qwen empty-result boilerplate from the user's screenshot",()=>{
+  const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function normaliseSearchRefusal(");
+  const end=source.indexOf("  function relevantSearchResult(",start);
+  const normalise=vm.runInNewContext(source.slice(start,end)+"\nnormaliseSearchRefusal");
+  const stale="Ich habe eine Websuche nach „Grok AI“ durchgeführt. Es liegen keine belastbaren Treffer vor, die ich in diesem Chat bestätigen kann. Falls Sie weitere Informationen suchen, kann ich helfen.";
+  const corrected=normalise(stale,5,true);
+  assert.match(corrected,/5 erreichbare Treffer|5 passende Webseiten/i);
+  assert.doesNotMatch(corrected,/keine belastbaren Treffer/i);
+  assert.equal(normalise(stale,0,true),stale,"Zero source results must not be turned into success");
+  assert.equal(normalise(stale,5,false),stale,"Offline answers must not be tampered with");
+});
