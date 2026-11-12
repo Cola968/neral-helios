@@ -81,6 +81,23 @@ class DualExtractionBridgeTests(unittest.TestCase):
             self.assertEqual(result["status"], "invalid_schema")
             self.assertFalse(result["safe_to_promote"])
 
+    def test_z3_unknown_is_not_falsely_called_a_counterexample(self):
+        from unittest.mock import patch
+        d = mkdoc()
+        with patch("neral_nl_schema_bridge._equivalence", return_value=(False, "z3_unknown")):
+            r = self.check("Count X in 0..3 with X <= 2.", d, d)
+        self.assertEqual(r["status"], "proof_inconclusive")
+        self.assertFalse(r["safe_to_promote"])
+
+    def test_extractor_failure_does_not_produce_an_answer(self):
+        d = mkdoc()
+        def crashed(_):
+            raise TimeoutError("model timeout")
+        r = assess_dual_extraction("Count X in 0..3 with X <= 2.",
+                                   crashed, as_extract(d))
+        self.assertEqual(r["status"], "extractor_error")
+        self.assertIsNone(r["candidate_count"])
+
     def test_untrusted_schema_never_overrides_pr537_guard(self):
         d = mkdoc()
         consensus = self.check("Count X in 0..3 with X <= 2.", d, d)
