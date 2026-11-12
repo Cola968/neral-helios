@@ -1,0 +1,35 @@
+name: NERAL same-100 formatted regression CPU contracts
+on:
+  push:
+    branches: [feat/neral-formatted-regression-100-20261112]
+  pull_request:
+    paths:
+      - 'neral_answer_contract.py'
+      - 'neral_local_chat_api.py'
+      - 'scripts/neral_blind_100_gpu.py'
+      - 'scripts/neral_formatted_100_gpu.py'
+      - 'tests/test_neral_formatted_*.py'
+permissions:
+  contents: read
+jobs:
+  formatted-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Existing local API test runtime
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Compile formatting, unchanged tool path and benchmark runner
+        run: python -B -m py_compile neral_answer_contract.py neral_local_chat_api.py scripts/neral_blind_100_gpu.py scripts/neral_formatted_100_gpu.py
+      - name: Strict format and API isolation contracts
+        run: python -B -m unittest discover -s tests -p 'test_neral_formatted_*.py' -v
+      - name: Preserve original safeguards
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_dual_routing_product_api.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_blind_100_cpu.py' -v
