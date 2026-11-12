@@ -406,13 +406,18 @@ html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
   max-width:min(550px,calc(100vw - 80px));min-width:0;
   font-size:11px;line-height:1.55;color:var(--nr-muted,#777)}
 .neral-live-provider{color:var(--nr-muted,#808080)}
-.neral-live-sites{display:flex;gap:5px 7px;align-items:center;flex-wrap:wrap}
-.neral-live-sites-label{margin-right:2px;white-space:nowrap}
-.neral-live-site{display:inline-flex;align-items:center;max-width:170px;
-  padding:2px 7px;border-radius:15px;border:1px solid var(--nr-line,#e5e5e5);
-  color:var(--nr-text,#323232);background:var(--nr-sidebar,#f7f7f6);
-  font-size:10.5px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
+/* Live provider pages follow Grok's quiet favicon/title/domain hierarchy,
+   without claiming that the actual page content has been read. */
+.neral-live-sites{display:flex;flex-direction:column;align-items:stretch;gap:1px;width:100%;min-width:0}
+.neral-live-sites-label{margin-right:2px;margin-bottom:2px;font-size:10px;white-space:nowrap}
+.neral-live-site{display:flex;align-items:center;width:min(390px,100%);max-width:100%;
+  gap:3px;min-width:0;padding:4px 6px 4px 2px;border:0;border-radius:7px;
+  color:var(--nr-text,#323232);background:transparent;font-size:11px;text-decoration:none}
+.neral-live-site-copy{display:flex;flex-direction:column;gap:0;min-width:0;line-height:1.35}
+.neral-live-site-title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+  font-size:11px;color:var(--nr-text,#323232);white-space:nowrap}
+.neral-live-site-domain{font-size:10px;color:var(--nr-muted,#808080);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
 .neral-live-site:hover,.neral-live-site:focus-visible{background:var(--nr-hover,#ececeb)}
 .neral-live-site:focus-visible{outline:2px solid var(--nr-muted,#848484);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){

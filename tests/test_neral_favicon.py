@@ -75,4 +75,49 @@ class FaviconSecurityTests(unittest.TestCase):
                        side_effect=[(b"<html>blocked</html>","text/html"),(PNG,"image/png")]):
                 self.assertEqual(fetch_public_favicon('example.org'),(PNG,'image/png'))
 
+
+    def test_safe_public_svg_icon_is_served_without_scripting(self):
+        vector=(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+                b'<path d="M1 1L20 20" fill="#111"/></svg>')
+        with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
+            def site_icon(host,address,path="/favicon.ico"):
+                return (vector,"image/svg+xml") if path=="/images/favicon.svg" else (b"","")
+            with patch('neral_web_search._request_favicon',side_effect=site_icon) as get:
+                icon=fetch_public_favicon("example.org")
+                self.assertIsNotNone(icon)
+                self.assertEqual(icon[1],"image/svg+xml")
+                from xml.etree import ElementTree
+                self.assertIsNotNone(ElementTree.fromstring(icon[0]).find("{http://www.w3.org/2000/svg}path"))
+                self.assertTrue(all(call.args[1]=="93.184.215.14" for call in get.call_args_list))
+                self.assertIn("/images/favicon.svg",[c.args[2] for c in get.call_args_list])
+
+    def test_svg_icons_reject_scripts_events_external_resources_and_entities(self):
+        bad=[
+          b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>',
+          b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+          b'<svg xmlns="http://www.w3.org/2000/svg"><image href="https://tracker.example/pixel"/></svg>',
+          b'<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>',
+          b'<svg xmlns="http://www.w3.org/2000/svg"><path fill="url(https://attacker.example/x)" d="M0 0"/></svg>',
+        ]
+        with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
+            for vector in bad:
+                with self.subTest(vector=vector[:70]),patch('neral_web_search._request_favicon',return_value=(vector,'image/svg+xml')):
+                    self.assertIsNone(fetch_public_favicon('example.org'))
+
+
+    def test_figma_svg_is_reduced_to_safe_static_paths_without_html_or_filters(self):
+        from neral_web_search import sanitize_favicon_svg
+        raw=(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+             b'<defs><filter id="blur"><feGaussianBlur stdDeviation="3"/></filter></defs>'
+             b'<foreignObject width="24" height="24">'
+             b'<div xmlns="http://www.w3.org/1999/xhtml">blur effect</div>'
+             b'</foreignObject><path d="M2 2L20 20" style="fill:#fff" fill="#ffffff"/>'
+             b'</svg>')
+        sanitized=sanitize_favicon_svg(raw)
+        self.assertIsNotNone(sanitized)
+        self.assertIn(b"path",sanitized)
+        self.assertNotIn(b"foreignObject",sanitized)
+        self.assertNotIn(b"filter",sanitized)
+        self.assertNotIn(b"style=",sanitized)
+
 if __name__=='__main__':unittest.main()

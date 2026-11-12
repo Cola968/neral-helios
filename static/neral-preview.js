@@ -138,7 +138,11 @@
     const previous=String(previousWebQuery||"").trim();
     if(previous&&isSearchFollowup(q)&&previous.length+1+q.length<=160)
       return previous+" "+q;
-    return q;
+    // Search the requested subject, not an instruction like "suche nach ...".
+    // This removes only common German search-command scaffolding, never
+    // changes a question unless the speaker explicitly used an imperative.
+    const subject=q.replace(/^(?:bitte\s+)?(?:suche|such|finde|recherchiere)\s+(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s+)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu,"").trim();
+    return subject.length>=2 ? subject : q;
   }
   // Snippets are untrusted evidence, not independently read source pages.
   function webEvidencePrompt(question,evidence,attempted=true) {
@@ -160,6 +164,15 @@
   // Other model answers and genuine tool failures remain untouched.
   function normaliseSearchRefusal(answer,count,searchPerformed) {
     if(!searchPerformed||typeof answer!=="string")return answer;
+    // The local model sometimes repeats a no-results template even though
+    // the guarded web tool has returned verified, topical HTTPS sources.
+    // Correct only the demonstrably contradictory state, never invent facts.
+    if(count>0 &&
+       /\b(?:keine|keinen)\s+(?:belastbaren|passenden|erreichbaren)\s+(?:suchtreffer|treffer|quellen)\b/iu.test(answer) &&
+       /\b(?:web[-\s]?suche|suchtreffer|suchlauf)\b/iu.test(answer))
+      return "Die lokale Websuche hat "+count+" erreichbare Treffer zu deiner Anfrage gefunden. "+
+        "Die Webseiten sind unter dieser Antwort verlinkt. "+
+        "Ihre Inhalte wurden bisher nicht unabhängig überprüft.";
     const refusal=/\bich\s+(?:kann|habe)\b[\s\S]{0,550}?(?:keine\s+(?:externe\s+)?web[-\s]?suche|keinen\s+zugriff\s+auf\s+(?:das\s+)?internet|keinen\s+zugriff\s+auf\s+externe\s+quellen|nicht\s+auf\s+das\s+internet\s+zugreifen)/iu;
     if(!refusal.test(answer))return answer;
     return count>0
@@ -212,15 +225,16 @@
     function favicon(host,cssClass){
       const image=document.createElement("img");
       image.className=cssClass;
-      image.src="/api/web/favicon?host="+encodeURIComponent(host);
       image.alt="";
       image.setAttribute("alt","");
       image.setAttribute("aria-hidden","true");
-      image.loading="lazy";
+      image.loading="eager";
       image.decoding="async";
       image.referrerPolicy="no-referrer";
       image.addEventListener?.("load",()=>image.classList.add("neral-favicon-loaded"));
       image.addEventListener?.("error",()=>image.remove());
+      image.src="/api/web/favicon?host="+encodeURIComponent(host);
+      if(image.complete&&image.naturalWidth>0)image.classList.add("neral-favicon-loaded");
       return image;
     }
     const actions=answerNode?.querySelector?.(".message-actions");
@@ -251,7 +265,7 @@
     }
     const details=document.createElement("details");
     details.className="neral-source-disclosure";
-    details.open=true; // Each verified source is visible until the user collapses it.
+    details.open=true; // Verified source icons and URLs are visible beside the response.
     const summary=document.createElement("summary");
     summary.title="Erreichbare Treffer der Websuche öffnen";
     const stack=document.createElement("span");stack.className="neral-source-stack";
@@ -689,7 +703,7 @@
           if(event.type==="provider")
             motionActivity("search-provider",mode,{name:event.name});
           else if(event.type==="source"&&event.source?.reachable===true&&
-                  relevantSearchResult(text,event.source))
+                  relevantSearchResult(webQuery,event.source))
             motionActivity("source-found",mode,{source:event.source});
         };
         const search=typeof browser.NeralWebLive?.search==="function"

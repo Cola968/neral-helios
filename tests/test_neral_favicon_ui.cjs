@@ -94,3 +94,20 @@ test("live search eagerly fetches icons before the transient status disappears",
  assert.ok(img);
  assert.equal(img.loading,"eager","A short-lived live-search row must not defer its favicon fetch");
 });
+
+
+test("cached site icons become visible even if image load fires immediately",()=>{
+ class CachedImage extends El{
+   set src(value){this._src=value;this.handlers.load?.();}
+   get src(){return this._src;}
+ }
+ const source=read("static/neral-preview.js");
+ const a=source.indexOf("  function appendSources("),b=source.indexOf("  async function json(",a);
+ const render=vm.runInNewContext(source.slice(a,b)+"\nappendSources",{
+   URL,document:{createElement:t=>t==="img"?new CachedImage(t):new El(t)}
+ });
+ const actions=new El();
+ render({querySelector:()=>actions},[{title:"Grok",url:"https://grok.com/",reachable:true}],true);
+ assert.ok(actions.querySelector(".neral-source-favicon").classList.contains("neral-favicon-loaded"),
+   "A cache hit must not stay hidden forever when load fires before the next task");
+});

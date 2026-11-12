@@ -64,7 +64,10 @@ test("live search shows only actual providers and checked domains beneath the st
   fire("source-found",{source:{title:"Unchecked",url:"https://nasa.gov/data",reachable:false}});
   assert.equal(rootEl.querySelector(".neral-live-sites"),null,"unreachable links stay hidden");
   fire("source-found",{source:{title:"NASA mission",url:"https://nasa.gov/mission",reachable:true}});
-  assert.match(rootEl.querySelector(".neral-live-sites").querySelector(".neral-live-site").textContent,/nasa.gov/);
+  const row=rootEl.querySelector(".neral-live-sites").querySelector(".neral-live-site");
+  assert.equal(row.querySelector(".neral-live-site-title").textContent,"NASA mission");
+  assert.equal(row.querySelector(".neral-live-site-domain").textContent,"nasa.gov");
+  assert.ok(row.querySelector(".neral-live-site-icon"),"Grok-style live row includes a real favicon");
   fire("thinking");
   assert.ok(rootEl.querySelector(".neral-live-sites"),"sources remain while model composes response");
   fire("done");

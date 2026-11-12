@@ -1,44 +1,73 @@
-"""Opt-in, fixed-query LIVE diagnostic: no model call, secrets or user data.
+"""Non-gating live diagnostic for the exact user-reported Grok search case.
 
-Intentionally does not assume DuckDuckGo/Bing are available: provider health
-must be tested against the actual public network, not just mocked unit tests.
+Runs the same /api/web/search/stream route with fixed public test query.
+No user history, credentials, local model, external AI API, or secrets.
 """
 from __future__ import annotations
-import json
-import sys
-from neral_web_search import WebSearch, WebSearchError, fetch_public_favicon, verify_public_https_url
 
-QUERY = "Flughafen Berlin Brandenburg offizielle Website"
+import json
+from flask import Flask
+from neral_web_api import register_web_search_api
+from neral_web_search import fetch_public_favicon, FAVICON_PATHS, _request_favicon, sanitize_favicon_svg
+from ipaddress import ip_address
+import socket
+from xml.etree import ElementTree
+
+QUERY = "grok ai"
+
 def run():
-    report = {"query": QUERY, "provider_ok": False, "providers_contacted": [],
-              "parsed_hits": 0, "verified_hits": 0, "favicon": {}}
-    service = WebSearch()
-    try:
-        first = service.search(QUERY)
-        report["provider_ok"] = True
-        report["providers_contacted"] = first.get("providers_contacted", [])
-        report["parsed_hits"] = len(first.get("results", []))
-        for hit in first.get("results", [])[:4]:
-            if verify_public_https_url(hit.get("url")):
-                report["verified_hits"] += 1
-        if not report["verified_hits"] and "Bing RSS" not in report["providers_contacted"]:
-            try:
-                hits = service.search_bing(QUERY)
-                report["providers_contacted"].append("Bing RSS")
-                report["bing_fallback_hits"] = len(hits)
-                for hit in hits[:4]:
-                    if verify_public_https_url(hit.get("url")):
-                        report["verified_hits"] += 1
-            except WebSearchError as exc:
-                report["bing_fallback_error"] = type(exc).__name__
-    except WebSearchError as exc:
-        report["provider_error"] = type(exc).__name__
-    for host in ("github.com", "www.nasa.gov"):
-        data = fetch_public_favicon(host)
-        report["favicon"][host] = {"loaded": bool(data),
-                                    "mime": data[1] if data else None}
+    app = Flask(__name__)
+    register_web_search_api(app)
+    response = app.test_client().post(
+        "/api/web/search/stream",
+        json={"query": QUERY, "verify_links": True},
+    )
+    events = [json.loads(line) for line in response.response]
+    result = next((event["result"] for event in events if event.get("type") == "result"), {})
+    hits = result.get("results", [])
+    favicon_hosts = ("grok.com", "x.ai", "github.com", "www.nasa.gov")
+    icons = {host: bool(fetch_public_favicon(host)) for host in favicon_hosts}
+    report = {
+        "query": QUERY,
+        "http_status": response.status_code,
+        "providers_contacted": [e["name"] for e in events if e.get("type") == "provider"],
+        "error": [e["message"] for e in events if e.get("type") == "error"],
+        "verified_relevant_hits": len(hits),
+        "titles": [h.get("title", "")[:100] for h in hits],
+        "urls": [h.get("url", "")[:200] for h in hits],
+        "icons_loaded": icons,
+    }
+    if not icons.get("grok.com"):
+        # Fixed public host only; never accept a user-provided URL in diagnostics.
+        details = []
+        try:
+            ips={v[4][0] for v in socket.getaddrinfo(
+                "grok.com",443,type=socket.SOCK_STREAM,proto=socket.IPPROTO_TCP)}
+            if ips and all(ip_address(ip).is_global for ip in ips):
+                ip=sorted(ips,key=lambda x:(":" in x,x))[0]
+                for path in FAVICON_PATHS:
+                    try:
+                        content, mime=_request_favicon("grok.com",ip,path)
+                        item={"path":path,"length":len(content),"mime":mime,
+                              "svg_accepted":bool(sanitize_favicon_svg(content)) if path.endswith(".svg") else None}
+                        if content and path.endswith(".svg"):
+                            try:
+                                root=ElementTree.fromstring(content)
+                                item["root"]=root.tag
+                                item["tags"]=sorted(set(x.tag for x in root.iter()))
+                                item["attr_keys"]=sorted(set(k for x in root.iter() for k in x.attrib))
+                            except Exception as e:
+                                item["parse_error"]=type(e).__name__
+                        details.append(item)
+                    except Exception as e:
+                        details.append({"path":path,"error":type(e).__name__})
+            else:
+                details.append({"error":"nonpublic_dns"})
+        except Exception as e:
+            details.append({"error":type(e).__name__})
+        report["grok_icon_diagnostic"]=details
     print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
-    return 0 if report["verified_hits"] and any(x["loaded"] for x in report["favicon"].values()) else 1
+    return 0 if hits and any(icons.values()) else 1
 
 if __name__ == "__main__":
-    sys.exit(run())
+    raise SystemExit(run())
