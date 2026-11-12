@@ -150,26 +150,28 @@ def main() -> int:
     vram_bytes = 0
     try:
         client, headers = _high_client(backend)
-        for offset, (label, question) in enumerate((("A", TASK_A), ("B", TASK_B))):
-            backend.set_benchmark_seed(decoder_seed + offset)
-            output.append(run_gate(client, headers, question, label))
-            print("PR533_TWO_GATE_PROGRESS " + label, flush=True)
+        # Logic-only: Docker Desktop is unavailable. NEVER run original user
+        # Python or substitute host execution for the isolated sandbox.
+        backend.set_benchmark_seed(decoder_seed + 1)
+        output.append(run_gate(client, headers, TASK_B, "B"))
+        print("PR533_LOGIC_ONLY_PROGRESS B", flush=True)
         vram_bytes = gpu_resident_bytes()
     finally:
         backend.set_benchmark_seed(None)
         backend.unload()
     offload_seen = vram_bytes >= 4 * 1024**3
-    success = len(output) == 2 and all(row["passed"] for row in output) and offload_seen
-    print("PR533_TWO_GATE_SCALARS " + json.dumps({
+    success = len(output) == 1 and output[0]["passed"] and offload_seen
+    print("PR533_LOGIC_ONLY_SCALARS " + json.dumps({
         "target_sha": TARGET, "seed": args.seed,
-        "decoder_seed": decoder_seed, "model": MODEL,
+        "decoder_seed": decoder_seed + 1, "model": MODEL,
         "gpu_offload_observed": offload_seen,
         "resident_model_vram_mib": vram_bytes // 1048576,
-        "case_a_pass": output[0]["passed"],
-        "case_b_pass": output[1]["passed"],
-        "cases": output,
-        "both_gates_pass": success,
+        "case_a_run": False,
+        "case_b_pass": output[0]["passed"],
+        "case_b": output[0],
+        "logic_gpu_gate_pass": success,
         "tir12_authorized_by_this_run": False,
+        "docker_bypass": False,
     }, sort_keys=True, allow_nan=False), flush=True)
     return 0 if success else 1
 
