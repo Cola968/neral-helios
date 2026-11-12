@@ -12,7 +12,6 @@
   const form=byId("chatForm");
   const submit=byId("submit");
   const toolMenu=byId("extraTools");
-  const modelMenu=byId("modelDetails");
   if(!sidebar||!toggle||!backdrop||!prompt||!form||!submit)return;
 
   const narrow=window.matchMedia?.("(max-width: 780px)");
@@ -44,11 +43,9 @@
     if(event.key!=="Escape")return;
     if(opened){setSidebar(false,{restoreFocus:true});return;}
     if(toolMenu?.open){toolMenu.open=false;return;}
-    if(modelMenu?.open)modelMenu.open=false;
   });
   document.addEventListener("pointerdown",event=>{
     if(toolMenu?.open&&!toolMenu.contains(event.target))toolMenu.open=false;
-    if(modelMenu?.open&&!modelMenu.contains(event.target))modelMenu.open=false;
   });
 
   // Use the real form submit path, with IME and multiline editing protected.

@@ -74,30 +74,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 .masthead .brand{gap:0;min-width:0}
 .masthead h1{font-size:13px;letter-spacing:-.18px;font-weight:640}
 .masthead h1 span{color:var(--nr-text);font-weight:640}
-.model-details{position:relative}
-.model-details>summary{
-  min-width:24px;padding:6px 5px;color:var(--nr-muted);
-  font-size:11px;border-radius:6px
-}
-.model-details>summary span{display:none}
-.model-details>summary svg{width:12px;height:12px}
-.model-details>summary:hover{background:var(--nr-hover)}
-.model-details-panel{border:1px solid var(--nr-line);border-radius:9px;
-  background:var(--nr-bg);box-shadow:0 8px 24px #00000010;padding:13px}
-.model-details .notice,.model-details-caption{color:var(--nr-muted)}
 .masthead .header-preview{
   color:var(--nr-muted);font-size:10px;font-weight:550;
   letter-spacing:.35px;margin-left:9px;white-space:nowrap
 }
 .header-end{display:flex;align-items:center;gap:12px;margin-left:auto;min-width:0}
-.masthead #connection{
-  font-size:11px;max-width:min(280px,40vw);text-overflow:ellipsis;
-  white-space:nowrap;color:var(--nr-muted);text-align:right;
-}
-.masthead #connection::before{
-  content:"";display:inline-block;width:5px;height:5px;border-radius:50%;
-  background:var(--nr-muted);margin-right:7px;vertical-align:2px
-}
 #themeToggle{height:32px;width:32px;display:grid;place-items:center;
   background:transparent;border:0;border-radius:7px;
   color:var(--nr-muted);cursor:pointer;padding:0}
@@ -239,7 +220,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
     padding:19px 11px}
   .masthead{padding:0 12px;min-height:54px;flex-basis:54px;height:54px}
   .header-preview{display:none}
-  .masthead #connection{max-width:44vw}
   .header-end{gap:2px}
   .messages{padding:19px max(15px,calc((100% - 650px)/2)) 23px}
   .composer-panel{width:calc(100% - 24px);padding-bottom:max(7px,env(safe-area-inset-bottom))}
@@ -249,7 +229,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 @media(max-width:520px){
   .masthead h1{font-size:12px}
   .masthead .brand{display:flex}
-  .masthead #connection{font-size:10px;max-width:37vw}
   .messages{padding:17px 13px 20px;gap:20px}
   .message.user{max-width:90%}
   .composer-panel{width:calc(100% - 18px);padding-bottom:max(5px,env(safe-area-inset-bottom))}
@@ -263,7 +242,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
   .header-end .tools-panel{right:0}
 }
 @media(max-width:355px){
-  .masthead #connection{display:none}
   #localVoiceStart{display:none}
   .web-toggle{font-size:0;gap:0}
 }
@@ -290,7 +268,7 @@ html[data-theme=dark] .message.user{background:var(--nr-bubble);color:var(--nr-t
 html[data-theme=dark] .neral-sidebar button.sidebar-link,
 html[data-theme=dark] #savedChatList .saved-chat-open{color:var(--nr-text)}
 html[data-theme=dark] #savedChatList button[aria-current=page]{background:var(--nr-active)}
-html[data-theme=dark] .model-details-panel,html[data-theme=dark] .tools-panel,
+html[data-theme=dark] .tools-panel,
 html[data-theme=dark] .mode-dropdown-menu,html[data-theme=dark] .privacy-content,
 html[data-theme=dark] dialog{background:var(--nr-bg);color:var(--nr-text);
   border-color:var(--nr-line)}

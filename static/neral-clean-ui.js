@@ -4,13 +4,13 @@
 (() => {
   const $ = id=>document.getElementById(id);
   const menu=$("quickAddMenu"),formulas=$("formulaLibraryToggle"),file=$("projectFiles");
-  const tools=$("extraTools"),model=$("modelDetails");
+  const tools=$("extraTools");
   if(!menu)return;
   const close=()=>{menu.open=false;};
   formulas?.addEventListener("click",close);
   file?.addEventListener("change",close);
   menu.addEventListener("toggle",()=>{
-    if(menu.open){if(tools)tools.open=false;if(model)model.open=false;}
+    if(menu.open && tools)tools.open=false;
   });
   document.addEventListener("keydown",event=>{
     if(event.key!=="Escape"||!menu.open)return;
