@@ -242,6 +242,94 @@ def _source_core_witnesses(question: str, schema: dict) -> str | None:
             if any(frozenset((i, i+2)) not in forbidden
                    for i in range(n-2)):
                 return "binary_distance_witness_missing"
+
+    # Narrow, explicitly numbered German PIN clauses. An equivalent schema
+    # using a different variable naming convention may fail closed here.
+    # Never classify this lexical check as NL semantic verification.
+    if re.search(r"\b(?:fünfstelliger|5[\s-]*stelliger)\s+code\b", question, re.I):
+        variables = schema["variables"]
+        if len(variables) != 5:
+            return "pin_domain_dimension_missing"
+        if re.search(r"\bgenau\s+einmal\b", question, re.I):
+            unique = any(type(node.get("all_different")) is list and
+                         set(node["all_different"]) == set(variables)
+                         for node in nodes)
+            if not unique:
+                return "pin_uniqueness_witness_missing"
+
+        def sum_of(var_index, constant):
+            # Either term order is legal inside the arithmetic sum.
+            def check(term):
+                if type(term) is not dict or type(term.get("sum")) is not list:
+                    return False
+                operands = term["sum"]
+                if len(operands) != 2:
+                    return False
+                a, b = operands
+                return ((var_id(a) == var_index and type(scalar(b)) is int
+                         and scalar(b) == constant)
+                        or (var_id(b) == var_index and type(scalar(a)) is int
+                            and scalar(a) == constant))
+            return check
+
+        def shifted(left_id, operation, right_id, distance):
+            for node in nodes:
+                item = compare(node)
+                if type(item) is not dict or item.get("op") != operation:
+                    continue
+                if (var_id(item.get("left")) == left_id and
+                    sum_of(right_id, distance)(item.get("right"))):
+                    return True
+                if operation == "==" and (var_id(item.get("right")) == left_id
+                    and sum_of(right_id, distance)(item.get("left"))):
+                    return True
+            return False
+
+        before = re.search(
+            r"\bdie\s+(\d+)\s+steht\s+vor\s+der\s+(\d+)\s*,\s*nicht\s+direkt\s+davor\b",
+            question, re.I)
+        if before:
+            left, right = map(int, before.groups())
+            if not shifted(right, ">=", left, 2):
+                return "pin_nonadjacent_order_missing"
+
+        between = re.search(
+            r"\bzwischen\s+der\s+(\d+)\s+und\s+(\d+)\s+steht\s+genau\s+eine\s+ziffer\b",
+            question, re.I)
+        if between:
+            a, b = map(int, between.groups())
+            # Two directions are necessary: exactly one place in between.
+            if not (shifted(a, "==", b, 2)
+                    and shifted(b, "==", a, 2)
+                    and any(type(node.get("or")) is list
+                            for node in nodes)):
+                return "pin_between_distance_missing"
+
+        immediate = re.search(
+            r"\bdie\s+(\d+)\s+steht\s+unmittelbar\s+rechts\s+von\s+der\s+(\d+)\b",
+            question, re.I)
+        if immediate:
+            a, b = map(int, immediate.groups())
+            if not shifted(a, "==", b, 1):
+                return "pin_immediate_right_missing"
+
+        edge = re.search(r"\bdie\s+(\d+)\s+steht\s+nicht\s+am\s+rand\b",
+                         question, re.I)
+        if edge:
+            digit = int(edge.group(1))
+            excluded = set()
+            for node in nodes:
+                item = compare(node)
+                if type(item) is not dict or item.get("op") != "!=":
+                    continue
+                x, y = item.get("left"), item.get("right")
+                if var_id(x) == digit and type(scalar(y)) is int:
+                    excluded.add(scalar(y))
+                if var_id(y) == digit and type(scalar(x)) is int:
+                    excluded.add(scalar(x))
+            if not {0, 4}.issubset(excluded):
+                return "pin_edge_exclusion_missing"
+
     return None
 
 
