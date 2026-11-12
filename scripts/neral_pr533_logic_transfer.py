@@ -18,7 +18,7 @@ import sys
 import time
 
 AUTH = "NERAL_PR533_LOGIC_TRANSFER_GPU_ONLY"
-TARGET = "73366a4cf0d183001622b1a2b96cd2db37cef042"
+TARGET = "0341853b5184708790cca96e866e37870e1c8b43"
 SEED = 202611110533
 FORMAT_SUFFIX = "\nGib das Ergebnis in der letzten Zeile exakt als FINAL_ANSWER: <integer> aus."
 
