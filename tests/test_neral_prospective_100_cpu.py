@@ -46,6 +46,18 @@ class New100Integrity(unittest.TestCase):
             self.assertEqual(manifest["categories"],{
                 "mathematics":25,"logic":25,"programming":25,"mixed":25})
             self.assertEqual(manifest["prospective100_sha256"],hashlib.sha256(serialize(cases)).hexdigest())
+            self.assertGreaterEqual(len(manifest["excluded_source_files"]),9)
+            self.assertIn("benchmarks50/regression.jsonl",manifest["excluded_source_files"])
+            self.assertIn("datasets/neral_curriculum_v1/test.jsonl",manifest["excluded_source_files"])
+            for extra_file,question in [
+                ("benchmarks50/regression.jsonl","Hallo, wie geht es dir?"),
+                ("benchmarks50/raw_math_v1.jsonl","Was ist 97 + 12? Antworte nur mit der Zahl."),
+                ("datasets/neral_curriculum_v1/test.jsonl","Loese 14x - 7 = -77. Zeige eine Probe.")]:
+                leak=[dict(x) for x in cases]
+                leak[0]={**leak[0],"question":question,
+                          "question_sha256":hashlib.sha256(question.encode()).hexdigest()}
+                with self.subTest(extra_file=extra_file),self.assertRaisesRegex(ValueError,"overlap"):
+                    exclusion_receipt(leak,original,HOLDOUT)
             for previous in (old_dev()[0],used_blind()[0]):
                 corrupted=[dict(x) for x in cases]
                 corrupted[0]={**corrupted[0],"question":previous["question"],
