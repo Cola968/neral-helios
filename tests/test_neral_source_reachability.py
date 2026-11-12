@@ -59,4 +59,28 @@ class SourceReachability(unittest.TestCase):
         self.assertEqual(out.status_code,200)
         self.assertNotIn('reachable',out.get_json()['results'][0])
 
+
+    def test_head_403_retries_get_before_declaring_public_page_unreachable(self):
+        with patch('neral_web_search.socket.getaddrinfo',return_value=PUBLIC_IP):
+            with patch('neral_web_search._probe_https',side_effect=[(403,None),(200,None)]) as probe:
+                self.assertEqual(verify_public_https_url('https://example.org/article'),
+                                 'https://example.org/article')
+                self.assertEqual([call.args[-1] if len(call.args)>2 else 'HEAD'
+                                  for call in probe.call_args_list],['HEAD','GET'])
+
+    def test_verified_search_recovers_good_hit_after_initial_five_unreachable(self):
+        class FakeSearch:
+            def search(self,query):
+                return {'query':query,'results':[
+                    {'title':'Blocked','url':f'https://example.org/bad-{n}'}
+                    for n in range(6)] + [
+                    {'title':'Berlin Airport','url':'https://example.org/ber','snippet':'Airport'}]}
+        app=Flask(__name__);register_web_search_api(app,FakeSearch())
+        with patch('neral_web_api.verify_public_https_url',
+                   side_effect=lambda url: url if url.endswith('/ber') else None):
+            response=app.test_client().post('/api/web/search',
+                          json={'query':'Berlin Airport','verify_links':True})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual([h['title'] for h in response.get_json()['results']],['Berlin Airport'])
+
 if __name__=='__main__':unittest.main()
