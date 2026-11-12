@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import os
+import queue
 from pathlib import Path
 import shutil
 import socket
@@ -61,6 +62,34 @@ def _launch_staged_update() -> bool:
                          creationflags=flags)
     except OSError:
         return False
+    return True
+
+
+def wait_for_previous_instance(timeout: float = 20.0) -> bool:
+    """Update handoff: the old Waitress listener must vacate localhost first."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while _port_taken():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def launch_verified_update(staged: Path, shutdown_current) -> bool:
+    """Start the checksum-verified staged build before closing the working app.
+
+    Only the caller may supply a staged_windows_exe-verified path. No shell,
+    package installer or running binary overwrite is involved.
+    """
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.Popen([str(staged), "--restart-after-update"],
+                         cwd=str(staged.parent), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+    except OSError:
+        return False
+    shutdown_current()
     return True
 
 
@@ -200,7 +229,7 @@ def start_app() -> None:
     from neral_preview_server import create_preview_app
     root = tk.Tk()
     root.title("NERAL")
-    root.geometry("420x210")
+    root.geometry("420x248")
     root.resizable(False, False)
     root.configure(bg="#f8f8f7")
     root.attributes("-topmost", False)
@@ -214,9 +243,16 @@ def start_app() -> None:
     open_button = tk.Button(controls, text="Chat öffnen", command=lambda: webbrowser.open(URL),
                             width=15, state="disabled")
     open_button.pack(side="left", padx=6)
-    update_button = tk.Button(root, text="Update herunterladen …",
-                              state="disabled", width=31)
-    # Leave disabled/hidden until a verified release is downloaded.
+    updates_enabled = getattr(sys, "frozen", False) and os.environ.get("NERAL_AUTO_UPDATE") != "0"
+    update_button = tk.Button(root, text="Auf Updates prüfen",
+                              state="normal" if updates_enabled else "disabled", width=31)
+    update_button.pack(pady=(12, 0))
+    update_info = tk.StringVar(value="" if updates_enabled else "Updates nur in der Windows-EXE verfügbar.")
+    tk.Label(root, textvariable=update_info, font=("Segoe UI", 9),
+             bg="#f8f8f7", fg="#666966").pack(pady=(5, 0))
+    update_events = queue.Queue()
+    checking_update = False
+    update_ready = False
     server = None
     owned = None
 
@@ -259,63 +295,91 @@ def start_app() -> None:
             messagebox.showerror("NERAL", message)
 
     def restart_into_update() -> None:
-        # Explicit restart avoids losing in-flight conversations.
-        if os.environ.get("NERAL_AUTO_UPDATE") == "0":
+        nonlocal update_ready
+        if not updates_enabled or not update_ready:
             return
         staged = neral_auto_update.staged_windows_exe(
             _update_state(), BUILD_COMMIT, BUILD_UTC)
         if staged is None:
-            status.set("Update nicht mehr gültig.")
+            update_ready = False
+            update_info.set("Update ist nicht mehr gültig. Erneut prüfen.")
+            update_button.configure(text="Auf Updates prüfen", state="normal")
             return
-        quit_app()
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        try:
-            # Wait briefly after Waitress closes before binding the same port.
-            time.sleep(0.4)
-            subprocess.Popen([str(staged)], cwd=str(staged.parent),
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, creationflags=flags)
-        except OSError:
-            pass  # The verified version stays staged for the next manual start.
-
-    update_button.configure(command=restart_into_update)
+        update_button.configure(text="Starte neue Version …", state="disabled")
+        update_info.set("Die neue Version öffnet den Chat nach dem Neustart.")
+        if not launch_verified_update(staged, quit_app):
+            update_button.configure(text="Update installieren und neu starten", state="normal")
+            update_info.set("Neustart fehlgeschlagen. NERAL läuft weiter.")
 
     def start_update_check() -> None:
-        if not getattr(sys, "frozen", False) or os.environ.get("NERAL_AUTO_UPDATE") == "0":
+        nonlocal checking_update, update_ready
+        if not updates_enabled or checking_update:
             return
+        if update_ready:
+            restart_into_update()
+            return
+        checking_update = True
+        update_button.configure(text="Update wird geprüft …", state="disabled")
+        update_info.set("Suche und prüfe offizielle NERAL-Version …")
 
         def check() -> None:
             try:
                 staged = neral_auto_update.check_windows_release(
                     _update_state(), BUILD_COMMIT, BUILD_UTC)
-                if staged is not None:
-                    def show_available() -> None:
-                        if root.winfo_exists():
-                            status.set("Geprüftes Update bereit · Neustart möglich")
-                            update_button.configure(
-                                text="Update installieren und neu starten",
-                                state="normal")
-                            update_button.pack(pady=(8, 0))
-                    root.after(0, show_available)
+                update_events.put(("available" if staged is not None else "current", None))
             except (OSError, ValueError, RuntimeError, KeyError, TypeError):
-                pass  # Offline is normal. Never interrupt local inference.
-            finally:
-                try:
-                    root.after(3_600_000, start_update_check)
-                except RuntimeError:
-                    pass
+                update_events.put(("error", None))  # Don't leak network internals.
 
         threading.Thread(target=check, name="neral-update-check",
                          daemon=True).start()
 
-    root.after(100, boot)
-    root.after(1_000, start_update_check)
+    def process_update_events() -> None:
+        nonlocal checking_update, update_ready
+        try:
+            while True:
+                outcome, _ = update_events.get_nowait()
+                checking_update = False
+                if outcome == "available":
+                    # Verify receipt and digest again before enabling the action.
+                    update_ready = neral_auto_update.staged_windows_exe(
+                        _update_state(), BUILD_COMMIT, BUILD_UTC) is not None
+                    if update_ready:
+                        update_info.set("Geprüfte neue Version bereit.")
+                        update_button.configure(
+                            text="Update installieren und neu starten", state="normal")
+                    else:
+                        update_info.set("Updateprüfung nicht erfolgreich.")
+                        update_button.configure(text="Erneut prüfen", state="normal")
+                elif outcome == "current":
+                    update_ready = False
+                    update_info.set("NERAL ist auf dem aktuellen Stand.")
+                    update_button.configure(text="Erneut prüfen", state="normal")
+                else:
+                    update_ready = False
+                    update_info.set("Keine Verbindung zum Update-Dienst. NERAL läuft weiter.")
+                    update_button.configure(text="Erneut prüfen", state="normal")
+        except queue.Empty:
+            pass
+        if root.winfo_exists():
+            root.after(150, process_update_events)
+
+    update_button.configure(command=start_update_check)
+    root.after(150, process_update_events)
+    # The old launcher already checked in the background. Keep that behavior,
+    # but show a usable manual check at all times; installing always needs a click.
+    if updates_enabled:
+        root.after(1_000, start_update_check)
     root.mainloop()
 
 
 def main() -> int:
     if sys.argv[1:] == ["--smoke-test"]:
         return run_smoke_test()
+    if sys.argv[1:] == ["--restart-after-update"]:
+        if not wait_for_previous_instance():
+            return 9
+        start_app()
+        return 0
     if len(sys.argv) > 1:
         return 2
     if _launch_staged_update():
