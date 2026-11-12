@@ -128,11 +128,12 @@ def _probe_https(url: str, address: str, method: str = "HEAD") -> tuple[int, str
 # web search and the UI displays a verified public HTTPS source.
 # Browser pages never contact a third-party favicon aggregator.
 MAX_FAVICON_BYTES = 65536
-FAVICON_PATHS = ("/favicon.ico", "/favicon-32x32.png", "/apple-touch-icon.png")
+FAVICON_PATHS = ("/favicon.ico", "/favicon-32x32.png", "/apple-touch-icon.png",
+                 "/favicon.svg", "/images/favicon.svg")
 
 
 def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tuple[bytes, str]:
-    """Download /favicon.ico over TLS with DNS pinned to a validated public IP.
+    """Download a fixed icon path over TLS with DNS pinned to a validated public IP.
 
     No redirects, no HTML parsing, no cookies and no arbitrary URL or port.
     """
@@ -152,7 +153,7 @@ def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tup
     conn = _PinnedIconHTTPS(host, timeout=2.5, context=ssl.create_default_context())
     try:
         conn.request("GET", path, headers={
-            "User-Agent": "NERAL-Favicon/1.0", "Accept": "image/x-icon,image/png,image/webp,image/jpeg,image/gif",
+            "User-Agent": "NERAL-Favicon/1.0", "Accept": "image/x-icon,image/png,image/webp,image/jpeg,image/gif,image/svg+xml",
         })
         response = conn.getresponse()
         if response.status != 200:
@@ -165,11 +166,56 @@ def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tup
         conn.close()
 
 
+def sanitize_favicon_svg(data: bytes) -> bytes | None:
+    """Allow only small inert vector geometry; never return untrusted active SVG.
+
+    The result is reserialized XML, served only through an <img> element with
+    same-origin CSP. Any script, external fetch, CSS, animation, DTD or entity
+    makes the icon a harmless letter fallback instead.
+    """
+    if (not isinstance(data, bytes) or not data or
+            len(data) > MAX_FAVICON_BYTES or
+            re.search(br"<!\s*(?:DOCTYPE|ENTITY)", data, flags=re.I)):
+        return None
+    ns = "http://www.w3.org/2000/svg"
+    allowed = {"svg", "g", "path", "circle", "ellipse", "rect", "line",
+               "polyline", "polygon", "defs", "linearGradient", "radialGradient",
+               "stop", "clipPath", "mask", "title", "desc", "use", "symbol"}
+    try:
+        root = ElementTree.fromstring(data)
+        if root.tag != "{"+ns+"}svg":
+            return None
+        for element in root.iter():
+            if not isinstance(element.tag, str) or not element.tag.startswith("{"+ns+"}"):
+                return None
+            if element.tag.split("}", 1)[1] not in allowed:
+                return None
+            for key, value in element.attrib.items():
+                local = key.rsplit("}", 1)[-1]
+                if key.startswith("{") and not (
+                     key.startswith("{"+ns+"}") or
+                     key == "{http://www.w3.org/1999/xlink}href"):
+                    return None
+                if local.lower().startswith("on") or local in {"style","src"}:
+                    return None
+                lowered = value.lower()
+                if (re.search(r"(?:https?://|javascript:|data:|@import|expression\s*\()",lowered) or
+                        ("url(" in lowered and not re.fullmatch(
+                            r"url\(\s*#[a-z0-9_.:-]+\s*\)", lowered))):
+                    return None
+                if local == "href" and not re.fullmatch(r"#[A-Za-z0-9_.:-]+", value):
+                    return None
+        output = ElementTree.tostring(root, encoding="utf-8", xml_declaration=False)
+        return output if len(output) <= MAX_FAVICON_BYTES else None
+    except (ElementTree.ParseError, TypeError, ValueError):
+        return None
+
+
 def fetch_public_favicon(host: str) -> tuple[bytes, str] | None:
     """Get small raster/icon bytes from a public HTTPS hostname, never internal IPs.
 
     The image type is determined from bytes, not an untrusted Content-Type.
-    A missing favicon produces a normal local UI fallback; never fetch SVG.
+    A missing or unsafe favicon produces a local letter fallback.
     """
     import http.client
     from urllib.parse import urlsplit
@@ -200,6 +246,10 @@ def fetch_public_favicon(host: str) -> tuple[bytes, str] | None:
                 return data, "image/jpeg"
             if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
                 return data, "image/webp"
+            if path.endswith(".svg"):
+                icon = sanitize_favicon_svg(data)
+                if icon is not None:
+                    return icon, "image/svg+xml"
         return None
     except (OSError, ValueError, TimeoutError, http.client.HTTPException):
         return None
