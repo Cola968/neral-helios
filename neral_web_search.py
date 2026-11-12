@@ -423,7 +423,7 @@ class WebSearch:
             raise WebSearchInputError("Ungültiger Suchbegriff.")
         if on_provider is not None:
             on_provider("Bing RSS")
-        url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss"
+        url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss&setlang=de&cc=de"
         req = Request(url, headers={
             "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
             "Accept": "application/rss+xml, application/xml, text/xml",
@@ -489,7 +489,7 @@ class WebSearch:
             contacted.append("Bing RSS")
             if on_provider is not None:
                 on_provider("Bing RSS")
-            rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss"
+            rss_url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss&setlang=de&cc=de"
             try:
                 xml = request_page(rss_url, "application/rss+xml, application/xml, text/xml", "xml")
                 results = parse_bing_rss(xml)
