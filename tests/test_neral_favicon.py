@@ -103,4 +103,20 @@ class FaviconSecurityTests(unittest.TestCase):
                 with self.subTest(vector=vector[:70]),patch('neral_web_search._request_favicon',return_value=(vector,'image/svg+xml')):
                     self.assertIsNone(fetch_public_favicon('example.org'))
 
+
+    def test_figma_svg_is_reduced_to_safe_static_paths_without_html_or_filters(self):
+        from neral_web_search import sanitize_favicon_svg
+        raw=(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+             b'<defs><filter id="blur"><feGaussianBlur stdDeviation="3"/></filter></defs>'
+             b'<foreignObject width="24" height="24">'
+             b'<div xmlns="http://www.w3.org/1999/xhtml">blur effect</div>'
+             b'</foreignObject><path d="M2 2L20 20" style="fill:#fff" fill="#ffffff"/>'
+             b'</svg>')
+        sanitized=sanitize_favicon_svg(raw)
+        self.assertIsNotNone(sanitized)
+        self.assertIn(b"path",sanitized)
+        self.assertNotIn(b"foreignObject",sanitized)
+        self.assertNotIn(b"filter",sanitized)
+        self.assertNotIn(b"style=",sanitized)
+
 if __name__=='__main__':unittest.main()
