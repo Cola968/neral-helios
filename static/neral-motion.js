@@ -106,14 +106,21 @@
       link.className="neral-live-site";
       link.href=parsed.href;link.target="_blank";link.rel="noopener noreferrer";
       link.setAttribute("title",String(source.title||host).slice(0,130));
-      link.textContent=host.replace(/^www\./,"");
       const thumb=document.createElement("span");
       thumb.className="neral-live-icon-wrap";
       thumb.setAttribute("aria-hidden","true");
       thumb.textContent=host.replace(/^www\./,"").charAt(0).toUpperCase();
       thumb.append(favicon(host));
-      if(typeof link.prepend==="function")link.prepend(thumb);
-      else link.append(thumb);
+      const copy=document.createElement("span");
+      copy.className="neral-live-site-copy";
+      const title=document.createElement("span");
+      title.className="neral-live-site-title";
+      title.textContent=String(source.title||host).slice(0,120);
+      const domain=document.createElement("span");
+      domain.className="neral-live-site-domain";
+      domain.textContent=host.replace(/^www\./,"");
+      copy.append(title,domain);
+      link.append(thumb,copy);
       line.append(link);
     }
     const labels={searching:"Sucht im Web",checking:"Prüft Code",
