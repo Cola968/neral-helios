@@ -27,6 +27,7 @@ if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Local Python 3.12 n
 $env:HF_HOME=Join-Path $root 'hf-cache'
 $env:HF_HUB_CACHE=Join-Path $env:HF_HOME 'hub'
 $env:HF_HUB_DISABLE_TELEMETRY='1'
+$env:HF_HUB_DISABLE_IMPLICIT_TOKEN='1'
 $env:WANDB_DISABLED='true'
 $env:PYTHONDONTWRITEBYTECODE='1'
 $env:PIP_CACHE_DIR=Join-Path $root 'pip-cache'
