@@ -159,7 +159,8 @@ class ScalarRejectionOnLaterTokenLimit(unittest.TestCase):
         from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
         from neral_preview_server import create_preview_app
 
-        def fake_extract(backend, turns):
+        def fake_extract(backend, turns, *, repair_turn=False):
+            self.assertFalse(repair_turn)  # One invalid first envelope needs no retry.
             backend.last_inference_diagnostic = {
                 "eval_count": 287, "prompt_eval_count": 800,
                 "done_reason": "stop", "content": "PRIVATE_MODEL_JSON_NOT_AUDITED"}
