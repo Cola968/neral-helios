@@ -529,16 +529,25 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         return {}
                     first_turn_actual_event = event
                     return event
+                formal_extract_calls = 0
                 def bounded_formal_extract(turns):
-                    nonlocal first_turn_actual_event
-                    # Capture metadata even if Ollama terminates the short JSON
-                    # generation with done_reason=length. No model text persists.
+                    nonlocal first_turn_actual_event, formal_extract_calls
+                    # run_experimental_tir permits exactly one original proposal
+                    # and at most one complete solver-feedback repair. Do not
+                    # increase the general Qwen budget or allow extra retries.
+                    formal_extract_calls += 1
+                    if formal_extract_calls > 2:
+                        raise AgentModelError("Formal extraction retry limit.")
                     try:
-                        return high_backend.respond_formal_extract(turns)
+                        return high_backend.respond_formal_extract(
+                            turns, repair_turn=(formal_extract_calls == 2))
                     finally:
-                        event = high_backend.last_inference_diagnostic
-                        if event is not previous_event and type(event) is dict:
-                            first_turn_actual_event = event
+                        # Snapshot only the initial extraction. Subsequent
+                        # model calls must not overwrite first-turn telemetry.
+                        if formal_extract_calls == 1:
+                            event = high_backend.last_inference_diagnostic
+                            if event is not previous_event and type(event) is dict:
+                                first_turn_actual_event = event
                 result = run_experimental_tir(
                     data, high_backend.respond_chat,
                     finalize_review=(bounded_observation_review
