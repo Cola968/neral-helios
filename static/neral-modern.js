@@ -53,10 +53,21 @@
 
   // Use the real form submit path, with IME and multiline editing protected.
   function resizePrompt(){
+    // Long prompts scroll inside the input instead of occupying the chat.
+    const maxVisibleHeight=112;
     prompt.style.height="auto";
-    prompt.style.height=Math.min(prompt.scrollHeight,200)+"px";
+    const contentHeight=prompt.scrollHeight;
+    prompt.style.height=Math.min(contentHeight,maxVisibleHeight)+"px";
+    prompt.style.overflowY=contentHeight>maxVisibleHeight?"auto":"hidden";
   }
   prompt.addEventListener("input",resizePrompt);
+  prompt.addEventListener("focus",resizePrompt);
+  // The chat controller clears the textarea synchronously on submission.
+  form.addEventListener("submit",()=>Promise.resolve().then(resizePrompt));
+  // On failure the controller restores the draft without emitting input.
+  window.addEventListener("neral:activity",event=>{
+    if(["error","cancelled","done"].includes(event.detail?.phase))resizePrompt();
+  });
   prompt.addEventListener("keydown",event=>{
     if(event.key!=="Enter"||event.shiftKey||event.isComposing||
        event.ctrlKey||event.metaKey||event.altKey)return;
