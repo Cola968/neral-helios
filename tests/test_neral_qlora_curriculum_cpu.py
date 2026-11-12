@@ -27,6 +27,18 @@ class QloraCurriculumCPU(unittest.TestCase):
         self.assertEqual(sum("bool" in r["family"] for r in self.holdout),12)
         self.assertEqual(sum("ordering" in r["family"] for r in self.holdout),12)
 
+    def test_family_mix_preserves_ordering_retention(self):
+        # 360 paired questions -> 270 Boolean, 90 complete-order;
+        # each question has a Turn-0 and a Turn-1 answer.
+        from scripts.neral_qlora_dataset import generate
+        rows=generate(pairs=360,exclusion_questions=self.excluded)
+        self.assertEqual(len(rows),720)
+        self.assertEqual(sum(r["meta"]["family"]=="boolean" for r in rows),540)
+        self.assertEqual(sum(r["meta"]["family"]=="ordering" for r in rows),180)
+        for kind in ("turn0","turn1"):
+            self.assertEqual(sum(r["meta"]["family"]=="ordering" and
+                                 r["meta"]["mode"]==kind for r in rows),90)
+
     def test_generate_500_oracle_examples_with_balance_and_no_leak(self):
         self.assertEqual(len(self.rows),500)
         self.assertEqual([sum(r["meta"]["mode"]==mode for r in self.rows)
