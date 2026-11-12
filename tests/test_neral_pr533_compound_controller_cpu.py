@@ -154,6 +154,30 @@ class OneTurnConstraintRepairCPU(unittest.TestCase):
         self.assertEqual(tele["solver_rejection_detail"], "comparison_types")
         self.assertEqual(tele["solver_repair_status"], "repaired")
 
+    def test_undeclared_boolean_reference_gets_one_validated_retry(self):
+        # Source variables are A and B; a model-invented leaf is invalid.
+        # The solver must never silently add or execute that name.
+        broken = json.loads(json.dumps(GOOD))
+        broken["schema"]["bool_rules"] = [
+            {"op":"or","args":["A","non_source_variable"]}
+        ]
+        requests = []
+        payloads = iter((json.dumps(broken), json.dumps(GOOD)))
+        def extractor(turns):
+            requests.append(turns)
+            return next(payloads)
+        result = run_experimental_tir(
+            messages(Q), lambda _: self.fail("Correct repaired schema must solve"),
+            extract_constraints=extractor)
+        self.assertEqual(len(requests), 2)
+        self.assertIn("completely_undeclared_name", requests[1][1]["content"])
+        self.assertEqual(result["text"], "1")
+        self.assertEqual(result["extraction_status"], "repaired")
+        self.assertFalse(result["verified"])
+        self.assertEqual(
+            result["first_turn_telemetry"]["solver_repair_status"], "repaired"
+        )
+
     def test_repair_accepts_markdown_fence_and_leading_explanation(self):
         for lead, label in (
             ("", "fenced_json"),
