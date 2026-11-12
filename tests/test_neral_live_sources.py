@@ -52,3 +52,37 @@ class LiveSourcesTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertEqual([x['type'] for x in payload],['error','end'])
         self.assertNotIn('private diagnostic',repr(payload))
+
+
+    def test_provider_fallback_when_ddg_hits_exist_but_none_are_reachable(self):
+        class Scripted:
+            def __init__(self): self.bing_calls=[]
+            def search(self, query, on_provider=None):
+                if on_provider: on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                  "providers_contacted":["DuckDuckGo HTML"],
+                  "results":[{"title":"Blocked","url":"https://example.org/blocked"}]}
+            def search_bing(self, query, on_provider=None):
+                self.bing_calls.append(query)
+                if on_provider: on_provider("Bing RSS")
+                return [{"title":"Berlin Airport","url":"https://example.org/ber",
+                         "snippet":"Terminals and flights"}]
+        for stream in (True, False):
+            service=Scripted()
+            app=Flask(__name__);register_web_search_api(app,service)
+            url="/api/web/search/stream" if stream else "/api/web/search"
+            with patch('neral_web_api.verify_public_https_url',
+                       side_effect=lambda link: link if link.endswith("/ber") else None):
+                response=app.test_client().post(url,json={"query":"Berlin Airport","verify_links":True})
+                if stream:
+                    events=[json.loads(line) for line in response.response]
+                    result=next(x["result"] for x in events if x["type"]=="result")
+                    self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+                                     ["DuckDuckGo HTML","Bing RSS"])
+                else:
+                    result=response.get_json()
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(service.bing_calls,["Berlin Airport"])
+            self.assertEqual(result["results"][0]["title"],"Berlin Airport")
+            self.assertEqual(result["provider"],"Bing RSS")
+            self.assertEqual(result["providers_contacted"],["DuckDuckGo HTML","Bing RSS"])
