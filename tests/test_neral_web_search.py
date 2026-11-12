@@ -212,6 +212,25 @@ class BingFallbackTests(unittest.TestCase):
         self.assertTrue(all("Artemis+NASA" in url for url in opener.calls))
         self.assertEqual(data["providers_contacted"], ["DuckDuckGo HTML","Bing RSS"])
 
+    def test_bing_rss_localized_preserves_exact_query(self):
+        from urllib.parse import urlsplit,parse_qs
+        class Capturing:
+            def __init__(self):self.urls=[]
+            def open(self,req,timeout):
+                self.urls.append(req.full_url)
+                return type('Response',(),{
+                    'headers':{'Content-Type':'text/xml'},
+                    '__enter__':lambda self:self,
+                    '__exit__':lambda self,*a:False,
+                    'read':lambda self,n:BING_XML.encode()})()
+        for query in ('Flughafen Frankfurt','Python Dokumentation','NASA Artemis'):
+            stub=Capturing()
+            self.assertTrue(WebSearch(opener=stub).search_bing(query))
+            params=parse_qs(urlsplit(stub.urls[0]).query)
+            self.assertEqual(params['q'],[query])
+            self.assertEqual(params['cc'],['de'])
+            self.assertEqual(params['setlang'],['de'])
+
     def test_bing_rss_rejects_unsafe_external_entities(self):
         from neral_web_search import parse_bing_rss
         with self.assertRaises(WebSearchError):
