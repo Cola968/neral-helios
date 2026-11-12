@@ -20,6 +20,10 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_logic_failure_provenance_cpu.py' -v
       - name: Latency optimization opt-in and untouched original provenance contracts
         run: python -B -m unittest discover -s tests -p 'test_neral_verified_fast_path_cpu.py' -v
+      - name: Prospective never-inferred 100 exact golds and SHA-disjointness gate
+        run: |
+          python -B -m py_compile scripts/neral_prospective_100_cases.py
+          python -B -m unittest discover -s tests -p 'test_neral_prospective_100_cpu.py' -v
       - name: Existing guard and production dual regression contracts
         run: |
           python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
