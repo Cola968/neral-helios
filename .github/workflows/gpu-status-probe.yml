@@ -22,9 +22,11 @@ jobs:
       inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - name: Read-only Docker Linux-engine and offline image readiness
-        shell: powershell
         run: |
           $cli = [bool](Get-Command docker -ErrorAction SilentlyContinue)
           $installedDefault = Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Docker\\Docker\\Docker Desktop.exe') -PathType Leaf
