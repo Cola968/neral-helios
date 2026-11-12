@@ -128,6 +128,35 @@ class LogicPythonRoutingCPU(unittest.TestCase):
         self.assertEqual(result["text"], "Guten Tag")
         self.assertEqual(len(calls), 1)
 
+
+    def test_http_requires_both_optin_flags_and_existing_feature_gate(self):
+        from neral_preview_server import create_preview_app
+        low=OllamaLocalBackend("qwen3:8b",
+                               inference_profile="measured_nonthinking_2048")
+        high=OllamaLocalBackend("qwen3.5:9b",
+                                inference_profile="measured_nonthinking_2048")
+        client=create_preview_app(low, experimental_high_backend=high,
+                                  secret_key=b"P"*32).test_client()
+        base="http://127.0.0.1:9690"
+        client.get("/",base_url=base)
+        token=client.get("/api/neral/preview/session",base_url=base).json["csrf"]
+        headers={"X-Neral-CSRF":token}
+        for flags in (
+            {"python_logic_routing":True},
+            {"experimental_tir":True,"python_logic_routing":True},
+            {"experimental_tir":True,"conservative_tir":True,
+             "python_logic_routing":"yes"},
+        ):
+            response=client.post("/api/neral/chat/think",
+                json={"prompt":TASK,**flags},headers=headers,base_url=base)
+            self.assertEqual(response.status_code,400)
+        with patch.dict("os.environ",{"NERAL_EXPERIMENTAL_TIR":"0"}):
+            response=client.post("/api/neral/chat/think",json={
+                "prompt":TASK,"experimental_tir":True,
+                "conservative_tir":True,"python_logic_routing":True,
+            },headers=headers,base_url=base)
+        self.assertEqual(response.status_code,403)
+
     def test_dedicated_decision_budget_is_smaller_and_context_is_already_4096(self):
         class Response:
             def __enter__(self): return self
