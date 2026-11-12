@@ -1,0 +1,31 @@
+name: NERAL exact code clue oracle
+on:
+  pull_request:
+    paths:
+      - 'neral_code_rule_oracle.py'
+      - 'neral_high_verified_first.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_code_rule_oracle.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - '.github/workflows/neral-code-oracle-ci.yml'
+permissions:
+  contents: read
+jobs:
+  finite-code-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - run: python -B -m unittest discover -s tests -p test_neral_code_rule_oracle.py -v
+      - run: python -B -m unittest discover -s tests -p test_neral_high_verified_first.py -v
+      - run: python -B -m py_compile neral_code_rule_oracle.py neral_high_verified_first.py
