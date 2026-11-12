@@ -288,3 +288,104 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
         stop.set()
         if sample_gpu:
             monitor_thread.join(timeout=5)
+
+
+class _UnverifiedSourceNeedsBase(Exception):
+    """Internal flow marker; no model tool proposals are made in fast mode."""
+
+
+def run_verified_source_fast(messages:list[dict],*,seed:int=0,
+                             sample_gpu:bool=True)->dict:
+    """Explicit opt-in for low-latency exact-source-first + raw BASE fallback.
+
+    This is NOT the full trained-model dual route: it deliberately skips all
+    model-proposed schema/tool attempts. It first executes only independently
+    verifiable original user code/formal schema through existing TIR and PR537,
+    then answers with BASE Qwen unchanged. Useful for quick general replies,
+    but could miss helpful QLoRA tools on new inputs; never use as an automatic
+    default or interpret as evidence of the adapter's intelligence.
+    """
+    if (type(messages) is not list or len(messages)<2
+        or any(type(x) is not dict or set(x)!={"role","content"}
+               or type(x["content"]) is not str
+               for x in messages)
+        or messages[0]["role"]!="system" or messages[-1]["role"]!="user"
+        or type(seed) is not int or not 0<=seed<2**31):
+        raise ValueError("Invalid local fast-route request")
+    digests=require_exact_models()
+    guard_hash=require_exact_guard()
+    original=[dict(x) for x in messages]
+    started=time.monotonic()
+    residence_before=sample_residency()
+    gpu_samples=[]
+    stop=threading.Event()
+
+    def measure():
+        while not stop.is_set():
+            usage=sample_device_mib()
+            if usage is not None:gpu_samples.append(usage)
+            stop.wait(.25)
+    mon=threading.Thread(target=measure,daemon=True)
+    if sample_gpu:mon.start()
+    base_calls=0
+    metrics=[]
+    def raw_baseline(turns):
+        nonlocal base_calls
+        if turns!=original:
+            raise ValueError("The quick baseline may receive only original dialogue")
+        base_calls+=1
+        try:
+            output,span=_ollama_chat(BASE_TAG,turns,seed)
+        except OllamaTransportFailure as err:
+            err.diagnostic={**err.diagnostic,
+                "inference_phase":"base_fast_fallback",
+                "schema_attempts":0,
+                "model_proposal_calls":0,
+                "base_fallback_attempts":base_calls}
+            raise
+        metrics.append(span)
+        return output
+
+    def without_model_proposal(turns):
+        # TIR does its deterministic source/formal preflight before it asks
+        # any model for help. Raising here exits before generated code/schema.
+        raise _UnverifiedSourceNeedsBase()
+
+    try:
+        try:
+            direct=run_experimental_tir(original,without_model_proposal)
+        except _UnverifiedSourceNeedsBase:
+            # No model-authored proposal exists, so there is nothing for
+            # PR537 to endorse or reject. Raw untrained Qwen is authoritative.
+            answer=raw_baseline(original)
+            selection={"text":answer,"mode":"HIGH",
+                "model_generated":True,"verified":False,
+                "verification_scope":"none",
+                "verification_status":"base_fast_unverified",
+                "response_source":"raw_qwen",
+                "selection_policy":"base_fast_unverified",
+                "calls_used":1,"tool_calls_triggered":0,
+                "tool_calls_succeeded":0}
+        else:
+            selection=choose_guarded_tir_reply(direct,original,raw_baseline)
+            # The normal guard alone may promote directly provable code.
+            if selection["selection_policy"]=="independently_verified_tir" and base_calls:
+                raise RuntimeError("Verified source was wrongly replaced")
+        return {**selection,"experimental_tir":True,
+            "conservative_tir":True,"dual_routing":True,
+            "fast_verified_only":True,"tool_model":None,
+            "fallback_model":BASE_TAG,"model_digests":digests,
+            "guard_git_blob":guard_hash,
+            "structured_schema_attempts":0,"tool_planning_calls":0,
+            "base_raw_calls":base_calls,
+            "latency_ms":round((time.monotonic()-started)*1000,1),
+            "gpu_device_peak_mib":max(gpu_samples,default=None),
+            "gpu_sample_count":len(gpu_samples),
+            "ollama_resident_before":residence_before,
+            "ollama_resident_after":sample_residency(),
+            "inference_spans":metrics,
+            "response_mode":"local_exact_verified_source_fast",
+            }
+    finally:
+        stop.set()
+        if sample_gpu:mon.join(timeout=5)
