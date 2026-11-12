@@ -140,7 +140,7 @@ def checked_high_packet(packet: object) -> str:
                         "model_extracted_finite_domain"
                         and packet.get("tool_output_reviewed") is False
                         and packet.get("verified") is False
-                        and packet.get("extraction_status") == "accepted")
+                        and packet.get("extraction_status") in ("accepted", "repaired"))
                     or (packet.get("verification_status") ==
                         "base_fallback_unverified"
                         and packet.get("verification_scope") == "none"
