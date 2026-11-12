@@ -36,3 +36,5 @@ jobs:
         run: |
           python -B -m py_compile scripts/neral_blind_100_cases.py scripts/neral_blind_100_gpu.py
           python -B -m unittest discover -s tests -p 'test_neral_blind_100_cpu.py' -v
+      - name: Retry and exact prior-results resume checkpoint contracts
+        run: python -B -m unittest discover -s tests -p 'test_neral_blind_retry_resume_cpu.py' -v
