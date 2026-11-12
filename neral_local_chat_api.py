@@ -371,6 +371,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            if evaluation_final_answer:
+                from neral_answer_contract import formatted_benchmark_system
+                data[0]["content"] = formatted_benchmark_system()
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
@@ -437,15 +440,18 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             experimental_tir = payload.get("experimental_tir", False)
             conservative_tir = payload.get("conservative_tir", False)
             dual_routing = payload.get("dual_routing", False)
+            evaluation_final_answer = payload.get("evaluation_final_answer", False)
             if (type(experimental_tir) is not bool
                     or type(conservative_tir) is not bool
                     or type(dual_routing) is not bool
+                    or type(evaluation_final_answer) is not bool
                     or (conservative_tir and not experimental_tir)
-                    or (dual_routing and not (conservative_tir and experimental_tir))):
+                    or (dual_routing and not (conservative_tir and experimental_tir))
+                    or (evaluation_final_answer and not dual_routing)):
                 raise ValueError("Invalid experimental, conservative or dual routing flag")
             # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
-                     if k not in ("experimental_tir", "conservative_tir", "dual_routing")}
+                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "evaluation_final_answer")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -456,6 +462,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
         if dual_routing and os.environ.get("NERAL_EXPERIMENTAL_DUAL_ROUTE") != "1":
             return jsonify(error="Experimentelles Dual-Routing nicht freigeschaltet."), 403
+        if (evaluation_final_answer
+                and os.environ.get("NERAL_FORMATTED_EVAL") != "1"):
+            return jsonify(error="Format-Benchmark ist nicht freigeschaltet."), 403
         if (experimental_tir and (
                 not isinstance(high_backend, OllamaLocalBackend)
                 or high_backend.model != "qwen3.5:9b"
@@ -511,6 +520,16 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             if dual_routing:
                 from neral_dual_routing import run_dual_route
                 routed = run_dual_route(data)
+                if evaluation_final_answer:
+                    from neral_answer_contract import format_verified_terminal_answer
+                    routed = dict(routed)
+                    routed["text"] = format_verified_terminal_answer(
+                        routed["text"],
+                        independently_verified=(
+                            routed.get("selection_policy")=="independently_verified_tir"
+                            and routed.get("verified") is True
+                            and routed.get("model_generated") is False))
+                    routed["evaluation_final_answer"] = True
                 return jsonify({**_provenance(high_backend), **routed,
                                 "model": routed["tool_model"],
                                 "model_origin": "local_qlora_tools_base_raw_dual"})
