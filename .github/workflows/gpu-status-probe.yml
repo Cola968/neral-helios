@@ -10,11 +10,15 @@ on:
         required: false
         type: string
         description: 'Explicit NERAL_QLORA_GPU_TRAIN_EXPLICIT only for local training'
+      transfer_authorize:
+        required: false
+        type: string
+        description: 'Explicit NERAL_GENERALIZATION_100_GPU_EXPLICIT for no-training transfer test'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100]
 permissions:
   contents: read
   pull-requests: read
@@ -648,3 +652,110 @@ jobs:
           path: D:/NERAL-QLoRA-Experiments/Qwen35-9B-20261112/post_24_scalar.json
           retention-days: 14
           if-no-files-found: error
+
+  generalization100-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.transfer_authorize == 'NERAL_GENERALIZATION_100_GPU_EXPLICIT' &&
+      inputs.mode == 'generalization100'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '94727b45956061c6b8eda32601f640f5eee34afe'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
+      - name: Verify real PR537 guard and 100 independent oracle + scoring unit tests
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_generalization_100_*.py' -v
+          python -B -m py_compile scripts/neral_generalization_100_cases.py scripts/neral_generalization_100_run.py
+        working-directory: candidate
+  generalization100-gpu:
+    needs: generalization100-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.transfer_authorize == 'NERAL_GENERALIZATION_100_GPU_EXPLICIT' &&
+      inputs.mode == 'generalization100'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PINNED_TRANSFER_SHA: '94727b45956061c6b8eda32601f640f5eee34afe'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '94727b45956061c6b8eda32601f640f5eee34afe'
+          path: candidate
+          persist-credentials: false
+          clean: true
+      - name: Verify exact code, local Python and offline Docker sandbox before inference
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Wrong repository'}
+          $head=(& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -ne $env:PINNED_TRANSFER_SHA){throw 'Unpinned transfer code'}
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Local PEFT Python environment missing'}
+          if(-not(Test-Path -LiteralPath 'D:\neral-qlora\train.jsonl' -PathType Leaf)){throw 'Frozen 720-row train corpus missing'}
+          & $py -B -c 'import torch; print("GPU_CUDA_AVAILABLE="+str(torch.cuda.is_available()))'
+          if($LASTEXITCODE -ne 0){throw 'GPU Python readiness failed'}
+          & nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'RTX 4070 not found'}
+          $docker=& docker version --format '{{.Server.Version}}' 2>$null
+          if($LASTEXITCODE -ne 0 -or -not $docker){throw 'Local secure Docker executor not available'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Offline sandbox image missing'}
+      - name: Freeze 100 never-trained prompts on same local Windows machine
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'neral_transfer100_scalar'
+          if(Test-Path -LiteralPath $dir){throw 'Existing run output; refuse overwrite'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          Push-Location $candidate
+          try {
+            & $py -B -m scripts.neral_generalization_100_cases --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $dir 'cases.jsonl') --manifest (Join-Path $dir 'cases-manifest.json')
+            if($LASTEXITCODE -ne 0){throw 'Frozen task generator or hash exclusion rejected'}
+          } finally {Pop-Location}
+      - name: Execute matched RTX 4070 Qwen control vs QLoRA plus exact PR537 guard
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'neral_transfer100_scalar'
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          Push-Location $candidate
+          try {
+            & $py -B -m scripts.neral_generalization_100_run --authorize NERAL_GENERALIZATION_100_GPU_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --corpus (Join-Path $dir 'cases.jsonl') --manifest (Join-Path $dir 'cases-manifest.json') --out (Join-Path $dir 'paired-100-scalar.json')
+            if($LASTEXITCODE -ne 0){throw 'GPU model comparison not completed; partial evidence is not a 100-case score'}
+          } finally {Pop-Location}
+      - name: Upload scalar-only results and immutable test hash; no model responses/weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-qwen35-100-transfer-pr537-gpu-scalars
+          path: |
+            neral_transfer100_scalar/cases-manifest.json
+            neral_transfer100_scalar/paired-100-scalar.json
+            neral_transfer100_scalar/paired-100-scalar.progress.jsonl
+          retention-days: 14
+          if-no-files-found: warn
