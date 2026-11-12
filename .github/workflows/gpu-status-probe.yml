@@ -66,7 +66,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 0341853b5184708790cca96e866e37870e1c8b43
+          ref: d280516e1a28a1cbdbc5b6b9b89d694769f6292f
           path: candidate
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -107,7 +107,7 @@ jobs:
       TRANSFORMERS_OFFLINE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       NERAL_EXPERIMENTAL_TIR: '1'
-      TARGET_SHA: '0341853b5184708790cca96e866e37870e1c8b43'
+      TARGET_SHA: 'd280516e1a28a1cbdbc5b6b9b89d694769f6292f'
       MANUAL_AUTH: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
       OUTER_SEED: '202611110533'
       RUN_BOTH: ${{ inputs.mode == 'both' && '1' || '0' }}
@@ -119,7 +119,7 @@ jobs:
           clean: true
       - uses: actions/checkout@v4
         with:
-          ref: 0341853b5184708790cca96e866e37870e1c8b43
+          ref: d280516e1a28a1cbdbc5b6b9b89d694769f6292f
           path: candidate
           persist-credentials: false
           clean: true
@@ -184,7 +184,7 @@ jobs:
       TRANSFORMERS_OFFLINE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       NERAL_EXPERIMENTAL_TIR: '1'
-      TARGET_SHA: '0341853b5184708790cca96e866e37870e1c8b43'
+      TARGET_SHA: 'd280516e1a28a1cbdbc5b6b9b89d694769f6292f'
       MANUAL_AUTH: 'NERAL_PR533_LOGIC_TRANSFER_GPU_ONLY'
       OUTER_SEED: '202611110533'
     steps:
@@ -195,7 +195,7 @@ jobs:
           clean: true
       - uses: actions/checkout@v4
         with:
-          ref: 0341853b5184708790cca96e866e37870e1c8b43
+          ref: d280516e1a28a1cbdbc5b6b9b89d694769f6292f
           path: candidate
           persist-credentials: false
           clean: true
