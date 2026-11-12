@@ -123,3 +123,19 @@ test("failed HEAD probes cannot hide genuine relevant search snippets from the l
   assert.doesNotMatch(model.body.prompt,/Die Websuche lieferte keine passenden Treffer/);
   assert.match(model.body.prompt,/nicht.*unabhängig.*geprüft|ungeprüft/i);
 });
+
+
+test("Frankfurt no-hits boilerplate is corrected when independent web tool has actual sources",()=>{
+  const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function normaliseSearchRefusal(");
+  const end=source.indexOf("  function relevantSearchResult(",start);
+  const clean=vm.runInNewContext(source.slice(start,end)+"\nnormaliseSearchRefusal");
+  const text="Ich habe die Websuche für deine Anfrage zum Flughafen Frankfurt durchgeführt. "+
+    "Wie in der Statusmeldung angegeben, lieferte diese Suche keine passenden oder belastbaren Treffer. "+
+    "Falls du allgemeine Informationen suchst, kann ich dir helfen.";
+  const result=clean(text,5,true,5);
+  assert.match(result,/5 erreichbare Treffer/);
+  assert.doesNotMatch(result,/keine passenden oder belastbaren Treffer/);
+  assert.equal(clean(text,0,true,0),text);
+  assert.equal(clean(text,5,false,5),text);
+});
