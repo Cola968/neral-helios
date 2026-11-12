@@ -1,0 +1,33 @@
+name: NERAL Python logic routing CPU contracts
+on:
+  pull_request:
+    paths:
+      - 'neral_agent_autonomy.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_local_chat_api.py'
+      - 'neral_tir_regression_guard.py'
+      - 'tests/test_neral_python_logic_routing.py'
+      - 'tests/test_neral_experimental_tir.py'
+      - '.github/workflows/neral-python-logic-routing-ci.yml'
+permissions:
+  contents: read
+jobs:
+  optin-routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Opt-in routing, conservative guard, existing TIR and Ollama contracts
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_python_logic_routing.py -v
+          python -B -m unittest discover -s tests -p test_neral_tir_regression_guard.py -v
+          python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
+          python -B -m unittest discover -s tests -p test_neral_1_0_ollama_mode_contracts.py -v
+      - name: Syntax
+        run: python -B -m py_compile neral_agent_autonomy.py neral_tir_experimental.py neral_local_chat_api.py

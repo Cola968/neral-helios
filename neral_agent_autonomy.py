@@ -163,6 +163,19 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=False)
 
+    def respond_tir_code(self, messages: list[dict]) -> str:
+        """Explicit model-selected code proposal: 768 tokens, 4096 context.
+
+        Only called from the separately authorized experimental logic path;
+        normal Qwen chats and the raw comparator remain unchanged.
+        """
+        if (self.model != "qwen3.5:9b"
+                or self.inference_profile != "measured_nonthinking_2048"):
+            raise AgentModelError("Python logic routing requires measured local HIGH.")
+        with self._inference_lock:
+            return self._respond(messages, require_json=False,
+                                 thinking=False, tool_only=True)
+
     def respond_formal_extract(self, messages: list[dict], *,
                                repair_turn: bool = False) -> str:
         """Opt-in structured JSON: 384-token first pass, 1536-token retry.
@@ -275,7 +288,11 @@ class OllamaLocalBackend:
                  thinking: bool = False, final_only: bool = False,
                  rescue_long_final: bool = False,
                  extraction_only: bool = False,
-                 repair_only: bool = False) -> str:
+                 repair_only: bool = False,
+                 tool_only: bool = False) -> str:
+        if tool_only and (require_json or thinking or final_only
+                          or rescue_long_final or extraction_only or repair_only):
+            raise AgentModelError("Tool decision budget cannot mix inference modes.")
         if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
         if final_only and rescue_long_final:
@@ -291,6 +308,8 @@ class OllamaLocalBackend:
                     and (not require_json or extraction_only))
         budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
         options = (
+            {"temperature": 0, "num_predict": 768, "num_ctx": 4096}
+            if tool_only else
             {"temperature": 0, "num_predict": (1536 if repair_only else 384),
              "num_ctx": 4096}
             if extraction_only else

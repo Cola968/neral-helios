@@ -77,6 +77,49 @@ _POST_NONE_TOOL_PROMPT = (
     "If computation is genuinely unnecessary, NERAL_FINAL_TEXT: is allowed."
 )
 
+# This is an explicitly opted-in model tool-selection instruction, not a
+# benchmark-keyword or natural-language regex router. The generated program
+# represents a hypothesis about the user's clues, not a semantic proof.
+_PYTHON_LOGIC_PROMPT = (
+    "\nOPT-IN FINITE LOGIC EXPLORATION: For bounded arrangements, codes, "
+    "assignment puzzles and other combinatorics, choose python_sandbox. "
+    "Write the smallest runnable standard-library Python program directly, "
+    "using itertools.permutations or itertools.product when appropriate. "
+    "Test EVERY clue, append all matching candidates to a list named "
+    "solutions, then print json.dumps({'solutions': solutions}). "
+    "Enumerate the candidates; do not hard-code or guess solutions. "
+    "Make the entire first reply exactly NERAL_EXECUTE_JSON: "
+    '{"tool":"python_sandbox","code":"..."} '
+    "with a valid JSON-escaped Python code string, no prose, thought "
+    "trace, Markdown, or speculative answer. "
+    "For problems outside finite, bounded enumeration or where faithful "
+    "translation of all clues is not possible, reply "
+    "NERAL_FINAL_TEXT: UNVERIFIED. The controller will use raw Qwen."
+)
+
+
+def _unique_python_logic_solution(stdout: str) -> str | None:
+    """Check strict bounded output shape and UNIQUE count, not clue semantics."""
+    if type(stdout) is not str or not 1 <= len(stdout.encode("utf-8")) <= 512:
+        return None
+    try:
+        data = json.loads(stdout)
+    except (ValueError, TypeError):
+        return None
+    if type(data) is not dict or set(data) != {"solutions"}:
+        return None
+    values = data["solutions"]
+    if type(values) is not list or len(values) != 1:
+        return None
+    solution = values[0]
+    if type(solution) is int and -(10**15) <= solution <= 10**15:
+        return str(solution)
+    if (type(solution) is str and 1 <= len(solution) <= 160
+            and all(32 <= ord(char) <= 126 for char in solution)):
+        return solution
+    return None
+
+
 # The retry is task-agnostic. No benchmark wording or regex route.
 _CHOICE_RETRY = (
     "Your previous answer did not contain an explicit tool decision. "
@@ -799,6 +842,8 @@ def run_experimental_tir(
     finalize_review: Callable[[list[dict]], tuple[str, bool]] | None = None,
     first_turn_diagnostic: Callable[[], dict] | None = None,
     extract_constraints: Callable[[list[dict]], str] | None = None,
+    python_logic_routing: bool = False,
+    tool_decide: Callable[[list[dict]], str] | None = None,
     extraction_rejection_sink: list[str] | None = None,
     solver_rejection_detail_sink: list[str] | None = None,
     ast_check_code_sink: list[str] | None = None,
@@ -818,6 +863,9 @@ def run_experimental_tir(
             or (finalize_review is not None and not callable(finalize_review))
             or (first_turn_diagnostic is not None and not callable(first_turn_diagnostic))
             or (extract_constraints is not None and not callable(extract_constraints))
+            or type(python_logic_routing) is not bool
+            or (python_logic_routing and not callable(tool_decide))
+            or (tool_decide is not None and not callable(tool_decide))
             or (extraction_rejection_sink is not None
                 and type(extraction_rejection_sink) is not list)
             or (solver_rejection_detail_sink is not None
@@ -909,6 +957,8 @@ def run_experimental_tir(
     if suffix:
         turns[-1]["content"] = core
     turns[0]["content"] += _PROMPT
+    if python_logic_routing:
+        turns[0]["content"] += _PYTHON_LOGIC_PROMPT
     calls = triggered = succeeded = 0
     tool_used = None  # Persist only successfully executed tool provenance.
     first_turn_telemetry = {
@@ -962,7 +1012,8 @@ def run_experimental_tir(
     # model captured every condition from the original natural language.
     # Rejecting the proposal uses the untouched RAW-Qwen question, not
     # another free-form TIR instruction. Multi-turn chats stay on legacy TIR.
-    if extract_constraints is not None and len(original) == 2:
+    if (extract_constraints is not None and not python_logic_routing
+            and len(original) == 2):
         calls += 1
         extract_turns = [
             {"role": "system", "content": EXTRACT_PROMPT},
@@ -1141,7 +1192,7 @@ def run_experimental_tir(
             }
 
     calls += 1
-    first = respond(turns)
+    first = tool_decide(turns) if python_logic_routing else respond(turns)
     # Keep the actual initial extractor telemetry when the model chooses the
     # non-formal TIR path; this second call is not the first turn.
     if first_turn_telemetry.get("decision") != "extraction_none":
@@ -1167,6 +1218,10 @@ def run_experimental_tir(
         }
 
     tool, code = parsed
+    # Finite-logic opt-in never accepts a math solver proposal in place of
+    # the requested isolated Python enumeration.
+    if python_logic_routing and tool != "python_sandbox":
+        return base_fallback()
     triggered = 1
     tool_candidate = "neral_math_exact" if tool == "solve" else "neral_python_sandbox"
     try:
@@ -1183,9 +1238,14 @@ def run_experimental_tir(
             or any(ord(c) < 32 and c not in "\r\n\t"
                    for c in stdout + stderr)):
         return base_fallback()
+    if python_logic_routing and _unique_python_logic_solution(stdout) is None:
+        # Zero, multiple, malformed and non-JSON outputs cannot certify a
+        # unique solution; do not ask a model to rationalize them as unique.
+        return base_fallback()
     succeeded = 1
     tool_used = tool_candidate
-    scope = result.get("verification_scope", "execution_only")
+    scope = ("execution_only" if python_logic_routing else
+             result.get("verification_scope", "execution_only"))
     if type(scope) is not str or len(scope) > 80:
         scope = "execution_only"
 
