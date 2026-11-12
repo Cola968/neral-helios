@@ -45,3 +45,28 @@ cases=[
 ]
 if __name__=="__main__":
     for name,url,mime in cases: print(json.dumps(inspect(name,url,mime),ensure_ascii=False),flush=True)
+
+
+# Inspect only fixed public icon metadata, never user-derived sites here.
+from urllib.request import Request
+from html.parser import HTMLParser
+class IconLinks(HTMLParser):
+    def __init__(self):
+        super().__init__();self.icons=[]
+    def handle_starttag(self,tag,attributes):
+        if tag!="link":return
+        a=dict(attributes)
+        if "icon" in (a.get("rel","").lower().split()):
+            self.icons.append({"href":a.get("href","")[:180],"rel":a.get("rel","")[:50]})
+try:
+    op=fixed_search_opener()
+    with op.open(Request("https://www.frankfurt-airport.com/",headers={
+        "User-Agent":"Mozilla/5.0 (compatible; NERAL-Icon-Diagnostic/1.0)",
+        "Accept":"text/html"},method="GET"),timeout=8) as response:
+        mime=response.headers.get("Content-Type","")
+        raw=response.read(120_000)
+    parser=IconLinks();parser.feed(raw.decode("utf-8",errors="replace"))
+    print(json.dumps({"name":"frankfurt_html_icon_links","mime":mime,
+         "sample_icons":parser.icons[:8],"bytes":len(raw)},ensure_ascii=False),flush=True)
+except Exception as e:
+    print(json.dumps({"name":"frankfurt_html_icon_links","error":type(e).__name__}),flush=True)
