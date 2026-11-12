@@ -31,6 +31,8 @@
       if(event.type==="error")throw new Error(String(event.message||"Websuche fehlgeschlagen."));
       if(event.type==="provider"&&typeof event.name==="string"){
         onEvent?.({type:"provider",name:event.name});
+      }else if(event.type==="candidate"&&event.source?.discovered===true){
+        onEvent?.({type:"candidate",source:event.source});
       }else if(event.type==="source"&&event.source?.reachable===true){
         onEvent?.({type:"source",source:event.source});
       }else if(event.type==="result"&&event.result&&typeof event.result==="object"){
