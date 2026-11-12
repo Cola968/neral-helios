@@ -13,6 +13,7 @@ on:
       - 'tests/test_neral_nl_schema_diagnostics.py'
       - 'neral_nl_schema_format.py'
       - 'tests/test_neral_v2_structured_output.py'
+      - 'tests/test_neral_v2_nonempty_fewshot.py'
       - '.github/workflows/neral-nl-schema-bridge-cpu.yml'
 permissions:
   contents: read
@@ -41,6 +42,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_diagnostics.py' -v
       - name: Structured v2 sampling and explicit core coverage witness contracts (fake model, CPU only)
         run: python -B -m unittest discover -s tests -p 'test_neral_v2_structured_output.py' -v
+      - name: Source-bound mandatory variable declarations and few-shot tests (CPU only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_v2_nonempty_fewshot.py' -v
       - name: Typed solver and guard regression suites
         run: |
           python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v
