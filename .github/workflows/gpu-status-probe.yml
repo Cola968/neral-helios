@@ -27,11 +27,15 @@ on:
         type: string
         default: '43253441865'
         description: 'Immutable Actions artifact containing previously completed 26 prospective pairs'
+      formatted_authorize:
+        required: false
+        type: string
+        description: 'Explicit NERAL_FORMATTED_REPEAT_100_EXPLICIT, local GPU only, no training'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100, formatted100]
 permissions:
   contents: read
   pull-requests: read
@@ -1068,4 +1072,123 @@ jobs:
           name: neral-prospective100-cpu-offline-posthoc-no-gpu
           path: candidate/.data/prospective100/offline100-posthoc.json
           if-no-files-found: error
+          retention-days: 14
+
+  formatted100-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.formatted_authorize == 'NERAL_FORMATTED_REPEAT_100_EXPLICIT' &&
+      inputs.mode == 'formatted100'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '527398b57afc86df2ffd40c89b3900ffedda66b3'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only prerequisites
+        run: python -m pip install -r requirements-neral-preview.txt
+        working-directory: candidate
+      - name: Revalidate exact-system prompt, strictly final-line format, frozen SHA, dual safety gates
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_formatted_*.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_dual_routing_product_api.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_blind_100_cpu.py' -v
+          python -B -m py_compile neral_answer_contract.py neral_local_chat_api.py neral_dual_routing.py scripts/neral_formatted_100_gpu.py
+        working-directory: candidate
+  formatted100-gpu:
+    needs: formatted100-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.formatted_authorize == 'NERAL_FORMATTED_REPEAT_100_EXPLICIT' &&
+      inputs.mode == 'formatted100'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      NERAL_EXPERIMENTAL_DUAL_ROUTE: '1'
+      NERAL_FORMATTED_EVAL: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PINNED_FORMATTED_CODE: '527398b57afc86df2ffd40c89b3900ffedda66b3'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '527398b57afc86df2ffd40c89b3900ffedda66b3'
+          persist-credentials: false
+          clean: true
+          path: candidate
+      - name: Check local RTX 4070, exact code, frozen QLoRA train and offline Python sandbox
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
+          $head=(& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -ne $env:PINNED_FORMATTED_CODE){throw 'Unpinned evaluation source'}
+          $basePy='D:\neral-qlora\venv\Scripts\python.exe'
+          if(-not (Test-Path -LiteralPath $basePy -PathType Leaf)){throw 'Known local Python missing'}
+          if(-not (Test-Path -LiteralPath 'D:\neral-qlora\train.jsonl' -PathType Leaf)){throw 'Original training corpus missing'}
+          & nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'NVIDIA GPU not available'}
+          $docker=& docker version --format '{{.Server.Version}}' 2>$null
+          if($LASTEXITCODE -ne 0 -or -not $docker){throw 'Secure local Docker sandbox unavailable'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Offline Python image absent'}
+      - name: Create isolated inference environment for repeat run, no training/model modifications
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP ('neral-formatted100-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'Existing result directory, refusing overwrite'}
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_FORMATTED_DIR='+$root+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          $basePy='D:\neral-qlora\venv\Scripts\python.exe'
+          & $basePy -m venv (Join-Path $root 'venv')
+          if($LASTEXITCODE -ne 0){throw 'Cannot create isolated Python environment'}
+          $py=Join-Path $root 'venv\Scripts\python.exe'
+          & $py -m pip install -r (Join-Path $env:GITHUB_WORKSPACE 'candidate\requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Cannot install required runtime'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_FORMATTED_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Freeze original 100-task bytes and manifest, refuse hash changed from 74cf83ce...
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
+          try {
+            & $env:NERAL_FORMATTED_PY -B -m scripts.neral_blind_100_cases --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $env:NERAL_FORMATTED_DIR 'same100-frozen.jsonl') --manifest (Join-Path $env:NERAL_FORMATTED_DIR 'same100-manifest.json')
+            if($LASTEXITCODE -ne 0){throw 'Original 100 task dataset corruption'}
+          } finally {Pop-Location}
+      - name: Compare same 100 known tasks under identically formatted control and productive dual API
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
+          try {
+            & $env:NERAL_FORMATTED_PY -B -m scripts.neral_formatted_100_gpu --authorize NERAL_FORMATTED_REPEAT_100_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --corpus (Join-Path $env:NERAL_FORMATTED_DIR 'same100-frozen.jsonl') --manifest (Join-Path $env:NERAL_FORMATTED_DIR 'same100-manifest.json') --out (Join-Path $env:NERAL_FORMATTED_DIR 'repeat100-formatted.json')
+            if($LASTEXITCODE -ne 0){throw 'Incomplete formatted100 regression measurement; no score allowed'}
+          } finally {Pop-Location}
+      - name: Upload scalar scores plus full SYNTHETIC raw replies only; label as repeat, not blind
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-repeat-original100-formatted-contract-not-blind
+          path: |
+            ${{ env.NERAL_FORMATTED_DIR }}/same100-manifest.json
+            ${{ env.NERAL_FORMATTED_DIR }}/repeat100-formatted.json
+            ${{ env.NERAL_FORMATTED_DIR }}/repeat100-formatted.progress.jsonl
+            ${{ env.NERAL_FORMATTED_DIR }}/repeat100-formatted.raw.jsonl
+          if-no-files-found: warn
           retention-days: 14
