@@ -30,7 +30,7 @@ class FaviconSecurityTests(unittest.TestCase):
         with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
             with patch('neral_web_search._request_favicon',return_value=(PNG,'image/png')) as fetch:
                 self.assertEqual(fetch_public_favicon('example.org'),(PNG,'image/png'))
-                self.assertEqual(fetch.call_args.args,('example.org','93.184.215.14'))
+                self.assertEqual(fetch.call_args.args,('example.org','93.184.215.14','/favicon.ico'))
     def test_only_small_real_image_formats_accepted(self):
         with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
             with patch('neral_web_search._request_favicon',return_value=(b'<svg onload=alert(1)>','image/svg+xml')):
@@ -56,5 +56,23 @@ class FaviconSecurityTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/web/favicon?url=https://localhost/favicon.ico').status_code,400)
             self.assertEqual(self.client.get('/api/web/favicon?host=example.org&path=/admin').status_code,400)
             fetch.assert_not_called()
+
+
+    def test_missing_ico_uses_fixed_png_path_with_same_pinned_ip(self):
+        def receive(host,address,path="/favicon.ico"):
+            if path=="/favicon.ico":
+                return b"", ""
+            return PNG,"image/png"
+        with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
+            with patch('neral_web_search._request_favicon',side_effect=receive) as fetch:
+                self.assertEqual(fetch_public_favicon('example.org'),(PNG,'image/png'))
+                self.assertEqual([call.args[2] for call in fetch.call_args_list],
+                    ["/favicon.ico","/favicon-32x32.png"])
+                self.assertTrue(all(call.args[1]=='93.184.215.14' for call in fetch.call_args_list))
+    def test_html_disguised_as_ico_does_not_prevent_fixed_png_fallback(self):
+        with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
+            with patch('neral_web_search._request_favicon',
+                       side_effect=[(b"<html>blocked</html>","text/html"),(PNG,"image/png")]):
+                self.assertEqual(fetch_public_favicon('example.org'),(PNG,'image/png'))
 
 if __name__=='__main__':unittest.main()

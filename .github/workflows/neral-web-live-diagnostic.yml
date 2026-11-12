@@ -1,0 +1,25 @@
+name: NERAL live web-provider and favicon diagnostic
+on:
+  pull_request:
+    paths:
+      - 'neral_web_search.py'
+      - 'neral_web_api.py'
+      - 'scripts/neral_web_live_diagnostic.py'
+      - '.github/workflows/neral-web-live-diagnostic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-network-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Observe live providers and fixed-path public icon availability
+        continue-on-error: true
+        env:
+          PYTHONPATH: .
+        run: python -B scripts/neral_web_live_diagnostic.py

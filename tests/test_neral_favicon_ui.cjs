@@ -51,3 +51,46 @@ test("site favicon CSS gives real 16px icons, fallback and reduced motion",()=>{
  assert.match(css,/neral-favicon-loaded/);
  assert.match(css,/prefers-reduced-motion/);
 });
+
+test("source cards expose numbered entries and truthful search snippets",()=>{
+ const src=read("static/neral-preview.js"),a=src.indexOf("  function appendSources("),b=src.indexOf("  async function json(",a);
+ const render=vm.runInNewContext(src.slice(a,b)+"\nappendSources",{URL,document:{createElement:t=>new El(t)}});
+ const actions=new El(),answer={querySelector:k=>k===".message-actions"?actions:null};
+ render(answer,[{title:"Flughafen Berlin Brandenburg",url:"https://berlin-airport.de/de",reachable:true,
+                 snippet:"Terminals und Anreise zum Flughafen"}],true);
+ const card=actions.querySelector(".neral-source-link");
+ assert.ok(card);
+ assert.ok(card.querySelector(".neral-source-index"),"Each card identifies its search-result number");
+ assert.match(card.querySelector(".neral-source-snippet").textContent,/Terminals und Anreise/);
+ assert.match(actions.querySelector(".neral-source-notice").textContent,/nicht.*geprüft/i);
+});
+test("empty live web results show an explicit, accessible search-status note",()=>{
+ const src=read("static/neral-preview.js"),a=src.indexOf("  function appendSources("),b=src.indexOf("  async function json(",a);
+ const render=vm.runInNewContext(src.slice(a,b)+"\nappendSources",{URL,document:{createElement:t=>new El(t)}});
+ const actions=new El(),answer={querySelector:k=>k===".message-actions"?actions:null};
+ render(answer,[],true);
+ assert.match(actions.querySelector(".neral-source-empty").textContent,/keine.*Treffer/i);
+ assert.equal(actions.querySelector(".neral-source-link"),null);
+});
+test("source cards use brief hover and entry motion, respecting reduced motion",()=>{
+ const css=read("static/neral-reference-ui.css");
+ assert.match(css,/@keyframes neral-source-appear/);
+ assert.match(css,/\.neral-source-link:hover/);
+ assert.match(css,/prefers-reduced-motion:reduce[\s\S]*neral-source-link/);
+});
+
+
+test("live search eagerly fetches icons before the transient status disappears",()=>{
+ const listeners=new Map(),area=new El("main");
+ vm.runInNewContext(read("static/neral-motion.js"),{
+   window:{addEventListener:(name,fn)=>listeners.set(name,fn)},
+   document:{getElementById:id=>id==="messages"?area:null,createElement:t=>new El(t)},
+   URL,Date,MutationObserver:class {}
+ },{timeout:1500});
+ const fire=(phase,extra={})=>listeners.get("neral:activity")({detail:{phase,...extra}});
+ fire("searching");
+ fire("source-found",{source:{url:"https://example.org/ber",reachable:true,title:"Berlin Airport"}});
+ const img=area.querySelector(".neral-live-site-icon");
+ assert.ok(img);
+ assert.equal(img.loading,"eager","A short-lived live-search row must not defer its favicon fetch");
+});

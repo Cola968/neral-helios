@@ -22,7 +22,7 @@ test("responsive modern shell preserves every existing live tool and auth contro
     "showLogin","logout","exportChats","accountDialog","accountForm",
     "accountUsername","accountPassword","accountRegister",
     "accountManageDialog","accountCurrentPassword","accountNewPassword",
-    "connection","model","messages"
+    "messages"
   ]){
     assert.equal((h.match(new RegExp('id="'+id+'"',"g"))||[]).length,1,id+" must exist exactly once");
   }
@@ -32,7 +32,7 @@ test("responsive modern shell preserves every existing live tool and auth contro
   assert.match(h,/id="sidebarToggle"/);
   assert.match(h,/id="sidebarBackdrop"/);
   assert.match(h,/id="extraTools"/);
-  assert.match(h,/id="modelDetails"/);
+  assert.doesNotMatch(h,/id="modelDetails"/);
   assert.match(h,/class="composer-box"/);
   assert.match(h,/type="file"[^>]*multiple|multiple[^>]*type="file"/);
 });

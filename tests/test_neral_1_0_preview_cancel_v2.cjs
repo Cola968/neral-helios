@@ -19,7 +19,7 @@ function harness({ignoreAbort=false}={}){
       addEventListener(name,fn){handlers.set(id+":"+name,fn);},
       querySelector(){if(id==="chatForm")return {value:"fast"};return null;},
       append(...x){this.children.push(...x);if(id==="messages")rendered.push(...x);},
-      replaceChildren(){this.children=[];if(id==="messages")rendered.length=0;},
+      replaceChildren(...items){this.children=items;if(id==="messages"){rendered.length=0;rendered.push(...items);}},
       remove(){},focus(){},setAttribute(){},
       scrollHeight:0,scrollTop:0
     };
@@ -121,4 +121,15 @@ test("account switch clears an unsent private draft and selected files", async()
   assert.equal(h.element("prompt").value,"");
   assert.equal(h.element("projectFiles").value,"");
   assert.match(h.element("fileStatus").textContent,/Keine Dateien/);
+});
+
+test("switching to another saved chat removes previous attachment chips",async()=>{
+  const h=harness();await h.flush();
+  h.element("projectFiles").files=[{name:"private-screenshot.png",size:2048}];
+  h.handlers.get("projectFiles:change")();
+  assert.equal(h.element("attachmentChips").children.length,1);
+  h.emit("neral:load-chat",{messages:[]});
+  assert.equal(h.element("attachmentChips").children.length,0,
+    "The old account's attachment preview must not remain visible.");
+  assert.equal(h.element("projectFiles").value,"");
 });
