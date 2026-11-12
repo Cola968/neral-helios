@@ -10,7 +10,7 @@
     img.alt="";
     img.setAttribute("alt","");
     img.setAttribute("aria-hidden","true");
-    img.loading="lazy";
+    img.loading="eager"; // A transient search row must load icons immediately.
     img.decoding="async";
     img.referrerPolicy="no-referrer";
     img.addEventListener?.("load",()=>img.classList.add("neral-favicon-loaded"));
