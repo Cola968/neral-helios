@@ -58,7 +58,7 @@
     }
     function showProvider(name){
       if(!active||active.dataset.phase!=="searching" ||
-         !["DuckDuckGo HTML","Bing RSS"].includes(name) || providers.has(name))return;
+         !["DuckDuckGo HTML","Bing RSS","Wikipedia DE"].includes(name) || providers.has(name))return;
       providers.add(name);
       const box=detailsArea();
       let line=box.querySelector(".neral-live-provider");
@@ -67,7 +67,7 @@
         box.append(line);
       }
       line.textContent="Suchanbieter: "+[...providers]
-        .map(n=>n==="DuckDuckGo HTML"?"DuckDuckGo":"Bing").join(" · ");
+        .map(n=>n==="DuckDuckGo HTML"?"DuckDuckGo":n==="Bing RSS"?"Bing":"Wikipedia").join(" · ");
     }
     function showSearchQuery(query){
       if(!active||active.dataset.phase!=="searching"||
@@ -84,7 +84,8 @@
       line.textContent="Suchanfrage: "+query;
     }
     function showSource(source){
-      if(!active || source?.reachable!==true || typeof source.url!=="string" ||
+      if(!active || (source?.reachable!==true && source?.discovered!==true) ||
+         typeof source.url!=="string" ||
          sourceHosts.size>=5)return;
       let parsed;
       try{parsed=new URL(source.url);}catch{return;}
@@ -99,7 +100,7 @@
       if(!line){
         line=document.createElement("div");line.className="neral-live-sites";
         const label=document.createElement("span");
-        label.className="neral-live-sites-label";label.textContent="Gefundene Seiten:";
+        label.className="neral-live-sites-label";label.textContent="Suchmaschinen-Treffer · Seiten nicht gelesen:";
         line.append(label);box.append(line);
       }
       const link=document.createElement("a");

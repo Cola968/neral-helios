@@ -37,12 +37,15 @@ test("operational status never produces a large expandable activity box or histo
   assert.match(css,/\.neral-activity\{/);
   assert.match(css,/prefers-reduced-motion/);
 });
-test("only confirmed live search results may be injected or displayed",()=>{
+test("only explicitly typed relevant discovered results may be displayed; unverified sources are labeled",()=>{
   const js=read("static/neral-preview.js");
   assert.match(js,/verify_links:\s*true/);
   assert.match(js,/hit\.reachable===true/);
+  assert.match(js,/hit\.discovered===true/);
+  assert.match(js,/source\?\.discovered===true && source\?\.topically_relevant===true/);
+  assert.match(js,/parsed\.protocol!=="https:"/);
+  assert.match(js,/Erreichbarkeit der Zielseiten nicht geprüft/);
   assert.match(js,/if\(webAttempted\)appendSources\(answerNode,sources,true\)/);
-  assert.match(js,/if\(source\?\.reachable!==true/);
   assert.doesNotMatch(js,/if\(sources\.length\)appendSources\(sources\)/);
 });
 

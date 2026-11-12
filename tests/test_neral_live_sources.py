@@ -110,3 +110,86 @@ class LiveSourcesTests(unittest.TestCase):
                          ["DuckDuckGo HTML","Bing RSS"])
         self.assertEqual([x["title"] for x in sources],["Grok - xAI"])
         self.assertEqual([x["title"] for x in result["results"]],["Grok - xAI"])
+
+
+    def test_public_discovered_result_survives_failed_link_probe_for_all_searches(self):
+        """An unverified search-engine result is still an actual search result."""
+        examples=[
+            ("Flughafen Frankfurt","Frankfurt Airport – Fraport","https://www.frankfurt-airport.com/en.html"),
+            ("NASA Artemis","Artemis NASA Missions","https://www.nasa.gov/humans-in-space/artemis/"),
+            ("Python Dokumentation","Python Documentation","https://docs.python.org/3/"),
+            ("Wetter Berlin","Berlin Weather Forecast","https://example.org/berlin-weather"),
+        ]
+        for query,title,url in examples:
+            class Search:
+                def search(self,query,on_provider=None):
+                    if on_provider:on_provider("DuckDuckGo HTML")
+                    return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"title":title,"url":url,"snippet":"Official information"},
+                                   {"title":"Unrelated TV cooking","url":"https://example.org/cooking","snippet":"Dinner"}]}
+                def search_bing(self,query,on_provider=None):
+                    if on_provider:on_provider("Bing RSS")
+                    return []
+            app=Flask(__name__);register_web_search_api(app,Search())
+            with patch("neral_web_api.verify_public_https_url",return_value=None):
+                response=app.test_client().post("/api/web/search/stream",
+                    json={"query":query,"verify_links":True})
+                events=[json.loads(line) for line in response.response]
+            result=next(x["result"] for x in events if x["type"]=="result")
+            candidates=[x["source"] for x in events if x["type"]=="candidate"]
+            self.assertEqual(result["results"],[],query)
+            self.assertEqual([x["url"] for x in result["previews"]],[url],query)
+            self.assertEqual([x["url"] for x in candidates],[url],query)
+            self.assertTrue(result["previews"][0]["discovered"])
+            self.assertFalse(result["previews"][0]["reachable"])
+            self.assertTrue(result["previews"][0]["topically_relevant"])
+            self.assertLess(next(i for i,x in enumerate(events) if x["type"]=="candidate"),
+                            next(i for i,x in enumerate(events) if x["type"]=="result"))
+
+    def test_unrelated_previews_are_not_passed_to_any_model_prompt(self):
+        class Search:
+            def search(self,query,on_provider=None):
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                    "providers_contacted":["DuckDuckGo HTML"],
+                    "results":[{"url":"https://example.org/tv","title":"TV-Programm Berlin",
+                                "snippet":"Fernsehserien"},
+                               {"url":"http://localhost/private","title":"Frankfurt Airport",
+                                "snippet":"untrusted internal link"}]}
+            def search_bing(self,query,on_provider=None):
+                return []
+        app=Flask(__name__);register_web_search_api(app,Search())
+        with patch("neral_web_api.verify_public_https_url",return_value=None):
+            answer=app.test_client().post("/api/web/search",
+                json={"query":"Flughafen Frankfurt","verify_links":True}).get_json()
+        self.assertEqual(answer["results"],[])
+        self.assertEqual(answer["previews"],[])
+
+
+    def test_wikipedia_reference_fallback_after_offtopic_bing_results(self):
+        class Three:
+            def search(self,query,on_provider=None):
+                if on_provider:on_provider("DuckDuckGo HTML")
+                if on_provider:on_provider("Bing RSS")
+                return {"query":query,"provider":"Bing RSS",
+                    "providers_contacted":["DuckDuckGo HTML","Bing RSS"],
+                    "results":[{"title":"DAX Kurs","url":"https://example.org/boerse",
+                                "snippet":"Deutsche Aktien"}]}
+            def search_wikipedia(self,query,on_provider=None):
+                if on_provider:on_provider("Wikipedia DE")
+                self.last=query
+                return [{"title":"Flughafen Frankfurt Main","url":"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+                         "snippet":"Internationaler Flughafen in Frankfurt"}]
+        service=Three()
+        app=Flask(__name__);register_web_search_api(app,service)
+        with patch("neral_web_api.verify_public_https_url",
+                   side_effect=lambda url: url):
+            response=app.test_client().post("/api/web/search/stream",
+              json={"query":"Flughafen Frankfurt","verify_links":True})
+            events=[json.loads(x) for x in response.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual(service.last,"Flughafen Frankfurt")
+        self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+            ["DuckDuckGo HTML","Bing RSS","Wikipedia DE"])
+        self.assertEqual([x["title"] for x in result["results"]],["Flughafen Frankfurt Main"])
+        self.assertEqual(result["results"][0]["provider"],"Wikipedia DE")

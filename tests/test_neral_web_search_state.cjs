@@ -3,7 +3,7 @@ const {test}=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
 const {TextEncoder}=require("node:util");
 
-async function runPrompt(question,{web=false,results=[]}={}){
+async function runPrompt(question,{web=false,results=[],previews=[]}={}){
   const handlers=new Map(),elements={},calls=[];
   function element(id){
     return elements[id] ||= {value:"",textContent:"",checked:false,disabled:false,children:[],
@@ -22,7 +22,7 @@ async function runPrompt(question,{web=false,results=[]}={}){
     if(url.endsWith("/status"))
       return {ok:true,json:async()=>({model:"qwen3:8b",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false})};
     if(url==="/api/web/search")
-      return {ok:true,json:async()=>({results,provider:"fixture"})};
+      return {ok:true,json:async()=>({results,previews,provider:"fixture"})};
     if(url==="/api/neral/chat/generate")
       return {ok:true,json:async()=>({text:"Antwort",model_origin:"local_foundation_not_neral_adapter",adapter_loaded:false,model_generated:true})};
     throw new Error("Unexpected URL "+url);
@@ -107,4 +107,35 @@ test("verified web hits override stale Qwen empty-result boilerplate from the us
   assert.doesNotMatch(corrected,/keine belastbaren Treffer/i);
   assert.equal(normalise(stale,0,true),stale,"Zero source results must not be turned into success");
   assert.equal(normalise(stale,5,false),stale,"Offline answers must not be tampered with");
+});
+
+
+test("failed HEAD probes cannot hide genuine relevant search snippets from the local answer",async()=>{
+  const hits=[{title:"Frankfurt Airport – Fraport",url:"https://www.frankfurt-airport.com/en.html",
+    snippet:"Information about Frankfurt Airport",discovered:true,topically_relevant:true,reachable:false}];
+  const {calls}=await runPrompt("suche nach Flughafen Frankfurt",
+    {web:true,results:[],previews:hits});
+  const search=calls.find(c=>c.url==="/api/web/search");
+  assert.equal(search.body.query,"Flughafen Frankfurt");
+  const model=calls.find(c=>c.url==="/api/neral/chat/generate");
+  assert.ok(model);
+  assert.match(model.body.prompt,/Frankfurt Airport/);
+  assert.doesNotMatch(model.body.prompt,/Die Websuche lieferte keine passenden Treffer/);
+  assert.match(model.body.prompt,/nicht.*unabhängig.*geprüft|ungeprüft/i);
+});
+
+
+test("Frankfurt no-hits boilerplate is corrected when independent web tool has actual sources",()=>{
+  const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function normaliseSearchRefusal(");
+  const end=source.indexOf("  function relevantSearchResult(",start);
+  const clean=vm.runInNewContext(source.slice(start,end)+"\nnormaliseSearchRefusal");
+  const text="Ich habe die Websuche für deine Anfrage zum Flughafen Frankfurt durchgeführt. "+
+    "Wie in der Statusmeldung angegeben, lieferte diese Suche keine passenden oder belastbaren Treffer. "+
+    "Falls du allgemeine Informationen suchst, kann ich dir helfen.";
+  const result=clean(text,5,true,5);
+  assert.match(result,/5 erreichbare Treffer/);
+  assert.doesNotMatch(result,/keine passenden oder belastbaren Treffer/);
+  assert.equal(clean(text,0,true,0),text);
+  assert.equal(clean(text,5,false,5),text);
 });
