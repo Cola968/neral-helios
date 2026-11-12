@@ -10,7 +10,7 @@ on:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer]
+        options: [readiness, logic, transfer, both]
 permissions:
   contents: read
 jobs:
@@ -57,7 +57,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
       inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
-      inputs.mode == 'logic' || inputs.mode == 'transfer'
+      (inputs.mode == 'logic' || inputs.mode == 'transfer' || inputs.mode == 'both')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -92,7 +92,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
       inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
-      inputs.mode == 'logic'
+      (inputs.mode == 'logic' || inputs.mode == 'both')
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
@@ -110,6 +110,7 @@ jobs:
       TARGET_SHA: '0341853b5184708790cca96e866e37870e1c8b43'
       MANUAL_AUTH: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
       OUTER_SEED: '202611110533'
+      RUN_BOTH: ${{ inputs.mode == 'both' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -143,6 +144,10 @@ jobs:
           $py=Join-Path $venv 'Scripts\python.exe'
           & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'candidate/requirements-neral-preview.txt')
           if($LASTEXITCODE -ne 0){throw 'Missing preview dependencies'}
+          if($env:RUN_BOTH -eq '1'){
+            & docker image inspect python:3.11-alpine *> $null
+            if($LASTEXITCODE -ne 0){throw 'Local Docker Linux engine or offline sandbox image missing'}
+          }
           [IO.File]::AppendAllText($env:GITHUB_ENV, ('TWO_GATE_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
       - name: Run only real local RTX logic gate B and export scalar telemetry
         run: |
@@ -152,8 +157,10 @@ jobs:
           $env:PYTHONPATH=$candidate
           Push-Location $candidate
           try {
-            & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_two_gate_live.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate --seed $env:OUTER_SEED
-            if($LASTEXITCODE -ne 0){throw 'Logic-only GPU gate rejected; TIR12 NOT authorized'}
+            $flag=@()
+            if($env:RUN_BOTH -eq '1'){$flag=@('--run-both')}
+            & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_two_gate_live.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate --seed $env:OUTER_SEED @flag
+            if($LASTEXITCODE -ne 0){throw 'PR533 A/B GPU gate rejected; TIR12 NOT authorized'}
           } finally { Pop-Location }
 
   gpu-logic-transfer:
