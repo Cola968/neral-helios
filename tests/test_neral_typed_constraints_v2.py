@@ -153,7 +153,8 @@ class RejectAmbiguityAndUnsafeInputs(unittest.TestCase):
         fake={"text":"2","mode":"HIGH","verified":True,
               "model_generated":True,"verification_status":"formal_schema_exact",
               "verification_scope":"explicit_finite_domain_schema",
-              "tool_used":"neral_logic_exact","tool_calls_succeeded":1}
+              "tool_used":"neral_logic_exact","tool_calls_succeeded":1,
+              "calls_used":1,"seconds":0.01}
         selected=choose_guarded_tir_reply(fake,[
             {"role":"system","content":"Base"},{"role":"user","content":"Some text puzzle"}],
             lambda _: "FINAL_ANSWER: 3")
