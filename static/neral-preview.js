@@ -319,11 +319,8 @@
          status.model!==session.model || status.adapter_loaded!==false) {
         throw new Error("Unbekannte Modellherkunft. NERAL-Chat verweigert.");
       }
-      $("model").textContent=status.model;
-      $("connection").textContent="Lokal verbunden · "+status.model;
     } catch(e) {
       csrf=null;
-      $("connection").textContent="Nicht verbunden";
       errors.textContent=e.message;
     }
   }

@@ -19,9 +19,9 @@ test("real chat, account, attachments, voice and model controls survive redesign
   const markup=html();
   for(const id of [
     "neralSidebar","savedChatList","newSavedChat","searchChats","projectFiles",
-    "accountName","showLogin","model","connection","messages","chatForm","prompt",
+    "accountName","showLogin","messages","chatForm","prompt",
     "submit","stopRequest","voiceInput","localVoiceStart","extraTools","useWebSearch",
-    "privacyDetails","modelDetails","sidebarToggle","chatSearchInput",
+    "privacyDetails","sidebarToggle","chatSearchInput",
     "modeDropdownTrigger","modeDropdownMenu","modeOptionLow","modeOptionHigh",
     "themeToggle","projectFilesShortcut"
   ])assert.ok(markup.includes('id="'+id+'"'),"Missing "+id);
@@ -33,7 +33,7 @@ test("no pseudo conversations, flashy hero prose, or fake connection claims",()=
   const markup=html();
   assert.doesNotMatch(markup,/Code debuggen<\/button>|Frage analysieren<\/button>/);
   assert.doesNotMatch(markup,/Dein intelligenter Begleiter|Willkommen in der Zukunft|Erlebe die Zukunft/);
-  assert.match(markup,/id="connection"/);
+  assert.doesNotMatch(markup,/id="connection"/);
   assert.match(markup,/id="savedChatList"/);
   assert.ok(!markup.includes('id="fakeHistory"'));
 });

@@ -23,7 +23,7 @@ test("advanced menu owns browser voice, theme and protected existing tools",()=>
   for(const id of ["voiceInput","themeToggle","codeCheck","clear","showPrivacy","stopVoice","voiceOutput","voiceAutoSend","voiceSpeed"])
     assert.match(panel,new RegExp(`id="${id}"`),id+" stays reachable");
   const all=ids(h);
-  for(const id of ["projectFiles","voiceInput","themeToggle","formulaLibraryToggle","extraTools","modeDropdownTrigger","localVoiceStart","modelDetails"])
+  for(const id of ["projectFiles","voiceInput","themeToggle","formulaLibraryToggle","extraTools","modeDropdownTrigger","localVoiceStart"])
     assert.equal(all.filter(x=>x===id).length,1,id+" has exactly one live control");
 });
 test("design has calm centered message column and dark, mobile and keyboard focus states",()=>{
