@@ -24,9 +24,10 @@ class LogicFailureProvenance(unittest.TestCase):
                 raise AssertionError("No tool model may replace base fallback")
             raise OllamaTransportFailure({"reason":"token_limit","done_reason":"length",
                 "http_status":200,"attempts":1})
-        def fake_tir(messages,respond,*,extract_constraints):
+        def fake_tir(messages,respond,*,extract_constraints,extraction_rejection_sink):
             extract_constraints([{"role":"system","content":"schema"},
                                   {"role":"user","content":"source"}])
+            extraction_rejection_sink.append("invalid_input")
             respond([dict(x) for x in messages])
             raise AssertionError("Unreachable")
         with patch("neral_dual_routing.require_exact_models",return_value={}), \
@@ -41,6 +42,7 @@ class LogicFailureProvenance(unittest.TestCase):
         self.assertEqual(packet["done_reason"],"length")
         self.assertEqual(packet["http_status"],200)
         self.assertEqual(packet["inference_phase"],"base_controller_fallback")
+        self.assertEqual(packet["extraction_rejection_reason"],"invalid_input")
         self.assertEqual(packet["schema_attempts"],1)
         self.assertEqual(packet["model_proposal_calls"],0)
         self.assertEqual(packet["base_fallback_attempts"],1)
@@ -54,7 +56,7 @@ class LogicFailureProvenance(unittest.TestCase):
                 raise OllamaTransportFailure({"reason":"token_limit",
                     "done_reason":"length","http_status":200})
             raise AssertionError("Not reached")
-        def fake_tir(messages,respond,*,extract_constraints):
+        def fake_tir(messages,respond,*,extract_constraints,extraction_rejection_sink):
             extract_constraints([{"role":"system","content":"schema"},
                                   {"role":"user","content":"source"}])
             raise AssertionError("Not reached")
