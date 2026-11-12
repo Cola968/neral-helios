@@ -16,7 +16,7 @@ import sys
 import time
 
 AUTH = "NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY"
-TARGET = "73366a4cf0d183001622b1a2b96cd2db37cef042"
+TARGET = "0341853b5184708790cca96e866e37870e1c8b43"
 OUTER_SEED = 202611110533
 SUFFIX = "\nGib das Ergebnis in der letzten Zeile exakt als FINAL_ANSWER: <integer> aus."
 SOURCE = (
