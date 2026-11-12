@@ -152,6 +152,49 @@ class FirstTurnFailureHttpContracts(unittest.TestCase):
         self.assertNotIn("PRIVATE_NOT_FOR_CLIENT",str(response.json))
 
 
+
+class ScalarRejectionOnLaterTokenLimit(unittest.TestCase):
+    def test_503_retains_first_extractor_reason_without_model_reply(self):
+        from unittest.mock import patch
+        from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
+        from neral_preview_server import create_preview_app
+
+        def fake_extract(backend, turns, *, repair_turn=False):
+            self.assertFalse(repair_turn)  # One invalid first envelope needs no retry.
+            backend.last_inference_diagnostic = {
+                "eval_count": 287, "prompt_eval_count": 800,
+                "done_reason": "stop", "content": "PRIVATE_MODEL_JSON_NOT_AUDITED"}
+            return '{"kind":"formal","complete":true}'
+
+        def fake_chat(backend, turns):
+            raise OllamaCompletionError("token_limit")
+
+        low = OllamaLocalBackend("qwen3:8b")
+        high = OllamaLocalBackend("qwen3.5:9b",
+                                 inference_profile="measured_nonthinking_2048")
+        client = create_preview_app(low, experimental_high_backend=high).test_client()
+        client.get("/", base_url="http://127.0.0.1:9690")
+        session = client.get("/api/neral/preview/session",
+                             base_url="http://127.0.0.1:9690")
+        with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "1"}), patch.object(
+                OllamaLocalBackend, "respond_formal_extract", fake_extract), patch.object(
+                OllamaLocalBackend, "respond_chat", fake_chat), patch.object(
+                OllamaLocalBackend, "unload", lambda self: None):
+            response = client.post("/api/neral/chat/think",
+                json={"prompt": "Count complete arrangements subject to constraints.",
+                      "experimental_tir": True},
+                headers={"X-Neral-CSRF": session.json["csrf"]},
+                base_url="http://127.0.0.1:9690")
+        self.assertEqual(response.status_code, 503, response.get_json())
+        self.assertEqual(response.json["error_code"], "token_limit")
+        event = response.json["first_turn_telemetry"]
+        self.assertEqual(event["eval_count"], 287)
+        self.assertEqual(event["done_reason"], "stop")
+        self.assertEqual(event["decision"], "unavailable_on_failure")
+        self.assertEqual(event["extraction_rejection_reason"], "invalid_envelope")
+        self.assertNotIn("PRIVATE_MODEL_JSON_NOT_AUDITED", str(response.json))
+
+
 class BenchmarkTelemetrySafety(unittest.TestCase):
     def test_scalar_filter_never_leaks_arbitrary_payload(self):
         from scripts.neral_tir_hard_live import safe_first_turn_event
@@ -162,12 +205,21 @@ class BenchmarkTelemetrySafety(unittest.TestCase):
         self.assertEqual(filtered, {"eval_count":2048,"prompt_eval_count":110,
                          "done_reason":"stop","decision":"unstructured"})
         self.assertNotIn("TOP_SECRET",str(filtered))
-        for decision in ("extracted_formal", "extraction_fallback"):
+        for decision in ("extracted_formal", "extraction_fallback", "extraction_none"):
             with self.subTest(decision=decision):
                 candidate = dict(event, decision=decision)
                 self.assertEqual(
                     safe_first_turn_event(candidate)["decision"], decision)
                 self.assertNotIn("TOP_SECRET", str(safe_first_turn_event(candidate)))
+
+        safe = safe_first_turn_event(dict(event,
+            decision="unavailable_on_failure",
+            extraction_rejection_reason="invalid_envelope",
+            content="UNTRUSTED_MODEL_REPLY"))
+        self.assertEqual(safe["extraction_rejection_reason"], "invalid_envelope")
+        self.assertNotIn("UNTRUSTED_MODEL_REPLY",str(safe))
+        self.assertIsNone(safe_first_turn_event(dict(event,
+            extraction_rejection_reason="UNTRUSTED_MODEL_REPLY")))
 
         self.assertIsNone(safe_first_turn_event(
             {"eval_count":True,"prompt_eval_count":0,"done_reason":"stop",

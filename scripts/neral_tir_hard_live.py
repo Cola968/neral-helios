@@ -217,9 +217,128 @@ def safe_first_turn_event(event: object) -> dict | None:
                 "tool", "final", "unstructured",
                 "deterministic_formal", "deterministic_rejected",
                 "extracted_formal", "extraction_fallback",
-                "unavailable_on_failure")):
+                "extraction_none", "unavailable_on_failure",
+                "direct_python_source")):
         return None
-    return {**counts, "done_reason": reason, "decision": decision}
+    from neral_turn0_extractor import (
+        EXTRACTION_RESULT_CODES, SOLVER_REJECTION_DETAIL_CODES,
+    )
+    rejected = event.get("extraction_rejection_reason")
+    if rejected is not None and rejected not in EXTRACTION_RESULT_CODES:
+        return None
+    detail = event.get("solver_rejection_detail")
+    if detail is not None and detail not in SOLVER_REJECTION_DETAIL_CODES:
+        return None
+    from neral_turn0_extractor import AST_CHECK_CODES
+    ast_code = event.get("ast_check_code")
+    if ast_code is not None and ast_code not in AST_CHECK_CODES:
+        return None
+    repair_status = event.get("solver_repair_status")
+    if repair_status is not None and repair_status not in (
+            "repaired", "retry_unsat", "retry_rejected"):
+        return None
+    repair_format = event.get("solver_repair_input_format")
+    if repair_format is not None and repair_format not in (
+            "plain_json", "prefixed_json", "fenced_json",
+            "prefixed_fenced_json", "invalid_response", "invalid_wrapping"):
+        return None
+    repair_rejection = event.get("solver_repair_rejection_reason")
+    if (repair_rejection is not None
+            and repair_rejection not in EXTRACTION_RESULT_CODES):
+        return None
+    repair_detail = event.get("solver_repair_solver_detail")
+    if (repair_detail is not None
+            and repair_detail not in SOLVER_REJECTION_DETAIL_CODES):
+        return None
+    repair_ast = event.get("solver_repair_ast_check_code")
+    if repair_ast is not None and repair_ast not in AST_CHECK_CODES:
+        return None
+    bucket = event.get("solver_solution_count_bucket")
+    if bucket is not None and bucket not in (
+            "zero_unsat", "single_solution", "multiple_solutions"):
+        return None
+    from neral_turn0_extractor import SOLVER_RELAXATION_STATUS_CODES
+    relaxation_status = event.get("solver_relaxation_status")
+    if (relaxation_status is not None
+            and relaxation_status not in SOLVER_RELAXATION_STATUS_CODES):
+        return None
+    relaxation_bucket = event.get("solver_relaxation_count_bucket")
+    if relaxation_bucket is not None and relaxation_bucket not in (
+            "single_solution", "multiple_solutions"):
+        return None
+    core_size = event.get("unsat_core_size")
+    if (core_size is not None
+            and (type(core_size) is not int or not 1 <= core_size <= 12)):
+        return None
+    core_index = event.get("unsat_core_index")
+    if (core_index is not None
+            and (type(core_index) is not int or not 0 <= core_index < 12
+                 or core_size != 1)):
+        return None
+    relaxed_index = event.get("relaxed_constraint_index")
+    if (relaxed_index is not None
+            and (type(relaxed_index) is not int or not 0 <= relaxed_index < 32)):
+        return None
+    from neral_turn0_extractor import UNSAT_CLAUSE_OP_CODES
+    unsat_op = event.get("unsat_clause_op")
+    if unsat_op is not None and (type(unsat_op) is not str
+                                 or unsat_op not in UNSAT_CLAUSE_OP_CODES
+                                 or core_size != 1):
+        return None
+    unsat_has_literal = event.get("unsat_clause_has_literal")
+    if unsat_has_literal is not None and (
+            type(unsat_has_literal) is not bool or core_size != 1):
+        return None
+    post_count = event.get("post_relaxation_solution_count")
+    if post_count is not None and (
+            type(post_count) is not int or not 0 <= post_count <= 4096
+            or core_size != 1):
+        return None
+    literal_context = event.get("boolean_literal_context")
+    if literal_context is not None and literal_context not in (
+            "at_least", "exactly", "eq", "standalone", "other", "multiple"):
+        return None
+    source_counts = {}
+    for key in ("extracted_constraint_count", "expected_sentence_clues"):
+        value = event.get(key)
+        if value is not None and (type(value) is not int or not 0 <= value <= 32):
+            return None
+        if value is not None:
+            source_counts[key] = value
+    return {**counts, "done_reason": reason, "decision": decision,
+            **source_counts,
+            **({"solver_repair_status": repair_status}
+               if repair_status is not None else {}),
+            **({"solver_repair_input_format": repair_format}
+               if repair_format is not None else {}),
+            **({"solver_repair_rejection_reason": repair_rejection}
+               if repair_rejection is not None else {}),
+            **({"solver_repair_solver_detail": repair_detail}
+               if repair_detail is not None else {}),
+            **({"solver_repair_ast_check_code": repair_ast}
+               if repair_ast is not None else {}),
+            **({"solver_solution_count_bucket": bucket} if bucket is not None else {}),
+            **({"solver_relaxation_status": relaxation_status}
+               if relaxation_status is not None else {}),
+            **({"solver_relaxation_count_bucket": relaxation_bucket}
+               if relaxation_bucket is not None else {}),
+            **({"unsat_core_size": core_size} if core_size is not None else {}),
+            **({"unsat_core_index": core_index} if core_index is not None else {}),
+            **({"unsat_clause_op": unsat_op} if unsat_op is not None else {}),
+            **({"unsat_clause_has_literal": unsat_has_literal}
+               if unsat_has_literal is not None else {}),
+            **({"post_relaxation_solution_count": post_count}
+               if post_count is not None else {}),
+            **({"relaxed_constraint_index": relaxed_index}
+               if relaxed_index is not None else {}),
+            **({"boolean_literal_context": literal_context}
+               if literal_context is not None else {}),
+            **({"extraction_rejection_reason": rejected}
+               if rejected is not None else {}),
+            **({"solver_rejection_detail": detail}
+               if detail is not None else {}),
+            **({"ast_check_code": ast_code}
+               if ast_code is not None else {})}
 
 
 def _run_one(arm: str, question: str, backend, client, headers: dict):

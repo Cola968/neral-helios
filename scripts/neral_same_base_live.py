@@ -140,12 +140,33 @@ def checked_high_packet(packet: object) -> str:
                         "model_extracted_finite_domain"
                         and packet.get("tool_output_reviewed") is False
                         and packet.get("verified") is False
-                        and packet.get("extraction_status") == "accepted")
+                        and packet.get("extraction_status") in ("accepted", "repaired"))
+                    or (packet.get("verification_status") ==
+                        "base_fallback_unverified"
+                        and packet.get("verification_scope") == "none"
+                        and packet.get("tool_output_reviewed") is False
+                        and packet.get("verified") is False
+                        # This records execution provenance only, NOT a
+                        # claim that the fallback answer used tool stdout.
+                        and packet.get("tool_calls_triggered") == 1
+                        and packet.get("tool_calls_succeeded") == 1)
                 ))
             or (packet.get("tool_used") is not None
                 and packet["model_generated"] is True
                 and (type(packet.get("tool_calls_succeeded")) is not int
-                     or packet["tool_calls_succeeded"] < 1))):
+                     or packet["tool_calls_succeeded"] < 1
+                     or type(packet.get("tool_calls_triggered")) is not int
+                     or packet["tool_calls_triggered"] < packet["tool_calls_succeeded"]))
+            or (packet.get("verification_scope") == "exact_user_python_execution"
+                and not (
+                    packet.get("tool_used") == "neral_python_sandbox"
+                    and packet.get("verification_status") == "verified"
+                    and packet.get("review_method") == "exact_user_ast_match"
+                    and packet.get("verified") is True
+                    and packet.get("model_generated") is False
+                    and packet.get("tool_output_reviewed") is True
+                    and packet.get("tool_calls_triggered") == 1
+                    and packet.get("tool_calls_succeeded") == 1))):
         raise PilotBlocked("Invalid HIGH provenance, tool evidence or complete answer")
     return packet["text"]
 

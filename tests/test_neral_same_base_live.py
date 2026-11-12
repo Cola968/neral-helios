@@ -64,6 +64,27 @@ class CollectorPolicy(unittest.TestCase):
         with self.assertRaises(PilotBlocked):
             checked_high_packet({**packet,"tool_used":"neral_math_exact"})
 
+    def test_repaired_formal_packet_is_unverified_but_accepted_for_reporting(self):
+        base = {
+            "model": MODEL, "model_origin": "local_foundation_not_neral_adapter",
+            "inference_profile": "measured_nonthinking_2048",
+            "adapter_loaded": False, "mode": "HIGH", "text": "FINAL_ANSWER: 12",
+            "model_generated": True, "tool_used": "neral_logic_exact",
+            "verification_status": "model_extracted_schema_unverified",
+            "verification_scope": "model_extracted_finite_domain",
+            "tool_output_reviewed": False, "verified": False,
+            "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
+            "extraction_status": "repaired",
+        }
+        self.assertEqual(checked_high_packet(base), "FINAL_ANSWER: 12")
+        for field, value in (
+            ("verified", True), ("tool_output_reviewed", True),
+            ("verification_scope", "exact_user_python_execution"),
+            ("extraction_status", "fallback"),
+        ):
+            with self.subTest(field=field), self.assertRaises(PilotBlocked):
+                checked_high_packet({**base, field: value})
+
     def test_private_observation_carries_identical_user_prompt_hash(self):
         packet=observation("What is 3+4?\nFINAL_ANSWER:", "7", True, False,
                            2.75, None)

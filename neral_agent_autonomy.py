@@ -163,17 +163,20 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=False)
 
-    def respond_formal_extract(self, messages: list[dict]) -> str:
-        """Opt-in, local, nonthinking 384-token JSON constraint extraction.
+    def respond_formal_extract(self, messages: list[dict], *,
+                               repair_turn: bool = False) -> str:
+        """Opt-in structured JSON: 384-token first pass, 1536-token retry.
 
-        No effect on raw Qwen, normal LOW/HIGH chat or model weights.
+        The longer budget is available only for the one controller-authorized
+        repair turn; direct Qwen, normal chat and model weights stay unchanged.
         """
         if (self.model != "qwen3.5:9b"
-                or self.inference_profile != "measured_nonthinking_2048"):
+                or self.inference_profile != "measured_nonthinking_2048"
+                or type(repair_turn) is not bool):
             raise AgentModelError("Constraint extraction requires measured local HIGH.")
         with self._inference_lock:
             return self._respond(messages, require_json=True,
-                                 extraction_only=True)
+                                 extraction_only=True, repair_only=repair_turn)
 
     def respond_think(self, messages: list[dict]) -> str:
         # Separate, opt-in local reasoning channel. Do not return raw thoughts.
@@ -271,21 +274,25 @@ class OllamaLocalBackend:
     def _respond(self, messages: list[dict], *, require_json: bool,
                  thinking: bool = False, final_only: bool = False,
                  rescue_long_final: bool = False,
-                 extraction_only: bool = False) -> str:
+                 extraction_only: bool = False,
+                 repair_only: bool = False) -> str:
         if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
         if final_only and rescue_long_final:
             raise AgentModelError("Abschluss-Nachschlag darf nicht rekursiv sein.")
+        if (repair_only and (not extraction_only or type(repair_only) is not bool)):
+            raise AgentModelError("Repair budget requires bounded JSON extraction.")
         if extraction_only and (not require_json or thinking
                                 or final_only or rescue_long_final):
             raise AgentModelError("Invalid opt-in constraint extraction mode.")
-        # Raw Qwen and the existing TIR calls keep the exact 2,048-token
-        # measured profile. Only the NEW JSON extractor gets 384 tokens.
+        # Direct Qwen keeps 2,048 tokens. Only the bounded second schema
+        # proposal gets 1,536; first extraction stays at 384 tokens.
         measured = (self.inference_profile == "measured_nonthinking_2048"
                     and (not require_json or extraction_only))
         budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
         options = (
-            {"temperature": 0, "num_predict": 384, "num_ctx": 4096}
+            {"temperature": 0, "num_predict": (1536 if repair_only else 384),
+             "num_ctx": 4096}
             if extraction_only else
             {"temperature": 0, "num_predict": 64, "num_ctx": 4096}
             if final_only else

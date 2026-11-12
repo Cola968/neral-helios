@@ -1,0 +1,62 @@
+name: NERAL PR505 routing and parser diagnostics CPU
+on:
+  push:
+    branches: [fix/neral-pr505-tir-cpu-routing-diagnostics-20261111]
+permissions:
+  contents: read
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt
+      - name: Turn-0 router and parser CPU tests
+        run: python -B -m unittest discover -s tests -p test_neral_tir_turn0.py -v
+      - name: Measured Ollama repair budget, diagnostics and unchanged baseline contracts
+        run: python -B -m unittest discover -s tests -p test_neral_ollama_diagnostics.py -v
+      - name: Existing TIR behavior and sandbox contracts (mocked)
+        run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
+      - name: Baseline TIR safety and telemetry
+        run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
+      - name: Structural routing and syntax
+        run: python -B -m unittest discover -s tests -p test_neral_tir_structural.py -v
+      - name: CPU contract DirectUserSourceCPU.test_direct_original_code_no_model_rewrite
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_direct_original_code_no_model_rewrite
+      - name: CPU contract DirectUserSourceCPU.test_fix_request_must_not_run_original_code_as_solution
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_fix_request_must_not_run_original_code_as_solution
+      - name: CPU contract DirectUserSourceCPU.test_never_auto_execute_unsafe_or_ambiguous_source
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_never_auto_execute_unsafe_or_ambiguous_source
+      - name: CPU contract DirectUserSourceCPU.test_sandbox_unavailable_fails_closed
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_sandbox_unavailable_fails_closed
+      - name: CPU contract DirectUserSourceCPU.test_terminal_fenced_python_runs_unchanged
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.DirectUserSourceCPU.test_terminal_fenced_python_runs_unchanged
+      - name: CPU contract OneTurnConstraintRepairCPU.test_malformed_retry_falls_back_unverified
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_malformed_retry_falls_back_unverified
+      - name: CPU contract OneTurnConstraintRepairCPU.test_multiple_assignments_count_not_blocked_by_one_solution_gate
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_multiple_assignments_count_not_blocked_by_one_solution_gate
+      - name: CPU contract OneTurnConstraintRepairCPU.test_no_retry_on_unrelated_parser_failure
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_no_retry_on_unrelated_parser_failure
+      - name: CPU contract OneTurnConstraintRepairCPU.test_only_one_retry_even_if_retry_is_unsat
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_only_one_retry_even_if_retry_is_unsat
+      - name: CPU contract OneTurnConstraintRepairCPU.test_unsat_feedback_one_retry_and_solver_result
+        run: PYTHONPATH=.:tests python -B -m unittest -v test_neral_pr533_compound_controller_cpu.OneTurnConstraintRepairCPU.test_unsat_feedback_one_retry_and_solver_result
+      - name: PR533 compound direct source and one-turn solver repair CPU
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_compound_controller_cpu.py -v
+      - name: PR533 deeper singleton UNSAT and Expr diagnostics
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_deep_structure_cpu.py -v
+      - name: PR533 first AST diff and minimal UNSAT core regression
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_unsat_core_ast_diff_cpu.py -v
+      - name: PR533 model-relaxation and proven integer AST semantics CPU tests
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_unsat_semantic_cpu.py -v
+      - name: PR533 UNSAT and structural AST fingerprint regression
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_structural_fingerprints.py -v
+      - name: PR533 literal cardinality and AST equivalence regression
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_boolean_ast_gpu_regression.py -v
+      - name: TIR12 CPU scoring regression
+        run: python -B -m unittest discover -s tests -p test_neral_tir12_manual.py -v

@@ -459,6 +459,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         first_turn_probe_armed = False
         first_turn_prior_event = None
         first_turn_actual_event = None
+        first_turn_rejection_codes: list[str] = []
+        first_turn_solver_details: list[str] = []
         try:
             started = time.monotonic()
             identity = _runtime_identity_reply(data[-1]["content"], high_backend)
@@ -527,23 +529,34 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         return {}
                     first_turn_actual_event = event
                     return event
+                formal_extract_calls = 0
                 def bounded_formal_extract(turns):
-                    nonlocal first_turn_actual_event
-                    # Capture metadata even if Ollama terminates the short JSON
-                    # generation with done_reason=length. No model text persists.
+                    nonlocal first_turn_actual_event, formal_extract_calls
+                    # run_experimental_tir permits exactly one original proposal
+                    # and at most one complete solver-feedback repair. Do not
+                    # increase the general Qwen budget or allow extra retries.
+                    formal_extract_calls += 1
+                    if formal_extract_calls > 2:
+                        raise AgentModelError("Formal extraction retry limit.")
                     try:
-                        return high_backend.respond_formal_extract(turns)
+                        return high_backend.respond_formal_extract(
+                            turns, repair_turn=(formal_extract_calls == 2))
                     finally:
-                        event = high_backend.last_inference_diagnostic
-                        if event is not previous_event and type(event) is dict:
-                            first_turn_actual_event = event
+                        # Snapshot only the initial extraction. Subsequent
+                        # model calls must not overwrite first-turn telemetry.
+                        if formal_extract_calls == 1:
+                            event = high_backend.last_inference_diagnostic
+                            if event is not previous_event and type(event) is dict:
+                                first_turn_actual_event = event
                 result = run_experimental_tir(
                     data, high_backend.respond_chat,
                     finalize_review=(bounded_observation_review
                                      if bounded_final else None),
                     first_turn_diagnostic=first_turn_diagnostic,
                     extract_constraints=(bounded_formal_extract
-                                         if bounded_final else None))
+                                         if bounded_final else None),
+                    extraction_rejection_sink=first_turn_rejection_codes,
+                    solver_rejection_detail_sink=first_turn_solver_details)
                 return jsonify({**result, "experimental_tir": True,
                                 **_provenance(high_backend)})
             previous_event = (
@@ -602,6 +615,17 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                             "stop", "length", "load", "unload", "other") else None,
                         "decision": "unavailable_on_failure",
                     }
+                    # A later fallback failure still carries only the fixed
+                    # parser rejection label from the earlier extraction.
+                    from neral_turn0_extractor import (
+                        EXTRACTION_RESULT_CODES, SOLVER_REJECTION_DETAIL_CODES,
+                    )
+                    if (first_turn_rejection_codes
+                            and first_turn_rejection_codes[-1] in EXTRACTION_RESULT_CODES):
+                        error_packet["first_turn_telemetry"]["extraction_rejection_reason"] = first_turn_rejection_codes[-1]
+                    if (first_turn_solver_details and
+                            first_turn_solver_details[-1] in SOLVER_REJECTION_DETAIL_CODES):
+                        error_packet["first_turn_telemetry"]["solver_rejection_detail"] = first_turn_solver_details[-1]
             return jsonify(error_packet), 503
         except AgentModelError:
             # A local Ollama transport/backend failure is distinct from
