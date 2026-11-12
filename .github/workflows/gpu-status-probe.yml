@@ -665,7 +665,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '94727b45956061c6b8eda32601f640f5eee34afe'
+          ref: 'd0dc31b5a0eb9cb3053a53a6ed796c1640bda2f9'
           persist-credentials: false
           path: candidate
       - uses: actions/setup-python@v5
@@ -698,11 +698,11 @@ jobs:
       TRANSFORMERS_OFFLINE: '1'
       HF_HUB_OFFLINE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
-      PINNED_TRANSFER_SHA: '94727b45956061c6b8eda32601f640f5eee34afe'
+      PINNED_TRANSFER_SHA: 'd0dc31b5a0eb9cb3053a53a6ed796c1640bda2f9'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '94727b45956061c6b8eda32601f640f5eee34afe'
+          ref: 'd0dc31b5a0eb9cb3053a53a6ed796c1640bda2f9'
           path: candidate
           persist-credentials: false
           clean: true
@@ -729,9 +729,10 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
-          $dir=Join-Path $env:GITHUB_WORKSPACE 'neral_transfer100_scalar'
+          $dir=Join-Path $env:RUNNER_TEMP ('neral-transfer100-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $dir){throw 'Existing run output; refuse overwrite'}
           New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_TRANSFER_DIR='+$dir+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
           $py='D:\neral-qlora\venv\Scripts\python.exe'
           Push-Location $candidate
           try {
@@ -742,7 +743,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
-          $dir=Join-Path $env:GITHUB_WORKSPACE 'neral_transfer100_scalar'
+          $dir=Join-Path $env:RUNNER_TEMP ('neral-transfer100-'+$env:GITHUB_RUN_ID)
           $py='D:\neral-qlora\venv\Scripts\python.exe'
           Push-Location $candidate
           try {
@@ -755,8 +756,8 @@ jobs:
         with:
           name: neral-qwen35-100-transfer-pr537-gpu-scalars
           path: |
-            neral_transfer100_scalar/cases-manifest.json
-            neral_transfer100_scalar/paired-100-scalar.json
-            neral_transfer100_scalar/paired-100-scalar.progress.jsonl
+            ${{ env.NERAL_TRANSFER_DIR }}/cases-manifest.json
+            ${{ env.NERAL_TRANSFER_DIR }}/paired-100-scalar.json
+            ${{ env.NERAL_TRANSFER_DIR }}/paired-100-scalar.progress.jsonl
           retention-days: 14
           if-no-files-found: warn
