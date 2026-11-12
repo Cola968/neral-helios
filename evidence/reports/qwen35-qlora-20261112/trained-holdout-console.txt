@@ -1,0 +1,25 @@
+HOLDOUT_PROGRESS 1/24
+HOLDOUT_PROGRESS 2/24
+HOLDOUT_PROGRESS 3/24
+HOLDOUT_PROGRESS 4/24
+HOLDOUT_PROGRESS 5/24
+HOLDOUT_PROGRESS 6/24
+HOLDOUT_PROGRESS 7/24
+HOLDOUT_PROGRESS 8/24
+HOLDOUT_PROGRESS 9/24
+HOLDOUT_PROGRESS 10/24
+HOLDOUT_PROGRESS 11/24
+HOLDOUT_PROGRESS 12/24
+HOLDOUT_PROGRESS 13/24
+HOLDOUT_PROGRESS 14/24
+HOLDOUT_PROGRESS 15/24
+HOLDOUT_PROGRESS 16/24
+HOLDOUT_PROGRESS 17/24
+HOLDOUT_PROGRESS 18/24
+HOLDOUT_PROGRESS 19/24
+HOLDOUT_PROGRESS 20/24
+HOLDOUT_PROGRESS 21/24
+HOLDOUT_PROGRESS 22/24
+HOLDOUT_PROGRESS 23/24
+HOLDOUT_PROGRESS 24/24
+NERAL_HOLDOUT_SCALARS {"by_family": {"boolean_at_least_unseen": {"correct": 7, "total": 12}, "ordering_3_to_4_unseen_names": {"correct": 12, "total": 12}}, "controller_final_correct": 19, "controller_formal_accepted": 19, "controller_formal_correct": 19, "gpu_offload_mib": 5098, "gpu_offload_observed": true, "max_first_predict": 384, "max_repair_predict": 1536, "model": "neral-qwen35-qlora-v1:latest", "model_digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8", "parent_baseline_sha": "d280516e1a28a1cbdbc5b6b9b89d694769f6292f", "raw_correct": 19, "raw_error": 0, "raw_schema_accepted": 19, "repair_accepted": 0, "repair_attempted": 5, "repair_correct": 0, "seed_base": 202611120536, "status": "REAL_OLLAMA_24_HOLDOUT_DEV_NONBLIND", "temperature": 0, "thinking": false, "total": 24}

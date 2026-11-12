@@ -40,3 +40,20 @@ b3_sources_auto/
 b3_sources/
 i1_work_*/
 i1_reports/
+
+# Local model artifacts and training environments (also under evidence/).
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+hf/
+hf-cache/
+venv/
+.venv/
+tmp/
+.cache/
+__pycache__/
+adapter/
+adapters/
