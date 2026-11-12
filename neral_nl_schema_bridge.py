@@ -133,7 +133,7 @@ _V2_COMPACT_GRAMMAR = (
     'Ungleichheit, Nachbarschaft und Quantoren. '
     'Keine redundanten Doppel-Constraints, keine Wiederholungsschleifen. '
     'Alle Variablen ausdrücklich und vollständig im variables-Objekt '
-    'deklarieren, niemals variables={} oder nicht leer lassen. '
+    'deklarieren; variables={} ist verboten, variables muss nicht leer sein. '
     'Namenskonvention: C0..C(n-1) für Graphen, B0..B(n-1) für Bits, '
     'P1..Pn für Zifferpositionen. '
     'Nachbarschaft i=0..n-2; Abstand zwei i=0..n-3: alle Paare '
