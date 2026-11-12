@@ -26,5 +26,7 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v
       - name: Existing formal constraint and PR537 guard regression gates
         run: |
-          python -B -m unittest discover -s tests -p 'test_neral_formal_constraints*.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_boolean_constraints.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_logic_engine.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_turn0.py' -v
           python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
