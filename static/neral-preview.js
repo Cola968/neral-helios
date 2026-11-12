@@ -206,9 +206,8 @@
     const matches=topics.filter(word=>body.has(word));
     // Fail closed: require a topical match in the title, and two matches
     // when the question actually contains multiple distinct topical terms.
-    return matches.length>=Math.min(2,topics.length) &&
-      (matches.some(word=>title.has(word)) || topics.length===1 ||
-       matches.length>=2);
+    return matches.length>=Math.ceil(topics.length*0.75) &&
+      matches.some(word=>title.has(word));
   }
   // A citation belongs to the exact answer whose prompt received the evidence.
   // Link reachability was verified by the local backend. Search excerpts are
@@ -257,7 +256,7 @@
     }
     const details=document.createElement("details");
     details.className="neral-source-disclosure";
-    details.open=false; // Compact Grok-style source chip; expand for verified URLs.
+    details.open=true; // Verified source icons and URLs are visible beside the response.
     const summary=document.createElement("summary");
     summary.title="Erreichbare Treffer der Websuche öffnen";
     const stack=document.createElement("span");stack.className="neral-source-stack";
@@ -270,7 +269,7 @@
       stack.append(marker);
     });
     const name=document.createElement("span");
-    name.textContent=valid.length===1?"1 Webseite":valid.length+" Webseiten";
+    name.textContent=valid.length===1?"1 Quelle":valid.length+" Quellen";
     name.className="neral-source-label";
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
