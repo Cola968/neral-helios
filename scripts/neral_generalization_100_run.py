@@ -47,7 +47,7 @@ def require_exact_models()->dict:
 
 def require_exact_guard()->str:
     root=Path(__file__).resolve().parents[1]
-    process=subprocess.run(["git","hash-object","neral_tir_regression_guard.py"],
+    process=subprocess.run(["git","hash-object","--path=neral_tir_regression_guard.py","neral_tir_regression_guard.py"],
                            cwd=root,capture_output=True,text=True,timeout=10)
     if process.returncode!=0 or process.stdout.strip()!=GUARD_GIT_BLOB:
         raise RuntimeError("PR537 guard file is modified, do not benchmark")
