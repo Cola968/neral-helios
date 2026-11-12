@@ -147,6 +147,50 @@ class RejectAmbiguityAndUnsafeInputs(unittest.TestCase):
         self.assertIsNone(try_solve_formal_constraints("Count solutions of "+tagged(doc)))
         with self.assertRaises(InvalidTypedConstraints):
             solve_typed_constraints(tagged(doc)[:-7])
+    def test_end_to_end_explicit_user_schema_uses_existing_pr537_guard(self):
+        from neral_tir_experimental import run_experimental_tir
+        doc=schema({"X":variable(range(6))},
+                   [cmp(v("X"),">=",c(4))])
+        original=[{"role":"system","content":"NERAL"},
+                  {"role":"user","content":tagged(doc)}]
+        def no_model(_):
+            self.fail("A fully explicit user schema must not call any model")
+        def no_code(tool,src):
+            self.fail("A typed schema must not execute arbitrary Python")
+        result=run_experimental_tir(original,no_model,tool_runner=no_code)
+        self.assertEqual(result["text"],"2")
+        self.assertTrue(result["verified"])
+        self.assertFalse(result["model_generated"])
+        self.assertEqual(result["verification_scope"],"explicit_finite_domain_schema")
+        guarded=choose_guarded_tir_reply(result,original,no_model)
+        self.assertEqual(guarded["selection_policy"],"independently_verified_tir")
+        self.assertEqual(guarded["text"],"2")
+
+    def test_invalid_explicit_schema_is_safe_refusal_no_model_calls(self):
+        from neral_tir_experimental import run_experimental_tir
+        broken=schema({"X":variable([0,1])},
+                      [cmp({"mod":{"term":v("X"),"by":0}},"==",c(0))])
+        original=[{"role":"system","content":"NERAL"},
+                  {"role":"user","content":tagged(broken)}]
+        def fail(_):
+            self.fail("Malformed explicit schema may not call model")
+        result=run_experimental_tir(original,fail)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_status"],"formal_schema_rejected")
+        self.assertFalse(result["model_generated"])
+        guarded=choose_guarded_tir_reply(result,original,fail)
+        self.assertEqual(guarded["selection_policy"],"explicit_safe_refusal")
+
+    def test_timeout_refuses_partial_count_without_changing_source(self):
+        doc=schema({"X":variable(range(12))},
+                   [cmp(v("X"),">=",c(0))])
+        n=[0]
+        def clock():
+            n[0]+=1
+            return n[0]*.25
+        with self.assertRaisesRegex(InvalidTypedConstraints,"time budget"):
+            solve_typed_constraints(tagged(doc),clock=clock,max_seconds=.1)
+
     def test_formal_solver_dispatch_and_guard_deny_model_authored_schema(self):
         doc=schema({"X":variable(range(5))},[cmp(v("X"),">",c(2))])
         self.assertEqual(try_solve_formal_constraints(tagged(doc)),2)
