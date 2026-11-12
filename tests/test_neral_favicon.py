@@ -30,7 +30,7 @@ class FaviconSecurityTests(unittest.TestCase):
         with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
             with patch('neral_web_search._request_favicon',return_value=(PNG,'image/png')) as fetch:
                 self.assertEqual(fetch_public_favicon('example.org'),(PNG,'image/png'))
-                self.assertEqual(fetch.call_args.args,('example.org','93.184.215.14'))
+                self.assertEqual(fetch.call_args.args,('example.org','93.184.215.14','/favicon.ico'))
     def test_only_small_real_image_formats_accepted(self):
         with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
             with patch('neral_web_search._request_favicon',return_value=(b'<svg onload=alert(1)>','image/svg+xml')):
