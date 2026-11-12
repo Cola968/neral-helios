@@ -346,6 +346,38 @@ class WebSearch:
         self._hits = deque()
         self._lock = threading.Lock()
 
+
+    def search_bing(self, query: str, on_provider=None) -> list[dict[str, str]]:
+        """Retry the same approved query on Bing within one verified web request.
+
+        Called only by the API after the normal search consumed its rate-limit
+        slot. Uses the same fixed endpoint, no proxies, and no redirects.
+        """
+        if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        cleaned = _clean(query, MAX_QUERY_CHARS + 1)
+        if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        if on_provider is not None:
+            on_provider("Bing RSS")
+        url = BING_ENDPOINT + "?q=" + quote_plus(cleaned) + "&format=rss"
+        req = Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
+            "Accept": "application/rss+xml, application/xml, text/xml",
+            "Accept-Language": "de,en;q=0.8",
+        }, method="GET")
+        try:
+            with self.opener.open(req, timeout=7.0) as response:
+                mime = response.headers.get("Content-Type", "").lower()
+                if "xml" not in mime:
+                    raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise WebSearchError("Suchanbieter-Antwort überschreitet das Limit.")
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"))
+        except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
+            raise WebSearchError("Bing RSS ist derzeit nicht erreichbar.") from None
+
     def search(self, query: str, on_provider=None) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
