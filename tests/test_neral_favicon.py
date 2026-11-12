@@ -86,7 +86,8 @@ class FaviconSecurityTests(unittest.TestCase):
                 icon=fetch_public_favicon("example.org")
                 self.assertIsNotNone(icon)
                 self.assertEqual(icon[1],"image/svg+xml")
-                self.assertIn(b"<path",icon[0])
+                from xml.etree import ElementTree
+                self.assertIsNotNone(ElementTree.fromstring(icon[0]).find("{http://www.w3.org/2000/svg}path"))
                 self.assertTrue(all(call.args[1]=="93.184.215.14" for call in get.call_args_list))
                 self.assertIn("/images/favicon.svg",[c.args[2] for c in get.call_args_list])
 
