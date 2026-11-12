@@ -204,20 +204,30 @@ def main():
     guard_hash=require_exact_guard()
     model_hashes=require_exact_models()
     control=[];guarded=[]
-    for i,case in enumerate(original):
-        seed=SEED+i
-        if i%2==0:
-            c=control_case(case,seed)
-            t=guarded_case(case,seed)
-        else:
-            t=guarded_case(case,seed)
-            c=control_case(case,seed)
-        control.append(c);guarded.append(t)
-        # Both have to be GPU-resident when inspected; check last-used arm.
-        last_tag=TUNED_TAG if i%2==0 else BASE_TAG
-        if gpu_offload_mib(last_tag)<4096:
-            raise RuntimeError("Model not RTX-resident: refuse CPU-backed scoring")
-        print(f"GENERALIZATION_PROGRESS {i+1}/100",flush=True)
+    progress=args.out.with_suffix(".progress.jsonl")
+    if progress.exists() or progress.is_symlink():
+        raise FileExistsError("Existing incomplete transfer run; refuse overwrite")
+    args.out.parent.mkdir(parents=True,exist_ok=True)
+    with progress.open("x",encoding="utf8") as checkpoint:
+        for i,case in enumerate(original):
+            seed=SEED+i
+            if i%2==0:
+                c=control_case(case,seed)
+                t=guarded_case(case,seed)
+            else:
+                t=guarded_case(case,seed)
+                c=control_case(case,seed)
+            control.append(c);guarded.append(t)
+            # A trusted user-supplied Python task may bypass the adapter.
+            # Require an actual RTX-resident model, not a speculative GPU flag.
+            if max(gpu_offload_mib(BASE_TAG),gpu_offload_mib(TUNED_TAG))<4096:
+                raise RuntimeError("Neither model RTX-resident: refuse CPU-backed scoring")
+            checkpoint.write(json.dumps({"id":case["id"],"category":case["category"],
+                "control_correct":c["correct"],"guarded_correct":t["correct"],
+                "selection":t["selection_policy"],"control_seconds":c["seconds"],
+                "guarded_seconds":t["seconds"]},sort_keys=True)+"\n")
+            checkpoint.flush()
+            print(f"GENERALIZATION_PROGRESS {i+1}/100",flush=True)
     summary=paired_score(original,control,guarded)
     summary.update({"status":"REAL_LOCAL_GPU_TRANSFER100_GUARDED",
        "seed":SEED,"profile":{"temperature":0,"num_predict":2048,"num_ctx":4096},
