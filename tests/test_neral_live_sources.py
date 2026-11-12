@@ -86,3 +86,27 @@ class LiveSourcesTests(unittest.TestCase):
             self.assertEqual(result["results"][0]["title"],"Berlin Airport")
             self.assertEqual(result["provider"],"Bing RSS")
             self.assertEqual(result["providers_contacted"],["DuckDuckGo HTML","Bing RSS"])
+
+
+    def test_checked_offtopic_ddg_hits_do_not_block_relevant_bing_fallback(self):
+        class Scripted:
+            def search(self,query,on_provider=None):
+                if on_provider: on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"url":"https://unrelated.example/1","title":"Rezept für Pfannkuchen","snippet":"Frühstück"},
+                                   {"url":"https://unrelated.example/2","title":"Fernsehprogramm","snippet":"TV"}]}
+            def search_bing(self,query,on_provider=None):
+                if on_provider: on_provider("Bing RSS")
+                return [{"url":"https://x.ai/grok","title":"Grok - xAI","snippet":"KI-Assistent Grok"}]
+        app=Flask(__name__);register_web_search_api(app,Scripted())
+        with patch('neral_web_api.verify_public_https_url',side_effect=lambda url:url):
+            resp=app.test_client().post('/api/web/search/stream',
+                          json={"query":"grok ai","verify_links":True})
+            events=[json.loads(x) for x in resp.response]
+        sources=[x["source"] for x in events if x["type"]=="source"]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+                         ["DuckDuckGo HTML","Bing RSS"])
+        self.assertEqual([x["title"] for x in sources],["Grok - xAI"])
+        self.assertEqual([x["title"] for x in result["results"]],["Grok - xAI"])
