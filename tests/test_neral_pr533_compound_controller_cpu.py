@@ -130,6 +130,30 @@ class OneTurnConstraintRepairCPU(unittest.TestCase):
         self.assertEqual(r["verification_status"],"base_fallback_unverified")
         self.assertEqual(r["first_turn_telemetry"]["solver_repair_status"],"retry_unsat")
 
+    def test_type_mismatch_gets_one_strict_feedback_turn(self):
+        bad = json.loads(json.dumps(GOOD))
+        # Boolean A compared with an integer: a grounded schema candidate
+        # that the finite-domain solver must reject as comparison_types.
+        bad["schema"]["rules"] = [{"left":"A","op":"==","value":0}]
+        proposals = iter((json.dumps(bad), json.dumps(GOOD)))
+        received = []
+        def extract(turns):
+            received.append(turns)
+            return next(proposals)
+        r = run_experimental_tir(
+            messages(Q), lambda _: self.fail("A repaired schema must not fall back"),
+            extract_constraints=extract)
+        self.assertEqual(len(received), 2)
+        self.assertIn("comparison_types", received[1][1]["content"])
+        self.assertIn("original_question", received[1][1]["content"])
+        self.assertEqual(r["text"], "1")
+        self.assertEqual(r["extraction_status"], "repaired")
+        self.assertFalse(r["verified"])
+        tele = r["first_turn_telemetry"]
+        self.assertEqual(tele["extraction_rejection_reason"], "solver_type_error")
+        self.assertEqual(tele["solver_rejection_detail"], "comparison_types")
+        self.assertEqual(tele["solver_repair_status"], "repaired")
+
     def test_repair_accepts_markdown_fence_and_leading_explanation(self):
         for lead, label in (
             ("", "fenced_json"),
