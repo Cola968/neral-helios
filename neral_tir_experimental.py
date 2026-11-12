@@ -1072,7 +1072,13 @@ def run_experimental_tir(
                 "solver_feedback": diagnostic_feedback,
             }
             repair_turns = [
-                {"role": "system", "content": EXTRACT_PROMPT + repair_instruction},
+                {"role": "system", "content": (
+                    EXTRACT_PROMPT + repair_instruction +
+                    "\nOUTPUT MUST BE ONE RAW JSON OBJECT ONLY. "
+                    "Start immediately with { and finish with }. "
+                    "No prose before or after, no code fence, no analysis, "
+                    "and no extra JSON objects. Keep all source constraints."
+                )},
                 {"role": "user", "content": json.dumps(
                     feedback, ensure_ascii=False, separators=(",", ":"))},
             ]
