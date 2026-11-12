@@ -20,14 +20,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: eb94542a55aa15abb9187c6122a643392cc1de34
+          path: candidate
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements-neral-preview.txt
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
       - name: Prove repair wrapper, six-clause 12 and exact source CPU contracts
         run: python -B -m unittest discover -s tests -p test_neral_pr533_compound_controller_cpu.py -v
+        working-directory: candidate
       - name: Prove repaired-provenance collector contract
         run: python -B -m unittest discover -s tests -p test_neral_same_base_live.py -v
+        working-directory: candidate
       - name: Validate isolated live probe syntax
         run: python -B -m py_compile scripts/neral_pr533_two_gate_live.py
   gpu-logic-only:
@@ -50,7 +57,7 @@ jobs:
       TRANSFORMERS_OFFLINE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       NERAL_EXPERIMENTAL_TIR: '1'
-      TARGET_SHA: '6d71eacd793820b586754d13f18be1e743cf01fc'
+      TARGET_SHA: 'eb94542a55aa15abb9187c6122a643392cc1de34'
       MANUAL_AUTH: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
       OUTER_SEED: '202611110533'
     steps:
@@ -61,7 +68,7 @@ jobs:
           clean: true
       - uses: actions/checkout@v4
         with:
-          ref: 6d71eacd793820b586754d13f18be1e743cf01fc
+          ref: eb94542a55aa15abb9187c6122a643392cc1de34
           path: candidate
           persist-credentials: false
           clean: true
