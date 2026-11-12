@@ -138,7 +138,11 @@
     const previous=String(previousWebQuery||"").trim();
     if(previous&&isSearchFollowup(q)&&previous.length+1+q.length<=160)
       return previous+" "+q;
-    return q;
+    // Search the requested subject, not an instruction like "suche nach ...".
+    // This removes only common German search-command scaffolding, never
+    // changes a question unless the speaker explicitly used an imperative.
+    const subject=q.replace(/^(?:bitte\s+)?(?:suche|such|finde|recherchiere)\s+(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s+)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu,"").trim();
+    return subject.length>=2 ? subject : q;
   }
   // Snippets are untrusted evidence, not independently read source pages.
   function webEvidencePrompt(question,evidence,attempted=true) {
@@ -202,8 +206,9 @@
     const matches=topics.filter(word=>body.has(word));
     // Fail closed: require a topical match in the title, and two matches
     // when the question actually contains multiple distinct topical terms.
-    return matches.length>=Math.ceil(topics.length*0.75) &&
-      matches.some(word=>title.has(word));
+    return matches.length>=Math.min(2,topics.length) &&
+      (matches.some(word=>title.has(word)) || topics.length===1 ||
+       matches.length>=2);
   }
   // A citation belongs to the exact answer whose prompt received the evidence.
   // Link reachability was verified by the local backend. Search excerpts are
@@ -212,15 +217,16 @@
     function favicon(host,cssClass){
       const image=document.createElement("img");
       image.className=cssClass;
-      image.src="/api/web/favicon?host="+encodeURIComponent(host);
       image.alt="";
       image.setAttribute("alt","");
       image.setAttribute("aria-hidden","true");
-      image.loading="lazy";
+      image.loading="eager";
       image.decoding="async";
       image.referrerPolicy="no-referrer";
       image.addEventListener?.("load",()=>image.classList.add("neral-favicon-loaded"));
       image.addEventListener?.("error",()=>image.remove());
+      image.src="/api/web/favicon?host="+encodeURIComponent(host);
+      if(image.complete&&image.naturalWidth>0)image.classList.add("neral-favicon-loaded");
       return image;
     }
     const actions=answerNode?.querySelector?.(".message-actions");
@@ -251,7 +257,7 @@
     }
     const details=document.createElement("details");
     details.className="neral-source-disclosure";
-    details.open=true; // Each verified source is visible until the user collapses it.
+    details.open=false; // Compact Grok-style source chip; expand for verified URLs.
     const summary=document.createElement("summary");
     summary.title="Erreichbare Treffer der Websuche öffnen";
     const stack=document.createElement("span");stack.className="neral-source-stack";
@@ -264,7 +270,7 @@
       stack.append(marker);
     });
     const name=document.createElement("span");
-    name.textContent=valid.length===1?"1 Quelle":valid.length+" Quellen";
+    name.textContent=valid.length===1?"1 Webseite":valid.length+" Webseiten";
     name.className="neral-source-label";
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
@@ -689,7 +695,7 @@
           if(event.type==="provider")
             motionActivity("search-provider",mode,{name:event.name});
           else if(event.type==="source"&&event.source?.reachable===true&&
-                  relevantSearchResult(text,event.source))
+                  relevantSearchResult(webQuery,event.source))
             motionActivity("source-found",mode,{source:event.source});
         };
         const search=typeof browser.NeralWebLive?.search==="function"

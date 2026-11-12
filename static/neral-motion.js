@@ -6,7 +6,6 @@
   function favicon(host){
     const img=document.createElement("img");
     img.className="neral-live-site-icon";
-    img.src="/api/web/favicon?host="+encodeURIComponent(host);
     img.alt="";
     img.setAttribute("alt","");
     img.setAttribute("aria-hidden","true");
@@ -15,6 +14,8 @@
     img.referrerPolicy="no-referrer";
     img.addEventListener?.("load",()=>img.classList.add("neral-favicon-loaded"));
     img.addEventListener?.("error",()=>img.remove());
+    img.src="/api/web/favicon?host="+encodeURIComponent(host);
+    if(img.complete&&img.naturalWidth>0)img.classList.add("neral-favicon-loaded");
     return img;
   }
   function makeActivity(label,phase){

@@ -6,6 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 from threading import Thread
 import json
+import re
+import unicodedata
+from urllib.parse import urlsplit
 from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon
 
 
@@ -13,25 +16,67 @@ def register_web_search_api(app, service=None):
     """Parent Flask app's existing localhost, session and Origin guards apply."""
     search = service if service is not None else WebSearch()
 
-    def verified_results(result: dict, on_source=None) -> dict:
+
+    def topic_terms(text: str) -> set[str]:
+        """Keyword evidence for local result triage, never a trust decision."""
+        plain = unicodedata.normalize("NFKD", str(text).lower())
+        plain = "".join(char for char in plain if not unicodedata.combining(char))
+        words = re.findall(r"[a-z0-9]{3,}", plain)
+        noise = {"suche","such","nach","bitte","finde","recherchiere","im",
+                 "dem","der","den","die","das","und","mit","ist","eine","einer",
+                 "einem","was","wie","wer","von","bei","fur","auf","zum",
+                 "zur","online","internet","web","aktuell","heute","neueste",
+                 "neuesten","quelle","quellen","links","news","information",
+                 "informationen","uber","ueber","zeige","mehr","deine",
+                 "site","www","https","http"}
+        return {w[:-2] if len(w)>=7 and w.endswith("er") else w
+                for w in words if w not in noise}
+
+    def topical_score(query: str, hit: dict) -> tuple[int, int] | None:
+        """Reject unrelated provider hits before they consume HTTPS-check slots."""
+        if not isinstance(hit, dict) or not isinstance(hit.get("url"), str):
+            return None
+        terms = topic_terms(query)
+        # Very short generic queries have no reliable lexical discriminator.
+        if not terms:
+            return (0, 0)
+        try:
+            host = urlsplit(hit["url"]).hostname or ""
+        except ValueError:
+            return None
+        heading = topic_terms(str(hit.get("title", "")) + " " + host)
+        snippet = topic_terms(str(hit.get("snippet", "")))
+        matched = terms.intersection(heading | snippet)
+        if len(matched) < min(2, len(terms)):
+            return None
+        return (len(matched), len(terms.intersection(heading)))
+
+    def verified_results(result: dict, on_source=None, query: str = "") -> dict:
         """Check public HTTPS endpoints; emit only reachable hits, no page contents."""
-        candidates = result.get("results", [])[:10]
+        raw = result.get("results", [])[:10]
+        selected = []
+        for index, hit in enumerate(raw):
+            score = topical_score(query or result.get("query", ""), hit)
+            if score is not None:
+                selected.append((score, index, hit))
+        # Preserve provider order among equally relevant hits, not thread timing.
+        selected.sort(key=lambda item: (-item[0][0], -item[0][1], item[1]))
         def verify(index, hit):
-            if not isinstance(hit, dict):
-                return index, None
             checked_url = verify_public_https_url(hit.get("url"))
             return index, ({**hit, "url": checked_url, "reachable": True}
                            if checked_url else None)
         accepted = {}
         with ThreadPoolExecutor(max_workers=3) as pool:
-            tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(candidates)]
+            tasks = [pool.submit(verify, i, hit) for i, (_, _, hit) in enumerate(selected)]
             for task in as_completed(tasks):
                 index, checked = task.result()
-                if checked is not None and len(accepted) < 5:
+                if checked is not None:
                     accepted[index] = checked
-                    if on_source is not None:
-                        on_source(checked)
-        return {**result, "results": [accepted[i] for i in sorted(accepted)],
+        results = [accepted[i] for i in sorted(accepted)][:5]
+        if on_source is not None:
+            for hit in results:
+                on_source(hit)
+        return {**result, "results": results,
                 "link_check": "public_https_tls_and_http_only"}
 
     def verified_with_fallback(result: dict, query: str, on_provider=None, on_source=None) -> dict:
@@ -40,7 +85,7 @@ def register_web_search_api(app, service=None):
         This is a continuation of the single user-approved search. It reuses
         the exact query and does not charge a second local search-rate slot.
         """
-        verified = verified_results(result, on_source=on_source)
+        verified = verified_results(result, on_source=on_source, query=query)
         contacted = result.get("providers_contacted", [])
         retry = getattr(search, "search_bing", None)
         if (verified["results"] or "Bing RSS" in contacted
@@ -54,7 +99,7 @@ def register_web_search_api(app, service=None):
         second = {**result, "results": bing_hits, "provider": "Bing RSS",
                   "providers_contacted": [*contacted, "Bing RSS"],
                   "notice": "Nur dieser Suchbegriff wurde an DuckDuckGo und Bing übertragen. Suchtreffer sind ungeprüft."}
-        return verified_results(second, on_source=on_source)
+        return verified_results(second, on_source=on_source, query=query)
 
     @app.post("/api/web/search/stream")
     def web_search_stream():
