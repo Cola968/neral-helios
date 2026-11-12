@@ -1,0 +1,25 @@
+name: NERAL logic phase telemetry and PR537 evidence boundaries
+on:
+  push:
+    branches: [feat/neral-logic-diagnostics-prospective-20261112]
+permissions:
+  contents: read
+jobs:
+  cpu-logic-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Fail-closed logic trace, PR537 proof-boundary contracts
+        run: python -B -m unittest discover -s tests -p 'test_neral_logic_failure_provenance_cpu.py' -v
+      - name: Existing guard and production dual regression contracts
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_dual_routing_product_api.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_formatted_*.py' -v
