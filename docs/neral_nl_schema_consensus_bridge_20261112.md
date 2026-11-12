@@ -83,3 +83,44 @@ Interpret timing carefully: Ollama's `load_duration_ms` counts loading, and `ela
 **Disclosure:** The diagnostic JSON includes unredacted generated responses from the three intentionally public historical tasks. Review locally before sharing. Never run this diagnostic mode on private prompts or on the sealed next-100 corpus. No second-100 files, hashes, or samples are required by this command.
 
 **Promotion policy:** Passing three historical tasks is useful for feasibility, but insufficient to open the prospective-100 release gate. Training QLoRA v2 is not justified solely by one failed prompt or malformed JSON. First compare the base model, test one schema prompt/repair variant on *development-only* old tasks, and evaluate whether a repeatable adapter-specific gap remains.
+
+
+## Structured Outputs repair after first RTX 4070 pilot (2026-11-12)
+
+The user reported that all six model invocations across 21453, logic-02 and logic-06 failed prior to Z3 consensus. The old 768-token, generic \`format:"json"\` requests often produced malformed typed v2 ASTs, wrong version strings, list-valued variables, free-text logic and repetition/length truncation. These observations motivated this **isolated** development-only change; they do not prove that a new adapter is needed.
+
+### Changes
+
+- \`neral_nl_schema_format.py\` defines a **real JSON Schema object** matching typed v2's grammar: integer \`version:2\`, four exact top-level fields, identifier-keyed \`variables\` objects with strictly typed integer/Boolean domains, \`constraints\` as recursively typed predicate ASTs, and \`query\` restricted to \`count\` or \`satisfiable\`. \`oneOf\` and \`$defs/$ref\` encode \`compare\`, \`all_different\`, \`exactly\`, Boolean connectives, \`var\`, \`const\`, \`sum\` and \`mod\`.
+- All three old-case local Ollama model invocations now send \`format: get_v2_ollama_format()\` (a schema object rather than the string \`json\`), \`num_predict:1024\`, \`repeat_penalty:1.05\`, \`temperature:0\`, \`think:false\`. Both extraction paths use the same grammar specification but retain **different** instructions and distinct installed Ollama model tags.
+- Prompts explicitly use integer palette values for graph colors, specify \`variables\` as a map instead of a list, prohibit free-text \`logic\`, describe all AST operators, and discourage duplicate redundant clauses. Sampling parameters are experimental hypotheses, **not** measured quality improvements.
+- The existing advisory \`coverage_gate\` now also checks narrow, recognizable source conditions with individual AST witnesses: each explicitly listed graph edge, red vertex zero, exact Boolean cardinality, opposing first two bits, every forbidden distance-two pair, and the numbered German PIN's all-different, nonadjacent order, single-digit-between, immediate-right and non-edge clauses. Unrecognized wording receives only lexical checks; even passing every witness is **not** a semantic truth certificate. Alternative equivalent representations may be rejected. Result remains \`model_generated:true\`, \`verified:false\`, \`safe_to_promote:false\`.
+- The original typed solver, \`neral_tir_regression_guard.py\` (PR #537), main, adapter weights, training pipeline and sealed prospective-100 dataset SHA \`3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d\` remain unchanged.
+
+### What Structured Outputs does *not* establish
+
+A JSON Schema can constrain generation and identify a syntactically valid object; it **cannot** prove all semantic constraints were translated, prevent all possible model/runtime bugs, or guarantee that duplicated raw JSON members can never appear under all sampler versions. The strict downstream v2 parser still rejects duplicate keys and invalid types. Ollama's support for the recursive \`$defs/$ref\`, \`oneOf\` and \`patternProperties\` combination must be verified empirically against the **installed local Ollama server**. An unsupported grammar/runtime error must fail closed; do not silently switch back to unconstrained JSON or promote a candidate.
+
+### CPU verification / re-run
+
+[CPU run #43302848266](https://github.com/Cola968/neral-helios/actions/runs/43302848266) passes 73/73 focused and regression tests, including the existing three historical case fixtures, novel deliberately omitted source clauses, JSON Schema draft-2020-12 validation, and fake Ollama request assertions. **All tests were CPU-side or fake model responses, not real local inference.**
+
+For the second three-case RTX 4070 check, on Windows PowerShell in the exact PR #542 branch:
+
+\`\`\`powershell
+git fetch origin
+git switch feat/neral-nl-schema-consensus-bridge-20261112
+python -m pip install 'z3-solver>=4.13,<5'
+ollama list
+ollama ps
+nvidia-smi
+$QLORA='neral-qwen35-qlora-v1:latest'
+$BASE='qwen3.5:9b'
+foreach ($case in @('21453', 'logic-02', 'logic-06')) {
+  python -m scripts.neral_nl_schema_probe --case $case --live --qlora-model $QLORA --base-model $BASE --diagnostics-file "structured-v2-$case.json"
+}
+\`\`\`
+
+Validate those exact model tags first with \`ollama list\`, and check the runtime offload with \`ollama ps\` and \`nvidia-smi\`. Each report is a new, unredacted **LOCAL** JSON file; the script will refuse to overwrite a previous report. Nonzero exit statuses are expected for invalid candidates or non-consensus. Inspect \`raw_json\`, \`status\`, \`coverage_reason\`, \`done_reason\`, \`load_duration_ms\`, \`total_duration_ms\` and \`elapsed_ms\` in each local file; do not publish raw files without reviewing them.
+
+Passing the three already-known tasks only supports moving to a **separate, preregistered evaluation decision**, not automatic use of the sealed prospective set or a proof of zero regressions. Compare actual syntax acceptance, source condition coverage, correct reference counts, raw lengths and load times between base and QLoRA first. Decide on a new training run only after a reproducible adapter-specific gap remains despite constrained decoding and bounded prompt changes.
