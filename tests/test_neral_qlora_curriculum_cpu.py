@@ -70,7 +70,7 @@ class QloraCurriculumCPU(unittest.TestCase):
                                     add_generation_prompt, enable_thinking):
                 if not tokenize or enable_thinking:
                     raise AssertionError("Need native non-thinking tokens")
-                text="".join(m["role"]+":"+m["content"]+"\\n" for m in messages)
+                text="".join(m["role"]+":"+m["content"]+"\n" for m in messages)
                 if add_generation_prompt:
                     text+="assistant:"
                 return [ord(ch) for ch in text]
