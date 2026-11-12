@@ -171,7 +171,7 @@
     // the guarded web tool has returned verified, topical HTTPS sources.
     // Correct only the demonstrably contradictory state, never invent facts.
     if(count>0 &&
-       /\b(?:keine|keinen)\s+(?:belastbaren|passenden|erreichbaren)\s+(?:suchtreffer|treffer|quellen)\b/iu.test(answer) &&
+       /\b(?:keine|keinen|kein)\s+(?:(?:passenden?|belastbaren?|erreichbaren?)\s+(?:oder\s+)?){0,3}(?:suchtreffer|treffer|quellen|ergebnisse)\b/iu.test(answer) &&
        /\b(?:web[-\s]?suche|suchtreffer|suchlauf)\b/iu.test(answer))
       return "Die lokale Websuche hat "+count+" "+status+" zu deiner Anfrage gefunden. "+
         "Die Webseiten sind unter dieser Antwort verlinkt. "+
