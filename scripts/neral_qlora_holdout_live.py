@@ -65,6 +65,13 @@ def require_base_digest() -> str:
     for model in models:
         if type(model) is dict and model.get("name") == BASE_MODEL:
             digest = model.get("digest")
+            if type(digest) is not str:
+                raise RuntimeError("Missing model digest")
+            # Ollama /api/tags normally returns the bare 64-hex SHA,
+            # while the historic benchmark manifest stores sha256:<hex>.
+            # Normalize representation only; NEVER relax equality.
+            if re.fullmatch(r"[0-9a-f]{64}", digest):
+                digest = "sha256:" + digest
             if digest != ORIGINAL_DIGESTS[BASE_MODEL]:
                 raise RuntimeError("Base model digest differs from pinned PR533 baseline")
             return digest
