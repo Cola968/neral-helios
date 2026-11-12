@@ -19,7 +19,7 @@
 
 ### Why two matching models do not prove correctness
 
-Suppose the question says: **X != 1**, but *both* extractors omit that constraint. Z3 correctly proves both **wrong formulas** are equivalent; that says nothing about the original question. A shared base model, shared training data, similar prompts, or common quantifier mistakes may produce correlated errors. Keyword-and-number checks are similarly not semantic proofs. To promote NL answers, introduce an independently trusted **question-to-formula completeness certificate** or evaluate a preregistered, independent blind corpus with an explicitly accepted risk policy. An observed raw-Qwen `done_reason=length` does **not** prove a proposed solver answer correct or guarantee zero regressions.
+Suppose the question says: **X <= 2 and X <= 1**, but *both* extractors encode only **X <= 2**. The original number 1 still appears in the declared domain, and the <= operator is still present, so this also passes the lexical coverage gate. Z3 correctly proves both **wrong formulas** equivalent; the candidate count is 3 rather than the correct 2. This is an explicit regression test and is never called verified. A shared base model, shared training data, similar prompts, or common quantifier mistakes may produce correlated errors. Keyword-and-number checks are similarly not semantic proofs. To promote NL answers, introduce an independently trusted **question-to-formula completeness certificate** or evaluate a preregistered, independent blind corpus with an explicitly accepted risk policy. An observed raw-Qwen `done_reason=length` does **not** prove a proposed solver answer correct or guarantee zero regressions.
 
 ## Established old-case CPU checks
 
