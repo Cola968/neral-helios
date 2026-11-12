@@ -46,6 +46,7 @@ REQUIRED_FILES = (
     "neral_think.py",
     "neral_numeric_final.py",
     "neral_high_verified_first.py",
+    "neral_code_rule_oracle.py",
     "neral_tir_experimental.py",
     "neral_tir_regression_guard.py",
     "neral_turn0_extractor.py",

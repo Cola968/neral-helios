@@ -63,6 +63,29 @@ def direct_high_reply(messages: list[dict]) -> dict | None:
     if not isinstance(question, str) or not 1 <= len(question.encode("utf-8")) <= 4096:
         return None
     core_task, format_suffix = split_task_and_format_instruction(question)
+    # A tiny source-language grammar can be checked end-to-end without any
+    # LLM-produced schema or Python. Unlike the numeric-only oracles below,
+    # this oracle supplies its own exhaustive proof when explanation is asked.
+    try:
+        from neral_code_rule_oracle import trusted_code_reply
+        code_proof = trusted_code_reply(core_task)
+    except (ValueError, TypeError, OverflowError):
+        code_proof = None
+    if code_proof is not None:
+        unique = code_proof["final_answer"]
+        if format_suffix and (unique is None or not unique.isdigit()):
+            return None
+        return {
+            **code_proof, "text": (f"FINAL_ANSWER: {unique}"
+                                   if format_suffix else code_proof["text"]),
+            "mode": "HIGH", "calls_used": 0, "review_passes": 0,
+            "review_status": "not_needed_verified_exact",
+            "seconds": round(time.monotonic() - started, 3),
+            "verification_status": "tool_direct",
+            "tool_used": "neral_logic_exact",
+            "extractor_success": False,
+            "hard_timeout_enforced": False,
+        }
     if _REQUIRES_EXPLANATION.search(core_task):
         return None
 
