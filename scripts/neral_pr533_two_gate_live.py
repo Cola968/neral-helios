@@ -127,6 +127,7 @@ def main() -> int:
     parser.add_argument("--target-sha", required=True)
     parser.add_argument("--candidate-root", required=True, type=Path)
     parser.add_argument("--seed", required=True, type=int)
+    parser.add_argument("--run-both", action="store_true")
     args = parser.parse_args()
     if (args.authorize != AUTH or args.target_sha != TARGET
             or args.seed != OUTER_SEED
@@ -148,32 +149,48 @@ def main() -> int:
     if digest != ORIGINAL_DIGESTS[MODEL]:
         print("PR533_TWO_GATE_WRONG_DIGEST", flush=True)
         return 3
+    # Python task A MUST use the preinstalled Docker sandbox; never execute
+    # user-supplied Python on the Windows host or install/pull an image.
+    if args.run_both:
+        image = subprocess.run(
+            ["docker", "image", "inspect", "python:3.11-alpine"],
+            capture_output=True, timeout=10, check=False)
+        if image.returncode != 0:
+            print("PR533_DOCKER_SANDBOX_UNAVAILABLE", flush=True)
+            return 3
     backend = OllamaLocalBackend(MODEL, timeout=90, inference_profile=PROFILE)
-    decoder_seed = args.seed % (2**31)  # Ollama measured profile allows <= 31 bits.
+    decoder_seed = args.seed % (2**31)
     output = []
     vram_bytes = 0
     try:
         client, headers = _high_client(backend)
-        # Logic-only: Docker Desktop is unavailable. NEVER run original user
-        # Python or substitute host execution for the isolated sandbox.
+        if args.run_both:
+            backend.set_benchmark_seed(decoder_seed)
+            output.append(run_gate(client, headers, TASK_A, "A"))
+            print("PR533_TWO_GATE_PROGRESS A", flush=True)
         backend.set_benchmark_seed(decoder_seed + 1)
         output.append(run_gate(client, headers, TASK_B, "B"))
-        print("PR533_LOGIC_ONLY_PROGRESS B", flush=True)
+        print("PR533_TWO_GATE_PROGRESS B", flush=True)
         vram_bytes = gpu_resident_bytes()
     finally:
         backend.set_benchmark_seed(None)
         backend.unload()
     offload_seen = vram_bytes >= 4 * 1024**3
-    success = len(output) == 1 and output[0]["passed"] and offload_seen
-    print("PR533_LOGIC_ONLY_SCALARS " + json.dumps({
+    a = next((row for row in output if row["case"] == "A"), None)
+    b = next((row for row in output if row["case"] == "B"), None)
+    success = bool(b and b["passed"] and offload_seen
+                   and (not args.run_both or (a and a["passed"])))
+    print("PR533_TWO_GATE_SCALARS " + json.dumps({
         "target_sha": TARGET, "seed": args.seed,
-        "decoder_seed": decoder_seed + 1, "model": MODEL,
+        "decoder_seed_b": decoder_seed + 1, "model": MODEL,
         "gpu_offload_observed": offload_seen,
         "resident_model_vram_mib": vram_bytes // 1048576,
-        "case_a_run": False,
-        "case_b_pass": output[0]["passed"],
-        "case_b": output[0],
-        "logic_gpu_gate_pass": success,
+        "case_a_run": args.run_both,
+        "case_a_pass": a["passed"] if a else None,
+        "case_b_pass": b["passed"] if b else None,
+        "cases": output,
+        "both_gates_pass": success if args.run_both else False,
+        "logic_gpu_gate_pass": bool(b and b["passed"] and offload_seen),
         "tir12_authorized_by_this_run": False,
         "docker_bypass": False,
     }, sort_keys=True, allow_nan=False), flush=True)
