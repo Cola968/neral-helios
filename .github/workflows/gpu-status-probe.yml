@@ -31,7 +31,7 @@ on:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100]
 permissions:
   contents: read
   pull-requests: read
@@ -1022,3 +1022,50 @@ jobs:
             ${{ env.NERAL_BLIND_DIR }}/blind100-results.failure.json
           retention-days: 14
           if-no-files-found: warn
+
+  posthoc100-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.mode == 'posthoc100'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '43f665c415c4324d951d7e5fc66e99b29300d3f9'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download completed GPU run's existing raw answers; no model inference
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-prod-dual-blind100-raw-and-metrics
+          run-id: '43258857348'
+          github-token: ${{ github.token }}
+          path: candidate/.data/prospective100
+      - name: Install existing CPU test dependencies
+        run: python -m pip install -r requirements-neral-preview.txt
+        working-directory: candidate
+      - name: Freeze independent conservative final-integer parser contract
+        run: python -B -m unittest discover -s tests -p 'test_neral_blind_100_offline_score_cpu.py' -v
+        working-directory: candidate
+      - name: Rescore only COMPLETE synthetic raw 100-pair artifact after original score succeeded
+        run: |
+          python -B -m scripts.neral_blind_100_offline_score \
+            --raw .data/prospective100/blind100-results.full_raw.jsonl \
+            --progress .data/prospective100/blind100-results.progress.jsonl \
+            --manifest .data/prospective100/blind100-manifest.json \
+            --original-score .data/prospective100/blind100-results.json \
+            --out .data/prospective100/offline100-posthoc.json
+        working-directory: candidate
+      - name: Store post-hoc CPU analysis separate from original GPU scores
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-prospective100-cpu-offline-posthoc-no-gpu
+          path: candidate/.data/prospective100/offline100-posthoc.json
+          if-no-files-found: error
+          retention-days: 14
