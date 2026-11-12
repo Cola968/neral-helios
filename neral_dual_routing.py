@@ -212,9 +212,23 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
     raw_calls=0
     tool_model_calls=0
 
-    def chat(model,turns,structured=False,repair=False):
-        output,event=_ollama_chat(model,turns,seed,structured=structured,
-                                  repair=repair)
+    def chat(model,turns,structured=False,repair=False,*,phase:str):
+        try:
+            output,event=_ollama_chat(model,turns,seed,structured=structured,
+                                      repair=repair)
+        except OllamaTransportFailure as failure:
+            # The 100-case logic cutoff evidence previously lost the
+            # controller stage and schema-attempt count after a 503.
+            # Whitelist only bounded scalar provenance; do not retain model
+            # text, user prompts or untrusted JSON payloads.
+            failure.diagnostic={
+                **failure.diagnostic,
+                "inference_phase":phase,
+                "schema_attempts":extractor_calls,
+                "model_proposal_calls":tool_model_calls,
+                "base_fallback_attempts":raw_calls,
+            }
+            raise
         metrics.append(event)
         return output
 
@@ -222,9 +236,9 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
         nonlocal raw_calls,tool_model_calls
         if turns==original:
             raw_calls+=1
-            return chat(BASE_TAG,turns)
+            return chat(BASE_TAG,turns,phase="base_controller_fallback")
         tool_model_calls+=1
-        return chat(TUNED_TAG,turns)
+        return chat(TUNED_TAG,turns,phase="qlora_tool_proposal")
 
     def extract(turns):
         nonlocal extractor_calls
@@ -232,14 +246,14 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
         if extractor_calls>2:
             raise RuntimeError("Too many untrusted schema attempts")
         return chat(TUNED_TAG,turns,structured=True,
-                    repair=(extractor_calls==2))
+                    repair=(extractor_calls==2),phase="qlora_schema_extraction")
 
     def raw_fallback(turns):
         nonlocal raw_calls
         if turns!=original:
             raise ValueError("Guard raw fallback is not the original dialogue")
         raw_calls+=1
-        return chat(BASE_TAG,turns)
+        return chat(BASE_TAG,turns,phase="base_guard_fallback")
 
     try:
         proposal=run_experimental_tir(original,respond,extract_constraints=extract)
