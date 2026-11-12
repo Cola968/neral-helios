@@ -38,3 +38,7 @@ jobs:
           python -B -m unittest discover -s tests -p 'test_neral_blind_100_cpu.py' -v
       - name: Retry and exact prior-results resume checkpoint contracts
         run: python -B -m unittest discover -s tests -p 'test_neral_blind_retry_resume_cpu.py' -v
+      - name: Separate CPU-only post-hoc parsing contracts; never alters primary score
+        run: |
+          python -B -m py_compile scripts/neral_blind_100_offline_score.py
+          python -B -m unittest discover -s tests -p 'test_neral_blind_100_offline_score_cpu.py' -v
