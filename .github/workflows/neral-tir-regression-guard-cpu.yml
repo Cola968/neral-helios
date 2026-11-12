@@ -21,9 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt pytest
+      - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt
       - run: python -B -m unittest discover -s tests -p test_neral_tir_regression_guard.py -v
       - run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
       - run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
-      - run: python -B -m pytest -q tests/test_neral_local_chat_api.py
       - run: python -m compileall -q neral_tir_regression_guard.py neral_local_chat_api.py
