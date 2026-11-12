@@ -101,3 +101,22 @@ test("elapsed-time ticker is stopped on cancel; no fake progress or stale timers
   fire("cancelled");assert.equal(stopped,1);
   tick();assert.equal(rootEl.querySelector(".neral-activity"),null);
 });
+
+
+test("the live stream emits provider-discovered pages with icons before HTTPS checks",async()=>{
+  const packets=[
+    '{"type":"provider","name":"Wikipedia DE"}\n',
+    '{"type":"candidate","source":{"title":"Flughafen Frankfurt Main","url":"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main","discovered":true,"topically_relevant":true,"reachable":false}}\n',
+    '{"type":"result","result":{"results":[],"previews":[{"title":"Flughafen Frankfurt Main","url":"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main","discovered":true,"topically_relevant":true,"reachable":false}]}}\n',
+    '{"type":"end"}\n'];
+  const b=boot(packets),events=[];
+  const result=await b.search({query:"Flughafen Frankfurt",csrf:"yes",onEvent:e=>events.push(e)});
+  assert.equal(events[0].name,"Wikipedia DE");
+  assert.equal(events[1].type,"candidate");
+  assert.equal(events[1].source.reachable,false);
+  assert.equal(result.previews.length,1);
+  assert.equal(result.results.length,0);
+  const motion=fs.readFileSync(path.join(root,"static/neral-motion.js"),"utf8");
+  assert.match(motion,/"Wikipedia DE"/);
+  assert.match(motion,/neral-live-site-icon/);
+});
