@@ -66,7 +66,7 @@ def register_web_search_api(app, service=None):
         matched = terms.intersection(heading | snippet)
         if not matched:
             return None
-        categories = {"flughafen","wetter","dokumentation","fluge"}
+        categories = {"flughafen","wetter"}
         category = terms.intersection(categories)
         # With multiple query terms an unrelated result at the right location
         # is not enough (e.g. TV Frankfurt is not Frankfurt Airport).
