@@ -895,7 +895,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '4bddb32228b63a257715d50c3fe025716ef1b886'
+          ref: '4f50f5b89ff9bf92efe377d59db51589a56f942b'
           persist-credentials: false
           path: candidate
       - uses: actions/setup-python@v5
@@ -932,11 +932,11 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       HF_HUB_OFFLINE: '1'
       TRANSFORMERS_OFFLINE: '1'
-      NERAL_PROD_BLIND_SHA: '4bddb32228b63a257715d50c3fe025716ef1b886'
+      NERAL_PROD_BLIND_SHA: '4f50f5b89ff9bf92efe377d59db51589a56f942b'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '4bddb32228b63a257715d50c3fe025716ef1b886'
+          ref: '4f50f5b89ff9bf92efe377d59db51589a56f942b'
           persist-credentials: false
           clean: true
           path: candidate
