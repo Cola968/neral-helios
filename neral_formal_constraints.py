@@ -140,7 +140,22 @@ def try_solve_formal_constraints(question: str) -> int | None:
     Rule RHS is exactly one of 'right' (declared variable) and 'value'
     (JSON integer / Boolean). Optional 'all_different' groups use names.
     """
-    if type(question) is not str or not question.startswith(PREFIX):
+    if type(question) is not str:
+        return None
+    # Explicit user-supplied v2 schemas are a separate, strictly typed
+    # language; untagged natural language and model-authored proposals are
+    # never auto-promoted. Preserve every existing v1 behavior.
+    from neral_typed_constraints_v2 import (
+        PREFIX as PREFIX_V2, solve_typed_constraints, InvalidTypedConstraints,
+    )
+    if question.startswith(PREFIX_V2):
+        try:
+            return solve_typed_constraints(question)
+        except InvalidTypedConstraints as exc:
+            # The v1/TIR guard already handles InvalidFormalConstraints as a
+            # deterministic safe refusal; do not change the guard at all.
+            raise InvalidFormalConstraints(str(exc)) from None
+    if not question.startswith(PREFIX):
         return None
     if len(question.encode("utf-8")) > MAX_INPUT_BYTES:
         raise InvalidFormalConstraints("Schema exceeds size limit")
