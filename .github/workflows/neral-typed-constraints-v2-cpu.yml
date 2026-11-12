@@ -1,0 +1,30 @@
+name: NERAL typed constraints v2 CPU (five families; no GPU)
+on:
+  push:
+    branches: [feat/neral-typed-constraints-v2-20261112]
+  pull_request:
+    paths:
+      - 'neral_typed_constraints_v2.py'
+      - 'neral_formal_constraints.py'
+      - 'tests/test_neral_typed_constraints_v2.py'
+permissions:
+  contents: read
+jobs:
+  typed-constraints:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile explicit typed solver and original strict interpreter
+        run: python -B -m py_compile neral_typed_constraints_v2.py neral_formal_constraints.py
+      - name: New exact counting and rejection contracts
+        run: python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v
+      - name: Existing formal constraint and PR537 guard regression gates
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_formal_constraints*.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
