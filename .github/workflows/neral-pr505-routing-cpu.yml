@@ -18,6 +18,8 @@ jobs:
       - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt
       - name: Turn-0 router and parser CPU tests
         run: python -B -m unittest discover -s tests -p test_neral_tir_turn0.py -v
+      - name: Measured Ollama repair budget, diagnostics and unchanged baseline contracts
+        run: python -B -m unittest discover -s tests -p test_neral_ollama_diagnostics.py -v
       - name: Existing TIR behavior and sandbox contracts (mocked)
         run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
       - name: Baseline TIR safety and telemetry
