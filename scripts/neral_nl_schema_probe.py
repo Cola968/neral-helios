@@ -65,13 +65,15 @@ def make_local_extractor(model_tag: str, *, transport=None):
                 any(type(row) is not dict or set(row) != {"role", "content"}
                     or type(row["content"]) is not str for row in messages)):
             raise ValueError("Invalid local extraction turns")
+        from neral_nl_schema_format import get_v2_ollama_format
         payload = {
             "model": model_tag,
             "messages": [dict(row) for row in messages],
             "stream": False,
-            "format": "json",
+            "format": get_v2_ollama_format(),
             "think": False,
-            "options": {"temperature": 0, "num_predict": 768},
+            "options": {"temperature": 0, "num_predict": 1024,
+                        "repeat_penalty": 1.05},
         }
         response = send(payload)
         if (type(response) is not dict or type(response.get("message")) is not dict
