@@ -57,7 +57,7 @@ _SIGNALS = (
     (r"\b(?:even|gerade|modulo|divisible|teilbar)\b", frozenset({"mod"})),
     (r"\b(?:distinct|unique|verschieden|unterschiedlich)\b",
      frozenset({"all_different", "!="})),
-    (r"\b(?:before|after|vor|nach)\b", frozenset({"<", ">"})),
+    (r"\b(?:before|after|vor|nach)\b", frozenset({"<", ">", "<=", ">="})),
     (r"\b(?:opposite|gegenteilig)\b", frozenset({"!="})),
     (r"\b(?:equivalent|äquivalent)\b", frozenset({"iff"})),
     (r"\b(?:exactly|genau)\b", frozenset({"exactly", "==", "all_different"})),
