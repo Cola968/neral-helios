@@ -436,13 +436,18 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 raise ValueError("Invalid JSON")
             experimental_tir = payload.get("experimental_tir", False)
             conservative_tir = payload.get("conservative_tir", False)
+            python_logic_routing = payload.get("python_logic_routing", False)
             if (type(experimental_tir) is not bool
                     or type(conservative_tir) is not bool
-                    or (conservative_tir and not experimental_tir)):
-                raise ValueError("Invalid experimental or conservative TIR flag")
-            # Neither option is part of the messages sent to the model.
+                    or type(python_logic_routing) is not bool
+                    or (conservative_tir and not experimental_tir)
+                    or (python_logic_routing
+                        and not (experimental_tir and conservative_tir))):
+                raise ValueError("Invalid opt-in routing flags")
+            # Control flags must never become chat messages or model input.
             clean = {k: v for k, v in payload.items()
-                     if k not in ("experimental_tir", "conservative_tir")}
+                     if k not in ("experimental_tir", "conservative_tir",
+                                  "python_logic_routing")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -558,6 +563,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     first_turn_diagnostic=first_turn_diagnostic,
                     extract_constraints=(bounded_formal_extract
                                          if bounded_final else None),
+                    python_logic_routing=python_logic_routing,
+                    tool_decide=(high_backend.respond_tir_code
+                                 if python_logic_routing else None),
                     extraction_rejection_sink=first_turn_rejection_codes,
                     solver_rejection_detail_sink=first_turn_solver_details)
                 if conservative_tir:
@@ -568,6 +576,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         result, data, high_backend.respond_chat)
                 return jsonify({**result, "experimental_tir": True,
                                 "conservative_tir": conservative_tir,
+                                "python_logic_routing": python_logic_routing,
                                 **_provenance(high_backend)})
             previous_event = (
                 high_backend.inference_diagnostic_events[-1]
