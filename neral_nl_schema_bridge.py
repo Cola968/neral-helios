@@ -33,15 +33,15 @@ EXTRACT_BASE_PROMPT = (
 MAX_QUESTION_CHARS = 8192
 # Conservative lexical warning signals; NOT a semantic completeness proof.
 _SIGNALS = (
-    (r"\\b(?:sum|summe)\\b", frozenset({"sum"})),
-    (r"\\b(?:even|gerade|modulo|divisible|teilbar)\\b", frozenset({"mod"})),
-    (r"\\b(?:distinct|unique|verschieden|unterschiedlich)\\b",
+    (r"\b(?:sum|summe)\b", frozenset({"sum"})),
+    (r"\b(?:even|gerade|modulo|divisible|teilbar)\b", frozenset({"mod"})),
+    (r"\b(?:distinct|unique|verschieden|unterschiedlich)\b",
      frozenset({"all_different", "!="})),
-    (r"\\b(?:before|after|vor|nach)\\b", frozenset({"<", ">"})),
-    (r"\\b(?:opposite|gegenteilig)\\b", frozenset({"!="})),
-    (r"\\b(?:equivalent|äquivalent)\\b", frozenset({"iff"})),
-    (r"\\b(?:exactly|genau)\\b", frozenset({"exactly"})),
-    (r"\\b(?:not|nicht|no|kein|keine)\\b", frozenset({"not", "!="})),
+    (r"\b(?:before|after|vor|nach)\b", frozenset({"<", ">"})),
+    (r"\b(?:opposite|gegenteilig)\b", frozenset({"!="})),
+    (r"\b(?:equivalent|äquivalent)\b", frozenset({"iff"})),
+    (r"\b(?:exactly|genau)\b", frozenset({"exactly"})),
+    (r"\b(?:not|nicht|no|kein|keine)\b", frozenset({"not", "!="})),
 )
 
 
@@ -133,7 +133,7 @@ def coverage_gate(question: str, schema: dict) -> dict:
         for name, variable in names.items():
             if type(name) is not str or type(variable) is not dict:
                 raise ValueError()
-            numbers.update(re.findall(r"\\d+", name))
+            numbers.update(re.findall(r"\d+", name))
             for value in variable["domain"]:
                 if type(value) is int:
                     numbers.add(str(value))
@@ -148,7 +148,7 @@ def coverage_gate(question: str, schema: dict) -> dict:
                 for item in node:
                     collect(item)
         collect(schema["constraints"])
-        source_numbers = set(re.findall(r"(?<![A-Za-z_])\\d+(?![A-Za-z_])",
+        source_numbers = set(re.findall(r"(?<![A-Za-z_])\d+(?![A-Za-z_])",
                                         question))
         if not source_numbers.issubset(numbers):
             return {"passed": False, "reason": "numeric_anchor_missing"}
