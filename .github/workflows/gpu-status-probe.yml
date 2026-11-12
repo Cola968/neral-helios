@@ -10,7 +10,7 @@ on:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic]
+        options: [readiness, logic, transfer]
 permissions:
   contents: read
 jobs:
@@ -51,12 +51,13 @@ jobs:
           Write-Host "DOCKER_LINUX_ENGINE_ONLINE=$server"
           Write-Host "DOCKER_OFFLINE_SANDBOX_IMAGE_PRESENT=$image"
           Write-Host "PR533_GATE_A_RECHECK_READY=$($server -and $image)"
+          exit 0
   cpu-preflight:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
       inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
-      inputs.mode == 'logic'
+      inputs.mode == 'logic' || inputs.mode == 'transfer'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -80,6 +81,11 @@ jobs:
         working-directory: candidate
       - name: Validate isolated live probe syntax
         run: python -B -m py_compile scripts/neral_pr533_two_gate_live.py
+      - name: Fresh logic-transfer oracle CPU contracts
+        if: inputs.mode == 'transfer'
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_pr533_logic_transfer.py -v
+          python -B -m py_compile scripts/neral_pr533_logic_transfer.py
   gpu-logic-only:
     needs: cpu-preflight
     if: >-
@@ -148,4 +154,74 @@ jobs:
           try {
             & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_two_gate_live.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate --seed $env:OUTER_SEED
             if($LASTEXITCODE -ne 0){throw 'Logic-only GPU gate rejected; TIR12 NOT authorized'}
+          } finally { Pop-Location }
+
+  gpu-logic-transfer:
+    needs: cpu-preflight
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.mode == 'transfer'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_EXPERIMENTAL_TIR: '1'
+      TARGET_SHA: 'eb94542a55aa15abb9187c6122a643392cc1de34'
+      MANUAL_AUTH: 'NERAL_PR533_LOGIC_TRANSFER_GPU_ONLY'
+      OUTER_SEED: '202611110533'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+          clean: true
+      - uses: actions/checkout@v4
+        with:
+          ref: eb94542a55aa15abb9187c6122a643392cc1de34
+          path: candidate
+          persist-credentials: false
+          clean: true
+      - name: Check exact PR533 SHA and idle GPU (logic-only, no Docker)
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
+          $actual=(& git -C (Join-Path $env:GITHUB_WORKSPACE 'candidate') rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA){throw 'Candidate SHA mismatch'}
+          $gpu=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU probe unavailable'}
+          $values=($gpu|Select-Object -First 1) -split ','
+          if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 7000 -or [int]$values[1].Trim() -gt 25){
+            throw 'GPU busy or insufficient memory'
+          }
+          $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Existing Python runtime not found'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-pr533-two-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse occupied test environment'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Unable to create isolated environment'}
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'candidate/requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Missing preview dependencies'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('TWO_GATE_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Run four independent synthetic logics with real RTX and export safe scalars
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $harness=Join-Path $env:GITHUB_WORKSPACE 'harness'
+          $env:PYTHONPATH=$candidate
+          Push-Location $candidate
+          try {
+            & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_logic_transfer.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate
+            if($LASTEXITCODE -ne 0){throw 'Synthetic transfer gate not all passed; no TIR12 claim'}
           } finally { Pop-Location }
