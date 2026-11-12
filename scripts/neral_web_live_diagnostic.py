@@ -11,6 +11,7 @@ from neral_web_api import register_web_search_api
 from neral_web_search import fetch_public_favicon, FAVICON_PATHS, _request_favicon, sanitize_favicon_svg
 from ipaddress import ip_address
 import socket
+from xml.etree import ElementTree
 
 QUERY = "grok ai"
 
@@ -47,9 +48,17 @@ def run():
                 for path in FAVICON_PATHS:
                     try:
                         content, mime=_request_favicon("grok.com",ip,path)
-                        details.append({"path":path,"length":len(content),
-                                        "mime":mime,
-                                        "svg_accepted":bool(sanitize_favicon_svg(content)) if path.endswith(".svg") else None})
+                        item={"path":path,"length":len(content),"mime":mime,
+                              "svg_accepted":bool(sanitize_favicon_svg(content)) if path.endswith(".svg") else None}
+                        if content and path.endswith(".svg"):
+                            try:
+                                root=ElementTree.fromstring(content)
+                                item["root"]=root.tag
+                                item["tags"]=sorted(set(x.tag for x in root.iter()))
+                                item["attr_keys"]=sorted(set(k for x in root.iter() for k in x.attrib))
+                            except Exception as e:
+                                item["parse_error"]=type(e).__name__
+                        details.append(item)
                     except Exception as e:
                         details.append({"path":path,"error":type(e).__name__})
             else:
