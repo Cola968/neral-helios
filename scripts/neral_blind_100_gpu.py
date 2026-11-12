@@ -140,11 +140,21 @@ def pair_case(case,client,headers):
     start=time.monotonic()
     # Both arms use precisely the same user question, identity system,
     # temperature 0, 2048 tokens, 4096 context, seed 0, non-thinking.
+    control_completion_status="completed"
+    control_diagnostic=None
     try:
         control,meta=_ollama_chat(BASE_TAG,messages,0)
     except OllamaTransportFailure as exc:
-        exc.stage="control"
-        raise
+        if exc.diagnostic.get("reason")!="token_limit":
+            exc.stage="control"
+            raise
+        # A deterministic generation cutoff is NOT a transport failure or
+        # a valid answer. Mark strictly wrong, retaining the original 2048
+        # output budget. Never extract a plausible number from partial text.
+        control=""
+        control_completion_status="token_limit"
+        control_diagnostic=exc.diagnostic
+        meta={"load_ms":None,"attempts":exc.diagnostic.get("attempts",1)}
     control_seconds=round(time.monotonic()-start,3)
     if gpu_offload_mib(BASE_TAG)<4096:
         raise RuntimeError("Control model did not use the RTX GPU")
@@ -154,12 +164,36 @@ def pair_case(case,client,headers):
                "conservative_tir":True,"dual_routing":True},
          headers=headers,base_url=API_ORIGIN)
     dual_seconds=round(time.monotonic()-start,3)
+    dual_completion_status="completed"
+    dual_diagnostic=None
     if response.status_code!=200:
-        raise RuntimeError("Production dual-route API HTTP "+str(response.status_code))
-    result=response.json
-    dual=result.get("text")
-    if type(dual) is not str or not dual.strip():
-        raise RuntimeError("Product API returned no complete response")
+        details=response.json if type(response.json) is dict else {}
+        diag=details.get("diagnostic")
+        if (response.status_code==503
+                and details.get("error_code")=="ollama_transport"
+                and type(diag) is dict
+                and diag.get("reason")=="token_limit"):
+            # As with control, an exhausted token budget has no valid
+            # completion. Do not accept a partial/guessed number.
+            dual_completion_status="token_limit"
+            dual_diagnostic=diag
+            dual=""
+            result={"selection_policy":"no_valid_answer_token_limit",
+                    "verified":False,"inference_spans":[],
+                    "base_raw_calls":None,
+                    "tool_planning_calls":None,
+                    "structured_schema_attempts":None,
+                    "ollama_resident_after":{"both_resident":False},
+                    "gpu_device_peak_mib":sample_device_mib(),
+                    "tool_model":TUNED_TAG,"fallback_model":BASE_TAG,
+                    "model_digests":{BASE_TAG:BASE_DIGEST,TUNED_TAG:TUNED_DIGEST}}
+        else:
+            raise RuntimeError("Production dual-route API HTTP "+str(response.status_code))
+    else:
+        result=response.json
+        dual=result.get("text")
+        if type(dual) is not str or not dual.strip():
+            raise RuntimeError("Product API returned no complete response")
     if result.get("tool_model")!=TUNED_TAG or result.get("fallback_model")!=BASE_TAG:
         raise RuntimeError("Productive API used a different model pairing")
     if result.get("model_digests")!={BASE_TAG:BASE_DIGEST,TUNED_TAG:TUNED_DIGEST}:
@@ -168,8 +202,22 @@ def pair_case(case,client,headers):
     end=sample_device_mib()
     return {"id":case["id"],"category":case["category"],
             "family":case["family"],"question_sha256":case["question_sha256"],
-            "base_correct":parse_exact(control)==expected,
-            "dual_correct":parse_exact(dual)==expected,
+            "base_correct":(control_completion_status=="completed"
+                            and parse_exact(control)==expected),
+            "dual_correct":(dual_completion_status=="completed"
+                            and parse_exact(dual)==expected),
+            "base_completion_status":control_completion_status,
+            "dual_completion_status":dual_completion_status,
+            "base_done_reason":("stop" if control_diagnostic is None
+                                else control_diagnostic.get("done_reason")),
+            "dual_done_reason":("stop" if dual_diagnostic is None
+                                else dual_diagnostic.get("done_reason")),
+            "base_http_status":(200 if control_diagnostic is None
+                                else control_diagnostic.get("http_status")),
+            "dual_http_status":(200 if dual_diagnostic is None
+                                else dual_diagnostic.get("http_status")),
+            "base_attempts":meta.get("attempts",1),
+            "dual_transport_diagnostic":dual_diagnostic,
             "policy":result.get("selection_policy","unknown"),
             "verified":result.get("verified") is True,
             "base_seconds":control_seconds,"dual_seconds":dual_seconds,
