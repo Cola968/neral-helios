@@ -466,7 +466,7 @@ jobs:
           $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
           Write-Host "TRAIN_PYTHON_INSTALLED=$([bool](Test-Path -LiteralPath $base -PathType Leaf))"
           if(Test-Path -LiteralPath $base -PathType Leaf){
-            & $base -B -c 'import json,importlib.util;print("TRAIN_DEPS="+json.dumps({m:bool(importlib.util.find_spec(m)) for m in ["torch","transformers","unsloth","peft","bitsandbytes","accelerate","safetensors"]},sort_keys=True))'
+            & $base -B -c "import importlib.util;print('TRAIN_DEPS=' + ','.join(k + ':' + str(bool(importlib.util.find_spec(k))) for k in ('torch','transformers','unsloth','peft','bitsandbytes','accelerate','safetensors')))"
             if($LASTEXITCODE -ne 0){throw 'Existing Python probe failed'}
           }
           $cache=Join-Path $env:USERPROFILE '.cache/huggingface/hub'
