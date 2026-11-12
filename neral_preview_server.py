@@ -238,17 +238,27 @@ def main(argv=None):
                         help="Experimental measured profile; default stays legacy.")
     parser.add_argument("--experimental-high-qwen35",action="store_true",
                         help="Opt-in HIGH with installed Qwen3.5:9b; defaults off.")
+    parser.add_argument("--experimental-dual-routing",action="store_true",
+                        help="Opt-in pinned QLoRA for TIR and base-Qwen for raw fallback; default off.")
     args=parser.parse_args(argv)
     from neral_agent_autonomy import OllamaLocalBackend
     from waitress import serve
     high=build_experimental_high(args.model,args.experimental_high_qwen35)
+    if args.experimental_dual_routing:
+        if high is None:
+            raise ValueError("Dual-Routing requires explicit HIGH plus two installed pinned models.")
+        from scripts.neral_generalization_100_run import require_exact_models
+        require_exact_models()  # fail before listening if either digest differs
+        import os
+        os.environ["NERAL_EXPERIMENTAL_DUAL_ROUTE"]="1"
     app=create_preview_app(OllamaLocalBackend(
         args.model,timeout=90,inference_profile=args.inference_profile),
         experimental_high_backend=high)
     print(f"NERAL 1.0 Local Preview: {ORIGIN} | LOW={args.model} | "
           f"HIGH={getattr(high,'model',args.model)} | "
           f"inference_profile={args.inference_profile} | "
-          "local foundation only | no promoted LoRA",flush=True)
+          f"dual_routing_opt_in={args.experimental_dual_routing} | "
+          "no default model promotion",flush=True)
     serve(app,host=HOST,port=PORT,threads=4)
 
 
