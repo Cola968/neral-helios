@@ -101,7 +101,8 @@ class DualExtractionBridgeTests(unittest.TestCase):
         for question in ("", " ".join(["x"]*10000)):
             r = self.check(question, d, d)
             self.assertNotEqual(r["status"], "consensus_unverified")
-        r = assess_dual_extraction("Count X.", as_extract(d), as_extract(d))
+        same_callable = as_extract(d)
+        r = assess_dual_extraction("Count X.", same_callable, same_callable)
         self.assertEqual(r["status"], "same_extractor")
 
     def test_source_anchors_are_advisory_not_a_truth_certificate(self):
