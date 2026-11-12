@@ -169,5 +169,67 @@ class OneClickTests(unittest.TestCase):
         start.assert_called_once()
 
 
+    def test_visible_button_checks_download_then_click_installs_and_reopens(self):
+        """Exercise the actual Tk callbacks with a fake event loop and no network."""
+        import sys
+        import types
+        from unittest.mock import Mock
+        staged=Path("C:/NERAL/updates/versions/NERAL-next.exe")
+        scheduled=[]
+        controls=[]
+
+        class Button:
+            def __init__(self,parent,**options):
+                self.options=dict(options)
+                self.visible=False
+                controls.append(self)
+            def pack(self,**options):
+                self.visible=True
+            def configure(self,**options):
+                self.options.update(options)
+
+        class Variable:
+            def __init__(self,**options):
+                self.value=options.get("value","")
+            def set(self,value): self.value=value
+            def get(self): return self.value
+
+        root=Mock()
+        root.winfo_exists.return_value=True
+        root.after.side_effect=lambda delay,callback: scheduled.append((delay,callback))
+        stub=types.SimpleNamespace(
+            Tk=lambda:root,Label=lambda *a,**k:Mock(),Frame=lambda *a,**k:Mock(),
+            StringVar=Variable,Button=Button,
+            messagebox=types.SimpleNamespace(showerror=Mock(),showwarning=Mock()))
+        class ImmediateThread:
+            def __init__(self,**kw):self.target=kw["target"]
+            def start(self):self.target()
+
+        with patch.dict(sys.modules,{"tkinter":stub,
+                                      "waitress":types.SimpleNamespace(create_server=Mock()),
+                                      "neral_preview_server":types.SimpleNamespace(create_preview_app=Mock())}), \
+             patch.object(neral_oneclick.sys,"frozen",True,create=True), \
+             patch.object(neral_oneclick.threading,"Thread",ImmediateThread), \
+             patch.object(neral_oneclick.neral_auto_update,"check_windows_release",
+                          return_value=staged) as check, \
+             patch.object(neral_oneclick.neral_auto_update,"staged_windows_exe",
+                          return_value=staged), \
+             patch.object(neral_oneclick,"launch_verified_update",
+                          return_value=True) as install:
+            neral_oneclick.start_app()
+            update=next(b for b in controls if b.options.get("text")=="Auf Updates prüfen")
+            self.assertTrue(update.visible)
+            update.options["command"]()
+            self.assertEqual(update.options["state"],"disabled")
+            check.assert_called_once()
+            poll=next(callback for delay,callback in scheduled if delay==150)
+            poll()
+            self.assertEqual(update.options["text"],"Update installieren und neu starten")
+            self.assertEqual(update.options["state"],"normal")
+            update.options["command"]()
+            install.assert_called_once()
+            self.assertEqual(install.call_args.args[0],staged)
+
+
 if __name__=="__main__":
     unittest.main()
