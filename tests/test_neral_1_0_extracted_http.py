@@ -63,8 +63,8 @@ class RealExtractedHttpTests(unittest.TestCase):
                             self.assertEqual(response.status,200)
                             self.assertIn(b"NERAL 1.0 Local",html)
                             self.assertNotIn(b"Modellherkunft",html)
-                             self.assertNotIn(b'id="connection"',html)
-                             self.assertNotIn(b'id="modelDetails"',html)
+                            self.assertNotIn(b'id="connection"',html)
+                            self.assertNotIn(b'id="modelDetails"',html)
                             self.assertEqual(response.headers["X-Frame-Options"],"DENY")
                             self.assertIn("HttpOnly",response.headers.get("Set-Cookie",""))
                         break
