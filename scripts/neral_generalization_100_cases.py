@@ -223,7 +223,8 @@ def main():
     payload="".join(json.dumps(x,sort_keys=True,separators=(",",":"),ensure_ascii=False)+"\n" for x in cases)
     if hashlib.sha256(payload.encode("utf8")).hexdigest()!=record["case_sha256"]:
         raise AssertionError("Manifest mismatch")
-    args.out.write_text(payload,encoding="utf8")
+    with args.out.open("x",encoding="utf8",newline="\n") as output:
+        output.write(payload)
     args.manifest.write_text(json.dumps(record,sort_keys=True,indent=2)+"\n",encoding="utf8")
     print(json.dumps(record,sort_keys=True))
 if __name__=="__main__":
