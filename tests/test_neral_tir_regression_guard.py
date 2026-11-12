@@ -106,5 +106,33 @@ class RegressionGuardCPU(unittest.TestCase):
             ], lambda _: "pass")
 
 
+    def test_explicit_sandbox_failure_keeps_fail_closed_refusal(self):
+        refusal = candidate(
+            text="Die unveränderte Python-Quelle konnte nicht sicher ausgeführt werden.",
+            model_generated=False, verified=False,
+            verification_status="not_available",
+            verification_scope="none",
+            tool_calls_succeeded=0)
+        result = choose_guarded_tir_reply(
+            refusal, original(),
+            lambda _: self.fail("Never replace sandbox safety refusal with a guess"))
+        self.assertEqual(result["text"], refusal["text"])
+        self.assertEqual(result["selection_policy"], "explicit_safe_refusal")
+        self.assertFalse(result["verified"])
+
+    def test_explicit_invalid_formal_schema_keeps_fail_closed_refusal(self):
+        refusal = candidate(
+            text="Die formalen Nebenbedingungen sind ungültig.",
+            model_generated=False, verified=False,
+            verification_status="formal_schema_rejected",
+            verification_scope="none",
+            tool_calls_triggered=0, tool_calls_succeeded=0)
+        result = choose_guarded_tir_reply(
+            refusal, original(),
+            lambda _: self.fail("Never override rejected explicit formal input"))
+        self.assertEqual(result["text"], refusal["text"])
+        self.assertEqual(result["selection_policy"], "explicit_safe_refusal")
+
+
 if __name__ == "__main__":
     unittest.main()
