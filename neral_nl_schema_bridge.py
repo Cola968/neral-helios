@@ -17,6 +17,99 @@ from neral_typed_constraints_v2 import (
     _type_predicate, _predicate_value, solve_typed_constraints,
 )
 
+# Synthetic development examples, deliberately different from the known old
+# tasks and never taken from the sealed prospective-100 benchmark. These are
+# complete, solver-valid v2 schemas, not partial predicate snippets.
+def _ex_term(name: str) -> dict:
+    return {"var": name}
+
+
+def _ex_const(value: int | bool) -> dict:
+    return {"const": value}
+
+
+def _ex_compare(left: dict, op: str, right: dict) -> dict:
+    return {"compare": {"left": left, "op": op, "right": right}}
+
+
+V2_FEW_SHOT_EXAMPLES = (
+    {
+        "task": (
+            "Color vertices 0..2 with red, green or blue. Vertex 0 is red; "
+            "edges (0,1) and (1,2) must differ. Count colorings."
+        ),
+        "schema": {
+            "version": 2,
+            "variables": {
+                f"C{i}": {"type": "int", "domain": [0, 1, 2]}
+                for i in range(3)
+            },
+            "constraints": [
+                _ex_compare(_ex_term("C0"), "==", _ex_const(0)),
+                _ex_compare(_ex_term("C0"), "!=", _ex_term("C1")),
+                _ex_compare(_ex_term("C1"), "!=", _ex_term("C2")),
+            ],
+            "query": "count",
+        },
+    },
+    {
+        "task": (
+            "Count binary strings of length 4 with exactly 2 ones; "
+            "first two bits opposite; no two ones distance 2 apart."
+        ),
+        "schema": {
+            "version": 2,
+            "variables": {
+                f"B{i}": {"type": "bool", "domain": [False, True]}
+                for i in range(4)
+            },
+            "constraints": [
+                {"exactly": {"vars": [f"B{i}" for i in range(4)],
+                             "value": True, "count": 2}},
+                _ex_compare(_ex_term("B0"), "!=", _ex_term("B1")),
+            ] + [
+                {"not": {"and": [
+                    _ex_compare(_ex_term(f"B{i}"), "==", _ex_const(True)),
+                    _ex_compare(_ex_term(f"B{i+2}"), "==", _ex_const(True)),
+                ]}}
+                for i in range(2)
+            ],
+            "query": "count",
+        },
+    },
+    {
+        "task": (
+            "Ein vierstelliger Code verwendet 1,2,3,4 genau einmal; "
+            "2 steht vor 4, aber nicht unmittelbar davor; "
+            "3 steht unmittelbar rechts von 1. Zähle Codes."
+        ),
+        "schema": {
+            "version": 2,
+            "variables": {
+                f"P{i}": {"type": "int", "domain": [0, 1, 2, 3]}
+                for i in range(1, 5)
+            },
+            "constraints": [
+                {"all_different": [f"P{i}" for i in range(1, 5)]},
+                _ex_compare(
+                    _ex_term("P4"), ">=",
+                    {"sum": [_ex_term("P2"), _ex_const(2)]}),
+                _ex_compare(
+                    _ex_term("P3"), "==",
+                    {"sum": [_ex_term("P1"), _ex_const(1)]}),
+            ],
+            "query": "count",
+        },
+    },
+)
+
+_FEW_SHOT_TEXT = " ".join(
+    "BEISPIEL " + str(index) + " AUFGABE: " + example["task"] +
+    " JSON: " + json.dumps(
+        example["schema"], ensure_ascii=False, separators=(",", ":"))
+    for index, example in enumerate(V2_FEW_SHOT_EXAMPLES, 1)
+)
+
 _V2_COMPACT_GRAMMAR = (
     'Gib ausschließlich EIN kompaktes JSON-Objekt aus. Exakt vier Schlüssel: '
     '"version":2, "variables", "constraints", "query":"count" '
@@ -39,7 +132,15 @@ _V2_COMPACT_GRAMMAR = (
     'Alle Bedingungen explizit abbilden, insbesondere nicht/kein, '
     'Ungleichheit, Nachbarschaft und Quantoren. '
     'Keine redundanten Doppel-Constraints, keine Wiederholungsschleifen. '
-    'Keine Markdown-Formatierung, keine Erläuterung.'
+    'Alle Variablen ausdrücklich und vollständig im variables-Objekt '
+    'deklarieren, niemals variables={} oder nicht leer lassen. '
+    'Namenskonvention: C0..C(n-1) für Graphen, B0..B(n-1) für Bits, '
+    'P1..Pn für Zifferpositionen. '
+    'Nachbarschaft i=0..n-2; Abstand zwei i=0..n-3: alle Paare '
+    'ausrollen, NICHT nur i=0. Die komplette Variablenmenge und '
+    'jede Nebenbedingung muss sichtbar im AST stehen. '
+    'Keine Markdown-Formatierung, keine Erläuterung. '
+    + _FEW_SHOT_TEXT
 )
 EXTRACT_QLORA_PROMPT = (
     'Extrahiere alle Nebenbedingungen direkt und möglichst kurz. '
