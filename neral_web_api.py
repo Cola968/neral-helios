@@ -15,7 +15,7 @@ def register_web_search_api(app, service=None):
 
     def verified_results(result: dict, on_source=None) -> dict:
         """Check public HTTPS endpoints; emit only reachable hits, no page contents."""
-        candidates = result.get("results", [])[:5]
+        candidates = result.get("results", [])[:10]
         def verify(index, hit):
             if not isinstance(hit, dict):
                 return index, None
@@ -27,7 +27,7 @@ def register_web_search_api(app, service=None):
             tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(candidates)]
             for task in as_completed(tasks):
                 index, checked = task.result()
-                if checked is not None:
+                if checked is not None and len(accepted) < 5:
                     accepted[index] = checked
                     if on_source is not None:
                         on_source(checked)
