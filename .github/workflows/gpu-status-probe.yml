@@ -408,7 +408,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1c576bd820d5b65d76cbf65fb69146e8f40aec45'
+          ref: 'c364aa2b3cba3db007a95f671cb68cd67171f0d9'
           path: candidate
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -445,7 +445,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1c576bd820d5b65d76cbf65fb69146e8f40aec45'
+          ref: 'c364aa2b3cba3db007a95f671cb68cd67171f0d9'
           path: candidate
           persist-credentials: false
           clean: true
@@ -455,7 +455,7 @@ jobs:
           $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
           if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
           $actual=(& git -C $candidate rev-parse HEAD).Trim()
-          if($LASTEXITCODE -ne 0 -or $actual -ne '1c576bd820d5b65d76cbf65fb69146e8f40aec45'){throw 'QLoRA candidate commit changed'}
+          if($LASTEXITCODE -ne 0 -or $actual -ne 'c364aa2b3cba3db007a95f671cb68cd67171f0d9'){throw 'QLoRA candidate commit changed'}
           $gpu=& nvidia-smi --query-gpu=memory.total,memory.free,utilization.gpu --format=csv,noheader,nounits
           if($LASTEXITCODE -ne 0){throw 'Missing Nvidia GPU'}
           $v=($gpu|Select-Object -First 1) -split ','
