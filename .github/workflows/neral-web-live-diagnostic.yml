@@ -5,6 +5,7 @@ on:
       - 'neral_web_search.py'
       - 'neral_web_api.py'
       - 'scripts/neral_web_live_diagnostic.py'
+      - 'scripts/neral_web_providers_probe.py'
       - '.github/workflows/neral-web-live-diagnostic.yml'
   workflow_dispatch:
 permissions:
@@ -25,3 +26,9 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -B scripts/neral_web_live_diagnostic.py
+
+      - name: Diagnose secondary public providers without user data
+        continue-on-error: true
+        env:
+          PYTHONPATH: .
+        run: python -B scripts/neral_web_providers_probe.py
