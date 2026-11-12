@@ -180,6 +180,35 @@ class MoreStructuralCoverageTests(unittest.TestCase):
         no_distance = {**good, "constraints": rules[:2]}
         self.assertFalse(coverage_gate(question, no_distance)["passed"])
 
+    def test_german_pin_requires_distinct_and_each_source_relationship(self):
+        question = (
+            "Ein fünfstelliger Code verwendet 1, 2, 3, 4 und 5 genau einmal. "
+            "Die 2 steht vor der 4, nicht direkt davor. Zwischen der 1 und 5 "
+            "steht genau eine Ziffer. Die 3 steht unmittelbar rechts von der 5. "
+            "Die 4 steht nicht am Rand. Bestimme alle gültigen Codes."
+        )
+        names = [f"P{i}" for i in range(1, 6)]
+        clauses = [
+            {"all_different": names},
+            cmp(v("P4"), ">=", {"sum": [v("P2"), c(2)]}),
+            {"or": [
+                cmp(v("P1"), "==", {"sum": [v("P5"), c(2)]}),
+                cmp(v("P5"), "==", {"sum": [v("P1"), c(2)]}),
+            ]},
+            cmp(v("P3"), "==", {"sum": [v("P5"), c(1)]}),
+            cmp(v("P4"), "!=", c(0)),
+            cmp(v("P4"), "!=", c(4)),
+        ]
+        original = {"version": 2, "variables": {
+            name: d(range(5)) for name in names},
+            "constraints": clauses, "query": "count"}
+        self.assertTrue(coverage_gate(question, original)["passed"])
+        for skip in range(len(clauses)):
+            damaged = copy.deepcopy(original)
+            damaged["constraints"].pop(skip)
+            self.assertFalse(coverage_gate(question, damaged)["passed"],
+                             msg=f"omitted clause at position {skip}")
+
     def test_core_coverage_never_promotes_schemas_as_verified(self):
         from neral_nl_schema_bridge import assess_dual_extraction
         case = schema()
