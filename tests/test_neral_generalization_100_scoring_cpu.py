@@ -21,7 +21,8 @@ class TransferHundredScoring(unittest.TestCase):
         guarded=[{"id":c["id"],"category":c["category"],
                   "correct":i%3==0 or i==1,"integer_output":True,
                   "status":"completed","seconds":2.5,
-                  "selection_policy":"raw_qwen_due_to_unverified_tir"}
+                  "selection_policy":"raw_qwen_due_to_unverified_tir",
+                  "verified":False}
                  for i,c in enumerate(self.cases)]
         report=paired_score(self.cases,controls,guarded)
         self.assertEqual(report["total"],100)
