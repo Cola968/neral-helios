@@ -102,6 +102,10 @@ def run_gate(client, headers, task: str, check: str) -> dict:
         "case": check,
         "passed": passed,
         "http_status": response.status_code,
+        "error_code": packet.get("error_code") if packet.get("error_code") in (
+            "token_limit", "incomplete", "empty_answer", "timeout",
+            "invalid_response", "model_error", "internal_error") else None,
+        "first_turn_scalars": event,
         "seconds": round(time.monotonic() - started, 3),
         "verification_status": status if status in (
             "verified", "model_extracted_schema_unverified",
