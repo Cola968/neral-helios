@@ -19,6 +19,7 @@ import time
 
 from neral_agent_autonomy import OllamaLocalBackend
 from neral_identity import build_identity_prompt
+from neral_answer_contract import formatted_benchmark_system, parse_terminal_final_integer
 from neral_preview_server import create_preview_app
 from neral_dual_routing import _ollama_chat, sample_device_mib, OllamaTransportFailure
 from scripts.neral_generalization_100_cases import build as old100
@@ -130,10 +131,15 @@ def make_api():
         raise RuntimeError("Local CSRF token missing")
     return client,{"X-Neral-CSRF":csrf}
 
-def pair_case(case,client,headers):
+def pair_case(case,client,headers,*,formatted_contract:bool=False):
+    if type(formatted_contract) is not bool:
+        raise ValueError("Formatted benchmark flag must be boolean")
+    benchmark_parser=(
+        parse_terminal_final_integer if formatted_contract else parse_exact)
     messages=[
-       {"role":"system","content":build_identity_prompt(
-           "web","local_foundation_not_neral_adapter")},
+       {"role":"system","content":(
+          formatted_benchmark_system() if formatted_contract
+          else build_identity_prompt("web","local_foundation_not_neral_adapter"))},
        {"role":"user","content":case["question"]}]
     raw0=dual0=None
     before=sample_device_mib()
@@ -159,10 +165,12 @@ def pair_case(case,client,headers):
     if gpu_offload_mib(BASE_TAG)<4096:
         raise RuntimeError("Control model did not use the RTX GPU")
     start=time.monotonic()
+    options={"prompt":case["question"],"experimental_tir":True,
+             "conservative_tir":True,"dual_routing":True}
+    if formatted_contract:
+        options["evaluation_final_answer"]=True
     response=client.post("/api/neral/chat/think",
-         json={"prompt":case["question"],"experimental_tir":True,
-               "conservative_tir":True,"dual_routing":True},
-         headers=headers,base_url=API_ORIGIN)
+         json=options,headers=headers,base_url=API_ORIGIN)
     dual_seconds=round(time.monotonic()-start,3)
     dual_completion_status="completed"
     dual_diagnostic=None
@@ -203,9 +211,9 @@ def pair_case(case,client,headers):
     return {"id":case["id"],"category":case["category"],
             "family":case["family"],"question_sha256":case["question_sha256"],
             "base_correct":(control_completion_status=="completed"
-                            and parse_exact(control)==expected),
+                            and benchmark_parser(control)==expected),
             "dual_correct":(dual_completion_status=="completed"
-                            and parse_exact(dual)==expected),
+                            and benchmark_parser(dual)==expected),
             "base_completion_status":control_completion_status,
             "dual_completion_status":dual_completion_status,
             "base_done_reason":("stop" if control_diagnostic is None
@@ -221,8 +229,8 @@ def pair_case(case,client,headers):
             "policy":result.get("selection_policy","unknown"),
             "verified":result.get("verified") is True,
             "base_seconds":control_seconds,"dual_seconds":dual_seconds,
-            "base_integer_format":parse_exact(control) is not None,
-            "dual_integer_format":parse_exact(dual) is not None,
+            "base_integer_format":benchmark_parser(control) is not None,
+            "dual_integer_format":benchmark_parser(dual) is not None,
             "both_resident":bool(result.get("ollama_resident_after",{}).get("both_resident")),
             "gpu_peak_mib":result.get("gpu_device_peak_mib"),
             "gpu_snapshot_before_mib":before,"gpu_snapshot_after_mib":end,
