@@ -72,6 +72,20 @@ class HoldoutLiveCpu(TestCase):
             self.assertNotEqual(count,case["expected_count"])
             self.assertEqual(reason,"accepted")
 
+    def test_base_digest_format_is_normalized_without_weakening_pin(self):
+        from scripts.neral_qlora_holdout_live import require_base_digest
+        from scripts.neral_foundation_2048_retest import ORIGINAL_DIGESTS
+        expected=ORIGINAL_DIGESTS[BASE_MODEL]
+        for remote in (expected,expected.removeprefix("sha256:")):
+            with self.subTest(style=remote.startswith("sha256:")), patch(
+                    "scripts.neral_qlora_holdout_live.request",
+                    return_value={"models":[{"name":BASE_MODEL,"digest":remote}]}):
+                self.assertEqual(require_base_digest(),expected)
+        with patch("scripts.neral_qlora_holdout_live.request",
+                   return_value={"models":[{"name":BASE_MODEL,"digest":"0"*64}]}):
+            with self.assertRaises(RuntimeError):
+                require_base_digest()
+
     def test_local_api_rejects_other_hosts_and_unlisted_paths(self):
         with self.assertRaises(ValueError):
             request("POST","/api/generate")
