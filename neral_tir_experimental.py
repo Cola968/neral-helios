@@ -81,7 +81,7 @@ _POST_NONE_TOOL_PROMPT = (
 # benchmark-keyword or natural-language regex router. The generated program
 # represents a hypothesis about the user's clues, not a semantic proof.
 _PYTHON_LOGIC_PROMPT = (
-    "\\nOPT-IN FINITE LOGIC EXPLORATION: For bounded arrangements, codes, "
+    "\nOPT-IN FINITE LOGIC EXPLORATION: For bounded arrangements, codes, "
     "assignment puzzles and other combinatorics, choose python_sandbox. "
     "Write the smallest runnable standard-library Python program directly, "
     "using itertools.permutations or itertools.product when appropriate. "
@@ -89,7 +89,7 @@ _PYTHON_LOGIC_PROMPT = (
     "solutions, then print json.dumps({'solutions': solutions}). "
     "Enumerate the candidates; do not hard-code or guess solutions. "
     "Make the entire first reply exactly NERAL_EXECUTE_JSON: "
-    "{\\\"tool\\\":\\\"python_sandbox\\\",\\\"code\\\":\\\"...\\\"} "
+    '{"tool":"python_sandbox","code":"..."} '
     "with a valid JSON-escaped Python code string, no prose, thought "
     "trace, Markdown, or speculative answer. "
     "For problems outside finite, bounded enumeration or where faithful "
