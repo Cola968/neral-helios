@@ -162,5 +162,13 @@ class CompletionDiagnostics(unittest.TestCase):
         self.assertFalse(any(x["type"]=="final" for x in events))
         self.assertNotIn("PRIVATE",str(events[-1]))
 
+
+    def test_token_limit_message_blames_output_budget_not_input_length(self):
+        from neral_local_chat_api import _SAFE_OLLAMA_ERROR_TEXT
+        explanation=_SAFE_OLLAMA_ERROR_TEXT["token_limit"]
+        self.assertIn("Ausgabelimit",explanation)
+        self.assertNotIn("kürzer fragen",explanation.lower())
+        self.assertIn("Antwort",explanation)
+
 if __name__=="__main__":
     unittest.main()
