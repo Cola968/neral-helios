@@ -38,7 +38,23 @@ if($ExperimentalHighQwen35){
     }
 }
 if($CheckOnly){
-    Write-Host "NERAL 1.0: $Model verfuegbar, lokale Vorpruefung bestanden. Kein Release-Gate."
+    # Read-only preflight: use the installed preview runtime if present,
+    # otherwise the same bootstrap interpreter selection as first launch.
+    # Do not create state directories or install Python packages.
+    $preflightPython=Join-Path $PSScriptRoot 'local_state\preview-venv\Scripts\python.exe'
+    if(-not(Test-Path -LiteralPath $preflightPython -PathType Leaf)){
+        $preflightPython=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+        if(-not(Test-Path -LiteralPath $preflightPython -PathType Leaf)){
+            $candidate=Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if(-not $candidate){throw 'Python 3.11+ fehlt. Bitte Python installieren.'}
+            $preflightPython=$candidate.Source
+        }
+    }
+    & $preflightPython -B -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)'
+    if($LASTEXITCODE -ne 0){
+        throw 'Python 3.11+ ist erforderlich. Bitte kompatibles Python installieren; es wurden keine Pakete installiert.'
+    }
+    Write-Host "NERAL 1.0: $Model und Python 3.11+ verfuegbar, lokale Vorpruefung bestanden. Kein Release-Gate."
     return
 }
 $port=9690
@@ -66,6 +82,11 @@ if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
         $candidate=Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if(-not $candidate){throw 'Python 3.11+ fehlt. Bitte Python installieren.'}
         $base=$candidate.Source
+    }
+    # Reject unsupported Python before consent, venv creation or pip.
+    & $base -B -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)'
+    if($LASTEXITCODE -ne 0){
+        throw 'Python 3.11+ ist erforderlich. Bitte kompatibles Python installieren; keine Pakete wurden installiert.'
     }
     if($env:NERAL_PREVIEW_INSTALL_CONSENT -ne '1'){
         Write-Host 'NERAL benoetigt einmalig Flask und Waitress aus PyPI (Internet). Keine Modelle werden heruntergeladen.' -ForegroundColor Yellow
