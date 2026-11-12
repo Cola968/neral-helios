@@ -1,0 +1,43 @@
+name: NERAL Qwen3.5 QLoRA curriculum and holdout CPU contracts
+on:
+  push:
+    branches: [feat/neral-qwen35-qlora-curriculum-20261112]
+  pull_request:
+    paths:
+      - 'scripts/neral_qlora_*.py'
+      - 'tests/test_neral_qlora_curriculum_cpu.py'
+      - 'datasets/neral_qwen35_holdout_v1.jsonl'
+      - '.github/workflows/neral-qlora-curriculum-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  dataset-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile only (do not install GPU packages)
+        run: python -B -m py_compile scripts/neral_qlora_dataset.py scripts/neral_qlora_holdout_eval.py scripts/neral_qlora_train.py scripts/neral_qlora_export.py scripts/neral_qlora_train_peft.py
+      - name: Verify holdout source and 500-row SFT samples
+        run: python -B -m unittest discover -s tests -p test_neral_qlora_curriculum_cpu.py -v
+      - name: Generate fresh reproducible 720-row train.jsonl
+        run: python -B -m scripts.neral_qlora_dataset --out .data/neral_qlora/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --pairs 360
+      - name: Verify train/holdout separation and native-template input contract
+        run: |
+          python -B -m scripts.neral_qlora_holdout_eval --holdout datasets/neral_qwen35_holdout_v1.jsonl --train .data/neral_qlora/train.jsonl
+          python -B -m scripts.neral_qlora_train --train .data/neral_qlora/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --out .data/neral_qlora/dry-run --check-data-only
+          python -B -m scripts.neral_qlora_train_peft --train .data/neral_qlora/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --out .data/neral_qlora/peft-dry-run --check-only
+      - name: Publish synthetic train file for separate human review (not holdout)
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-qwen35-synthetic-train-720-no-holdout
+          path: |
+            .data/neral_qlora/train.jsonl
+            .data/neral_qlora/train_manifest.json
+          retention-days: 7
+          if-no-files-found: error
