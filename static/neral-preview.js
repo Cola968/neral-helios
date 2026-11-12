@@ -695,6 +695,7 @@
     try {
       let modelPrompt=text;
       let sources=[];
+      let verifiedSources=[];
       let webAttempted=false;
       // Attached files are processed locally even if the optional web tool is on.
       const genericAttachmentOnly=selectedAttachments.length>0 &&
@@ -712,8 +713,10 @@
              activeRequest!==controller)return;
           if(event.type==="provider")
             motionActivity("search-provider",mode,{name:event.name});
-          else if(event.type==="source"&&event.source?.reachable===true&&
-                  relevantSearchResult(webQuery,event.source))
+          else if(["source","candidate"].includes(event.type)&&event.source &&
+                  (event.source.topically_relevant===true ||
+                   relevantSearchResult(webQuery,event.source)) &&
+                  (event.source.reachable===true || event.source.discovered===true))
             motionActivity("source-found",mode,{source:event.source});
         };
         const search=typeof browser.NeralWebLive?.search==="function"
@@ -728,11 +731,16 @@
         if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
         webAttempted=true;
         lastWebQuery=webQuery;
-        sources=Array.isArray(search.results)
-          ? search.results.filter(hit=>hit.reachable===true && relevantSearchResult(webQuery,hit)).slice(0,5) : [];
-        // Fallback/one-shot search still gets truthful domains after completion.
+        const usable=hit=>hit && typeof hit.url==="string" &&
+          (hit.topically_relevant===true || relevantSearchResult(webQuery,hit));
+        verifiedSources=Array.isArray(search.results)
+          ? search.results.filter(hit=>hit.reachable===true && usable(hit)).slice(0,5):[];
+        const previews=Array.isArray(search.previews)
+          ? search.previews.filter(hit=>hit.discovered===true && usable(hit)).slice(0,5):[];
+        sources=verifiedSources.length?verifiedSources:previews;
+        // Real provider results exist even if the sites refuse HTTPS probes.
         for(const source of sources)
-          liveHandler({type:"source",source});
+          liveHandler({type:source.reachable===true?"source":"candidate",source});
         motionActivity("search-done",mode,{count:sources.length,searches:1});
         const evidence=sources.map((r,i)=>
           "["+(i+1)+"] "+String(r.title||"").slice(0,110)+
@@ -746,7 +754,7 @@
         // The search was really executed even when no topic-matched source
         // survived filtering. Tell the model the truthful empty-result status,
         // without passing irrelevant third-party snippets or invented facts.
-        modelPrompt=webEvidencePrompt(text,evidence,true);
+        modelPrompt=webEvidencePrompt(text,evidence,true,verifiedSources.length);
       }
       let path="/api/neral/chat/"+mode;
       let options={
@@ -796,7 +804,7 @@
       if(result.model_origin!=="local_foundation_not_neral_adapter" ||
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
-      result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted);
+      result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
       if(selectedAttachments.length)motionActivity("files-done",mode);
       // HIGH (and non-streamed attachments) have already finished inference.
       // Reveal only the *final* verified text, gradually, with the same painter.
