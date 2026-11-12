@@ -124,3 +124,40 @@ foreach ($case in @('21453', 'logic-02', 'logic-06')) {
 Validate those exact model tags first with \`ollama list\`, and check the runtime offload with \`ollama ps\` and \`nvidia-smi\`. Each report is a new, unredacted **LOCAL** JSON file; the script will refuse to overwrite a previous report. Nonzero exit statuses are expected for invalid candidates or non-consensus. Inspect \`raw_json\`, \`status\`, \`coverage_reason\`, \`done_reason\`, \`load_duration_ms\`, \`total_duration_ms\` and \`elapsed_ms\` in each local file; do not publish raw files without reviewing them.
 
 Passing the three already-known tasks only supports moving to a **separate, preregistered evaluation decision**, not automatic use of the sealed prospective set or a proof of zero regressions. Compare actual syntax acceptance, source condition coverage, correct reference counts, raw lengths and load times between base and QLoRA first. Decide on a new training run only after a reproducible adapter-specific gap remains despite constrained decoding and bounded prompt changes.
+
+
+## Source-bound nonempty variables and three complete few-shots (2026-11-12)
+
+Second live RTX 4070 results **as reported by the user**: Ollama accepted the previous recursive schema and all six responses finished \`done_reason=stop\`, but every response had \`"variables":{}\`. This is an observed \`minProperties\` grammar enforcement gap, **not** evidence that the language models cannot reason in constraint logic.
+
+The opt-in local probe now uses \`get_v2_ollama_format(question)\`. For three **generic**, independently recognizable source formats (not benchmark IDs), it builds named variable declarations before inference:
+
+- \`Color vertices 0..N with red, green or blue\` → \`C0\` … \`CN\`, integer domain \`[0,1,2]\`.
+- \`binary strings of length N\` → \`B0\` … \`B(N-1)\`, Boolean domain \`[false,true]\`.
+- \`Ein N-stelliger Code verwendet 1,2,...N genau einmal\` → \`P1\` … \`PN\`, integer positional domain \`[0,...,N-1]\`.
+
+These declarations are **deterministic scaffolding derived from the original question**, not model-authored constraints, verified answers, gold labels, or hidden dataset lookup. N is bounded at 10. Each recognized schema uses explicit \`properties\` and \`required\` keys with \`additionalProperties:false\` for its variables object. It no longer needs the ignored \`minProperties\` to reject an empty map at generation time *if that local Ollama sampler honors required object keys*. For unsupported or ambiguous wording, the original generic schema stays in place; the strict typed solver still rejects empty maps. **This does not guarantee that all arbitrary future prompts yield nonempty declarations.**
+
+Both independent system prompts now contain three complete **synthetic**, solver-validated JSON examples different from the three historic measured tasks: a small three-color graph, a four-bit count with every forbidden distance-two pair explicitly unrolled, and a four-digit positional ordering problem. The accompanying rules explain that adjacency indices run \`i=0..n-2\` while forbidden distance-two pairs run \`i=0..n-3\` (inclusive), to avoid off-by-one omissions. The two model prompts remain distinct, and each model receives only the same original question plus its own system prompt; they never see the other's output.
+
+The local diagnostic status \`empty_variables\` now separates this precise error from generic \`invalid_v2_schema\`. No automatic self-repair, hidden rerouting, re-training, silent fallback to \`format:"json"\`, or verified model-generated answer has been introduced. \`neral_tir_regression_guard.py\` (PR #537) remains unchanged.
+
+[CPU verification #43307104994](https://github.com/Cola968/neral-helios/actions/runs/43307104994): **81/81 tests green** across existing NL bridge, old historical cases, diagnostics, source-bound variable generation, complete few-shots, typed solver, and guard. This does **not** constitute new model inference or a hardware-vetted constrained-sampling result.
+
+### Next local GPU check (Codex or PowerShell)
+
+Use the exact existing two Ollama tags, after pulling the **latest PR #542 head**. New filenames avoid overwriting the last experiment:
+
+\`\`\`powershell
+git fetch origin
+git switch feat/neral-nl-schema-consensus-bridge-20261112
+git pull --ff-only origin feat/neral-nl-schema-consensus-bridge-20261112
+ollama list
+$QLORA='neral-qwen35-qlora-v1:latest'
+$BASE='qwen3.5:9b'
+foreach ($case in @('21453','logic-02','logic-06')) {
+  python -m scripts.neral_nl_schema_probe --case $case --live --qlora-model $QLORA --base-model $BASE --diagnostics-file "fewshot-v2-$case.json"
+}
+\`\`\`
+
+Inspect both raw schemas, whether \`required\` produced nonempty declarations in practice, missing constraints, reference counts, model total/load durations, and consensus without promoting any unverified candidates. Keep the prospective 100-case sealed corpus completely untouched. No merge to main.
