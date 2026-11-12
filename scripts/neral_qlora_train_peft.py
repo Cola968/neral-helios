@@ -1,0 +1,140 @@
+"""Explicit local HF Transformers + PEFT 4-bit QLoRA for Qwen3.5-9B.
+
+Text-only Qwen3_5ForCausalLM path. Separate from Unsloth; do not pretend
+the model has been proven to fit RTX 4070 until a real GPU smoke passes.
+No optimizer/model checkpoints overwrites. Never reads holdout as training.
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import importlib
+import json
+from pathlib import Path
+
+from scripts.neral_qlora_train import (
+    FixedTokenDataset, TRAINING_SEED, encode_answer_only,
+    validated_training_rows,
+)
+
+PINNED_TRAIN_SHA256 = "2a6c2219f4c52365be8a3a60bd080877c5d3fecef37371024d8936e31b18ec79"
+BASE_MODEL = "Qwen/Qwen3.5-9B"
+
+def check_local_inputs(train:Path,holdout:Path,out:Path,*,steps:int,epochs:int,context:int):
+    if out.exists() or out.is_symlink():
+        raise FileExistsError("Output folder exists: no accidental overwrite")
+    if train.resolve() == holdout.resolve():
+        raise ValueError("Training and holdout must differ")
+    if epochs not in (1,2) or not 0<=steps<=2 or not 1024<=context<=2048:
+        raise ValueError("Use 1/2 epochs, optionally 1/2 smoke steps, context 1024-2048")
+    rows=validated_training_rows(train,holdout)
+    if hashlib.sha256(train.read_bytes()).hexdigest()!=PINNED_TRAIN_SHA256:
+        raise ValueError("Dataset SHA256 differs from frozen oracle corpus")
+    return rows
+
+def create_config(model_id:str):
+    if model_id != BASE_MODEL:
+        raise ValueError("Model base identity not allowed to drift")
+    import torch
+    from transformers import BitsAndBytesConfig
+    return BitsAndBytesConfig(load_in_4bit=True,
+          bnb_4bit_quant_type="nf4",bnb_4bit_use_double_quant=True,
+          bnb_4bit_compute_dtype=(torch.bfloat16 if torch.cuda.is_bf16_supported()
+                                  else torch.float16))
+
+def main()->int:
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--train",type=Path,required=True)
+    p.add_argument("--holdout",type=Path,required=True)
+    p.add_argument("--out",type=Path,required=True)
+    p.add_argument("--model",default=BASE_MODEL)
+    p.add_argument("--epochs",type=int,choices=(1,2),default=1)
+    p.add_argument("--max-steps",type=int,choices=(0,1,2),default=0)
+    p.add_argument("--context",type=int,choices=(1024,1536,2048),default=2048)
+    p.add_argument("--check-only",action="store_true")
+    args=p.parse_args()
+    rows=check_local_inputs(args.train,args.holdout,args.out,
+          steps=args.max_steps,epochs=args.epochs,context=args.context)
+    if args.model!=BASE_MODEL:
+        raise ValueError("Only the exact Qwen3.5-9B post-trained base is supported")
+    if args.check_only:
+        print(json.dumps({"status":"train_inputs_validated","rows":len(rows),
+                          "holdout_trained":False,"base_model":BASE_MODEL}))
+        return 0
+    import torch
+    from packaging.version import Version
+    import transformers
+    if Version(transformers.__version__) < Version("5.0"):
+        raise RuntimeError("Qwen3.5 needs transformers >=5; update isolated D env")
+    if not torch.cuda.is_available() or torch.cuda.device_count()!=1:
+        raise RuntimeError("Exactly one CUDA GPU required")
+    free,total=torch.cuda.mem_get_info()
+    if total<11*(1024**3) or free<9*(1024**3):
+        raise RuntimeError("Stop resident Ollama models first: require >=9GiB free")
+    from transformers import AutoTokenizer, Qwen3_5ForCausalLM, Trainer, TrainingArguments
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+    tokenizer=AutoTokenizer.from_pretrained(BASE_MODEL, use_fast=True)
+    examples=encode_answer_only(rows,tokenizer,max_seq_length=args.context)
+    print("QLORA_TEXT_TOKENS_VALIDATED",len(examples),flush=True)
+    model=Qwen3_5ForCausalLM.from_pretrained(
+        BASE_MODEL,quantization_config=create_config(BASE_MODEL),
+        torch_dtype=(torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16),
+        device_map={"":0},low_cpu_mem_usage=True)
+    model.config.use_cache=False
+    model=prepare_model_for_kbit_training(model,use_gradient_checkpointing=True)
+    # Qwen3.5 text decoder includes hybrid gated-delta and attention layers.
+    # "all-linear" is independent of brittle layer-specific names.
+    model=get_peft_model(model,LoraConfig(
+        task_type="CAUSAL_LM",inference_mode=False,
+        r=8,lora_alpha=16,lora_dropout=0,
+        target_modules="all-linear",bias="none"))
+    # Refuse unsupported/misconfigured adapter whose trainable count is zero.
+    trainable=sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if trainable<=0 or trainable>60_000_000:
+        raise RuntimeError("Unexpected Qwen3.5 LoRA trainable count")
+    print("QLORA_TRAINABLE_PARAMETERS",trainable,flush=True)
+    def collate(items):
+        pad=tokenizer.pad_token_id
+        if pad is None:
+            raise RuntimeError("Missing tokenizer.pad_token_id")
+        n=max(len(x["input_ids"]) for x in items)
+        return {
+            "input_ids":torch.tensor([x["input_ids"]+[pad]*(n-len(x["input_ids"])) for x in items],dtype=torch.long),
+            "attention_mask":torch.tensor([x["attention_mask"]+[0]*(n-len(x["attention_mask"])) for x in items],dtype=torch.long),
+            "labels":torch.tensor([x["labels"]+[-100]*(n-len(x["labels"])) for x in items],dtype=torch.long),
+        }
+    # Only after model, tokenization and GPU setup pass create output directory.
+    args.out.mkdir(parents=True,exist_ok=False)
+    settings=TrainingArguments(output_dir=str(args.out/"logs"),
+        per_device_train_batch_size=1,gradient_accumulation_steps=8,
+        num_train_epochs=args.epochs,
+        max_steps=(args.max_steps if args.max_steps else -1),
+        learning_rate=5e-5,lr_scheduler_type="cosine",
+        warmup_ratio=.03,weight_decay=.01,
+        optim="paged_adamw_8bit",
+        bf16=bool(torch.cuda.is_bf16_supported()),
+        fp16=not bool(torch.cuda.is_bf16_supported()),
+        gradient_checkpointing=True,save_strategy="no",
+        logging_steps=1,report_to="none",
+        seed=TRAINING_SEED,remove_unused_columns=False)
+    trainer=Trainer(model=model,args=settings,
+                    train_dataset=FixedTokenDataset(examples),data_collator=collate)
+    trainer.train()
+    adapter=args.out/"adapter"
+    model.save_pretrained(str(adapter),safe_serialization=True)
+    tokenizer.save_pretrained(str(adapter))
+    if not (adapter/"adapter_config.json").is_file():
+        raise RuntimeError("PEFT adapter file missing")
+    manifest={"status":"adapter_saved_not_exported_or_evaluated",
+       "base_model":BASE_MODEL,"model_family":"Qwen3.5 text-only",
+       "method":"transformers_peft_4bit_nf4","epochs":args.epochs,
+       "max_steps":args.max_steps,"rows":len(rows),"rank":8,
+       "trainable_parameters":trainable,"seed":TRAINING_SEED,
+       "train_sha256":PINNED_TRAIN_SHA256,"holdout_used_in_training":False}
+    (args.out/"training_manifest.json").write_text(
+        json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+    print("QLORA_PEFT_ADAPTER_SAVED_UNEVALUATED",flush=True)
+    return 0
+
+if __name__=="__main__":
+    raise SystemExit(main())
