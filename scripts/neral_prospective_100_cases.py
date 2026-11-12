@@ -193,6 +193,42 @@ def exclusion_receipt(cases:list[dict],train:Path,holdout:Path)->dict:
     for row in training:
         prompt=row["messages"][1]["content"]
         questions.append(prompt if row["meta"]["mode"]=="turn0" else json.loads(prompt)["original_question"])
+    # Include historical repo-level eval/development corpora as far as
+    # their source records actually expose user questions. Fail closed if a
+    # mandatory past file is absent or has unexpected rows.
+    root=Path(__file__).resolve().parents[1]
+    extras=(
+        "benchmarks50/raw_math_v1.jsonl",
+        "benchmarks50/regression.jsonl",
+        "benchmarks50/targeted_v1.jsonl",
+        "datasets/neral_curriculum_v1/train.jsonl",
+        "datasets/neral_curriculum_v1/val.jsonl",
+        "datasets/neral_curriculum_v1/test.jsonl",
+    )
+    all_sources={}
+    for rel in extras:
+        path=root/rel
+        if not path.is_file():
+            raise ValueError("Required prior evaluation corpus is missing: "+rel)
+        content=path.read_bytes()
+        rows=[json.loads(line) for line in content.decode("utf8").splitlines() if line.strip()]
+        if not rows:
+            raise ValueError("Prior corpus unexpectedly empty: "+rel)
+        for item in rows:
+            if type(item) is not dict:raise ValueError("Invalid historical record")
+            q=item.get("prompt")
+            if q is None:
+                msgs=item.get("messages")
+                if type(msgs) is not list:
+                    raise ValueError("Unrecognized historical question shape: "+rel)
+                user_turns=[turn.get("content") for turn in msgs if type(turn) is dict and turn.get("role")=="user"]
+                if len(user_turns)!=1:raise ValueError("Ambiguous historical question shape: "+rel)
+                q=user_turns[0]
+            if type(q) is not str or not q.strip():
+                raise ValueError("Missing historical question text: "+rel)
+            questions.append(q)
+        all_sources[rel]={"count":len(rows),
+                          "sha256":hashlib.sha256(content).hexdigest()}
     raw_hashes={sha(q) for q in questions}
     norm_hashes={normalized(q) for q in questions}
     if len(cases)!=100 or len({x.get("question_sha256") for x in cases})!=100:
@@ -214,6 +250,7 @@ def exclusion_receipt(cases:list[dict],train:Path,holdout:Path)->dict:
        "prospective100_sha256":hashlib.sha256(blob).hexdigest(),
        "schema":"independent exact-integer oracles, five question families per category",
        "disjoint_scope":"720 known QLoRA rows, 24 holdout, first100, blind100 (also formatted repeat)",
+       "excluded_source_files":all_sources,
        "limitation":"Not independently blind from template families; no semantic duplicate proof across every historical benchmark",
     }
 
