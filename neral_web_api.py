@@ -9,7 +9,7 @@ import json
 import re
 import unicodedata
 from urllib.parse import urlsplit
-from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon
+from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url
 
 
 def register_web_search_api(app, service=None):
@@ -18,88 +18,137 @@ def register_web_search_api(app, service=None):
 
 
     def topic_terms(text: str) -> set[str]:
-        """Keyword evidence for local result triage, never a trust decision."""
+        """Conservative topical keywords, including cross-language common labels.
+
+        A public search result need not repeat a whole German sentence. Treat
+        provider snippets as untrusted metadata, never as read article content.
+        """
         plain = unicodedata.normalize("NFKD", str(text).lower())
-        plain = "".join(char for char in plain if not unicodedata.combining(char))
-        words = re.findall(r"[a-z0-9]{3,}", plain)
+        plain = "".join(ch for ch in plain if not unicodedata.combining(ch))
+        aliases = {
+            "airport":"flughafen", "airports":"flughafen",
+            "weather":"wetter", "forecast":"wetter", "forecasts":"wetter",
+            "documentation":"dokumentation", "docs":"dokumentation",
+            "flights":"fluge", "flug":"fluge", "fluege":"fluge",
+        }
         noise = {"suche","such","nach","bitte","finde","recherchiere","im",
                  "dem","der","den","die","das","und","mit","ist","eine","einer",
                  "einem","was","wie","wer","von","bei","fur","auf","zum",
                  "zur","online","internet","web","aktuell","heute","neueste",
                  "neuesten","quelle","quellen","links","news","information",
                  "informationen","uber","ueber","zeige","mehr","deine",
-                 "site","www","https","http"}
-        return {w[:-2] if len(w)>=7 and w.endswith("er") else w
-                for w in words if w not in noise}
+                 "site","www","https","http","2026","2025","2027","2028",
+                 "official","offiziell","offizielle","offiziellen"}
+        words = re.findall(r"[a-z0-9]{3,}", plain)
+        result = set()
+        for word in words:
+            if word in noise:
+                continue
+            if word.endswith("er") and len(word) >= 7 and word not in aliases:
+                word = word[:-2]
+            result.add(aliases.get(word, word))
+        return result
 
     def topical_score(query: str, hit: dict) -> tuple[int, int] | None:
-        """Reject unrelated provider hits before they consume HTTPS-check slots."""
-        if not isinstance(hit, dict) or not isinstance(hit.get("url"), str):
+        """A *search* relevance score, not verification that a page was read.
+
+        Reject unrelated results; don't require every word of a multilingual
+        query, which previously hid real results like 'Frankfurt Airport'.
+        """
+        if not isinstance(hit, dict) or safe_result_url(hit.get("url")) is None:
             return None
         terms = topic_terms(query)
-        # Very short generic queries have no reliable lexical discriminator.
         if not terms:
             return (0, 0)
-        try:
-            host = urlsplit(hit["url"]).hostname or ""
-        except ValueError:
-            return None
-        heading = topic_terms(str(hit.get("title", "")) + " " + host)
+        host = urlsplit(hit["url"]).hostname or ""
+        heading = topic_terms(str(hit.get("title", "")) + " " + host.replace("-", " "))
         snippet = topic_terms(str(hit.get("snippet", "")))
         matched = terms.intersection(heading | snippet)
-        if len(matched) < min(2, len(terms)):
+        if not matched:
             return None
-        return (len(matched), len(terms.intersection(heading)))
+        categories = {"flughafen","wetter","dokumentation","fluge"}
+        category = terms.intersection(categories)
+        # With multiple query terms an unrelated result at the right location
+        # is not enough (e.g. TV Frankfurt is not Frankfurt Airport).
+        if category and len(terms)>1 and not matched.intersection(category):
+            return None
+        if not matched.intersection(heading) and len(matched)<2:
+            return None
+        return (len(matched), len(matched.intersection(heading)))
 
-    def verified_results(result: dict, on_source=None, query: str = "") -> dict:
-        """Check public HTTPS endpoints; emit only reachable hits, no page contents."""
-        raw = result.get("results", [])[:10]
+    def verified_results(result: dict, on_source=None, on_candidate=None, query: str = "") -> dict:
+        """Publish provider-discovered safe links independently of URL probes.
+
+        'previews' are merely relevant search-engine snippets, not verified
+        reachability; 'results' retain the old fully checked contract.
+        """
         selected = []
-        for index, hit in enumerate(raw):
+        for index, hit in enumerate(result.get("results", [])[:10]):
             score = topical_score(query or result.get("query", ""), hit)
             if score is not None:
                 selected.append((score, index, hit))
-        # Preserve provider order among equally relevant hits, not thread timing.
         selected.sort(key=lambda item: (-item[0][0], -item[0][1], item[1]))
-        def verify(index, hit):
-            checked_url = verify_public_https_url(hit.get("url"))
-            return index, ({**hit, "url": checked_url, "reachable": True}
+        previews = []
+        for score, _, hit in selected[:5]:
+            url = safe_result_url(hit.get("url"))
+            if url is None:
+                continue
+            item = {**hit, "url":url, "reachable":False,
+                    "discovered":True,"topically_relevant":True,
+                    "provider":result.get("provider","Suchanbieter")}
+            previews.append(item)
+            if on_candidate is not None:
+                on_candidate(item)
+        # Probe at most five candidate links and cap concurrency. A failing HEAD
+        # must never erase the real search-engine result or its site icon.
+        def verify(index, item):
+            checked_url = verify_public_https_url(item["url"])
+            return index, ({**item, "url":checked_url,"reachable":True}
                            if checked_url else None)
         accepted = {}
         with ThreadPoolExecutor(max_workers=3) as pool:
-            tasks = [pool.submit(verify, i, hit) for i, (_, _, hit) in enumerate(selected)]
+            tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(previews)]
             for task in as_completed(tasks):
                 index, checked = task.result()
                 if checked is not None:
                     accepted[index] = checked
-        results = [accepted[i] for i in sorted(accepted)][:5]
+        verified = [accepted[i] for i in sorted(accepted)][:5]
         if on_source is not None:
-            for hit in results:
+            for hit in verified:
                 on_source(hit)
-        return {**result, "results": results,
+        return {**result, "results": verified, "previews": previews,
                 "link_check": "public_https_tls_and_http_only"}
 
-    def verified_with_fallback(result: dict, query: str, on_provider=None, on_source=None) -> dict:
-        """Use Bing only when DDG had hits but zero reachable sources.
-
-        This is a continuation of the single user-approved search. It reuses
-        the exact query and does not charge a second local search-rate slot.
-        """
-        verified = verified_results(result, on_source=on_source, query=query)
-        contacted = result.get("providers_contacted", [])
+    def verified_with_fallback(result: dict, query: str, on_provider=None,
+                               on_source=None, on_candidate=None) -> dict:
+        """Use Bing when there is no VERIFIED DDG result; retain safe previews."""
+        first = verified_results(result, on_source=on_source,
+                                 on_candidate=on_candidate, query=query)
+        contacted = list(result.get("providers_contacted", []))
         retry = getattr(search, "search_bing", None)
-        if (verified["results"] or "Bing RSS" in contacted
+        if (first["results"] or "Bing RSS" in contacted
                 or result.get("provider") != "DuckDuckGo HTML"
                 or not callable(retry)):
-            return verified
+            return first
         try:
             bing_hits = retry(query, on_provider=on_provider)
         except WebSearchError:
-            return verified
+            return {**first,"providers_contacted":[*contacted, "Bing RSS"],
+                    "notice":"Bing wurde kontaktiert, konnte aber keine weiteren Treffer bereitstellen."}
         second = {**result, "results": bing_hits, "provider": "Bing RSS",
                   "providers_contacted": [*contacted, "Bing RSS"],
-                  "notice": "Nur dieser Suchbegriff wurde an DuckDuckGo und Bing übertragen. Suchtreffer sind ungeprüft."}
-        return verified_results(second, on_source=on_source, query=query)
+                  "notice": "Nur der Suchbegriff wurde an DuckDuckGo und Bing übertragen. Suchtreffer sind ungeprüft."}
+        checked = verified_results(second, on_source=on_source,
+                                   on_candidate=on_candidate, query=query)
+        if checked["results"]:
+            return checked
+        combined=[]
+        seen=set()
+        for item in [*checked["previews"],*first["previews"]]:
+            if item["url"] not in seen:
+                combined.append(item)
+                seen.add(item["url"])
+        return {**checked,"previews":combined[:5]}
 
     @app.post("/api/web/search/stream")
     def web_search_stream():
@@ -127,7 +176,8 @@ def register_web_search_api(app, service=None):
                     on_provider=lambda name: emit({"type": "provider", "name": name}))
                 verified = verified_with_fallback(result, query,
                     on_provider=lambda name: emit({"type": "provider", "name": name}),
-                    on_source=lambda source: emit({"type": "source", "source": source}))
+                    on_source=lambda source: emit({"type": "source", "source": source}),
+                    on_candidate=lambda source: emit({"type": "candidate", "source": source}))
                 emit({"type": "result", "result": verified})
             except (WebSearchInputError, WebSearchRateLimitError):
                 emit({"type": "error", "message": "Websuche konnte nicht ausgeführt werden."})
