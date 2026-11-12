@@ -6,6 +6,7 @@ on:
     paths:
       - 'neral_nl_schema_bridge.py'
       - 'tests/test_neral_nl_schema_bridge.py'
+      - 'tests/test_neral_nl_schema_old_cases.py'
       - '.github/workflows/neral-nl-schema-bridge-cpu.yml'
 permissions:
   contents: read
@@ -26,6 +27,8 @@ jobs:
         run: python -B -m py_compile neral_nl_schema_bridge.py neral_typed_constraints_v2.py neral_tir_regression_guard.py
       - name: Dual extraction RED/GREEN and strict guard
         run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_bridge.py' -v
+      - name: Existing historical 02 and 06 plus 21453 (CPU fixture probes)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_old_cases.py' -v
       - name: Typed solver and guard regression suites
         run: |
           python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v
