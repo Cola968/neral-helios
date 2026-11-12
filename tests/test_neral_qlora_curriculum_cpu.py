@@ -63,6 +63,35 @@ class QloraCurriculumCPU(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validated_training_rows(train,HOLDOUT)
 
+    def test_native_chat_template_masks_only_assistant_tokens(self):
+        from scripts.neral_qlora_train import encode_answer_only
+        class NativeFakeTokenizer:
+            def apply_chat_template(self, messages, *, tokenize,
+                                    add_generation_prompt, enable_thinking):
+                if not tokenize or enable_thinking:
+                    raise AssertionError("Need native non-thinking tokens")
+                text="".join(m["role"]+":"+m["content"]+"\\n" for m in messages)
+                if add_generation_prompt:
+                    text+="assistant:"
+                return [ord(ch) for ch in text]
+        item=self.rows[0]
+        output=encode_answer_only([item],NativeFakeTokenizer(),max_seq_length=65535)
+        self.assertEqual(len(output),1)
+        labels=output[0]["labels"]
+        self.assertIn(-100,labels)
+        self.assertGreater(sum(x>=0 for x in labels),10)
+        self.assertEqual(len(labels),len(output[0]["input_ids"]))
+        self.assertEqual(sum(x>=0 for x in labels),len(item["messages"][-1]["content"])+1)
+
+    def test_native_template_refuses_truncation_or_malformed_alignment(self):
+        from scripts.neral_qlora_train import encode_answer_only
+        class BadTokenizer:
+            def apply_chat_template(self, messages, *, tokenize,
+                                    add_generation_prompt, enable_thinking):
+                return [1] if add_generation_prompt else [2,3,4]
+        with self.assertRaises(RuntimeError):
+            encode_answer_only(self.rows[:1],BadTokenizer(),2048)
+
     def test_generation_deterministic(self):
         a=generate(pairs=250,seed=918,exclusion_questions=self.excluded)
         b=generate(pairs=250,seed=918,exclusion_questions=self.excluded)
