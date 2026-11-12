@@ -14,11 +14,15 @@ on:
         required: false
         type: string
         description: 'Explicit NERAL_GENERALIZATION_100_GPU_EXPLICIT for no-training transfer test'
+      ablation_authorize:
+        required: false
+        type: string
+        description: 'Explicit local, no-training NERAL_QWEN35_ABLATION_GPU_MANUAL_ONLY'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100]
 permissions:
   contents: read
   pull-requests: read
@@ -759,5 +763,113 @@ jobs:
             ${{ env.NERAL_TRANSFER_DIR }}/cases-manifest.json
             ${{ env.NERAL_TRANSFER_DIR }}/paired-100-scalar.json
             ${{ env.NERAL_TRANSFER_DIR }}/paired-100-scalar.progress.jsonl
+          retention-days: 14
+          if-no-files-found: warn
+
+  ablation100-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.ablation_authorize == 'NERAL_QWEN35_ABLATION_GPU_MANUAL_ONLY' &&
+      inputs.mode == 'ablation100'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '2d498d7fcdf241caf1d4491f1dfee7e8d30c80c6'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
+      - name: Pure-weight, dual-routing, original paired flag replay, and exact PR537 guard contracts
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_generalization_100_*.py' -v
+          python -B -m py_compile scripts/neral_generalization_100_ablation.py
+        working-directory: candidate
+  ablation100-gpu:
+    needs: ablation100-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.ablation_authorize == 'NERAL_QWEN35_ABLATION_GPU_MANUAL_ONLY' &&
+      inputs.mode == 'ablation100'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 90
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PINNED_ABLATION_SHA: '2d498d7fcdf241caf1d4491f1dfee7e8d30c80c6'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '2d498d7fcdf241caf1d4491f1dfee7e8d30c80c6'
+          path: candidate
+          persist-credentials: false
+          clean: true
+      - name: Check pinned source, local existing CUDA/Ollama/Docker; no training
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Wrong repository'}
+          $head=(& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -ne $env:PINNED_ABLATION_SHA){throw 'Unpinned ablation checkout'}
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Local Python environment absent'}
+          if(-not(Test-Path -LiteralPath 'D:\neral-qlora\train.jsonl' -PathType Leaf)){throw 'Frozen original train data absent'}
+          $cuda=& $py -B -c "import torch;print(torch.cuda.is_available())"
+          if($LASTEXITCODE -ne 0 -or ($cuda | Out-String).Trim() -ne 'True'){throw 'CUDA not usable'}
+          & nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU not available'}
+          $docker=& docker version --format '{{.Server.Version}}' 2>$null
+          if($LASTEXITCODE -ne 0 -or -not $docker){throw 'Secure offline Docker sandbox is missing'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Offline Python 3.11 sandbox image missing'}
+      - name: Freeze identical 100 questions and validate original hashes
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir=Join-Path $env:RUNNER_TEMP ('neral-ablation100-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $dir){throw 'Previous output exists; refuse overwrite'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_ABLATION_DIR='+$dir+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          Push-Location $candidate
+          try {
+            & $py -B -m scripts.neral_generalization_100_cases --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $dir 'cases.jsonl') --manifest (Join-Path $dir 'cases-manifest.json')
+            if($LASTEXITCODE -ne 0){throw 'Previous 100 questions were modified or leak training data'}
+          } finally {Pop-Location}
+      - name: Run exact RTX 4070 pure-QLoRA ablation and PR537 dual-route paired 100-case test
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir=$env:NERAL_ABLATION_DIR
+          $py='D:\neral-qlora\venv\Scripts\python.exe'
+          Push-Location $candidate
+          try {
+            & $py -B -m scripts.neral_generalization_100_ablation --authorize NERAL_QWEN35_ABLATION_GPU_MANUAL_ONLY --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --corpus (Join-Path $dir 'cases.jsonl') --manifest (Join-Path $dir 'cases-manifest.json') --out (Join-Path $dir 'ablation-100-scalar.json')
+            if($LASTEXITCODE -ne 0){throw 'Real GPU ablation failed, refusing partial accuracy claim'}
+          } finally {Pop-Location}
+      - name: Upload scalar evidence only; no weights, generated code or full raw text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-qwen35-100-pure-ablation-dual-pr537
+          path: |
+            ${{ env.NERAL_ABLATION_DIR }}/cases-manifest.json
+            ${{ env.NERAL_ABLATION_DIR }}/ablation-100-scalar.json
+            ${{ env.NERAL_ABLATION_DIR }}/ablation-100-scalar.progress.jsonl
           retention-days: 14
           if-no-files-found: warn
