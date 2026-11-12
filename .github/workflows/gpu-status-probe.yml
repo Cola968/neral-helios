@@ -31,11 +31,15 @@ on:
         required: false
         type: string
         description: 'Explicit NERAL_FORMATTED_REPEAT_100_EXPLICIT, local GPU only, no training'
+      prospective_authorize:
+        required: false
+        type: string
+        description: 'Explicit CPU-only NERAL_PROSPECTIVE100_FREEZE_NO_INFERENCE'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100, formatted100]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100, formatted100, freeze-next100]
 permissions:
   contents: read
   pull-requests: read
@@ -1192,3 +1196,83 @@ jobs:
             ${{ env.NERAL_FORMATTED_DIR }}/repeat100-formatted.raw.jsonl
           if-no-files-found: warn
           retention-days: 14
+
+  freeze-next100-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.prospective_authorize == 'NERAL_PROSPECTIVE100_FREEZE_NO_INFERENCE' &&
+      inputs.mode == 'freeze-next100'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '56d6a57761acff674ba7b35df3e3a3ca0ec64d44'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only existing test requirements
+        run: python -m pip install -r requirements-neral-preview.txt
+        working-directory: candidate
+      - name: Revalidate guard, pure source fast path, frozen corpus generator and historical exclusions
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_logic_failure_provenance_cpu.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_verified_fast_path_cpu.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_prospective_100_cpu.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+        working-directory: candidate
+      - name: Regenerate exact, pinned 720-row local training corpus on CPU for leakage exclusion only
+        run: |
+          mkdir -p .data/prospective2
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          from scripts.neral_qlora_dataset import generate, compact, load_holdout
+          from scripts.neral_generalization_100_cases import TRAIN_SHA256
+          excluded,_=load_holdout(Path("datasets/neral_qwen35_holdout_v1.jsonl"))
+          rows=generate(pairs=360,exclusion_questions=excluded)
+          data=("".join(compact(row)+"\n" for row in rows)).encode("utf8")
+          if len(rows)!=720 or hashlib.sha256(data).hexdigest()!=TRAIN_SHA256:
+              raise RuntimeError("Original QLoRA training corpus differs")
+          Path(".data/prospective2/original_train720_cpu.jsonl").write_bytes(data)
+          print("ORIGINAL_TRAIN720_SHA256 "+TRAIN_SHA256)
+          PY
+        working-directory: candidate
+      - name: Seal 100 truly new synthetic questions; no Ollama, RTX, adapters or inference
+        run: |
+          python -B -m scripts.neral_prospective_100_cases \
+            --train .data/prospective2/original_train720_cpu.jsonl \
+            --holdout datasets/neral_qwen35_holdout_v1.jsonl \
+            --out .data/prospective2/prospective100-frozen.jsonl \
+            --manifest .data/prospective2/prospective100-manifest.json
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          root=Path(".data/prospective2")
+          corpus=(root/"prospective100-frozen.jsonl").read_bytes()
+          m=json.loads((root/"prospective100-manifest.json").read_text("utf8"))
+          assert m["count"]==100 and len(m["excluded_source_files"])>=10
+          assert m["prospective100_sha256"]==hashlib.sha256(corpus).hexdigest()
+          print("SEALED100_SOURCES "+str(len(m["excluded_source_files"])))
+          print("SEALED100_SHA256 "+m["prospective100_sha256"])
+          PY
+        working-directory: candidate
+      - name: Delete generated training data from artifact staging
+        if: always()
+        run: rm -f candidate/.data/prospective2/original_train720_cpu.jsonl
+      - name: Retain sealed dataset and independent SHA receipt; zero GPU work
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-prospective-second100-sealed-not-scored
+          path: |
+            candidate/.data/prospective2/prospective100-frozen.jsonl
+            candidate/.data/prospective2/prospective100-manifest.json
+          retention-days: 30
+          if-no-files-found: error
