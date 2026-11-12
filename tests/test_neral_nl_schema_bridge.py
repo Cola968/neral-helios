@@ -57,6 +57,16 @@ class DualExtractionBridgeTests(unittest.TestCase):
         self.assertFalse(r["verified"])
         self.assertFalse(r["safe_to_promote"])
 
+    def test_correlated_omission_passes_lexical_coverage_but_remains_unverified(self):
+        # Two models omit X <= 1. Every source number and <= operator still
+        # appears in the incomplete schema, so lexical coverage cannot detect it.
+        wrong = mkdoc(upper=2)
+        r = self.check("Count X in 0..3 with X <= 2 and X <= 1.", wrong, wrong)
+        self.assertEqual(r["status"], "consensus_unverified")
+        self.assertEqual(r["candidate_count"], 3)  # Ground truth would be 2.
+        self.assertFalse(r["verified"])
+        self.assertFalse(r["safe_to_promote"])
+
     def test_missing_numeric_anchor_fails_coverage(self):
         d = mkdoc()
         r = self.check("Count X in 0..3 with X <= 2 and X != 9.", d, d)
