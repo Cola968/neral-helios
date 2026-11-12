@@ -50,14 +50,17 @@ def logic(k,r):
     if f==1:
         n=r.randint(5,7)
         edges={(j,j+1) for j in range(n-1)}|{(0,n-1)}
+        extra=r.randint(0,n-3)
+        edges.add((extra,extra+2))
         if n>5:edges.add((1,n-2))
         ans=sum(1 for c in product(range(3),repeat=n) if c[0]==0
                 and all(c[a]!=c[b] for a,b in edges))
         return f"Color vertices 0..{n-1} with red, green or blue. Vertex 0 is red, and endpoints of edges {sorted(edges)} must differ. How many valid colorings?",ans,"three_color_graph"
     if f==2:
         n=r.randint(5,7)
-        prior={(i,i+2) for i in range(n-2)}|{(0,3)}
-        if n==7:prior.add((3,6))
+        shift=r.randint(0,n-3)
+        prior={(i,i+2) for i in range(n-2)}|{(shift,shift+1)}
+        if n==7:prior.add((r.randint(0,3),6))
         ans=sum(1 for p in permutations(range(n)) if all(p.index(a)<p.index(b) for a,b in prior))
         return f"In how many orders may unique jobs 0..{n-1} be completed if {sorted(prior)} are all required before/after dependencies (first of each pair before second)?",ans,"precedence_orders"
     if f==3:
