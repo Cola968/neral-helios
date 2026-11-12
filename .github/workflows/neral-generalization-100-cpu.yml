@@ -1,0 +1,43 @@
+name: NERAL frozen 100-case transfer oracle and guarded scoring CPU
+on:
+  push:
+    branches: [verify/neral-qwen35-generalization-100-20261112]
+  pull_request:
+    paths:
+      - 'scripts/neral_generalization_100_*.py'
+      - 'tests/test_neral_generalization_100_*.py'
+      - 'neral_tir_regression_guard.py'
+      - '.github/workflows/neral-generalization-100-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  independent-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only the existing preview CPU requirements
+        run: python -m pip install -r requirements-neral-preview.txt
+      - name: Compile new generator and guarded runner without GPU packages
+        run: python -B -m py_compile scripts/neral_generalization_100_cases.py scripts/neral_generalization_100_run.py neral_tir_regression_guard.py
+      - name: Test genuine 100 oracle tasks and paired scoring
+        run: python -B -m unittest discover -s tests -p 'test_neral_generalization_100_*.py' -v
+      - name: Generate byte-identical original training data, excluded from evaluation
+        run: python -B -m scripts.neral_qlora_dataset --out .data/transfer100/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --pairs 360
+      - name: Freeze new 100 tasks and verify train / old holdout disjointness
+        run: |
+          python -B -m scripts.neral_generalization_100_cases --train .data/transfer100/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --out .data/transfer100/cases.jsonl --manifest .data/transfer100/cases-manifest.json
+      - name: Publish only fixed non-model test task corpus and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-frozen-unseen-100-oracles-no-training
+          path: |
+            .data/transfer100/cases.jsonl
+            .data/transfer100/cases-manifest.json
+          if-no-files-found: error
+          retention-days: 14
