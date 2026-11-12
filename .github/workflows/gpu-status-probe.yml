@@ -6,14 +6,55 @@ on:
         required: true
         type: string
         description: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+      mode:
+        required: true
+        type: choice
+        default: logic
+        options: [readiness, logic]
 permissions:
   contents: read
 jobs:
+  docker-readiness:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.mode == 'readiness' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    steps:
+      - name: Read-only Docker Linux-engine and offline image readiness
+        shell: powershell
+        run: |
+          $cli = [bool](Get-Command docker -ErrorAction SilentlyContinue)
+          $installedDefault = Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Docker\\Docker\\Docker Desktop.exe') -PathType Leaf
+          $installedUser = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\\Docker\\Docker\\Docker Desktop.exe') -PathType Leaf
+          $server = $false
+          $image = $false
+          if($cli){
+            try {
+              $v = & docker version --format '{{.Server.Version}}' 2>$null
+              $server = ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(($v | Out-String)))
+            } catch {$server = $false}
+            if($server){
+              try {
+                & docker image inspect python:3.11-alpine *> $null
+                $image = ($LASTEXITCODE -eq 0)
+              } catch {$image = $false}
+            }
+          }
+          Write-Host "DOCKER_CLI_AVAILABLE=$cli"
+          Write-Host "DOCKER_DESKTOP_DEFAULT_INSTALL=$installedDefault"
+          Write-Host "DOCKER_DESKTOP_USER_INSTALL=$installedUser"
+          Write-Host "DOCKER_LINUX_ENGINE_ONLINE=$server"
+          Write-Host "DOCKER_OFFLINE_SANDBOX_IMAGE_PRESENT=$image"
+          Write-Host "PR533_GATE_A_RECHECK_READY=$($server -and $image)"
   cpu-preflight:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
-      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.mode == 'logic'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -42,7 +83,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
-      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.mode == 'logic'
     concurrency:
       group: neral-qwen7b-r32-gpu-exclusive
       cancel-in-progress: false
