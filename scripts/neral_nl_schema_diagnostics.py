@@ -12,7 +12,7 @@ from time import perf_counter
 
 from neral_nl_schema_bridge import (
     EXTRACT_BASE_PROMPT, EXTRACT_QLORA_PROMPT,
-    assess_dual_extraction, _no_duplicate_keys,
+    assess_dual_extraction, coverage_gate, _no_duplicate_keys,
 )
 from neral_typed_constraints_v2 import (
     PREFIX, InvalidTypedConstraints, solve_typed_constraints,
@@ -118,6 +118,13 @@ def collect_live_diagnostics(case: str, qlora_model: str,
     q = _extract_one(qlora_model, question, EXTRACT_QLORA_PROMPT)
     b = _extract_one(base_model, question, EXTRACT_BASE_PROMPT)
     for result in (q, b):
+        if result["status"] == "valid_schema":
+            coverage = coverage_gate(question, json.loads(result["raw_json"]))
+            result["coverage_passed"] = coverage["passed"]
+            result["coverage_reason"] = coverage["reason"]
+        else:
+            result["coverage_passed"] = None
+            result["coverage_reason"] = "schema_not_valid"
         result["reference_count_match"] = (
             result["candidate_count"] == expected
             if result["status"] == "valid_schema" else None)
@@ -130,15 +137,17 @@ def collect_live_diagnostics(case: str, qlora_model: str,
         consensus = c["status"]
         backend = c.get("proof_backend")
         count = c.get("candidate_count")
+        coverage_reason = c.get("coverage_reason")
     else:
         consensus = "invalid_schema"
         backend = None
         count = None
+        coverage_reason = "schema_not_valid"
     return {
         "case": case, "reference_count": expected, "models": {
             "qlora": q, "base": b},
         "consensus_status": consensus, "consensus_candidate_count": count,
-        "proof_backend": backend,
+        "proof_backend": backend, "coverage_reason": coverage_reason,
         "semantic_grounding": "not_verified",
         "model_generated": True, "verified": False,
         "safe_to_promote": False,
