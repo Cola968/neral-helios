@@ -53,7 +53,7 @@ def run():
             "sample_titles":[s.get("title","")[:100] for s in (checked or previews)[:3]],
             "sample_urls":[s.get("url","")[:170] for s in (checked or previews)[:3]],
         })
-    hosts=("www.frankfurt-airport.com","www.nasa.gov","docs.python.org")
+    hosts=("de.wikipedia.org","www.frankfurt-airport.com","www.nasa.gov","docs.python.org")
     icons={host:bool(fetch_public_favicon(host)) for host in hosts}
     print(json.dumps({"multi_query_search":rows,"favicon_probe":icons},
                      ensure_ascii=False,indent=2),flush=True)
