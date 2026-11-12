@@ -10,7 +10,7 @@ on:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness]
 permissions:
   contents: read
   pull-requests: read
@@ -396,3 +396,120 @@ jobs:
           path: control/neral_tir12_scalar/summary.json
           retention-days: 14
           if-no-files-found: warn
+
+  qlora-holdout-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      (inputs.mode == 'qlora-baseline' || inputs.mode == 'qlora-readiness') &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '1c576bd820d5b65d76cbf65fb69146e8f40aec45'
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
+      - name: Check 24 holdout oracles and real inference/repair scoring
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_qlora_holdout_live_cpu.py -v
+          python -B -m scripts.neral_qlora_holdout_eval --holdout datasets/neral_qwen35_holdout_v1.jsonl
+        working-directory: candidate
+  qlora-holdout-gpu:
+    needs: qlora-holdout-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      (inputs.mode == 'qlora-baseline' || inputs.mode == 'qlora-readiness') &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 65
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      QLORA_MODE: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '1c576bd820d5b65d76cbf65fb69146e8f40aec45'
+          path: candidate
+          persist-credentials: false
+          clean: true
+      - name: Verify immutable QLoRA candidate and inspect VRAM and installed training deps
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
+          $actual=(& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -ne '1c576bd820d5b65d76cbf65fb69146e8f40aec45'){throw 'QLoRA candidate commit changed'}
+          $gpu=& nvidia-smi --query-gpu=memory.total,memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'Missing Nvidia GPU'}
+          $v=($gpu|Select-Object -First 1) -split ','
+          if($v.Count -ne 3){throw 'Unexpected Nvidia GPU details'}
+          Write-Host "GPU_TOTAL_MIB=$($v[0].Trim())"
+          Write-Host "GPU_FREE_MIB=$($v[1].Trim())"
+          Write-Host "GPU_UTIL_PERCENT=$($v[2].Trim())"
+          $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          Write-Host "TRAIN_PYTHON_INSTALLED=$([bool](Test-Path -LiteralPath $base -PathType Leaf))"
+          if(Test-Path -LiteralPath $base -PathType Leaf){
+            & $base -B -c 'import json,importlib.util;print("TRAIN_DEPS="+json.dumps({m:bool(importlib.util.find_spec(m)) for m in ["torch","transformers","unsloth","peft","bitsandbytes","accelerate","safetensors"]},sort_keys=True))'
+            if($LASTEXITCODE -ne 0){throw 'Existing Python probe failed'}
+          }
+          $cache=Join-Path $env:USERPROFILE '.cache/huggingface/hub'
+          foreach($name in @('models--unsloth--Qwen3.5-9B','models--Qwen--Qwen3.5-9B')){
+            Write-Host "$($name)_CACHE_PRESENT=$([bool](Test-Path -LiteralPath (Join-Path $cache $name)))"
+          }
+          if($env:QLORA_MODE -eq 'qlora-baseline'){
+            if([int]$v[1].Trim() -lt 7000 -or [int]$v[2].Trim() -gt 25){throw 'GPU busy; refuse benchmark'}
+          }
+      - name: Build minimal local baseline runner
+        if: env.QLORA_MODE == 'qlora-baseline'
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Existing Python not found'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-holdout24-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse occupied virtualenv'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Virtualenv failed'}
+          $py=Join-Path $venv 'Scripts/python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'candidate/requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Preview dependencies failed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('HOLDOUT_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Run all 24 real local Qwen3.5 original and controller holdout tasks
+        if: env.QLORA_MODE == 'qlora-baseline'
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir=Join-Path $env:RUNNER_TEMP ('neral-holdout-scalar-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $dir){throw 'Refuse existing scalar output'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          $env:PYTHONPATH=$candidate
+          Push-Location $candidate
+          try {
+            & $env:HOLDOUT_PY -B -m scripts.neral_qlora_holdout_live --authorize NERAL_QLORA_HOLDOUT_GPU_MANUAL_ONLY --model qwen3.5:9b --baseline --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $dir 'before_24_scalar.json')
+            if($LASTEXITCODE -ne 0){throw '24-case local inference failed; no baseline claim'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('HOLDOUT_OUT='+$dir+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Publish scalar-only baseline output without generated text
+        if: env.QLORA_MODE == 'qlora-baseline' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-qwen35-9b-before-qlora-holdout24
+          path: ${{ env.HOLDOUT_OUT }}/before_24_scalar.json
+          retention-days: 14
+          if-no-files-found: error
