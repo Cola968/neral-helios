@@ -435,11 +435,17 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             if not isinstance(payload, dict):
                 raise ValueError("Invalid JSON")
             experimental_tir = payload.get("experimental_tir", False)
-            if type(experimental_tir) is not bool:
-                raise ValueError("Invalid experimental flag")
-            # Keep _messages strict; a TIR switch is not a new chat message.
+            conservative_tir = payload.get("conservative_tir", False)
+            dual_routing = payload.get("dual_routing", False)
+            if (type(experimental_tir) is not bool
+                    or type(conservative_tir) is not bool
+                    or type(dual_routing) is not bool
+                    or (conservative_tir and not experimental_tir)
+                    or (dual_routing and not (conservative_tir and experimental_tir))):
+                raise ValueError("Invalid experimental, conservative or dual routing flag")
+            # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
-                     if k != "experimental_tir"}
+                     if k not in ("experimental_tir", "conservative_tir", "dual_routing")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -448,6 +454,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
         if experimental_tir and os.environ.get("NERAL_EXPERIMENTAL_TIR") != "1":
             return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
+        if dual_routing and os.environ.get("NERAL_EXPERIMENTAL_DUAL_ROUTE") != "1":
+            return jsonify(error="Experimentelles Dual-Routing nicht freigeschaltet."), 403
         if (experimental_tir and (
                 not isinstance(high_backend, OllamaLocalBackend)
                 or high_backend.model != "qwen3.5:9b"
@@ -497,6 +505,15 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                                   "tool_calls_succeeded": 1,
                                   "experimental_tir": True}
                     return jsonify({**direct, **_provenance(high_backend)})
+            # Production dual-route shares this existing THINK/CSRF/busy lock,
+            # and is *never* the default. Its exact model digests are checked
+            # before either model is asked to generate a token.
+            if dual_routing:
+                from neral_dual_routing import run_dual_route
+                routed = run_dual_route(data)
+                return jsonify({**_provenance(high_backend), **routed,
+                                "model": routed["tool_model"],
+                                "model_origin": "local_qlora_tools_base_raw_dual"})
             prepare_model(high_backend)
             if experimental_tir:
                 from neral_tir_experimental import run_experimental_tir
@@ -557,7 +574,13 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                                          if bounded_final else None),
                     extraction_rejection_sink=first_turn_rejection_codes,
                     solver_rejection_detail_sink=first_turn_solver_details)
+                if conservative_tir:
+                    from neral_tir_regression_guard import choose_guarded_tir_reply
+                    result = choose_guarded_tir_reply(
+                        result, data, high_backend.respond_chat)
                 return jsonify({**result, "experimental_tir": True,
+                                "conservative_tir": conservative_tir,
+                                "dual_routing": False,
                                 **_provenance(high_backend)})
             previous_event = (
                 high_backend.inference_diagnostic_events[-1]
