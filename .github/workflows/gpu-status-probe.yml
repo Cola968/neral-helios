@@ -716,8 +716,9 @@ jobs:
           $py='D:\neral-qlora\venv\Scripts\python.exe'
           if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Local PEFT Python environment missing'}
           if(-not(Test-Path -LiteralPath 'D:\neral-qlora\train.jsonl' -PathType Leaf)){throw 'Frozen 720-row train corpus missing'}
-          & $py -B -c 'import torch; print("GPU_CUDA_AVAILABLE="+str(torch.cuda.is_available()))'
-          if($LASTEXITCODE -ne 0){throw 'GPU Python readiness failed'}
+          $cuda=& $py -B -c "import torch;print(torch.cuda.is_available())"
+          if($LASTEXITCODE -ne 0 -or ($cuda | Out-String).Trim() -ne 'True'){throw 'CUDA unavailable in the local environment'}
+          Write-Host 'GPU_CUDA_AVAILABLE=True'
           & nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits
           if($LASTEXITCODE -ne 0){throw 'RTX 4070 not found'}
           $docker=& docker version --format '{{.Server.Version}}' 2>$null
