@@ -18,11 +18,15 @@ on:
         required: false
         type: string
         description: 'Explicit local, no-training NERAL_QWEN35_ABLATION_GPU_MANUAL_ONLY'
+      blind_authorize:
+        required: false
+        type: string
+        description: 'Exact manual NERAL_PROD_DUAL_BLIND100_EXPLICIT; no training'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100]
 permissions:
   contents: read
   pull-requests: read
@@ -871,5 +875,127 @@ jobs:
             ${{ env.NERAL_ABLATION_DIR }}/cases-manifest.json
             ${{ env.NERAL_ABLATION_DIR }}/ablation-100-scalar.json
             ${{ env.NERAL_ABLATION_DIR }}/ablation-100-scalar.progress.jsonl
+          retention-days: 14
+          if-no-files-found: warn
+
+  prodblind100-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.blind_authorize == 'NERAL_PROD_DUAL_BLIND100_EXPLICIT' &&
+      inputs.mode == 'prodblind100'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '1c5a202fa74e071004a8c6320fdde3be3c1ff9d0'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
+      - name: Reject incomplete API, PR537 or prospective oracle before GPU
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_dual_routing_product_api.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_blind_100_cpu.py' -v
+          python -B -m py_compile neral_preview_server.py neral_dual_routing.py scripts/neral_blind_100_gpu.py
+        working-directory: candidate
+  prodblind100-gpu:
+    needs: prodblind100-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.blind_authorize == 'NERAL_PROD_DUAL_BLIND100_EXPLICIT' &&
+      inputs.mode == 'prodblind100'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      NERAL_EXPERIMENTAL_DUAL_ROUTE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      NERAL_PROD_BLIND_SHA: '1c5a202fa74e071004a8c6320fdde3be3c1ff9d0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '1c5a202fa74e071004a8c6320fdde3be3c1ff9d0'
+          persist-credentials: false
+          clean: true
+          path: candidate
+      - name: Verify pinned code, original training hash, RTX 4070 and local sandbox
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected GitHub repository'}
+          $sha=(& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -ne $env:NERAL_PROD_BLIND_SHA){throw 'Product API code differs from frozen candidate'}
+          if(-not (Test-Path -LiteralPath 'D:\neral-qlora\train.jsonl' -PathType Leaf)){throw 'Original QLoRA training data absent'}
+          & nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'Local NVIDIA GPU is missing'}
+          $docker=& docker version --format '{{.Server.Version}}' 2>$null
+          if($LASTEXITCODE -ne 0 -or -not $docker){throw 'Offline Docker Linux sandbox unavailable'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Python sandbox image absent; no model answers collected'}
+      - name: Build disposable isolated Flask runtime, do not alter trained model environment
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $dir=Join-Path $env:RUNNER_TEMP ('neral-prospective100-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $dir){throw 'Cannot overwrite earlier prospective run'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_BLIND_DIR='+$dir+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          & py -3.12 -m venv (Join-Path $dir 'venv')
+          if($LASTEXITCODE -ne 0){throw 'Cannot create isolated inference runtime'}
+          $py=Join-Path $dir 'venv\Scripts\python.exe'
+          & $py -m pip install -r (Join-Path $candidate 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Cannot install isolated Flask runtime'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_BLIND_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Validate local production Flask/CSRF and exact model pair on an OLD development case
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
+          try {
+            & $env:NERAL_BLIND_PY -B -m scripts.neral_blind_100_gpu --authorize NERAL_PROD_DUAL_BLIND100_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $env:NERAL_BLIND_DIR 'old100-api-pilot.json') --pilot
+            if($LASTEXITCODE -ne 0){throw 'Production API pilot on already known task failed; do not touch blind cases'}
+          } finally {Pop-Location}
+      - name: Seal the 100 previously unseen tasks and verify disjointness to ALL prior datasets
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
+          try {
+            & $env:NERAL_BLIND_PY -B -m scripts.neral_blind_100_cases --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --out (Join-Path $env:NERAL_BLIND_DIR 'blind100-frozen.jsonl') --manifest (Join-Path $env:NERAL_BLIND_DIR 'blind100-manifest.json')
+            if($LASTEXITCODE -ne 0){throw 'Blind100 integrity check failed'}
+          } finally {Pop-Location}
+      - name: Run product dual THINK API vs exact untrained Qwen on 100 prospective RTX cases
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
+          try {
+            & $env:NERAL_BLIND_PY -B -m scripts.neral_blind_100_gpu --authorize NERAL_PROD_DUAL_BLIND100_EXPLICIT --train 'D:\neral-qlora\train.jsonl' --holdout datasets/neral_qwen35_holdout_v1.jsonl --corpus (Join-Path $env:NERAL_BLIND_DIR 'blind100-frozen.jsonl') --manifest (Join-Path $env:NERAL_BLIND_DIR 'blind100-manifest.json') --out (Join-Path $env:NERAL_BLIND_DIR 'blind100-results.json')
+            if($LASTEXITCODE -ne 0){throw 'Prospective GPU benchmark failed; no partial result is promotable'}
+          } finally {Pop-Location}
+      - name: Retain complete SYNTHETIC raw base/dual answers, model residency and signed hash receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-prod-dual-blind100-raw-and-metrics
+          path: |
+            ${{ env.NERAL_BLIND_DIR }}/old100-api-pilot.json
+            ${{ env.NERAL_BLIND_DIR }}/blind100-manifest.json
+            ${{ env.NERAL_BLIND_DIR }}/blind100-results.json
+            ${{ env.NERAL_BLIND_DIR }}/blind100-results.progress.jsonl
+            ${{ env.NERAL_BLIND_DIR }}/blind100-results.full_raw.jsonl
           retention-days: 14
           if-no-files-found: warn
