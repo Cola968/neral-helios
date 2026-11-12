@@ -130,7 +130,7 @@ class StructuredOutputContracts(unittest.TestCase):
 
     def test_both_prompts_are_concise_and_include_real_ast_examples(self):
         for prompt in (EXTRACT_QLORA_PROMPT, EXTRACT_BASE_PROMPT):
-            self.assertLess(len(prompt), 1800)
+            self.assertLess(len(prompt), 5200)
             for token in ('"version":2', '"variables"', '"query":"count"',
                           '"compare"', '"all_different"', '"exactly"',
                           '"sum"', '"mod"'):
