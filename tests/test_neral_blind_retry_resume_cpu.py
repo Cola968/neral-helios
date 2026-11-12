@@ -122,5 +122,54 @@ class FrozenCheckpoint(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"checkpoint"):
                 load_resume(p,tasks,{"blind100_sha256":"good"})
 
+
+class TerminalTokenLimitScoring(unittest.TestCase):
+    """A deterministic exhausted token budget is a wrong answer, never a win."""
+    def test_control_token_limit_counts_incorrect_without_changing_decoder(self):
+        from scripts.neral_blind_100_gpu import pair_case
+        from scripts.neral_generalization_100_run import TUNED_TAG
+        item=build()[26]
+        class Accepted:
+            status_code=200
+            json={"text":str(item["gold_integer"]),
+                  "tool_model":TUNED_TAG,
+                  "fallback_model":BASE_TAG,
+                  "model_digests":{
+                      BASE_TAG:"ed6a74343db547257a9a78150d647f33fbf25db93d87b8e3d80273b116fa7bb9",
+                      TUNED_TAG:"9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8"},
+                  "selection_policy":"independently_verified_tir","verified":True,
+                  "ollama_resident_after":{"both_resident":False},
+                  "gpu_device_peak_mib":5800,
+                  "inference_spans":[]}
+        class Client:
+            def post(self,*a,**kw):return Accepted()
+        failure=OllamaTransportFailure({
+            "model":BASE_TAG,"reason":"token_limit","done_reason":"length",
+            "http_status":200,"attempts":1,"done":True,
+            "attempt_diagnostics":[]})
+        with patch("scripts.neral_blind_100_gpu._ollama_chat",side_effect=failure) as fetch, \
+             patch("scripts.neral_blind_100_gpu.gpu_offload_mib",return_value=5000), \
+             patch("scripts.neral_blind_100_gpu.sample_device_mib",return_value=5750):
+            result=pair_case(item,Client(),{})
+        self.assertFalse(result["base_correct"])
+        self.assertTrue(result["dual_correct"])
+        self.assertEqual(result["base_completion_status"],"token_limit")
+        self.assertEqual(result["base_done_reason"],"length")
+        self.assertEqual(result["base_http_status"],200)
+        self.assertEqual(result["raw"]["base_reply"],"")
+        self.assertEqual(fetch.call_count,1)
+
+    def test_transport_exception_after_two_retries_remains_fatal(self):
+        from scripts.neral_blind_100_gpu import pair_case
+        item=build()[26]
+        bad=OllamaTransportFailure({
+            "model":BASE_TAG,"reason":"done_false","done_reason":"absent_or_other",
+            "http_status":200,"attempts":3,"done":False,
+            "attempt_diagnostics":[]})
+        with patch("scripts.neral_blind_100_gpu._ollama_chat",side_effect=bad), \
+             patch("scripts.neral_blind_100_gpu.sample_device_mib",return_value=5700):
+            with self.assertRaises(OllamaTransportFailure):
+                pair_case(item,object(),{})
+
 if __name__=="__main__":
     unittest.main()
