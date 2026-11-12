@@ -134,6 +134,117 @@ def _features(doc: dict) -> set[str]:
     return found
 
 
+
+def _source_core_witnesses(question: str, schema: dict) -> str | None:
+    """Conservative checks for narrowly recognizable source clauses only.
+
+    These necessary witnesses do not prove complete semantic translation.
+    Alternative equivalent ASTs can be rejected; an unrecognized phrase does
+    NOT receive a completeness certificate. No benchmark IDs or answer routing.
+    """
+    import ast
+
+    nodes = []
+    def walk(value):
+        if type(value) is dict:
+            nodes.append(value)
+            for nested in value.values():
+                walk(nested)
+        elif type(value) is list:
+            for nested in value:
+                walk(nested)
+    walk(schema["constraints"])
+
+    def compare(node):
+        return node.get("compare") if type(node) is dict else None
+
+    def var_id(term):
+        if type(term) is dict and type(term.get("var")) is str:
+            matched = re.search(r"(\d+)$", term["var"])
+            return int(matched.group(1)) if matched else None
+        return None
+
+    def scalar(term):
+        return term.get("const") if type(term) is dict else None
+
+    def has_pair(op, a, b):
+        for node in nodes:
+            cmp_ = compare(node)
+            if type(cmp_) is not dict or cmp_.get("op") != op:
+                continue
+            left, right = var_id(cmp_.get("left")), var_id(cmp_.get("right"))
+            if (left, right) in ((a, b), (b, a)):
+                return True
+        return False
+
+    edge_match = re.search(
+        r"\bedges\s*(\[[^\]]{1,1200}\])\s+must\s+differ", question, re.I)
+    if edge_match:
+        try:
+            edges = ast.literal_eval(edge_match.group(1))
+            if (type(edges) is not list or not 1 <= len(edges) <= 32 or
+                any(type(pair) not in (list, tuple) or len(pair) != 2 or
+                    any(type(i) is not int or not 0 <= i < 10 for i in pair)
+                    for pair in edges)):
+                return "graph_edge_source_unsupported"
+        except (SyntaxError, ValueError, TypeError, MemoryError):
+            return "graph_edge_source_unsupported"
+        if any(a == b or not has_pair("!=", a, b) for a, b in edges):
+            return "graph_edge_witness_missing"
+        if re.search(r"\bvertex\s+0\s+is\s+red\b", question, re.I):
+            def fixed_red(node):
+                item = compare(node)
+                if type(item) is not dict or item.get("op") != "==":
+                    return False
+                l, r = item.get("left"), item.get("right")
+                return ((var_id(l) == 0 and type(scalar(r)) is int and scalar(r) == 0)
+                        or (var_id(r) == 0 and type(scalar(l)) is int and scalar(l) == 0))
+            if not any(fixed_red(x) for x in nodes):
+                return "graph_fixed_color_missing"
+
+    binary = re.search(
+        r"\bbinary\s+strings?\s+of\s+length\s+(\d+)\s+with\s+exactly\s+(\d+)\s+ones?\b",
+        question, re.I)
+    if binary:
+        n, k = map(int, binary.groups())
+        variables = schema["variables"]
+        if (not 2 <= n <= 10 or not 0 <= k <= n or len(variables) != n
+                or any(spec["type"] != "bool" for spec in variables.values())):
+            return "binary_domain_mismatch"
+        if not any(type(x.get("exactly")) is dict
+                   and x["exactly"].get("count") == k
+                   and x["exactly"].get("value") is True
+                   and set(x["exactly"].get("vars", ())) == set(variables)
+                   for x in nodes):
+            return "binary_cardinality_witness_missing"
+        if (re.search(r"\bfirst\s+two\s+bits\s+opposite\b", question, re.I)
+                and not has_pair("!=", 0, 1)):
+            return "binary_first_pair_witness_missing"
+        if re.search(r"\bno\s+two\s+ones\s+exactly\s+two\s+positions\s+apart\b",
+                     question, re.I):
+            forbidden = set()
+            for node in nodes:
+                neg = node.get("not")
+                if type(neg) is not dict or type(neg.get("and")) is not list:
+                    continue
+                pair = set()
+                for child in neg["and"]:
+                    item = compare(child)
+                    if type(item) is not dict or item.get("op") != "==":
+                        continue
+                    left, right = item.get("left"), item.get("right")
+                    if scalar(left) is True and var_id(right) is not None:
+                        pair.add(var_id(right))
+                    if scalar(right) is True and var_id(left) is not None:
+                        pair.add(var_id(left))
+                if len(pair) == 2:
+                    forbidden.add(frozenset(pair))
+            if any(frozenset((i, i+2)) not in forbidden
+                   for i in range(n-2)):
+                return "binary_distance_witness_missing"
+    return None
+
+
 def coverage_gate(question: str, schema: dict) -> dict:
     """Catch obvious missing lexical anchors, but never certify semantics.
 
@@ -184,7 +295,10 @@ def coverage_gate(question: str, schema: dict) -> dict:
         for token in ("<=", ">=", "!=", "=="):
             if token in question and token not in observed:
                 return {"passed": False, "reason": "relation_anchor_missing"}
-        return {"passed": True, "reason": "lexical_anchors_present"}
+        core_reason = _source_core_witnesses(question, schema)
+        if core_reason is not None:
+            return {"passed": False, "reason": core_reason}
+        return {"passed": True, "reason": "lexical_and_core_witnesses_present"}
     except (KeyError, TypeError, ValueError):
         return {"passed": False, "reason": "invalid_schema"}
 
