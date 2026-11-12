@@ -1,24 +1,102 @@
-name: Neral GPU Status Probe
-
+name: NERAL PR533 exact two-gate GPU (isolated verification branch)
 on:
-  push:
-    branches:
-      - gpu-status-ping-v2
-    paths:
-      - gpu_status_ping.txt
   workflow_dispatch:
-
+    inputs:
+      authorize:
+        required: true
+        type: string
+        description: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
 permissions:
   contents: read
-
 jobs:
-  probe:
+  cpu-preflight:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt
+      - name: Prove repair wrapper, six-clause 12 and exact source CPU contracts
+        run: python -B -m unittest discover -s tests -p test_neral_pr533_compound_controller_cpu.py -v
+      - name: Prove repaired-provenance collector contract
+        run: python -B -m unittest discover -s tests -p test_neral_same_base_live.py -v
+      - name: Validate isolated live probe syntax
+        run: python -B -m py_compile scripts/neral_pr533_two_gate_live.py
+  gpu-two-gates:
+    needs: cpu-preflight
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
     runs-on: [self-hosted, windows, x64, neral-gpu]
-    timeout-minutes: 5
+    timeout-minutes: 15
     defaults:
       run:
-        shell: cmd
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_EXPERIMENTAL_TIR: '1'
+      TARGET_SHA: '6d71eacd793820b586754d13f18be1e743cf01fc'
+      MANUAL_AUTH: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+      OUTER_SEED: '202611110533'
     steps:
-      - name: Probe runner and NVIDIA GPU
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+          clean: true
+      - uses: actions/checkout@v4
+        with:
+          ref: 6d71eacd793820b586754d13f18be1e743cf01fc
+          path: candidate
+          persist-credentials: false
+          clean: true
+      - name: Check exact PR533 SHA, free RTX memory and local offline Docker
         run: |
-          nvidia-smi --query-gpu=name,driver_version,memory.total,memory.free,temperature.gpu,power.draw --format=csv,noheader
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
+          $actual=(& git -C (Join-Path $env:GITHUB_WORKSPACE 'candidate') rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -ne $env:TARGET_SHA){throw 'Candidate SHA mismatch'}
+          $gpu=& nvidia-smi --query-gpu=memory.free,utilization.gpu --format=csv,noheader,nounits
+          if($LASTEXITCODE -ne 0){throw 'GPU probe unavailable'}
+          $values=($gpu|Select-Object -First 1) -split ','
+          if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 7000 -or [int]$values[1].Trim() -gt 25){
+            throw 'GPU busy or insufficient memory'
+          }
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'Missing local offline Docker sandbox'}
+          $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Existing Python runtime not found'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-pr533-two-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse occupied test environment'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Unable to create isolated environment'}
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'candidate/requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Missing preview dependencies'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('TWO_GATE_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Run exactly two real local RTX gates and export scalar telemetry only
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $harness=Join-Path $env:GITHUB_WORKSPACE 'harness'
+          $env:PYTHONPATH=$candidate
+          Push-Location $candidate
+          try {
+            & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_two_gate_live.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate --seed $env:OUTER_SEED
+            if($LASTEXITCODE -ne 0){throw 'Two-case live gate incomplete or rejected; TIR12 NOT authorized'}
+          } finally { Pop-Location }
