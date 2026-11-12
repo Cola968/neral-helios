@@ -17,18 +17,38 @@ from neral_typed_constraints_v2 import (
     _type_predicate, _predicate_value, solve_typed_constraints,
 )
 
+_V2_COMPACT_GRAMMAR = (
+    'Gib ausschließlich EIN kompaktes JSON-Objekt aus. Exakt vier Schlüssel: '
+    '"version":2, "variables", "constraints", "query":"count" '
+    '(alternativ query="satisfiable"). version ist die integer-Zahl 2, '
+    'kein String. variables ist ein Objekt: '
+    '"X":{"type":"int","domain":[0,1,2]} oder '
+    '"B0":{"type":"bool","domain":[false,true]}. '
+    'Integer-Domains benutzen Zahlen, Farben IMMER als Integer kodieren '
+    '(rot=0, grün=1, blau=2). '
+    'constraints ist eine Liste typisierter AST-Prädikate. '
+    'TERM: {"var":"X"}, {"const":2}, {"sum":[TERM,TERM]}, '
+    '{"mod":{"term":TERM,"by":2}}. '
+    'Prädikate: {"compare":{"left":TERM,"op":"!=","right":TERM}}, '
+    '{"all_different":["X","Y"]}, '
+    '{"exactly":{"vars":["B0","B1"],"value":true,"count":1}}, '
+    '{"not":P}, {"and":[P,P]}, {"or":[P,P]}, '
+    '{"iff":[P,P]}, {"implies":[P,P]}. '
+    'Ersetze TERM und P durch echte Objekte. '
+    'Verwende kein "logic", keine "variable"-Listen, keine Freitextregeln. '
+    'Alle Bedingungen explizit abbilden, insbesondere nicht/kein, '
+    'Ungleichheit, Nachbarschaft und Quantoren. '
+    'Keine redundanten Doppel-Constraints, keine Wiederholungsschleifen. '
+    'Keine Markdown-Formatierung, keine Erläuterung.'
+)
 EXTRACT_QLORA_PROMPT = (
-    "Translate the user's finite-domain question into ONE complete raw JSON "
-    "object using NERAL typed constraint schema v2: exactly version=2, "
-    "variables with explicit int/bool domains, constraints AST, and query. "
-    "Never invent omitted conditions. If unsure, output null. No markdown."
+    'Extrahiere alle Nebenbedingungen direkt und möglichst kurz. '
+    + _V2_COMPACT_GRAMMAR
 )
 EXTRACT_BASE_PROMPT = (
-    "Independently formalize the entire problem as one JSON object with "
-    "version, variables (typed finite domains), constraints and query, "
-    "following NERAL constraints v2. Review quantifiers, negations, domain "
-    "bounds and ordering carefully. Abstain with null when uncertain. "
-    "Do not use another model's response, code or prior proposed schema."
+    'Formuliere die Originalaufgabe unabhängig als vollständige endliche '
+    'Constraint-Formel. Prüfe Vorzeichen, Reihenfolge und Quantoren. '
+    + _V2_COMPACT_GRAMMAR
 )
 MAX_QUESTION_CHARS = 8192
 # Conservative lexical warning signals; NOT a semantic completeness proof.
