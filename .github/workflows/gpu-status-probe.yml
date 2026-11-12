@@ -956,7 +956,9 @@ jobs:
           if(Test-Path -LiteralPath $dir){throw 'Cannot overwrite earlier prospective run'}
           New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
           [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_BLIND_DIR='+$dir+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-          & py -3.12 -m venv (Join-Path $dir 'venv')
+          $pythonBase='D:\neral-qlora\venv\Scripts\python.exe'
+          if(-not (Test-Path -LiteralPath $pythonBase -PathType Leaf)){throw 'Known RTX Python environment absent'}
+          & $pythonBase -m venv (Join-Path $dir 'venv')
           if($LASTEXITCODE -ne 0){throw 'Cannot create isolated inference runtime'}
           $py=Join-Path $dir 'venv\Scripts\python.exe'
           & $py -m pip install -r (Join-Path $candidate 'requirements-neral-preview.txt')
