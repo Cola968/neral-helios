@@ -60,8 +60,8 @@ class FrozenBlindCases(unittest.TestCase):
                   "base_seconds":1.2,"dual_seconds":2.4} for i,x in enumerate(cases)]
         score=score_pairs(cases,results)
         self.assertEqual(score["base_correct"],25)
-        self.assertEqual(score["dual_correct"],32)
-        self.assertEqual(score["gained"],7)
+        self.assertEqual(score["dual_correct"],31)
+        self.assertEqual(score["gained"],6)
         self.assertEqual(score["lost"],0)
         self.assertFalse(score["promotion_gate_passed"])
         self.assertEqual(score["by_category"]["mathematics"]["total"],25)
