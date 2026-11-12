@@ -308,7 +308,7 @@ def start_app() -> None:
         update_button.configure(text="Starte neue Version …", state="disabled")
         update_info.set("Die neue Version öffnet den Chat nach dem Neustart.")
         if not launch_verified_update(staged, quit_app):
-            update_button.configure(text="Installieren und neu starten", state="normal")
+            update_button.configure(text="Update installieren und neu starten", state="normal")
             update_info.set("Neustart fehlgeschlagen. NERAL läuft weiter.")
 
     def start_update_check() -> None:
@@ -346,7 +346,7 @@ def start_app() -> None:
                     if update_ready:
                         update_info.set("Geprüfte neue Version bereit.")
                         update_button.configure(
-                            text="Installieren und neu starten", state="normal")
+                            text="Update installieren und neu starten", state="normal")
                     else:
                         update_info.set("Updateprüfung nicht erfolgreich.")
                         update_button.configure(text="Erneut prüfen", state="normal")
@@ -365,8 +365,10 @@ def start_app() -> None:
 
     update_button.configure(command=start_update_check)
     root.after(150, process_update_events)
-    # First check is opt-in through the visible action, so the update is never
-    # installed or downloaded unexpectedly while the user is chatting.
+    # The old launcher already checked in the background. Keep that behavior,
+    # but show a usable manual check at all times; installing always needs a click.
+    if updates_enabled:
+        root.after(1_000, start_update_check)
     root.mainloop()
 
 
