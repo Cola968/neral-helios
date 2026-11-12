@@ -1,73 +1,63 @@
-"""Non-gating live diagnostic for the exact user-reported Grok search case.
+"""Opt-in live matrix of actual public search providers and favicon retrieval.
 
-Runs the same /api/web/search/stream route with fixed public test query.
-No user history, credentials, local model, external AI API, or secrets.
+Uses only fixed, nonpersonal queries. No Ollama calls, user conversations,
+models, tokens, passwords, or local files are sent to third parties.
+This is a non-gating network diagnostic: providers may be unavailable.
 """
 from __future__ import annotations
-
 import json
+from urllib.parse import urlsplit
 from flask import Flask
 from neral_web_api import register_web_search_api
-from neral_web_search import fetch_public_favicon, FAVICON_PATHS, _request_favicon, sanitize_favicon_svg
-from ipaddress import ip_address
-import socket
-from xml.etree import ElementTree
+from neral_web_search import WebSearch, fetch_public_favicon
 
-QUERY = "grok ai"
+QUERIES = ("Flughafen Frankfurt", "NASA Artemis",
+           "Python Dokumentation", "Wetter Berlin")
+class TracedSearch(WebSearch):
+    def __init__(self):
+        super().__init__()
+        self.provider_raw = {}
+    def search(self, query, on_provider=None):
+        result = super().search(query, on_provider=on_provider)
+        self.provider_raw.setdefault(query, []).append(
+            {"provider":result.get("provider"),"count":len(result.get("results",[])),
+             "first_titles":[x.get("title","")[:70] for x in result.get("results",[])[:3]]})
+        return result
+    def search_bing(self, query, on_provider=None):
+        hits = super().search_bing(query, on_provider=on_provider)
+        self.provider_raw.setdefault(query, []).append(
+            {"provider":"Bing RSS retry","count":len(hits),
+             "first_titles":[x.get("title","")[:70] for x in hits[:3]]})
+        return hits
 
 def run():
-    app = Flask(__name__)
-    register_web_search_api(app)
-    response = app.test_client().post(
-        "/api/web/search/stream",
-        json={"query": QUERY, "verify_links": True},
-    )
-    events = [json.loads(line) for line in response.response]
-    result = next((event["result"] for event in events if event.get("type") == "result"), {})
-    hits = result.get("results", [])
-    favicon_hosts = ("grok.com", "x.ai", "github.com", "www.nasa.gov")
-    icons = {host: bool(fetch_public_favicon(host)) for host in favicon_hosts}
-    report = {
-        "query": QUERY,
-        "http_status": response.status_code,
-        "providers_contacted": [e["name"] for e in events if e.get("type") == "provider"],
-        "error": [e["message"] for e in events if e.get("type") == "error"],
-        "verified_relevant_hits": len(hits),
-        "titles": [h.get("title", "")[:100] for h in hits],
-        "urls": [h.get("url", "")[:200] for h in hits],
-        "icons_loaded": icons,
-    }
-    if not icons.get("grok.com"):
-        # Fixed public host only; never accept a user-provided URL in diagnostics.
-        details = []
-        try:
-            ips={v[4][0] for v in socket.getaddrinfo(
-                "grok.com",443,type=socket.SOCK_STREAM,proto=socket.IPPROTO_TCP)}
-            if ips and all(ip_address(ip).is_global for ip in ips):
-                ip=sorted(ips,key=lambda x:(":" in x,x))[0]
-                for path in FAVICON_PATHS:
-                    try:
-                        content, mime=_request_favicon("grok.com",ip,path)
-                        item={"path":path,"length":len(content),"mime":mime,
-                              "svg_accepted":bool(sanitize_favicon_svg(content)) if path.endswith(".svg") else None}
-                        if content and path.endswith(".svg"):
-                            try:
-                                root=ElementTree.fromstring(content)
-                                item["root"]=root.tag
-                                item["tags"]=sorted(set(x.tag for x in root.iter()))
-                                item["attr_keys"]=sorted(set(k for x in root.iter() for k in x.attrib))
-                            except Exception as e:
-                                item["parse_error"]=type(e).__name__
-                        details.append(item)
-                    except Exception as e:
-                        details.append({"path":path,"error":type(e).__name__})
-            else:
-                details.append({"error":"nonpublic_dns"})
-        except Exception as e:
-            details.append({"error":type(e).__name__})
-        report["grok_icon_diagnostic"]=details
-    print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
-    return 0 if hits and any(icons.values()) else 1
+    service=TracedSearch()
+    app=Flask(__name__)
+    register_web_search_api(app,service)
+    rows=[]
+    for query in QUERIES:
+        response=app.test_client().post("/api/web/search/stream",
+            json={"query":query,"verify_links":True})
+        events=[json.loads(line) for line in response.response]
+        result=next((event["result"] for event in events if event.get("type")=="result"),{})
+        previews=result.get("previews",[])
+        checked=result.get("results",[])
+        rows.append({
+            "query":query,"http_status":response.status_code,
+            "providers_contacted":[e["name"] for e in events if e.get("type")=="provider"],
+            "raw":service.provider_raw.get(query,[]),
+            "error":[e.get("message") for e in events if e.get("type")=="error"],
+            "candidate_events":sum(e.get("type")=="candidate" for e in events),
+            "verified_events":sum(e.get("type")=="source" for e in events),
+            "previews":len(previews),"verified":len(checked),
+            "sample_titles":[s.get("title","")[:100] for s in (checked or previews)[:3]],
+            "sample_urls":[s.get("url","")[:170] for s in (checked or previews)[:3]],
+        })
+    hosts=("www.frankfurt-airport.com","www.nasa.gov","docs.python.org")
+    icons={host:bool(fetch_public_favicon(host)) for host in hosts}
+    print(json.dumps({"multi_query_search":rows,"favicon_probe":icons},
+                     ensure_ascii=False,indent=2),flush=True)
+    return 0 if sum(bool(x["previews"] or x["verified"]) for x in rows)>=3 else 1
 
-if __name__ == "__main__":
+if __name__=="__main__":
     raise SystemExit(run())
