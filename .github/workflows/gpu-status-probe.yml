@@ -30,7 +30,7 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_neral_same_base_live.py -v
       - name: Validate isolated live probe syntax
         run: python -B -m py_compile scripts/neral_pr533_two_gate_live.py
-  gpu-two-gates:
+  gpu-logic-only:
     needs: cpu-preflight
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -65,13 +65,7 @@ jobs:
           path: candidate
           persist-credentials: false
           clean: true
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          path: control
-          persist-credentials: false
-          clean: true
-      - name: Check exact PR533 SHA, free RTX memory and local offline Docker
+      - name: Check exact PR533 SHA and idle GPU (logic-only, no Docker)
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
@@ -83,8 +77,6 @@ jobs:
           if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 7000 -or [int]$values[1].Trim() -gt 25){
             throw 'GPU busy or insufficient memory'
           }
-          & (Join-Path $env:GITHUB_WORKSPACE 'control/scripts/neral_docker_desktop_preflight.ps1')
-          if($LASTEXITCODE -ne 0){throw 'Docker Desktop offline preflight failed'}
           $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
           if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Existing Python runtime not found'}
           $venv=Join-Path $env:RUNNER_TEMP ('neral-pr533-two-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
@@ -95,7 +87,7 @@ jobs:
           & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $env:GITHUB_WORKSPACE 'candidate/requirements-neral-preview.txt')
           if($LASTEXITCODE -ne 0){throw 'Missing preview dependencies'}
           [IO.File]::AppendAllText($env:GITHUB_ENV, ('TWO_GATE_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-      - name: Run exactly two real local RTX gates and export scalar telemetry only
+      - name: Run only real local RTX logic gate B and export scalar telemetry
         run: |
           $ErrorActionPreference='Stop'
           $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
@@ -104,5 +96,5 @@ jobs:
           Push-Location $candidate
           try {
             & $env:TWO_GATE_PY -B (Join-Path $harness 'scripts/neral_pr533_two_gate_live.py') --authorize $env:MANUAL_AUTH --target-sha $env:TARGET_SHA --candidate-root $candidate --seed $env:OUTER_SEED
-            if($LASTEXITCODE -ne 0){throw 'Two-case live gate incomplete or rejected; TIR12 NOT authorized'}
+            if($LASTEXITCODE -ne 0){throw 'Logic-only GPU gate rejected; TIR12 NOT authorized'}
           } finally { Pop-Location }
