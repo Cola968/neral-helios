@@ -135,7 +135,7 @@ def programming_case(i:int,rng:random.Random)->tuple[str,int,str]:
         src=(f"v = {n}\nsteps = 0\nwhile v > 1:\n"
              f"    v = v // {d}\n    steps += 1\nprint(steps)")
     fence=chr(96)*3
-    q=("What integer does this exact Python 3 program print? Do not modify it. "
+    q=("What integer does this exact Python 3 program print? "
        "Answer with just the integer.\n"+fence+"python\n"+src+"\n"+fence)
     return q,programming_answer(src),"python_output_trace"
 
