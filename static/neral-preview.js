@@ -293,7 +293,7 @@
     const note=document.createElement("p");note.className="neral-source-notice";
     note.textContent=allReachable?
       "HTTPS-Adressen erreichbar · Seiteninhalte nicht unabhängig geprüft":
-      "Suchmaschinen-Treffer · Zielseiten nicht auf Erreichbarkeit bestätigt · Inhalte nicht gelesen";
+      "Suchmaschinen-Treffer · Erreichbarkeit der Zielseiten nicht geprüft · Inhalte nicht gelesen";
     list.append(note);
     valid.forEach((v,index)=>{
       const link=document.createElement("a");link.className="neral-source-link";
