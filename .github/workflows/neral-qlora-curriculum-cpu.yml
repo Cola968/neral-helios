@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile only (do not install GPU packages)
-        run: python -B -m py_compile scripts/neral_qlora_dataset.py scripts/neral_qlora_holdout_eval.py scripts/neral_qlora_train.py scripts/neral_qlora_export.py
+        run: python -B -m py_compile scripts/neral_qlora_dataset.py scripts/neral_qlora_holdout_eval.py scripts/neral_qlora_train.py scripts/neral_qlora_export.py scripts/neral_qlora_train_peft.py
       - name: Verify holdout source and 500-row SFT samples
         run: python -B -m unittest discover -s tests -p test_neral_qlora_curriculum_cpu.py -v
       - name: Generate fresh reproducible 720-row train.jsonl
@@ -31,6 +31,7 @@ jobs:
         run: |
           python -B -m scripts.neral_qlora_holdout_eval --holdout datasets/neral_qwen35_holdout_v1.jsonl --train .data/neral_qlora/train.jsonl
           python -B -m scripts.neral_qlora_train --train .data/neral_qlora/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --out .data/neral_qlora/dry-run --check-data-only
+          python -B -m scripts.neral_qlora_train_peft --train .data/neral_qlora/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --out .data/neral_qlora/peft-dry-run --check-only
       - name: Publish synthetic train file for separate human review (not holdout)
         uses: actions/upload-artifact@v4
         with:
