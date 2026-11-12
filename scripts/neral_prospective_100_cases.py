@@ -229,6 +229,15 @@ def exclusion_receipt(cases:list[dict],train:Path,holdout:Path)->dict:
             questions.append(q)
         all_sources[rel]={"count":len(rows),
                           "sha256":hashlib.sha256(content).hexdigest()}
+    all_sources["local:neral-qwen35-train720"]={
+        "count":len(training),"sha256":TRAIN_SHA256}
+    all_sources["repo:neral-qwen35-holdout24"]={
+        "count":len(previous24),
+        "sha256":hashlib.sha256(holdout.read_bytes()).hexdigest()}
+    all_sources["generated:neral-generalization-first100"]={
+        "count":100,"sha256":sha("\\n".join(x["question"] for x in first_100()))}
+    all_sources["generated:neral-blind-and-formatted-repeat100"]={
+        "count":100,"sha256":hashlib.sha256(serialize(second_100())).hexdigest()}
     raw_hashes={sha(q) for q in questions}
     norm_hashes={normalized(q) for q in questions}
     if len(cases)!=100 or len({x.get("question_sha256") for x in cases})!=100:
