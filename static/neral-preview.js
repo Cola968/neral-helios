@@ -170,7 +170,7 @@
     if(count>0 &&
        /\b(?:keine|keinen)\s+(?:belastbaren|passenden|erreichbaren)\s+(?:suchtreffer|treffer|quellen)\b/iu.test(answer) &&
        /\b(?:web[-\s]?suche|suchtreffer|suchlauf)\b/iu.test(answer))
-      return "Die lokale Websuche hat "+count+" passende, erreichbare Treffer gefunden. "+
+      return "Die lokale Websuche hat "+count+" erreichbare Treffer zu deiner Anfrage gefunden. "+
         "Die Webseiten sind unter dieser Antwort verlinkt. "+
         "Ihre Inhalte wurden bisher nicht unabhängig überprüft.";
     const refusal=/\bich\s+(?:kann|habe)\b[\s\S]{0,550}?(?:keine\s+(?:externe\s+)?web[-\s]?suche|keinen\s+zugriff\s+auf\s+(?:das\s+)?internet|keinen\s+zugriff\s+auf\s+externe\s+quellen|nicht\s+auf\s+das\s+internet\s+zugreifen)/iu;
