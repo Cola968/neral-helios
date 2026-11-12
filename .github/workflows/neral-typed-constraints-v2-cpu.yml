@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install only the regression test dependency used by existing TIR tests
+        run: python -m pip install 'jsonschema>=4.20,<5'
       - name: Compile explicit typed solver and original strict interpreter
         run: python -B -m py_compile neral_typed_constraints_v2.py neral_formal_constraints.py
       - name: New exact counting and rejection contracts
