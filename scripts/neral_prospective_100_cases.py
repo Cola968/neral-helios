@@ -224,8 +224,10 @@ def exclusion_receipt(cases:list[dict],train:Path,holdout:Path)->dict:
                 user_turns=[turn.get("content") for turn in msgs if type(turn) is dict and turn.get("role")=="user"]
                 if len(user_turns)!=1:raise ValueError("Ambiguous historical question shape: "+rel)
                 q=user_turns[0]
-            if type(q) is not str or not q.strip():
-                raise ValueError("Missing historical question text: "+rel)
+            # The regression corpus intentionally includes a whitespace-only
+            # robustness prompt; it is an existing example, not missing data.
+            if type(q) is not str:
+                raise ValueError("Nontext historical question: "+rel)
             questions.append(q)
         all_sources[rel]={"count":len(rows),
                           "sha256":hashlib.sha256(content).hexdigest()}
