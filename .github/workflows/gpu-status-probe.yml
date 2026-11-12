@@ -1293,7 +1293,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 'bea4d0612fac96b9dbc97be6a7e2e585112b472f'
+          ref: '50b9bb2a2e1d37f25b7bb61fb5a96de93613732a'
           persist-credentials: false
           path: candidate
       - uses: actions/setup-python@v5
@@ -1331,11 +1331,11 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       HF_HUB_OFFLINE: '1'
       TRANSFORMERS_OFFLINE: '1'
-      PINNED_OLD6: 'bea4d0612fac96b9dbc97be6a7e2e585112b472f'
+      PINNED_OLD6: '50b9bb2a2e1d37f25b7bb61fb5a96de93613732a'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 'bea4d0612fac96b9dbc97be6a7e2e585112b472f'
+          ref: '50b9bb2a2e1d37f25b7bb61fb5a96de93613732a'
           persist-credentials: false
           clean: true
           path: candidate
