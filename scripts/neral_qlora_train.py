@@ -95,7 +95,9 @@ def main()->int:
     p.add_argument("--holdout",required=True,type=Path)
     p.add_argument("--out",required=True,type=Path)
     p.add_argument("--model",default="unsloth/Qwen3.5-9B")
-    p.add_argument("--max-steps",type=int,default=60)
+    p.add_argument("--epochs",type=float,choices=(1.0,2.0),default=1.0)
+    p.add_argument("--max-steps",type=int,default=0,
+                   help="0 means full requested epochs; positive value for smoke tests")
     p.add_argument("--max-seq-length",type=int,default=2048)
     p.add_argument("--check-data-only",action="store_true")
     args=p.parse_args()
@@ -106,7 +108,7 @@ def main()->int:
         return 0
     if args.out.exists() or args.out.is_symlink():
         raise FileExistsError("Refuse overwrite of existing adapter checkpoint")
-    if args.max_steps<1 or not 1024<=args.max_seq_length<=2048:
+    if args.max_steps<0 or not 1024<=args.max_seq_length<=2048:
         raise ValueError("Refusing unconstrained training configuration")
     # Import model/trainer only AFTER validating data, labels and holdout.
     import torch
@@ -147,7 +149,8 @@ def main()->int:
     cfg=TrainingArguments(
         output_dir=str(args.out/"trainer"),
         per_device_train_batch_size=1,gradient_accumulation_steps=8,
-        max_steps=args.max_steps,learning_rate=1e-4,warmup_steps=5,
+        max_steps=(args.max_steps if args.max_steps>0 else -1),
+        num_train_epochs=args.epochs,learning_rate=1e-4,warmup_steps=5,
         lr_scheduler_type="cosine",weight_decay=0.01,
         logging_steps=10,save_strategy="no",
         bf16=bool(torch.cuda.is_bf16_supported()),fp16=not torch.cuda.is_bf16_supported(),
@@ -164,6 +167,7 @@ def main()->int:
         json.dumps({"status":"adapters_saved_not_evaluated",
                     "base_model":args.model,"rows":len(rows),
                     "seed":TRAINING_SEED,"max_steps":args.max_steps,
+                    "num_train_epochs":args.epochs,
                     "rank":8,"quantization":"bnb_nf4_4bit",
                     "assistant_only_loss":True,
                     "holdout_used_for_training":False},indent=2)+"\n",
