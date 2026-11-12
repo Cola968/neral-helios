@@ -34,6 +34,28 @@ def register_web_search_api(app, service=None):
         return {**result, "results": [accepted[i] for i in sorted(accepted)],
                 "link_check": "public_https_tls_and_http_only"}
 
+    def verified_with_fallback(result: dict, query: str, on_provider=None, on_source=None) -> dict:
+        """Use Bing only when DDG had hits but zero reachable sources.
+
+        This is a continuation of the single user-approved search. It reuses
+        the exact query and does not charge a second local search-rate slot.
+        """
+        verified = verified_results(result, on_source=on_source)
+        contacted = result.get("providers_contacted", [])
+        retry = getattr(search, "search_bing", None)
+        if (verified["results"] or "Bing RSS" in contacted
+                or result.get("provider") != "DuckDuckGo HTML"
+                or not callable(retry)):
+            return verified
+        try:
+            bing_hits = retry(query, on_provider=on_provider)
+        except WebSearchError:
+            return verified
+        second = {**result, "results": bing_hits, "provider": "Bing RSS",
+                  "providers_contacted": [*contacted, "Bing RSS"],
+                  "notice": "Nur dieser Suchbegriff wurde an DuckDuckGo und Bing übertragen. Suchtreffer sind ungeprüft."}
+        return verified_results(second, on_source=on_source)
+
     @app.post("/api/web/search/stream")
     def web_search_stream():
         """NDJSON stream of real contacted providers and verified source hits.
@@ -58,7 +80,8 @@ def register_web_search_api(app, service=None):
             try:
                 result = search.search(query,
                     on_provider=lambda name: emit({"type": "provider", "name": name}))
-                verified = verified_results(result,
+                verified = verified_with_fallback(result, query,
+                    on_provider=lambda name: emit({"type": "provider", "name": name}),
                     on_source=lambda source: emit({"type": "source", "source": source}))
                 emit({"type": "result", "result": verified})
             except (WebSearchInputError, WebSearchRateLimitError):
@@ -115,7 +138,7 @@ def register_web_search_api(app, service=None):
         try:
             result = search.search(data["query"])
             if data.get("verify_links") is True:
-                result = verified_results(result)
+                result = verified_with_fallback(result, data["query"])
             return jsonify(result)
         except WebSearchInputError as exc:
             return jsonify(error=str(exc)), 400
