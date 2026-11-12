@@ -57,3 +57,17 @@ test("custom CSS uses the reference proportions and has real mobile layout",()=>
   assert.match(sheet,/prefers-reduced-motion/);
   assert.doesNotMatch(sheet,/linear-gradient\(|backdrop-filter|glow|neon|glassmorphism/i);
 });
+
+
+test("header omits connection and Qwen provenance chrome while local security remains enforced",()=>{
+  const markup=html();
+  const client=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
+  const backend=fs.readFileSync(path.join(root,"neral_preview_server.py"),"utf8");
+  assert.doesNotMatch(markup,/id="connection"|id="modelDetails"|id="model"/);
+  assert.doesNotMatch(markup,/Modellherkunft|Lokales Qwen-Basismodell|Verbinde lokal/);
+  assert.doesNotMatch(client,/\$\("connection"\)|\$\("model"\)/);
+  assert.match(client,/status\.model_origin!==/);
+  assert.match(client,/status\.adapter_loaded!==false/);
+  assert.match(backend,/X-Neral-CSRF/);
+  assert.match(markup,/id="error"/);
+});
