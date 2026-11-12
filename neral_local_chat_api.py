@@ -371,9 +371,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
-            if evaluation_final_answer:
-                from neral_answer_contract import formatted_benchmark_system
-                data[0]["content"] = formatted_benchmark_system()
+
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
@@ -456,6 +454,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            if evaluation_final_answer:
+                from neral_answer_contract import formatted_benchmark_system
+                data[0]["content"] = formatted_benchmark_system()
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
         if experimental_tir and os.environ.get("NERAL_EXPERIMENTAL_TIR") != "1":
