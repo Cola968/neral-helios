@@ -168,10 +168,16 @@ def mixed_case(i:int,rng:random.Random)->tuple[str,int,str]:
     return q,speed*seconds,"spaceflight_distance"
 
 def build(seed:int=SEED)->list[dict]:
-    rng=random.Random(seed);cases=[]
+    rng=random.Random(seed);cases=[];seen=set()
     for cat,make in zip(CATEGORIES,(math_case,logic_case,programming_case,mixed_case)):
         for i in range(25):
-            q,expected,family=make(i,rng)
+            for attempt in range(256):
+                q,expected,family=make(i,rng)
+                if sha(q) not in seen:
+                    seen.add(sha(q))
+                    break
+            else:
+                raise RuntimeError("Unable to produce a distinct task in 256 attempts")
             if type(expected) is not int or not q:
                 raise ValueError("Non-integer oracle")
             cases.append({"id":f"transfer100-{cat}-{i+1:02d}","category":cat,
