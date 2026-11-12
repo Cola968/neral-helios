@@ -164,6 +164,15 @@
   // Other model answers and genuine tool failures remain untouched.
   function normaliseSearchRefusal(answer,count,searchPerformed) {
     if(!searchPerformed||typeof answer!=="string")return answer;
+    // The local model sometimes repeats a no-results template even though
+    // the guarded web tool has returned verified, topical HTTPS sources.
+    // Correct only the demonstrably contradictory state, never invent facts.
+    if(count>0 &&
+       /\b(?:keine|keinen)\s+(?:belastbaren|passenden|erreichbaren)\s+(?:suchtreffer|treffer|quellen)\b/iu.test(answer) &&
+       /\b(?:web[-\s]?suche|suchtreffer|suchlauf)\b/iu.test(answer))
+      return "Die lokale Websuche hat "+count+" passende, erreichbare Treffer gefunden. "+
+        "Die Webseiten sind unter dieser Antwort verlinkt. "+
+        "Ihre Inhalte wurden bisher nicht unabhängig überprüft.";
     const refusal=/\bich\s+(?:kann|habe)\b[\s\S]{0,550}?(?:keine\s+(?:externe\s+)?web[-\s]?suche|keinen\s+zugriff\s+auf\s+(?:das\s+)?internet|keinen\s+zugriff\s+auf\s+externe\s+quellen|nicht\s+auf\s+das\s+internet\s+zugreifen)/iu;
     if(!refusal.test(answer))return answer;
     return count>0
