@@ -121,34 +121,53 @@ def register_web_search_api(app, service=None):
 
     def verified_with_fallback(result: dict, query: str, on_provider=None,
                                on_source=None, on_candidate=None) -> dict:
-        """Use Bing when there is no VERIFIED DDG result; retain safe previews."""
+        """Keep real topical provider previews; use multiple independent providers.
+
+        A failed HEAD/GET does not erase an actual search hit. Only successful
+        HTTPS probes are called reachable. Wikipedia is a factual reference
+        fallback, not an assertion that an article was downloaded or read.
+        """
         first = verified_results(result, on_source=on_source,
                                  on_candidate=on_candidate, query=query)
-        contacted = list(result.get("providers_contacted", []))
-        retry = getattr(search, "search_bing", None)
-        if (first["results"] or "Bing RSS" in contacted
-                or result.get("provider") != "DuckDuckGo HTML"
-                or not callable(retry)):
+        if first["results"]:
             return first
-        try:
-            bing_hits = retry(query, on_provider=on_provider)
-        except WebSearchError:
-            return {**first,"providers_contacted":[*contacted, "Bing RSS"],
-                    "notice":"Bing wurde kontaktiert, konnte aber keine weiteren Treffer bereitstellen."}
-        second = {**result, "results": bing_hits, "provider": "Bing RSS",
-                  "providers_contacted": [*contacted, "Bing RSS"],
-                  "notice": "Nur der Suchbegriff wurde an DuckDuckGo und Bing übertragen. Suchtreffer sind ungeprüft."}
-        checked = verified_results(second, on_source=on_source,
-                                   on_candidate=on_candidate, query=query)
-        if checked["results"]:
-            return checked
-        combined=[]
-        seen=set()
-        for item in [*checked["previews"],*first["previews"]]:
-            if item["url"] not in seen:
-                combined.append(item)
-                seen.add(item["url"])
-        return {**checked,"previews":combined[:5]}
+        contacted=list(result.get("providers_contacted",[]))
+        current=first
+        retry=getattr(search,"search_bing",None)
+        if ("Bing RSS" not in contacted and result.get("provider")=="DuckDuckGo HTML"
+                and callable(retry)):
+            contacted.append("Bing RSS")
+            try:
+                hits=retry(query,on_provider=on_provider)
+                secondary={**result,"results":hits,"provider":"Bing RSS",
+                           "providers_contacted":list(contacted)}
+                current=verified_results(secondary,on_source=on_source,
+                                         on_candidate=on_candidate,query=query)
+            except WebSearchError:
+                current={**first,"providers_contacted":list(contacted)}
+        if current["results"]:
+            return current
+        wiki=getattr(search,"search_wikipedia",None)
+        if ("Wikipedia DE" not in contacted and
+                result.get("provider")!="Wikipedia DE" and callable(wiki)):
+            contacted.append("Wikipedia DE")
+            try:
+                hits=wiki(query,on_provider=on_provider)
+                reference={**result,"results":hits,"provider":"Wikipedia DE",
+                           "providers_contacted":list(contacted)}
+                current=verified_results(reference,on_source=on_source,
+                                         on_candidate=on_candidate,query=query)
+            except WebSearchError:
+                current={**current,"providers_contacted":list(contacted)}
+        discovered=[]
+        known=set()
+        # Keep the verified reference results plus relevant search-engine hits.
+        for hit in [*current.get("previews",[]),*first.get("previews",[])]:
+            if hit.get("url") not in known:
+                discovered.append(hit)
+                known.add(hit["url"])
+        return {**current,"previews":discovered[:5],
+                "providers_contacted":list(contacted)}
 
     @app.post("/api/web/search/stream")
     def web_search_stream():
@@ -218,8 +237,8 @@ def register_web_search_api(app, service=None):
     def web_search_status():
         return jsonify(configured=True, live_verified=False, free_for_all=True,
                        requires_account=False, requires_api_key=False,
-                       provider="DuckDuckGo HTML / Bing RSS", model_provider="none",
-                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf auch an Bing gesendet.")
+                       provider="DuckDuckGo HTML / Bing RSS / Wikipedia DE", model_provider="none",
+                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing und Wikipedia gesendet.")
 
     @app.post("/api/web/search")
     def web_search_submit():
