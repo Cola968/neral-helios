@@ -41,8 +41,8 @@ class SourceReachability(unittest.TestCase):
         class FakeSearch:
             def search(self, query):
                 return {'query':query,'results':[
-                    {'title':'Good','url':'https://example.org/a','snippet':'about BER'},
-                    {'title':'Dead','url':'https://example.org/404','snippet':'about BER'}]}
+                    {'title':'BER Good','url':'https://example.org/a','snippet':'about BER'},
+                    {'title':'BER Dead','url':'https://example.org/404','snippet':'about BER'}]}
         app=Flask(__name__);register_web_search_api(app,FakeSearch())
         def checker(url): return url if url.endswith('/a') else None
         with patch('neral_web_api.verify_public_https_url',side_effect=checker):
