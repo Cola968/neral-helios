@@ -6,6 +6,7 @@ The exact PR537 conservative response guard is the only selection policy.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import subprocess
@@ -58,6 +59,39 @@ def sample_device_mib()->int|None:
     except (OSError,ValueError,IndexError,subprocess.TimeoutExpired):
         return None
 
+class OllamaTransportFailure(RuntimeError):
+    """Only scalar diagnostic codes, never model text, prompts or HTTP body."""
+    def __init__(self,diagnostic):
+        self.diagnostic=diagnostic
+        super().__init__("Local Ollama inference failed: "+diagnostic["reason"])
+
+
+def _post_chat_with_status(packet:dict, *,timeout:float=240.0)->tuple[dict,int]:
+    """Single non-streaming, strictly local HTTP call with bounded reply bytes.
+
+    This replaces the prior black-box helper only to preserve HTTP status.
+    Payload, Ollama model selection, decoder configuration remain unchanged.
+    """
+    connection=http.client.HTTPConnection("127.0.0.1",11434,timeout=timeout)
+    try:
+        payload=json.dumps(packet,ensure_ascii=False,separators=(",",":")).encode("utf8")
+        connection.request("POST","/api/chat",payload,
+                           {"Content-Type":"application/json"})
+        response=connection.getresponse()
+        status=response.status
+        content=response.read(128*1024+1)
+        if len(content)>128*1024:
+            raise ValueError("Oversize Ollama HTTP reply")
+        if status!=200:
+            return {},status
+        decoded=json.loads(content)
+        if type(decoded) is not dict:
+            raise ValueError("Nonobject Ollama response")
+        return decoded,status
+    finally:
+        connection.close()
+
+
 def _ollama_chat(model:str,messages:list[dict],seed:int,*,repair:bool=False,
                  structured:bool=False)->tuple[str,dict]:
     if model not in (BASE_TAG,TUNED_TAG) or type(seed) is not int or not 0<=seed<2**31:
@@ -80,23 +114,69 @@ def _ollama_chat(model:str,messages:list[dict],seed:int,*,repair:bool=False,
             q=original
         packet["format"]=extraction_response_format(q)
     started=time.monotonic()
-    data=request("POST","/api/chat",packet,timeout=180)
-    spent=round((time.monotonic()-started)*1000,1)
-    if data.get("done") is not True or data.get("done_reason")!="stop":
-        raise RuntimeError("Incomplete local Ollama inference")
-    msg=data.get("message")
-    text=msg.get("content") if type(msg) is dict else None
-    if type(text) is not str or not text.strip() or len(text.encode("utf8"))>32768:
-        raise RuntimeError("Invalid or oversized local response")
-    if structured and len(text.encode("utf8"))>4096:
-        raise RuntimeError("Oversized untrusted schema")
-    load=data.get("load_duration")
-    total=data.get("total_duration")
-    return text,{"model":model,"structured":structured,
-        "elapsed_ms":spent,
-        "load_ms":round(load/1e6,1) if type(load) is int and load>=0 else None,
-        "ollama_total_ms":round(total/1e6,1) if type(total) is int and total>=0 else None,
-        "model_residency_after":sample_residency()}
+    errors=[]
+    for index in range(3):  # initial request + at most 2 transport retries
+        current=time.monotonic()
+        reason=None;http_status=None;done=None;done_reason=None
+        response=None
+        try:
+            response,http_status=_post_chat_with_status(packet,timeout=240.0)
+            if http_status != 200:
+                reason="http_5xx" if 500<=http_status<=599 else "http_nonretryable"
+            else:
+                done=response.get("done")
+                done_reason=response.get("done_reason")
+                msg=response.get("message")
+                content=msg.get("content") if type(msg) is dict else None
+                if done is not True:
+                    reason="done_false"
+                elif done_reason!="stop":
+                    # A deterministic token-limit result is not a transient
+                    # HTTP failure. Retrying cannot extend the budget.
+                    reason="token_limit" if done_reason=="length" else "nonstop_finish"
+                elif type(content) is not str or not content.strip():
+                    reason="empty_content"
+                elif len(content.encode("utf8"))>32768 or (
+                     structured and len(content.encode("utf8"))>4096):
+                    reason="oversize_content"
+                else:
+                    load=response.get("load_duration")
+                    total=response.get("total_duration")
+                    spent=round((time.monotonic()-started)*1000,1)
+                    return content,{"model":model,"structured":structured,
+                        "elapsed_ms":spent,
+                        "attempts":index+1,
+                        "failed_attempts":errors,
+                        "load_ms":round(load/1e6,1)
+                            if type(load) is int and load>=0 else None,
+                        "ollama_total_ms":round(total/1e6,1)
+                            if type(total) is int and total>=0 else None,
+                        "model_residency_after":sample_residency()}
+        except (TimeoutError,ConnectionError,http.client.HTTPException,OSError):
+            reason="timeout" if isinstance(__import__("sys").exc_info()[1],TimeoutError) else "transport_error"
+        except (ValueError,TypeError,UnicodeError,OverflowError):
+            reason="invalid_http_payload"
+
+        # Do not propagate server text or raw exceptions into GitHub logs.
+        entry={"attempt":index+1,"model":model,"reason":reason,
+            "http_status":http_status,
+            "done":done if type(done) is bool else None,
+            "done_reason":done_reason if done_reason in (
+                "stop","length","load","unload","other") else "absent_or_other",
+            "elapsed_ms":round((time.monotonic()-current)*1000,1)}
+        errors.append(entry)
+        retryable=reason in {
+            "timeout","transport_error","http_5xx",
+            "done_false","empty_content"}
+        if not retryable or index>=2:
+            raise OllamaTransportFailure({
+                "model":model,"reason":reason,"http_status":http_status,
+                "done":entry["done"],"done_reason":entry["done_reason"],
+                "attempts":index+1,"attempt_diagnostics":errors})
+        time.sleep(3 if index==0 else 5)
+    raise AssertionError("Unreachable bounded retry")
+
+
 
 def run_dual_route(messages:list[dict],*,seed:int=0,
                    sample_gpu:bool=True)->dict:
