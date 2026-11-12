@@ -51,3 +51,35 @@ python -m scripts.neral_nl_schema_probe --case 21453 --live --qlora-model YOUR_L
 - Real QLoRA-versus-base extraction acceptance and answer quality, including false agreement rate, have **not** been measured.
 - The requested `fast-old6` GPU telemetry is not in run `#43282592123`, which only sealed the prospective dataset. Proof-First remains **not** the default. Need an actual successful GPU run/artifact before latency, phase and model-load comparisons.
 - No switch from the PR #537 raw-Qwen fallback on naturally worded queries; no merge to `main`; no use of the sealed prospective set for tuning.
+
+
+## Local RTX 4070 live diagnostics extension (still not executed)
+
+The default `scripts.neral_nl_schema_probe` remains concise and opt-in. New `--diagnostics-file` explicitly writes **raw model JSON responses** to a **local file**, one case per run. It measures elapsed API round-trip time and records Ollama's `load_duration`, `total_duration`, `prompt_eval_duration`, `eval_duration` (nanoseconds converted to milliseconds), `prompt_eval_count`, `eval_count`, and `done_reason` where provided. Parsing, exact model counting, source coverage, Z3 consensus and each model's old-case reference count are reported separately. A matching reference count does not certify semantic fidelity. The script runs two independent Ollama requests even when the first candidate fails. No upload to GitHub is performed.
+
+In **Windows PowerShell on the machine that actually runs Ollama**:
+
+```powershell
+git fetch origin
+git switch feat/neral-nl-schema-consensus-bridge-20261112
+ollama list
+ollama ps
+nvidia-smi
+python -m pip install "z3-solver>=4.13,<5"
+
+# Replace with the TWO EXACT installed tags from 'ollama list'.
+$QLORA = "YOUR_LOCAL_QLORA_OLLAMA_TAG"
+$BASE = "YOUR_LOCAL_BASE_QWEN35_9B_TAG"
+
+foreach ($case in @("21453", "logic-02", "logic-06")) {
+    python -m scripts.neral_nl_schema_probe --case $case --live --qlora-model $QLORA --base-model $BASE --diagnostics-file "nl-schema-$case.json"
+}
+```
+
+A `nonzero` process exit is **expected** when the candidates are invalid, non-equivalent or otherwise inconclusive. Check the locally created JSON file even if the CLI returns a failure status. Choose a fresh filename for repeats: the CLI refuses to overwrite existing evidence. A QLoRA checkpoint not imported into Ollama does not qualify as an installed Ollama tag; failing to find the model is a setup problem, not evidence against QLoRA's ability.
+
+Interpret timing carefully: Ollama's `load_duration_ms` counts loading, and `elapsed_ms` is the local API round trip for that individual extraction, **not** the entire multi-call inference pipeline. Confirm actual GPU offload with `ollama ps` (PROCESSOR) and `nvidia-smi`; the presence of a GPU by itself does not prove that Ollama used it. Environment effects like warmup/cold-load matter before latency claims.
+
+**Disclosure:** The diagnostic JSON includes unredacted generated responses from the three intentionally public historical tasks. Review locally before sharing. Never run this diagnostic mode on private prompts or on the sealed next-100 corpus. No second-100 files, hashes, or samples are required by this command.
+
+**Promotion policy:** Passing three historical tasks is useful for feasibility, but insufficient to open the prospective-100 release gate. Training QLoRA v2 is not justified solely by one failed prompt or malformed JSON. First compare the base model, test one schema prompt/repair variant on *development-only* old tasks, and evaluate whether a repeatable adapter-specific gap remains.
