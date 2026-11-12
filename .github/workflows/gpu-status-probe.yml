@@ -65,6 +65,12 @@ jobs:
           path: candidate
           persist-credentials: false
           clean: true
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+          clean: true
       - name: Check exact PR533 SHA, free RTX memory and local offline Docker
         run: |
           $ErrorActionPreference='Stop'
@@ -77,8 +83,8 @@ jobs:
           if($values.Count -ne 2 -or [int]$values[0].Trim() -lt 7000 -or [int]$values[1].Trim() -gt 25){
             throw 'GPU busy or insufficient memory'
           }
-          & docker image inspect python:3.11-alpine *> $null
-          if($LASTEXITCODE -ne 0){throw 'Missing local offline Docker sandbox'}
+          & (Join-Path $env:GITHUB_WORKSPACE 'control/scripts/neral_docker_desktop_preflight.ps1')
+          if($LASTEXITCODE -ne 0){throw 'Docker Desktop offline preflight failed'}
           $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
           if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Existing Python runtime not found'}
           $venv=Join-Path $env:RUNNER_TEMP ('neral-pr533-two-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
