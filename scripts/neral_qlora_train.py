@@ -64,9 +64,12 @@ def encode_answer_only(rows:list[dict],tokenizer, max_seq_length:int)->list[dict
                 enable_thinking=False)
         except TypeError as exc:
             raise RuntimeError("Installed Qwen3.5 tokenizer lacks required template flags") from exc
-        if not isinstance(prefix,list) or not isinstance(complete,list):
+        from collections.abc import Mapping
+        prefix = prefix.get("input_ids") if isinstance(prefix, Mapping) else prefix
+        complete = complete.get("input_ids") if isinstance(complete, Mapping) else complete
+        if (not isinstance(prefix,list) or not isinstance(complete,list)
+                or any(type(token) is not int or token < 0 for token in prefix+complete)):
             raise RuntimeError("Tokenizer returned non-token chat structure")
-        # Some tokenizers return {"input_ids":...}; require actual list here.
         if complete[:len(prefix)] != prefix:
             raise RuntimeError("Native chat template assistant-prefix mismatch")
         if len(complete)>max_seq_length or len(complete)<=len(prefix):

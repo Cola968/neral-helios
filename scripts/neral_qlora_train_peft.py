@@ -7,8 +7,9 @@ No optimizer/model checkpoints overwrites. Never reads holdout as training.
 from __future__ import annotations
 import argparse
 import hashlib
-import importlib
 import json
+import math
+import time
 from pathlib import Path
 
 from scripts.neral_qlora_train import (
@@ -41,12 +42,75 @@ def create_config(model_id:str):
           bnb_4bit_compute_dtype=(torch.bfloat16 if torch.cuda.is_bf16_supported()
                                   else torch.float16))
 
+def prepare_memory_bounded(model, prepare, *, min_elements=100_000_000):
+    # PEFT upcasts every unquantized parameter. Qwen3.5 has two 248320x4096
+    # frozen matrices; upcasting them on GPU adds ~3.8 GiB each. Temporarily
+    # stage only those matrices on CPU, then restore their original BF16 dtype.
+    # Norms retain PEFT's FP32 preparation; training remains entirely on CUDA.
+    staged=[]
+    seen=set()
+    for module in (model.get_input_embeddings(),model.get_output_embeddings()):
+        if module is not None and id(module) not in seen and module.weight.numel()>=min_elements:
+            seen.add(id(module))
+            staged.append((module,module.weight.device,module.weight.dtype))
+            module.to("cpu")
+    model=prepare(model,use_gradient_checkpointing=True,
+                  gradient_checkpointing_kwargs={"use_reentrant":False})
+    for module,device,dtype in staged:
+        module.to(device=device,dtype=dtype)
+        if module.weight.requires_grad:
+            raise RuntimeError("Base embeddings must remain frozen")
+    return model
+
+
+def answer_only_loss(model, inputs, num_items_in_batch=None):
+    """Exact shifted CE on supervised positions; omit masked prompt logits.
+
+    The decoder still sees the entire untruncated context. With batch one,
+    Qwen's native logits_to_keep selects only positions predicting answers.
+    Normalize by Trainer's accumulation-window token count when supplied.
+    """
+    import torch
+    inputs=dict(inputs)
+    labels=inputs.pop("labels")
+    if labels.ndim!=2 or labels.shape[0]!=1:
+        raise ValueError("Answer-only loss requires the configured batch size one")
+    positions=torch.nonzero(labels[0,1:]!=-100,as_tuple=True)[0]
+    if positions.numel()==0: raise ValueError("No supervised next-token labels")
+    targets=labels[:,1:].index_select(1,positions)
+    outputs=model(**inputs,logits_to_keep=positions,use_cache=False)
+    logits=outputs.logits.float()
+    loss=torch.nn.functional.cross_entropy(logits.reshape(-1,logits.shape[-1]),
+          targets.reshape(-1),reduction="sum")
+    denominator=num_items_in_batch if num_items_in_batch is not None else targets.numel()
+    loss=loss/denominator
+    return loss,outputs
+
+
+def adapter_fingerprint(model)->str:
+    import torch
+    digest=hashlib.sha256()
+    for name,param in model.named_parameters():
+        if param.requires_grad:
+            digest.update(name.encode("utf8"))
+            digest.update(param.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes())
+    return digest.hexdigest()
+
+
+def optimizer_schedule(rows:int, epochs:int, max_steps:int)->dict:
+    # Integer warmup_steps works across Transformers 5 releases. The one-step
+    # smoke must use a nonzero learning rate and actually update the adapter.
+    steps=max_steps or math.ceil(rows/8)*epochs
+    return {"warmup_steps":0 if max_steps else math.ceil(.03*steps)}
+
+
 def main()->int:
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--train",type=Path,required=True)
     p.add_argument("--holdout",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
     p.add_argument("--model",default=BASE_MODEL)
+    p.add_argument("--checkpoint",type=Path)
     p.add_argument("--epochs",type=int,choices=(1,2),default=1)
     p.add_argument("--max-steps",type=int,choices=(0,1,2),default=0)
     p.add_argument("--context",type=int,choices=(1024,1536,2048),default=2048)
@@ -73,15 +137,19 @@ def main()->int:
     from transformers import AutoTokenizer, Qwen3_5ForCausalLM, Trainer, TrainingArguments
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-    tokenizer=AutoTokenizer.from_pretrained(BASE_MODEL, use_fast=True)
+    torch.cuda.set_per_process_memory_fraction(min(0.95,9*1024**3/total),0)
+    transformers.set_seed(TRAINING_SEED)
+    started=time.perf_counter()
+    torch.cuda.reset_peak_memory_stats()
+    tokenizer=AutoTokenizer.from_pretrained(str(args.checkpoint), use_fast=True, local_files_only=True)
     examples=encode_answer_only(rows,tokenizer,max_seq_length=args.context)
     print("QLORA_TEXT_TOKENS_VALIDATED",len(examples),flush=True)
     model=Qwen3_5ForCausalLM.from_pretrained(
-        BASE_MODEL,quantization_config=create_config(BASE_MODEL),
-        torch_dtype=(torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16),
+        str(args.checkpoint),local_files_only=True,quantization_config=create_config(BASE_MODEL),
+        dtype=(torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16),
         device_map={"":0},low_cpu_mem_usage=True)
     model.config.use_cache=False
-    model=prepare_model_for_kbit_training(model,use_gradient_checkpointing=True)
+    model=prepare_memory_bounded(model,prepare_model_for_kbit_training)
     # Qwen3.5 text decoder includes hybrid gated-delta and attention layers.
     # "all-linear" is independent of brittle layer-specific names.
     model=get_peft_model(model,LoraConfig(
@@ -110,16 +178,35 @@ def main()->int:
         num_train_epochs=args.epochs,
         max_steps=(args.max_steps if args.max_steps else -1),
         learning_rate=5e-5,lr_scheduler_type="cosine",
-        warmup_ratio=.03,weight_decay=.01,
+        **optimizer_schedule(len(rows),args.epochs,args.max_steps),weight_decay=.01,
         optim="paged_adamw_8bit",
         bf16=bool(torch.cuda.is_bf16_supported()),
         fp16=not bool(torch.cuda.is_bf16_supported()),
-        gradient_checkpointing=True,save_strategy="no",
+        gradient_checkpointing=True,gradient_checkpointing_kwargs={"use_reentrant":False},save_strategy="no",
         logging_steps=1,report_to="none",
         seed=TRAINING_SEED,remove_unused_columns=False)
-    trainer=Trainer(model=model,args=settings,
+    class AnswerOnlyTrainer(Trainer):
+        def __init__(self,**kwargs):
+            super().__init__(**kwargs)
+            self.model_accepts_loss_kwargs=True
+        def compute_loss(self,model,inputs,return_outputs=False,num_items_in_batch=None):
+            loss,outputs=answer_only_loss(model,inputs,num_items_in_batch)
+            return (loss,outputs) if return_outputs else loss
+    trainer=AnswerOnlyTrainer(model=model,args=settings,
                     train_dataset=FixedTokenDataset(examples),data_collator=collate)
-    trainer.train()
+    initial_adapter_sha=adapter_fingerprint(model)
+    torch.cuda.synchronize()
+    training_started=time.perf_counter()
+    result=trainer.train()
+    torch.cuda.synchronize()
+    training_seconds=time.perf_counter()-training_started
+    final_adapter_sha=adapter_fingerprint(model)
+    if initial_adapter_sha == final_adapter_sha or not math.isfinite(result.training_loss):
+        raise RuntimeError("No finite, effective adapter update observed")
+    if not args.max_steps and result.global_step != math.ceil(len(rows)/8)*args.epochs:
+        raise RuntimeError("Incomplete requested training epoch")
+    if args.max_steps and result.global_step != args.max_steps:
+        raise RuntimeError("Smoke optimizer step count mismatch")
     adapter=args.out/"adapter"
     model.save_pretrained(str(adapter),safe_serialization=True)
     tokenizer.save_pretrained(str(adapter))
@@ -130,7 +217,16 @@ def main()->int:
        "method":"transformers_peft_4bit_nf4","epochs":args.epochs,
        "max_steps":args.max_steps,"rows":len(rows),"rank":8,
        "trainable_parameters":trainable,"seed":TRAINING_SEED,
-       "train_sha256":PINNED_TRAIN_SHA256,"holdout_used_in_training":False}
+       "train_sha256":PINNED_TRAIN_SHA256,"holdout_used_in_training":False,
+       "loss_method":"exact_supervised_position_cross_entropy",
+       "allocator_limit_gib":9,"frozen_large_matrices_dtype":"bfloat16",
+       "training_seconds":training_seconds,
+       "initial_adapter_sha256":initial_adapter_sha,"final_adapter_sha256":final_adapter_sha,
+       "train_loss":result.training_loss,
+       "optimizer_steps":result.global_step,"elapsed_seconds":time.perf_counter()-started,
+       "peak_allocated_bytes":torch.cuda.max_memory_allocated(),
+       "peak_reserved_bytes":torch.cuda.max_memory_reserved(),
+       "torch_version":torch.__version__,"transformers_version":transformers.__version__}
     (args.out/"training_manifest.json").write_text(
         json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     print("QLORA_PEFT_ADAPTER_SAVED_UNEVALUATED",flush=True)

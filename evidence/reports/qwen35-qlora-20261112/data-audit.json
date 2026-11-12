@@ -1,0 +1,19 @@
+{
+  "rows": 720,
+  "families": {
+    "boolean": 540,
+    "ordering": 180
+  },
+  "modes": {
+    "turn0": 360,
+    "turn1": 360
+  },
+  "unique_source_questions": 360,
+  "all_targets_oracle_and_source_verified": true,
+  "holdout_questions": 24,
+  "holdout_disjoint": true,
+  "train_sha256": "2a6c2219f4c52365be8a3a60bd080877c5d3fecef37371024d8936e31b18ec79",
+  "holdout_sha256": "fa51b8d47cbaa22707ba09db053978f4e1c7811aa6a7d0d2af9c27043c57bf5b",
+  "max_chat_tokens": 1458,
+  "assistant_target_tokens": 109344
+}

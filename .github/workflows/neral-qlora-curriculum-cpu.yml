@@ -5,7 +5,7 @@ on:
   pull_request:
     paths:
       - 'scripts/neral_qlora_*.py'
-      - 'tests/test_neral_qlora_curriculum_cpu.py'
+      - 'tests/test_neral_qlora_*.py'
       - 'datasets/neral_qwen35_holdout_v1.jsonl'
       - '.github/workflows/neral-qlora-curriculum-cpu.yml'
 permissions:
@@ -22,9 +22,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile only (do not install GPU packages)
-        run: python -B -m py_compile scripts/neral_qlora_dataset.py scripts/neral_qlora_holdout_eval.py scripts/neral_qlora_train.py scripts/neral_qlora_export.py scripts/neral_qlora_train_peft.py
+        run: python -B -m py_compile scripts/neral_qlora_dataset.py scripts/neral_qlora_holdout_eval.py scripts/neral_qlora_train.py scripts/neral_qlora_export.py scripts/neral_qlora_train_peft.py scripts/neral_qlora_local_run.py scripts/neral_qlora_merge_peft.py scripts/neral_qlora_posttrain_local.py
       - name: Verify holdout source and 500-row SFT samples
-        run: python -B -m unittest discover -s tests -p test_neral_qlora_curriculum_cpu.py -v
+        run: python -B -m unittest discover -s tests -p 'test_neral_qlora_*.py' -v
       - name: Generate fresh reproducible 720-row train.jsonl
         run: python -B -m scripts.neral_qlora_dataset --out .data/neral_qlora/train.jsonl --holdout datasets/neral_qwen35_holdout_v1.jsonl --pairs 360
       - name: Verify train/holdout separation and native-template input contract
