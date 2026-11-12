@@ -438,18 +438,21 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             experimental_tir = payload.get("experimental_tir", False)
             conservative_tir = payload.get("conservative_tir", False)
             dual_routing = payload.get("dual_routing", False)
+            fast_verified_only = payload.get("fast_verified_only", False)
             evaluation_final_answer = payload.get("evaluation_final_answer", False)
             if (type(experimental_tir) is not bool
                     or type(conservative_tir) is not bool
                     or type(dual_routing) is not bool
+                    or type(fast_verified_only) is not bool
                     or type(evaluation_final_answer) is not bool
                     or (conservative_tir and not experimental_tir)
                     or (dual_routing and not (conservative_tir and experimental_tir))
+                    or (fast_verified_only and not dual_routing)
                     or (evaluation_final_answer and not dual_routing)):
                 raise ValueError("Invalid experimental, conservative or dual routing flag")
             # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
-                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "evaluation_final_answer")}
+                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "fast_verified_only", "evaluation_final_answer")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -463,6 +466,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
         if dual_routing and os.environ.get("NERAL_EXPERIMENTAL_DUAL_ROUTE") != "1":
             return jsonify(error="Experimentelles Dual-Routing nicht freigeschaltet."), 403
+        if (fast_verified_only
+                and os.environ.get("NERAL_EXPERIMENTAL_FAST_VERIFIED_ONLY") != "1"):
+            return jsonify(error="Schneller Proof-First-Modus nicht freigeschaltet."), 403
         if (evaluation_final_answer
                 and os.environ.get("NERAL_FORMATTED_EVAL") != "1"):
             return jsonify(error="Format-Benchmark ist nicht freigeschaltet."), 403
@@ -519,8 +525,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             # and is *never* the default. Its exact model digests are checked
             # before either model is asked to generate a token.
             if dual_routing:
-                from neral_dual_routing import run_dual_route
-                routed = run_dual_route(data)
+                from neral_dual_routing import run_dual_route, run_verified_source_fast
+                routed = (run_verified_source_fast(data)
+                          if fast_verified_only else run_dual_route(data))
                 if evaluation_final_answer:
                     from neral_answer_contract import format_verified_terminal_answer
                     routed = dict(routed)
@@ -532,8 +539,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                             and routed.get("model_generated") is False))
                     routed["evaluation_final_answer"] = True
                 return jsonify({**_provenance(high_backend), **routed,
-                                "model": routed["tool_model"],
-                                "model_origin": "local_qlora_tools_base_raw_dual"})
+                                "model": routed["tool_model"] or routed["fallback_model"],
+                                "model_origin": ("local_qwen_verified_fast"
+                                  if fast_verified_only else "local_qlora_tools_base_raw_dual")})
             prepare_model(high_backend)
             if experimental_tir:
                 from neral_tir_experimental import run_experimental_tir
