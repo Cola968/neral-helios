@@ -35,11 +35,15 @@ on:
         required: false
         type: string
         description: 'Explicit CPU-only NERAL_PROSPECTIVE100_FREEZE_NO_INFERENCE'
+      speed_authorize:
+        required: false
+        type: string
+        description: 'Explicit old6 RTX smoke NERAL_VERIFIED_FAST_OLD6_GPU_SMOKE_ONLY; no new blind tasks'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100, formatted100, freeze-next100]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full, generalization100, ablation100, prodblind100, posthoc100, formatted100, freeze-next100, fast-old6]
 permissions:
   contents: read
   pull-requests: read
@@ -1276,3 +1280,103 @@ jobs:
             candidate/.data/prospective2/prospective100-manifest.json
           retention-days: 30
           if-no-files-found: error
+
+  fast-old6-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.speed_authorize == 'NERAL_VERIFIED_FAST_OLD6_GPU_SMOKE_ONLY' &&
+      inputs.mode == 'fast-old6'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'bea4d0612fac96b9dbc97be6a7e2e585112b472f'
+          persist-credentials: false
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
+      - name: Confirm proof-first fast source and PR537 safety before GPU
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_verified_fast_path_cpu.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_verified_fast_smoke_cpu.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+          python -B -m py_compile scripts/neral_verified_fast_smoke.py
+        working-directory: candidate
+  fast-old6-gpu:
+    needs: fast-old6-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.speed_authorize == 'NERAL_VERIFIED_FAST_OLD6_GPU_SMOKE_ONLY' &&
+      inputs.mode == 'fast-old6'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      NERAL_EXPERIMENTAL_TIR: '1'
+      NERAL_EXPERIMENTAL_DUAL_ROUTE: '1'
+      NERAL_EXPERIMENTAL_FAST_VERIFIED_ONLY: '1'
+      NERAL_FORMATTED_EVAL: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PINNED_OLD6: 'bea4d0612fac96b9dbc97be6a7e2e585112b472f'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'bea4d0612fac96b9dbc97be6a7e2e585112b472f'
+          persist-credentials: false
+          clean: true
+          path: candidate
+      - name: Verify pinned local source and existing sandbox
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $head=(& git -C $candidate rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -ne $env:PINNED_OLD6){throw 'Old6 source changed'}
+          if(-not(Test-Path -LiteralPath 'D:\neral-qlora\venv\Scripts\python.exe' -PathType Leaf)){throw 'Existing Python runtime absent'}
+          & nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+          if($LASTEXITCODE -ne 0){throw 'RTX hardware absent'}
+          & docker image inspect python:3.11-alpine *> $null
+          if($LASTEXITCODE -ne 0){throw 'No secure offline Docker image'}
+      - name: Isolated CPU/client Python environment; preserve trained model runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP ('neral-known6-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $dir){throw 'Old6 result already exists'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          $base='D:\neral-qlora\venv\Scripts\python.exe'
+          & $base -m venv (Join-Path $dir 'venv')
+          if($LASTEXITCODE -ne 0){throw 'Cannot create local isolated runtime'}
+          $py=Join-Path $dir 'venv\Scripts\python.exe'
+          & $py -m pip install -r (Join-Path $env:GITHUB_WORKSPACE 'candidate\requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Cannot install test dependencies'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_OLD6_DIR='+$dir+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('NERAL_OLD6_PY='+$py+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Compare original full dual vs proof-first fast on six ALREADY KNOWN tasks
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'candidate')
+          try {
+            & $env:NERAL_OLD6_PY -B -m scripts.neral_verified_fast_smoke --authorize NERAL_VERIFIED_FAST_OLD6_GPU_SMOKE_ONLY --out (Join-Path $env:NERAL_OLD6_DIR 'fast-old6-smoke.json')
+            if($LASTEXITCODE -ne 0){throw 'Incomplete fast-old6 smoke; no measured speed claim'}
+          } finally {Pop-Location}
+      - name: Retain synthetic-only six-case paired scalar hardware measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-fast-proof-first-6-known-tasks-not-blind
+          path: ${{ env.NERAL_OLD6_DIR }}/fast-old6-smoke.json
+          retention-days: 14
+          if-no-files-found: warn
