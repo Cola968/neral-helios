@@ -40,7 +40,7 @@ _SIGNALS = (
     (r"\b(?:before|after|vor|nach)\b", frozenset({"<", ">"})),
     (r"\b(?:opposite|gegenteilig)\b", frozenset({"!="})),
     (r"\b(?:equivalent|äquivalent)\b", frozenset({"iff"})),
-    (r"\b(?:exactly|genau)\b", frozenset({"exactly"})),
+    (r"\b(?:exactly|genau)\b", frozenset({"exactly", "==", "all_different"})),
     (r"\b(?:not|nicht|no|kein|keine)\b", frozenset({"not", "!="})),
 )
 
@@ -148,6 +148,7 @@ def coverage_gate(question: str, schema: dict) -> dict:
                 for item in node:
                     collect(item)
         collect(schema["constraints"])
+        numbers.add(str(len(names)))  # "length N" is the count of named slots
         source_numbers = set(re.findall(r"(?<![A-Za-z_])\d+(?![A-Za-z_])",
                                         question))
         if not source_numbers.issubset(numbers):
@@ -294,8 +295,12 @@ def assess_dual_extraction(
         return _reject("extractor_error")
     if _signature(a) != _signature(b):
         return _reject("signature_mismatch")
-    if not coverage_gate(question, a)["passed"] or not coverage_gate(question, b)["passed"]:
-        return _reject("coverage_rejected")
+    cov_a, cov_b = coverage_gate(question, a), coverage_gate(question, b)
+    if not cov_a["passed"] or not cov_b["passed"]:
+        result = _reject("coverage_rejected")
+        result["coverage_reason"] = (cov_a["reason"] if not cov_a["passed"]
+                                     else cov_b["reason"])
+        return result
     same, backend = _equivalence(a, b)
     if not same:
         result = _reject("non_equivalent")
