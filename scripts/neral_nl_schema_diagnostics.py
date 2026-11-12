@@ -80,9 +80,15 @@ def _extract_one(model: str, question: str, prompt: str) -> dict:
     # Distinguish invalid JSON from valid JSON with incompatible schema
     # typing/AST. The parser also rejects duplicate object keys.
     try:
-        json.loads(raw, object_pairs_hook=_no_duplicate_keys)
+        doc = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
     except (ValueError, TypeError, UnicodeError):
         record["status"] = "json_syntax_error"
+        return record
+    if type(doc) is dict and type(doc.get("variables")) is dict and not doc["variables"]:
+        # Ollama's free-dictionary grammar may ignore minProperties=1;
+        # identify this failure before attempting the bounded typed solver.
+        record["status"] = "empty_variables"
+        record["validation_error"] = "No typed variables declared"
         return record
     try:
         count = solve_typed_constraints(PREFIX + raw, max_seconds=1.5)
