@@ -1,0 +1,29 @@
+name: NERAL TIR conservative regression guard CPU
+on:
+  push:
+    branches: [feat/neral-tir-regression-guard-20261112]
+  pull_request:
+    paths:
+      - 'neral_tir_regression_guard.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_tir_regression_guard.py'
+      - '.github/workflows/neral-tir-regression-guard-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  conservative-tir-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-neral-preview.txt -r requirements-tests-turn0.txt
+      - run: python -B -m unittest discover -s tests -p test_neral_tir_regression_guard.py -v
+      - run: python -B -m unittest discover -s tests -p test_neral_experimental_tir.py -v
+      - run: python -B -m unittest discover -s tests -p test_neral_tir_observation.py -v
+      - run: python -B -m unittest discover -s tests -p test_neral_local_chat_api.py -v
+      - run: python -m compileall -q neral_tir_regression_guard.py neral_local_chat_api.py
