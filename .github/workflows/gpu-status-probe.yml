@@ -468,6 +468,11 @@ jobs:
           $drive=Split-Path -Qualifier $env:USERPROFILE
           $disk=(Get-PSDrive -Name $drive.TrimEnd(':') -ErrorAction Stop)
           Write-Host "USER_DRIVE_FREE_GIB=$([math]::Floor($disk.Free/1GB))"
+          foreach($volume in @(Get-PSDrive -PSProvider FileSystem)){
+            if($null -ne $volume.Free){
+              Write-Host "DRIVE_$($volume.Name)_FREE_GIB=$([math]::Floor($volume.Free/1GB))"
+            }
+          }
           if(Test-Path -LiteralPath $base -PathType Leaf){
             & $base -B -c "import torch;print('CUDA_AVAILABLE=' + str(torch.cuda.is_available()) + ';TORCH_VERSION=' + str(torch.__version__) + ';CUDA_VERSION=' + str(torch.version.cuda))"
             if($LASTEXITCODE -ne 0){throw 'CUDA readiness probe failure'}
