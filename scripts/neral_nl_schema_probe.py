@@ -70,7 +70,7 @@ def make_local_extractor(model_tag: str, *, transport=None):
             "model": model_tag,
             "messages": [dict(row) for row in messages],
             "stream": False,
-            "format": get_v2_ollama_format(),
+            "format": get_v2_ollama_format(messages[1]["content"]),
             "think": False,
             "options": {"temperature": 0, "num_predict": 1024,
                         "repeat_penalty": 1.05},
