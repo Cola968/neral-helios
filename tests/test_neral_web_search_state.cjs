@@ -80,3 +80,17 @@ test("stale Qwen refusal is replaced only after a real search, including 'extern
   }
   assert.match(clean(second,0,true),/keine passenden erreichbaren Treffer/i);
 });
+
+
+test("explicit German search submits the subject, not the imperative sentence",()=>{
+  const src=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=src.indexOf("  function isSearchFollowup(");
+  const end=src.indexOf("  // Snippets are untrusted evidence",start);
+  assert.ok(start>0&&end>start);
+  const getQuery=vm.runInNewContext(src.slice(start,end)+"\nmakeSearchQuery");
+  assert.equal(getQuery("suche nach grok ai"),"grok ai");
+  assert.equal(getQuery("Suche nach dem Berliner Flughafen"),"Berliner Flughafen");
+  assert.equal(getQuery("Bitte suche nach dem Wetter in Berlin"),"Wetter in Berlin");
+  assert.equal(getQuery("warum?", "grok ai"),"grok ai warum?");
+  assert.equal(getQuery("Welche Flugzeuge nutzt Condor?"),"Welche Flugzeuge nutzt Condor?");
+});
