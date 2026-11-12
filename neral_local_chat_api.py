@@ -655,10 +655,18 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             # exhausted tokens and from unexpected application exceptions.
             return jsonify(error="Lokale Modell-Inferenz nicht verfügbar.",
                            error_code="model_error"), 503
-        except Exception:
-            # Never leak local paths, checkpoints, prompts or model outputs.
+        except Exception as exc:
+            # Local, session/CSRF-protected scalar diagnosis only; never the
+            # model's partial content, prompts or raw HTTP exception.
+            from neral_dual_routing import OllamaTransportFailure
+            if dual_routing and isinstance(exc,OllamaTransportFailure):
+                return jsonify(error="Lokale Generierung am unveränderten Ausgabelimit beendet."
+                               if exc.diagnostic.get("reason")=="token_limit" else
+                               "Lokale Ollama-Antwort konnte nicht vollständig bestätigt werden.",
+                               error_code="ollama_transport",
+                               diagnostic=exc.diagnostic),503
             return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden.",
-                           error_code="internal_error"), 503
+                           error_code="internal_error"),503
         finally:
             busy.release()
 
