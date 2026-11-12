@@ -12,12 +12,13 @@ from html import unescape
 from xml.etree import ElementTree
 from ipaddress import ip_address
 import re
+import json
 import socket
 import ssl
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote_plus, urlsplit
+from urllib.parse import parse_qs, quote, quote_plus, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
@@ -410,6 +411,63 @@ class WebSearch:
         self._lock = threading.Lock()
 
 
+    def search_wikipedia(self, query: str, on_provider=None) -> list[dict[str, str]]:
+        """Keyless DE Wikipedia reference fallback for the exact consented query.
+
+        Search metadata only. URLs are constructed from article titles with a
+        fixed trusted public origin, never taken from arbitrary JSON fields.
+        This is not a replacement for reading original source pages or news.
+        """
+        if not isinstance(query, str) or any(ord(c)<32 or ord(c)==127 for c in query):
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        cleaned = _clean(query, MAX_QUERY_CHARS+1)
+        if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        if on_provider is not None:
+            on_provider("Wikipedia DE")
+        endpoint="https://de.wikipedia.org/w/api.php"
+        url=(endpoint+"?action=query&list=search&srsearch="+quote_plus(cleaned)
+             +"&format=json&srlimit=10")
+        req=Request(url, headers={
+            "User-Agent":"NERAL-ReferenceSearch/1.0",
+            "Accept":"application/json", "Accept-Language":"de,en;q=0.8"
+        },method="GET")
+        try:
+            with self.opener.open(req,timeout=7.0) as response:
+                mime=response.headers.get("Content-Type","").lower()
+                if "json" not in mime:
+                    raise WebSearchError("Referenzsuche lieferte unerwarteten Inhaltstyp.")
+                raw=response.read(MAX_RESPONSE_BYTES+1)
+            if len(raw)>MAX_RESPONSE_BYTES:
+                raise WebSearchError("Referenzsuche überschreitet das Limit.")
+            payload=json.loads(raw)
+            found=payload.get("query",{}).get("search",[])
+            if not isinstance(found,list):
+                raise WebSearchError("Ungültige Referenzsuchantwort.")
+            output=[]
+            seen=set()
+            for hit in found[:25]:
+                if not isinstance(hit,dict):
+                    continue
+                title=_clean(str(hit.get("title","")),180)
+                if not title or any(c in title for c in "<>\\"):
+                    continue
+                article="https://de.wikipedia.org/wiki/"+quote(title.replace(" ","_"),safe="_(),:-")
+                safe=safe_result_url(article)
+                if not safe or safe in seen:
+                    continue
+                snippet=str(hit.get("snippet",""))
+                snippet=re.sub(r"(?is)<(?:script|style)\b[^>]*>.*?</(?:script|style)>","",snippet)
+                snippet=_clean(unescape(re.sub(r"<[^>]*>","",snippet)),350)
+                output.append({"title":title,"url":safe,"snippet":snippet})
+                seen.add(safe)
+                if len(output)>=MAX_RESULTS:
+                    break
+            return output
+        except (HTTPError,URLError,TimeoutError,OSError,WebSearchError,
+                ValueError,TypeError,KeyError,UnicodeError):
+            raise WebSearchError("Wikipedia-Referenzsuche derzeit nicht verfügbar.") from None
+
     def search_bing(self, query: str, on_provider=None) -> list[dict[str, str]]:
         """Retry the same approved query on Bing within one verified web request.
 
@@ -475,6 +533,7 @@ class WebSearch:
         if on_provider is not None:
             on_provider("DuckDuckGo HTML")
         ddg_problem = False
+        bing_problem = False
         try:
             markup = request_page(SEARCH_ENDPOINT + "?q=" + quote_plus(cleaned), "text/html", "text/html")
             results = parse_search_results(markup)
@@ -495,9 +554,18 @@ class WebSearch:
                 results = parse_bing_rss(xml)
                 provider = "Bing RSS"
             except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
-                if ddg_problem:
-                    raise WebSearchError("Websuche bei beiden Anbietern nicht verfügbar.") from None
+                bing_problem = True
                 results = []
+        if not results:
+            contacted.append("Wikipedia DE")
+            try:
+                results=self.search_wikipedia(cleaned,on_provider=on_provider)
+                if results:
+                    provider="Wikipedia DE"
+            except WebSearchError:
+                if ddg_problem and bing_problem:
+                    raise WebSearchError("Websuche derzeit bei allen Anbietern nicht verfügbar.") from None
+                results=[]
 
         return {"query": cleaned, "provider": provider, "providers_contacted": contacted,
                 "external_request": True, "model_generated": False, "results": results,
