@@ -1,0 +1,26 @@
+{
+  "status": "TRAINED_EXPORTED_REGISTERED_EVALUATED",
+  "historical_baseline_user_supplied": {
+    "correct": 14,
+    "total": 24
+  },
+  "matched_control": {
+    "correct": 13,
+    "total": 24,
+    "model": "qwen35-9b-qlora-control-20261112:latest",
+    "digest": "ed6a74343db547257a9a78150d647f33fbf25db93d87b8e3d80273b116fa7bb9"
+  },
+  "trained": {
+    "correct": 19,
+    "total": 24,
+    "model": "neral-qwen35-qlora-v1:latest",
+    "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8"
+  },
+  "paired_gained": 6,
+  "paired_lost": 0,
+  "training_seconds": 1998.3275705999986,
+  "optimizer_steps": 90,
+  "device_peak_used_mib": 10331,
+  "metric": "structured_model_extraction_plus_unchanged_local_solver_controller",
+  "regression_tests_passed": 24
+}

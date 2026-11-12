@@ -1,0 +1,37 @@
+[
+  {
+    "stage": "merge",
+    "exit_code": 0,
+    "seconds": 43.125
+  },
+  {
+    "stage": "convert",
+    "exit_code": 0,
+    "seconds": 121.6710000000021
+  },
+  {
+    "stage": "quantize",
+    "exit_code": 0,
+    "seconds": 102.18799999999464
+  },
+  {
+    "stage": "gguf-runtime-probe",
+    "exit_code": 0,
+    "seconds": 9.047000000005937
+  },
+  {
+    "stage": "ollama-create",
+    "exit_code": 0,
+    "seconds": 9.952999999994063
+  },
+  {
+    "stage": "holdout",
+    "exit_code": 0,
+    "seconds": 210.34300000000803
+  },
+  {
+    "stage": "ollama-unload",
+    "exit_code": 0,
+    "seconds": 0.14100000000325963
+  }
+]

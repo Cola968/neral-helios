@@ -1,0 +1,22 @@
+{
+  "adapter_sha256": "e13fbf325c8988cb4e33e380f886864cef701d74ed8303fde2e91b63bad3e20d",
+  "trained_gguf_sha256": "e5b7f39dcc9068eaec20f149d287866778a493e036666f1a63ecddcc99d6122e",
+  "control_gguf_sha256": "4183121bf358870a1e0f174bd59ee1a742c3994f0603a24e26ad389a1d5dedac",
+  "process_elapsed_seconds": 2038.0413291000004,
+  "device_peak_used_mib": 10331,
+  "device_peak_includes_background": true,
+  "device_sampling": "approximately once per second",
+  "source_commit_at_start": "7c2c0909",
+  "implementation_commit": "4df8e4d1",
+  "converter_commit": "a8575a3ef4e2631d0540b2879fff86ad8411dbf6",
+  "windows_llama_release": "b12110",
+  "paired_gained_ids": [
+    "holdout-bool-02",
+    "holdout-bool-03",
+    "holdout-bool-06",
+    "holdout-bool-07",
+    "holdout-bool-10",
+    "holdout-bool-11"
+  ],
+  "paired_lost_ids": []
+}
