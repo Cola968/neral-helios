@@ -465,6 +465,13 @@ jobs:
           Write-Host "GPU_UTIL_PERCENT=$($v[2].Trim())"
           $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
           Write-Host "TRAIN_PYTHON_INSTALLED=$([bool](Test-Path -LiteralPath $base -PathType Leaf))"
+          $drive=Split-Path -Qualifier $env:USERPROFILE
+          $disk=(Get-PSDrive -Name $drive.TrimEnd(':') -ErrorAction Stop)
+          Write-Host "USER_DRIVE_FREE_GIB=$([math]::Floor($disk.Free/1GB))"
+          if(Test-Path -LiteralPath $base -PathType Leaf){
+            & $base -B -c "import torch;print('CUDA_AVAILABLE=' + str(torch.cuda.is_available()) + ';TORCH_VERSION=' + str(torch.__version__) + ';CUDA_VERSION=' + str(torch.version.cuda))"
+            if($LASTEXITCODE -ne 0){throw 'CUDA readiness probe failure'}
+          }
           if(Test-Path -LiteralPath $base -PathType Leaf){
             & $base -B -c "import importlib.util;print('TRAIN_DEPS=' + ','.join(k + ':' + str(bool(importlib.util.find_spec(k))) for k in ('torch','transformers','unsloth','peft','bitsandbytes','accelerate','safetensors')))"
             if($LASTEXITCODE -ne 0){throw 'Existing Python probe failed'}
