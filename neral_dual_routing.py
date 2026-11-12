@@ -15,7 +15,7 @@ import time
 
 from neral_tir_experimental import run_experimental_tir
 from neral_tir_regression_guard import choose_guarded_tir_reply
-from neral_turn0_extractor import extraction_response_format
+from neral_turn0_extractor import extraction_response_format, EXTRACTION_RESULT_CODES
 from scripts.neral_generalization_100_run import (
     BASE_TAG, TUNED_TAG, BASE_OPTIONS, require_exact_models,
     require_exact_guard, VALID_POLICIES,
@@ -211,6 +211,9 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
     extractor_calls=0
     raw_calls=0
     tool_model_calls=0
+    # Only fixed scalar labels from the strict parser; not the model's schema,
+    # original question, explanation, or sensitive prompt text.
+    extraction_rejections=[]
 
     def chat(model,turns,structured=False,repair=False,*,phase:str):
         try:
@@ -227,6 +230,11 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
                 "schema_attempts":extractor_calls,
                 "model_proposal_calls":tool_model_calls,
                 "base_fallback_attempts":raw_calls,
+                "extraction_rejection_reason":(
+                    extraction_rejections[-1]
+                    if extraction_rejections and
+                       extraction_rejections[-1] in EXTRACTION_RESULT_CODES
+                    else None),
             }
             raise
         metrics.append(event)
@@ -256,7 +264,9 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
         return chat(BASE_TAG,turns,phase="base_guard_fallback")
 
     try:
-        proposal=run_experimental_tir(original,respond,extract_constraints=extract)
+        proposal=run_experimental_tir(
+            original,respond,extract_constraints=extract,
+            extraction_rejection_sink=extraction_rejections)
         selected=choose_guarded_tir_reply(proposal,original,raw_fallback)
         policy=selected.get("selection_policy")
         if policy not in VALID_POLICIES:
@@ -275,6 +285,10 @@ def run_dual_route(messages:list[dict],*,seed:int=0,
             "model_digests":model_digests,
             "guard_git_blob":guard_blob,
             "structured_schema_attempts":extractor_calls,
+            "extraction_rejection_reason":(
+                extraction_rejections[-1]
+                if extraction_rejections and extraction_rejections[-1] in EXTRACTION_RESULT_CODES
+                else None),
             "tool_planning_calls":tool_model_calls,
             "base_raw_calls":raw_calls,
             "latency_ms":round((time.monotonic()-started)*1000,1),
