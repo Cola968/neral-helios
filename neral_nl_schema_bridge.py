@@ -303,7 +303,9 @@ def assess_dual_extraction(
         return result
     same, backend = _equivalence(a, b)
     if not same:
-        result = _reject("non_equivalent")
+        status = ("proof_inconclusive" if backend in {"z3_unknown", "z3_error",
+                     "enumeration_bounds_exceeded"} else "non_equivalent")
+        result = _reject(status)
         result["proof_backend"] = backend
         return result
     try:
