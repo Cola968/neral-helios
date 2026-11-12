@@ -737,7 +737,8 @@
           ? search.results.filter(hit=>hit.reachable===true && usable(hit)).slice(0,5):[];
         const previews=Array.isArray(search.previews)
           ? search.previews.filter(hit=>hit.discovered===true && usable(hit)).slice(0,5):[];
-        sources=verifiedSources.length?verifiedSources:previews;
+        sources=[...verifiedSources,
+          ...previews.filter(hit=>!verifiedSources.some(checked=>checked.url===hit.url))].slice(0,5);
         // Real provider results exist even if the sites refuse HTTPS probes.
         for(const source of sources)
           liveHandler({type:source.reachable===true?"source":"candidate",source});
