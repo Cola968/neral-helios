@@ -6,11 +6,15 @@ on:
         required: true
         type: string
         description: 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY'
+      qlora_authorize:
+        required: false
+        type: string
+        description: 'Explicit NERAL_QLORA_GPU_TRAIN_EXPLICIT only for local training'
       mode:
         required: true
         type: choice
         default: logic
-        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness]
+        options: [readiness, logic, transfer, both, tir12, qlora-baseline, qlora-readiness, qlora-smoke, qlora-full]
 permissions:
   contents: read
   pull-requests: read
@@ -523,5 +527,124 @@ jobs:
         with:
           name: neral-qwen35-9b-before-qlora-holdout24
           path: ${{ env.HOLDOUT_OUT }}/before_24_scalar.json
+          retention-days: 14
+          if-no-files-found: error
+
+  qlora-train-cpu:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.qlora_authorize == 'NERAL_QLORA_GPU_TRAIN_EXPLICIT' &&
+      (inputs.mode == 'qlora-smoke' || inputs.mode == 'qlora-full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'b2a362351b3f942c5f66e401ba02f02410b7b1e0'
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r candidate/requirements-neral-preview.txt
+      - name: Ensure exact 720-row train / 24 holdout and local QLoRA launcher compile
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_qlora_curriculum_cpu.py -v
+          python -B -m py_compile scripts/neral_qlora_train.py
+          python -B -m scripts.neral_qlora_holdout_eval --holdout datasets/neral_qwen35_holdout_v1.jsonl
+        working-directory: candidate
+  qlora-train-local:
+    needs: qlora-train-cpu
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/verify/neral-pr533-rtx4070-two-gates-20261112' &&
+      inputs.authorize == 'NERAL_PR533_TWO_GATE_GPU_MANUAL_ONLY' &&
+      inputs.qlora_authorize == 'NERAL_QLORA_GPU_TRAIN_EXPLICIT' &&
+      (inputs.mode == 'qlora-smoke' || inputs.mode == 'qlora-full')
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PINNED_TRAIN_SHA: 'b2a362351b3f942c5f66e401ba02f02410b7b1e0'
+      NERAL_QLORA_MANUAL_AUTH: 'NERAL_QLORA_GPU_TRAIN_EXPLICIT'
+      TRAIN_PHASE: ${{ inputs.mode == 'qlora-smoke' && 'smoke' || 'full' }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'b2a362351b3f942c5f66e401ba02f02410b7b1e0'
+          path: candidate
+          persist-credentials: false
+          clean: true
+      - name: Run explicitly gated local 9B Unsloth D-drive smoke or 1-epoch fine-tuning
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios'){throw 'Unexpected repository'}
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          Push-Location $candidate
+          try {
+            & (Join-Path $candidate 'scripts/neral_qlora_windows_gpu_experiment.ps1') -Phase $env:TRAIN_PHASE
+            if(-not $?) {throw 'Unsloth local training script returned failure'}
+          } finally {Pop-Location}
+      - name: Publish smoke or full training scalar manifest (not adapter weights)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-qlora-9b-${{ env.TRAIN_PHASE }}-training-manifest
+          path: D:/NERAL-QLoRA-Experiments/Qwen35-9B-20261112/adapter_${{ env.TRAIN_PHASE }}/training_manifest.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Export completed adapter to GGUF, stage new Ollama tag, and score 24 holdout
+        if: env.TRAIN_PHASE == 'full' && success()
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $root='D:/NERAL-QLoRA-Experiments/Qwen35-9B-20261112'
+          $python=Join-Path $root 'venv/Scripts/python.exe'
+          $adapter=Join-Path $root 'adapter_full/adapters'
+          $export=Join-Path $root 'adapter_full/gguf'
+          if(-not(Test-Path -LiteralPath (Join-Path $adapter 'adapter_config.json'))){throw 'Missing saved adapter'}
+          if(Test-Path -LiteralPath $export){throw 'Refuse existing exported candidate'}
+          $env:HF_HOME=Join-Path $root 'hf-cache'
+          $env:HF_HUB_CACHE=Join-Path $env:HF_HOME 'hub'
+          $env:HF_HUB_OFFLINE='1'
+          $env:HF_HUB_DISABLE_IMPLICIT_TOKEN='1'
+          $env:HF_HUB_DISABLE_TELEMETRY='1'
+          $env:WANDB_DISABLED='true'
+          $env:TEMP=Join-Path $root 'temp'
+          $env:TMP=$env:TEMP
+          $env:PYTHONPATH=$candidate
+          Push-Location $candidate
+          try {
+            & $python -B -m scripts.neral_qlora_export --adapter $adapter --out $export --quant q4_k_m
+            if($LASTEXITCODE -ne 0){throw 'GGUF export failed; Ollama original untouched'}
+          } finally {Pop-Location}
+          $target='neral-qwen35-qlora-v1'
+          $list=& ollama list
+          if($LASTEXITCODE -ne 0){throw 'Ollama model inventory unavailable'}
+          if(($list | Out-String) -match '(?m)^neral-qwen35-qlora-v1\s'){throw 'Refuse overwrite of existing adapter model'}
+          $modelfile=Join-Path $export 'Modelfile.neral-qlora-dev'
+          & ollama create $target -f $modelfile
+          if($LASTEXITCODE -ne 0){throw 'Ollama GGUF registration unsupported; no post score'}
+          $post=Join-Path $root 'post_24_scalar.json'
+          if(Test-Path -LiteralPath $post){throw 'Refuse overwrite of prior post score'}
+          Push-Location $candidate
+          try {
+            & $python -B -m scripts.neral_qlora_holdout_live --authorize NERAL_QLORA_HOLDOUT_GPU_MANUAL_ONLY --model $target --holdout datasets/neral_qwen35_holdout_v1.jsonl --out $post
+            if($LASTEXITCODE -ne 0){throw 'Local adapter holdout evaluation failed'}
+          } finally {Pop-Location}
+      - name: Publish scalar-only post-training results (no prompts or weights)
+        if: env.TRAIN_PHASE == 'full' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-qlora-9b-post-holdout24-scalars
+          path: D:/NERAL-QLoRA-Experiments/Qwen35-9B-20261112/post_24_scalar.json
           retention-days: 14
           if-no-files-found: error
