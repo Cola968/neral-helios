@@ -257,5 +257,66 @@ class TIRHttpGate(unittest.TestCase):
         self.assertEqual(tir.call_count, 1)
 
 
+    def test_conservative_tir_uses_original_raw_qwen_for_unverified_schema(self):
+        from unittest.mock import patch
+        client, headers = self._client()
+        report = {
+            "text": "FINAL_ANSWER: 3", "mode": "HIGH",
+            "model_generated": True, "verified": False,
+            "verification_status": "model_extracted_schema_unverified",
+            "verification_scope": "model_extracted_finite_domain",
+            "tool_used": "neral_logic_exact", "calls_used": 2,
+            "seconds": 1.0,
+            "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
+        }
+        with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "1"}), patch(
+                "neral_tir_experimental.run_experimental_tir", return_value=report):
+            response = client.post("/api/neral/chat/think",
+                json={"prompt": "Count arrangements", "experimental_tir": True,
+                      "conservative_tir": True},
+                headers=headers, base_url="http://127.0.0.1:9690")
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["text"], "No tool needed")
+        self.assertEqual(response.json["selection_policy"], "raw_qwen_due_to_unverified_tir")
+        self.assertEqual(response.json["calls_used"], 3)
+        self.assertFalse(response.json["verified"])
+
+    def test_conservative_tir_preserves_verified_exact_source(self):
+        from unittest.mock import patch
+        client, headers = self._client()
+        report = {
+            "text": "FINAL_ANSWER: -422", "mode": "HIGH",
+            "model_generated": False, "verified": True,
+            "verification_status": "verified",
+            "verification_scope": "exact_user_python_execution",
+            "review_method": "exact_user_ast_match",
+            "tool_used": "neral_python_sandbox", "calls_used": 1,
+            "seconds": 1.0,
+            "tool_calls_triggered": 1, "tool_calls_succeeded": 1,
+        }
+        with patch.dict("os.environ", {"NERAL_EXPERIMENTAL_TIR": "1"}), patch(
+                "neral_tir_experimental.run_experimental_tir", return_value=report):
+            response = client.post("/api/neral/chat/think",
+                json={"prompt": "Count arrangements", "experimental_tir": True,
+                      "conservative_tir": True},
+                headers=headers, base_url="http://127.0.0.1:9690")
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["text"], "FINAL_ANSWER: -422")
+        self.assertEqual(response.json["selection_policy"], "independently_verified_tir")
+        self.assertTrue(response.json["verified"])
+
+    def test_conservative_tir_flag_must_be_boolean_and_requires_experiment(self):
+        client, headers = self._client()
+        for payload in (
+            {"prompt": "Test", "conservative_tir": True},
+            {"prompt": "Test", "experimental_tir": True, "conservative_tir": "true"},
+        ):
+            with self.subTest(payload=payload):
+                response = client.post("/api/neral/chat/think",
+                    json=payload, headers=headers,
+                    base_url="http://127.0.0.1:9690")
+                self.assertEqual(response.status_code, 400, response.json)
+
+
 if __name__ == "__main__":
     unittest.main()

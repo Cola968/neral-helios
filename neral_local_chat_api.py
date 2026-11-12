@@ -435,11 +435,14 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             if not isinstance(payload, dict):
                 raise ValueError("Invalid JSON")
             experimental_tir = payload.get("experimental_tir", False)
-            if type(experimental_tir) is not bool:
-                raise ValueError("Invalid experimental flag")
-            # Keep _messages strict; a TIR switch is not a new chat message.
+            conservative_tir = payload.get("conservative_tir", False)
+            if (type(experimental_tir) is not bool
+                    or type(conservative_tir) is not bool
+                    or (conservative_tir and not experimental_tir)):
+                raise ValueError("Invalid experimental or conservative TIR flag")
+            # Neither option is part of the messages sent to the model.
             clean = {k: v for k, v in payload.items()
-                     if k != "experimental_tir"}
+                     if k not in ("experimental_tir", "conservative_tir")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -557,7 +560,14 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                                          if bounded_final else None),
                     extraction_rejection_sink=first_turn_rejection_codes,
                     solver_rejection_detail_sink=first_turn_solver_details)
+                if conservative_tir:
+                    # The solver can validate its input but not the model's
+                    # translation of the original natural-language question.
+                    from neral_tir_regression_guard import choose_guarded_tir_reply
+                    result = choose_guarded_tir_reply(
+                        result, data, high_backend.respond_chat)
                 return jsonify({**result, "experimental_tir": True,
+                                "conservative_tir": conservative_tir,
                                 **_provenance(high_backend)})
             previous_event = (
                 high_backend.inference_diagnostic_events[-1]
