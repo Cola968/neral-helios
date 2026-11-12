@@ -231,6 +231,34 @@ class BingFallbackTests(unittest.TestCase):
             self.assertEqual(params['cc'],['de'])
             self.assertEqual(params['setlang'],['de'])
 
+
+    def test_wikipedia_search_uses_only_fixed_endpoint_and_safe_clean_content(self):
+        from urllib.parse import parse_qs,urlsplit
+        import json
+        response=json.dumps({"query":{"search":[
+             {"title":"Flughafen Frankfurt Main","snippet":"<span>Internationaler</span> Flughafen"},
+             {"title":"NASA Artemis","snippet":"<script>bad()</script> Space program"},
+             {"title":"","snippet":"Empty"}]}}).encode()
+        class Fake:
+            def __init__(self):self.requests=[]
+            def open(self,req,timeout):
+                self.requests.append(req.full_url)
+                class Response:
+                    headers={"Content-Type":"application/json"}
+                    def __enter__(self):return self
+                    def __exit__(self,*a):return False
+                    def read(self,n):return response
+                return Response()
+        opener=Fake()
+        rows=WebSearch(opener=opener).search_wikipedia("Flughafen Frankfurt")
+        self.assertEqual(len(rows),2)
+        self.assertTrue(rows[0]["url"].startswith("https://de.wikipedia.org/wiki/"))
+        self.assertNotIn("<",rows[0]["snippet"])
+        self.assertNotIn("<",rows[1]["snippet"])
+        parsed=urlsplit(opener.requests[0])
+        self.assertEqual(parsed.hostname,"de.wikipedia.org")
+        self.assertEqual(parse_qs(parsed.query)["srsearch"],["Flughafen Frankfurt"])
+
     def test_bing_rss_rejects_unsafe_external_entities(self):
         from neral_web_search import parse_bing_rss
         with self.assertRaises(WebSearchError):
