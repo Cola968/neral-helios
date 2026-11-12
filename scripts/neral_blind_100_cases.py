@@ -56,7 +56,7 @@ def logic(k,r):
         return f"Color vertices 0..{n-1} with red, green or blue. Vertex 0 is red, and endpoints of edges {sorted(edges)} must differ. How many valid colorings?",ans,"three_color_graph"
     if f==2:
         n=r.randint(5,7)
-        prior={(i,i+1) for i in range(n-1)}|{(0,2)}
+        prior={(i,i+2) for i in range(n-2)}|{(0,3)}
         if n==7:prior.add((3,6))
         ans=sum(1 for p in permutations(range(n)) if all(p.index(a)<p.index(b) for a,b in prior))
         return f"In how many orders may unique jobs 0..{n-1} be completed if {sorted(prior)} are all required before/after dependencies (first of each pair before second)?",ans,"precedence_orders"
@@ -102,7 +102,7 @@ def mixed(k,r):
     f=k%5
     if f==0:
         d,v=r.randint(2,11)*600,r.randint(3,19)*5
-        return f"A spacecraft signal travels {d} km at {v} km/s. What is the transit time in seconds, rounded to the nearest integer?",(2*d+v)//(2*v),"signal_delay"
+        return f"A spacecraft signal travels {d} km at {v} km/s. What is the transit time in seconds, rounded to the nearest integer (halves upward)?",(2*d+v)//(2*v),"signal_delay"
     if f==1:
         buses,trips,days=r.randint(3,19),r.randint(13,42),r.randint(4,16)
         return f"A depot operates {buses} buses, each making {trips} trips a day for {days} days. How many bus trips altogether?",buses*trips*days,"bus_trips"
