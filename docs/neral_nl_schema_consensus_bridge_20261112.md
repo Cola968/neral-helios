@@ -161,3 +161,17 @@ foreach ($case in @('21453','logic-02','logic-06')) {
 \`\`\`
 
 Inspect both raw schemas, whether \`required\` produced nonempty declarations in practice, missing constraints, reference counts, model total/load durations, and consensus without promoting any unverified candidates. Keep the prospective 100-case sealed corpus completely untouched. No merge to main.
+
+## November 13: Source-certified PIN encoding + opt-in THINK branch
+
+The real previous RTX4070 run #43380824033 confirmed only 2/3 known old-case model consensus; its PIN QLoRA generated 1024 tokens and truncated, while base Qwen generated the wrong count 0. No NEW GPU evidence is claimed for the change below.
+
+**PIN positional encoding.** Digits are indexed by 1-based digit-position variables p1..pn, domains [1,...,n] (not slot assignments). All-different plus compact integer AST rules expresses immediate right (p3=p5+1), before but not adjacent (p4>=p2+2), one intervening digit (p1=p5+2 OR p5=p1+2), and edge avoidance (p4!=1 and p4!=n). The third synthetic few-shot is a shorter four-digit positional example. Existing historical zero-based solver fixtures are retained; the coverage boundary check supports both encodings.
+
+**Guard policy.** TWO model schemas agreeing with each other (plus lexical coverage and Z3) do NOT certify faithful source translation. neral_nl_verified_route.py requires strict, whole-question deterministic parsing of a narrowly defined graph, binary-string or PIN grammar, and independent Z3 UNSAT equivalence of BOTH model proposals against the source-derived canonical v2 AST with matching variable name/type/domains/query. Only then may the opt-in HTTP THINK route return model_generated=false, verified=true, safe_to_promote=true and the exact canonical count. Any condition missing -> unchanged raw base-Qwen response, verified=false. This is much narrower than general NL semantic verification.
+
+**Endpoint integration.** POST /api/neral/chat/think accepts a Boolean nl_schema_consensus:true, only if NERAL_EXPERIMENTAL_NL_SCHEMA=1 and the measured local Ollama HIGH backend qwen3.5:9b is present. Cannot be combined with TIR, dual-routing or evaluation flags. Default THINK path and PR #537 guard code remain unchanged. The trained QLoRA adapter cannot override raw baseline on an unproven natural-language translation.
+
+**CPU regression evidence.** GitHub Actions run #43460471740 passed 101/101 focused offline CPU unit/Flask tests, including PIN count 1, two older case counts 6/4, wrong-but-agreeing omission, multi-turn rejection, mixed flag rejection, and original PR537 test suite. No RTX live inference, 3/3 success or prospective release gate proof is claimed.
+
+**Scope.** PR #542 remains draft and isolated from main; no modifications or access to the frozen prospective 100-case corpus. The next step is the local GPU old-three repeat and separately measured fast-old6 latency probe; its six prior disclosed development prompts are not the sealed prospective blind test.
