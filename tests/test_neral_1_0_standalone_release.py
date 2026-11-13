@@ -196,6 +196,25 @@ class PreviewStandaloneTests(unittest.TestCase):
                 self.assertNotIn("NERAL-1.0-Local/local_state/chats.sqlite3",names)
                 self.assertFalse(any("safetensors" in n or "adapter_model" in n for n in names))
 
+    def test_nl_runtime_modules_ship_without_any_dev_corpus(self):
+        runtime_modules = {
+            "neral_nl_local_ollama.py",
+            "neral_nl_verified_route.py",
+            "neral_nl_schema_bridge.py",
+            "neral_nl_schema_format.py",
+            "neral_typed_constraints_v2.py",
+            "neral_tir_regression_guard.py",
+            "neral_answer_contract.py",
+            "neral_dual_routing.py",
+        }
+        self.assertTrue(runtime_modules.issubset(set(REQUIRED_FILES)))
+        for candidate in REQUIRED_FILES:
+            self.assertNotIn("blind_100_cases", candidate)
+            self.assertNotIn("generalization_100_cases", candidate)
+            self.assertNotIn("nl_schema_probe", candidate)
+            self.assertNotIn("nl_schema_diagnostics", candidate)
+            self.assertNotIn("prospective", candidate)
+
     def test_every_local_python_import_is_present_in_shipped_source_allowlist(self):
         """Protect all lazy agent and THINK imports, not only a single use case."""
         included=set(REQUIRED_FILES)
