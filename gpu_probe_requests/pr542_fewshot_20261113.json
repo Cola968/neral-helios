@@ -9,5 +9,7 @@
     "logic-06"
   ],
   "base_sha": "ed7340b3b74419e3864d73570eb4b98487abbeda",
-  "sealed100": "DO_NOT_READ"
+  "sealed100": "DO_NOT_READ",
+  "attempt": 2,
+  "note": "Retry with corrected Windows-safe z3 version check; same three public old cases only"
 }
