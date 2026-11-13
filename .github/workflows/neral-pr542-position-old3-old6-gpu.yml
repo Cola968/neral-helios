@@ -1,0 +1,138 @@
+name: NERAL PR542 positional NL GPU old3 + old6 latency (isolated)
+
+on:
+  push:
+    branches:
+      - verify/neral-pr542-position-source-20261113
+    paths:
+      - gpu_probe_requests/pr542_position_20261113.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  cpu-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only CPU test dependencies
+        run: python -m pip install 'Flask>=3,<4' 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5'
+      - name: Validate source-anchored solver/guard HTTP contracts
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_nl_verified_route.py -v
+          python -B -m unittest discover -s tests -p test_neral_think_nl_guard_http.py -v
+          python -B -m unittest discover -s tests -p test_neral_v2_nonempty_fewshot.py -v
+          python -B -m unittest discover -s tests -p test_neral_tir_regression_guard.py -v
+          python -B -m py_compile scripts/neral_pr542_position_gpu_once.py
+  windows-rtx4070:
+    needs: cpu-preflight
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 65
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      NERAL_EXPERIMENTAL_NL_SCHEMA: '1'
+      PR_SOURCE_SHA: '35ead1fecb6ef6991133f2fdd66e548d26c09e4f'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+      - name: Check immutable code ref, original PR537 guard and RTX4070
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios' -or
+             $env:GITHUB_REF -ne 'refs/heads/verify/neral-pr542-position-source-20261113'){
+            throw 'Wrong repository or unauthorized branch'
+          }
+          $head = (& git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA){throw 'Checkout mismatch'}
+          & git merge-base --is-ancestor $env:PR_SOURCE_SHA HEAD
+          if($LASTEXITCODE -ne 0){throw 'Not derived from pinned PR542 source SHA'}
+          $changed = @(& git diff --name-only $env:PR_SOURCE_SHA HEAD)
+          $permitted = @(
+            '.github/workflows/neral-pr542-position-old3-old6-gpu.yml',
+            'scripts/neral_pr542_position_gpu_once.py',
+            'gpu_probe_requests/pr542_position_20261113.json'
+          )
+          foreach($name in $changed){
+            if($permitted -notcontains $name){throw 'Unexpected source change in verification branch'}
+          }
+          $guard = (& git hash-object --path=neral_tir_regression_guard.py neral_tir_regression_guard.py).Trim()
+          if($LASTEXITCODE -ne 0 -or $guard -ne 'b87c594ee54a20b2209b6bf176bc0aacfe256ce8'){
+            throw 'PR537 guard hash changed'
+          }
+          $request = Get-Content -LiteralPath gpu_probe_requests/pr542_position_20261113.json -Raw | ConvertFrom-Json
+          if($request.authorize -ne 'RUN_PR542_POSITION_OLD_ONLY_4070' -or
+             $request.base_sha -ne $env:PR_SOURCE_SHA -or
+             ($request.cases -join ',') -ne '21453,logic-02,logic-06' -or
+             $request.sealed_new100 -ne 'DO_NOT_READ'){
+            throw 'Unexpected old-case request contents'
+          }
+          $gpu = & nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+          if($LASTEXITCODE -ne 0 -or $gpu -notmatch 'RTX 4070'){
+            throw 'RTX4070 not confirmed'
+          }
+          Write-Host "RTX4070_GPU_INITIAL=$gpu"
+      - name: Prepare isolated Python dependencies only
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Pinned Python 3.12 missing'}
+          $deps = Join-Path $env:RUNNER_TEMP ('neral-pr542-gpu-deps-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $deps){throw 'Refuse occupied dependency directory'}
+          New-Item -ItemType Directory -Path $deps -ErrorAction Stop | Out-Null
+          & $python -B -m pip install --disable-pip-version-check --no-input --target $deps 'Flask>=3,<4' 'z3-solver>=4.13,<5'
+          if($LASTEXITCODE -ne 0){throw 'Isolated dependencies could not be installed'}
+          $env:PYTHONPATH = $deps + [IO.Path]::PathSeparator + $env:GITHUB_WORKSPACE
+          & $python -B -c 'import flask, z3; print(z3.get_version_string())'
+          if($LASTEXITCODE -ne 0){throw 'Local Python imports unavailable'}
+          [IO.File]::AppendAllText(
+            $env:GITHUB_ENV,
+            ('PR542_PY='+$python+[Environment]::NewLine+
+             'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false)
+          )
+      - name: Execute old3 real structured models and guarded THINK; old6 exploratory latency
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = $env:PYTHONPATH
+          New-Item -ItemType Directory -Path pr542_gpu_scalars -ErrorAction Stop | Out-Null
+          $out = Join-Path pr542_gpu_scalars ('summary-'+$env:GITHUB_RUN_ID+'.json')
+          & $env:PR542_PY -B -m scripts.neral_pr542_position_gpu_once --authorize RUN_PR542_POSITION_OLD_ONLY_4070 --out $out --old6
+          if($LASTEXITCODE -ne 0){throw 'Old development GPU probe failed before complete scalar report'}
+          if(-not(Test-Path -LiteralPath $out -PathType Leaf)){throw 'Missing full scalar report'}
+          $s = Get-Content -LiteralPath $out -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($s.old_three.Count -ne 3 -or $s.old_six.Count -ne 6 -or
+             $s.blind_release_gate_eligible -ne $false){
+            throw 'Incomplete or misleading GPU scalar report'
+          }
+          Write-Host 'THREE_OLD_CASE_REPORTS_COMPLETE=3'
+          Write-Host 'SIX_OLD_LATENCY_COMPARISONS_COMPLETE=6'
+          Write-Host 'NO_SEALED_100_ACCESSED'
+          & ollama ps
+          & nvidia-smi --query-gpu=name,memory.used --format=csv,noheader
+      - name: Upload scalar-only results, never private raw old-case JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr542-position-old3-old6-scalars
+          path: pr542_gpu_scalars/*.json
+          if-no-files-found: warn
+          retention-days: 14
