@@ -95,7 +95,7 @@ class ThinkNLGuardIntegrationCPU(unittest.TestCase):
         client, raw_calls = fixture()
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}), \
              patch("scripts.neral_nl_schema_probe.make_local_extractor",
-                   side_effect=AssertionError("No extraction on unknown source")):
+                   return_value=lambda turns: self.fail("Never infer for unknown source")):
             resp = client.post("/api/neral/chat/think", json={
                 "prompt": "Hallo NERAL", "nl_schema_consensus": True})
         self.assertEqual(resp.status_code, 200)
