@@ -1,0 +1,13 @@
+{
+  "authorize": "RUN_PR542_OLD3_LOCAL_4070_ONCE",
+  "pr": 542,
+  "qlora": "neral-qwen35-qlora-v1:latest",
+  "base": "qwen3.5:9b",
+  "cases": [
+    "21453",
+    "logic-02",
+    "logic-06"
+  ],
+  "base_sha": "ed7340b3b74419e3864d73570eb4b98487abbeda",
+  "sealed100": "DO_NOT_READ"
+}
