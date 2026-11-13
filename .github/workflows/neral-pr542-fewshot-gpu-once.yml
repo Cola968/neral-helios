@@ -132,7 +132,8 @@ jobs:
             Write-Host ("OLDCASE_SCALARS=" + ($summary | ConvertTo-Json -Compress -Depth 7))
             Write-Host "END_LOCAL_CASE=$case"
           }
-          $processor = (& ollama ps 2>&1 | Out-String).Trim()
+          $ollamaCli = Get-Command ollama -ErrorAction SilentlyContinue
+          $processor = if ($ollamaCli) { (& ollama ps 2>&1 | Out-String).Trim() } else { "ollama.exe not on runner PATH; Ollama localhost API verified" }
           Write-Host "OLLAMA_PROCESSOR_INFO=$processor"
           $gpuAfter = & nvidia-smi --query-gpu=name,memory.used --format=csv,noheader
           Write-Host "GPU_AFTER=$gpuAfter"
