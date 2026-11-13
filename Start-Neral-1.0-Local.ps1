@@ -81,7 +81,7 @@ if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
 }
 # Existing preview-venv installations may predate image/PDF attachments.
 # Check the FULL declared runtime, never modify training or system Python.
-& $py -B -c 'import sys,flask,waitress,pypdf,z3; assert sys.version_info >= (3,11); assert z3.get_version_string()=="4.16.0"'
+& $py -B -c 'import sys,flask,waitress,pypdf,z3; assert sys.version_info >= (3,11); assert z3.get_version()[:3]==(4,16,0)'
 if($LASTEXITCODE -ne 0){
     if($env:NERAL_PREVIEW_INSTALL_CONSENT -ne '1'){
         Write-Host 'NERAL Preview benoetigt aktualisierte Python-Pakete (inklusive pypdf und Z3 4.16) in der isolierten preview-venv.' -ForegroundColor Yellow
@@ -92,7 +92,7 @@ if($LASTEXITCODE -ne 0){
     }
     & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $PSScriptRoot 'requirements-neral-preview.txt')
     if($LASTEXITCODE -ne 0){throw 'Aktualisierung der isolierten Preview-Pakete fehlgeschlagen.'}
-    & $py -B -c 'import sys,flask,waitress,pypdf,z3; assert sys.version_info >= (3,11); assert z3.get_version_string()=="4.16.0"'
+    & $py -B -c 'import sys,flask,waitress,pypdf,z3; assert sys.version_info >= (3,11); assert z3.get_version()[:3]==(4,16,0)'
     if($LASTEXITCODE -ne 0){throw 'Preview-Python bleibt unvollstaendig. Nur local_state/preview-venv pruefen.'}
 }
 if($PrepareOnly){
