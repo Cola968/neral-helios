@@ -1,0 +1,12 @@
+{
+  "authorize": "RUN_PR542_POSITION_OLD_ONLY_4070",
+  "base_sha": "35ead1fecb6ef6991133f2fdd66e548d26c09e4f",
+  "cases": [
+    "21453",
+    "logic-02",
+    "logic-06"
+  ],
+  "old6": "already_disclosed_old_development",
+  "sealed_new100": "DO_NOT_READ",
+  "note": "One-time local GPU verification queue. No production release or main changes."
+}
