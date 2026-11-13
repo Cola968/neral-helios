@@ -78,11 +78,35 @@ class NonEmptySourceBoundContractTests(unittest.TestCase):
                  ", ".join(str(i) for i in range(1, count+1)) +
                  " genau einmal. Die 2 steht vor der 3.")
             decl = expected_variable_declarations(q)
-            self.assertEqual(set(decl), {f"P{i}" for i in range(1, count+1)})
-            self.assertEqual(decl["P1"], {"type": "int",
-                                         "domain": list(range(count))})
+            self.assertEqual(set(decl), {f"p{i}" for i in range(1, count+1)})
+            self.assertEqual(decl["p1"], {"type": "int",
+                                         "domain": list(range(1,count+1))})
             self.assertEqual(set(get_v2_ollama_format(q)["properties"]["variables"]["required"]),
                              set(decl))
+
+    def test_pin_position_variables_are_one_based_not_slot_indices(self):
+        q = ("Ein fünfstelliger Code verwendet 1, 2, 3, 4 und 5 genau einmal. "
+             "Die 3 steht unmittelbar rechts von der 5.")
+        expected = {f"p{i}": {"type": "int", "domain": [1, 2, 3, 4, 5]}
+                    for i in range(1, 6)}
+        self.assertEqual(expected_variable_declarations(q), expected)
+        props = get_v2_ollama_format(q)["properties"]["variables"]
+        self.assertEqual(set(props["required"]), set(expected))
+        self.assertEqual(set(props["properties"]), set(expected))
+        self.assertFalse(props["additionalProperties"])
+
+    def test_position_fewshot_uses_one_based_short_linear_constraints(self):
+        from neral_nl_schema_bridge import V2_FEW_SHOT_EXAMPLES
+        pin = V2_FEW_SHOT_EXAMPLES[2]["schema"]
+        self.assertEqual(set(pin["variables"]), {"p1", "p2", "p3", "p4"})
+        for spec in pin["variables"].values():
+            self.assertEqual(spec["domain"], [1, 2, 3, 4])
+        rules = pin["constraints"]
+        self.assertEqual(rules[0], {"all_different": ["p1", "p2", "p3", "p4"]})
+        self.assertEqual(rules[1]["compare"]["op"], ">=")
+        self.assertEqual(rules[2]["compare"]["left"], {"var": "p3"})
+        self.assertEqual(rules[2]["compare"]["right"],
+                         {"sum": [{"var": "p1"}, {"const": 1}]})
 
     def test_unsupported_phrasing_never_invents_required_names(self):
         for question in ("What is the meaning of life?", "Color anything.",
