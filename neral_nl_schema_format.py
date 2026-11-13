@@ -142,7 +142,7 @@ def expected_variable_declarations(question: str) -> dict | None:
         digits = [int(i) for i in re.findall(r"\d+", pin.group(2))]
         if len(digits) != n or sorted(digits) != list(range(1, n + 1)):
             return None
-        return {f"P{i}": {"type": "int", "domain": list(range(n))}
+        return {f"p{i}": {"type": "int", "domain": list(range(1, n + 1))}
                 for i in range(1, n + 1)}
 
     return None
