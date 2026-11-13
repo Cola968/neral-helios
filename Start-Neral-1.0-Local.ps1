@@ -68,7 +68,7 @@ if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
         $base=$candidate.Source
     }
     if($env:NERAL_PREVIEW_INSTALL_CONSENT -ne '1'){
-        Write-Host 'NERAL benoetigt einmalig Flask und Waitress aus PyPI (Internet). Keine Modelle werden heruntergeladen.' -ForegroundColor Yellow
+        Write-Host 'NERAL benoetigt einmalig Flask, Waitress, pypdf und Z3 4.16 aus PyPI (Internet). Keine Modelle werden heruntergeladen.' -ForegroundColor Yellow
         $consent=Read-Host 'Isolierte Python-Webserverumgebung anlegen und Pakete installieren? (J/N)'
         if($consent -notin @('J','j','Ja','ja')){
             throw 'Installation nicht freigegeben; vorhandene Trainingsumgebung bleibt unveraendert.'
@@ -81,10 +81,10 @@ if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
 }
 # Existing preview-venv installations may predate image/PDF attachments.
 # Check the FULL declared runtime, never modify training or system Python.
-& $py -B -c 'import sys,flask,waitress,pypdf; assert sys.version_info >= (3,11)'
+& $py -B -c 'import sys,flask,waitress,pypdf,z3; assert sys.version_info >= (3,11); assert z3.get_version_string()=="4.16.0"'
 if($LASTEXITCODE -ne 0){
     if($env:NERAL_PREVIEW_INSTALL_CONSENT -ne '1'){
-        Write-Host 'NERAL Preview benoetigt aktualisierte Python-Pakete (inklusive pypdf) in der isolierten preview-venv.' -ForegroundColor Yellow
+        Write-Host 'NERAL Preview benoetigt aktualisierte Python-Pakete (inklusive pypdf und Z3 4.16) in der isolierten preview-venv.' -ForegroundColor Yellow
         $repairConsent=Read-Host 'Fehlende Preview-Pakete nach Einwilligung in dieser Umgebung installieren? (J/N)'
         if($repairConsent -notin @('J','j','Ja','ja')){
             throw 'Keine Aenderung ohne Zustimmung. Bestehende Preview- und Trainingsumgebungen bleiben unveraendert.'
@@ -92,7 +92,7 @@ if($LASTEXITCODE -ne 0){
     }
     & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $PSScriptRoot 'requirements-neral-preview.txt')
     if($LASTEXITCODE -ne 0){throw 'Aktualisierung der isolierten Preview-Pakete fehlgeschlagen.'}
-    & $py -B -c 'import sys,flask,waitress,pypdf; assert sys.version_info >= (3,11)'
+    & $py -B -c 'import sys,flask,waitress,pypdf,z3; assert sys.version_info >= (3,11); assert z3.get_version_string()=="4.16.0"'
     if($LASTEXITCODE -ne 0){throw 'Preview-Python bleibt unvollstaendig. Nur local_state/preview-venv pruefen.'}
 }
 if($PrepareOnly){
