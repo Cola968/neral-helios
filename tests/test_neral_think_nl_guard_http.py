@@ -36,11 +36,8 @@ class ThinkNLGuardIntegrationCPU(unittest.TestCase):
         self.assertEqual(r.status_code, 403)
         self.assertFalse(raw)
 
-        with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}):
-            r = client.post("/api/neral/chat/think", json={"prompt": question})
-        # No experimental flag means unchanged existing THINK (which may need
-        # GPU in production); do not invoke it here or claim it is covered.
-        # The 403 result proves the new route is never enabled implicitly.
+        # Without the explicit opt-in flag, the ordinary THINK route is
+        # unchanged. It is intentionally not invoked by this CPU test.
 
     def test_missing_flag_type_and_mixed_modes_rejected(self):
         client, raw = fixture()
