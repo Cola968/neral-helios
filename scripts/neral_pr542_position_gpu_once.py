@@ -239,7 +239,7 @@ def run(out: Path, *, authorize: str, old6: bool) -> dict:
         "prospective_100_opened": False,
         "main_changed": False,
         "pr537_hash_verified": True,
-        "local_raw_files_only": str(private),
+        "local_raw_files_only": True,
         "model_tags": [QLORA, BASE],
         "full_source_verification_not_general_prose": True,
         "blind_release_gate_eligible": False,
