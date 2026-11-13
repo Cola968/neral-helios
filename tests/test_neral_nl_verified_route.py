@@ -56,7 +56,7 @@ class SourceCertificateContracts(unittest.TestCase):
             q.replace("nicht direkt davor", "vielleicht direkt davor"),
             q.replace("Die 3 steht unmittelbar rechts", "Die 3 steht links"),
             q.replace("nicht am Rand", "am Rand"),
-            q.replace("Genau", "Ungefähr"),
+            q.replace("genau einmal", "ungefähr einmal"),
             "Count X in 0..3 with X<=2 and X<=1.",
         ):
             self.assertIsNone(strict_source_certificate(variant), variant)
