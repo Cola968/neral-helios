@@ -61,7 +61,7 @@ class ThinkNLGuardIntegrationCPU(unittest.TestCase):
             models.append(model)
             return lambda turns: json.dumps(canonical)
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}), \
-             patch("scripts.neral_nl_schema_probe.make_local_extractor",
+             patch("neral_nl_local_ollama.make_local_extractor",
                    side_effect=fake_maker):
             resp = client.post("/api/neral/chat/think", json={
                 "prompt": question, "nl_schema_consensus": True})
@@ -80,7 +80,7 @@ class ThinkNLGuardIntegrationCPU(unittest.TestCase):
         fake = strict_source_certificate(q)
         fake["constraints"].pop()
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}), \
-             patch("scripts.neral_nl_schema_probe.make_local_extractor",
+             patch("neral_nl_local_ollama.make_local_extractor",
                    return_value=lambda turns: json.dumps(fake)):
             resp = client.post("/api/neral/chat/think", json={
                 "prompt": q, "nl_schema_consensus": True})
@@ -94,7 +94,7 @@ class ThinkNLGuardIntegrationCPU(unittest.TestCase):
     def test_http_unknown_source_calls_base_only(self):
         client, raw_calls = fixture()
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}), \
-             patch("scripts.neral_nl_schema_probe.make_local_extractor",
+             patch("neral_nl_local_ollama.make_local_extractor",
                    return_value=lambda turns: self.fail("Never infer for unknown source")):
             resp = client.post("/api/neral/chat/think", json={
                 "prompt": "Hallo NERAL", "nl_schema_consensus": True})
