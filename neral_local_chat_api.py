@@ -237,11 +237,6 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         compare = getattr(backend, "compare_with_base", None)
         if not origin["compare_available"] or not callable(compare):
             return jsonify(error="A/B-Vergleich nur mit lokalem NERAL-LoRA verfügbar."), 409
-        if (nl_schema_consensus and (
-                type(high_backend) is not OllamaLocalBackend
-                or high_backend.model != "qwen3.5:9b"
-                or high_backend.inference_profile != "measured_nonthinking_2048")):
-            return jsonify(error="NL-Schema-Konsens benötigt das lokale 9B-Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
@@ -489,6 +484,11 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 or high_backend.model != "qwen3.5:9b"
                 or high_backend.inference_profile != "measured_nonthinking_2048")):
             return jsonify(error="TIR erfordert das lokale Qwen3.5:9B Testprofil."), 409
+        if (nl_schema_consensus and (
+                type(high_backend) is not OllamaLocalBackend
+                or high_backend.model != "qwen3.5:9b"
+                or high_backend.inference_profile != "measured_nonthinking_2048")):
+            return jsonify(error="NL-Schema-Konsens benötigt das lokale 9B-Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         # These references retain no user text and are only used on 503.
