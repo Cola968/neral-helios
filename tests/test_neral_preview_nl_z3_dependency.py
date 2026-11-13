@@ -18,7 +18,7 @@ class NeralLocalZ3DependencyTests(unittest.TestCase):
     def test_launcher_preflight_checks_z3_in_new_and_existing_preview_venv(self):
         script = (ROOT / "Start-Neral-1.0-Local.ps1").read_text(encoding="utf-8")
         self.assertEqual(script.count("import sys,flask,waitress,pypdf,z3"), 2)
-        self.assertEqual(script.count('z3.get_version_string()=="4.16.0"'), 2)
+        self.assertEqual(script.count("z3.get_version()[:3]==(4,16,0)"), 2)
         self.assertIn("requirements-neral-preview.txt", script)
 
     def test_standalone_has_no_solver_benchmark_dependencies(self):
