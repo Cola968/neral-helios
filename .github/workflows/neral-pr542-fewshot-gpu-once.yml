@@ -1,0 +1,161 @@
+name: NERAL PR542 RTX4070 old-three once (no sealed data)
+
+on:
+  push:
+    branches:
+      - verify/neral-pr542-fewshot-rtx4070-20261113
+    paths:
+      - gpu_probe_requests/pr542_fewshot_20261113.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  local-ollama-oldcases:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      NERAL_EXPERIMENTAL_TIR: '0'
+    steps:
+      - name: Checkout isolated verification ref, never main
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Verify models and run exactly three already known local cases
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios') { throw 'Wrong repository' }
+          if ($env:GITHUB_REF -ne 'refs/heads/verify/neral-pr542-fewshot-rtx4070-20261113') { throw 'Wrong branch' }
+          $sha = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -ne $env:GITHUB_SHA) { throw 'Checkout revision mismatch' }
+          $request = Get-Content -LiteralPath 'gpu_probe_requests/pr542_fewshot_20261113.json' -Raw | ConvertFrom-Json
+          if ($request.authorize -ne 'RUN_PR542_OLD3_LOCAL_4070_ONCE' -or
+              $request.pr -ne 542 -or $request.qlora -ne 'neral-qwen35-qlora-v1:latest' -or
+              $request.base -ne 'qwen3.5:9b' -or $request.cases.Count -ne 3 -or
+              ($request.cases -join ',') -ne '21453,logic-02,logic-06') { throw 'Unauthorized or unexpected request' }
+          $gpu = & nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+          if ($LASTEXITCODE -ne 0) { throw 'RTX GPU unavailable' }
+          Write-Host "GPU_AT_START=$gpu"
+          $basePython = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $basePython -PathType Leaf)) {
+            $cmd = Get-Command python -ErrorAction SilentlyContinue
+            if (-not $cmd) { throw 'Local Python not available' }
+            $basePython = $cmd.Source
+          }
+          & $basePython -B -c 'import sys; print(sys.version)'
+          if ($LASTEXITCODE -ne 0) { throw 'Python cannot start' }
+          $env:PYTHONPATH = $env:GITHUB_WORKSPACE
+          & $basePython -B -c 'import z3; print("Z3="+z3.get_version_string())'
+          if ($LASTEXITCODE -ne 0) {
+            $z3dir = Join-Path $env:RUNNER_TEMP ('neral-pr542-z3-'+$env:GITHUB_RUN_ID)
+            if (Test-Path -LiteralPath $z3dir) { throw 'Refuse existing Z3 dependency directory' }
+            New-Item -Path $z3dir -ItemType Directory -ErrorAction Stop | Out-Null
+            & $basePython -m pip install --disable-pip-version-check --no-input --target $z3dir 'z3-solver>=4.13,<5'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot install isolated Z3 dependency' }
+            $env:PYTHONPATH = $z3dir + [IO.Path]::PathSeparator + $env:GITHUB_WORKSPACE
+            & $basePython -B -c 'import z3; print("Z3="+z3.get_version_string())'
+            if ($LASTEXITCODE -ne 0) { throw 'Z3 remains unavailable' }
+          }
+          $ollama = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 10
+          $available = @($ollama.models | ForEach-Object { $_.name })
+          if ($available -notcontains 'neral-qwen35-qlora-v1:latest' -or
+              $available -notcontains 'qwen3.5:9b') { throw 'Required Ollama models not found locally' }
+          Write-Host 'Both exact local Ollama model tags are present.'
+          $reportDir = Join-Path $env:USERPROFILE ('NERAL-PR542-OLDCASE-REPORTS\run-'+$env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $reportDir) { throw 'Refuse to overwrite existing local report directory' }
+          New-Item -ItemType Directory -Path $reportDir -Force:$false | Out-Null
+          New-Item -ItemType Directory -Path 'pr542_gpu_scalars' -Force | Out-Null
+          Write-Host "RAW_REPORTS_LOCAL_ONLY=$reportDir"
+          $runs = @()
+          foreach ($case in @('21453', 'logic-02', 'logic-06')) {
+            $raw = Join-Path $reportDir ('fewshot-v2-'+$case+'.json')
+            Write-Host "BEGIN_LOCAL_CASE=$case"
+            & $basePython -B -m scripts.neral_nl_schema_probe --case $case --live --qlora-model 'neral-qwen35-qlora-v1:latest' --base-model 'qwen3.5:9b' --diagnostics-file $raw
+            $exit = $LASTEXITCODE
+            if (-not (Test-Path -LiteralPath $raw -PathType Leaf)) {
+              throw "No diagnostic report for $case (exit=$exit)"
+            }
+            $doc = Get-Content -LiteralPath $raw -Raw -Encoding UTF8 | ConvertFrom-Json
+            $summary = [ordered]@{
+              case = $case
+              exit_code = $exit
+              reference_count = $doc.reference_count
+              consensus_status = $doc.consensus_status
+              consensus_candidate_count = $doc.consensus_candidate_count
+              proof_backend = $doc.proof_backend
+              coverage_reason = $doc.coverage_reason
+              verified = $doc.verified
+              safe_to_promote = $doc.safe_to_promote
+              qlora = [ordered]@{
+                status = $doc.models.qlora.status
+                candidate_count = $doc.models.qlora.candidate_count
+                coverage_passed = $doc.models.qlora.coverage_passed
+                coverage_reason = $doc.models.qlora.coverage_reason
+                reference_count_match = $doc.models.qlora.reference_count_match
+                done_reason = $doc.models.qlora.done_reason
+                validation_error = $doc.models.qlora.validation_error
+                load_duration_ms = $doc.models.qlora.load_duration_ms
+                total_duration_ms = $doc.models.qlora.total_duration_ms
+                elapsed_ms = $doc.models.qlora.elapsed_ms
+                eval_count = $doc.models.qlora.eval_count
+                prompt_eval_count = $doc.models.qlora.prompt_eval_count
+              }
+              base = [ordered]@{
+                status = $doc.models.base.status
+                candidate_count = $doc.models.base.candidate_count
+                coverage_passed = $doc.models.base.coverage_passed
+                coverage_reason = $doc.models.base.coverage_reason
+                reference_count_match = $doc.models.base.reference_count_match
+                done_reason = $doc.models.base.done_reason
+                validation_error = $doc.models.base.validation_error
+                load_duration_ms = $doc.models.base.load_duration_ms
+                total_duration_ms = $doc.models.base.total_duration_ms
+                elapsed_ms = $doc.models.base.elapsed_ms
+                eval_count = $doc.models.base.eval_count
+                prompt_eval_count = $doc.models.base.prompt_eval_count
+              }
+            }
+            $runs += $summary
+            Write-Host ("OLDCASE_SCALARS=" + ($summary | ConvertTo-Json -Compress -Depth 7))
+            Write-Host "END_LOCAL_CASE=$case"
+          }
+          $processor = (& ollama ps 2>&1 | Out-String).Trim()
+          Write-Host "OLLAMA_PROCESSOR_INFO=$processor"
+          $gpuAfter = & nvidia-smi --query-gpu=name,memory.used --format=csv,noheader
+          Write-Host "GPU_AFTER=$gpuAfter"
+          $record = [ordered]@{
+            run_id = $env:GITHUB_RUN_ID
+            git_sha = $env:GITHUB_SHA
+            refs = 'only historical 21453, logic-02, logic-06'
+            model_qlora = 'neral-qwen35-qlora-v1:latest'
+            model_base = 'qwen3.5:9b'
+            semantic_verification_proven = $false
+            sealed_prospective_100_touched = $false
+            gpu_probe = [ordered]@{ startup = $gpu; after = $gpuAfter; ollama_processor = $processor }
+            cases = $runs
+          }
+          $file = Join-Path 'pr542_gpu_scalars' ('summary-'+$env:GITHUB_RUN_ID+'.json')
+          $record | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $file -Encoding UTF8
+          Write-Host 'Old-case scalar summary created; unredacted JSON stays on local PC.'
+
+      - name: Upload only old-case scalar diagnostics (never raw JSON)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr542-old3-scalars
+          path: pr542_gpu_scalars/*.json
+          if-no-files-found: warn
+          retention-days: 14
