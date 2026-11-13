@@ -432,7 +432,17 @@ def _source_core_witnesses(question: str, schema: dict) -> str | None:
                     excluded.add(scalar(y))
                 if var_id(y) == digit and type(scalar(x)) is int:
                     excluded.add(scalar(x))
-            if not {0, 4}.issubset(excluded):
+            digit_name = next(
+                (name for name in variables
+                 if re.fullmatch(r"[Pp]" + str(digit), name)), None)
+            if digit_name is None:
+                return "pin_edge_exclusion_missing"
+            domain = variables[digit_name].get("domain")
+            if (type(domain) is not list or not domain
+                    or type(domain[0]) is not int):
+                return "pin_edge_exclusion_missing"
+            bounds = {min(domain), max(domain)}
+            if not bounds.issubset(excluded):
                 return "pin_edge_exclusion_missing"
 
     return None
