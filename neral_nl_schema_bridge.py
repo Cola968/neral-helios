@@ -86,17 +86,17 @@ V2_FEW_SHOT_EXAMPLES = (
         "schema": {
             "version": 2,
             "variables": {
-                f"P{i}": {"type": "int", "domain": [0, 1, 2, 3]}
+                f"p{i}": {"type": "int", "domain": [1, 2, 3, 4]}
                 for i in range(1, 5)
             },
             "constraints": [
-                {"all_different": [f"P{i}" for i in range(1, 5)]},
+                {"all_different": [f"p{i}" for i in range(1, 5)]},
                 _ex_compare(
-                    _ex_term("P4"), ">=",
-                    {"sum": [_ex_term("P2"), _ex_const(2)]}),
+                    _ex_term("p4"), ">=",
+                    {"sum": [_ex_term("p2"), _ex_const(2)]}),
                 _ex_compare(
-                    _ex_term("P3"), "==",
-                    {"sum": [_ex_term("P1"), _ex_const(1)]}),
+                    _ex_term("p3"), "==",
+                    {"sum": [_ex_term("p1"), _ex_const(1)]}),
             ],
             "query": "count",
         },
@@ -135,7 +135,11 @@ _V2_COMPACT_GRAMMAR = (
     'Alle Variablen ausdrücklich und vollständig im variables-Objekt '
     'deklarieren; variables={} ist verboten, variables muss nicht leer sein. '
     'Namenskonvention: C0..C(n-1) für Graphen, B0..B(n-1) für Bits, '
-    'P1..Pn für Zifferpositionen. '
+    'p1..pn für Zifferpositionen (1-basiert, p3 ist der Platz '
+    'der Ziffer 3). Positionsdomäne [1,...,n], niemals Slotvariablen. '
+    'Zum Beispiel p3==p5+1 für direkt rechts und p4>=p2+2 '
+    'für vor aber nicht direkt davor; genau eine Ziffer dazwischen: '
+    'p1==p5+2 ODER p5==p1+2. '
     'Nachbarschaft i=0..n-2; Abstand zwei i=0..n-3: alle Paare '
     'ausrollen, NICHT nur i=0. Die komplette Variablenmenge und '
     'jede Nebenbedingung muss sichtbar im AST stehen. '
