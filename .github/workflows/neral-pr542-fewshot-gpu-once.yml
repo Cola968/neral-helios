@@ -58,7 +58,7 @@ jobs:
           & $basePython -B -c 'import sys; print(sys.version)'
           if ($LASTEXITCODE -ne 0) { throw 'Python cannot start' }
           $env:PYTHONPATH = $env:GITHUB_WORKSPACE
-          & $basePython -B -c 'import z3; print("Z3="+z3.get_version_string())'
+          & $basePython -B -c 'import z3; print(z3.get_version_string())'
           if ($LASTEXITCODE -ne 0) {
             $z3dir = Join-Path $env:RUNNER_TEMP ('neral-pr542-z3-'+$env:GITHUB_RUN_ID)
             if (Test-Path -LiteralPath $z3dir) { throw 'Refuse existing Z3 dependency directory' }
@@ -66,7 +66,7 @@ jobs:
             & $basePython -m pip install --disable-pip-version-check --no-input --target $z3dir 'z3-solver>=4.13,<5'
             if ($LASTEXITCODE -ne 0) { throw 'Cannot install isolated Z3 dependency' }
             $env:PYTHONPATH = $z3dir + [IO.Path]::PathSeparator + $env:GITHUB_WORKSPACE
-            & $basePython -B -c 'import z3; print("Z3="+z3.get_version_string())'
+            & $basePython -B -c 'import z3; print(z3.get_version_string())'
             if ($LASTEXITCODE -ne 0) { throw 'Z3 remains unavailable' }
           }
           $ollama = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 10
