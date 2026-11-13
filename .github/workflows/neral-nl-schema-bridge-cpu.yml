@@ -18,6 +18,10 @@ on:
       - 'tests/test_neral_nl_verified_route.py'
       - 'neral_local_chat_api.py'
       - 'tests/test_neral_think_nl_guard_http.py'
+      - 'neral_nl_local_ollama.py'
+      - 'tests/test_neral_nl_local_ollama.py'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'tests/test_neral_1_0_standalone_release.py'
       - '.github/workflows/neral-nl-schema-bridge-cpu.yml'
 permissions:
   contents: read
@@ -52,6 +56,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_nl_verified_route.py' -v
       - name: THINK HTTP opt-in NL exact source / raw fallback regression suite (CPU fakes)
         run: python -B -m unittest discover -s tests -p 'test_neral_think_nl_guard_http.py' -v
+      - name: Release-safe localhost transport isolation (CPU fakes)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_local_ollama.py' -v
       - name: Typed solver and guard regression suites
         run: |
           python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v
