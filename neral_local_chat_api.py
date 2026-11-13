@@ -531,7 +531,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             # unchanged raw base-Qwen response with verified=False.
             if nl_schema_consensus:
                 from neral_nl_verified_route import run_guarded_nl_bridge
-                from scripts.neral_nl_schema_probe import make_local_extractor
+                from neral_nl_local_ollama import make_local_extractor
                 result = run_guarded_nl_bridge(
                     data,
                     make_local_extractor("neral-qwen35-qlora-v1:latest"),
