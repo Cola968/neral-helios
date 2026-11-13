@@ -1,3 +1,5 @@
 Flask>=3.0,<4.0
 waitress>=3.0,<4.0
 pypdf>=5.0,<7.0
+# Optional NL v2 promotion requires real Z3 UNSAT proof; never silently treat enumeration as Z3.
+z3-solver==4.16.0.0
