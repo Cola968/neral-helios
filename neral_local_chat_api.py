@@ -458,7 +458,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     or (evaluation_final_answer and not dual_routing)
                     or (nl_schema_consensus and (
                         experimental_tir or conservative_tir or dual_routing
-                        or fast_verified_only or evaluation_final_answer)))::
+                        or fast_verified_only or evaluation_final_answer))):
                 raise ValueError("Invalid experimental, conservative or dual routing flag")
             # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
