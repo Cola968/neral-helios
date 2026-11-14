@@ -15,5 +15,7 @@
   "next_step": "CPU then historical-local-scalar-diff and RTX4070 3 old cases + negative",
   "no_merge_main": true,
   "prospective_corpus": "DO_NOT_OPEN_OR_READ",
-  "no_training": true
+  "no_training": true,
+  "retry_reason": "fetch-depth widened to keep exact PR542 ancestor proof",
+  "attempt": 2
 }
