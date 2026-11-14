@@ -173,6 +173,75 @@ EXTRACT_BASE_PROMPT = (
     + _V2_COMPACT_GRAMMAR
 )
 MAX_QUESTION_CHARS = 8192
+# The historical all-family prompts above are kept for offline API
+# compatibility only. All live dual-extraction paths select the *same*
+# single family-specific example via this function.
+from neral_nl_schema_format import expected_variable_declarations
+
+
+def extraction_prompt_for_question(question: str, *, is_base: bool = False) -> str:
+    """Select ONE synthetic family example using source structure, not case IDs.
+
+    This prompt is only an untrusted model instruction. No output is
+    verified without the independent full-source Z3 guard.
+    """
+    if type(question) is not str or type(is_base) is not bool:
+        raise ValueError("Invalid source or model role")
+    decl = expected_variable_declarations(question)
+    names = tuple(decl) if decl else ()
+    if names and all(re.fullmatch(r"C\d+", name) for name in names):
+        family = 0
+    elif names and all(re.fullmatch(r"B\d+", name) for name in names):
+        family = 1
+    elif names and all(re.fullmatch(r"p\d+", name) for name in names):
+        family = 2
+    else:
+        family = None
+    intro = ("Bilde unabhängig eine vollständige v2-Formel; prüfe jede "
+             "Bedingung gegen die Quelle. " if is_base else
+             "Extrahiere alle Bedingungen ohne Auslassung. ")
+    core = (
+        'Nur EIN JSON-Objekt ohne Markdown ausgeben: '
+        '{"version":2,"variables":{...},"constraints":[...],"query":"count"}. '
+        'variables: alle typisierten Namen mit {"type":"int","domain":[0,1,2]} '
+        'oder {"type":"bool","domain":[false,true]}; niemals leer. '
+        'AST-Terms: {"var":"X"}, {"const":2}, {"sum":[TERM,TERM]}. '
+        'Prädikate: {"compare":{"left":TERM,"op":"!=","right":TERM}}, '
+        '{"all_different":["X","Y"]}, {"exactly":{"vars":["B0"],'
+        '"value":true,"count":1}}, {"not":P}, {"and":[P,P]}, {"or":[P,P]}. '
+        'TERM/P durch echte AST-Objekte ersetzen. Alle Quellbedingungen '
+        'explizit im constraints-Array; keine erfundenen Regeln. '
+    )
+    if family is None:
+        return intro + core  # Unsupported prose receives no task exemplar.
+    family_instructions = (
+        'GRAPH: C0..C(n-1) sind Farb-Variablen (0=rot,1=grün,2=blau); '
+        'C0==0 und jede gelistete Kante (a,b) als Ca!=Cb kodieren. '
+        'Jede Kante einzeln übernehmen; keine auslassen. ',
+        'BINÄR: B0..B(n-1) sind boolesch. Genau k Einsen heißt '
+        '{"exactly":{"vars":[ALLE B],"value":true,"count":k}}. '
+        'Gegensätzliche erste Bits: B0!=B1. Zwei Einsen im Abstand 2 '
+        'sind für JEDE Paarung i=0..n-3 verboten: '
+        '{"not":{"and":[Bi==true,B(i+2)==true]}} mit vollständigen '
+        'Compare-ASTs; die Schleife vollständig ausrollen. ',
+        'POSITIONEN: p1..p5 bezeichnet die POSITION der jeweiligen Ziffer '
+        '(pX ist nicht die Ziffer an Stelle X); Domäne 1..5 und '
+        'all_different über ALLE p1..p5. '
+        'X steht vor Y (nicht direkt): pY - pX >= 2, '
+        'also pY >= pX+2. Zwischen X und Y genau eine Ziffer: '
+        '(pX - pY == 2) OR (pY - pX == 2), beide Compare-ASTs '
+        'im SELBEN or. X unmittelbar rechts von Y: pX == pY + 1. '
+        'X nicht am Rand: pX > 1 und pX < 5, BEIDE Constraints. '
+        'Alle Regeln zusammen ausgeben; niemals symmetrisches OR zu '
+        'einem einzigen Vergleich verkürzen. ',
+    )[family]
+    example = V2_FEW_SHOT_EXAMPLES[family]
+    return (intro + core + family_instructions + "BEISPIEL AUFGABE: " +
+            example["task"] + " JSON: " +
+            json.dumps(example["schema"], ensure_ascii=False,
+                       separators=(",", ":")) + " ")
+
+
 # Conservative lexical warning signals; NOT a semantic completeness proof.
 _SIGNALS = (
     (r"\b(?:sum|summe)\b", frozenset({"sum"})),
@@ -680,11 +749,11 @@ def assess_dual_extraction(
         # Different prompts, identical original question; neither extractor
         # receives or can copy the other's proposed AST via this interface.
         raw_a = qlora_extract([
-            {"role": "system", "content": EXTRACT_QLORA_PROMPT},
+            {"role": "system", "content": extraction_prompt_for_question(question, is_base=False)},
             {"role": "user", "content": question},
         ])
         raw_b = base_extract([
-            {"role": "system", "content": EXTRACT_BASE_PROMPT},
+            {"role": "system", "content": extraction_prompt_for_question(question, is_base=True)},
             {"role": "user", "content": question},
         ])
         a, b = _parse_candidate(raw_a), _parse_candidate(raw_b)
