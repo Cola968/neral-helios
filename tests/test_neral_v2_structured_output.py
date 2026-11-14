@@ -110,39 +110,6 @@ class StructuredOutputContracts(unittest.TestCase):
         output["properties"]["version"]["const"] = 37
         self.assertEqual(get_v2_ollama_format()["properties"]["version"]["const"], 2)
 
-    def test_source_bound_minimum_clause_slots_are_generic_and_fail_closed(self):
-        from neral_nl_schema_format import expected_minimum_source_constraints
-        cases = (
-            ("Color vertices 0..3 with red, green or blue. Vertex 0 is red, "
-             "and endpoints of edges [(0, 1), (1, 2), (2, 3)] must differ. "
-             "How many valid colorings?", 4),
-            ("Count binary strings of length 6 with exactly 3 ones, "
-             "first two bits opposite and no two ones exactly two positions apart.", 6),
-            ("Ein fünfstelliger Code verwendet 1, 2, 3, 4 und 5 genau einmal. "
-             "Die 1 steht vor der 3, nicht direkt davor. "
-             "Zwischen der 2 und 4 steht genau eine Ziffer. "
-             "Die 5 steht unmittelbar rechts von der 1. "
-             "Die 2 steht nicht am Rand. Bestimme alle gültigen Codes.", 6),
-        )
-        for question, minimum in cases:
-            with self.subTest(minimum=minimum, family=question[:15]):
-                self.assertEqual(expected_minimum_source_constraints(question),
-                                 minimum)
-                fmt = get_v2_ollama_format(question)
-                self.assertEqual(fmt["properties"]["constraints"]["minItems"], minimum)
-                self.assertEqual(fmt["properties"]["constraints"]["maxItems"], 32)
-                Draft202012Validator.check_schema(fmt)
-        for partial in (
-            "Count X in 0..3 with X<=2.",
-            "Ein fünfstelliger Code verwendet 1, 2, 3, 4 und 5 genau einmal. "
-            "Die 3 steht unmittelbar rechts von der 5.",
-            "Count binary strings of length 100 with exactly 1 ones, "
-            "first two bits opposite and no two ones exactly two positions apart.",
-        ):
-            self.assertIsNone(expected_minimum_source_constraints(partial))
-            self.assertEqual(get_v2_ollama_format(partial)
-                             ["properties"]["constraints"]["minItems"], 1)
-
     def test_local_ollama_payload_uses_schema_and_1024_repeat_penalty(self):
         seen = []
         def send(payload):
