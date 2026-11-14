@@ -262,34 +262,42 @@ def run_guarded_nl_bridge(
             except (InvalidTypedConstraints, ValueError, TypeError):
                 pass
 
-    # The original Qwen fallback may end with Ollama done_reason=length.
-    # Its partial output is NEVER a valid answer. In this opt-in route only,
-    # return an explicit unverified, deterministic HTTP-200 safety response
-    # instead of propagating a 503 or fabricating a numerical solution.
-    try:
-        base = raw_base(original)
-    except OllamaCompletionError as exc:
-        if exc.reason != "token_limit":
-            raise
+    # The untouched raw-Qwen fallback is still the only model fallback.
+    # If it cannot finish, NEVER use its partial text or an unverified
+    # numerical candidate. Only this opt-in NL path yields a deterministic
+    # clearly unverified refusal (HTTP 200 via the THINK handler).
+    def incomplete_base(reason: str) -> dict:
+        if reason == "token_limit":
+            message = ("Die Basisantwort wurde am Tokenlimit abgebrochen. "
+                       "Es liegt keine vollständig verifizierte Lösung vor.")
+        else:
+            message = ("Die Basisantwort konnte nicht sicher abgeschlossen "
+                       "werden. Es liegt keine verifizierte Lösung vor.")
         return {
-            "text": ("Die Basisantwort wurde am Tokenlimit abgebrochen. "
-                     "Es liegt keine vollständig verifizierte Lösung vor."),
+            "text": message,
             "mode": "HIGH", "model_generated": False,
             "verified": False, "safe_to_promote": False,
-            "verification_status": "base_fallback_token_limit_unverified",
+            "verification_status": "base_fallback_" + reason + "_unverified",
             "verification_scope": "none",
             "selection_policy": "explicit_safe_refusal",
             "response_source": "deterministic_safety_refusal",
-            "fallback_error_code": "token_limit",
+            "fallback_error_code": reason,
             "consensus_status": decision.get("status", "not_attempted"),
             "proof_backend": decision.get("proof_backend"),
             "calls_used": sum(calls) + 1,
             "seconds": round(max(0, clock()-started), 3),
         }
+
+    try:
+        base = raw_base(original)
+    except OllamaCompletionError as exc:
+        # Stable non-sensitive status codes only; no prompt or partial model
+        # response in the generated error packet.
+        return incomplete_base(exc.reason)
     if (type(base) is not str or not base.strip() or
             len(base.encode("utf8")) > 32768 or
             "<tool_call" in base or "NERAL_EXECUTE_JSON:" in base):
-        raise ValueError("Invalid untouched raw base Qwen fallback")
+        return incomplete_base("invalid_response")
     return {
         "text": base, "mode": "HIGH", "model_generated": True,
         "verified": False, "safe_to_promote": False,
