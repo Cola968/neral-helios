@@ -14,7 +14,7 @@ from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
 from neral_local_chat_api import register_neral_local_chat_api
 from neral_nl_schema_bridge import (
     EXTRACT_BASE_PROMPT, EXTRACT_QLORA_PROMPT, V2_FEW_SHOT_EXAMPLES,
-    coverage_gate,
+    _equivalence, coverage_gate,
 )
 from neral_nl_verified_route import run_guarded_nl_bridge, strict_source_certificate
 from neral_typed_constraints_v2 import PREFIX, solve_typed_constraints
@@ -39,7 +39,8 @@ class PinFullSourceWitnessTests(unittest.TestCase):
                          {"all_different":[f"p{i}" for i in range(1,6)]})
         self.assertEqual(solve_typed_constraints(
             PREFIX+json.dumps(doc,ensure_ascii=False)),2)
-        self.assertEqual(doc, strict_source_certificate(pin["task"]))
+        self.assertEqual(_equivalence(doc, strict_source_certificate(pin["task"])),
+                         (True, "z3_unsat"))
 
     def test_both_prompts_explicitly_explain_all_position_idioms(self):
         for prompt in (EXTRACT_BASE_PROMPT,EXTRACT_QLORA_PROMPT):
