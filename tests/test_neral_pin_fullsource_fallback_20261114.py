@@ -131,6 +131,49 @@ class No503FallbackContracts(unittest.TestCase):
                                      "deterministic_safety_refusal")
             self.assertEqual(len(observed),2)
 
+    def test_incomplete_base_fallback_is_safe_http_200(self):
+        app=Flask("neral-incomplete-guard-cpu")
+        backend=OllamaLocalBackend("qwen3.5:9b",
+                  inference_profile="measured_nonthinking_2048")
+        register_neral_local_chat_api(app,backend)
+        q=old_case_question("21453")
+        missing=copy.deepcopy(strict_source_certificate(q))
+        missing["constraints"].pop(2)
+        for reason in ("incomplete","empty_answer","invalid_response","timeout"):
+            def interrupted(_original):
+                raise OllamaCompletionError(reason)
+            backend.respond_chat=interrupted
+            with self.subTest(reason=reason), \
+                 patch.dict(os.environ,{"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}), \
+                 patch("neral_nl_local_ollama.make_local_extractor",
+                       return_value=lambda _:json.dumps(missing)):
+                response=app.test_client().post("/api/neral/chat/think",
+                    json={"prompt":q,"nl_schema_consensus":True})
+                self.assertEqual(response.status_code,200,response.get_json())
+                body=response.get_json()
+                self.assertIs(body["verified"],False)
+                self.assertIs(body["safe_to_promote"],False)
+                self.assertIs(body["model_generated"],False)
+                self.assertEqual(body["fallback_error_code"],reason)
+                self.assertEqual(body["verification_status"],
+                                 "base_fallback_"+reason+"_unverified")
+                self.assertEqual(body["response_source"],"deterministic_safety_refusal")
+
+    def test_malformed_raw_base_is_safe_http_200_not_promoted(self):
+        q=old_case_question("21453")
+        for text in ("", "   ", "<tool_call>untrusted</tool_call>",
+                     "NERAL_EXECUTE_JSON:{}", 123, "x"*32769):
+            with self.subTest(fallback_type=type(text).__name__,
+                              fallback_length=len(str(text))):
+                result=run_guarded_nl_bridge(
+                    turns(q),lambda _:"{}",lambda _:"{}",lambda _:text)
+                self.assertFalse(result["verified"])
+                self.assertFalse(result["safe_to_promote"])
+                self.assertFalse(result["model_generated"])
+                self.assertEqual(result["fallback_error_code"],"invalid_response")
+                self.assertEqual(result["response_source"],"deterministic_safety_refusal")
+                self.assertNotIn("untrusted",result["text"])
+
     def test_successful_base_remains_original_raw_fallback(self):
         q=old_case_question("21453")
         result=run_guarded_nl_bridge(turns(q),
