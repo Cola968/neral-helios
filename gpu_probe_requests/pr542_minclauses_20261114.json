@@ -1,0 +1,23 @@
+{
+  "authorize": "NERAL_PR542_MINCLAUSES_RTX4070_OLD_ONLY",
+  "source_sha": "35c68d35994195b04b1bb8e7b1fbf1046b37d093",
+  "pr": 542,
+  "cases": [
+    "21453",
+    "logic-02",
+    "logic-06"
+  ],
+  "exact_model_tags": [
+    "neral-qwen35-qlora-v1:latest",
+    "qwen3.5:9b"
+  ],
+  "previous_raw_dev_runs": [
+    43635978705,
+    43637775902,
+    43638666782
+  ],
+  "next_step": "CPU then historical scalar checks then minimum-constraints RTX4070 old3 plus negative",
+  "no_merge_main": true,
+  "prospective_corpus": "DO_NOT_OPEN_OR_READ",
+  "no_training": true
+}
