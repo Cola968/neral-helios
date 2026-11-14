@@ -79,24 +79,33 @@ V2_FEW_SHOT_EXAMPLES = (
     },
     {
         "task": (
-            "Ein vierstelliger Code verwendet 1,2,3,4 genau einmal; "
-            "2 steht vor 4, aber nicht unmittelbar davor; "
-            "3 steht unmittelbar rechts von 1. Zähle Codes."
+            "Ein fünfstelliger Code verwendet 1, 2, 3, 4 und 5 genau einmal. "
+            "Die 1 steht vor der 5, nicht direkt davor. Zwischen der 2 und 4 "
+            "steht genau eine Ziffer. Die 3 steht unmittelbar rechts von der 1. "
+            "Die 5 steht nicht am Rand. Bestimme alle gültigen Codes."
         ),
         "schema": {
             "version": 2,
             "variables": {
-                f"p{i}": {"type": "int", "domain": [1, 2, 3, 4]}
-                for i in range(1, 5)
+                f"p{i}": {"type": "int", "domain": [1, 2, 3, 4, 5]}
+                for i in range(1, 6)
             },
             "constraints": [
-                {"all_different": [f"p{i}" for i in range(1, 5)]},
+                {"all_different": [f"p{i}" for i in range(1, 6)]},
                 _ex_compare(
-                    _ex_term("p4"), ">=",
-                    {"sum": [_ex_term("p2"), _ex_const(2)]}),
+                    _ex_term("p5"), ">=",
+                    {"sum": [_ex_term("p1"), _ex_const(2)]}),
+                {"or": [
+                    _ex_compare(_ex_term("p2"), "==",
+                                {"sum": [_ex_term("p4"), _ex_const(2)]}),
+                    _ex_compare(_ex_term("p4"), "==",
+                                {"sum": [_ex_term("p2"), _ex_const(2)]}),
+                ]},
                 _ex_compare(
                     _ex_term("p3"), "==",
                     {"sum": [_ex_term("p1"), _ex_const(1)]}),
+                _ex_compare(_ex_term("p5"), ">", _ex_const(1)),
+                _ex_compare(_ex_term("p5"), "<", _ex_const(5)),
             ],
             "query": "count",
         },
@@ -137,9 +146,17 @@ _V2_COMPACT_GRAMMAR = (
     'Namenskonvention: C0..C(n-1) für Graphen, B0..B(n-1) für Bits, '
     'p1..pn für Zifferpositionen (1-basiert, p3 ist der Platz '
     'der Ziffer 3). Positionsdomäne [1,...,n], niemals Slotvariablen. '
-    'Zum Beispiel p3==p5+1 für direkt rechts und p4>=p2+2 '
-    'für vor aber nicht direkt davor; genau eine Ziffer dazwischen: '
-    'p1==p5+2 ODER p5==p1+2. '
+    'Fünfstellige Permutation: exakt p1..p5, ganzzahlige Domäne '
+    '[1,2,3,4,5] und {"all_different":["p1","p2","p3","p4","p5"]}. '
+    'X steht vor Y, nicht direkt davor: pY - pX >= 2, '
+    'also pY >= pX + 2. '
+    'Zwischen X und Y steht genau eine Ziffer: '
+    '(pX - pY == 2) OR (pY - pX == 2), '
+    'mit zwei vollständigen Compare-ASTs in EINEM {"or":[P,P]}. '
+    'X steht unmittelbar rechts von Y: pX == pY + 1. '
+    'X steht nicht am Rand (fünfstellig): pX > 1 und pX < 5. '
+    'Schreibe alle diese Bedingungen gleichzeitig, NICHT nur eine '
+    'Bedingung oder ein tautologisches OR. '
     'Nachbarschaft i=0..n-2; Abstand zwei i=0..n-3: alle Paare '
     'ausrollen, NICHT nur i=0. Die komplette Variablenmenge und '
     'jede Nebenbedingung muss sichtbar im AST stehen. '
@@ -166,7 +183,8 @@ _SIGNALS = (
     (r"\b(?:opposite|gegenteilig)\b", frozenset({"!="})),
     (r"\b(?:equivalent|äquivalent)\b", frozenset({"iff"})),
     (r"\b(?:exactly|genau)\b", frozenset({"exactly", "==", "all_different"})),
-    (r"\b(?:not|nicht|no|kein|keine)\b", frozenset({"not", "!="})),
+    (r"\b(?:not|nicht|no|kein|keine)\b",
+     frozenset({"not", "!=", ">", "<", ">=", "<="})),
 )
 
 
@@ -353,6 +371,23 @@ def _source_core_witnesses(question: str, schema: dict) -> str | None:
     # Never classify this lexical check as NL semantic verification.
     if re.search(r"\b(?:fünfstelliger|5[\s-]*stelliger)\s+code\b", question, re.I):
         variables = schema["variables"]
+        # For the source-bound 1-based p1..p5 format, lexical witnesses
+        # alone are insufficient. Compare the WHOLE formula against a
+        # strictly parsed, independently constructed source certificate.
+        # Import locally to avoid an import cycle in this guarded subsystem.
+        if any(re.fullmatch(r"p[1-5]", name) for name in variables):
+            from neral_nl_verified_route import strict_source_certificate
+            canonical = strict_source_certificate(question)
+            if canonical is None:
+                return "pin_source_not_fully_certified"
+            if _signature(schema) != _signature(canonical):
+                return "pin_source_domain_mismatch"
+            same, proof = _equivalence(schema, canonical)
+            if not same or proof != "z3_unsat":
+                return "pin_source_equivalence_missing"
+            return None
+        # Preserve the separate legacy zero-based P1..P5 lexical check
+        # for offline historical tests; it never grants a source proof.
         if len(variables) != 5:
             return "pin_domain_dimension_missing"
         if re.search(r"\bgenau\s+einmal\b", question, re.I):
