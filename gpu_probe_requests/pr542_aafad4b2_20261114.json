@@ -1,0 +1,18 @@
+{
+  "authorize": "NERAL_PR542_AAFAD4B2_RTX4070_OLD_ONLY",
+  "source_sha": "aafad4b2dd7647b5e61a3c74452f9f03ab34200f",
+  "pr": 542,
+  "cases": [
+    "21453",
+    "logic-02",
+    "logic-06"
+  ],
+  "exact_model_tags": [
+    "neral-qwen35-qlora-v1:latest",
+    "qwen3.5:9b"
+  ],
+  "next_step": "fast-old6 known development only",
+  "no_merge_main": true,
+  "prospective_corpus": "DO_NOT_OPEN_OR_READ",
+  "no_training": true
+}
