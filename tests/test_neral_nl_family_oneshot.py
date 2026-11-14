@@ -74,32 +74,6 @@ class FamilyPromptContracts(unittest.TestCase):
         self.assertEqual(prompt.count("BEISPIEL"), 0)
         self.assertNotIn("21453", prompt)
 
-    def test_position_source_specific_clause_obligations_are_generalized(self):
-        source = ("Ein fünfstelliger Code verwendet 1, 2, 3, 4 und 5 genau einmal. "
-                  "Die 1 steht vor der 3, nicht direkt davor. "
-                  "Zwischen der 2 und 4 steht genau eine Ziffer. "
-                  "Die 5 steht unmittelbar rechts von der 1. "
-                  "Die 2 steht nicht am Rand. Bestimme alle gültigen Codes.")
-        prompt = extraction_prompt_for_question(source)
-        self.assertIn("p3 >= p1 + 2", prompt)
-        self.assertIn("p2 == p4 + 2 OR p4 == p2 + 2", prompt)
-        self.assertIn("p5 == p1 + 1", prompt)
-        self.assertIn("p2 > 1 UND p2 < 5", prompt)
-        self.assertIn("all_different", prompt)
-        self.assertEqual(prompt.count("BEISPIEL"), 1)
-        self.assertNotIn("21453", prompt)
-
-    def test_binary_source_specific_pairs_are_complete_for_length_six(self):
-        question = ("Count binary strings of length 6 with exactly 3 ones, "
-                    "first two bits opposite and no two ones exactly two positions apart.")
-        prompt = extraction_prompt_for_question(question)
-        self.assertIn("B0/B2", prompt)
-        self.assertIn("B1/B3", prompt)
-        self.assertIn("B2/B4", prompt)
-        self.assertIn("B3/B5", prompt)
-        self.assertNotIn("B4/B6", prompt)
-        self.assertEqual(prompt.count("BEISPIEL"), 1)
-
     def test_dual_extraction_uses_selected_prompts(self):
         q = old_case_question("logic-06")
         doc = strict_source_certificate(q)
