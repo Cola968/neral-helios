@@ -6,6 +6,7 @@ response, schema repair, user source modification, or v1 format changes.
 """
 from __future__ import annotations
 
+import ast
 import copy
 import re
 
@@ -148,6 +149,56 @@ def expected_variable_declarations(question: str) -> dict | None:
     return None
 
 
+
+def expected_minimum_source_constraints(question: str) -> int | None:
+    """Advisory lower bound on top-level rules for narrow source families.
+
+    This is only a shape hint for constrained generation, NOT a certificate
+    of the task's meaning, nor an answer. The independent source grammar and
+    Z3 proof in the guard remain mandatory for any promoted output.
+    """
+    decl = expected_variable_declarations(question)
+    if decl is None:
+        return None
+    names = tuple(decl)
+    if all(re.fullmatch(r"C\d+", x) for x in names):
+        if not re.search(r"\bVertex\s+0\s+is\s+red\b", question, re.I):
+            return None
+        match = re.search(
+            r"\bedges\s+(\[[^\n]{1,800}\])\s+must\s+differ\b",
+            question, re.I)
+        if not match:
+            return None
+        try:
+            pairs = ast.literal_eval(match.group(1))
+        except (SyntaxError, ValueError, TypeError, MemoryError):
+            return None
+        if (type(pairs) is not list or not 1 <= len(pairs) <= 31 or
+                any(type(p) not in (tuple, list) or len(p) != 2 or
+                    any(type(v) is not int or v < 0 or v >= len(names)
+                        for v in p) or p[0] == p[1] for p in pairs)):
+            return None
+        return 1 + len(pairs)
+    if all(re.fullmatch(r"B\d+", x) for x in names):
+        if (re.search(r"\bexactly\s+\d+\s+ones?\b", question, re.I)
+                and re.search(r"\bfirst\s+two\s+bits\s+opposite\b", question, re.I)
+                and re.search(
+                    r"\bno\s+two\s+ones\s+exactly\s+two\s+positions\s+apart\b",
+                    question, re.I)):
+            return len(names)  # exactly-k + opposite + n-2 forbidden pairs
+        return None
+    if all(re.fullmatch(r"p\d+", x) for x in names):
+        forms = (
+            r"\bDie\s+\d+\s+steht\s+vor\s+der\s+\d+,\s*nicht\s+direkt\s+davor\b",
+            r"\bZwischen\s+der\s+\d+\s+und\s+\d+\s+steht\s+genau\s+eine\s+Ziffer\b",
+            r"\bDie\s+\d+\s+steht\s+unmittelbar\s+rechts\s+von\s+der\s+\d+\b",
+            r"\bDie\s+\d+\s+steht\s+nicht\s+am\s+Rand\b",
+        )
+        if len(names) >= 3 and all(re.search(p, question, re.I) for p in forms):
+            return 6  # all-different, order, OR, right, lower edge, upper edge
+    return None
+
+
 def _source_bound_variable_properties(declarations: dict) -> dict:
     """Use explicit *required* names, not ignored minProperties, for known shapes."""
     entries = {}
@@ -180,4 +231,9 @@ def get_v2_ollama_format(question: str | None = None) -> dict:
     if declarations is not None:
         fmt["properties"]["variables"] = _source_bound_variable_properties(
             declarations)
+    minimum = expected_minimum_source_constraints(question)
+    if minimum is not None:
+        # The sampler may ignore an array bound; downstream coverage MUST
+        # still independently reject omitted source clauses.
+        fmt["properties"]["constraints"]["minItems"] = minimum
     return fmt
