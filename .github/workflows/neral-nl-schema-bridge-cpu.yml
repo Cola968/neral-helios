@@ -1,0 +1,73 @@
+name: NERAL NL schema consensus bridge CPU (fail closed)
+on:
+  push:
+    branches: [feat/neral-nl-schema-consensus-bridge-20261112]
+  pull_request:
+    paths:
+      - 'neral_nl_schema_bridge.py'
+      - 'tests/test_neral_nl_schema_bridge.py'
+      - 'tests/test_neral_nl_schema_old_cases.py'
+      - 'tests/test_neral_nl_schema_probe.py'
+      - 'scripts/neral_nl_schema_probe.py'
+      - 'scripts/neral_nl_schema_diagnostics.py'
+      - 'tests/test_neral_nl_schema_diagnostics.py'
+      - 'neral_nl_schema_format.py'
+      - 'tests/test_neral_v2_structured_output.py'
+      - 'tests/test_neral_v2_nonempty_fewshot.py'
+      - 'neral_nl_verified_route.py'
+      - 'tests/test_neral_nl_verified_route.py'
+      - 'tests/test_neral_pin_fullsource_fallback_20261114.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_think_nl_guard_http.py'
+      - 'neral_nl_local_ollama.py'
+      - 'tests/test_neral_nl_local_ollama.py'
+      - 'tests/test_neral_preview_nl_z3_dependency.py'
+      - 'requirements-neral-preview.txt'
+      - 'Start-Neral-1.0-Local.ps1'
+      - 'scripts/build_neral_1_0_preview.py'
+      - 'tests/test_neral_1_0_standalone_release.py'
+      - '.github/workflows/neral-nl-schema-bridge-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  bridge-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install finite solver and existing regression dependencies
+        run: python -m pip install 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
+      - name: Compile bridge and existing typed solver
+        run: python -B -m py_compile neral_nl_schema_bridge.py neral_typed_constraints_v2.py neral_tir_regression_guard.py
+      - name: Dual extraction RED/GREEN and strict guard
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_bridge.py' -v
+      - name: Existing historical 02 and 06 plus 21453 (CPU fixture probes)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_old_cases.py' -v
+      - name: Manual local model probe contract (never execute GPU)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_probe.py' -v
+      - name: Instrumented local Ollama diagnostic contracts (mocks only; no GPU)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_diagnostics.py' -v
+      - name: Structured v2 sampling and explicit core coverage witness contracts (fake model, CPU only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_v2_structured_output.py' -v
+      - name: Source-bound mandatory variable declarations and few-shot tests (CPU only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_v2_nonempty_fewshot.py' -v
+      - name: Independent strict source certificates, Z3 and guarded NL route (CPU fakes only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_verified_route.py' -v
+      - name: PIN full-source and token-limit HTTP-200 safe fallback contracts (CPU mocks only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_pin_fullsource_fallback_20261114.py' -v
+      - name: THINK HTTP opt-in NL exact source / raw fallback regression suite (CPU fakes)
+        run: python -B -m unittest discover -s tests -p 'test_neral_think_nl_guard_http.py' -v
+      - name: Release-safe localhost transport isolation (CPU fakes)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_local_ollama.py' -v
+      - name: Preview Z3 runtime and installer contract (CPU only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_preview_nl_z3_dependency.py' -v
+      - name: Typed solver and guard regression suites
+        run: |
+          python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_tir_regression_guard.py' -v
+          python -B -m unittest discover -s tests -p 'test_neral_boolean_constraints.py' -v

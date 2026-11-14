@@ -438,21 +438,26 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             experimental_tir = payload.get("experimental_tir", False)
             conservative_tir = payload.get("conservative_tir", False)
             dual_routing = payload.get("dual_routing", False)
+            nl_schema_consensus = payload.get("nl_schema_consensus", False)
             fast_verified_only = payload.get("fast_verified_only", False)
             evaluation_final_answer = payload.get("evaluation_final_answer", False)
             if (type(experimental_tir) is not bool
                     or type(conservative_tir) is not bool
                     or type(dual_routing) is not bool
+                    or type(nl_schema_consensus) is not bool
                     or type(fast_verified_only) is not bool
                     or type(evaluation_final_answer) is not bool
                     or (conservative_tir and not experimental_tir)
                     or (dual_routing and not (conservative_tir and experimental_tir))
                     or (fast_verified_only and not dual_routing)
-                    or (evaluation_final_answer and not dual_routing)):
+                    or (evaluation_final_answer and not dual_routing)
+                    or (nl_schema_consensus and (
+                        experimental_tir or conservative_tir or dual_routing
+                        or fast_verified_only or evaluation_final_answer))):
                 raise ValueError("Invalid experimental, conservative or dual routing flag")
             # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
-                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "fast_verified_only", "evaluation_final_answer")}
+                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "fast_verified_only", "evaluation_final_answer", "nl_schema_consensus")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -464,6 +469,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
         if experimental_tir and os.environ.get("NERAL_EXPERIMENTAL_TIR") != "1":
             return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
+        if nl_schema_consensus and os.environ.get("NERAL_EXPERIMENTAL_NL_SCHEMA") != "1":
+            return jsonify(error="Experimentelle NL-Schema-Extraktion nicht freigeschaltet."), 403
         if dual_routing and os.environ.get("NERAL_EXPERIMENTAL_DUAL_ROUTE") != "1":
             return jsonify(error="Experimentelles Dual-Routing nicht freigeschaltet."), 403
         if (fast_verified_only
@@ -477,6 +484,11 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 or high_backend.model != "qwen3.5:9b"
                 or high_backend.inference_profile != "measured_nonthinking_2048")):
             return jsonify(error="TIR erfordert das lokale Qwen3.5:9B Testprofil."), 409
+        if (nl_schema_consensus and (
+                type(high_backend) is not OllamaLocalBackend
+                or high_backend.model != "qwen3.5:9b"
+                or high_backend.inference_profile != "measured_nonthinking_2048")):
+            return jsonify(error="NL-Schema-Konsens benötigt das lokale 9B-Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         # These references retain no user text and are only used on 503.
@@ -512,6 +524,24 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             )
             if bounded_final:
                 local_respond = high_backend.respond_high_final
+            # Explicitly opt-in NL-to-v2 route, never regular THINK default.
+            # Three-way Z3 proof against an independent FULL-source parser is
+            # mandatory. Plain dual-model consensus is not a PR #537 signature.
+            # Any omission, unsupported wording or model failure retains the
+            # unchanged raw base-Qwen response with verified=False.
+            if nl_schema_consensus:
+                from neral_nl_verified_route import run_guarded_nl_bridge
+                from neral_nl_local_ollama import make_local_extractor
+                result = run_guarded_nl_bridge(
+                    data,
+                    make_local_extractor("neral-qwen35-qlora-v1:latest"),
+                    make_local_extractor("qwen3.5:9b"),
+                    high_backend.respond_chat,
+                )
+                return jsonify({**result, "nl_schema_consensus": True,
+                                "experimental_tir": False,
+                                "dual_routing": False,
+                                **_provenance(high_backend)})
             if deep_review:
                 from neral_high_verified_first import direct_high_reply
                 direct = direct_high_reply(data)
