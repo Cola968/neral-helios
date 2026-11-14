@@ -1,0 +1,119 @@
+name: NERAL PR542 RTX4070 three-case THINK and known-old6 live acceptance
+
+on:
+  push:
+    branches: [verify/neral-pr542-rtx4070-aafad4b2-20261114]
+    paths:
+      - 'gpu_probe_requests/pr542_aafad4b2_20261114.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  rtx4070-exact-commit:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      NERAL_EXPERIMENTAL_NL_SCHEMA: '1'
+      NERAL_EXPERIMENTAL_TIR: '1'
+      NERAL_EXPERIMENTAL_DUAL_ROUTE: '1'
+      NERAL_EXPERIMENTAL_FAST_VERIFIED_ONLY: '1'
+      NERAL_FORMATTED_EVAL: '1'
+      NERAL_PREVIEW_INSTALL_CONSENT: '1'
+    steps:
+      - name: Checkout only source inherited from exact PR542 commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+          fetch-depth: 5
+
+      - name: Verify isolated source ancestry, RTX GPU and exact installed Ollama
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='aafad4b2dd7647b5e61a3c74452f9f03ab34200f'
+          if($env:GITHUB_REPOSITORY -ne 'Cola968/neral-helios') { throw 'Wrong repository' }
+          if($env:GITHUB_REF -ne 'refs/heads/verify/neral-pr542-rtx4070-aafad4b2-20261114') { throw 'Wrong ref' }
+          & git merge-base --is-ancestor $source HEAD
+          if($LASTEXITCODE -ne 0) { throw 'Source branch is not derived from exact approved SHA' }
+          $changed=@(& git diff --name-only $source HEAD)
+          if($LASTEXITCODE -ne 0) { throw 'Cannot compare isolated branch' }
+          $allowed=@('.github/workflows/neral-pr542-aafad4b2-rtx4070-acceptance.yml','scripts/pr542_aafad4b2_gpu_acceptance.py','gpu_probe_requests/pr542_aafad4b2_20261114.json')
+          if(@($changed | Where-Object {$_ -notin $allowed}).Count -gt 0) { throw 'Runtime files differ from reviewed PR542 SHA' }
+          $request=Get-Content -Raw -LiteralPath 'gpu_probe_requests/pr542_aafad4b2_20261114.json' | ConvertFrom-Json
+          if($request.authorize -ne 'NERAL_PR542_AAFAD4B2_RTX4070_OLD_ONLY' -or $request.source_sha -ne $source -or
+             ($request.cases -join ',') -ne '21453,logic-02,logic-06') { throw 'Unexpected verification request' }
+          $gpu=& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+          if($LASTEXITCODE -ne 0 -or -not $gpu -or -not ($gpu -match '4070')) { throw 'RTX4070 GPU not available' }
+          Write-Host "RTX4070_PREFLIGHT=$gpu"
+          $tags=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 15
+          $modelNames=@($tags.models | ForEach-Object {$_.name})
+          foreach($tag in @('neral-qwen35-qlora-v1:latest','qwen3.5:9b')) {
+            if($modelNames -notcontains $tag) { throw "Required Ollama tag unavailable: $tag" }
+          }
+          Write-Host 'RTX4070_TAGS=QLORA_AND_BASE_PRESENT'
+          $base=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)) { throw 'Pinned local Python 3.12 is missing' }
+          $venv=Join-Path $env:RUNNER_TEMP ('pr542-aafad4b2-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $venv) { throw 'Refuse existing environment' }
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0) { throw 'Isolated venv creation failed' }
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r requirements-neral-preview.txt
+          if($LASTEXITCODE -ne 0) { throw 'Preview dependencies failed' }
+          & $py -B -c 'import z3,flask; assert z3.get_version()[:3]==(4,16,0)'
+          if($LASTEXITCODE -ne 0) { throw 'Z3 4.16 or Flask not available' }
+          $report=Join-Path $env:USERPROFILE ('NERAL-PR542-GPU-RAW\run-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $report) { throw 'Refuse overwriting local historical result' }
+          New-Item -ItemType Directory -Path $report | Out-Null
+          $scalars=Join-Path $env:GITHUB_WORKSPACE 'pr542_scalar_results'
+          if(Test-Path -LiteralPath $scalars) { throw 'Refuse existing scalar directory' }
+          New-Item -ItemType Directory -Path $scalars | Out-Null
+          'PR542_ACCEPT_PY='+$py >> $env:GITHUB_ENV
+          'PR542_RAW_DIR='+$report >> $env:GITHUB_ENV
+          'PR542_SCALAR_DIR='+$scalars >> $env:GITHUB_ENV
+          Write-Host 'Local raw model JSON will stay ONLY in the Windows user directory.'
+
+      - name: THREE live cases with both models plus actual THINK endpoint and unsafe fallback
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & $env:PR542_ACCEPT_PY -B -m scripts.pr542_aafad4b2_gpu_acceptance --mode three --report $env:PR542_RAW_DIR --scalars $env:PR542_SCALAR_DIR
+          if($LASTEXITCODE -ne 0) { throw 'Three-case live diagnostics could not complete; inspect status' }
+          $gpu=& nvidia-smi --query-gpu=name,memory.used --format=csv,noheader
+          Write-Host "RTX4070_AFTER_THREE=$gpu"
+
+      - name: fast-old6 genuine known-development paired GPU latency versus full dual-routing
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          $file=Join-Path $env:PR542_RAW_DIR 'fast_old6.json'
+          & $env:PR542_ACCEPT_PY -B -m scripts.neral_verified_fast_smoke --authorize NERAL_VERIFIED_FAST_OLD6_GPU_SMOKE_ONLY --out $file
+          $exit=$LASTEXITCODE
+          if($exit -eq 0) {
+            & $env:PR542_ACCEPT_PY -B -m scripts.pr542_aafad4b2_gpu_acceptance --mode fast_summary --report $env:PR542_RAW_DIR --scalars $env:PR542_SCALAR_DIR
+            if($LASTEXITCODE -ne 0) { throw 'Cannot sanitize old6 numeric summary' }
+          } else {
+            Write-Host "FAST_OLD6_EXECUTION_FAILED_EXIT=$exit"
+            throw 'Old6 benchmark unavailable/failed, no invented timing or replacement models'
+          }
+
+      - name: Upload SCALARS ONLY; never upload full model JSON or benchmark corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr542-aafad4b2-rtx4070-numeric-acceptance
+          path: pr542_scalar_results/*.json
+          if-no-files-found: warn
+          retention-days: 14
