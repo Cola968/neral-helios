@@ -1,0 +1,19 @@
+{
+  "authorize": "NERAL_PR542_ONESHOT_RTX4070_OLD_ONLY",
+  "source_sha": "86df9ac467dded29e11fa13bf6d12beb79c636e6",
+  "pr": 542,
+  "cases": [
+    "21453",
+    "logic-02",
+    "logic-06"
+  ],
+  "exact_model_tags": [
+    "neral-qwen35-qlora-v1:latest",
+    "qwen3.5:9b"
+  ],
+  "previous_raw_dev_run": 43635978705,
+  "next_step": "CPU then historical-local-scalar-diff and RTX4070 3 old cases + negative",
+  "no_merge_main": true,
+  "prospective_corpus": "DO_NOT_OPEN_OR_READ",
+  "no_training": true
+}
