@@ -11,7 +11,7 @@ import math
 from time import perf_counter
 
 from neral_nl_schema_bridge import (
-    EXTRACT_BASE_PROMPT, EXTRACT_QLORA_PROMPT,
+    extraction_prompt_for_question,
     assess_dual_extraction, coverage_gate, _no_duplicate_keys,
 )
 from neral_typed_constraints_v2 import (
@@ -121,8 +121,8 @@ def collect_live_diagnostics(case: str, qlora_model: str,
 
     question = old_case_question(case)
     expected = _expected_count(case)
-    q = _extract_one(qlora_model, question, EXTRACT_QLORA_PROMPT)
-    b = _extract_one(base_model, question, EXTRACT_BASE_PROMPT)
+    q = _extract_one(qlora_model, question, extraction_prompt_for_question(question, is_base=False))
+    b = _extract_one(base_model, question, extraction_prompt_for_question(question, is_base=True))
     for result in (q, b):
         if result["status"] == "valid_schema":
             coverage = coverage_gate(question, json.loads(result["raw_json"]))
