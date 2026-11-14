@@ -14,5 +14,6 @@
   "next_step": "fast-old6 known development only",
   "no_merge_main": true,
   "prospective_corpus": "DO_NOT_OPEN_OR_READ",
-  "no_training": true
+  "no_training": true,
+  "dispatch_request": "manual-rtx4070-three-cases-20261114"
 }
