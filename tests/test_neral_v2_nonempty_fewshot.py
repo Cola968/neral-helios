@@ -98,15 +98,20 @@ class NonEmptySourceBoundContractTests(unittest.TestCase):
     def test_position_fewshot_uses_one_based_short_linear_constraints(self):
         from neral_nl_schema_bridge import V2_FEW_SHOT_EXAMPLES
         pin = V2_FEW_SHOT_EXAMPLES[2]["schema"]
-        self.assertEqual(set(pin["variables"]), {"p1", "p2", "p3", "p4"})
+        self.assertEqual(set(pin["variables"]), {f"p{i}" for i in range(1, 6)})
         for spec in pin["variables"].values():
-            self.assertEqual(spec["domain"], [1, 2, 3, 4])
+            self.assertEqual(spec["domain"], [1, 2, 3, 4, 5])
         rules = pin["constraints"]
-        self.assertEqual(rules[0], {"all_different": ["p1", "p2", "p3", "p4"]})
+        self.assertEqual(rules[0], {"all_different": [f"p{i}" for i in range(1, 6)]})
+        self.assertEqual(rules[1]["compare"]["left"], {"var": "p5"})
         self.assertEqual(rules[1]["compare"]["op"], ">=")
-        self.assertEqual(rules[2]["compare"]["left"], {"var": "p3"})
-        self.assertEqual(rules[2]["compare"]["right"],
+        self.assertEqual(rules[1]["compare"]["right"],
+                         {"sum": [{"var": "p1"}, {"const": 2}]})
+        self.assertIn("or", rules[2])
+        self.assertEqual(len(rules[2]["or"]), 2)
+        self.assertEqual(rules[3]["compare"]["right"],
                          {"sum": [{"var": "p1"}, {"const": 1}]})
+        self.assertEqual([r["compare"]["op"] for r in rules[4:]], [">", "<"])
 
     def test_unsupported_phrasing_never_invents_required_names(self):
         for question in ("What is the meaning of life?", "Color anything.",
