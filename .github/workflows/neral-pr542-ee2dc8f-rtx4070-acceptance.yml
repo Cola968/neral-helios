@@ -1,6 +1,7 @@
 name: NERAL PR542 RTX4070 three-case THINK and negative 503 fallback live acceptance
 
 on:
+  workflow_dispatch:
   push:
     branches: [verify/neral-pr542-rtx4070-ee2dc8f-20261114]
     paths:
