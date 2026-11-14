@@ -18,5 +18,7 @@
   "next_step": "CPU then historical local scalar difference and RTX4070 3 old cases plus negative",
   "no_merge_main": true,
   "prospective_corpus": "DO_NOT_OPEN_OR_READ",
-  "no_training": true
+  "no_training": true,
+  "attempt": 2,
+  "retry_reason": "correct actual existing one-shot family CPU test filename"
 }
