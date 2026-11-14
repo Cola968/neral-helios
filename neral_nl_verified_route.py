@@ -24,6 +24,7 @@ from neral_typed_constraints_v2 import (
 )
 from neral_high_verified_first import split_task_and_format_instruction
 from neral_nl_schema_format import expected_variable_declarations
+from neral_agent_autonomy import OllamaCompletionError
 
 
 def _v(name: str) -> dict:
@@ -261,7 +262,30 @@ def run_guarded_nl_bridge(
             except (InvalidTypedConstraints, ValueError, TypeError):
                 pass
 
-    base = raw_base(original)
+    # The original Qwen fallback may end with Ollama done_reason=length.
+    # Its partial output is NEVER a valid answer. In this opt-in route only,
+    # return an explicit unverified, deterministic HTTP-200 safety response
+    # instead of propagating a 503 or fabricating a numerical solution.
+    try:
+        base = raw_base(original)
+    except OllamaCompletionError as exc:
+        if exc.reason != "token_limit":
+            raise
+        return {
+            "text": ("Die Basisantwort wurde am Tokenlimit abgebrochen. "
+                     "Es liegt keine vollständig verifizierte Lösung vor."),
+            "mode": "HIGH", "model_generated": False,
+            "verified": False, "safe_to_promote": False,
+            "verification_status": "base_fallback_token_limit_unverified",
+            "verification_scope": "none",
+            "selection_policy": "explicit_safe_refusal",
+            "response_source": "deterministic_safety_refusal",
+            "fallback_error_code": "token_limit",
+            "consensus_status": decision.get("status", "not_attempted"),
+            "proof_backend": decision.get("proof_backend"),
+            "calls_used": sum(calls) + 1,
+            "seconds": round(max(0, clock()-started), 3),
+        }
     if (type(base) is not str or not base.strip() or
             len(base.encode("utf8")) > 32768 or
             "<tool_call" in base or "NERAL_EXECUTE_JSON:" in base):
