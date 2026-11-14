@@ -14,6 +14,7 @@ on:
       - 'neral_nl_schema_format.py'
       - 'tests/test_neral_v2_structured_output.py'
       - 'tests/test_neral_v2_nonempty_fewshot.py'
+      - 'tests/test_neral_nl_family_oneshot.py'
       - 'neral_nl_verified_route.py'
       - 'tests/test_neral_nl_verified_route.py'
       - 'tests/test_neral_pin_fullsource_fallback_20261114.py'
@@ -54,6 +55,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_nl_schema_diagnostics.py' -v
       - name: Structured v2 sampling and explicit core coverage witness contracts (fake model, CPU only)
         run: python -B -m unittest discover -s tests -p 'test_neral_v2_structured_output.py' -v
+      - name: Family-exclusive 1-shot prompt selection and live diagnostic parity (CPU only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_family_oneshot.py' -v
       - name: Source-bound mandatory variable declarations and few-shot tests (CPU only)
         run: python -B -m unittest discover -s tests -p 'test_neral_v2_nonempty_fewshot.py' -v
       - name: Independent strict source certificates, Z3 and guarded NL route (CPU fakes only)
