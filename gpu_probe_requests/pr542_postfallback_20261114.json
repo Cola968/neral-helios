@@ -1,0 +1,18 @@
+{
+  "authorize": "NERAL_PR542_POSTFALLBACK_RTX4070_OLD_ONLY",
+  "source_sha": "ff69b055cc3f8947be1f5f9702de0e3344b5744b",
+  "pr": 542,
+  "cases": [
+    "21453",
+    "logic-02",
+    "logic-06"
+  ],
+  "exact_model_tags": [
+    "neral-qwen35-qlora-v1:latest",
+    "qwen3.5:9b"
+  ],
+  "next_step": "CPU-before-GPU old3+negative recheck; no blind100",
+  "no_merge_main": true,
+  "prospective_corpus": "DO_NOT_OPEN_OR_READ",
+  "no_training": true
+}
