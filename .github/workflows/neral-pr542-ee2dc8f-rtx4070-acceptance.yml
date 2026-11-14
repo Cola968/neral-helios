@@ -6,6 +6,7 @@ on:
     branches: [verify/neral-pr542-rtx4070-ee2dc8f-20261114]
     paths:
       - 'gpu_probe_requests/pr542_ee2dc8f_20261114.json'
+      - '.github/workflows/neral-pr542-ee2dc8f-rtx4070-acceptance.yml'
 
 permissions:
   contents: read
