@@ -385,7 +385,9 @@ def _source_core_witnesses(question: str, schema: dict) -> str | None:
             same, proof = _equivalence(schema, canonical)
             if not same or proof != "z3_unsat":
                 return "pin_source_equivalence_missing"
-            return None
+            # Continue through the source-clause witnesses: a redundant
+            # boundary condition can be logically implied by other rules,
+            # but each explicit source clause must still be represented.
         # Preserve the separate legacy zero-based P1..P5 lexical check
         # for offline historical tests; it never grants a source proof.
         if len(variables) != 5:
@@ -476,8 +478,33 @@ def _source_core_witnesses(question: str, schema: dict) -> str | None:
             if (type(domain) is not list or not domain
                     or type(domain[0]) is not int):
                 return "pin_edge_exclusion_missing"
-            bounds = {min(domain), max(domain)}
-            if not bounds.issubset(excluded):
+            low, high = min(domain), max(domain)
+            # One-based position domains support literal inequalities
+            # pX > low / pX < high in addition to pX != low/high.
+            # Require independent witnesses for both source boundaries,
+            # even if one of them is redundant in the complete formula.
+            for node in nodes:
+                item = compare(node)
+                if type(item) is not dict:
+                    continue
+                x, y, op = item.get("left"), item.get("right"), item.get("op")
+                if var_id(x) == digit and type(scalar(y)) is int:
+                    value = scalar(y)
+                    if (op == ">" and value == low or
+                            op == ">=" and value == low + 1):
+                        excluded.add(low)
+                    if (op == "<" and value == high or
+                            op == "<=" and value == high - 1):
+                        excluded.add(high)
+                if var_id(y) == digit and type(scalar(x)) is int:
+                    value = scalar(x)
+                    if (op == "<" and value == low or
+                            op == "<=" and value == low + 1):
+                        excluded.add(low)
+                    if (op == ">" and value == high or
+                            op == ">=" and value == high - 1):
+                        excluded.add(high)
+            if not {low, high}.issubset(excluded):
                 return "pin_edge_exclusion_missing"
 
     return None
