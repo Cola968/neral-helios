@@ -80,9 +80,9 @@ jobs:
           $scalars=Join-Path $env:GITHUB_WORKSPACE 'pr542_scalar_results'
           if(Test-Path -LiteralPath $scalars) { throw 'Refuse existing scalar directory' }
           New-Item -ItemType Directory -Path $scalars | Out-Null
-          'PR542_ACCEPT_PY='+$py >> $env:GITHUB_ENV
-          'PR542_RAW_DIR='+$report >> $env:GITHUB_ENV
-          'PR542_SCALAR_DIR='+$scalars >> $env:GITHUB_ENV
+          ('PR542_ACCEPT_PY='+$py) | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          ('PR542_RAW_DIR='+$report) | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          ('PR542_SCALAR_DIR='+$scalars) | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'Local raw model JSON will stay ONLY in the Windows user directory.'
 
       - name: THREE live cases with both models plus actual THINK endpoint and unsafe fallback
