@@ -58,7 +58,7 @@
     }
     function showProvider(name){
       if(!active||active.dataset.phase!=="searching" ||
-         !["DuckDuckGo HTML","Bing RSS","Wikipedia DE"].includes(name) || providers.has(name))return;
+         !["DuckDuckGo HTML","Bing RSS","Google News RSS","Wikipedia DE"].includes(name) || providers.has(name))return;
       providers.add(name);
       const box=detailsArea();
       let line=box.querySelector(".neral-live-provider");
@@ -67,7 +67,7 @@
         box.append(line);
       }
       line.textContent="Suchanbieter: "+[...providers]
-        .map(n=>n==="DuckDuckGo HTML"?"DuckDuckGo":n==="Bing RSS"?"Bing":"Wikipedia").join(" · ");
+        .map(n=>n==="DuckDuckGo HTML"?"DuckDuckGo":n==="Bing RSS"?"Bing":n==="Google News RSS"?"Google News":"Wikipedia").join(" · ");
     }
     function showSearchQuery(query){
       if(!active||active.dataset.phase!=="searching"||
