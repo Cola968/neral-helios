@@ -145,3 +145,28 @@ test("live search displays found provider pages before HTTPS reachability finish
    "Icons should appear as soon as provider returns the website, not only after HEAD");
  assert.match(area.querySelector(".neral-live-site-title").textContent,/Frankfurt Airport/);
 });
+
+
+test("legacy Helios search panel uses verified live results and the same source icons",()=>{
+ const html=read("templates/index.html");
+ const script=read("static/neral-web-search.js");
+ const css=read("static/neral.css");
+ assert.match(html,/src="\/static\/neral-web-live\.js"/);
+ assert.match(script,/NeralWebLive\.search/);
+ assert.match(script,/verify_links:\s*true/);
+ assert.match(script,/discovered===true/);
+ assert.match(script,/reachable===true/);
+ assert.match(script,/\/api\/web\/favicon\?host=/);
+ assert.match(script,/onEvent/);
+ assert.match(css,/\.web-result-icon/);
+ assert.match(css,/\.neral-web-favicon\.neral-favicon-loaded/);
+});
+
+test("legacy search panel never sends chat history, links to nonpublic hosts or claims to read pages",()=>{
+ const s=read("static/neral-web-search.js");
+ assert.match(s,/isPublicHttps/);
+ assert.match(s,/noopener noreferrer/);
+ assert.doesNotMatch(s,/history\s*:/);
+ assert.doesNotMatch(s,/\.innerHTML\s*=/);
+ assert.match(s,/nicht gelesen|nicht geprüft/i);
+});
