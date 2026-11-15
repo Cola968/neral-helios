@@ -50,7 +50,7 @@ jobs:
       - name: Compile planner and pre-existing guards
         run: python -B -m py_compile neral_adaptive_planner.py neral_python_logic_verifier.py neral_nl_verified_route.py neral_tir_regression_guard.py
       - name: Synthetic prospective generator dry-run without future random seed
-        run: python -B scripts/neral_1_1_prospective_blind100.py --cpu-preflight --authorize NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE
+        run: python -B -m scripts.neral_1_1_prospective_blind100 --cpu-preflight --authorize NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE
       - name: New strict tautology and 1536-token Qwen CPU contract
         run: python -B -m unittest discover -s tests -p 'test_neral_1_1_fallback_ast_prospective.py' -v
       - name: New disjoint AST unique logic and bounded fallback CPU regressions
