@@ -45,8 +45,10 @@ def register_web_search_api(app, service=None):
         noise = {"suche","such","nach","bitte","finde","recherchiere","im",
                  "dem","der","den","die","das","und","mit","ist","eine","einer",
                  "einem","was","wie","wer","von","bei","fur","auf","zum",
-                 "zur","online","internet","web","aktuell","heute","neueste",
-                 "neuesten","quelle","quellen","links","news","information",
+                 "zur","online","internet","web","aktuell","aktuelle",
+                 "aktuellen","aktueller","aktuelles","heute","neueste",
+                 "neuesten","neuester","neuestes","neu","neue","neuen",
+                 "neuer","neues","quelle","quellen","links","news","information",
                  "informationen","uber","ueber","zeige","mehr","deine",
                  "site","www","https","http","2026","2025","2027","2028",
                  "official","offiziell","offizielle","offiziellen"}
