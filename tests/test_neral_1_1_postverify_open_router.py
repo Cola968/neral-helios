@@ -58,7 +58,7 @@ class OpenRouterCPU(unittest.TestCase):
                  "proof_backend":"z3_unsat",
                  "verification_scope":"full_source_grammar_exact",
                  "verification_status":"source_canonical_z3_verified"})
-        self.assertEqual(len(calls),1)
+        self.assertEqual(len(calls),2)  # exactly one bounded Z3->Python repair
         self.assertFalse(result["verified"])
         self.assertEqual(result["text"],"RAW_QWEN")
 
