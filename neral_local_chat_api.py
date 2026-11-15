@@ -64,6 +64,40 @@ def _provenance(backend) -> dict:
     }
 
 
+def _runtime_greeting_reply(prompt: str) -> dict | None:
+    """Short small talk must not turn into dictionary articles or fake web work.
+
+    The UI normally suppresses Web on greetings. Recognize the precise legacy
+    WEBSTATUS envelope as a second defense for older installed frontends.
+    Do not use a naive substring match: "Suche nach Hallo" is an actual task.
+    """
+    if not isinstance(prompt, str):
+        return None
+    original=prompt.strip()
+    prefix="[NERAL-WEBSTATUS – lokale Werkzeugmeldung]\n"
+    delimiter="\n[URSPRÜNGLICHE FRAGE]\n"
+    if original.startswith(prefix):
+        if original.count(delimiter) != 1:
+            return None
+        original=original.split(delimiter,1)[-1].strip()
+    if not 1 <= len(original) <= 64:
+        return None
+    cleaned=re.sub(r"[\W_]+", " ", original.casefold(), flags=re.UNICODE).strip()
+    if not re.fullmatch(
+        r"(?:hallo|hall[oö]chen|hi|hey|moin|servus|"
+        r"guten morgen|guten tag|guten abend)"
+        r"(?: (?:neral|neral ai|zusammen))?", cleaned):
+        return None
+    return {
+        "text":"Hallo! Wie kann ich dir helfen?",
+        "model_generated":False,
+        "verified":False,
+        "verification_scope":"none",
+        "verification_status":"not_applicable",
+        "tool_used":"runtime_greeting",
+    }
+
+
 def _runtime_identity_reply(prompt: str, backend) -> dict | None:
     """Answer narrowly recognized identity questions using runtime metadata.
 
@@ -288,8 +322,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         def events():
             started = time.monotonic()
             try:
-                identity = _runtime_identity_reply(data[-1]["content"], backend)
-                if identity is None and len(data) == 2:
+                greeting = _runtime_greeting_reply(data[-1]["content"])
+                identity = None if greeting else _runtime_identity_reply(data[-1]["content"], backend)
+                if greeting is None and identity is None and len(data) == 2:
                     from neral_agent_quantitative import calculate_explicit
                     exact = calculate_explicit(data[-1]["content"])
                     if exact is None:
@@ -299,8 +334,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         exact = calculate_percentage(data[-1]["content"])
                 else:
                     exact = None
-                if identity is not None or exact is not None:
-                    direct = identity if identity is not None else exact
+                if greeting is not None or identity is not None or exact is not None:
+                    direct = greeting if greeting is not None else identity if identity is not None else exact
                     result = {
                         **direct, "mode": "LOW",
                         "model_generated": False,
@@ -377,9 +412,10 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            identity = _runtime_identity_reply(data[-1]["content"], backend)
-            if identity is not None:
-                return jsonify({**identity, "mode": "LOW",
+            greeting = _runtime_greeting_reply(data[-1]["content"])
+            identity = None if greeting else _runtime_identity_reply(data[-1]["content"], backend)
+            if greeting is not None or identity is not None:
+                return jsonify({**(greeting if greeting is not None else identity), "mode": "LOW",
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(backend)})
             # Empty history only: never override an ongoing conversation.
@@ -457,9 +493,10 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            identity = _runtime_identity_reply(data[-1]["content"], high_backend)
-            if identity is not None:
-                return jsonify({**identity, "mode": "HIGH",
+            greeting = _runtime_greeting_reply(data[-1]["content"])
+            identity = None if greeting else _runtime_identity_reply(data[-1]["content"], high_backend)
+            if greeting is not None or identity is not None:
+                return jsonify({**(greeting if greeting is not None else identity), "mode": "HIGH",
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(high_backend)})
             from neral_think import think_reply
