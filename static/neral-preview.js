@@ -150,8 +150,11 @@
 
   // Opting into web access does not make every greeting a search task.
   function skipWebForLocalBasics(question) {
-    const plain=question.toLowerCase().replace(/[!?.,:;]/g," ").replace(/\s+/g," ").trim();
-    return /^(hallo|hi|hey|guten tag|guten morgen|guten abend|wer bist du|wie heißt du|wie heisst du|welches modell bist du|welches modell verwendest du|nein wie heißt du welches modell bist du|nein wie heisst du welches modell bist du|wie heißt du welches modell bist du)$/.test(plain)
+    const plain=String(question||"").normalize("NFKC").toLocaleLowerCase("de")
+      .replace(/[\u200b-\u200d\ufeff]/g,"")
+      .replace(/[\p{P}\p{S}]/gu," ").replace(/\s+/g," ").trim();
+    if(plain.length>120)return false;
+    return /^(?:(?:hallo|hallöchen|hi|hey|moin|servus|guten tag|guten morgen|guten abend)(?: (?:neral|neral ai|zusammen))?|wer bist du|wie heißt du|wie heisst du|welches modell bist du|welches modell verwendest du|nein wie heißt du welches modell bist du|nein wie heisst du welches modell bist du|wie heißt du welches modell bist du)$/.test(plain)
       || /^was ist die hauptstadt von [a-zäöüß -]+$/.test(plain);
   }
   // A checked Web toggle permits searches but does not upload every private
@@ -335,8 +338,7 @@
     });
     const name=document.createElement("span");
     const allReachable=valid.every(item=>item.reachable);
-    name.textContent=valid.length+" "+(allReachable?
-      (valid.length===1?"Quelle":"Quellen"):"Suchtreffer");
+    name.textContent=valid.length+" "+(valid.length===1?"Suchtreffer":"Suchtreffer");
     name.className="neral-source-label";
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
