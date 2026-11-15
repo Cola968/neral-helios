@@ -11,6 +11,7 @@ from neral_local_chat_api import register_neral_local_chat_api
 QUESTION = ("Count permutations of numbers 1 through 4. "
             "Number 1 is before number 2.")
 UNSUPPORTED = QUESTION + " Number 4 must be lucky."
+CHECKED_CODE = "answer=12\nassert answer == (3*4)\nprint(answer)"
 
 
 def rig(model="qwen3.5:9b", profile="measured_nonthinking_2048"):
@@ -67,7 +68,7 @@ class AdaptiveThinkHTTP(unittest.TestCase):
             models.append(model)
             def proposal(turns, signal):
                 signals.append(signal)
-                return {"strategy": "PYTHON_SANDBOX", "code": "print(12)"}
+                return {"strategy": "PYTHON_SANDBOX", "code": CHECKED_CODE}
             return proposal
         def docker(code):
             programs.append(code)
@@ -81,7 +82,7 @@ class AdaptiveThinkHTTP(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.json)
         self.assertEqual(models, ["neral-qwen35-qlora-v1:latest"])
         self.assertEqual(len(signals), 1)
-        self.assertEqual(programs, ["print(12)"])
+        self.assertEqual(programs, [CHECKED_CODE])
         self.assertEqual(calls, [])
         self.assertTrue(response.json["verified"])
         self.assertEqual(response.json["text"], "12")
@@ -89,13 +90,13 @@ class AdaptiveThinkHTTP(unittest.TestCase):
         self.assertTrue(response.json["safe_to_promote"])
         self.assertEqual(response.json["response_source"], "independent_source_python")
 
-    def test_unsound_source_never_promotes_after_two_repairs(self):
+    def test_unsound_source_skips_model_entirely(self):
         client, calls = rig()
         signals = []
         def maker(model):
             def propose(turns, signal):
                 signals.append(signal)
-                return {"strategy": "PYTHON_SANDBOX", "code": "print(12)"}
+                return {"strategy": "PYTHON_SANDBOX", "code": CHECKED_CODE}
             return propose
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER": "1"}), \
              patch("neral_adaptive_ollama.make_local_adaptive_proposer", side_effect=maker), \
@@ -109,8 +110,7 @@ class AdaptiveThinkHTTP(unittest.TestCase):
         self.assertFalse(response.json["safe_to_promote"])
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][-1]["content"], UNSUPPORTED)
-        self.assertEqual([x["feedback_code"] for x in signals],
-                         [None, "independent_proof_missing", "independent_proof_missing"])
+        self.assertEqual(signals, [])
 
     def test_normal_direct_request_uses_only_unchanged_base(self):
         client, calls = rig()
@@ -144,7 +144,7 @@ class AdaptiveThinkHTTP(unittest.TestCase):
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER": "1"}), \
              patch("neral_adaptive_ollama.make_local_adaptive_proposer",
                    return_value=lambda turns, signal: {
-                       "strategy": "PYTHON_SANDBOX", "code": "print(12)"}), \
+                       "strategy": "PYTHON_SANDBOX", "code": CHECKED_CODE}), \
              patch("neral_adaptive_planner.run_python_in_docker",
                    return_value={"status": "UNAVAILABLE"}):
             response = client.post("/api/neral/chat/think", json={
@@ -164,7 +164,7 @@ class AdaptiveThinkHTTP(unittest.TestCase):
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER": "1"}), \
              patch("neral_adaptive_ollama.make_local_adaptive_proposer",
                    return_value=lambda turns, signal: {
-                       "strategy": "PYTHON_SANDBOX", "code": "print(12)"}), \
+                       "strategy": "PYTHON_SANDBOX", "code": CHECKED_CODE}), \
              patch("neral_adaptive_planner.run_python_in_docker",
                    return_value={"status": "FAILED", "traceback": "PRIVATE"}):
             response = app.test_client().post("/api/neral/chat/think", json={
