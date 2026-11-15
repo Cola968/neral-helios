@@ -161,6 +161,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $remote=Join-Path $env:RUNNER_TEMP ('artifact-roundtrip-v2-'+$env:GITHUB_RUN_ID)
+          $env:NERAL_V2_REMOTE_COPY=$remote
           @'
           import json,os,pathlib
           from scripts.neral_pr542_prospective_v2 import (
