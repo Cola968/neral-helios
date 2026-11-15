@@ -135,3 +135,32 @@ test("slider and reset update the original FAST\/THINK radios without changing r
   map.modeDropdownMenu.dispatchEvent({type:"keydown",key:"Escape",preventDefault(){}});
   assert.equal(map.modeDropdownMenu.hidden,true);
 });
+
+
+test("Markdown bullets with bold labels render as real accessible list items, not literal asterisks",()=>{
+  const vm=require("node:vm");
+  const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function renderReadableModelText(");
+  const end=source.indexOf("  function append(",start);
+  assert.ok(start>0&&end>start);
+  class Element{
+    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.textContent="";}
+    append(child){this.children.push(child)}
+    get innerText(){return this.textContent+this.children.map(c=>c.innerText).join("")}
+  }
+  const renderer=vm.runInNewContext(source.slice(start,end)+"\nrenderReadableModelText",{
+    document:{createElement:tag=>new Element(tag)}
+  });
+  const target=new Element("div");
+  renderer(target,"Einleitung\n\n* **Bedeutung:** Ein Gruß\n* **Herkunft:** Ein altes Wort\n\nFazit.");
+  const lists=target.children.filter(e=>e.tagName==="UL");
+  assert.equal(lists.length,1);
+  assert.equal(lists[0].children.length,2);
+  assert.equal(lists[0].children[0].tagName,"LI");
+  assert.equal(lists[0].children[0].children[0].tagName,"B");
+  assert.doesNotMatch(target.innerText,/\\* \\*\\*/);
+  const safe=new Element("div");
+  renderer(safe,"* **Test:** <script>alert('x')</script>");
+  assert.ok(safe.innerText.includes("<script>"));
+  assert.equal(safe.children.some(e=>e.tagName==="SCRIPT"),false);
+});
