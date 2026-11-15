@@ -25,7 +25,11 @@ COMPUTE = re.compile(
     r"kombinationen?|permutationen?|anzahl|wieviele|wie\s+viele|"
     r"möglichkeiten|belegungen?|logik|modulo|restklasse|"
     r"berechne|berechnen|berechnung|compute|calculate|sum|python|skript|quellcode|"
-    r"code|execute|ausführen|zahlentheorie)\b"
+    r"code|execute|ausführen|zahlentheorie|remainders?|divisors?|"
+    r"arithmetic|power|raised|arrangements?|rooks?|switches?|integer|"
+    r"matrices?|matrix|lattice|steps?|routes?|colorings?|colourings?|"
+    r"passengers?|flights?|seats?|distance|energy|charge|warehouse|"
+    r"products?|multiplication|squared|modulus|even|odd|printed|output)\b"
 )
 
 
@@ -34,7 +38,15 @@ def deterministic_prefilter(question: str, source_certified: bool) -> str:
         raise ValueError("Invalid prefilter input")
     if source_certified:
         return "Z3_SCHEMA"
-    return "PYTHON_SANDBOX" if COMPUTE.search(question) else "DIRECT"
+    if COMPUTE.search(question):
+        return "PYTHON_SANDBOX"
+    # A narrow domain-independent signal for free mathematical wording:
+    # a numeric interrogative.  Noncomputational dialogue remains DIRECT.
+    if (re.search(r"\d",question) and
+            re.search(r"(?i)\b(?:what|which|find|determine|evaluate|work out|"
+                      r"how many|how much|wie viel|wie viele)\b",question)):
+        return "PYTHON_SANDBOX"
+    return "DIRECT"
 
 
 def run_python_in_docker(code: str) -> dict:
@@ -146,7 +158,7 @@ def run_adaptive_planner(
                 preferred="PYTHON_SANDBOX"
         except Exception:
             pass
-    allowed=("PYTHON_SANDBOX","DIRECT")
+    allowed=("PYTHON_SANDBOX","Z3_SCHEMA","DIRECT")
     attempts=0
     feedback=None
     current_route=preferred
@@ -177,25 +189,11 @@ def run_adaptive_planner(
     if len(original)!=2 or preferred=="DIRECT":
         return fallback()
 
-    # A model proposal cannot make an unsupported source independently
-    # provable. Skip it completely unless a trusted full-input oracle exists.
-    if canonical is None:
-        if source_supported is None:
-            from neral_python_logic_verifier import parse_bounded_logic_source
-            from neral_python_math_verifier import parse_strict_arithmetic_source
-            from neral_python_unique_logic import parse_finite_unique_source
-            def source_supported(q: str) -> bool:
-                unique = parse_finite_unique_source(q)
-                return (parse_bounded_logic_source(q) is not None
-                        or parse_strict_arithmetic_source(q) is not None
-                        or (unique is not None
-                            and unique.number_of_solutions == 1))
-        try:
-            supported=source_supported(question) is True
-        except Exception:
-            supported=False
-        if not supported:
-            return fallback()
+    # Post-verification architecture: a strict source parser must NOT
+    # suppress model/tool planning for a computational question. An unknown
+    # source may try a sandbox, but never passes verification based on its
+    # own self-written assert. The optional source_supported callback is
+    # retained for backwards-compatible tests, not a promotion authority.
 
     # FULL-source grammar verification is independent of the model. Once
     # recognized, do not permit a model to change Z3 into Python or DIRECT.
@@ -238,6 +236,16 @@ def run_adaptive_planner(
         route=proposal["strategy"]
         current_route=route if route in ROUTES else preferred
         if route=="DIRECT" or route not in allowed:
+            return fallback()
+        if route=="Z3_SCHEMA":
+            # No independent full-source certificate: a model-made schema
+            # plus lexical coverage (or even Z3 SAT) cannot prove semantics.
+            # One targeted repair may choose sandbox; still fail closed.
+            if canonical is None and repair_round<MAX_REPAIRS:
+                feedback="source_not_certified"
+                preferred="PYTHON_SANDBOX"
+                allowed=("PYTHON_SANDBOX","DIRECT")
+                continue
             return fallback()
         code=proposal.get("code")
         if type(code) is not str or not 1<=len(code.encode("utf8"))<=4096:
