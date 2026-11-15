@@ -12,8 +12,10 @@
     fast:document.querySelector('input[name="mode"][value="fast"]'),
     think:document.querySelector('input[name="mode"][value="think"]')
   };
-  if(!trigger||!menu||!low||!high||!slider||!track||!sliderTitle||
-     !sliderCaption||!sliderReset||!radios.fast||!radios.think)return;
+  // Optional enhancement: never prevent code/math rendering when a preview
+  // fixture or older embedded shell does not include the slider.
+  if(trigger&&menu&&low&&high&&slider&&track&&sliderTitle&&
+     sliderCaption&&sliderReset&&radios.fast&&radios.think){
   const current=$("modeDropdownLabel");
   const entries={fast:low,think:high};
   const labels={fast:"LOW",think:"HIGH"};
@@ -69,6 +71,7 @@
     if(!menu.hidden&&!menu.contains(event.target)&&!trigger.contains(event.target))close();
   });
   refresh();
+  }
 
   // Existing tools menu now lives in the top-right chrome, without cloning
   // controls or attaching duplicate event handlers.
