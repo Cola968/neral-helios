@@ -1,0 +1,147 @@
+name: NERAL PR542 fresh v2 CPU preflight + immutable seal (NO GPU)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - prospective_v2_requests/cpu_preflight.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-pr542-newblind100-v2-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout immutable PR542 code without write permission
+        uses: actions/checkout@v4
+        with:
+          ref: 737413f03b347676108d507ff3fe7693975dd269
+          path: source
+          persist-credentials: false
+      - name: Checkout CPU harness and tests only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: review
+          persist-credentials: false
+      - name: Prove immutable source, preflight request and create isolated CPU Python
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $review=Join-Path $env:GITHUB_WORKSPACE 'review'
+          $sha=(& git -C $source rev-parse HEAD).Trim()
+          if($sha -ne '737413f03b347676108d507ff3fe7693975dd269'){
+            throw 'PR542 pinned source mismatch'
+          }
+          $r=Get-Content -LiteralPath (Join-Path $review 'prospective_v2_requests\cpu_preflight.json') -Raw | ConvertFrom-Json
+          if($r.authorization -ne 'CPU_ONLY_VALIDATE_ARCHIVE_AND_SEAL' -or
+             $r.old_sealed_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258'){
+            throw 'CPU-preflight authorization mismatch'
+          }
+          $base=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{
+            Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          }
+          if(-not(Test-Path -LiteralPath $base -PathType Leaf)){throw 'Local Python missing'}
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-pr542-v2-preflight-venv-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse reused virtualenv'}
+          & $base -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'No CPU virtualenv'}
+          $py=Join-Path $venv 'Scripts\python.exe'
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $source 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Pinned dependencies missing'}
+          $env:PYTHONPATH=$review+';'+$source
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('NERAL_V2_PY='+$py+[Environment]::NewLine+
+             'NERAL_V2_SOURCE='+$source+[Environment]::NewLine+
+             'NERAL_V2_REVIEW='+$review+[Environment]::NewLine+
+             'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host 'CPU_PREPARATION_ONLY; GPU_OFFLINE; source SHA verified'
+      - name: CPU unit suite for symmetric scoring and raw data persistence
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:NERAL_V2_PY -B -m unittest discover -s (Join-Path $env:NERAL_V2_REVIEW 'tests') -p test_neral_pr542_prospective_v2_cpu.py -v
+          if($LASTEXITCODE -ne 0){throw 'Synthetic CPU harness unit tests failed'}
+          Write-Host 'PROSPECTIVE_V2_CPU_UNIT_TESTS_OK'
+      - name: Real Docker sandbox and PR537 guard CPU-only smoke (no Ollama calls)
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from neral_tir_experimental import run_experimental_tir
+          from neral_tir_regression_guard import choose_guarded_tir_reply
+          q="What integer will the following exact Python 3 program print? Return one integer only.\n"+chr(96)*3+"python\nprint(9)\n"+chr(96)*3
+          msg=[{"role":"system","content":"You are a precise local assistant."},{"role":"user","content":q}]
+          def forbid_any_model(turns):
+              raise RuntimeError("Unexpected model inference in CPU-only smoke")
+          proposed=run_experimental_tir(msg,forbid_any_model)
+          guarded=choose_guarded_tir_reply(proposed,msg,forbid_any_model)
+          assert guarded["selection_policy"]=="independently_verified_tir"
+          assert guarded["verification_scope"]=="exact_user_python_execution"
+          assert guarded["tool_used"]=="neral_python_sandbox"
+          assert guarded["text"].strip()=="9"
+          print("SANDBOX_DOCKER_REAL_CPU_SOURCE_VERIFIED; NO_INFERENCE")
+          '@ | & $env:NERAL_V2_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Real Docker CPU source verification failed'}
+      - name: CPU dummy persist, reread and fresh 100 hash seal; no tasks uploaded
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:USERPROFILE 'NERAL-Blind100-Evidence'
+          if(-not(Test-Path -LiteralPath $root)){New-Item -ItemType Directory -Path $root -Force|Out-Null}
+          $dummy=Join-Path $root ('cpu-dummy-'+$env:GITHUB_RUN_ID)
+          $seal=Join-Path $root ('fresh100-seal-'+$env:GITHUB_RUN_ID)
+          $script=Join-Path $env:NERAL_V2_REVIEW 'scripts\neral_pr542_prospective_v2.py'
+          & $env:NERAL_V2_PY -B $script --cpu-dry-run --out $dummy
+          if($LASTEXITCODE -ne 0){throw 'Dummy durable write/re-read failed'}
+          & $env:NERAL_V2_PY -B $script --seal --out $seal
+          if($LASTEXITCODE -ne 0){throw 'Fresh dataset seal generation failed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('NERAL_V2_DUMMY='+$dummy+[Environment]::NewLine+
+             'NERAL_V2_SEAL='+$seal+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+      - name: Independent process verifies persistent dummy and sealed dataset hash
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json,os,pathlib
+          from scripts.neral_pr542_prospective_v2 import (
+              records,make_cases,verify_manifest,SEED,sha256_file)
+          env=os.environ
+          dummy=pathlib.Path(env["NERAL_V2_DUMMY"])
+          seal=pathlib.Path(env["NERAL_V2_SEAL"])
+          items=records(dummy/"raw-200.jsonl",4)
+          receipt=json.loads((dummy/"dummy-receipt.json").read_text(encoding="utf8"))
+          assert all(x["correct"] for x in items)
+          assert receipt["sha256"]==sha256_file(dummy/"raw-200.jsonl")
+          manifest=json.loads((seal/"new-seal.json").read_text(encoding="utf8"))
+          cases,sha=make_cases(SEED)
+          verify_manifest(manifest,cases,sha)
+          assert sha!=manifest["old_sealed_sha256"]
+          print("INDEPENDENT_CPU_DRY_RUN_PASS records=4 dataset_size=100")
+          print("NEW_FROZEN_SHA256 "+sha)
+          '@ | & $env:NERAL_V2_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Independent disk reread or seal check failed'}
+      - name: Upload CPU dummy raw plus source-verified manifest (NO task texts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-preflight-seal-and-dummy-${{ github.run_id }}
+          path: |
+            ${{ env.USERPROFILE }}\NERAL-Blind100-Evidence/cpu-dummy-${{ github.run_id }}/raw-200.jsonl
+            ${{ env.USERPROFILE }}\NERAL-Blind100-Evidence/cpu-dummy-${{ github.run_id }}/dummy-receipt.json
+            ${{ env.USERPROFILE }}\NERAL-Blind100-Evidence/fresh100-seal-${{ github.run_id }}/new-seal.json
+          retention-days: 90
+          if-no-files-found: error
