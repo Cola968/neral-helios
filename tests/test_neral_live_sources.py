@@ -194,6 +194,55 @@ class LiveSourcesTests(unittest.TestCase):
                          ["DuckDuckGo HTML","Bing RSS","Wikipedia DE"])
         self.assertFalse(any("bsag" in row["url"] for row in result["previews"]))
 
+    def test_news_previews_survive_failed_https_probe_without_stale_wikipedia(self):
+        class News:
+            def search(self, query, on_provider=None):
+                if on_provider:on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"title":"Gaming-Angebot",
+                                    "url":"https://example.org/games"}]}
+            def search_bing(self,query,on_provider=None):
+                if on_provider:on_provider("Bing RSS")
+                return []
+            def search_news(self,query,on_provider=None):
+                if on_provider:on_provider("Google News RSS")
+                return [{"title":"BER Flughafen: Neue Flugverbindungen",
+                         "url":"https://news.google.com/rss/articles/ber-new",
+                         "snippet":"BER Nachrichten aus den letzten Tagen"}]
+            def search_wikipedia(self,query,on_provider=None):
+                raise AssertionError("Real topical news previews are better than stale Wikipedia")
+        app=Flask(__name__);register_web_search_api(app,News())
+        with patch("neral_web_api.verify_public_https_url",return_value=None):
+            resp=app.test_client().post("/api/web/search/stream",
+                json={"query":"Aktuelle BER Nachrichten","verify_links":True})
+            events=[json.loads(x) for x in resp.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual(result["results"],[])
+        self.assertEqual(result["provider"],"Google News RSS")
+        self.assertEqual([x["url"] for x in result["previews"]],
+                         ["https://news.google.com/rss/articles/ber-new"])
+        self.assertEqual(len([x for x in events if x["type"]=="candidate"]),1)
+
+    def test_bing_candidates_survive_further_fallback_if_wikipedia_empty(self):
+        class Bing:
+            def search(self,query,on_provider=None):
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"title":"Kochen","url":"https://example.org/food"}]}
+            def search_bing(self,query,on_provider=None):
+                return [{"title":"Flughafen Frankfurt Main",
+                         "url":"https://www.frankfurt-airport.com/en.html",
+                         "snippet":"Informationen zum Flughafen Frankfurt"}]
+            def search_wikipedia(self,query,on_provider=None):
+                return []
+        app=Flask(__name__);register_web_search_api(app,Bing())
+        with patch("neral_web_api.verify_public_https_url",return_value=None):
+            result=app.test_client().post("/api/web/search",
+                json={"query":"Flughafen Frankfurt","verify_links":True}).get_json()
+        self.assertEqual([x["url"] for x in result["previews"]],
+                         ["https://www.frankfurt-airport.com/en.html"])
+
     def test_current_news_uses_live_news_feed_before_wikipedia_reference(self):
         class CurrentNews:
             def search(self, query, on_provider=None):
