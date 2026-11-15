@@ -182,6 +182,17 @@ class AdaptivePlannerCPU(unittest.TestCase):
             else:
                 sys.modules["neral_tir_experimental"] = old
 
+    def test_raw_path_delegates_to_unmodified_pr537_guard(self):
+        from unittest.mock import patch
+        from neral_tir_regression_guard import choose_guarded_tir_reply
+        with patch("neral_tir_regression_guard.choose_guarded_tir_reply",
+                   wraps=choose_guarded_tir_reply) as guard:
+            answer = self.exercise()
+        self.assertTrue(guard.called)
+        self.assertFalse(answer["verified"])
+        self.assertEqual(answer["text"], "Original Qwen answer")
+        self.assertEqual(self.fallback_calls, [self.original])
+
     def test_python_stdout_must_match_independent_answer(self):
         answer = self.exercise(verify_python=lambda **args: {
             "verified": True, "full_source": True, "all_conditions_checked": True,
@@ -191,7 +202,8 @@ class AdaptivePlannerCPU(unittest.TestCase):
 
     def test_multiturn_cannot_claim_full_source_python(self):
         self.messages.insert(1, {"role": "user", "content": "An extra condition."})
-        original = [dict(x) for x in self.messages]
+        self.original = [dict(x) for x in self.messages]
+        original = self.original
         answer = self.exercise(verify_python=lambda **args: {
             "verified": True, "full_source": True, "all_conditions_checked": True,
             "answer": 5, "proof_backend": "independent_enumeration"})
