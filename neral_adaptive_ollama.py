@@ -96,6 +96,14 @@ def _parse_proposal(text: object, allowed: list[str] | tuple[str, ...]) -> dict:
     packet = json.loads(text, object_pairs_hook=_strict_pairs)
     if type(packet) is not dict or packet.get("strategy") not in allowed:
         raise ValueError("Unsupported proposal route")
+    # Ollama structured-output sampling can emit both optional properties.
+    # Ignore ONLY an exactly empty, type-correct *irrelevant* schema field
+    # in a Python plan. Never accept a second nonempty instruction channel.
+    if (packet["strategy"] == "PYTHON_SANDBOX"
+            and set(packet) == {"strategy","code","schema"}
+            and type(packet.get("schema")) is dict
+            and packet["schema"] == {}):
+        packet = {"strategy":packet["strategy"],"code":packet["code"]}
     if packet["strategy"] == "DIRECT":
         if set(packet) != {"strategy"}:
             raise ValueError("Unexpected direct proposal payload")
