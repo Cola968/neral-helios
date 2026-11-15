@@ -20,7 +20,7 @@ import time
 import traceback
 from urllib.request import Request
 
-PIN="6ebe453af75c26d77767fb7e6cdd14c6896295ca"
+PIN="fbc6d30d7645f2621d1cda17b0226fba2b162e98"
 RUN_AUTH="NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE"
 BASE="qwen3.5:9b"
 TUNED="neral-qwen35-qlora-v1:latest"
