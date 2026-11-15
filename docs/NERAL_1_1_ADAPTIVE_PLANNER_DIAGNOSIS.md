@@ -53,3 +53,26 @@ Das vorhandene Original-ZIP kann ausschließlich lesend und ohne Ausgabe von Auf
     python -B -m scripts.neral_1_1_offline_aggregate /pfad/zum/original-artefakt.zip
 
 CPU-CI: neral-1-1-adaptive-planner-cpu.yml umfasst die neuen synthetischen Controller- und Integritätstests sowie die 16 bestehenden PR-#537/#542-CPU-Suiten. Erst nach erfolgreicher CI, zusätzlichem unabhängigem Quell-Verifier und gesondertem neuen Versiegelungsverfahren kommt ein frischer GPU-Blindtest infrage. Ziel 85/100 ist ein Entwicklungsziel, kein bereits bewiesenes Resultat.
+
+
+## Schritt 2 – Unabhängiger Python-Logik-Verifier (synthetische CPU-Tests)
+
+Implementiert im isolierten Branch:
+
+- neral_python_logic_verifier.py: parse_bounded_logic_source, independently_count, independent_python_certificate.
+- tests/test_neral_python_logic_verifier.py: 19 neue synthetische CPU-Verträge, darunter Gegenbeispiele, vergessene Zusatzbedingungen, ungültige Referenzen, Ressourcenlimits, exakte Ausgabe und Integration mit dem experimentellen Controller.
+- Unbekannte Klauseln oder Format-Anweisungen werden nicht stillschweigend entfernt: Der vollständige Eingabetext muss innerhalb der unterstützten Grammatik geparst werden.
+- Die maximale vollständige Suche umfasst 120.000 Belegungen. Der unabhängige Oracle-Code verwendet keine Modell-Goldantworten, keine Blindtestfälle, keine Ausführung generierten Codes, keine GPU und keine Netzwerkanfragen.
+- Die Ausgabe der Docker-Sandbox wird nur dann als unabhängig geprüft markiert, wenn sie mit dem vom Oracle selbst errechneten Ergebnis exakt übereinstimmt. Die Python-Ausführung allein bleibt weiterhin execution_only.
+- Der neue Verifier ist derzeit auf bestimmte englische, exakt strukturierte Sätze beschränkt. Beispielgrammatiken: Farbketten mit explizit unterschiedlichen Nachbarn und festen/verbotenen Positionen; Permutationen mit vor/nach/erstem/letztem Platz und Nachbarschaftsverbot; Tupel mit Modulo-Summe, paarweise verschiedenen Werten und fester Anzahl gerader Einträge.
+- Keine freie deutsch-/englischsprachige Allzweck-Aufgabeninterpretation. Unter anderem beliebige Zahlentheorie, komplexe Farbgraphen, allgemeine Rätseltexte und andere Zusatzbedingungen bleiben nicht verifiziert.
+- Der Controller ist nicht in die produktive THINK-API eingebunden. Die neue Verifier-Signatur wurde auch nicht in den unveränderten PR-#537-Guard eingebaut; das müsste vor einer Live-Aktivierung als eigene nachweisbare Sicherheitsgrenze untersucht werden.
+- Ein zusätzlicher Modellaufruf nur für Planung ist für diese CPU-Vorbereitung nicht erforderlich. Aussagen über reale Modelllatenz sind mangels GPU-Messung nicht möglich.
+
+Beispiel einer vollständig erkannten synthetischen Eingabe:
+
+    Count permutations of numbers 1 through 4. Number 1 is before number 2.
+
+Deren unabhängig ermitteltes Ergebnis ist 12. Wird an den Text etwa eine unbekannte weitere Bedingung angehängt, ist die Zertifizierung gesperrt, selbst wenn die Python-Sandbox 12 liefert.
+
+Die Tests basieren ausschließlich auf neuen synthetischen Eingaben; eingefrorene Blindtests wurden weder erneut gestartet noch als Trainings-/Entwicklungsdaten benutzt. Die Zielmarke von 85/100 wird durch diesen CPU-Schritt weder belegt noch prognostiziert.
