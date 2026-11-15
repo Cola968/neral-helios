@@ -58,7 +58,7 @@ def require_gpu():
     if not all(tags.get(k) for k in (BASE_TAG,TUNED_TAG)):
         raise RuntimeError("Required local model digest missing")
     info=subprocess.run(["docker","info","--format","{{.ServerVersion}}"],
-             capture_output=True,timeout=12,check=False)
+             capture_output=True,text=True,timeout=12,check=False)
     if info.returncode!=0:
         raise RuntimeError("Docker server unavailable")
     if subprocess.run(["docker","image","inspect","python:3.11-alpine"],
@@ -356,7 +356,9 @@ def run_case(case,transport):
               "sandbox_traces":docker_traces}
     }
 
-def live(out:Path):
+def live(out:Path, *, resume_sealed_from:Path|None=None,
+         resume_corpus_sha256:str|None=None,
+         resume_pilot_sha256:str|None=None):
     import neral_nl_local_ollama as local
     if (type(SOURCE_SHA) is not str or len(SOURCE_SHA)!=40
             or any(c not in "0123456789abcdef" for c in SOURCE_SHA)):
@@ -373,17 +375,47 @@ def live(out:Path):
         raise RuntimeError("Blind cases cannot be written into source checkout")
     hardware=require_gpu()
     out.mkdir(parents=True,exist_ok=False)
-    # Pilot BEFORE drawing new seed. Never condition seed generation on any
-    # candidate question, never change code after looking at prospective gold.
-    p=pilot(local._localhost_transport)
-    write_new(out/"pilot-safety-raw.json",json_bytes(p))
-    print("BLIND100_PILOT "+json.dumps({
-        "cases":len(p["cases"]),"base_correct":p["base_correct"],
-        "bounded_correct":p["bounded_correct"],"losses":p["losses"]}),flush=True)
-    if p["losses"]:
-        raise RuntimeError("Qwen fallback pilot regression; prospective corpus was not generated")
-    seed_hex=secrets.token_hex(32)
-    cases,blob=frozen_cases(seed_hex)
+    # Pilot is executed BEFORE generating ANY unseen case on the first run.
+    # Recovery requires the same original 100 and seed (hash-checked), not
+    # a new draw, and reuses the prior pilot receipt with zero losses.
+    if resume_sealed_from is None:
+        p=pilot(local._localhost_transport)
+        pilot_blob=json_bytes(p)
+        write_new(out/"pilot-safety-raw.json",pilot_blob)
+        print("BLIND100_PILOT "+json.dumps({
+            "cases":len(p["cases"]),"base_correct":p["base_correct"],
+            "bounded_correct":p["bounded_correct"],"losses":p["losses"]}),flush=True)
+        if p["losses"]:
+            raise RuntimeError("Qwen fallback pilot regression; corpus not created")
+        seed_hex=secrets.token_hex(32)
+        cases,blob=frozen_cases(seed_hex)
+    else:
+        if (type(resume_corpus_sha256) is not str or len(resume_corpus_sha256)!=64
+                or type(resume_pilot_sha256) is not str or len(resume_pilot_sha256)!=64):
+            raise ValueError("Recovery requires both original full SHA256 pins")
+        old=resume_sealed_from.resolve(strict=True)
+        if not old.is_dir() or old==out:
+            raise ValueError("Original immutable source corpus not found")
+        original_cases=(old/"prospective100-sealed-cases.jsonl").read_bytes()
+        pilot_blob=(old/"pilot-safety-raw.json").read_bytes()
+        seed_hex=(old/"prospective100-seed-secret.txt").read_text("utf8").strip()
+        if (len(seed_hex)!=64 or any(x not in "0123456789abcdef" for x in seed_hex)
+                or sha(original_cases)!=resume_corpus_sha256
+                or sha(pilot_blob)!=resume_pilot_sha256):
+            raise RuntimeError("Original SEALED corpus/seed/pilot SHA mismatch")
+        p=json.loads(pilot_blob)
+        if (p.get("losses")!=0 or p.get("base_correct")!=4
+                or p.get("bounded_correct")!=4 or len(p.get("cases",[]))!=4):
+            raise RuntimeError("Original model quality-pilot was not green")
+        cases,blob=frozen_cases(seed_hex)
+        if blob!=original_cases:
+            raise RuntimeError("Recreated future cases differ from the original archive")
+        write_new(out/"pilot-safety-raw.json",pilot_blob)
+        print("BLIND100_RESUME_UNCHANGED_SEED_CORPUS "+json.dumps({
+            "prospective100_sha256":resume_corpus_sha256,
+            "seed_sha256":sha(seed_hex.encode("utf8")),
+            "pilot_sha256":resume_pilot_sha256,
+            "cases":100,"no_new_seed_generated":True},sort_keys=True),flush=True)
     train=None
     try:
         with tempfile.TemporaryDirectory(prefix="neral-exclusion-",dir=str(out)) as folder:
@@ -478,13 +510,18 @@ def main():
     p.add_argument("--cpu-preflight",action="store_true")
     p.add_argument("--live",action="store_true")
     p.add_argument("--out",type=Path)
+    p.add_argument("--resume-sealed-from",type=Path)
+    p.add_argument("--resume-corpus-sha256")
+    p.add_argument("--resume-pilot-sha256")
     args=p.parse_args()
     if (args.authorize!=AUTHORIZE or args.cpu_preflight==args.live
             or (args.live and args.out is None)):
         p.error("Explicit prospective-only authorization and mode required")
     if args.cpu_preflight:
         cpu_preflight();return
-    stats=live(args.out)
+    stats=live(args.out,resume_sealed_from=args.resume_sealed_from,
+               resume_corpus_sha256=args.resume_corpus_sha256,
+               resume_pilot_sha256=args.resume_pilot_sha256)
     # Scoring is evidence: missing requested threshold does not erase raw data.
     # A separate release gate MUST reject a failed benchmark, never autopromote.
     print("BLIND100_RELEASE_GATE "+("PASS" if stats["pass_gate"] else "BLOCKED"),
