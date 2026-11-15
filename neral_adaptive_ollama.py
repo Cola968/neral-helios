@@ -39,6 +39,11 @@ _INSTRUCTION = (
     "fully source-certified finite constraint format. "
     "Prefer PYTHON_SANDBOX for finite combinatorics, constrained enumerations "
     "and exact arithmetic; keep code minimal, deterministic, and within limits. "
+    "For unique finite truth-teller/room-assignment puzzles, enumerate "
+    "ALL assignments with itertools.product/permutations, collect valid "
+    "assignments in solutions, assert len(solutions) == 1, and print the "
+    "unique answer encoded as the user requested. Never claim uniqueness "
+    "when zero or multiple assignments satisfy the text. "
     "For Python, include a meaningful top-level assert comparing a "
     "computed variable with an independently calculated expression or "
     "condition from the task. No trivial assert True or assert x==x. "
@@ -122,6 +127,20 @@ def make_local_adaptive_proposer(model_tag: str, *, transport=None):
         raise ValueError("Invalid transport")
     send = _localhost_transport if transport is None else transport
 
+    feedback_instructions = {
+        "python_missing_assert":
+            "Fehlendes assert zur Gegenprüfung der Aufgabenbedingungen. "
+            "Ergänze mindestens ein nicht-triviales top-level assert, "
+            "ohne den Aufgabentext zu ändern.",
+        "python_missing_print":
+            "Fehlende print(...)-Ausgabe des Endergebnisses. "
+            "Füge am Ende des Skripts print(answer) für die berechnete "
+            "nichtnegative Ganzzahl ein.",
+        "python_runtime_failed":
+            "Python-Lauf schlug fehl. Behebe den Syntax-/Laufzeitfehler "
+            "in einem anders aufgebauten Python-AST.",
+    }
+
     def propose(messages: list[dict], signal: dict) -> dict:
         if (type(messages) is not list or len(messages) != 2 or
                 any(type(m) is not dict or set(m) != {"role", "content"}
@@ -137,6 +156,8 @@ def make_local_adaptive_proposer(model_tag: str, *, transport=None):
             + ". Preferred strategy: " + params["preferred_strategy"]
             + ". Repair round: " + str(params["repair_round"])
             + ". Previous rejection (fixed code only): " + feedback
+            + ". Specific repair instruction: "
+            + feedback_instructions.get(feedback, "No additional repair instruction.")
             + ". If the previous route failed, revise the proposed plan. "
             + "Never guess the result or claim independent verification."
         )
