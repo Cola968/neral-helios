@@ -266,7 +266,7 @@ class IndependentFiniteLogicCPU(unittest.TestCase):
         self.assertTrue(verified["verified"])
         self.assertFalse(rejected["verified"])
 
-    def test_controller_gates_ambiguous_without_qlora(self):
+    def test_controller_may_try_ambiguous_but_never_promotes_without_uniqueness(self):
         probes=[]
         out=run_adaptive_planner(turns(ROOM_AMBIGUOUS),
             lambda *args:probes.append("model") or {
@@ -274,7 +274,7 @@ class IndependentFiniteLogicCPU(unittest.TestCase):
             lambda _:"UNTOUCHED_FALLBACK",
             lambda _:probes.append("docker") or {"status":"PASSED","output":"1"},
             verify_python_full_source)
-        self.assertEqual(probes,[])
+        self.assertEqual(probes,["model","docker"])
         self.assertFalse(out["verified"])
         self.assertEqual(out["text"],"UNTOUCHED_FALLBACK")
 
