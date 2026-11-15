@@ -63,7 +63,7 @@ def build()->list[dict]:
             all((i,j) not in blocked for i,j in enumerate(p))
             for p in permutations(range(n))))
     add("logic","unsupported_free_logic",
-        "Among nine named stations, count allocations satisfying a conditional exception that has not been specified.",0)
+        "Count allocations of four named machines into four numbered rooms, one machine per room. Machine 1 must occupy room 1. How many allocations are possible?",6)
     # Programming: six different syntax ASTs, paraphrased original-code questions.
     fence=chr(96)*3
     programs=[
