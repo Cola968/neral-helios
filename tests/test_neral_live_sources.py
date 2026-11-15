@@ -194,6 +194,37 @@ class LiveSourcesTests(unittest.TestCase):
                          ["DuckDuckGo HTML","Bing RSS","Wikipedia DE"])
         self.assertFalse(any("bsag" in row["url"] for row in result["previews"]))
 
+    def test_current_news_uses_live_news_feed_before_wikipedia_reference(self):
+        class CurrentNews:
+            def search(self, query, on_provider=None):
+                if on_provider:
+                    on_provider("DuckDuckGo HTML")
+                    on_provider("Bing RSS")
+                return {"query":query,"provider":"Bing RSS",
+                    "providers_contacted":["DuckDuckGo HTML","Bing RSS"],
+                    "results":[{"title":"Irrelevantes Gaming-Angebot",
+                                "url":"https://example.org/gaming"}]}
+            def search_news(self, query, on_provider=None):
+                if on_provider:on_provider("Google News RSS")
+                return [{"title":"BER Flughafen: Neue Flugverbindungen",
+                         "url":"https://news.google.com/rss/articles/ber-2026",
+                         "snippet":"Aktuelle BER Nachrichten zu Flugverbindungen"}]
+            def search_wikipedia(self, query, on_provider=None):
+                raise AssertionError("News relevance must be checked before a stale encyclopedia")
+        app=Flask(__name__)
+        register_web_search_api(app,CurrentNews())
+        with patch("neral_web_api.verify_public_https_url",side_effect=lambda url:url):
+            resp=app.test_client().post("/api/web/search/stream",
+                json={"query":"Aktuelle BER Nachrichten","verify_links":True})
+            events=[json.loads(x) for x in resp.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual(result["provider"],"Google News RSS")
+        self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+                         ["DuckDuckGo HTML","Bing RSS","Google News RSS"])
+        self.assertIn("BER Flughafen",result["results"][0]["title"])
+        self.assertEqual(result["results"][0]["url"],
+                         "https://news.google.com/rss/articles/ber-2026")
+
     def test_wikipedia_reference_fallback_after_offtopic_bing_results(self):
         class Three:
             def search(self,query,on_provider=None):
