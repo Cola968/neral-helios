@@ -774,7 +774,8 @@
          (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
         if(!webQuery){
-          const answer="Wonach soll ich im Internet suchen? Nenne bitte ein konkretes Thema oder eine Frage, zum Beispiel „Suche nach PEAK Spielstand speichern“.";
+          const answer="Wonach soll ich im Internet suchen? Nenne bitte ein konkretes Thema oder eine Frage.";
+          lastWebQuery="";
           append("assistant",answer,"NERAL",true);
           memory.push({role:"user",content:text},{role:"assistant",content:answer});
           if(memory.length>12)memory.splice(0,memory.length-12);
