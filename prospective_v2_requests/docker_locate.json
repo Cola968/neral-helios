@@ -1,0 +1,5 @@
+{
+  "authorization": "READONLY_DOCKER_WSL_DIAGNOSTIC",
+  "no_gpu": true,
+  "no_merge": true
+}
