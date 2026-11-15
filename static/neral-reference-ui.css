@@ -527,7 +527,7 @@ html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
 
 /* LOW/HIGH effort picker: compact native range control, matching the supplied
    stepped-slider reference without advertising nonexistent intermediate modes. */
-.mode-slider-popover{
+.mode-dropdown-menu.mode-slider-popover{
   width:min(306px,calc(100vw - 26px));min-width:0;
   padding:12px 14px 10px;border-radius:17px;
   background:#fbfbfc;border-color:#e0e1e6;
