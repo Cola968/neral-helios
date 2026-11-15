@@ -102,9 +102,9 @@ test("web activity displays the actual submitted query without fabricated image-
   assert.doesNotMatch(js,/Bildersuche tur[b]?ofan|Ausgeführte 3 Suchen/);
 });
 
-test("conversation clearing and switching invalidate the previous web query",()=>{
+test("conversation clearing, switching, and Web disabling invalidate all search intent",()=>{
   const js=read("static/neral-preview.js");
-  assert.match(js,/addEventListener\?\.\("neral:chat-cleared",\(\)=>\{lastWebQuery="";\}\)/);
-  assert.match(js,/addEventListener\?\.\("neral:load-chat",\(\)=>\{lastWebQuery="";\}\)/);
-  assert.match(js,/if\(!\$\("useWebSearch"\)\.checked\)lastWebQuery="";/);
+  assert.match(js,/addEventListener\?\.\("neral:chat-cleared",\(\)=>\{\s*lastWebQuery="";pendingWebTopic=false;\s*\}\)/);
+  assert.match(js,/addEventListener\?\.\("neral:load-chat",\(\)=>\{\s*lastWebQuery="";pendingWebTopic=false;\s*\}\)/);
+  assert.match(js,/if\(!\$\("useWebSearch"\)\.checked\)\{lastWebQuery="";pendingWebTopic=false;\}/);
 });
