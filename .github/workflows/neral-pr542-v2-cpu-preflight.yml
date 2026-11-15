@@ -91,6 +91,15 @@ jobs:
           def forbid_any_model(turns):
               raise RuntimeError("Unexpected model inference in CPU-only smoke")
           print("CPU_SOURCE_STATIC_PARSE",_isolated_readonly_python_source(q) is not None)
+          import subprocess
+          for label,command in (("cli",["docker","--version"]),
+                                ("daemon",["docker","info","--format","{{.ServerVersion}}"]),
+                                ("image",["docker","image","inspect","python:3.11-alpine"])):
+              try:
+                  probe=subprocess.run(command,capture_output=True,timeout=5,check=False)
+                  print("CPU_DOCKER_"+label.upper()+"_EXITCODE",probe.returncode)
+              except (OSError,subprocess.TimeoutExpired):
+                  print("CPU_DOCKER_"+label.upper()+"_EXITCODE","unavailable")
           isolated=execute_tir_tool("python_sandbox",code)
           print("CPU_SANDBOX_TOOL_DIAGNOSTIC",{k:isolated.get(k) for k in ("status","error_type","verification_scope")})
           proposed=run_experimental_tir(msg,forbid_any_model)
