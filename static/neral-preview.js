@@ -703,13 +703,25 @@
       history=history.slice(2);
     return history;
   }
-  let lastWebQuery="";
+  let lastWebQuery="",pendingWebTopic=false;
+  // A topic-less, explicitly requested lookup may ask one local follow-up.
+  // Permission is limited to the immediately following substantive reply.
+  function isPendingWebTopic(value){
+    const q=String(value||"").trim();
+    return q.length>=3 && !skipWebForLocalBasics(q) &&
+      !/^(?:nein|nee|ne|danke|egal|lass|abbrechen|abbruch|stop|später|doch nicht)(?:[\s!.?,]|$)/iu.test(q) &&
+      !/^(?:ok|okay|ja|klar|alles klar)[\s!.?,]*$/iu.test(q);
+  }
   $("useWebSearch").addEventListener("change",()=>{
-    if(!$("useWebSearch").checked)lastWebQuery="";
+    if(!$("useWebSearch").checked){lastWebQuery="";pendingWebTopic=false;}
   });
-  // Conversation boundaries must not reuse search text from another chat.
-  browser.addEventListener?.("neral:chat-cleared",()=>{lastWebQuery="";});
-  browser.addEventListener?.("neral:load-chat",()=>{lastWebQuery="";});
+  // Conversation boundaries must not reuse search intent from another chat.
+  browser.addEventListener?.("neral:chat-cleared",()=>{
+    lastWebQuery="";pendingWebTopic=false;
+  });
+  browser.addEventListener?.("neral:load-chat",()=>{
+    lastWebQuery="";pendingWebTopic=false;
+  });
   async function sendMessage(event) {
     event.preventDefault();
     if(busy) {errors.textContent="NERAL bearbeitet noch die vorherige Anfrage.";return;}
@@ -734,6 +746,8 @@
     activeRequest=controller;
     const startedEpoch=conversationEpoch;
     const selectedAttachments=attachments.slice();
+    const pendingTopicRequested=pendingWebTopic;
+    pendingWebTopic=false; // one turn only; cancel or other tasks consume it
     // Place the actual submitted message in the transcript immediately.
     // A response is saved to memory only after its terminal success event.
     const userNode=append("user",text+(selectedAttachments.length?
@@ -770,12 +784,14 @@
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
       if($("useWebSearch").checked && !genericAttachmentOnly &&
-         shouldSearchWeb(text,lastWebQuery) &&
+         (shouldSearchWeb(text,lastWebQuery) ||
+          (pendingTopicRequested && isPendingWebTopic(text))) &&
          (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
         if(!webQuery){
           const answer="Wonach soll ich im Internet suchen? Nenne bitte ein konkretes Thema oder eine Frage.";
           lastWebQuery="";
+          pendingWebTopic=true;
           append("assistant",answer,"NERAL",true);
           memory.push({role:"user",content:text},{role:"assistant",content:answer});
           if(memory.length>12)memory.splice(0,memory.length-12);
