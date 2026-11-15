@@ -111,6 +111,7 @@ def run_adaptive_planner(
     verify_z3: Callable[..., dict] = verify_z3_source,
     *,
     source_parser: Callable[[str], dict | None] | None = None,
+    source_supported: Callable[[str], bool] | None = None,
 ) -> dict:
     """Independent source-proof-first, at most ONE repair, fail-fast.
 
@@ -165,6 +166,22 @@ def run_adaptive_planner(
 
     if len(original)!=2 or preferred=="DIRECT":
         return fallback()
+
+    # A model proposal cannot make an unsupported source independently
+    # provable. Skip it completely unless a trusted full-input oracle exists.
+    if canonical is None:
+        if source_supported is None:
+            from neral_python_logic_verifier import parse_bounded_logic_source
+            from neral_python_math_verifier import parse_strict_arithmetic_source
+            def source_supported(q: str) -> bool:
+                return (parse_bounded_logic_source(q) is not None
+                        or parse_strict_arithmetic_source(q) is not None)
+        try:
+            supported=source_supported(question) is True
+        except Exception:
+            supported=False
+        if not supported:
+            return fallback()
 
     # FULL-source grammar verification is independent of the model. Once
     # recognized, do not permit a model to change Z3 into Python or DIRECT.
