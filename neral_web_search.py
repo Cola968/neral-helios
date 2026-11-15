@@ -7,6 +7,8 @@ or change their output; search hits are untrusted data, never instructions.
 from __future__ import annotations
 
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from html import unescape
 from xml.etree import ElementTree
@@ -23,6 +25,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BING_ENDPOINT = "https://www.bing.com/search"
+NEWS_ENDPOINT = "https://news.google.com/rss/search"
 MAX_RESPONSE_BYTES = 600_000
 MAX_RESULTS = 10
 MAX_QUERY_CHARS = 160
@@ -133,10 +136,86 @@ FAVICON_PATHS = ("/favicon.ico", "/favicon-32x32.png", "/apple-touch-icon.png",
                  "/favicon.svg", "/images/favicon.svg")
 
 
-def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tuple[bytes, str]:
-    """Download a fixed icon path over TLS with DNS pinned to a validated public IP.
+def _valid_same_origin_icon_path(path: str) -> bool:
+    """Static same-origin icon path, no traversal, encoded separators or queries."""
+    return (isinstance(path, str) and 2 <= len(path) <= 180
+            and path.startswith("/") and not path.startswith("//")
+            and not any(part in ("", ".", "..") for part in path[1:].split("/"))
+            and not re.search(r"[%\\?#\x00-\x1f\x7f]", path)
+            and re.fullmatch(r"/[A-Za-z0-9_./~@()+,:=-]+", path) is not None
+            and re.search(r"\.(?:ico|png|svg|webp|gif|jpe?g)$", path, re.I) is not None)
 
-    No redirects, no HTML parsing, no cookies and no arbitrary URL or port.
+
+def _declared_favicon_paths(markup: bytes, host: str) -> list[str]:
+    """Read at most three HTML-declared icons; stay on the *same* TLS hostname.
+
+    Never use JavaScript, arbitrary remote icon URLs, page links, queries or
+    redirects. The homepage is used only after the conventional paths fail.
+    """
+    if not isinstance(markup, bytes) or not markup or len(markup) > MAX_FAVICON_BYTES:
+        return []
+    class _IconLinks(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.paths = []
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() != "link" or len(self.paths) >= 3:
+                return
+            attributes = dict(attrs)
+            if "icon" not in str(attributes.get("rel", "")).lower().split():
+                return
+            href = attributes.get("href", "")
+            if not isinstance(href, str) or not href or len(href) > 256:
+                return
+            if href.startswith("//") or "\\" in href:
+                return
+            try:
+                parsed = urlsplit(href)
+                if parsed.scheme or parsed.netloc:
+                    if (parsed.scheme != "https" or
+                        parsed.hostname != host or parsed.port not in (None, 443) or
+                        parsed.username is not None or parsed.password is not None):
+                        return
+                path = parsed.path
+                if not path.startswith("/"):
+                    path = "/" + path
+                if _valid_same_origin_icon_path(path) and path not in self.paths:
+                    self.paths.append(path)
+            except ValueError:
+                return
+    try:
+        parser = _IconLinks()
+        parser.feed(markup.decode("utf-8", errors="replace"))
+        parser.close()
+        return parser.paths
+    except (TypeError, ValueError):
+        return []
+
+
+def _validated_icon(data: bytes, path: str) -> tuple[bytes, str] | None:
+    if not data or len(data) > MAX_FAVICON_BYTES:
+        return None
+    if data.startswith(b"\x00\x00\x01\x00"):
+        return data, "image/x-icon"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return data, "image/png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return data, "image/gif"
+    if data.startswith(b"\xff\xd8\xff"):
+        return data, "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return data, "image/webp"
+    if path.lower().endswith(".svg"):
+        safe = sanitize_favicon_svg(data)
+        if safe is not None:
+            return safe, "image/svg+xml"
+    return None
+
+
+def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tuple[bytes, str]:
+    """Download only a validated same-origin path over pinned DNS and TLS.
+
+    No redirects, script execution, cookies, third-party icons or arbitrary ports.
     """
     import http.client
 
@@ -149,12 +228,13 @@ def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tup
                 raw.close()
                 raise
 
-    if path not in FAVICON_PATHS:
-        raise ValueError("Only fixed public favicon paths are permitted.")
+    if path != "/" and path not in FAVICON_PATHS and not _valid_same_origin_icon_path(path):
+        raise ValueError("Only validated same-origin favicon paths are permitted.")
     conn = _PinnedIconHTTPS(host, timeout=2.5, context=ssl.create_default_context())
     try:
         conn.request("GET", path, headers={
-            "User-Agent": "NERAL-Favicon/1.0", "Accept": "image/x-icon,image/png,image/webp,image/jpeg,image/gif,image/svg+xml",
+            "User-Agent": "Mozilla/5.0 (compatible; NERAL-Favicon/1.0)",
+            "Accept": "text/html" if path == "/" else "image/x-icon,image/png,image/webp,image/jpeg,image/gif,image/svg+xml",
         })
         response = conn.getresponse()
         if response.status != 200:
@@ -244,26 +324,33 @@ def fetch_public_favicon(host: str) -> tuple[bytes, str] | None:
         if not ips or any(not ip_address(ip).is_global for ip in ips):
             return None
         address = sorted(ips, key=lambda ip: (":" in ip, ip))[0]
-        # Public sites often use a PNG instead of /favicon.ico.
-        # Only these fixed paths are checked, with one DNS validation/pinned IP.
+        # Conventional icon paths first; modern sites may instead declare a
+        # versioned same-origin icon in their root HTML.
         for path in FAVICON_PATHS:
-            data, _declared_type = _request_favicon(host, address, path)
-            if not data or len(data) > MAX_FAVICON_BYTES:
+            try:
+                data, _declared_type = _request_favicon(host, address, path)
+            except (OSError, ValueError, TimeoutError, http.client.HTTPException):
                 continue
-            if data.startswith(b"\x00\x00\x01\x00"):
-                return data, "image/x-icon"
-            if data.startswith(b"\x89PNG\r\n\x1a\n"):
-                return data, "image/png"
-            if data.startswith((b"GIF87a", b"GIF89a")):
-                return data, "image/gif"
-            if data.startswith(b"\xff\xd8\xff"):
-                return data, "image/jpeg"
-            if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-                return data, "image/webp"
-            if path.endswith(".svg"):
-                icon = sanitize_favicon_svg(data)
-                if icon is not None:
-                    return icon, "image/svg+xml"
+            icon = _validated_icon(data, path)
+            if icon is not None:
+                return icon
+
+        try:
+            home, mime = _request_favicon(host, address, "/")
+        except (OSError, ValueError, TimeoutError, http.client.HTTPException):
+            return None
+        if mime != "text/html":
+            return None
+        for path in _declared_favicon_paths(home, host):
+            if path in FAVICON_PATHS:
+                continue
+            try:
+                data, _declared_type = _request_favicon(host, address, path)
+            except (OSError, ValueError, TimeoutError, http.client.HTTPException):
+                continue
+            icon = _validated_icon(data, path)
+            if icon is not None:
+                return icon
         return None
     except (OSError, ValueError, TimeoutError, http.client.HTTPException):
         return None
@@ -374,10 +461,32 @@ def parse_search_results(markup: str, *, limit: int = MAX_RESULTS) -> list[dict[
     return parser.finish()
 
 
-def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]]:
+def is_fresh_news_query(query: str) -> bool:
+    """Use a current news source only for queries that request recent events."""
+    return (isinstance(query, str) and
+            re.search(r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|"
+                      r"neuigkeiten|heute|gestern|live|this week|latest|breaking)\b",
+                      query, re.I) is not None)
+
+
+def news_subject(query: str) -> str:
+    """Remove generic request words but preserve the user's topic verbatim."""
+    subject = re.sub(
+        r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|"
+        r"neuest(?:e|en|er)?|neuigkeiten|heute|gestern|live|latest|breaking)\b",
+        " ", query, flags=re.I)
+    subject = re.sub(r"\s+", " ", subject).strip()
+    return subject if len(subject) >= 2 else query.strip()
+
+
+def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | None = None,
+                   now_utc: datetime | None = None) -> list[dict[str, str]]:
     """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
     if not isinstance(xml, str) or not 1 <= limit <= MAX_RESULTS or len(xml) > MAX_RESPONSE_BYTES:
         raise WebSearchError("Ungültige RSS-Antwort.")
+    if max_age_days is not None and (not isinstance(max_age_days,int)
+                                    or not 1 <= max_age_days <= 30):
+        raise WebSearchError("Ungültiger Zeitraum für Nachrichten.")
     if re.search(r"<!\s*(?:DOCTYPE|ENTITY)", xml, flags=re.IGNORECASE):
         raise WebSearchError("RSS mit externen Entitäten nicht erlaubt.")
     try:
@@ -388,7 +497,19 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]
         raise WebSearchError("Kein RSS-Suchfeed empfangen.")
     output: list[dict[str, str]] = []
     seen: set[str] = set()
+    clock = now_utc if now_utc is not None else datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    clock = clock.astimezone(timezone.utc)
     for item in root.findall("./channel/item")[:60]:
+        if max_age_days is not None:
+            try:
+                published=parsedate_to_datetime(item.findtext("pubDate",default=""))
+                published=published.astimezone(timezone.utc)
+            except (TypeError,ValueError,OverflowError):
+                continue
+            if not clock-timedelta(days=max_age_days) <= published <= clock+timedelta(minutes=10):
+                continue
         url = safe_result_url(item.findtext("link", default=""))
         title = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("title", default=""))), 180)
         snippet = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("description", default=""))), 350)
@@ -410,6 +531,37 @@ class WebSearch:
         self._hits = deque()
         self._lock = threading.Lock()
 
+
+    def search_news(self, query: str, on_provider=None) -> list[dict[str, str]]:
+        """Public keyless Google News RSS metadata for explicit fresh/news queries.
+
+        Links are provider-discovered HTTPS search hits, never article reads.
+        The caller must still apply topical filtering and independent link checks.
+        """
+        if not isinstance(query, str) or any(ord(c)<32 or ord(c)==127 for c in query):
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        cleaned = _clean(query, MAX_QUERY_CHARS+1)
+        if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        if on_provider is not None:
+            on_provider("Google News RSS")
+        url = (NEWS_ENDPOINT+"?q="+quote_plus(news_subject(cleaned)+" when:7d")+"&hl=de&gl=DE&ceid=DE:de")
+        req = Request(url, headers={
+            "User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
+            "Accept":"application/rss+xml, application/xml, text/xml",
+            "Accept-Language":"de,en;q=0.8",
+        }, method="GET")
+        try:
+            with self.opener.open(req, timeout=7.0) as response:
+                mime = response.headers.get("Content-Type","").lower()
+                if "xml" not in mime and "rss" not in mime:
+                    raise WebSearchError("Nachrichten-Suchanbieter lieferte unerwarteten Inhaltstyp.")
+                raw = response.read(MAX_RESPONSE_BYTES+1)
+            if len(raw)>MAX_RESPONSE_BYTES:
+                raise WebSearchError("Nachrichten-Suchantwort überschreitet das Limit.")
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
+        except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
+            raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
     def search_wikipedia(self, query: str, on_provider=None) -> list[dict[str, str]]:
         """Keyless DE Wikipedia reference fallback for the exact consented query.
@@ -556,6 +708,14 @@ class WebSearch:
             except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
                 bing_problem = True
                 results = []
+        if not results and is_fresh_news_query(cleaned):
+            contacted.append("Google News RSS")
+            try:
+                results=self.search_news(cleaned,on_provider=on_provider)
+                if results:
+                    provider="Google News RSS"
+            except WebSearchError:
+                results=[]
         if not results:
             contacted.append("Wikipedia DE")
             try:

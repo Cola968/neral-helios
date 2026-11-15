@@ -96,3 +96,20 @@ test("German inflected place lookup retains verified relevant airport source", a
   assert.doesNotMatch(body.prompt,/Rezept für Berliner Pfannkuchen/);
   assert.doesNotMatch(body.prompt,/keine passenden Treffer/);
 });
+
+
+test("German and emoji greetings do not trigger Web or send fabricated web evidence",async()=>{
+ for(const question of ["Hallo 😊","HALLO!","Hallo, NERAL!","Guten Morgen 👋",
+                        "Guten Abend, NERAL!","Hallöchen!","Moin!","Servus."]){
+   const calls=await exercise(question,[]);
+   assert.equal(calls.filter(c=>c.url==="/api/web/search").length,0,question);
+   const model=calls.find(c=>c.url==="/api/neral/chat/generate");
+   assert.ok(model,question);
+   assert.equal(model.body.prompt,question);
+   assert.doesNotMatch(model.body.prompt,/NERAL-WEBSTATUS/);
+ }
+});
+test("a real question about the greeting word remains an explicit search",async()=>{
+ const calls=await exercise("Suche nach der Bedeutung von Hallo",[]);
+ assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
+});

@@ -5,18 +5,30 @@
   const $=id=>document.getElementById(id);
   const trigger=$("modeDropdownTrigger"),menu=$("modeDropdownMenu");
   const low=$("modeOptionLow"),high=$("modeOptionHigh");
+  const slider=$("modeEffortSlider"),track=$("modeEffortTrack");
+  const sliderTitle=$("modeSliderTitle"),sliderCaption=$("modeSliderCaption");
+  const sliderReset=$("modeSliderReset");
   const radios={
     fast:document.querySelector('input[name="mode"][value="fast"]'),
     think:document.querySelector('input[name="mode"][value="think"]')
   };
-  if(!trigger||!menu||!low||!high||!radios.fast||!radios.think)return;
+  // Optional enhancement: never prevent code/math rendering when a preview
+  // fixture or older embedded shell does not include the slider.
+  if(trigger&&menu&&low&&high&&slider&&track&&sliderTitle&&
+     sliderCaption&&sliderReset&&radios.fast&&radios.think){
   const current=$("modeDropdownLabel");
   const entries={fast:low,think:high};
   const labels={fast:"LOW",think:"HIGH"};
+  const titles={fast:"Schnell",think:"Intensiv"};
 
   function refresh(){
     const selected=radios.think.checked?"think":"fast";
     current.textContent=labels[selected];
+    slider.value=selected==="think"?"1":"0";
+    slider.setAttribute("aria-valuetext",titles[selected]);
+    sliderTitle.textContent=titles[selected];
+    sliderCaption.textContent="NERAL · "+labels[selected];
+    track.dataset.level=selected==="think"?"high":"low";
     for(const [key,option] of Object.entries(entries)){
       option.setAttribute("aria-checked",String(key===selected));
       option.classList.toggle("is-selected",key===selected);
@@ -28,27 +40,29 @@
   }
   function open(){
     menu.hidden=false;trigger.setAttribute("aria-expanded","true");
-    entries[radios.think.checked?"think":"fast"].focus();
+    slider.focus();
   }
-  function choose(value){
+  function choose(value,closeAfter=false){
     const input=radios[value];if(!input)return;
-    input.checked=true;
+    // Keep the original hidden radio group as the single source of truth for
+    // POST /generate (LOW) vs POST /think (HIGH). No new model mode is invented.
+    radios.fast.checked=value==="fast";
+    radios.think.checked=value==="think";
     input.dispatchEvent(new Event("change",{bubbles:true}));
-    refresh();close(true);
+    refresh();
+    if(closeAfter)close(true);
   }
   trigger.addEventListener("click",()=>menu.hidden?open():close(true));
-  low.addEventListener("click",()=>choose("fast"));
-  high.addEventListener("click",()=>choose("think"));
+  slider.addEventListener("input",()=>choose(slider.value==="1"?"think":"fast"));
+  sliderReset.addEventListener("click",()=>{
+    choose("fast");slider.focus();
+  });
+  low.addEventListener("click",()=>choose("fast",true));
+  high.addEventListener("click",()=>choose("think",true));
   for(const input of Object.values(radios))input.addEventListener("change",refresh);
   menu.addEventListener("keydown",event=>{
-    if(event.key==="Escape"){event.preventDefault();close(true);return;}
-    if(["ArrowDown","ArrowUp","Home","End"].includes(event.key)){
-      event.preventDefault();
-      const active=document.activeElement===high?"think":"fast";
-      const next=event.key==="Home"?"fast":event.key==="End"?"think":
-        active==="fast"?"think":"fast";
-      entries[next].focus();
-    }
+    if(event.key==="Escape"){event.preventDefault();close(true);}
+    // The native range handles ArrowLeft, ArrowRight, Home and End itself.
   });
   document.addEventListener("keydown",event=>{
     if(event.key==="Escape"&&!menu.hidden){event.preventDefault();close(true);}
@@ -57,6 +71,7 @@
     if(!menu.hidden&&!menu.contains(event.target)&&!trigger.contains(event.target))close();
   });
   refresh();
+  }
 
   // Existing tools menu now lives in the top-right chrome, without cloning
   // controls or attaching duplicate event handlers.

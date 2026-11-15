@@ -145,3 +145,84 @@ test("live search displays found provider pages before HTTPS reachability finish
    "Icons should appear as soon as provider returns the website, not only after HEAD");
  assert.match(area.querySelector(".neral-live-site-title").textContent,/Frankfurt Airport/);
 });
+
+
+test("legacy Helios search panel uses verified live results and the same source icons",()=>{
+ const html=read("templates/index.html");
+ const script=read("static/neral-web-search.js");
+ const css=read("static/neral.css");
+ assert.match(html,/src="\/static\/neral-web-live\.js"/);
+ assert.match(script,/NeralWebLive\.search/);
+ assert.match(script,/verify_links:\s*true/);
+ assert.match(script,/discovered!==true/);
+ assert.match(script,/reachable===true/);
+ assert.match(script,/\/api\/web\/favicon\?host=/);
+ assert.match(script,/onEvent/);
+ assert.match(css,/\.web-result-icon/);
+ assert.match(css,/\.neral-web-favicon\.neral-favicon-loaded/);
+});
+
+test("legacy search panel never sends chat history, links to nonpublic hosts or claims to read pages",()=>{
+ const s=read("static/neral-web-search.js");
+ assert.match(s,/isPublicHttps/);
+ assert.match(s,/noopener noreferrer/);
+ assert.doesNotMatch(s,/history\s*:/);
+ assert.doesNotMatch(s,/\.innerHTML\s*=/);
+ assert.match(s,/nicht gelesen|nicht geprüft/i);
+});
+
+
+test("both NERAL web surfaces show actual candidate icons and reject unsafe provider URLs",async()=>{
+ const elements={};
+ for(const name of ["webSearchToggle","webSearchPanel","webSearchForm","webSearchQuery",
+  "webSearchResults","webSearchStatus","webSearchSubmit","webSearchClose"]){
+   elements[name]=new El();
+   elements[name].focus=()=>{};
+   elements[name].replaceChildren=function(){this.children=[]};
+ }
+ elements.webSearchPanel.hidden=true;
+ elements.webSearchQuery.value="Flughafen Frankfurt";
+ let calls=0;
+ vm.runInNewContext(read("static/neral-web-search.js"),{
+   document:{getElementById:id=>elements[id]||null,createElement:t=>new El(t)},
+   window:{NeralWebLive:{search:async ({query,csrf,onEvent})=>{
+     calls++;
+     assert.equal(query,"Flughafen Frankfurt");
+     assert.equal(csrf,"");
+     onEvent({type:"provider",name:"Wikipedia DE"});
+     onEvent({type:"candidate",source:{
+       title:"Flughafen Frankfurt Main",url:"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+       discovered:true,reachable:false,topically_relevant:true}});
+     onEvent({type:"candidate",source:{
+       title:"Nicht öffentlich",url:"https://localhost/private",
+       discovered:true,reachable:false,topically_relevant:true}});
+     onEvent({type:"source",source:{
+       title:"Flughafen Frankfurt Main",url:"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+       reachable:true}});
+     return {results:[],previews:[]};
+   }}},URL,AbortSignal
+ },{timeout:2000});
+ await elements.webSearchForm.handlers.submit({preventDefault(){}});
+ assert.equal(calls,1);
+ assert.equal(elements.webSearchResults.children.length,1);
+ const result=elements.webSearchResults.children[0];
+ assert.equal(result.dataset.reachable,"true");
+ const image=result.querySelector(".neral-web-favicon");
+ assert.ok(image);
+ assert.equal(image.src,"/api/web/favicon?host=de.wikipedia.org");
+ assert.match(elements.webSearchStatus.textContent,/Seiteninhalte nicht gelesen/);
+});
+
+test("every explicit web search uses shared results without exposing unrelated attachment prompts",()=>{
+ const source=read("static/neral-preview.js");
+ const a=source.indexOf("  function skipWebForLocalBasics(");
+ const b=source.indexOf("  // Snippets are untrusted evidence",a);
+ assert.ok(a>0&&b>a);
+ const get=vm.runInNewContext(source.slice(a,b)+"\n({shouldSearchWeb,makeSearchQuery})");
+ assert.equal(get.shouldSearchWeb("Suche nach dem BER"),true);
+ assert.equal(get.shouldSearchWeb("Welche aktuellen Flüge gibt es ab Berlin?"),true);
+ assert.equal(get.shouldSearchWeb("Was ist die Hauptstadt von Deutschland?"),false);
+ assert.equal(get.shouldSearchWeb("Hallo"),false);
+ assert.ok(get.makeSearchQuery("Welcher Flughafen ".repeat(30)).length<=160);
+ assert.match(source,/selectedAttachments\.length===0\s*\|\|\s*explicitlyRequestsWeb\(text\)/);
+});

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from flask import jsonify, request, Response
+from collections import OrderedDict
+from threading import Lock
+from time import monotonic
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 from threading import Thread
@@ -9,12 +12,20 @@ import json
 import re
 import unicodedata
 from urllib.parse import urlsplit
-from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url
+from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url, is_fresh_news_query
 
 
 def register_web_search_api(app, service=None):
     """Parent Flask app's existing localhost, session and Origin guards apply."""
     search = service if service is not None else WebSearch()
+    # Cache only public, already-sanitized icon bytes. The UI displays the same
+    # site icon in its live status, source stack and source cards.
+    favicon_cache = OrderedDict()
+    favicon_cache_lock = Lock()
+    favicon_cache_limit = 96
+    favicon_positive_ttl = 600
+    favicon_negative_ttl = 90
+
 
 
     def topic_terms(text: str) -> set[str]:
@@ -30,13 +41,23 @@ def register_web_search_api(app, service=None):
             "weather":"wetter", "forecast":"wetter", "forecasts":"wetter",
             "documentation":"dokumentation", "docs":"dokumentation",
             "flights":"fluge", "flug":"fluge", "fluege":"fluge",
+            "game":"spiel", "games":"spiel", "videogame":"spiel",
+            "videospiel":"spiel", "computerspiel":"spiel",
+            "save":"speichern", "saved":"speichern",
+            "saves":"speichern", "saving":"speichern",
+            "gespeichert":"speichern",
         }
         noise = {"suche","such","nach","bitte","finde","recherchiere","im",
                  "dem","der","den","die","das","und","mit","ist","eine","einer",
-                 "einem","was","wie","wer","von","bei","fur","auf","zum",
-                 "zur","online","internet","web","aktuell","heute","neueste",
-                 "neuesten","quelle","quellen","links","news","information",
-                 "informationen","uber","ueber","zeige","mehr","deine",
+                 "einem","was","wie","wer","ich","man","kann","konnen",
+                 "ob","mir","von","bei","fur","auf","zum",
+                 "zur","online","internet","web","aktuell","aktuelle",
+                 "aktuellen","aktueller","aktuelles","heute","neueste",
+                 "neuesten","neuester","neuestes","neu","neue","neuen",
+                 "neuer","neues","quelle","quellen","links","news",
+                 "nachricht","nachrichten","meldung","meldungen","berichte",
+                 "bericht","letzte","letzten","letzter","letztes",
+                 "information","informationen","uber","ueber","zeige","mehr","deine",
                  "site","www","https","http","2026","2025","2027","2028",
                  "official","offiziell","offizielle","offiziellen"}
         words = re.findall(r"[a-z0-9]{3,}", plain)
@@ -65,6 +86,10 @@ def register_web_search_api(app, service=None):
         snippet = topic_terms(str(hit.get("snippet", "")))
         matched = terms.intersection(heading | snippet)
         if not matched:
+            return None
+        # A generic category alone must not pass for a named destination.
+        # Example: Bremen tram stop "Flughafen" is not Frankfurt Airport.
+        if len(terms) >= 2 and len(matched) < 2:
             return None
         categories = {"flughafen","wetter"}
         category = terms.intersection(categories)
@@ -121,18 +146,19 @@ def register_web_search_api(app, service=None):
 
     def verified_with_fallback(result: dict, query: str, on_provider=None,
                                on_source=None, on_candidate=None) -> dict:
-        """Keep real topical provider previews; use multiple independent providers.
+        """Preserve all safe, relevant discovery hits across every provider.
 
-        A failed HEAD/GET does not erase an actual search hit. Only successful
-        HTTPS probes are called reachable. Wikipedia is a factual reference
-        fallback, not an assertion that an article was downloaded or read.
+        HTTPS reachability failure is NOT an empty search; a result preview
+        remains visible with reachable=False. News previews are preferable to
+        stale encyclopedia entries for explicitly fresh search intent.
         """
-        first = verified_results(result, on_source=on_source,
-                                 on_candidate=on_candidate, query=query)
+        first=verified_results(result,on_source=on_source,
+                               on_candidate=on_candidate,query=query)
         if first["results"]:
             return first
         contacted=list(result.get("providers_contacted",[]))
         current=first
+        retained=list(first.get("previews",[]))
         retry=getattr(search,"search_bing",None)
         if ("Bing RSS" not in contacted and result.get("provider")=="DuckDuckGo HTML"
                 and callable(retry)):
@@ -143,10 +169,33 @@ def register_web_search_api(app, service=None):
                            "providers_contacted":list(contacted)}
                 current=verified_results(secondary,on_source=on_source,
                                          on_candidate=on_candidate,query=query)
+                retained.extend(current.get("previews",[]))
             except WebSearchError:
                 current={**first,"providers_contacted":list(contacted)}
         if current["results"]:
             return current
+
+        news=getattr(search,"search_news",None)
+        if (is_fresh_news_query(query) and "Google News RSS" not in contacted
+                and callable(news)):
+            contacted.append("Google News RSS")
+            try:
+                hits=news(query,on_provider=on_provider)
+                news_result={**result,"results":hits,"provider":"Google News RSS",
+                             "providers_contacted":list(contacted)}
+                current=verified_results(news_result,on_source=on_source,
+                                         on_candidate=on_candidate,query=query)
+                retained.extend(current.get("previews",[]))
+            except WebSearchError:
+                current={**current,"providers_contacted":list(contacted)}
+        # A genuine, topic-matched News RSS hit stays visible even if the
+        # publisher disallows HEAD/GET checks. Do not erase it by replacing
+        # the result with a stale Wikipedia reference.
+        if current["results"] or (is_fresh_news_query(query)
+                and current.get("provider")=="Google News RSS"
+                and current.get("previews")):
+            return current
+
         wiki=getattr(search,"search_wikipedia",None)
         if ("Wikipedia DE" not in contacted and
                 result.get("provider")!="Wikipedia DE" and callable(wiki)):
@@ -157,16 +206,24 @@ def register_web_search_api(app, service=None):
                            "providers_contacted":list(contacted)}
                 current=verified_results(reference,on_source=on_source,
                                          on_candidate=on_candidate,query=query)
+                retained.extend(current.get("previews",[]))
             except WebSearchError:
                 current={**current,"providers_contacted":list(contacted)}
+
+        seen=set()
         discovered=[]
-        known=set()
-        # Keep the verified reference results plus relevant search-engine hits.
-        for hit in [*current.get("previews",[]),*first.get("previews",[])]:
-            if hit.get("url") not in known:
+        for hit in [*current.get("previews",[]),*retained]:
+            url=hit.get("url")
+            if url and url not in seen:
                 discovered.append(hit)
-                known.add(hit["url"])
-        return {**current,"previews":discovered[:5],
+                seen.add(url)
+            if len(discovered)>=5:
+                break
+        result_provider=(current.get("provider") if current.get("results") else
+                         discovered[0].get("provider",current.get("provider"))
+                         if discovered else current.get("provider"))
+        return {**current,"previews":discovered,
+                "provider":result_provider,
                 "providers_contacted":list(contacted)}
 
     @app.post("/api/web/search/stream")
@@ -225,20 +282,40 @@ def register_web_search_api(app, service=None):
         host = request.args.get("host", "")
         if not isinstance(host, str) or len(host) > 253:
             return jsonify(error="Ungültiger Hostname."), 400
-        result = fetch_public_favicon(host)
+        now = monotonic()
+        with favicon_cache_lock:
+            entry = favicon_cache.get(host)
+            if entry and entry[0] > now:
+                favicon_cache.move_to_end(host)
+                result = entry[1]
+                cached = True
+            else:
+                favicon_cache.pop(host, None)
+                cached = False
+                result = None
+        if not cached:
+            result = fetch_public_favicon(host)
+            with favicon_cache_lock:
+                favicon_cache[host] = (
+                    monotonic() + (favicon_positive_ttl if result is not None
+                                   else favicon_negative_ttl), result)
+                favicon_cache.move_to_end(host)
+                while len(favicon_cache) > favicon_cache_limit:
+                    favicon_cache.popitem(last=False)
         if result is None:
             return Response(status=404)
         data, mime = result
         return Response(data, mimetype=mime, headers={
-            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+            "Cache-Control": "private, max-age=600"
         })
 
     @app.get("/api/web/search/status")
     def web_search_status():
         return jsonify(configured=True, live_verified=False, free_for_all=True,
                        requires_account=False, requires_api_key=False,
-                       provider="DuckDuckGo HTML / Bing RSS / Wikipedia DE", model_provider="none",
-                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing und Wikipedia gesendet.")
+                       provider="DuckDuckGo HTML / Bing RSS / Google News RSS (aktuell) / Wikipedia DE", model_provider="none",
+                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing, Google News (aktuelle Nachrichten) oder Wikipedia gesendet.")
 
     @app.post("/api/web/search")
     def web_search_submit():

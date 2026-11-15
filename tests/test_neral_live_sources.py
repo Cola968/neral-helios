@@ -166,6 +166,138 @@ class LiveSourcesTests(unittest.TestCase):
         self.assertEqual(answer["previews"],[])
 
 
+    def test_partial_bing_location_match_falls_back_instead_of_claiming_wrong_airport(self):
+        class Search:
+            def search(self, query, on_provider=None):
+                if on_provider:
+                    on_provider("DuckDuckGo HTML")
+                    on_provider("Bing RSS")
+                return {"query":query, "provider":"Bing RSS",
+                        "providers_contacted":["DuckDuckGo HTML","Bing RSS"],
+                        "results":[{"title":"FLUGHAFEN - BSAG",
+                                    "url":"https://www.bsag.de/linien/flughafen",
+                                    "snippet":"Straßenbahnhaltestelle am Flughafen Bremen"}]}
+            def search_wikipedia(self, query, on_provider=None):
+                if on_provider:on_provider("Wikipedia DE")
+                return [{"title":"Flughafen Frankfurt Main",
+                         "url":"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+                         "snippet":"Flughafen in Frankfurt am Main"}]
+        app=Flask(__name__)
+        register_web_search_api(app,Search())
+        with patch("neral_web_api.verify_public_https_url",side_effect=lambda url:url):
+            response=app.test_client().post("/api/web/search/stream",
+                json={"query":"Flughafen Frankfurt","verify_links":True})
+            events=[json.loads(chunk) for chunk in response.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual([x["title"] for x in result["results"]],["Flughafen Frankfurt Main"])
+        self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+                         ["DuckDuckGo HTML","Bing RSS","Wikipedia DE"])
+        self.assertFalse(any("bsag" in row["url"] for row in result["previews"]))
+
+    def test_news_previews_survive_failed_https_probe_without_stale_wikipedia(self):
+        class News:
+            def search(self, query, on_provider=None):
+                if on_provider:on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"title":"Gaming-Angebot",
+                                    "url":"https://example.org/games"}]}
+            def search_bing(self,query,on_provider=None):
+                if on_provider:on_provider("Bing RSS")
+                return []
+            def search_news(self,query,on_provider=None):
+                if on_provider:on_provider("Google News RSS")
+                return [{"title":"BER Flughafen: Neue Flugverbindungen",
+                         "url":"https://news.google.com/rss/articles/ber-new",
+                         "snippet":"BER Nachrichten aus den letzten Tagen"}]
+            def search_wikipedia(self,query,on_provider=None):
+                raise AssertionError("Real topical news previews are better than stale Wikipedia")
+        app=Flask(__name__);register_web_search_api(app,News())
+        with patch("neral_web_api.verify_public_https_url",return_value=None):
+            resp=app.test_client().post("/api/web/search/stream",
+                json={"query":"Aktuelle BER Nachrichten","verify_links":True})
+            events=[json.loads(x) for x in resp.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual(result["results"],[])
+        self.assertEqual(result["provider"],"Google News RSS")
+        self.assertEqual([x["url"] for x in result["previews"]],
+                         ["https://news.google.com/rss/articles/ber-new"])
+        self.assertEqual(len([x for x in events if x["type"]=="candidate"]),1)
+
+    def test_bing_candidates_survive_further_fallback_if_wikipedia_empty(self):
+        class Bing:
+            def search(self,query,on_provider=None):
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"title":"Kochen","url":"https://example.org/food"}]}
+            def search_bing(self,query,on_provider=None):
+                return [{"title":"Flughafen Frankfurt Main",
+                         "url":"https://www.frankfurt-airport.com/en.html",
+                         "snippet":"Informationen zum Flughafen Frankfurt"}]
+            def search_wikipedia(self,query,on_provider=None):
+                return []
+        app=Flask(__name__);register_web_search_api(app,Bing())
+        with patch("neral_web_api.verify_public_https_url",return_value=None):
+            result=app.test_client().post("/api/web/search",
+                json={"query":"Flughafen Frankfurt","verify_links":True}).get_json()
+        self.assertEqual([x["url"] for x in result["previews"]],
+                         ["https://www.frankfurt-airport.com/en.html"])
+
+    def test_current_news_uses_live_news_feed_before_wikipedia_reference(self):
+        class CurrentNews:
+            def search(self, query, on_provider=None):
+                if on_provider:
+                    on_provider("DuckDuckGo HTML")
+                    on_provider("Bing RSS")
+                return {"query":query,"provider":"Bing RSS",
+                    "providers_contacted":["DuckDuckGo HTML","Bing RSS"],
+                    "results":[{"title":"Irrelevantes Gaming-Angebot",
+                                "url":"https://example.org/gaming"}]}
+            def search_news(self, query, on_provider=None):
+                if on_provider:on_provider("Google News RSS")
+                return [{"title":"BER Flughafen: Neue Flugverbindungen",
+                         "url":"https://news.google.com/rss/articles/ber-2026",
+                         "snippet":"Aktuelle BER Nachrichten zu Flugverbindungen"}]
+            def search_wikipedia(self, query, on_provider=None):
+                raise AssertionError("News relevance must be checked before a stale encyclopedia")
+        app=Flask(__name__)
+        register_web_search_api(app,CurrentNews())
+        with patch("neral_web_api.verify_public_https_url",side_effect=lambda url:url):
+            resp=app.test_client().post("/api/web/search/stream",
+                json={"query":"Aktuelle BER Nachrichten","verify_links":True})
+            events=[json.loads(x) for x in resp.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual(result["provider"],"Google News RSS")
+        self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+                         ["DuckDuckGo HTML","Bing RSS","Google News RSS"])
+        self.assertIn("BER Flughafen",result["results"][0]["title"])
+        self.assertEqual(result["results"][0]["url"],
+                         "https://news.google.com/rss/articles/ber-2026")
+
+    def test_ambiguous_game_name_does_not_admit_physics_storage_hits(self):
+        class Search:
+            def search(self,query,on_provider=None):
+                if on_provider:on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[
+                          {"title":"Spezifische Wärmekapazität",
+                           "url":"https://de.wikipedia.org/wiki/Spezifische_W%C3%A4rmekapazit%C3%A4t",
+                           "snippet":"Die Wärmeenergie ist im Stoff gespeichert."},
+                          {"title":"PEAK game: saving progress",
+                           "url":"https://example.org/games/peak-saving",
+                           "snippet":"How to save progress in the PEAK video game"},
+                        ]}
+        app=Flask(__name__);register_web_search_api(app,Search())
+        with patch("neral_web_api.verify_public_https_url",side_effect=lambda u:u):
+            r=app.test_client().post("/api/web/search",json={
+                "query":"Kann ich im PEAK Computerspiel speichern?","verify_links":True})
+        self.assertEqual(r.status_code,200)
+        sources=r.get_json()["results"]
+        self.assertEqual(len(sources),1)
+        self.assertIn("PEAK game",sources[0]["title"])
+        self.assertTrue(all("Wärmekapazität" not in x["title"] for x in sources))
+
     def test_wikipedia_reference_fallback_after_offtopic_bing_results(self):
         class Three:
             def search(self,query,on_provider=None):

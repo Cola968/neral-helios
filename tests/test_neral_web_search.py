@@ -99,6 +99,33 @@ class WebSearchContracts(unittest.TestCase):
         self.assertEqual(data["results"],[])
 
 
+class FreshNewsContracts(unittest.TestCase):
+    def test_recent_news_feed_filters_stale_articles_by_pubdate(self):
+        from datetime import datetime, timezone
+        from neral_web_search import parse_bing_rss
+        xml=("<rss><channel>"
+             "<item><title>Alte BER Nachricht</title>"
+             "<link>https://news.google.com/rss/articles/old</link>"
+             "<pubDate>Fri, 25 Sep 2026 10:00:00 GMT</pubDate></item>"
+             "<item><title>Neue BER Nachricht</title>"
+             "<link>https://news.google.com/rss/articles/new</link>"
+             "<pubDate>Sat, 14 Nov 2026 10:00:00 GMT</pubDate></item>"
+             "</channel></rss>")
+        rows=parse_bing_rss(xml,max_age_days=7,
+            now_utc=datetime(2026,11,15,tzinfo=timezone.utc))
+        self.assertEqual([x["title"] for x in rows],["Neue BER Nachricht"])
+
+    def test_news_query_strips_generic_freshness_words_before_bounded_provider_search(self):
+        from neral_web_search import news_subject
+        self.assertEqual(news_subject("Aktuelle BER Nachrichten"),"BER")
+        self.assertEqual(news_subject("NASA Artemis News heute"),"NASA Artemis")
+        self.assertEqual(news_subject("News"),"News")
+
+    def test_google_news_query_is_constrained_to_fixed_public_feed(self):
+        from neral_web_search import NEWS_ENDPOINT
+        self.assertEqual(NEWS_ENDPOINT,"https://news.google.com/rss/search")
+
+
 class HttpSearchContracts(unittest.TestCase):
     def test_explicit_only_and_free_status(self):
         app=Flask("web-search-api-test")

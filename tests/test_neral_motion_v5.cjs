@@ -17,7 +17,7 @@ test("sources appear inside their own answer action bar, not as orphan chat mess
   render(answer,[{title:"BER Flughafen",url:"https://www.berlin-airport.de/de.html",reachable:true}]);
   const details=actions.querySelector(".neral-source-disclosure");
   assert.ok(details,"compact chip must live in answer actions");
-  assert.equal(details.querySelector(".neral-source-label").textContent,"1 Quelle");
+  assert.equal(details.querySelector(".neral-source-label").textContent,"1 Suchtreffer");
   const link=details.querySelector("a");assert.ok(link);
   assert.equal(link.attrs.rel,"noopener noreferrer");
   assert.equal(link.attrs.target,"_blank");
@@ -102,9 +102,9 @@ test("web activity displays the actual submitted query without fabricated image-
   assert.doesNotMatch(js,/Bildersuche tur[b]?ofan|Ausgeführte 3 Suchen/);
 });
 
-test("conversation clearing and switching invalidate the previous web query",()=>{
+test("conversation clearing, switching, and Web disabling invalidate all search intent",()=>{
   const js=read("static/neral-preview.js");
-  assert.match(js,/addEventListener\?\.\("neral:chat-cleared",\(\)=>\{lastWebQuery="";\}\)/);
-  assert.match(js,/addEventListener\?\.\("neral:load-chat",\(\)=>\{lastWebQuery="";\}\)/);
-  assert.match(js,/if\(!\$\("useWebSearch"\)\.checked\)lastWebQuery="";/);
+  assert.match(js,/addEventListener\?\.\("neral:chat-cleared",\(\)=>\{\s*lastWebQuery="";pendingWebTopic=false;\s*\}\)/);
+  assert.match(js,/addEventListener\?\.\("neral:load-chat",\(\)=>\{\s*lastWebQuery="";pendingWebTopic=false;\s*\}\)/);
+  assert.match(js,/if\(!\$\("useWebSearch"\)\.checked\)\{lastWebQuery="";pendingWebTopic=false;\}/);
 });

@@ -60,6 +60,8 @@ test("live search shows only actual providers and checked domains beneath the st
   assert.match(rootEl.querySelector(".neral-live-provider").textContent,/DuckDuckGo/);
   fire("search-provider",{name:"Unknown provider"});
   assert.doesNotMatch(rootEl.querySelector(".neral-live-provider").textContent,/Unknown/);
+  fire("search-provider",{name:"Google News RSS"});
+  assert.match(rootEl.querySelector(".neral-live-provider").textContent,/Google News/);
   fire("source-found",{source:{title:"Private",url:"http://localhost/data",reachable:true}});
   fire("source-found",{source:{title:"Unchecked",url:"https://nasa.gov/data",reachable:false}});
   assert.equal(rootEl.querySelector(".neral-live-sites"),null,"unreachable links stay hidden");

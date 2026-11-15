@@ -167,6 +167,10 @@ def local_and_rate_guard():
 @app.after_request
 def security_headers(resp):
     resp.headers.update({'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer','Permissions-Policy':'camera=(), microphone=(), geolocation=()','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+    # Only sanitized public favicon images may be reused locally. Never cache
+    # queries, chat contents, credentials, or failed icon lookups.
+    if request.path == '/api/web/favicon' and resp.status_code == 200:
+        resp.headers['Cache-Control'] = 'private, max-age=600'
     return resp
 @app.errorhandler(HTTPException)
 def http_error(e):return jsonify(error=e.description),e.code

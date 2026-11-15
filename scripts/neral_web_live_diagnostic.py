@@ -12,7 +12,7 @@ from neral_web_api import register_web_search_api
 from neral_web_search import WebSearch, fetch_public_favicon
 
 QUERIES = ("Flughafen Frankfurt", "NASA Artemis",
-           "Python Dokumentation", "Wetter Berlin")
+           "Python Dokumentation", "Wetter Berlin", "Aktuelle BER Nachrichten")
 class TracedSearch(WebSearch):
     def __init__(self):
         super().__init__()
@@ -27,6 +27,12 @@ class TracedSearch(WebSearch):
         hits = super().search_bing(query, on_provider=on_provider)
         self.provider_raw.setdefault(query, []).append(
             {"provider":"Bing RSS retry","count":len(hits),
+             "first_titles":[x.get("title","")[:70] for x in hits[:3]]})
+        return hits
+    def search_news(self, query, on_provider=None):
+        hits = super().search_news(query, on_provider=on_provider)
+        self.provider_raw.setdefault(query, []).append(
+            {"provider":"Google News RSS","count":len(hits),
              "first_titles":[x.get("title","")[:70] for x in hits[:3]]})
         return hits
 

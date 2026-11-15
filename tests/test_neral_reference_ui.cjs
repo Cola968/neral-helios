@@ -71,3 +71,96 @@ test("header omits connection and Qwen provenance chrome while local security re
   assert.match(backend,/X-Neral-CSRF/);
   assert.match(markup,/id="error"/);
 });
+
+
+test("thinking-effort slider exposes only the two real NERAL routes",()=>{
+  const markup=html(),sheet=css(),source=js();
+  assert.match(markup,/id="modeEffortSlider"[^>]*type="range"[^>]*min="0"[^>]*max="1"[^>]*step="1"/);
+  assert.match(markup,/id="modeSliderTitle"/);
+  assert.match(markup,/id="modeSliderReset"/);
+  assert.match(markup,/id="modeDropdownTrigger"[^>]*aria-haspopup="dialog"/);
+  assert.match(markup,/id="modeDropdownMenu"[^>]*role="dialog"/);
+  assert.match(sheet,/\.mode-effort-track/);
+  assert.match(sheet,/::-webkit-slider-thumb/);
+  assert.match(sheet,/::-moz-range-thumb/);
+  assert.match(source,/modeEffortSlider/);
+  assert.match(source,/addEventListener\("input"/);
+  assert.match(source,/dispatchEvent\(new Event\("change"/);
+});
+
+test("slider and reset update the original FAST\/THINK radios without changing requests",()=>{
+  const vm=require("node:vm");
+  const listeners={};
+  function element(id){
+    const handlers={};
+    return {
+      id,hidden:false,value:"0",checked:false,textContent:"",dataset:{},attributes:{},
+      classList:{toggle(){}},style:{},
+      addEventListener(type,fn){(handlers[type]??=[]).push(fn)},
+      dispatchEvent(event){for(const fn of handlers[event.type]||[])fn(event);return true},
+      setAttribute(key,value){this.attributes[key]=value},
+      contains(target){return target===this},
+      focus(){doc.activeElement=this},click(){this.dispatchEvent({type:"click"})}
+    };
+  }
+  const ids=["modeDropdownTrigger","modeDropdownMenu","modeOptionLow","modeOptionHigh",
+    "modeDropdownLabel","modeEffortSlider","modeEffortTrack","modeSliderTitle","modeSliderReset","modeSliderCaption"];
+  const map=Object.fromEntries(ids.map(id=>[id,element(id)]));
+  map.modeDropdownMenu.hidden=true;
+  const fast=element("fast"),think=element("think");
+  fast.checked=true;
+  const doc={
+    activeElement:null,
+    getElementById:id=>map[id]||null,
+    querySelector:selector=>selector.includes('value="fast"')?fast:selector.includes('value="think"')?think:null,
+    addEventListener(type,fn){(listeners[type]??=[]).push(fn)}
+  };
+  const E=class{constructor(type){this.type=type}};
+  vm.runInNewContext(js(),{document:doc,Event:E,window:{},navigator:{},localStorage:{getItem:()=>null}},{timeout:1500});
+  map.modeDropdownTrigger.click();
+  assert.equal(map.modeDropdownMenu.hidden,false);
+  assert.equal(doc.activeElement,map.modeEffortSlider);
+  map.modeEffortSlider.value="1";
+  map.modeEffortSlider.dispatchEvent(new E("input"));
+  assert.equal(think.checked,true);
+  assert.equal(fast.checked,false);
+  assert.equal(map.modeDropdownLabel.textContent,"HIGH");
+  assert.equal(map.modeSliderTitle.textContent,"Intensiv");
+  assert.equal(map.modeDropdownMenu.hidden,false);
+  map.modeSliderReset.click();
+  assert.equal(fast.checked,true);
+  assert.equal(think.checked,false);
+  assert.equal(map.modeEffortSlider.value,"0");
+  assert.equal(map.modeDropdownLabel.textContent,"LOW");
+  map.modeDropdownMenu.dispatchEvent({type:"keydown",key:"Escape",preventDefault(){}});
+  assert.equal(map.modeDropdownMenu.hidden,true);
+});
+
+
+test("Markdown bullets with bold labels render as real accessible list items, not literal asterisks",()=>{
+  const vm=require("node:vm");
+  const source=fs.readFileSync(path.join(root,"static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function renderReadableModelText(");
+  const end=source.indexOf("  function append(",start);
+  assert.ok(start>0&&end>start);
+  class Element{
+    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.textContent="";}
+    append(child){this.children.push(child)}
+    get innerText(){return this.textContent+this.children.map(c=>c.innerText).join("")}
+  }
+  const renderer=vm.runInNewContext(source.slice(start,end)+"\nrenderReadableModelText",{
+    document:{createElement:tag=>new Element(tag)}
+  });
+  const target=new Element("div");
+  renderer(target,"Einleitung\n\n* **Bedeutung:** Ein Gruß\n* **Herkunft:** Ein altes Wort\n\nFazit.");
+  const lists=target.children.filter(e=>e.tagName==="UL");
+  assert.equal(lists.length,1);
+  assert.equal(lists[0].children.length,2);
+  assert.equal(lists[0].children[0].tagName,"LI");
+  assert.equal(lists[0].children[0].children[0].tagName,"B");
+  assert.equal(target.innerText.includes("* **"),false);
+  const safe=new Element("div");
+  renderer(safe,"* **Test:** <script>alert('x')</script>");
+  assert.ok(safe.innerText.includes("<script>"));
+  assert.equal(safe.children.some(e=>e.tagName==="SCRIPT"),false);
+});

@@ -132,7 +132,13 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
+        # Reuse only publicly retrieved, sanitized website icons. Search
+        # queries, session data and every other API response remain uncached.
+        response.headers["Cache-Control"] = (
+            "private, max-age=600"
+            if request.path == "/api/web/favicon" and response.status_code == 200
+            else "no-store"
+        )
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; script-src 'self'; style-src 'self'; "
             "connect-src 'self'; img-src 'self'; media-src 'self' blob:; font-src 'self'; "

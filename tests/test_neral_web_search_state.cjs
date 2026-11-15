@@ -13,7 +13,8 @@ async function runPrompt(question,{web=false,results=[],previews=[]}={}){
       remove(){},focus(){},setAttribute(){},getAttribute(){return null;},
       scrollHeight:0,scrollTop:0};
   }
-  element("prompt").value=question;
+  const turns=Array.isArray(question)?question:[question];
+  element("prompt").value=turns[0];
   element("useWebSearch").checked=web;
   async function fetch(url,options={}){
     calls.push({url,body:options.body&&typeof options.body==="string"?JSON.parse(options.body):null});
@@ -33,7 +34,10 @@ async function runPrompt(question,{web=false,results=[],previews=[]}={}){
     fetch,TextEncoder,AbortSignal,AbortController,Error,console,
   },{timeout:2000});
   await new Promise(resolve=>setTimeout(resolve,10));
-  await handlers.get("chatForm:submit")({preventDefault(){}});
+  for(const [i,turn] of turns.entries()){
+    if(i>0)element("prompt").value=turn;
+    await handlers.get("chatForm:submit")({preventDefault(){}});
+  }
   return {calls,elements};
 }
 
@@ -138,4 +142,48 @@ test("Frankfurt no-hits boilerplate is corrected when independent web tool has a
   assert.doesNotMatch(result,/keine passenden oder belastbaren Treffer/);
   assert.equal(clean(text,0,true,0),text);
   assert.equal(clean(text,5,false,5),text);
+});
+
+
+test("subjectless web command with greeting asks for a topic, never searches the word Hallo",async()=>{
+  const {calls,elements}=await runPrompt("hallo suche im internet",{web:true});
+  assert.equal(calls.filter(c=>c.url==="/api/web/search").length,0);
+  assert.equal(calls.filter(c=>c.url==="/api/neral/chat/generate").length,0);
+  const rendered=JSON.stringify(elements.messages.children);
+  assert.match(rendered,/Wonach.*Internet suchen/i);
+  assert.doesNotMatch(rendered,/NERAL-WEBSTATUS|5 Quellen/);
+});
+
+test("extract search topics after greeting and treat entity corrections as topical follow-ups",()=>{
+  const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function skipWebForLocalBasics(");
+  const end=source.indexOf("  // Snippets are untrusted evidence",start);
+  const get=vm.runInNewContext(source.slice(start,end)+"\n({makeSearchQuery,shouldSearchWeb})");
+  assert.equal(get.makeSearchQuery("Hallo suche im Internet"),"");
+  assert.equal(get.makeSearchQuery("Hallo, suche im Internet nach PEAK Spiel speichern"),
+               "PEAK Spiel speichern");
+  assert.equal(get.makeSearchQuery("^suche im internet ob man in PEAK speichern kann"),
+               "ob man in PEAK speichern kann");
+  assert.equal(get.shouldSearchWeb("nochmal PEAK ist ein Computerspiel","PEAK speichern"),true);
+  const correction=get.makeSearchQuery("nochmal PEAK ist ein Computerspiel","PEAK speichern");
+  assert.match(correction,/PEAK/);
+  assert.match(correction,/Computerspiel/);
+  assert.equal(get.shouldSearchWeb("Hallo 😊","PEAK speichern"),false);
+});
+
+
+test("topic-less explicit web search continues safely after the user supplies only a topic",async()=>{
+  const {calls,elements}=await runPrompt(
+    ["Hallo, suche im Internet","PEAK Computerspiel Spielstand speichern"],{web:true});
+  const searches=calls.filter(c=>c.url==="/api/web/search");
+  assert.equal(searches.length,1);
+  assert.equal(searches[0].body.query,"PEAK Computerspiel Spielstand speichern");
+  assert.equal(calls.filter(c=>c.url==="/api/neral/chat/generate").length,1);
+  assert.equal(elements.error.textContent,"");
+});
+
+test("a cancelled subject request does not search private small talk or later turns",async()=>{
+  const {calls}=await runPrompt(
+    ["Hallo suche im Internet","Nein danke","Ich möchte nur ein bisschen reden."],{web:true});
+  assert.equal(calls.filter(c=>c.url==="/api/web/search").length,0);
 });

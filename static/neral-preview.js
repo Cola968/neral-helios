@@ -25,35 +25,80 @@
 
 
   function renderReadableModelText(container,value) {
-    // Small, deliberately limited Markdown subset. Never inject model HTML.
+    // Minimal, inert Markdown rendering. Never inject model-supplied HTML.
+    // Markdown escape sequences for literal list markers are not list syntax.
+    const escapedMarkers=String(value).split("\n").map(line=>
+      /^[ \t]{0,3}(?:\\[-*]|\d+\\\.)[ \t]+/.test(line));
     const clean=String(value).replace(/&#(?:x20|32);|&nbsp;/gi," ")
-      // Model replies sometimes contain escaped Markdown copied from HTML.
-      // Decode common Markdown punctuation only, never turn it into HTML.
       .replace(/\\([*#.\-])/g,"$1")
       .replace(/(^|\n)[ \t]{0,3}#{1,6}[ \t]+/g,"$1")
       .replace(/(^|\n)[ \t]*-{3,}[ \t]*(?=\n|$)/g,"$1");
-    // Plain responses remain plain text, including in screen readers.
-    if(!clean.includes("**") && !clean.includes("`")) {
-      container.textContent=clean;
+    function inline(target,content){
+      if(!content)return;
+      if(!content.includes("**")&&!content.includes("\x60")){
+        const span=document.createElement("span");
+        span.textContent=content;target.append(span);
+        return;
+      }
+      const tokens=/\*\*([^*\n]{1,300})\*\*|\x60([^\x60\n]{1,240})\x60/g;
+      let index=0,parts=0;
+      function plain(piece){
+        if(!piece)return;
+        const span=document.createElement("span");
+        span.textContent=piece;
+        target.append(span);
+      }
+      for(const match of content.matchAll(tokens)){
+        if(++parts>250){plain(content.slice(index));return;}
+        plain(content.slice(index,match.index));
+        const node=document.createElement(match[1]?"b":"code");
+        node.textContent=match[1]||match[2];
+        target.append(node);
+        index=match.index+match[0].length;
+      }
+      plain(content.slice(index));
+    }
+    // The existing code-fence renderer owns fenced blocks. Avoid changing its
+    // structure. Plain prose keeps its original whitespace and inline markup.
+    const listLine=/^[ \t]{0,3}([-*]|\d+\.)[ \t]+(.+)$/;
+    if(clean.includes(String.fromCharCode(96).repeat(3))||
+       !clean.split("\n").some((line,index)=>
+         !escapedMarkers[index]&&listLine.test(line))){
+      if(!clean.includes("**")&&!clean.includes("\x60"))
+        container.textContent=clean;
+      else inline(container,clean);
       return;
     }
-    const tokens=/\*\*([^*\n]{1,300})\*\*|`([^`\n]{1,240})`/g;
-    let index=0,parts=0;
-    const plain=piece=>{
-      if(!piece)return;
-      const span=document.createElement("span");
-      span.textContent=piece;
-      container.append(span);
-    };
-    for(const match of clean.matchAll(tokens)) {
-      if(++parts>250){container.textContent=clean;return;}
-      plain(clean.slice(index,match.index));
-      const node=document.createElement(match[1]?"b":"code");
-      node.textContent=match[1]||match[2];
-      container.append(node);
-      index=match.index+match[0].length;
+    let paragraphs=[],list=null,listKind="";
+    function flush(){
+      if(!paragraphs.length)return;
+      const p=document.createElement("p");
+      inline(p,paragraphs.join("\n"));
+      container.append(p);
+      paragraphs=[];
     }
-    plain(clean.slice(index));
+    for(const [index,line] of clean.split("\n").entries()){
+      const matched=escapedMarkers[index]?null:line.match(listLine);
+      if(matched){
+        flush();
+        const kind=/^\d/.test(matched[1])?"ol":"ul";
+        if(!list||listKind!==kind){
+          list=document.createElement(kind);
+          list.className="neral-markdown-list";
+          container.append(list);
+        }
+        listKind=kind;
+        const item=document.createElement("li");
+        inline(item,matched[2]);
+        list.append(item);
+      }else{
+        list=null;
+        listKind="";
+        if(!line.trim())flush();
+        else paragraphs.push(line);
+      }
+    }
+    flush();
   }
   function append(role,text,origin,animate=false) {
     const empty=messages.querySelector(".welcome");
@@ -62,7 +107,11 @@
     item.className="message "+role+(animate?" neral-motion-enter":"");
     const heading=document.createElement("strong");
     heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
-    const body=document.createElement("p");
+    const hasList=role==="assistant" &&
+      !text.includes(String.fromCharCode(96).repeat(3)) &&
+      /(?:^|\n)[ \t]{0,3}(?:[-*]|\d+\.)[ \t]+\S/.test(text);
+    const body=document.createElement(hasList?"div":"p");
+    if(hasList)body.className="neral-response-body";
     if(role==="assistant"){
       renderReadableModelText(body,text);
       // Fenced code is converted into real <pre><code> blocks by the
@@ -105,15 +154,20 @@
 
   // Opting into web access does not make every greeting a search task.
   function skipWebForLocalBasics(question) {
-    const plain=question.toLowerCase().replace(/[!?.,:;]/g," ").replace(/\s+/g," ").trim();
-    return /^(hallo|hi|hey|guten tag|guten morgen|guten abend|wer bist du|wie heißt du|wie heisst du|welches modell bist du|welches modell verwendest du|nein wie heißt du welches modell bist du|nein wie heisst du welches modell bist du|wie heißt du welches modell bist du)$/.test(plain)
+    const plain=String(question||"").normalize("NFKC").toLocaleLowerCase("de")
+      .replace(/[\u200b-\u200d\ufeff]/g,"")
+      .replace(/[\p{P}\p{S}]/gu," ").replace(/\s+/g," ").trim();
+    if(plain.length>120)return false;
+    return /^(?:(?:hallo|hallöchen|hi|hey|moin|servus|guten tag|guten morgen|guten abend)(?: (?:neral|neral ai|zusammen))?|wer bist du|wie heißt du|wie heisst du|welches modell bist du|welches modell verwendest du|nein wie heißt du welches modell bist du|nein wie heisst du welches modell bist du|wie heißt du welches modell bist du)$/.test(plain)
       || /^was ist die hauptstadt von [a-zäöüß -]+$/.test(plain);
   }
   // A checked Web toggle permits searches but does not upload every private
   // conversation turn. Relevant questions and follow-ups to a previous search
   // are searched; greetings and local small talk stay on-device.
   function isSearchFollowup(question) {
-    return /^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu.test(String(question||"").trim());
+    const q=String(question||"").trim();
+    return /^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu.test(q)
+      || (q.length<=120 && /^(?:nochmals?|nein,?\s+ich\s+meine|ich\s+meine|zur\s+klarstellung)\b[\s\S]{4,}$/iu.test(q));
   }
   // Explicit user requests for external lookup need an enabled Web toggle.
   // Do not pass such requests to an offline model and invite a false refusal.
@@ -134,15 +188,31 @@
   // Reuse only a previous query already sent to a web provider, never private
   // conversation turns or the model's response.
   function makeSearchQuery(question,previousWebQuery="") {
-    const q=String(question||"").trim();
+    const original=String(question||"").trim();
     const previous=String(previousWebQuery||"").trim();
-    if(previous&&isSearchFollowup(q)&&previous.length+1+q.length<=160)
-      return previous+" "+q;
-    // Search the requested subject, not an instruction like "suche nach ...".
-    // This removes only common German search-command scaffolding, never
-    // changes a question unless the speaker explicitly used an imperative.
-    const subject=q.replace(/^(?:bitte\s+)?(?:suche|such|finde|recherchiere)\s+(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s+)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu,"").trim();
-    return subject.length>=2 ? subject : q;
+    if(previous&&isSearchFollowup(original)){
+      const correction=original.replace(
+        /^(?:nochmals?|nein,?\s+ich\s+meine|ich\s+meine|zur\s+klarstellung)\s*[,!:.]?\s*/iu,"").trim();
+      const combined=(previous+" "+correction).replace(/\s+/g," ").trim();
+      if(combined.length<=160)return combined;
+      const cut=combined.slice(0,160);
+      return cut.slice(0,cut.lastIndexOf(" "))||cut;
+    }
+    // Remove only a *leading* social greeting, not a topic mention of "Hallo".
+    let q=original.replace(/^[\s^>]+/,"").replace(
+      /^(?:hallo|hallöchen|hi|hey|moin|guten\s+(?:morgen|tag|abend))\b\s*[,!?.]*\s*(?=(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b)/iu,"").trim();
+    const request=/^(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b\s*[:：]?\s*(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s*)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu;
+    const hasDirective=request.test(q);
+    let subject=(hasDirective?q.replace(request,""):q).trim();
+    if(hasDirective)subject=subject.replace(/^[?!.,:;]+/g,"").trim();
+    if(hasDirective && (!subject||/^[?!.,:;]+$/.test(subject)||
+       /^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
+      return ""; // No subject was supplied: do not search the greeting.
+    if(subject.length<2)subject=original;
+    const normalized=subject.replace(/\s+/g," ").trim();
+    if(normalized.length<=160)return normalized;
+    const cut=normalized.slice(0,160);
+    return cut.slice(0,cut.lastIndexOf(" "))||cut;
   }
   // Snippets are untrusted evidence, not independently read source pages.
   function webEvidencePrompt(question,evidence,attempted=true,verifiedCount=null) {
@@ -285,8 +355,7 @@
     });
     const name=document.createElement("span");
     const allReachable=valid.every(item=>item.reachable);
-    name.textContent=valid.length+" "+(allReachable?
-      (valid.length===1?"Quelle":"Quellen"):"Suchtreffer");
+    name.textContent=valid.length+" "+(valid.length===1?"Suchtreffer":"Suchtreffer");
     name.className="neral-source-label";
     summary.append(stack,name);
     const list=document.createElement("div");list.className="neral-source-list";
@@ -634,13 +703,25 @@
       history=history.slice(2);
     return history;
   }
-  let lastWebQuery="";
+  let lastWebQuery="",pendingWebTopic=false;
+  // A topic-less, explicitly requested lookup may ask one local follow-up.
+  // Permission is limited to the immediately following substantive reply.
+  function isPendingWebTopic(value){
+    const q=String(value||"").trim();
+    return q.length>=3 && !skipWebForLocalBasics(q) &&
+      !/^(?:nein|nee|ne|danke|egal|lass|abbrechen|abbruch|stop|später|doch nicht)(?:[\s!.?,]|$)/iu.test(q) &&
+      !/^(?:ok|okay|ja|klar|alles klar)[\s!.?,]*$/iu.test(q);
+  }
   $("useWebSearch").addEventListener("change",()=>{
-    if(!$("useWebSearch").checked)lastWebQuery="";
+    if(!$("useWebSearch").checked){lastWebQuery="";pendingWebTopic=false;}
   });
-  // Conversation boundaries must not reuse search text from another chat.
-  browser.addEventListener?.("neral:chat-cleared",()=>{lastWebQuery="";});
-  browser.addEventListener?.("neral:load-chat",()=>{lastWebQuery="";});
+  // Conversation boundaries must not reuse search intent from another chat.
+  browser.addEventListener?.("neral:chat-cleared",()=>{
+    lastWebQuery="";pendingWebTopic=false;
+  });
+  browser.addEventListener?.("neral:load-chat",()=>{
+    lastWebQuery="";pendingWebTopic=false;
+  });
   async function sendMessage(event) {
     event.preventDefault();
     if(busy) {errors.textContent="NERAL bearbeitet noch die vorherige Anfrage.";return;}
@@ -665,6 +746,8 @@
     activeRequest=controller;
     const startedEpoch=conversationEpoch;
     const selectedAttachments=attachments.slice();
+    const pendingTopicRequested=pendingWebTopic;
+    pendingWebTopic=false; // one turn only; cancel or other tasks consume it
     // Place the actual submitted message in the transcript immediately.
     // A response is saved to memory only after its terminal success event.
     const userNode=append("user",text+(selectedAttachments.length?
@@ -701,13 +784,26 @@
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
       if($("useWebSearch").checked && !genericAttachmentOnly &&
-         shouldSearchWeb(text,lastWebQuery)) {
+         (shouldSearchWeb(text,lastWebQuery) ||
+          (pendingTopicRequested && isPendingWebTopic(text))) &&
+         (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
+        if(!webQuery){
+          const answer="Wonach soll ich im Internet suchen? Nenne bitte ein konkretes Thema oder eine Frage.";
+          lastWebQuery="";
+          pendingWebTopic=true;
+          append("assistant",answer,"NERAL",true);
+          memory.push({role:"user",content:text},{role:"assistant",content:answer});
+          if(memory.length>12)memory.splice(0,memory.length-12);
+          motionActivity("done",mode);
+          completedTurn=true;
+          return;
+        }
         if(webQuery.length>160 || /[\r\n]/.test(webQuery))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
         motionActivity("search-query",mode,{query:webQuery});
-        const searchSignal=AbortSignal.any([signal,AbortSignal.timeout(28000)]);
+        const searchSignal=AbortSignal.any([signal,AbortSignal.timeout(45000)]);
         const liveHandler=event=>{
           if(controller.signal.aborted||startedEpoch!==conversationEpoch ||
              activeRequest!==controller)return;
@@ -806,6 +902,12 @@
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      // A runtime greeting is not a researched answer. An outdated client
+      // may have performed a search first; never attach unrelated source cards.
+      const runtimeGreeting=result.tool_used==="runtime_greeting";
+      if(runtimeGreeting){
+        sources=[];verifiedSources=[];webAttempted=false;lastWebQuery="";
+      }
       if(selectedAttachments.length)motionActivity("files-done",mode);
       // HIGH (and non-streamed attachments) have already finished inference.
       // Reveal only the *final* verified text, gradually, with the same painter.
@@ -823,7 +925,8 @@
       partialNode?.remove();
       partialNode=null;
       const verified=result.verified===true && result.verification_scope!=="none";
-      let origin=result.model_generated===false&&result.tool_used
+      let origin=runtimeGreeting ? "NERAL" :
+        result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
         ? "NERAL HIGH · Endwert geprüft" : mode==="think"
         ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
