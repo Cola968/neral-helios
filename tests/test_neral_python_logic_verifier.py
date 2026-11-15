@@ -146,7 +146,7 @@ class StrictBoundedLogicCPU(unittest.TestCase):
             [{"role": "system", "content": "CPU test"},
              {"role": "user", "content": q}],
             propose=lambda turns, signal: {
-                "strategy": "PYTHON_SANDBOX", "code": "print(12)"},
+                "strategy": "PYTHON_SANDBOX", "code": "answer=12\nassert answer == (3*4)\nprint(answer)"},
             raw_fallback=lambda turns: "raw Qwen",
             execute_python=lambda code: {"status": "PASSED", "output": "12"},
             verify_python=independent_python_certificate,
@@ -162,7 +162,7 @@ class StrictBoundedLogicCPU(unittest.TestCase):
             [{"role": "system", "content": "CPU test"},
              {"role": "user", "content": q}],
             propose=lambda turns, signal: {
-                "strategy": "PYTHON_SANDBOX", "code": "print(12)"},
+                "strategy": "PYTHON_SANDBOX", "code": "answer=12\nassert answer == (3*4)\nprint(answer)"},
             raw_fallback=lambda turns: "raw Qwen",
             execute_python=lambda code: {"status": "PASSED", "output": "12"},
             verify_python=independent_python_certificate,
