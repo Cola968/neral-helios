@@ -1,0 +1,15 @@
+{
+  "authorization": "NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE",
+  "source_sha": "0e15041bb844e0d90bb66a3b2b7c183e0583329d",
+  "cases": 24,
+  "categories": {
+    "mathematics": 6,
+    "logic": 6,
+    "programming": 6,
+    "mixed": 6
+  },
+  "no_training": true,
+  "no_burned_blind100": true,
+  "no_main_write": true,
+  "one_shot": true
+}
