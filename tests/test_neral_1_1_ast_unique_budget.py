@@ -367,7 +367,7 @@ class BudgetedQwenFallbackCPU(unittest.TestCase):
         self.assertEqual(packets[0]["messages"],original)
         self.assertEqual(packets[0]["model"],"qwen3.5:9b")
         self.assertIs(packets[0]["think"],False)
-        self.assertLessEqual(packets[0]["options"]["num_predict"],768)
+        self.assertEqual(packets[0]["options"]["num_predict"],1536)
         self.assertFalse(packets[0]["stream"])
 
     def test_remote_or_unknown_models_cannot_be_requested(self):
@@ -425,7 +425,7 @@ class BudgetedQwenFallbackCPU(unittest.TestCase):
         self.assertFalse(response.json["verified"])
         self.assertFalse(response.json["safe_to_promote"])
         self.assertTrue(response.json["fallback_bounded"])
-        self.assertEqual(response.json["fallback_token_limit"],640)
+        self.assertEqual(response.json["fallback_token_limit"],1536)
         self.assertEqual(len(invoked),1)
         self.assertEqual(invoked[0][0],"qwen3.5:9b")
         self.assertEqual(invoked[0][1][-1]["content"],request["prompt"])
