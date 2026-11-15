@@ -18,12 +18,14 @@ def assess_release_evidence(strict:dict, secondary:dict|None)->dict:
        or strict.get("existing_sealed_sha256")!=SHA
        or strict.get("case_count")!=100):
         reasons.append("invalid_original_receipt")
-    if secondary is None or secondary.get("status") in (
-        "original_raw_missing","original_raw_not_found_in_scanned_scope",
-        "multiple_verified_raw_copies_needs_manual_identity_check"):
+    if secondary is None:
         reasons.append("raw_evidence_missing")
     elif type(secondary) is not dict:
         reasons.append("invalid_offline_receipt")
+    elif secondary.get("status") in (
+        "original_raw_missing","original_raw_not_found_in_scanned_scope",
+        "multiple_verified_raw_copies_needs_manual_identity_check"):
+        reasons.append("raw_evidence_missing")
     else:
         if (secondary.get("status") not in (
                  "offline_cpu_regrade_complete","original_raw_recovered_readonly")
@@ -63,7 +65,8 @@ def assess_release_evidence(strict:dict, secondary:dict|None)->dict:
             reasons.append("invalid_regression_evidence")
         elif count>0:
             reasons.append("corrected_regressions")
-        if secondary.get("net_gain", -100)<8:
+        net=secondary.get("net_gain")
+        if type(net) is not int or net<8:
             reasons.append("insufficient_verified_net_gain")
         if (not isinstance(secondary.get("qwen_ambiguous_ids"),list)
             or not isinstance(secondary.get("neral_ambiguous_ids"),list)
