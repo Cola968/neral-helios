@@ -14,54 +14,26 @@ import statistics
 import subprocess
 import time
 
-EXPECTED_SHA = "3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d"
+EXPECTED_SHA = "74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258"
+PREVIOUS_UNLOCATED_SHA = "3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d"
+HISTORICAL_GENERATOR_COMMIT = "8c9c58b4cdc7ffda1fb3392a6e6277b59fae203f"
+HISTORICAL_GENERATOR_LF_SHA = "477d78aa72a2f52f1b4b37bea6f6c3afa8ffabbce41b44d4743215cdf7487fcd"
 SOURCE_SHA = "737413f03b347676108d507ff3fe7693975dd269"
 CATS = ("mathematics", "logic", "programming", "mixed")
 
-def find_sealed_corpus(home: Path) -> Path:
-    """Hash likely pre-existing sealed JSONL files; never create a substitute."""
-    roots = [p for p in home.iterdir()
-             if p.is_dir() and not p.is_symlink()
-             and p.name.lower().startswith("neral-")]
-    roots += [home / "Documents" / "Codex", home / "Documents" / "NERAL",
-              home / "Desktop", home / "Downloads"]
-    omitted = {".git", ".venv", "venv", "site-packages", "node_modules",
-               ".cache", "cache", "checkpoints", "adapter", "adapters",
-               "models", "ollama", "training-env-py312"}
-    matches = []
-    seen = set()
-    for root in roots:
-        if not root.is_dir() or root.is_symlink():
-            continue
-        for directory, dirs, files in os.walk(root, followlinks=False):
-            relative = Path(directory).relative_to(root)
-            if len(relative.parts) > 6:
-                dirs[:] = []
-                continue
-            dirs[:] = [d for d in dirs if d.lower() not in omitted
-                       and not (Path(directory) / d).is_symlink()]
-            for filename in files:
-                p = Path(directory) / filename
-                if p.suffix.lower() not in (".jsonl", ".json", ".ndjson", ".txt") or p.is_symlink():
-                    continue
-                if (not root.name.lower().startswith("neral-")
-                    and not any(key in str(p).lower()
-                                for key in ("blind", "prospective", "100", "sealed"))):
-                    continue
-                try:
-                    if not 4000 <= p.stat().st_size <= 2_000_000:
-                        continue
-                    if p in seen:
-                        continue
-                    seen.add(p)
-                    if hashlib.sha256(p.read_bytes()).hexdigest() == EXPECTED_SHA:
-                        matches.append(p)
-                except (OSError, PermissionError):
-                    continue
-    if not matches:
-        raise RuntimeError("SEALED_DATASET_NOT_FOUND_OR_HASH_MISMATCH: "
-                           "no existing user-profile JSONL matches pinned SHA")
-    return sorted(matches, key=str)[0]
+def verify_historical_generator(generator) -> str:
+    """Pin exact pre-PR542 source bytes, without checking out or rewriting it."""
+    checked = Path(generator.__file__).resolve()
+    expected = (Path.cwd() / "scripts" / "neral_blind_100_cases.py").resolve()
+    if checked != expected or not checked.is_file():
+        raise RuntimeError("Historical generator is not imported from immutable source checkout")
+    canonical = checked.read_bytes().replace(b"\r\n", b"\n")
+    observed = hashlib.sha256(canonical).hexdigest()
+    if observed != HISTORICAL_GENERATOR_LF_SHA:
+        raise RuntimeError("Historical generator source integrity check failed")
+    print("ORIGINAL_GENERATOR_COMMIT " + HISTORICAL_GENERATOR_COMMIT, flush=True)
+    print("ORIGINAL_GENERATOR_SOURCE_LF_SHA256 " + observed, flush=True)
+    return observed
 
 def local_tags(request):
     response = request("GET", "/api/tags")
@@ -172,34 +144,21 @@ def main():
         raise RuntimeError("The actual PR542 opt-in NL route is not active")
     if args.out.exists() or args.out.is_symlink():
         raise FileExistsError("Refuse existing report destination")
-    from scripts.neral_blind_100_cases import build, serialize
+    import scripts.neral_blind_100_cases as historical_generator
     from scripts.neral_generalization_100_run import (
         TUNED_TAG, TUNED_DIGEST, require_exact_guard,
     )
     from scripts.neral_qlora_holdout_live import request
-    cases = build()
+    generator_source_sha = verify_historical_generator(historical_generator)
+    cases = historical_generator.build()
     if len(cases) != 100 or {x["category"] for x in cases} != set(CATS):
         raise RuntimeError("Unexpected benchmark case structure")
-    generated = serialize(cases)
-    generated_sha = hashlib.sha256(generated).hexdigest()
-    print("PR542_GENERATOR_SHA256 " + generated_sha, flush=True)
-    existing = find_sealed_corpus(Path.home())
-    original = existing.read_bytes()
-    first = next((json.loads(line) for line in original.decode("utf8").splitlines()
-                  if line.strip()), None)
-    print("EXISTING_SEALED_SAFE_METADATA " + json.dumps({
-        "file_name": existing.name,
-        "bytes": len(original),
-        "first_row_keys": sorted(first) if type(first) is dict else None,
-        "line_count": len([line for line in original.splitlines() if line.strip()]),
-    }, sort_keys=True), flush=True)
-    if generated_sha != EXPECTED_SHA:
-        raise RuntimeError("Frozen generator differs from original sealed SHA; "
-                           "refuse to run unverified scoring format. generator=" + generated_sha)
-    observed_sha = hashlib.sha256(original).hexdigest()
-    print("SEALED100_VERIFIED_SHA256 " + observed_sha, flush=True)
-    if observed_sha != EXPECTED_SHA or original != generated:
-        raise RuntimeError("Existing sealed dataset does not match immutable generator")
+    generated = historical_generator.serialize(cases)
+    observed_sha = hashlib.sha256(generated).hexdigest()
+    print("OFFICIALLY_RELOCKED_100_SHA256 " + observed_sha, flush=True)
+    print("PREVIOUS_UNLOCATED_HASH_NOT_USED " + PREVIOUS_UNLOCATED_SHA, flush=True)
+    if observed_sha != EXPECTED_SHA:
+        raise RuntimeError("Immutable pre-PR542 LF corpus differs from authorized SHA; refuse inference")
     if Counter(x["category"] for x in cases) != {key: 25 for key in CATS}:
         raise RuntimeError("Benchmark categories are not 25/25/25/25")
     guard = require_exact_guard()
@@ -235,6 +194,12 @@ def main():
         "source_commit": SOURCE_SHA,
         "existing_sealed_sha256": observed_sha,
         "expected_sealed_sha256": EXPECTED_SHA,
+        "historical_generator_commit": HISTORICAL_GENERATOR_COMMIT,
+        "historical_generator_source_lf_sha256": generator_source_sha,
+        "relocked_from_unlocated_sha256": PREVIOUS_UNLOCATED_SHA,
+        "relock_basis": "Previously frozen pre-PR542 public deterministic generator; LF bytes; original seal not located",
+        "evaluation_wrapper_commit": os.environ.get("GITHUB_SHA"),
+        "github_actions_run_id": os.environ.get("GITHUB_RUN_ID"),
         "case_count": 100, "categories": groups,
         "baseline_model": "qwen3.5:9b",
         "baseline_digest": tags_before["qwen3.5:9b"],
@@ -262,7 +227,7 @@ def main():
         "raw_model_outputs_uploaded": False, "training": False,
         "merged_to_main": False,
         "full_raw_saved_locally": True,
-        "note": "Observed 0 losses is not a future zero-regression guarantee.",
+        "note": "Observed 0 losses is not a future zero-regression guarantee; hash re-lock was expressly authorized after 3feca... was not recoverable.",
     }
     path = args.out / "summary.json"
     with path.open("x", encoding="utf8") as target:
