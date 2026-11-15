@@ -158,7 +158,7 @@ test("Markdown bullets with bold labels render as real accessible list items, no
   assert.equal(lists[0].children.length,2);
   assert.equal(lists[0].children[0].tagName,"LI");
   assert.equal(lists[0].children[0].children[0].tagName,"B");
-  assert.doesNotMatch(target.innerText,/\\* \\*\\*/);
+  assert.equal(target.innerText.includes("* **"),false);
   const safe=new Element("div");
   renderer(safe,"* **Test:** <script>alert('x')</script>");
   assert.ok(safe.innerText.includes("<script>"));
