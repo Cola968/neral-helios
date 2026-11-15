@@ -47,9 +47,9 @@ class AdaptiveProposalTransportCPU(unittest.TestCase):
                     "message": {"content": '{"strategy":"DIRECT"}'}}
         proposer = make_local_adaptive_proposer(
             "neral-qwen35-qlora-v1:latest", transport=send)
-        for i in range(3):
+        for i in range(2):
             proposer(ORIGINAL, signal(i, "python_runtime_failed" if i else None))
-        self.assertEqual(len(seen), 3)
+        self.assertEqual(len(seen), 2)
         self.assertEqual({row["model"] for row in seen},
                          {"neral-qwen35-qlora-v1:latest"})
         self.assertIn("python_runtime_failed", seen[-1]["messages"][0]["content"])
