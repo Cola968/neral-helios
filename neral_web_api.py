@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from flask import jsonify, request, Response
+from collections import OrderedDict
+from threading import Lock
+from time import monotonic
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 from threading import Thread
@@ -15,6 +18,14 @@ from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, Web
 def register_web_search_api(app, service=None):
     """Parent Flask app's existing localhost, session and Origin guards apply."""
     search = service if service is not None else WebSearch()
+    # Cache only public, already-sanitized icon bytes. The UI displays the same
+    # site icon in its live status, source stack and source cards.
+    favicon_cache = OrderedDict()
+    favicon_cache_lock = Lock()
+    favicon_cache_limit = 96
+    favicon_positive_ttl = 600
+    favicon_negative_ttl = 90
+
 
 
     def topic_terms(text: str) -> set[str]:
@@ -225,12 +236,32 @@ def register_web_search_api(app, service=None):
         host = request.args.get("host", "")
         if not isinstance(host, str) or len(host) > 253:
             return jsonify(error="Ungültiger Hostname."), 400
-        result = fetch_public_favicon(host)
+        now = monotonic()
+        with favicon_cache_lock:
+            entry = favicon_cache.get(host)
+            if entry and entry[0] > now:
+                favicon_cache.move_to_end(host)
+                result = entry[1]
+                cached = True
+            else:
+                favicon_cache.pop(host, None)
+                cached = False
+                result = None
+        if not cached:
+            result = fetch_public_favicon(host)
+            with favicon_cache_lock:
+                favicon_cache[host] = (
+                    monotonic() + (favicon_positive_ttl if result is not None
+                                   else favicon_negative_ttl), result)
+                favicon_cache.move_to_end(host)
+                while len(favicon_cache) > favicon_cache_limit:
+                    favicon_cache.popitem(last=False)
         if result is None:
             return Response(status=404)
         data, mime = result
         return Response(data, mimetype=mime, headers={
-            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+            "Cache-Control": "private, max-age=600"
         })
 
     @app.get("/api/web/search/status")
