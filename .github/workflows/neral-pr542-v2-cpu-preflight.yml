@@ -78,6 +78,33 @@ jobs:
           & $env:NERAL_V2_PY -B -m unittest discover -s (Join-Path $env:NERAL_V2_REVIEW 'tests') -p test_neral_pr542_prospective_v2_cpu.py -v
           if($LASTEXITCODE -ne 0){throw 'Synthetic CPU harness unit tests failed'}
           Write-Host 'PROSPECTIVE_V2_CPU_UNIT_TESTS_OK'
+      - name: Activate per-user Docker Desktop for this same CPU job
+        run: |
+          $ErrorActionPreference='Stop'
+          function IsDockerReady {
+            $saved=$ErrorActionPreference
+            $ErrorActionPreference='Continue'
+            try {
+              $null=& docker info --format '{{.ServerVersion}}' 2>$null
+              $ready=($LASTEXITCODE -eq 0)
+            }catch{$ready=$false}
+            finally{$ErrorActionPreference=$saved}
+            return $ready
+          }
+          if(-not(IsDockerReady)){
+            $exe=Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'
+            if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){
+              throw 'User-local Docker Desktop is missing'
+            }
+            Start-Process -FilePath $exe -ErrorAction Stop
+            Write-Host 'DOCKER_USER_LOCAL_STARTED_WITHIN_SAME_CPU_JOB'
+            for($i=0;$i -lt 26;$i++){
+              if(IsDockerReady){break}
+              Start-Sleep -Seconds 4
+            }
+          }
+          if(-not(IsDockerReady)){throw 'Docker daemon not available during actual CPU sandbox job'}
+          Write-Host 'DOCKER_DAEMON_READY_SAME_CPU_JOB'
       - name: Diagnose real Docker sandbox and PR537 guard on CPU only (no Ollama calls)
         run: |
           $ErrorActionPreference='Stop'
