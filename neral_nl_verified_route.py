@@ -17,13 +17,17 @@ import time
 from typing import Callable
 
 from neral_nl_schema_bridge import (
-    _equivalence, _parse_candidate, _signature, assess_dual_extraction,
+    _equivalence, _parse_candidate, _signature, coverage_gate,
+    extraction_prompt_for_question,
 )
 from neral_typed_constraints_v2 import (
     PREFIX, InvalidTypedConstraints, solve_typed_constraints,
 )
 from neral_high_verified_first import split_task_and_format_instruction
-from neral_nl_schema_format import expected_variable_declarations
+from neral_nl_schema_format import (
+    expected_variable_declarations, get_v2_ollama_format,
+    FULL_BINARY_SOURCE as _BINARY, FULL_PIN_SOURCE as _PIN,
+)
 from neral_agent_autonomy import OllamaCompletionError
 
 
@@ -47,20 +51,6 @@ _GRAPH = re.compile(
     r"Color vertices 0\.\.(\d+) with red, green or blue\. "
     r"Vertex 0 is red, and endpoints of edges "
     r"(\[[^\n]{1,800}\]) must differ\. How many valid colorings\?",
-    re.IGNORECASE,
-)
-_BINARY = re.compile(
-    r"Count binary strings of length (\d+) with exactly (\d+) ones, "
-    r"first two bits opposite and no two ones exactly two positions apart\.",
-    re.IGNORECASE,
-)
-_PIN = re.compile(
-    r"Ein ([a-zäöüß0-9]{2,15})stelliger Code verwendet "
-    r"([0-9, ]{1,100}und [0-9]{1,2}) genau einmal\. "
-    r"Die (\d+) steht vor der (\d+), nicht direkt davor\. "
-    r"Zwischen der (\d+) und (\d+) steht genau eine Ziffer\. "
-    r"Die (\d+) steht unmittelbar rechts von der (\d+)\. "
-    r"Die (\d+) steht nicht am Rand\. Bestimme alle gültigen Codes\.",
     re.IGNORECASE,
 )
 _LENGTHS = {
@@ -179,10 +169,11 @@ def run_guarded_nl_bridge(
     *,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
-    """Opt-in selection: TWO model proposals + full-source canonical Z3 proof.
+    """Opt-in QLoRA-first selection + independent full-source Z3 proof.
 
-    If any input, model, parse, coverage, signature or Z3 proof fails, the
-    original untouched chat turns go to the user's unchanged base-Qwen model.
+    Try QLoRA, then the base extractor only after a failed proposal. If no
+    proposal passes every source check, send the original untouched chat turns
+    to the user's unchanged raw base-Qwen model.
     """
     if (type(messages) is not list or len(messages) < 2 or
             any(type(m) is not dict or set(m) != {"role", "content"} or
@@ -203,64 +194,75 @@ def run_guarded_nl_bridge(
     calls = [0, 0]
     decision = {"status": "not_attempted", "proof_backend": None}
 
+    attempts = []
     if canonical is not None and qlora_extract is not base_extract:
-        captured = [None, None]
-
-        def first(turns):
-            calls[0] += 1
-            captured[0] = qlora_extract(turns)
-            return captured[0]
-
-        def second(turns):
-            calls[1] += 1
-            captured[1] = base_extract(turns)
-            return captured[1]
-
-        decision = assess_dual_extraction(question, first, second)
-        if (decision["status"] == "consensus_unverified"
-                and decision.get("proof_backend") == "z3_unsat"
-                and decision.get("schema_equivalent") is True
-                and all(type(x) is str for x in captured)):
+        canonical_sig = _signature(canonical)
+        for index, (role, extractor) in enumerate((
+                ("qlora", qlora_extract), ("base", base_extract))):
+            calls[index] += 1
+            attempt = {"model_role": role, "status": "extractor_error",
+                       "proof_backend": None}
+            attempts.append(attempt)
             try:
-                candidate_a, candidate_b = (
-                    _parse_candidate(captured[0]),
-                    _parse_candidate(captured[1]))
-                # NO shortcuts: exact variable types/names/domain/query,
-                # three independent formulas and *real* Z3 UNSAT proofs.
-                canonical_sig = _signature(canonical)
-                signatures_match = (
-                    _signature(candidate_a) == canonical_sig
-                    and _signature(candidate_b) == canonical_sig)
-                eq_a, proof_a = _equivalence(candidate_a, canonical)
-                eq_b, proof_b = _equivalence(candidate_b, canonical)
-                if (signatures_match and eq_a and eq_b
-                        and proof_a == proof_b == "z3_unsat"):
-                    verified_count = solve_typed_constraints(
-                        PREFIX + json.dumps(canonical, ensure_ascii=False),
-                        max_seconds=1.5)
-                    if (type(verified_count) is int
-                            and verified_count == decision["candidate_count"]):
-                        answer = str(verified_count)
-                        rendered = ("FINAL_ANSWER: " + answer if suffix else answer)
-                        return {
-                            "text": rendered, "final_answer": answer,
-                            "candidate_count": verified_count,
-                            "mode": "HIGH", "model_generated": False,
-                            "verified": True, "safe_to_promote": True,
-                            "verification_status": "source_canonical_z3_verified",
-                            "verification_scope": "full_source_grammar_exact",
-                            "verification_method": "independent_parser_and_z3_unsat",
-                            "selection_policy": "independently_source_verified_nl",
-                            "response_source": "independent_source_parser_z3",
-                            "consensus_status": decision["status"],
-                            "proof_backend": "z3_unsat",
-                            "tool_used": "neral_logic_exact",
-                            "tool_calls_succeeded": 1,
-                            "calls_used": sum(calls),
-                            "seconds": round(max(0, clock()-started), 3),
-                        }
-            except (InvalidTypedConstraints, ValueError, TypeError):
-                pass
+                raw = extractor([
+                    {"role": "system", "content": extraction_prompt_for_question(
+                        question, is_base=index == 1)},
+                    {"role": "user", "content": question},
+                ])
+                attempt["status"] = "invalid_schema"
+                candidate = _parse_candidate(raw)
+                limits = get_v2_ollama_format(question)["properties"]["constraints"]
+                if not limits["minItems"] <= len(candidate["constraints"]) <= limits["maxItems"]:
+                    attempt["status"] = "source_clause_budget_rejected"
+                    continue
+                cov = coverage_gate(question, candidate)
+                attempt.update(coverage_passed=cov["passed"],
+                               coverage_reason=cov["reason"])
+                if not cov["passed"]:
+                    attempt["status"] = "coverage_rejected"
+                    continue
+                if _signature(candidate) != canonical_sig:
+                    attempt["status"] = "source_signature_mismatch"
+                    continue
+                # Coverage is necessary but NOT sufficient. Prove equivalence
+                # to a FULL-input independent parse, never to another model.
+                same, backend = _equivalence(candidate, canonical)
+                attempt["proof_backend"] = backend
+                if not same or backend != "z3_unsat":
+                    attempt["status"] = "source_proof_rejected"
+                    continue
+                verified_count = solve_typed_constraints(
+                    PREFIX + json.dumps(canonical, ensure_ascii=False),
+                    max_seconds=1.5)
+                if type(verified_count) is not int:
+                    attempt["status"] = "solver_rejected"
+                    continue
+                status = "single_" + role + "_source_verified"
+                attempt["status"] = status
+                answer = str(verified_count)
+                return {
+                    "text": "FINAL_ANSWER: " + answer if suffix else answer,
+                    "final_answer": answer, "candidate_count": verified_count,
+                    "mode": "HIGH", "model_generated": False,
+                    "verified": True, "safe_to_promote": True,
+                    "verification_status": "source_canonical_z3_verified",
+                    "verification_scope": "full_source_grammar_exact",
+                    "verification_method": "independent_parser_and_z3_unsat",
+                    "selection_policy": "independently_source_verified_nl",
+                    "response_source": "independent_source_parser_z3",
+                    "selected_extractor": role, "extraction_attempts": attempts,
+                    "consensus_status": status, "proof_backend": "z3_unsat",
+                    "tool_used": "neral_logic_exact", "tool_calls_succeeded": 1,
+                    "calls_used": sum(calls),
+                    "seconds": round(max(0, clock()-started), 3),
+                }
+            except (InvalidTypedConstraints, ValueError, TypeError, UnicodeError):
+                # Invalid or truncated proposals can never supply an answer.
+                continue
+            except Exception:
+                attempt["status"] = "extractor_error"
+                continue
+        decision = attempts[-1]
 
     # The untouched raw-Qwen fallback is still the only model fallback.
     # If it cannot finish, NEVER use its partial text or an unverified
@@ -284,6 +286,7 @@ def run_guarded_nl_bridge(
             "fallback_error_code": reason,
             "consensus_status": decision.get("status", "not_attempted"),
             "proof_backend": decision.get("proof_backend"),
+            "extraction_attempts": attempts,
             "calls_used": sum(calls) + 1,
             "seconds": round(max(0, clock()-started), 3),
         }
@@ -307,6 +310,7 @@ def run_guarded_nl_bridge(
         "response_source": "raw_qwen",
         "consensus_status": decision.get("status", "not_attempted"),
         "proof_backend": decision.get("proof_backend"),
+        "extraction_attempts": attempts,
         "calls_used": sum(calls) + 1,
         "seconds": round(max(0, clock()-started), 3),
     }

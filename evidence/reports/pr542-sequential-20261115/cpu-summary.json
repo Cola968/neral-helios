@@ -1,0 +1,70 @@
+{
+  "suites": [
+    {
+      "pattern": "test_neral_nl_schema_bridge.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_schema_old_cases.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_schema_probe.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_schema_diagnostics.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_v2_structured_output.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_family_oneshot.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_v2_nonempty_fewshot.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_verified_route.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_pin_fullsource_fallback_20261114.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_think_nl_guard_http.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_local_ollama.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_preview_nl_z3_dependency.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_nl_single_promotion.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_typed_constraints_v2.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_tir_regression_guard.py",
+      "exit_code": 0
+    },
+    {
+      "pattern": "test_neral_boolean_constraints.py",
+      "exit_code": 0
+    }
+  ],
+  "tests": 137,
+  "all_passed": true
+}

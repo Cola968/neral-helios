@@ -235,6 +235,14 @@ def extraction_prompt_for_question(question: str, *, is_base: bool = False) -> s
         'Alle Regeln zusammen ausgeben; niemals symmetrisches OR zu '
         'einem einzigen Vergleich verkürzen. ',
     )[family]
+    if family == 1:
+        n = len(names)
+        pairs = ", ".join(f"(B{i},B{i+2})" for i in range(n-2))
+        family_instructions += (
+            f"Für diese Länge alle Paare lückenlos ausrollen: {pairs}. "
+            f"Genau {n} Constraints: Kardinalität, B0!=B1, dann diese Paare. "
+            f"Nur B0 bis B{n-1}; danach JSON sofort schließen, keine "
+            "Wiederholungen, zusätzlichen Abstände oder erfundenen Variablen. ")
     example = V2_FEW_SHOT_EXAMPLES[family]
     return (intro + core + family_instructions + "BEISPIEL AUFGABE: " +
             example["task"] + " JSON: " +
@@ -287,6 +295,14 @@ def _parse_candidate(raw: str) -> dict:
         raise ValueError("not a schema object")
     if set(obj) != {"version", "variables", "constraints", "query"}:
         raise ValueError("unknown schema fields")
+    from neral_nl_schema_format import MAX_MODEL_CONSTRAINTS
+    clauses = obj["constraints"]
+    if type(clauses) is not list or len(clauses) > MAX_MODEL_CONSTRAINTS:
+        raise ValueError("Model constraint count exceeds sampling budget")
+    fingerprints = [json.dumps(c, sort_keys=True, separators=(",", ":"))
+                    for c in clauses]
+    if len(set(fingerprints)) != len(fingerprints):
+        raise ValueError("Repeated model constraint")
     # The strict v2 interpreter is the sole authority on grammar/types/bounds.
     # The count is discarded: candidates must not become answers before proof.
     solve_typed_constraints(PREFIX + json.dumps(obj, ensure_ascii=False),

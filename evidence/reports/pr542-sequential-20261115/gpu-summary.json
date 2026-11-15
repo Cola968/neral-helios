@@ -1,0 +1,409 @@
+{
+  "scope": "Disclosed development cases only; no blind-test or general quality claim",
+  "local_raw_root": "D:\\neral-qlora\\pr542-sequential-20261115",
+  "models": [
+    {
+      "name": "neral-qwen35-qlora-v1:latest",
+      "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8"
+    },
+    {
+      "name": "qwen3.5:9b",
+      "digest": "56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90"
+    }
+  ],
+  "runs": [
+    {
+      "run": "gpu-run01",
+      "transport": "Flask THINK handler, real localhost Ollama passthrough",
+      "cases": [
+        {
+          "case": "21453",
+          "http_status": 200,
+          "elapsed_ms": 47324.51010000659,
+          "result": {
+            "candidate_count": null,
+            "verified": false,
+            "safe_to_promote": false,
+            "selected_extractor": null,
+            "consensus_status": "coverage_rejected",
+            "proof_backend": null,
+            "verification_status": "base_fallback_token_limit_unverified",
+            "calls_used": 3,
+            "extraction_attempts": [
+              {
+                "coverage_passed": false,
+                "coverage_reason": "pin_source_equivalence_missing",
+                "model_role": "qlora",
+                "proof_backend": null,
+                "status": "coverage_rejected"
+              },
+              {
+                "coverage_passed": false,
+                "coverage_reason": "pin_source_equivalence_missing",
+                "model_role": "base",
+                "proof_backend": null,
+                "status": "coverage_rejected"
+              }
+            ]
+          },
+          "model_calls": [
+            {
+              "model": "neral-qwen35-qlora-v1:latest",
+              "done_reason": "stop",
+              "eval_count": 222,
+              "prompt_eval_count": 832,
+              "load_duration_ms": 6168.73,
+              "eval_duration_ms": 2999.952,
+              "total_duration_ms": 9519.1641,
+              "constraints_budget": {
+                "minItems": 1,
+                "maxItems": 12,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "neral-qwen35-qlora-v1:latest",
+                  "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8",
+                  "size": 5346185707,
+                  "size_vram": 5346185707,
+                  "context_length": 4096
+                }
+              ]
+            },
+            {
+              "model": "qwen3.5:9b",
+              "done_reason": "stop",
+              "eval_count": 222,
+              "prompt_eval_count": 842,
+              "load_duration_ms": 6647.7201,
+              "eval_duration_ms": 2976.375,
+              "total_duration_ms": 9914.5775,
+              "constraints_budget": {
+                "minItems": 1,
+                "maxItems": 12,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "qwen3.5:9b",
+                  "digest": "56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90",
+                  "size": 5606337412,
+                  "size_vram": 5606337412,
+                  "context_length": 4096
+                }
+              ]
+            }
+          ],
+          "raw_base_call_count": 1,
+          "raw_file_sha256": "67d50900164709d1ae6e44963344ed69519ce026eb447193bf6cfb8856c7a435"
+        },
+        {
+          "case": "logic-02",
+          "http_status": 200,
+          "elapsed_ms": 7558.38230001973,
+          "result": {
+            "candidate_count": 6,
+            "verified": true,
+            "safe_to_promote": true,
+            "selected_extractor": "qlora",
+            "consensus_status": "single_qlora_source_verified",
+            "proof_backend": "z3_unsat",
+            "verification_status": "source_canonical_z3_verified",
+            "calls_used": 1,
+            "extraction_attempts": [
+              {
+                "coverage_passed": true,
+                "coverage_reason": "lexical_and_core_witnesses_present",
+                "model_role": "qlora",
+                "proof_backend": "z3_unsat",
+                "status": "single_qlora_source_verified"
+              }
+            ]
+          },
+          "model_calls": [
+            {
+              "model": "neral-qwen35-qlora-v1:latest",
+              "done_reason": "stop",
+              "eval_count": 300,
+              "prompt_eval_count": 526,
+              "load_duration_ms": 3244.6471,
+              "eval_duration_ms": 3997.012,
+              "total_duration_ms": 7465.6237,
+              "constraints_budget": {
+                "minItems": 1,
+                "maxItems": 12,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "neral-qwen35-qlora-v1:latest",
+                  "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8",
+                  "size": 5346185707,
+                  "size_vram": 5346185707,
+                  "context_length": 4096
+                }
+              ]
+            }
+          ],
+          "raw_base_call_count": 0,
+          "raw_file_sha256": "2058f258cd3ce7afbe60583ebd72d53dc51a8818a7bab29e3a97daf3fbce7b16"
+        },
+        {
+          "case": "logic-06",
+          "http_status": 200,
+          "elapsed_ms": 4579.426800017245,
+          "result": {
+            "candidate_count": 4,
+            "verified": true,
+            "safe_to_promote": true,
+            "selected_extractor": "qlora",
+            "consensus_status": "single_qlora_source_verified",
+            "proof_backend": "z3_unsat",
+            "verification_status": "source_canonical_z3_verified",
+            "calls_used": 1,
+            "extraction_attempts": [
+              {
+                "coverage_passed": true,
+                "coverage_reason": "lexical_and_core_witnesses_present",
+                "model_role": "qlora",
+                "proof_backend": "z3_unsat",
+                "status": "single_qlora_source_verified"
+              }
+            ]
+          },
+          "model_calls": [
+            {
+              "model": "neral-qwen35-qlora-v1:latest",
+              "done_reason": "stop",
+              "eval_count": 327,
+              "prompt_eval_count": 665,
+              "load_duration_ms": 7.3457,
+              "eval_duration_ms": 4282.142,
+              "total_duration_ms": 4505.9575,
+              "constraints_budget": {
+                "minItems": 6,
+                "maxItems": 6,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "neral-qwen35-qlora-v1:latest",
+                  "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8",
+                  "size": 5346185707,
+                  "size_vram": 5346185707,
+                  "context_length": 4096
+                }
+              ]
+            }
+          ],
+          "raw_base_call_count": 0,
+          "raw_file_sha256": "91028fd558554c4d5721b4cbbe202928f269277c284a393b635068c1e27b5785"
+        },
+        {
+          "case": "negative-extra-clause",
+          "http_status": 200,
+          "elapsed_ms": 31236.17439996451,
+          "result": {
+            "candidate_count": null,
+            "verified": false,
+            "safe_to_promote": false,
+            "selected_extractor": null,
+            "consensus_status": "not_attempted",
+            "proof_backend": null,
+            "verification_status": "base_fallback_token_limit_unverified",
+            "calls_used": 1,
+            "extraction_attempts": []
+          },
+          "model_calls": [],
+          "raw_base_call_count": 1,
+          "raw_file_sha256": "57746ca0d745b7d5828b7f627305228c7893c0cdd15b84b7ba749d95da44db2e"
+        }
+      ]
+    },
+    {
+      "run": "gpu-run02",
+      "transport": "Flask THINK handler, real localhost Ollama passthrough",
+      "cases": [
+        {
+          "case": "21453",
+          "http_status": 200,
+          "elapsed_ms": 7611.29400000209,
+          "result": {
+            "candidate_count": 1,
+            "verified": true,
+            "safe_to_promote": true,
+            "selected_extractor": "qlora",
+            "consensus_status": "single_qlora_source_verified",
+            "proof_backend": "z3_unsat",
+            "verification_status": "source_canonical_z3_verified",
+            "calls_used": 1,
+            "extraction_attempts": [
+              {
+                "coverage_passed": true,
+                "coverage_reason": "lexical_and_core_witnesses_present",
+                "model_role": "qlora",
+                "proof_backend": "z3_unsat",
+                "status": "single_qlora_source_verified"
+              }
+            ]
+          },
+          "model_calls": [
+            {
+              "model": "neral-qwen35-qlora-v1:latest",
+              "done_reason": "stop",
+              "eval_count": 290,
+              "prompt_eval_count": 832,
+              "load_duration_ms": 3251.8671,
+              "eval_duration_ms": 3903.103,
+              "total_duration_ms": 7428.1567,
+              "constraints_budget": {
+                "minItems": 6,
+                "maxItems": 6,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "neral-qwen35-qlora-v1:latest",
+                  "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8",
+                  "size": 5346185707,
+                  "size_vram": 5346185707,
+                  "context_length": 4096
+                }
+              ]
+            }
+          ],
+          "raw_base_call_count": 0,
+          "raw_file_sha256": "b762319e1caa19801f1b39b56911e7bd3c3b9b9e4a369e7a61e098b9395bf833"
+        },
+        {
+          "case": "logic-02",
+          "http_status": 200,
+          "elapsed_ms": 4258.975000004284,
+          "result": {
+            "candidate_count": 6,
+            "verified": true,
+            "safe_to_promote": true,
+            "selected_extractor": "qlora",
+            "consensus_status": "single_qlora_source_verified",
+            "proof_backend": "z3_unsat",
+            "verification_status": "source_canonical_z3_verified",
+            "calls_used": 1,
+            "extraction_attempts": [
+              {
+                "coverage_passed": true,
+                "coverage_reason": "lexical_and_core_witnesses_present",
+                "model_role": "qlora",
+                "proof_backend": "z3_unsat",
+                "status": "single_qlora_source_verified"
+              }
+            ]
+          },
+          "model_calls": [
+            {
+              "model": "neral-qwen35-qlora-v1:latest",
+              "done_reason": "stop",
+              "eval_count": 300,
+              "prompt_eval_count": 526,
+              "load_duration_ms": 4.8559,
+              "eval_duration_ms": 3941.339,
+              "total_duration_ms": 4133.5356,
+              "constraints_budget": {
+                "minItems": 1,
+                "maxItems": 12,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "neral-qwen35-qlora-v1:latest",
+                  "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8",
+                  "size": 5346185707,
+                  "size_vram": 5346185707,
+                  "context_length": 4096
+                }
+              ]
+            }
+          ],
+          "raw_base_call_count": 0,
+          "raw_file_sha256": "4202d06b2604c34107ba6c52307758842b87271b533f6e69873f1b57c55d8982"
+        },
+        {
+          "case": "logic-06",
+          "http_status": 200,
+          "elapsed_ms": 4686.95070000831,
+          "result": {
+            "candidate_count": 4,
+            "verified": true,
+            "safe_to_promote": true,
+            "selected_extractor": "qlora",
+            "consensus_status": "single_qlora_source_verified",
+            "proof_backend": "z3_unsat",
+            "verification_status": "source_canonical_z3_verified",
+            "calls_used": 1,
+            "extraction_attempts": [
+              {
+                "coverage_passed": true,
+                "coverage_reason": "lexical_and_core_witnesses_present",
+                "model_role": "qlora",
+                "proof_backend": "z3_unsat",
+                "status": "single_qlora_source_verified"
+              }
+            ]
+          },
+          "model_calls": [
+            {
+              "model": "neral-qwen35-qlora-v1:latest",
+              "done_reason": "stop",
+              "eval_count": 327,
+              "prompt_eval_count": 665,
+              "load_duration_ms": 4.4391,
+              "eval_duration_ms": 4366.783,
+              "total_duration_ms": 4585.0135,
+              "constraints_budget": {
+                "minItems": 6,
+                "maxItems": 6,
+                "uniqueItems": true
+              },
+              "error_class": null,
+              "resident_models": [
+                {
+                  "name": "neral-qwen35-qlora-v1:latest",
+                  "digest": "9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8",
+                  "size": 5346185707,
+                  "size_vram": 5346185707,
+                  "context_length": 4096
+                }
+              ]
+            }
+          ],
+          "raw_base_call_count": 0,
+          "raw_file_sha256": "3e6a44f7e76d7c28c6037d8ffe54289ff81788f6022903f94871fdde1ca2b768"
+        },
+        {
+          "case": "negative-extra-clause",
+          "http_status": 200,
+          "elapsed_ms": 20551.498000044376,
+          "result": {
+            "candidate_count": null,
+            "verified": false,
+            "safe_to_promote": false,
+            "selected_extractor": null,
+            "consensus_status": "not_attempted",
+            "proof_backend": null,
+            "verification_status": "raw_base_nl_unverified",
+            "calls_used": 1,
+            "extraction_attempts": []
+          },
+          "model_calls": [],
+          "raw_base_call_count": 1,
+          "raw_file_sha256": "cb850be9e7ecd85aa0af6c29e89a647afcef304cf5f71a77998b4e2e7854fbc0"
+        }
+      ]
+    }
+  ]
+}

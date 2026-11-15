@@ -9,6 +9,23 @@ from __future__ import annotations
 import copy
 import re
 
+FULL_BINARY_SOURCE = re.compile(
+    r"Count binary strings of length (\d+) with exactly (\d+) ones, "
+    r"first two bits opposite and no two ones exactly two positions apart\.",
+    re.IGNORECASE,
+)
+FULL_PIN_SOURCE = re.compile(
+    r"Ein ([a-zäöüß0-9]{2,15})stelliger Code verwendet "
+    r"([0-9, ]{1,100}und [0-9]{1,2}) genau einmal\. "
+    r"Die (\d+) steht vor der (\d+), nicht direkt davor\. "
+    r"Zwischen der (\d+) und (\d+) steht genau eine Ziffer\. "
+    r"Die (\d+) steht unmittelbar rechts von der (\d+)\. "
+    r"Die (\d+) steht nicht am Rand\. Bestimme alle gültigen Codes\.",
+    re.IGNORECASE,
+)
+
+MAX_MODEL_CONSTRAINTS = 12
+
 _IDENT = r"^[A-Za-z_][A-Za-z_0-9]{0,31}$"
 _NAME = {"type": "string", "pattern": _IDENT}
 _INT = {"type": "integer", "minimum": -1000000, "maximum": 1000000}
@@ -83,7 +100,7 @@ def _build() -> dict:
                 "minProperties": 1,
                 "maxProperties": 10,
             },
-            "constraints": _array(predicate_ref, 1, 32),
+            "constraints": _array(predicate_ref, 1, MAX_MODEL_CONSTRAINTS, unique=True),
             "query": {"type": "string", "enum": ["count", "satisfiable"]},
         },
         "required": ["version", "variables", "constraints", "query"],
@@ -180,4 +197,15 @@ def get_v2_ollama_format(question: str | None = None) -> dict:
     if declarations is not None:
         fmt["properties"]["variables"] = _source_bound_variable_properties(
             declarations)
+    # This full sentence form contains exactly two global clauses and n-2
+    # distance clauses. Never demand padding beyond the actual source clauses.
+    binary = FULL_BINARY_SOURCE.fullmatch(question or "")
+    if binary:
+        n, k = map(int, binary.groups())
+        if 2 <= n <= 10 and 0 <= k <= n:
+            fmt["properties"]["constraints"].update(minItems=n, maxItems=n)
+    # A fully recognized PIN sentence has uniqueness, ordering, distance OR,
+    # adjacency, and two edge exclusions: six source slots, no padding.
+    if declarations is not None and FULL_PIN_SOURCE.fullmatch(question or ""):
+        fmt["properties"]["constraints"].update(minItems=6, maxItems=6)
     return fmt

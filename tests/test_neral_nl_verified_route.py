@@ -68,7 +68,7 @@ class SourceCertificateContracts(unittest.TestCase):
 
 
 class GuardedNLLiveRouteContracts(unittest.TestCase):
-    def test_both_correct_plus_source_grounding_promotes_exact_count(self):
+    def test_qlora_source_grounding_promotes_without_second_model(self):
         q = old_case_question("21453")
         canonical = strict_source_certificate(q)
         calls = []
@@ -86,14 +86,14 @@ class GuardedNLLiveRouteContracts(unittest.TestCase):
             first, second, no_fallback)
         self.assertEqual(reply["text"], "1")
         self.assertEqual(reply["candidate_count"], 1)
-        self.assertEqual(reply["consensus_status"], "consensus_unverified")
+        self.assertEqual(reply["consensus_status"], "single_qlora_source_verified")
         self.assertEqual(reply["proof_backend"], "z3_unsat")
         self.assertTrue(reply["verified"])
         self.assertTrue(reply["safe_to_promote"])
         self.assertFalse(reply["model_generated"])
         self.assertEqual(reply["selection_policy"], "independently_source_verified_nl")
-        self.assertEqual([x[0] for x in calls], ["adapter", "base"])
-        self.assertNotEqual(calls[0][1][0]["content"], calls[1][1][0]["content"])
+        self.assertEqual([x[0] for x in calls], ["adapter"])
+        self.assertEqual(reply["calls_used"], 1)
 
     def test_two_models_agree_on_wrong_omission_but_cannot_promote(self):
         q = old_case_question("21453")

@@ -8,6 +8,7 @@ on:
       - 'tests/test_neral_nl_schema_bridge.py'
       - 'tests/test_neral_nl_schema_old_cases.py'
       - 'tests/test_neral_nl_schema_probe.py'
+      - 'scripts/neral_nl_sequential_acceptance.py'
       - 'scripts/neral_nl_schema_probe.py'
       - 'scripts/neral_nl_schema_diagnostics.py'
       - 'tests/test_neral_nl_schema_diagnostics.py'
@@ -15,6 +16,7 @@ on:
       - 'tests/test_neral_v2_structured_output.py'
       - 'tests/test_neral_v2_nonempty_fewshot.py'
       - 'tests/test_neral_nl_family_oneshot.py'
+      - 'tests/test_neral_nl_single_promotion.py'
       - 'neral_nl_verified_route.py'
       - 'tests/test_neral_nl_verified_route.py'
       - 'tests/test_neral_pin_fullsource_fallback_20261114.py'
@@ -69,6 +71,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_nl_local_ollama.py' -v
       - name: Preview Z3 runtime and installer contract (CPU only)
         run: python -B -m unittest discover -s tests -p 'test_neral_preview_nl_z3_dependency.py' -v
+      - name: Sequential QLoRA source proof and bounded unique model constraints (CPU only)
+        run: python -B -m unittest discover -s tests -p 'test_neral_nl_single_promotion.py' -v
       - name: Typed solver and guard regression suites
         run: |
           python -B -m unittest discover -s tests -p 'test_neral_typed_constraints_v2.py' -v

@@ -175,3 +175,8 @@ The real previous RTX4070 run #43380824033 confirmed only 2/3 known old-case mod
 **CPU regression evidence.** GitHub Actions run #43460471740 passed 101/101 focused offline CPU unit/Flask tests, including PIN count 1, two older case counts 6/4, wrong-but-agreeing omission, multi-turn rejection, mixed flag rejection, and original PR537 test suite. No RTX live inference, 3/3 success or prospective release gate proof is claimed.
 
 **Scope.** PR #542 remains draft and isolated from main; no modifications or access to the frozen prospective 100-case corpus. The next step is the local GPU old-three repeat and separately measured fast-old6 latency probe; its six prior disclosed development prompts are not the sealed prospective blind test.
+
+
+## November 15: QLoRA-first source proof and measured RTX acceptance
+
+The current opt-in route supersedes the earlier requirement for both models to agree: QLoRA may promote after independent complete-source parsing and Z3 equivalence; base extraction is conditional on failure. See [implementation, safety boundary and actual four-case RTX results](neral_nl_single_promotion_20261115.md). Coverage alone remains insufficient. Generic model arrays are bounded to 12 unique clauses, recognized binary and PIN sources have exact source-derived budgets. All 137 focused CPU tests passed locally; real RTX inference returned 1/6/4 with a single QLoRA call each and rejected promotion of the negative source extension. No main merge or sealed-corpus access.

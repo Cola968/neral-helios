@@ -52,14 +52,14 @@ class ThinkNLGuardIntegrationCPU(unittest.TestCase):
             self.assertEqual(r.status_code, 400, (p, r.json))
         self.assertFalse(raw)
 
-    def test_real_http_handler_selects_only_three_way_proven_source(self):
+    def test_real_http_handler_promotes_source_proven_qlora_without_base_inference(self):
         client, raw_calls = fixture()
         question = old_case_question("21453")
         canonical = strict_source_certificate(question)
         models = []
         def fake_maker(model):
             models.append(model)
-            return lambda turns: json.dumps(canonical)
+            return (lambda turns: json.dumps(canonical)) if model.startswith("neral-") else (lambda _: self.fail("Base extractor must not run"))
         with patch.dict(os.environ, {"NERAL_EXPERIMENTAL_NL_SCHEMA":"1"}), \
              patch("neral_nl_local_ollama.make_local_extractor",
                    side_effect=fake_maker):
