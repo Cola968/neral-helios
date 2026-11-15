@@ -77,6 +77,10 @@ def register_web_search_api(app, service=None):
         matched = terms.intersection(heading | snippet)
         if not matched:
             return None
+        # A generic category alone must not pass for a named destination.
+        # Example: Bremen tram stop "Flughafen" is not Frankfurt Airport.
+        if len(terms) >= 2 and len(matched) < 2:
+            return None
         categories = {"flughafen","wetter"}
         category = terms.intersection(categories)
         # With multiple query terms an unrelated result at the right location
