@@ -546,7 +546,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     run_adaptive_planner, run_python_in_docker)
                 from neral_adaptive_ollama import (
                     make_local_adaptive_proposer, MODEL as ADAPTIVE_MODEL)
-                from neral_python_logic_verifier import independent_python_certificate
+                from neral_python_source_router import verify_python_full_source
                 # Lazy creation avoids even a model-planner setup on
                 # DIRECT and multi-turn requests.
                 proposer = None
@@ -557,7 +557,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     return proposer(turns, signal)
                 result = run_adaptive_planner(
                     data, adaptive_propose, high_backend.respond_chat,
-                    run_python_in_docker, independent_python_certificate)
+                    run_python_in_docker, verify_python_full_source)
                 return jsonify({**result, "adaptive_planner": True,
                                 "planner_model": ADAPTIVE_MODEL,
                                 "fallback_model": high_backend.model,
