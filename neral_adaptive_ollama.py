@@ -37,8 +37,13 @@ _INSTRUCTION = (
     "explanations, Markdown, native tool tags or extra keys. "
     "Prefer Z3_SCHEMA only when the full input is an explicitly supported "
     "fully source-certified finite constraint format. "
-    "Prefer PYTHON_SANDBOX for finite combinatorics, constrained enumerations "
-    "and exact arithmetic; keep code minimal, deterministic, and within limits. "
+    "For ANY clearly computational one-turn task involving mathematics, "
+    "Python code, finite logic or numeric physics, attempt PYTHON_SANDBOX "
+    "even if no fixed text template matches; the independent checker will "
+    "reject unproven outputs. Do not fall back to DIRECT merely because "
+    "phrasing is unfamiliar. Prefer Z3_SCHEMA only if the whole source "
+    "is exactly representable by the supported certified source grammar. "
+    "Keep code minimal, deterministic and within limits. "
     "For unique finite truth-teller/room-assignment puzzles, enumerate "
     "ALL assignments with itertools.product/permutations, collect valid "
     "assignments in solutions, assert len(solutions) == 1, and print the "
@@ -136,6 +141,11 @@ def make_local_adaptive_proposer(model_tag: str, *, transport=None):
     send = _localhost_transport if transport is None else transport
 
     feedback_instructions = {
+        "source_not_certified":
+            "Die Z3-Quelle ist nicht deterministisch zertifiziert. "
+            "Wähle jetzt PYTHON_SANDBOX und gib ein vollständiges, "
+            "eigenständig testendes kurzes Python-Skript aus; "
+            "keine Behauptung unabhängiger Korrektheit.",
         "python_missing_assert":
             "Fehlendes assert zur Gegenprüfung der Aufgabenbedingungen. "
             "Ergänze mindestens ein nicht-triviales top-level assert, "
