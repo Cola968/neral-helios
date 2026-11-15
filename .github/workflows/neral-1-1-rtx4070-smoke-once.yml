@@ -1,13 +1,13 @@
-name: NERAL 1.1 pinned RTX4070 synthetic 8-case smoke
+name: NERAL 1.1 Z3-first RTX4070 exact-eight retest
 on:
   push:
-    branches: [verify/neral-1-1-rtx4070-smoke-3b8decd8-20261115]
+    branches: [verify/neral-1-1-z3-first-smoke-retest-20261115]
     paths: [smoke_requests/neral_1_1_gpu_once.json]
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: neral-1-1-3b8decd8-eight-synthetic-once
+  group: neral-1-1-z3-first-retest-eight-synthetic
   cancel-in-progress: false
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 3b8decd89f7e7d1d4c96a80622a99d514b64c3ff
+          ref: 43e527edd0be253fcbc431af83ba12e6d4709be6
           path: source
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -34,13 +34,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C source rev-parse HEAD)" = '3b8decd89f7e7d1d4c96a80622a99d514b64c3ff'
+          test "$(git -C source rev-parse HEAD)" = '43e527edd0be253fcbc431af83ba12e6d4709be6'
           python - <<'PY'
           import json,pathlib
           r=json.loads(pathlib.Path('review/smoke_requests/neral_1_1_gpu_once.json').read_text(encoding='utf8'))
           assert r=={
               'authorization':'NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE',
-              'source_commit':'3b8decd89f7e7d1d4c96a80622a99d514b64c3ff',
+              'source_commit':'43e527edd0be253fcbc431af83ba12e6d4709be6',
               'case_count':8,'no_blind100_access':True,'no_training':True,
               'no_merge':True,'one_shot':True}
           print('PINNED_SYNTHETIC_ONE_SHOT_AUTHORIZATION_VERIFIED')
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 3b8decd89f7e7d1d4c96a80622a99d514b64c3ff
+          ref: 43e527edd0be253fcbc431af83ba12e6d4709be6
           path: source
           persist-credentials: false
           clean: true
@@ -96,9 +96,9 @@ jobs:
           $src=Join-Path $env:GITHUB_WORKSPACE 'source'
           $rev=Join-Path $env:GITHUB_WORKSPACE 'review'
           $r=Get-Content -LiteralPath (Join-Path $rev 'smoke_requests\neral_1_1_gpu_once.json') -Raw|ConvertFrom-Json
-          if((& git -C $src rev-parse HEAD).Trim() -ne '3b8decd89f7e7d1d4c96a80622a99d514b64c3ff'){throw 'Original source SHA changed'}
+          if((& git -C $src rev-parse HEAD).Trim() -ne '43e527edd0be253fcbc431af83ba12e6d4709be6'){throw 'Original source SHA changed'}
           if($r.authorization -ne 'NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE' -or
-             $r.source_commit -ne '3b8decd89f7e7d1d4c96a80622a99d514b64c3ff' -or
+             $r.source_commit -ne '43e527edd0be253fcbc431af83ba12e6d4709be6' -or
              $r.case_count -ne 8 -or $r.no_blind100_access -ne $true -or
              $r.no_training -ne $true -or $r.no_merge -ne $true -or
              $r.one_shot -ne $true){throw 'Invalid one-shot request'}
@@ -120,7 +120,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Local CPU preflight failed'}
           $root=if($env:NERAL_EVIDENCE_ROOT){$env:NERAL_EVIDENCE_ROOT}else{Join-Path $env:USERPROFILE 'NERAL-Smoke-Evidence'}
           if(-not(Test-Path -LiteralPath $root)){New-Item -ItemType Directory -Path $root -Force|Out-Null}
-          $out=Join-Path $root ('neral-1-1-rtx4070-smoke-'+$env:GITHUB_RUN_ID)
+          $out=Join-Path $root ('neral-1-1-z3-first-retest-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $out){throw 'Refuse occupied evidence output path'}
           [IO.File]::AppendAllText($env:GITHUB_ENV,(
              'NERAL_SMOKE_PY='+$py+[Environment]::NewLine+
@@ -176,7 +176,7 @@ jobs:
         if: always() && env.NERAL_SMOKE_OUT != ''
         uses: actions/upload-artifact@v4
         with:
-          name: neral-1-1-rtx4070-raw8-${{ github.run_id }}
+          name: neral-1-1-z3-first-raw8-${{ github.run_id }}
           path: ${{ env.NERAL_SMOKE_OUT }}
           if-no-files-found: warn
           retention-days: 90
