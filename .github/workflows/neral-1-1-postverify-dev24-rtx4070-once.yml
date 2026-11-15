@@ -1,0 +1,230 @@
+name: NERAL 1.1 postverification new dev24 real RTX4070
+on:
+  push:
+    branches: [verify/neral-1-1-postverify-dev24-rtx4070-20261115]
+    paths: [gpu_requests/neral_1_1_postverify_dev24_once.json]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: neral-1-1-postverify-dev24-20261115-one-shot
+  cancel-in-progress: false
+
+jobs:
+  independent-cpu-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0e15041bb844e0d90bb66a3b2b7c183e0583329d
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: review
+          persist-credentials: false
+      - name: Verify immutable code and one-shot development authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = '0e15041bb844e0d90bb66a3b2b7c183e0583329d'
+          python - <<'PY'
+          import json,pathlib
+          req=json.loads(pathlib.Path('review/gpu_requests/neral_1_1_postverify_dev24_once.json').read_text('utf8'))
+          assert req=={
+            'authorization':'NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE',
+            'source_sha':'0e15041bb844e0d90bb66a3b2b7c183e0583329d','cases':24,
+            'categories':{'mathematics':6,'logic':6,'programming':6,'mixed':6},
+            'no_training':True,'no_burned_blind100':True,
+            'no_main_write':True,'one_shot':True,
+          }
+          print('PINNED_DEVELOPMENT24_GPU_AUTHORIZATION_VERIFIED')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU proof runtime only
+        run: python -m pip install --disable-pip-version-check 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
+      - name: New source-open, parser and dev24 contracts
+        working-directory: source
+        run: |
+          set -e
+          for suite in test_neral_1_1_postverify_open_router.py test_neral_1_1_postverify_dev24.py test_neral_blind_100_offline_score_cpu.py test_neral_1_1_z3_first_failfast.py test_neral_adaptive_planner.py test_neral_1_1_ast_unique_budget.py test_neral_tir_regression_guard.py; do
+            python -B -m unittest discover -s tests -p "$suite" -v
+          done
+          python -B -m scripts.neral_1_1_postverify_dev24_gpu --cpu-preflight --authorize NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE
+
+  rtx4070-development:
+    needs: independent-cpu-gate
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      NERAL_PINNED_SOURCE_SHA: 0e15041bb844e0d90bb66a3b2b7c183e0583329d
+      NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER: '1'
+      NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0e15041bb844e0d90bb66a3b2b7c183e0583329d
+          path: source
+          persist-credentials: false
+          clean: true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: review
+          persist-credentials: false
+          clean: true
+      - name: Check SHA, request and preinstalled Python, isolate CPU requirements
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $rev=Join-Path $env:GITHUB_WORKSPACE 'review'
+          if((& git -C $src rev-parse HEAD).Trim() -ne '0e15041bb844e0d90bb66a3b2b7c183e0583329d'){throw 'Source drift'}
+          $request=Get-Content -Raw -LiteralPath (Join-Path $rev 'gpu_requests\neral_1_1_postverify_dev24_once.json')|ConvertFrom-Json
+          if($request.authorization -ne 'NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE' -or
+             $request.source_sha -ne '0e15041bb844e0d90bb66a3b2b7c183e0583329d' -or
+             $request.cases -ne 24 -or
+             $request.no_training -ne $true -or
+             $request.no_burned_blind100 -ne $true -or
+             $request.no_main_write -ne $true -or
+             $request.one_shot -ne $true){throw 'Authorization mismatch'}
+          $defaultPy=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $py=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$defaultPy}
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Missing existing local Python'}
+          $deps=Join-Path $env:RUNNER_TEMP ('neral-postverify-dev24-deps-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $deps){throw 'Occupied isolated CPU deps'}
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir --target $deps 'Flask>=3,<4' 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5'
+          if($LASTEXITCODE -ne 0){throw 'Isolated CPU dependencies failed'}
+          $env:PYTHONPATH=$src+';'+$deps
+          Push-Location $src
+          try {
+            & $py -B -m scripts.neral_1_1_postverify_dev24_gpu --cpu-preflight --authorize NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE
+            if($LASTEXITCODE -ne 0){throw 'Local dev24 CPU dry-run failed'}
+          } finally {Pop-Location}
+          $root=if($env:NERAL_EVIDENCE_ROOT){$env:NERAL_EVIDENCE_ROOT}else{Join-Path $env:USERPROFILE 'NERAL-Smoke-Evidence'}
+          if(-not(Test-Path -LiteralPath $root)){New-Item -Path $root -ItemType Directory -Force|Out-Null}
+          $out=Join-Path $root ('neral-1-1-postverify-DEV24-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $out){throw 'No overwriting evidence'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,(
+              'NERAL_DEV_SRC='+$src+[Environment]::NewLine+
+              'NERAL_DEV_PY='+$py+[Environment]::NewLine+
+              'NERAL_DEV_OUT='+$out+[Environment]::NewLine+
+              'NERAL_DEV_DEPS='+$deps+[Environment]::NewLine+
+              'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          Write-Host 'POSTVERIFY_DEV24_LOCAL_CPU_AND_SHA_OK'
+      - name: Assert RTX4070 and the preinstalled Python Docker sandbox
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu=& nvidia-smi --query-gpu=name --format=csv,noheader
+          if($LASTEXITCODE -ne 0 -or ($gpu -join ' ') -notmatch 'RTX 4070'){throw 'Real RTX4070 required'}
+          function DockerReady {
+            $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
+            try {$null=& docker info --format '{{.ServerVersion}}' 2>$null;return ($LASTEXITCODE -eq 0)}
+            catch {return $false} finally {$ErrorActionPreference=$old}
+          }
+          if(-not(DockerReady)){
+            $exe=Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'
+            if(-not(Test-Path -LiteralPath $exe)){throw 'Docker Desktop missing'}
+            Start-Process -FilePath $exe -ErrorAction Stop
+            for($i=0;$i -lt 30;$i++){if(DockerReady){break};Start-Sleep -Seconds 4}
+          }
+          if(-not(DockerReady)){throw 'Docker server unavailable'}
+          & docker image inspect python:3.11-alpine | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'Preinstalled sandbox image missing'}
+          Write-Host 'REAL_RTX4070_DOCKER_READY'
+      - name: Execute original source post-verification 24 paired GPU tasks and persist full raw
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_DEV_SRC
+          try {
+            & $env:NERAL_DEV_PY -B -m scripts.neral_1_1_postverify_dev24_gpu --live --authorize NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE --out $env:NERAL_DEV_OUT
+            if($LASTEXITCODE -ne 0){throw 'Incomplete dev24: preserve raw'}
+          } finally {Pop-Location}
+      - name: Verify all 24 original pairs, source SHA and development summary
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path(os.environ["NERAL_DEV_OUT"])
+          cases=(root/"dev24-cases.jsonl").read_bytes()
+          source=(root/"dev24-manifest.json").read_text("utf8")
+          rows=(root/"dev24-progress.jsonl").read_text("utf8").splitlines()
+          raw=(root/"dev24-full-raw.jsonl").read_text("utf8").splitlines()
+          summary=json.loads((root/"dev24-summary.json").read_text("utf8"))
+          assert len(rows)==len(raw)==summary["complete_pairs"]==24
+          assert summary["casepack_sha256"]==json.loads(source)["casepack_sha256"]
+          assert summary["source_sha"]=="0e15041bb844e0d90bb66a3b2b7c183e0583329d"
+          assert summary["progress_sha256"]==hashlib.sha256((root/"dev24-progress.jsonl").read_bytes()).hexdigest()
+          print("24_COMPLETE_PAIR_RAW_AND_MODEL_SOURCE_VERIFIED")
+          '@ | & $env:NERAL_DEV_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Incomplete raw evidence'}
+          if((@(& git -C $env:NERAL_DEV_SRC status --porcelain)).Count -ne 0){throw 'Pinned development source altered'}
+      - name: Upload full raw development prompts, model envelopes, tool traces and score
+        if: always() && env.NERAL_DEV_OUT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-1-1-postverify-DEV24-raw-${{ github.run_id }}
+          path: ${{ env.NERAL_DEV_OUT }}
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Download the same submitted artifact
+        if: success()
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-1-1-postverify-DEV24-raw-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-postverify-dev24-${{ github.run_id }}
+      - name: Verify downloaded raw evidence is byte-identical
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_DEV_REMOTE=Join-Path $env:RUNNER_TEMP ('neral-postverify-dev24-'+$env:GITHUB_RUN_ID)
+          @'
+          import hashlib,os,pathlib
+          a=pathlib.Path(os.environ["NERAL_DEV_OUT"])
+          b=pathlib.Path(os.environ["NERAL_DEV_REMOTE"])
+          names={p.name for p in a.iterdir() if p.is_file()}
+          assert "dev24-summary.json" in names
+          assert "dev24-full-raw.jsonl" in names
+          assert names=={p.name for p in b.iterdir() if p.is_file()}
+          for name in names:
+              assert hashlib.sha256((a/name).read_bytes()).digest()==hashlib.sha256((b/name).read_bytes()).digest()
+          print("DEV24_GITHUB_RAW_ROUNDTRIP_SHA_VERIFIED")
+          '@ | & $env:NERAL_DEV_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Raw artifact byte mismatch'}
+      - name: Explicit no-regression and positive-net-gain gate, no auto-merge
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json,os,pathlib
+          s=json.loads((pathlib.Path(os.environ["NERAL_DEV_OUT"])/"dev24-summary.json").read_text("utf8"))
+          print("DEV24_RELEASE_GATE "+("PASS" if s["release_gate_passed"] else "BLOCKED"))
+          print("DEV24_RESULT "+json.dumps({k:s[k] for k in
+            ("base_correct","neral_correct","regressions","net_gain",
+             "qlora_proposal_calls","python_docker_primary_calls","z3_verified",
+             "python_independently_verified","base_median_s","neral_median_s")},sort_keys=True))
+          if not s["release_gate_passed"]:raise SystemExit(2)
+          '@ | & $env:NERAL_DEV_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Development gate BLOCKED; full raw retained, main unchanged'}
+      - name: Remove isolated CPU requirements, never training data or evidence
+        if: always() && env.NERAL_DEV_DEPS != ''
+        run: |
+          $ErrorActionPreference='Continue'
+          if(Test-Path -LiteralPath $env:NERAL_DEV_DEPS){
+            Remove-Item -LiteralPath $env:NERAL_DEV_DEPS -Recurse -Force -ErrorAction SilentlyContinue
+          }
