@@ -138,9 +138,9 @@ def _valid_same_origin_icon_path(path: str) -> bool:
     return (isinstance(path, str) and 2 <= len(path) <= 180
             and path.startswith("/") and not path.startswith("//")
             and not any(part in ("", ".", "..") for part in path[1:].split("/"))
-            and not re.search(r"[%\\\\?#\\x00-\\x1f\\x7f]", path)
+            and not re.search(r"[%\\?#\x00-\x1f\x7f]", path)
             and re.fullmatch(r"/[A-Za-z0-9_./~@()+,:=-]+", path) is not None
-            and re.search(r"\\.(?:ico|png|svg|webp|gif|jpe?g)$", path, re.I) is not None)
+            and re.search(r"\.(?:ico|png|svg|webp|gif|jpe?g)$", path, re.I) is not None)
 
 
 def _declared_favicon_paths(markup: bytes, host: str) -> list[str]:
@@ -164,7 +164,7 @@ def _declared_favicon_paths(markup: bytes, host: str) -> list[str]:
             href = attributes.get("href", "")
             if not isinstance(href, str) or not href or len(href) > 256:
                 return
-            if href.startswith("//") or "\\\\" in href:
+            if href.startswith("//") or "\\" in href:
                 return
             try:
                 parsed = urlsplit(href)
@@ -192,13 +192,13 @@ def _declared_favicon_paths(markup: bytes, host: str) -> list[str]:
 def _validated_icon(data: bytes, path: str) -> tuple[bytes, str] | None:
     if not data or len(data) > MAX_FAVICON_BYTES:
         return None
-    if data.startswith(b"\\x00\\x00\\x01\\x00"):
+    if data.startswith(b"\x00\x00\x01\x00"):
         return data, "image/x-icon"
-    if data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return data, "image/png"
     if data.startswith((b"GIF87a", b"GIF89a")):
         return data, "image/gif"
-    if data.startswith(b"\\xff\\xd8\\xff"):
+    if data.startswith(b"\xff\xd8\xff"):
         return data, "image/jpeg"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return data, "image/webp"
@@ -210,9 +210,9 @@ def _validated_icon(data: bytes, path: str) -> tuple[bytes, str] | None:
 
 
 def _request_favicon(host: str, address: str, path: str = "/favicon.ico") -> tuple[bytes, str]:
-    """Download a fixed icon path over TLS with DNS pinned to a validated public IP.
+    """Download only a validated same-origin path over pinned DNS and TLS.
 
-    No redirects, no HTML parsing, no cookies and no arbitrary URL or port.
+    No redirects, script execution, cookies, third-party icons or arbitrary ports.
     """
     import http.client
 
