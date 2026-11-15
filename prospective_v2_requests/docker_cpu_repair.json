@@ -5,5 +5,6 @@
   "no_merge": true,
   "required_image": "python:3.11-alpine",
   "requires_real_docker": true,
-  "windows_stderr_fix_attempt": 2
+  "windows_stderr_fix_attempt": 2,
+  "per_user_install_detected": 3
 }
