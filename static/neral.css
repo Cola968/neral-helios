@@ -64,3 +64,21 @@ dialog{color:var(--text);background:var(--side);border:1px solid var(--line);bor
 /* Official monochrome NERAL mark; never stretched or recoloured by theme. */
 .sidebar a.brand{display:flex;align-items:center;gap:10px}
 .sidebar .neral-brand-icon{display:block;flex:0 0 26px;width:26px;height:26px;border-radius:7px}
+
+
+/* Shared NERAL/Helios web results: the same authenticated site favicons as
+   the local chat, with an honest letter fallback when a site blocks icons. */
+.web-result-head{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.web-result-icon{position:relative;display:inline-flex;align-items:center;
+  justify-content:center;flex:0 0 22px;width:22px;height:22px;
+  border-radius:6px;overflow:hidden;background:var(--field,#252825);
+  color:var(--muted,#aaa);font-size:11px;font-weight:650}
+.web-result-meta{flex:1;min-width:0}
+.web-result .neral-web-favicon{position:absolute;inset:0;
+  width:100%;height:100%;object-fit:contain;background:var(--side,#191b19);
+  visibility:hidden;opacity:0}
+.web-result .neral-web-favicon.neral-favicon-loaded{visibility:visible;opacity:1}
+.web-result-head .web-result-meta a{overflow-wrap:anywhere}
+@media(prefers-reduced-motion:reduce){
+  .web-result .neral-web-favicon{transition:none!important}
+}
