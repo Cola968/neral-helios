@@ -7,6 +7,8 @@ or change their output; search hits are untrusted data, never instructions.
 from __future__ import annotations
 
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from html import unescape
 from xml.etree import ElementTree
@@ -467,10 +469,14 @@ def is_fresh_news_query(query: str) -> bool:
                       query, re.I) is not None)
 
 
-def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]]:
+def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | None = None,
+                   now_utc: datetime | None = None) -> list[dict[str, str]]:
     """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
     if not isinstance(xml, str) or not 1 <= limit <= MAX_RESULTS or len(xml) > MAX_RESPONSE_BYTES:
         raise WebSearchError("Ungültige RSS-Antwort.")
+    if max_age_days is not None and (not isinstance(max_age_days,int)
+                                    or not 1 <= max_age_days <= 30):
+        raise WebSearchError("Ungültiger Zeitraum für Nachrichten.")
     if re.search(r"<!\s*(?:DOCTYPE|ENTITY)", xml, flags=re.IGNORECASE):
         raise WebSearchError("RSS mit externen Entitäten nicht erlaubt.")
     try:
@@ -481,7 +487,19 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]
         raise WebSearchError("Kein RSS-Suchfeed empfangen.")
     output: list[dict[str, str]] = []
     seen: set[str] = set()
+    clock = now_utc if now_utc is not None else datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    clock = clock.astimezone(timezone.utc)
     for item in root.findall("./channel/item")[:60]:
+        if max_age_days is not None:
+            try:
+                published=parsedate_to_datetime(item.findtext("pubDate",default=""))
+                published=published.astimezone(timezone.utc)
+            except (TypeError,ValueError,OverflowError):
+                continue
+            if not clock-timedelta(days=max_age_days) <= published <= clock+timedelta(minutes=10):
+                continue
         url = safe_result_url(item.findtext("link", default=""))
         title = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("title", default=""))), 180)
         snippet = _clean(unescape(re.sub(r"<[^>]*>", "", item.findtext("description", default=""))), 350)
@@ -517,7 +535,7 @@ class WebSearch:
             raise WebSearchInputError("Ungültiger Suchbegriff.")
         if on_provider is not None:
             on_provider("Google News RSS")
-        url = (NEWS_ENDPOINT+"?q="+quote_plus(cleaned)+"&hl=de&gl=DE&ceid=DE:de")
+        url = (NEWS_ENDPOINT+"?q="+quote_plus(cleaned+" when:7d")+"&hl=de&gl=DE&ceid=DE:de")
         req = Request(url, headers={
             "User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
             "Accept":"application/rss+xml, application/xml, text/xml",
@@ -531,7 +549,7 @@ class WebSearch:
                 raw = response.read(MAX_RESPONSE_BYTES+1)
             if len(raw)>MAX_RESPONSE_BYTES:
                 raise WebSearchError("Nachrichten-Suchantwort überschreitet das Limit.")
-            return parse_bing_rss(raw.decode("utf-8", errors="replace"))
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"), max_age_days=7)
         except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
             raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
