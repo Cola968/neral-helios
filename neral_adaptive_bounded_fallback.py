@@ -54,10 +54,22 @@ def make_bounded_fallback(model_tag: str, *, transport=None,
             "keep_alive":"5m",
             "options":{
                 "temperature":0,"num_predict":FALLBACK_MAX_TOKENS,
-                "num_ctx":4096,"repeat_penalty":1.05,"seed":0,
+                "num_ctx":4096,"repeat_penalty":1.0,"seed":0,
             },
         }
         result=send(payload)
+        # The unmodified local Qwen control has a 2048-token budget. To
+        # prevent a formerly correct control answer from being lost solely
+        # to the experimental 1536 limit, retry exactly once with the same
+        # original turns, seed, decoding and a 2048-token budget.
+        # Never recycle or expose truncated text from the first attempt.
+        if (type(result) is dict and result.get("done") is True
+                and result.get("done_reason")=="length"):
+            retry={
+                **payload,
+                "options":{**payload["options"],"num_predict":2048},
+            }
+            result=send(retry)
         if (type(result) is not dict or result.get("done") is not True
                 or result.get("done_reason")!="stop"
                 or type(result.get("message")) is not dict):
