@@ -68,7 +68,10 @@ jobs:
                 Write-Host 'DOCKER_SERVICE_COULD_NOT_START'
               }
             }
-            $desktop=Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+            $desktop=Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'
+            if(-not(Test-Path -LiteralPath $desktop -PathType Leaf)){
+              $desktop=Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+            }
             Write-Host ("DOCKER_DESKTOP_INSTALLED="+(Test-Path -LiteralPath $desktop -PathType Leaf))
             if(Test-Path -LiteralPath $desktop -PathType Leaf){
               try{
