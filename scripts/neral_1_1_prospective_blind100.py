@@ -177,6 +177,44 @@ def frozen_cases(seed_hex):
         raise RuntimeError("Unexpected duplicate prospective questions")
     return rows,serialize(rows)
 
+def recover_unstarted_future_corpus(original:Path, expected_sha:str,
+                                     pilot_sha:str):
+    """Load the EXACT initial unseen 100/seed/pilot; never redraw or re-grade.
+
+    Rebuild the casepack deterministically and reject ANY byte mismatch.
+    This is only a metadata-recovery path after the initial run failed
+    before starting case 1. No caller is allowed to inspect future gold.
+    """
+    if (type(expected_sha) is not str or len(expected_sha)!=64
+            or type(pilot_sha) is not str or len(pilot_sha)!=64
+            or any(c not in "0123456789abcdef" for c in expected_sha+pilot_sha)):
+        raise ValueError("Recovery requires both original full SHA256 pins")
+    original=original.resolve(strict=True)
+    if not original.is_dir():
+        raise ValueError("Original immutable source corpus not found")
+    case_file=original/"prospective100-sealed-cases.jsonl"
+    pilot_file=original/"pilot-safety-raw.json"
+    seed_file=original/"prospective100-seed-secret.txt"
+    if any(path.is_symlink() for path in (case_file,pilot_file,seed_file)):
+        raise ValueError("Symlinks not permitted for original future evidence")
+    raw=case_file.read_bytes()
+    pilot_raw=pilot_file.read_bytes()
+    seed=seed_file.read_text("utf8").strip()
+    if (len(seed)!=64 or any(c not in "0123456789abcdef" for c in seed)
+            or sha(raw)!=expected_sha or sha(pilot_raw)!=pilot_sha):
+        raise RuntimeError("Original prospective100 corpus/seed/pilot SHA mismatch")
+    pilot_receipt=json.loads(pilot_raw)
+    if (pilot_receipt.get("losses")!=0
+            or pilot_receipt.get("base_correct")!=4
+            or pilot_receipt.get("bounded_correct")!=4
+            or len(pilot_receipt.get("cases",[]))!=4):
+        raise RuntimeError("Original model quality-pilot was not green")
+    cases,regenerated=frozen_cases(seed)
+    if regenerated!=raw:
+        raise RuntimeError("Original future cases differ from seed reproducibility proof")
+    return seed,cases,raw,pilot_raw
+
+
 def generate_receipt(cases,train,holdout):
     from scripts.neral_prospective_100_cases import exclusion_receipt
     return exclusion_receipt(cases,train,holdout)
@@ -390,26 +428,10 @@ def live(out:Path, *, resume_sealed_from:Path|None=None,
         seed_hex=secrets.token_hex(32)
         cases,blob=frozen_cases(seed_hex)
     else:
-        if (type(resume_corpus_sha256) is not str or len(resume_corpus_sha256)!=64
-                or type(resume_pilot_sha256) is not str or len(resume_pilot_sha256)!=64):
-            raise ValueError("Recovery requires both original full SHA256 pins")
-        old=resume_sealed_from.resolve(strict=True)
-        if not old.is_dir() or old==out:
-            raise ValueError("Original immutable source corpus not found")
-        original_cases=(old/"prospective100-sealed-cases.jsonl").read_bytes()
-        pilot_blob=(old/"pilot-safety-raw.json").read_bytes()
-        seed_hex=(old/"prospective100-seed-secret.txt").read_text("utf8").strip()
-        if (len(seed_hex)!=64 or any(x not in "0123456789abcdef" for x in seed_hex)
-                or sha(original_cases)!=resume_corpus_sha256
-                or sha(pilot_blob)!=resume_pilot_sha256):
-            raise RuntimeError("Original SEALED corpus/seed/pilot SHA mismatch")
-        p=json.loads(pilot_blob)
-        if (p.get("losses")!=0 or p.get("base_correct")!=4
-                or p.get("bounded_correct")!=4 or len(p.get("cases",[]))!=4):
-            raise RuntimeError("Original model quality-pilot was not green")
-        cases,blob=frozen_cases(seed_hex)
-        if blob!=original_cases:
-            raise RuntimeError("Recreated future cases differ from the original archive")
+        seed_hex,cases,blob,pilot_blob = recover_unstarted_future_corpus(
+            resume_sealed_from,resume_corpus_sha256,resume_pilot_sha256)
+        if resume_sealed_from.resolve()==out.resolve():
+            raise ValueError("Cannot reuse original output path")
         write_new(out/"pilot-safety-raw.json",pilot_blob)
         print("BLIND100_RESUME_UNCHANGED_SEED_CORPUS "+json.dumps({
             "prospective100_sha256":resume_corpus_sha256,
