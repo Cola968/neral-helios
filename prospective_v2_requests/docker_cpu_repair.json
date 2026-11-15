@@ -1,0 +1,8 @@
+{
+  "authorization": "RESTORE_LOCAL_DOCKER_DAEMON_CPU_ONLY",
+  "no_gpu": true,
+  "no_training": true,
+  "no_merge": true,
+  "required_image": "python:3.11-alpine",
+  "requires_real_docker": true
+}
