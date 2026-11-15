@@ -1,0 +1,243 @@
+name: NERAL 1.1 RTX4070 first-time prospective sealed100 comparison
+on:
+  push:
+    branches: [verify/neral-1-1-prospective100-rtx4070-20261115]
+    paths: [blind_requests/neral-1-1-prospective100-once.json]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: neral-1-1-fresh100-one-shot
+  cancel-in-progress: false
+
+jobs:
+  independent-cpu-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5cf30747e1d565c7af616a5613c649c40b28fd9c
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: review
+          persist-credentials: false
+      - name: Pin and one-shot request check, without GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = '5cf30747e1d565c7af616a5613c649c40b28fd9c'
+          python - <<'PY'
+          import json,pathlib
+          r=json.loads(pathlib.Path('review/blind_requests/neral-1-1-prospective100-once.json').read_text(encoding='utf8'))
+          assert r=={
+              'authorization':'NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE',
+              'source_sha':'5cf30747e1d565c7af616a5613c649c40b28fd9c',
+              'cases':100,
+              'categories':{'mathematics':25,'logic':25,'programming':25,'mixed':25},
+              'no_old_blind_modification':True,'no_training':True,
+              'no_merge':True,'one_shot':True}
+          print('PINNED_SYNTHETIC_ONE_SHOT_AUTHORIZATION_VERIFIED')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU proof dependencies only
+        run: python -m pip install --disable-pip-version-check 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
+      - name: CPU-only generator selftest with QA seed, never future blind seed
+        env:
+          PYTHONPATH: ${{ github.workspace }}/source
+        run: |
+          python -B -m py_compile source/scripts/neral_1_1_prospective_blind100.py source/neral_adaptive_planner.py
+          cd source
+          python -B -m scripts.neral_1_1_prospective_blind100 --cpu-preflight --authorize NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE
+      - name: Safety and offline paired-scoring CPU unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/source
+        run: |
+          cd source
+          for suite in test_neral_1_1_fallback_ast_prospective.py test_neral_1_1_prospective100_harness.py test_neral_1_1_ast_unique_budget.py test_neral_tir_regression_guard.py; do
+            python -B -m unittest discover -s tests -p "$suite" -v || exit 1
+          done
+
+  real-rtx4070-smoke:
+    needs: independent-cpu-preflight
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+      NERAL_PINNED_SOURCE_SHA: 5cf30747e1d565c7af616a5613c649c40b28fd9c
+      NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER: '1'
+      NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5cf30747e1d565c7af616a5613c649c40b28fd9c
+          path: source
+          persist-credentials: false
+          clean: true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: review
+          persist-credentials: false
+          clean: true
+      - name: Verify original source, authorization, CPU dependencies, existing local Python
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $rev=Join-Path $env:GITHUB_WORKSPACE 'review'
+          $r=Get-Content -LiteralPath (Join-Path $rev 'blind_requests\neral-1-1-prospective100-once.json') -Raw|ConvertFrom-Json
+          if((& git -C $src rev-parse HEAD).Trim() -ne '5cf30747e1d565c7af616a5613c649c40b28fd9c'){throw 'Original source SHA changed'}
+          if($r.authorization -ne 'NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE' -or
+             $r.source_sha -ne '5cf30747e1d565c7af616a5613c649c40b28fd9c' -or
+             $r.cases -ne 100 -or $r.no_old_blind_modification -ne $true -or
+             $r.no_training -ne $true -or $r.no_merge -ne $true -or
+             $r.one_shot -ne $true){throw 'Invalid one-shot request'}
+          $defaultPy=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          $py=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$defaultPy}
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pre-existing Python missing; no install permitted'}
+          # Lightweight isolated CPU dependencies: no Torch/model reinstall,
+          # no mutation of the existing training environment or blind datasets.
+          $deps=Join-Path $env:RUNNER_TEMP ('neral-smoke-deps-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $deps){throw 'Occupied dependency output path'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('NERAL_SMOKE_DEPS='+$deps+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir --target $deps 'Flask>=3,<4' 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5'
+          if($LASTEXITCODE -ne 0){throw 'Isolated minimal Python dependency install failed'}
+          $env:PYTHONPATH=$src+';'+$deps
+          & $py -B -c 'import flask,z3,jsonschema'
+          if($LASTEXITCODE -ne 0){throw 'Isolated Python import check failed'}
+          Write-Host 'ISOLATED_CPU_DEPS_OK'
+          Push-Location $src
+          try {
+            & $py -B -m scripts.neral_1_1_prospective_blind100 --cpu-preflight --authorize NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE
+            if($LASTEXITCODE -ne 0){throw 'Local CPU preflight failed'}
+          } finally {Pop-Location}
+          $root=if($env:NERAL_EVIDENCE_ROOT){$env:NERAL_EVIDENCE_ROOT}else{Join-Path $env:USERPROFILE 'NERAL-Smoke-Evidence'}
+          if(-not(Test-Path -LiteralPath $root)){New-Item -ItemType Directory -Path $root -Force|Out-Null}
+          $out=Join-Path $root ('neral-1-1-FRESH-PROSPECTIVE100-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $out){throw 'Refuse occupied evidence output path'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,(
+             'NERAL_SMOKE_PY='+$py+[Environment]::NewLine+
+             'NERAL_SMOKE_SRC='+$src+[Environment]::NewLine+
+             'NERAL_SMOKE_REVIEW='+$rev+[Environment]::NewLine+
+             'NERAL_SMOKE_OUT='+$out+[Environment]::NewLine+
+             'NERAL_SMOKE_DEPS='+$deps+[Environment]::NewLine+
+             'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          Write-Host 'IMMUTABLE_PIN_OK; no 100-case data opened'
+      - name: Assert real RTX4070, start existing Docker Desktop if required
+        run: |
+          $ErrorActionPreference='Stop'
+          $gpu=& nvidia-smi --query-gpu=name --format=csv,noheader
+          if($LASTEXITCODE -ne 0 -or ($gpu -join ' ') -notmatch 'RTX 4070'){throw 'No RTX4070'}
+          function DockerReady {
+            $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
+            try { $null=& docker info --format '{{.ServerVersion}}' 2>$null; return ($LASTEXITCODE -eq 0)}
+            catch {return $false} finally {$ErrorActionPreference=$old}
+          }
+          if(-not(DockerReady)){
+            $exe=Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'
+            if(-not(Test-Path -LiteralPath $exe)){throw 'No Docker Desktop'}
+            Start-Process -FilePath $exe -ErrorAction Stop
+            for($i=0;$i -lt 30;$i++){if(DockerReady){break};Start-Sleep -Seconds 4}
+          }
+          if(-not(DockerReady)){throw 'Docker daemon unavailable'}
+          & docker image inspect python:3.11-alpine | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'Preinstalled Python sandbox image missing'}
+          Write-Host 'REAL_RTX4070_DOCKER_PREINSTALLED_READY'
+      - name: Quality pilot then new cryptographic seal and 100 real paired RTX4070 cases
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_SMOKE_SRC
+          try {
+            & $env:NERAL_SMOKE_PY -B -m scripts.neral_1_1_prospective_blind100 --live --authorize NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE --out $env:NERAL_SMOKE_OUT
+            if($LASTEXITCODE -ne 0){throw 'Incomplete prospective100: preserve raw evidence'}
+          } finally {Pop-Location}
+      - name: Check sealed 100 paired rows and unmodified pinned source
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_SMOKE_ROOT=$env:NERAL_SMOKE_OUT
+          @'
+          import json,hashlib,os,pathlib
+          root=pathlib.Path(os.environ["NERAL_SMOKE_ROOT"])
+          summary=json.loads((root/"prospective100-final-summary.json").read_text("utf8"))
+          seal=json.loads((root/"prospective100-seal.json").read_text("utf8"))
+          data=(root/"prospective100-sealed-cases.jsonl").read_bytes()
+          progress=(root/"paired100-progress.jsonl").read_text("utf8").splitlines()
+          raw=(root/"paired100-full-raw.jsonl").read_text("utf8").splitlines()
+          assert summary["cases"]==len(progress)==len(raw)==100
+          assert seal["prospective100_sha256"]==hashlib.sha256(data).hexdigest()
+          assert summary["sealed_casepack_sha256"]==seal["prospective100_sha256"]
+          assert summary["source_sha"]=="5cf30747e1d565c7af616a5613c649c40b28fd9c"
+          print("SEALED_NEW100_COMPLETE_PAIRED_RAW_VERIFIED")
+          '@ | & $env:NERAL_SMOKE_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Evidence count failed'}
+          if((@(& git -C $env:NERAL_SMOKE_SRC status --porcelain)).Count -ne 0){throw 'Pinned source modified'}
+      - name: Upload sealed original new100 questions, raw model replies and offline scores
+        if: always() && env.NERAL_SMOKE_OUT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-1-1-prospective100-raw100-${{ github.run_id }}
+          path: ${{ env.NERAL_SMOKE_OUT }}
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Redownload original artifact
+        if: success()
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-1-1-prospective100-raw100-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-1-1-verify-${{ github.run_id }}
+      - name: Verify downloaded bytes equal local originals
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NERAL_SMOKE_REMOTE=Join-Path $env:RUNNER_TEMP ('neral-1-1-verify-'+$env:GITHUB_RUN_ID)
+          @'
+          import hashlib,os,pathlib
+          a=pathlib.Path(os.environ["NERAL_SMOKE_OUT"])
+          b=pathlib.Path(os.environ["NERAL_SMOKE_REMOTE"])
+          names={p.name for p in a.iterdir() if p.is_file()}
+          assert 'prospective100-final-summary.json' in names
+          assert 'prospective100-seal.json' in names
+          assert 'paired100-full-raw.jsonl' in names
+          assert names=={p.name for p in b.iterdir() if p.is_file()}
+          for name in names:
+              assert hashlib.sha256((a/name).read_bytes()).digest()==hashlib.sha256((b/name).read_bytes()).digest()
+          print('REUPLOADED_GITHUB_RAW_EVIDENCE_VERIFIED; NO_MERGE_NO_TRAINING')
+          '@ | & $env:NERAL_SMOKE_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Artifact bytes differed'}
+
+      - name: Enforce >=85/100 and zero paired regressions; no automatic promotion
+        if: success()
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["NERAL_SMOKE_OUT"])
+          report=json.loads((root/"prospective100-final-summary.json").read_text("utf8"))
+          print("NEW100_RELEASE_GATE "+("PASS" if report["pass_gate"] else "BLOCKED"))
+          if not report["pass_gate"]:raise SystemExit(2)
+          '@ | & $env:NERAL_SMOKE_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Quality gate blocked. Raw 100 stored. Main untouched.'}
+
+      - name: Cleanup isolated CPU-only pip dependencies
+        if: always() && env.NERAL_SMOKE_DEPS != ''
+        run: |
+          $ErrorActionPreference='Continue'
+          if(Test-Path -LiteralPath $env:NERAL_SMOKE_DEPS){
+            Remove-Item -LiteralPath $env:NERAL_SMOKE_DEPS -Recurse -Force -ErrorAction SilentlyContinue
+          }
