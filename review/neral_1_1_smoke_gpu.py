@@ -1,4 +1,4 @@
-"""One-shot isolated RTX4070 smoke for pinned NERAL 1.1 commit 3b8decd8.
+"""Repeated identical eight-case diagnostic smoke for pinned NERAL 1.1 Z3-first failfast commit 43e527ed.
 
 Eight new synthetic *diagnostic* cases. No use of any 100-case corpus,
 generator, release gate, training file, or task ID. Never substitutes mocked
@@ -20,7 +20,7 @@ import time
 import traceback
 from urllib.request import Request
 
-PIN="3b8decd89f7e7d1d4c96a80622a99d514b64c3ff"
+PIN="43e527edd0be253fcbc431af83ba12e6d4709be6"
 RUN_AUTH="NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE"
 BASE="qwen3.5:9b"
 TUNED="neral-qwen35-qlora-v1:latest"
