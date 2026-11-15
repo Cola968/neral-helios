@@ -115,6 +115,12 @@ class FreshNewsContracts(unittest.TestCase):
             now_utc=datetime(2026,11,15,tzinfo=timezone.utc))
         self.assertEqual([x["title"] for x in rows],["Neue BER Nachricht"])
 
+    def test_news_query_strips_generic_freshness_words_before_bounded_provider_search(self):
+        from neral_web_search import news_subject
+        self.assertEqual(news_subject("Aktuelle BER Nachrichten"),"BER")
+        self.assertEqual(news_subject("NASA Artemis News heute"),"NASA Artemis")
+        self.assertEqual(news_subject("News"),"News")
+
     def test_google_news_query_is_constrained_to_fixed_public_feed(self):
         from neral_web_search import NEWS_ENDPOINT
         self.assertEqual(NEWS_ENDPOINT,"https://news.google.com/rss/search")
