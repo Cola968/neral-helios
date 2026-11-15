@@ -1,0 +1,185 @@
+name: NERAL PR542 v2 prospective sealed100 RTX4070 ONE SHOT (review only)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - prospective_v2_requests/gpu_once.json
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: neral-pr542-fresh100-v2-rtx4070-once
+  cancel-in-progress: false
+
+jobs:
+  single-gpu-100:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - name: Checkout unchanged exact PR542 controller and models
+        uses: actions/checkout@v4
+        with:
+          ref: 737413f03b347676108d507ff3fe7693975dd269
+          path: source
+          persist-credentials: false
+          clean: true
+      - name: Checkout authorized single-run verification wrapper
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: review
+          persist-credentials: false
+          clean: true
+      - name: Verify pinned code, original CPU-only seal and one-shot authorization
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $wrap=Join-Path $env:GITHUB_WORKSPACE 'review'
+          if((& git -C $src rev-parse HEAD).Trim() -ne '737413f03b347676108d507ff3fe7693975dd269'){
+            throw 'Immutable PR542 SHA mismatch'
+          }
+          $request=Get-Content -LiteralPath (Join-Path $wrap 'prospective_v2_requests\gpu_once.json') -Raw|ConvertFrom-Json
+          $manifestPath=Join-Path $wrap 'prospective_v2_seals\fresh100.json'
+          if(-not(Test-Path -LiteralPath $manifestPath -PathType Leaf)){throw 'No pre-GPU seal manifest'}
+          $seal=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
+          if($request.authorization -ne 'NERAL_PR542_V2_FRESH_SEALED100_GPU_ONCE' -or
+             $request.source_commit -ne '737413f03b347676108d507ff3fe7693975dd269' -or
+             $request.dataset_sha256 -ne 'c43287a4ca6eb18fe4f45a45706f7af8155d27033638bb13c397a7417aacb157' -or
+             $request.dataset_sha256 -ne $seal.dataset_sha256 -or
+             $seal.seed -ne 1511261847 -or
+             $seal.count -ne 100 -or
+             $seal.generator_source_sha256 -ne '6842cdd9475c8a891b22d838191fbe19978ecf938942b950b77377af302b344c' -or
+             $seal.old_sealed_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $request.no_merge -ne $true -or
+             $request.no_training -ne $true){
+            throw 'Invalid GPU one-shot request, pinned source or prospectively sealed set'
+          }
+          # Refuse before inference unless the *full* CPU preflight concluded green.
+          $cpu=(Get-Content -LiteralPath (Join-Path $wrap 'prospective_v2_seals\cpu-green.json') -Raw|ConvertFrom-Json)
+          if($cpu.status -ne 'cpu_preflight_docker_persistence_seal_all_green' -or
+             $cpu.dataset_sha256 -ne $request.dataset_sha256 -or
+             $cpu.preflight_run_id -ne $request.cpu_preflight_run_id){
+            throw 'Missing independently recorded GREEN CPU-Docker/preflight outcome'
+          }
+          $baseline=(Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe')
+          $pybase=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$baseline}
+          if(-not(Test-Path -LiteralPath $pybase -PathType Leaf)){throw 'Local Python not found'}
+          $envRoot=Join-Path $env:USERPROFILE 'NERAL-Blind100-Evidence'
+          if(-not(Test-Path -LiteralPath $envRoot)){New-Item -ItemType Directory -Path $envRoot -Force|Out-Null}
+          $out=Join-Path $envRoot ('gpu-fresh100-v2-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $out){throw 'Refuse GPU replay into occupied original evidence path'}
+          New-Item -ItemType Directory -Path $out|Out-Null
+          $venv=Join-Path $env:RUNNER_TEMP ('neral-pr542-v2-gpu-env-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $venv){throw 'Refuse preexisting temporary Python'}
+          & $pybase -B -m venv $venv
+          if($LASTEXITCODE -ne 0){throw 'Unable to create isolated Python'}
+          $python=Join-Path $venv 'Scripts\python.exe'
+          & $python -B -m pip install --disable-pip-version-check --no-input --no-cache-dir -r (Join-Path $src 'requirements-neral-preview.txt')
+          if($LASTEXITCODE -ne 0){throw 'Pinned runtime dependencies unavailable'}
+          $env:PYTHONPATH=$wrap+';'+$src
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('NERAL_V2_GPU_PY='+$python+[Environment]::NewLine+
+             'NERAL_V2_GPU_OUT='+$out+[Environment]::NewLine+
+             'NERAL_V2_GPU_SRC='+$src+[Environment]::NewLine+
+             'NERAL_V2_GPU_WRAP='+$wrap+[Environment]::NewLine+
+             'NERAL_V2_GPU_SEAL='+$manifestPath+[Environment]::NewLine+
+             'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host 'FRESH100_V2_MODEL_AND_SOURCE_PINNED; original baseline SHA and PR537 verified before inference'
+      - name: Execute exactly 100 Qwen vs combined sandbox plus PR537 and single-QLoRA-Z3 comparisons
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_V2_GPU_SRC
+          try {
+            $runner=Join-Path $env:NERAL_V2_GPU_WRAP 'scripts\neral_pr542_prospective_v2.py'
+            & $env:NERAL_V2_GPU_PY -B $runner --gpu --out $env:NERAL_V2_GPU_OUT --manifest $env:NERAL_V2_GPU_SEAL --authorize NERAL_PR542_V2_FRESH_SEALED100_GPU_ONCE
+            if($LASTEXITCODE -ne 0){throw 'New prospective 100 paired GPU inference stopped; do not retry'}
+          }finally{Pop-Location}
+      - name: Independently regrade persistent 200 raw answer archive entirely offline
+        env:
+          CUDA_VISIBLE_DEVICES: '-1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_V2_GPU_SRC
+          try {
+            $runner=Join-Path $env:NERAL_V2_GPU_WRAP 'scripts\neral_pr542_prospective_v2.py'
+            & $env:NERAL_V2_GPU_PY -B $runner --regrade --out $env:NERAL_V2_GPU_OUT --manifest $env:NERAL_V2_GPU_SEAL
+            if($LASTEXITCODE -ne 0){throw 'Independent offline evaluation or SHA check failed'}
+          }finally{Pop-Location}
+          Copy-Item -LiteralPath $env:NERAL_V2_GPU_SEAL -Destination (Join-Path $env:NERAL_V2_GPU_OUT 'new-seal.json') -ErrorAction Stop
+      - name: Verify 200 source-matched records on the permanent Windows disk and untouched source
+        env:
+          CUDA_VISIBLE_DEVICES: '-1'
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json,os,pathlib
+          from scripts.neral_pr542_prospective_v2 import records,sha256_file
+          root=pathlib.Path(os.environ["NERAL_V2_GPU_OUT"])
+          entries=records(root/"raw-200.jsonl",200)
+          score=json.loads((root/"summary.json").read_text(encoding="utf8"))
+          info=json.loads((root/"inference-complete.json").read_text(encoding="utf8"))
+          seal=json.loads((root/"new-seal.json").read_text(encoding="utf8"))
+          assert score["count"]==100 and score["raw_records"]==200
+          assert score["sealed_sha256"]==seal["dataset_sha256"]
+          assert score["raw_sha256"]==sha256_file(root/"raw-200.jsonl")
+          assert info["raw_sha256"]==score["raw_sha256"]
+          assert len(entries)==200
+          print("LOCAL_PERMANENT_EVIDENCE_VERIFIED records=200 sha256="+score["raw_sha256"])
+          '@ | & $env:NERAL_V2_GPU_PY -B -
+          if($LASTEXITCODE -ne 0){throw '200-answer persistent archive incomplete'}
+          if((@(& git -C $env:NERAL_V2_GPU_SRC status --porcelain)).Count -ne 0){throw 'PR542 source changed'}
+      - name: Upload all 200 original model replies plus evidence and offline score (even if a partial run fails)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr542-v2-fresh100-original-raw-and-offline-score-${{ github.run_id }}
+          path: ${{ env.NERAL_V2_GPU_OUT }}
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Download the just-uploaded GitHub evidence artifact independently
+        if: success()
+        uses: actions/download-artifact@v4
+        with:
+          name: neral-pr542-v2-fresh100-original-raw-and-offline-score-${{ github.run_id }}
+          path: ${{ runner.temp }}/artifact-roundtrip-v2-${{ github.run_id }}
+      - name: Independently verify uploaded artifact matches 200 local original replies
+        if: success()
+        env:
+          CUDA_VISIBLE_DEVICES: '-1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $remote=Join-Path $env:RUNNER_TEMP ('artifact-roundtrip-v2-'+$env:GITHUB_RUN_ID)
+          @'
+          import json,os,pathlib
+          from scripts.neral_pr542_prospective_v2 import (
+              records,sha256_file,summarize)
+          local=pathlib.Path(os.environ["NERAL_V2_GPU_OUT"])
+          remote=pathlib.Path(os.environ["NERAL_V2_REMOTE_COPY"])
+          raw=records(remote/"raw-200.jsonl",200)
+          actual=sha256_file(remote/"raw-200.jsonl")
+          assert actual==sha256_file(local/"raw-200.jsonl")
+          a=json.loads((remote/"summary.json").read_text(encoding="utf8"))
+          b=json.loads((local/"summary.json").read_text(encoding="utf8"))
+          assert a==b and a["raw_sha256"]==actual
+          recomputed=summarize(raw,sealed_hash=a["sealed_sha256"])
+          for key in ("baseline_correct","candidate_correct","net_gain",
+                      "regressions","z3_source_verified_logic_count",
+                      "sandbox_verified_count","release_gate_passed"):
+              assert recomputed[key]==a[key],key
+          print("GITHUB_REDOWNLOADED_EVIDENCE_VERIFIED records=200 sha256="+actual)
+          print("RELEASE_GATE_PASS",a["release_gate_passed"])
+          '@ | & $env:NERAL_V2_GPU_PY -B -
+          if($LASTEXITCODE -ne 0){throw 'Uploaded 200 raw answer artifact does not match durable local original'}
+          Write-Host 'NO_MERGE_NO_TRAINING; human review only'
