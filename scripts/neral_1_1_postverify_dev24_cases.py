@@ -7,6 +7,7 @@ model replies. Do not add the burned e80c6017... blind100 content here.
 from __future__ import annotations
 from itertools import product,permutations
 import hashlib
+import math
 import json
 from neral_python_post_source import parse_post_source
 
@@ -63,7 +64,7 @@ def build()->list[dict]:
             all((i,j) not in blocked for i,j in enumerate(p))
             for p in permutations(range(n))))
     add("logic","unsupported_free_logic",
-        "Count allocations of four named machines into four numbered rooms, one machine per room. Machine 1 must occupy room 1. How many allocations are possible?",6)
+        "Count allocations of four named machines into four numbered rooms, one machine per room. Machine 1 must occupy room 1. How many allocations are possible?",math.factorial(3))
     # Programming: six different syntax ASTs, paraphrased original-code questions.
     fence=chr(96)*3
     programs=[
