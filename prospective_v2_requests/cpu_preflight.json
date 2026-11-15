@@ -8,5 +8,7 @@
   "requested_count": 100,
   "cpu_diagnostic_retry": 2,
   "docker_diagnostic_and_archive_revision": 3,
-  "new_generator_revision": 4
+  "new_generator_revision": 4,
+  "docker_restored_run": "43721550711",
+  "final_full_preflight_revision": 5
 }
