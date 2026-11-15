@@ -555,10 +555,25 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     if proposer is None:
                         proposer = make_local_adaptive_proposer(ADAPTIVE_MODEL)
                     return proposer(turns, signal)
+                # A shorter Qwen answer changes output quality. Keep it
+                # additionally opt-in and ONLY inside adaptive THINK.
+                # PR537 receives the original turns and still refuses any
+                # truncated answer; default raw fallback stays untouched.
+                bounded_qwen = (
+                    os.environ.get("NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK") == "1"
+                )
+                raw_fallback = high_backend.respond_chat
+                if bounded_qwen:
+                    from neral_adaptive_bounded_fallback import (
+                        make_bounded_fallback, FALLBACK_MAX_TOKENS)
+                    raw_fallback = make_bounded_fallback(high_backend.model)
                 result = run_adaptive_planner(
-                    data, adaptive_propose, high_backend.respond_chat,
+                    data, adaptive_propose, raw_fallback,
                     run_python_in_docker, verify_python_full_source)
                 return jsonify({**result, "adaptive_planner": True,
+                                "fallback_bounded": bounded_qwen,
+                                "fallback_token_limit": (
+                                    FALLBACK_MAX_TOKENS if bounded_qwen else None),
                                 "planner_model": ADAPTIVE_MODEL,
                                 "fallback_model": high_backend.model,
                                 "experimental_tir": False, "dual_routing": False,
