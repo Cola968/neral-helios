@@ -5,5 +5,6 @@
   "no_gpu": true,
   "no_training": true,
   "no_merge": true,
-  "requested_count": 100
+  "requested_count": 100,
+  "cpu_diagnostic_retry": 2
 }
