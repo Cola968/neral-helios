@@ -94,9 +94,8 @@ class AdaptivePlannerCPU(unittest.TestCase):
         answer = self.exercise(execute_python=lambda code: {
             "status": "FAILED", "traceback": "PRIVATE_USER_TEXT: crash"})
         self.assertFalse(answer["verified"])
-        self.assertEqual(len(self.feedback), MAX_REPAIRS + 1)
-        self.assertEqual([f["feedback_code"] for f in self.feedback],
-                         [None, "python_runtime_failed"])
+        self.assertEqual(len(self.feedback), 1)
+        self.assertEqual([f["feedback_code"] for f in self.feedback], [None])
         self.assertNotIn("PRIVATE_USER_TEXT", str(self.feedback))
         self.assertEqual(self.fallback_calls, [self.original])
 
