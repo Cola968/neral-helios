@@ -612,3 +612,15 @@ html[data-theme=dark] #modeSliderTitle{color:#6da6ff}
 @media(prefers-reduced-motion:reduce){
   .mode-effort-progress{transition:none!important}
 }
+
+
+/* Genuine list structure rather than model-supplied asterisk characters. */
+.message .neral-response-body{font-size:14px;line-height:1.76;overflow-wrap:anywhere}
+.message .neral-response-body p{margin:0 0 12px}
+.message .neral-response-body p:last-child{margin-bottom:0}
+.message .neral-markdown-list{padding-inline-start:23px;margin:7px 0 14px;
+  list-style:disc outside}
+.message ol.neral-markdown-list{list-style:decimal outside}
+.message .neral-markdown-list li{padding-inline-start:2px;margin:5px 0;
+  line-height:1.75}
+.message .neral-markdown-list li b{font-weight:650;color:var(--nr-text)}
