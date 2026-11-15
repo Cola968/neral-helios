@@ -1,0 +1,114 @@
+name: NERAL PR542 one-shot sealed prospective100 RTX4070 (read-only)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - blind100_requests/pr542-737413f0-once.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-rtx4070-pr542-sealed100-once
+  cancel-in-progress: false
+
+jobs:
+  prospective-100:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_EXPERIMENTAL_NL_SCHEMA: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - name: Checkout exact PR542 model/controller source without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: 737413f03b347676108d507ff3fe7693975dd269
+          path: source
+          persist-credentials: false
+          clean: true
+      - name: Checkout one-shot authorization and reporting wrapper only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: one_shot
+          persist-credentials: false
+          clean: true
+      - name: Verify exact source SHA and single authorized request
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $request=Join-Path $env:GITHUB_WORKSPACE 'one_shot\blind100_requests\pr542-737413f0-once.json'
+          if(-not(Test-Path -LiteralPath $request -PathType Leaf)){throw 'One-shot request missing'}
+          $r=Get-Content -LiteralPath $request -Raw|ConvertFrom-Json
+          if((@($r.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'authorize,frozen_sha256,source_commit,version' -or
+             $r.authorize -ne 'RUN_PR542_737413F0_SEALED100_ONCE' -or
+             $r.source_commit -ne '737413f03b347676108d507ff3fe7693975dd269' -or
+             $r.frozen_sha256 -ne '3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d' -or
+             [int]$r.version -ne 1){throw 'Invalid one-shot authorization'}
+          $actual=(& git -C $source rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -ne $r.source_commit){throw 'PR542 source SHA mismatch'}
+          $changed=@(& git -C $source status --porcelain)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -gt 0){throw 'Source worktree is modified'}
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{
+            Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          }
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Pinned local Python missing'}
+          & $python -B -c "import z3,flask; print('Z3 and Flask available')"
+          if($LASTEXITCODE -ne 0){throw 'Required local dependencies missing'}
+          $env:PYTHONPATH=$source
+          $report=Join-Path $env:RUNNER_TEMP ('neral-pr542-sealed100-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $report){throw 'Refuse existing result directory'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('NERAL_ONESHOT_PY='+$python+[Environment]::NewLine+
+             'NERAL_ONESHOT_SOURCE='+$source+[Environment]::NewLine+
+             'NERAL_ONESHOT_REQUEST_ROOT='+(Join-Path $env:GITHUB_WORKSPACE 'one_shot')+[Environment]::NewLine+
+             'NERAL_ONESHOT_OUT='+$report+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "PR542 SOURCE SHA VERIFIED: $actual"
+          Write-Host "Existing sealed corpus hash will be verified before any inference."
+      - name: Run exactly 100 paired RTX4070 evaluations, no training or merge
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:NERAL_ONESHOT_SOURCE
+          try {
+            $env:PYTHONPATH=$env:NERAL_ONESHOT_SOURCE
+            $script=Join-Path $env:NERAL_ONESHOT_REQUEST_ROOT 'scripts\neral_pr542_blind100_once.py'
+            & $env:NERAL_ONESHOT_PY -B $script --out $env:NERAL_ONESHOT_OUT --authorize RUN_PR542_737413F0_SEALED100_ONCE
+            if($LASTEXITCODE -ne 0){throw 'Sealed 100 paired GPU evaluation failed closed'}
+          } finally {Pop-Location}
+      - name: Require complete scalar results and unchanged source
+        run: |
+          $ErrorActionPreference='Stop'
+          $summary=Join-Path $env:NERAL_ONESHOT_OUT 'summary.json'
+          if(-not(Test-Path -LiteralPath $summary -PathType Leaf)){throw '100-case summary absent'}
+          $s=Get-Content -LiteralPath $summary -Raw|ConvertFrom-Json
+          if($s.status -ne 'PR542_PROSPECTIVE_100_SINGLE_QLORA_Z3_RTX4070_REVIEW_ONLY' -or
+             $s.case_count -ne 100 -or
+             $s.source_commit -ne '737413f03b347676108d507ff3fe7693975dd269' -or
+             $s.existing_sealed_sha256 -ne '3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d' -or
+             $s.raw_model_outputs_uploaded -ne $false -or $s.training -ne $false -or
+             $s.merged_to_main -ne $false){throw 'Unsafe or incomplete evidence'}
+          foreach($kind in @('mathematics','logic','programming','mixed')){
+            if($s.categories.$kind.cases -ne 25){throw 'Incorrect category size'}
+          }
+          $changed=@(& git -C $env:NERAL_ONESHOT_SOURCE status --porcelain)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -gt 0){throw 'Source changed during eval'}
+          Write-Host "SCALAR BENCHMARK: $($s.baseline_correct)/100 baseline; $($s.candidate_correct)/100 candidate"
+          Write-Host "RELEASE GATE: $($s.release_gate_passed) regressions=$($s.regressions) net=$($s.net_gain)"
+          Write-Host 'Full synthetic model outputs retained only locally; no automatic merge.'
+      - name: Upload aggregate scalar report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr542-sealed100-once-scalar-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-pr542-sealed100-${{ github.run_id }}-${{ github.run_attempt }}/summary.json
+          retention-days: 30
+          if-no-files-found: error
