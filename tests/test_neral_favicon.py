@@ -120,4 +120,49 @@ class FaviconSecurityTests(unittest.TestCase):
         self.assertNotIn(b"filter",sanitized)
         self.assertNotIn(b"style=",sanitized)
 
+    def test_site_declared_favicon_is_fetched_from_same_origin_when_fixed_paths_fail(self):
+        page=(b'<html><head><link rel="icon" type="image/png" '
+              b'href="/assets/icons/neral.24.png"></head></html>')
+        paths=[]
+        def receive(host, address, path="/favicon.ico"):
+            paths.append(path)
+            if path=="/":
+                return page,"text/html"
+            if path=="/assets/icons/neral.24.png":
+                return PNG,"image/png"
+            return b"",""
+        with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
+            with patch('neral_web_search._request_favicon',side_effect=receive):
+                self.assertEqual(fetch_public_favicon("example.org"),(PNG,"image/png"))
+        self.assertIn("/",paths)
+        self.assertIn("/assets/icons/neral.24.png",paths)
+
+    def test_site_declared_cross_origin_and_private_link_icons_are_not_fetched(self):
+        page=(b'<link rel="icon" href="http://127.0.0.1/private.ico">'
+              b'<link rel="icon" href="//evil.test/favicon.ico">'
+              b'<link rel="icon" href="https://attacker.example/icon.png">'
+              b'<link rel="icon" href="/../admin/secret.png">')
+        paths=[]
+        def receive(host, address, path="/favicon.ico"):
+            paths.append(path)
+            return (page,"text/html") if path=="/" else (b"","")
+        with patch('neral_web_search.socket.getaddrinfo',return_value=DNS_PUBLIC):
+            with patch('neral_web_search._request_favicon',side_effect=receive):
+                self.assertIsNone(fetch_public_favicon("example.org"))
+        self.assertTrue(set(paths).issubset(set(__import__("neral_web_search").FAVICON_PATHS)|{"/"}))
+        self.assertNotIn("/../admin/secret.png",paths)
+
+    def test_repeated_site_icon_get_uses_bounded_backend_cache(self):
+        with patch('neral_web_api.fetch_public_favicon',return_value=(PNG,'image/png')) as fetch:
+            for _ in range(3):
+                response=self.client.get('/api/web/favicon?host=github.com')
+                self.assertEqual(response.status_code,200)
+                self.assertEqual(response.data,PNG)
+            fetch.assert_called_once_with('github.com')
+        with patch('neral_web_api.fetch_public_favicon',return_value=(PNG,'image/png')) as fetch:
+            response=self.client.get('/api/web/favicon?host=nasa.gov')
+            self.assertEqual(response.status_code,200)
+            fetch.assert_called_once_with('nasa.gov')
+
+
 if __name__=='__main__':unittest.main()
