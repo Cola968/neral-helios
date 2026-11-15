@@ -439,12 +439,14 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             conservative_tir = payload.get("conservative_tir", False)
             dual_routing = payload.get("dual_routing", False)
             nl_schema_consensus = payload.get("nl_schema_consensus", False)
+            adaptive_planner = payload.get("adaptive_planner", False)
             fast_verified_only = payload.get("fast_verified_only", False)
             evaluation_final_answer = payload.get("evaluation_final_answer", False)
             if (type(experimental_tir) is not bool
                     or type(conservative_tir) is not bool
                     or type(dual_routing) is not bool
                     or type(nl_schema_consensus) is not bool
+                    or type(adaptive_planner) is not bool
                     or type(fast_verified_only) is not bool
                     or type(evaluation_final_answer) is not bool
                     or (conservative_tir and not experimental_tir)
@@ -453,11 +455,15 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     or (evaluation_final_answer and not dual_routing)
                     or (nl_schema_consensus and (
                         experimental_tir or conservative_tir or dual_routing
-                        or fast_verified_only or evaluation_final_answer))):
+                        or fast_verified_only or evaluation_final_answer))
+                    or (adaptive_planner and (
+                        experimental_tir or conservative_tir or dual_routing
+                        or nl_schema_consensus or fast_verified_only
+                        or evaluation_final_answer))):
                 raise ValueError("Invalid experimental, conservative or dual routing flag")
             # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
-                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "fast_verified_only", "evaluation_final_answer", "nl_schema_consensus")}
+                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "fast_verified_only", "evaluation_final_answer", "nl_schema_consensus", "adaptive_planner")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
@@ -471,6 +477,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
         if nl_schema_consensus and os.environ.get("NERAL_EXPERIMENTAL_NL_SCHEMA") != "1":
             return jsonify(error="Experimentelle NL-Schema-Extraktion nicht freigeschaltet."), 403
+        if adaptive_planner and os.environ.get("NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER") != "1":
+            return jsonify(error="Experimenteller Adaptive Planner nicht freigeschaltet."), 403
         if dual_routing and os.environ.get("NERAL_EXPERIMENTAL_DUAL_ROUTE") != "1":
             return jsonify(error="Experimentelles Dual-Routing nicht freigeschaltet."), 403
         if (fast_verified_only
@@ -489,6 +497,11 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 or high_backend.model != "qwen3.5:9b"
                 or high_backend.inference_profile != "measured_nonthinking_2048")):
             return jsonify(error="NL-Schema-Konsens benötigt das lokale 9B-Testprofil."), 409
+        if adaptive_planner and (
+                type(high_backend) is not OllamaLocalBackend
+                or high_backend.model != "qwen3.5:9b"
+                or high_backend.inference_profile != "measured_nonthinking_2048"):
+            return jsonify(error="Adaptive Planner benötigt das lokale 9B-Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
         # These references retain no user text and are only used on 503.
@@ -524,6 +537,25 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             )
             if bounded_final:
                 local_respond = high_backend.respond_high_final
+            # NERAL 1.1 isolated experimental adaptive path. A single local
+            # QLoRA call emits BOTH strategy and tool payload, and independent
+            # full-source proof is required for every promoted result.
+            # No default THINK or ordinary chat routing is modified.
+            if adaptive_planner:
+                from neral_adaptive_planner import (
+                    run_adaptive_planner, run_python_in_docker)
+                from neral_adaptive_ollama import (
+                    make_local_adaptive_proposer, MODEL as ADAPTIVE_MODEL)
+                from neral_python_logic_verifier import independent_python_certificate
+                result = run_adaptive_planner(
+                    data, make_local_adaptive_proposer(ADAPTIVE_MODEL),
+                    high_backend.respond_chat, run_python_in_docker,
+                    independent_python_certificate)
+                return jsonify({**result, "adaptive_planner": True,
+                                "planner_model": ADAPTIVE_MODEL,
+                                "fallback_model": high_backend.model,
+                                "experimental_tir": False, "dual_routing": False,
+                                **_provenance(high_backend)})
             # Explicitly opt-in NL-to-v2 route, never regular THINK default.
             # Three-way Z3 proof against an independent FULL-source parser is
             # mandatory. Plain dual-model consensus is not a PR #537 signature.
