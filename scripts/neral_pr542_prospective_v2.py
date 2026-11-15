@@ -281,7 +281,7 @@ def seal(out:Path)->None:
               "dataset_sha256":digest,"old_sealed_sha256":OLD_SHA,
               "generator_source_sha256":NEW_GENERATOR_SHA,
               "historical_generator_sha256":GENERATOR_SHA,
-              "reused_task_families":True,"task_text_uploaded":False,
+              "reused_task_families":False,"task_text_uploaded":False,
               "created_before_gpu":True}
     out.mkdir(parents=True)
     # No prompts or oracle values in GitHub workflow artifacts.
