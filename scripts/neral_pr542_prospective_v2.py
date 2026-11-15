@@ -24,6 +24,8 @@ import time
 SOURCE_SHA="737413f03b347676108d507ff3fe7693975dd269"
 OLD_SHA="74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258"
 GENERATOR_SHA="477d78aa72a2f52f1b4b37bea6f6c3afa8ffabbce41b44d4743215cdf7487fcd"
+NEW_GENERATOR_SHA="6842cdd9475c8a891b22d838191fbe19978ecf938942b950b77377af302b344c"
+BASE_DIGEST="56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90"
 GUARD_BLOB="b87c594ee54a20b2209b6bf176bc0aacfe256ce8"
 TUNED_TAG="neral-qwen35-qlora-v1:latest"
 TUNED_DIGEST="9c45488f99cc446821f2008f74a4320a1de58a2f5382a68db889eadc8660dda8"
@@ -46,13 +48,16 @@ def sha256_file(path:Path)->str:
 
 def make_cases(seed:int)->tuple[list[dict],str]:
     """Reuse pre-PR542 generator without editing it; check old exact/normalized sets."""
-    from scripts import neral_blind_100_cases as gen
+    from scripts import neral_blind_100_cases as oldgen
+    from scripts import neral_pr542_fresh100_v2_cases as gen
     from scripts.neral_generalization_100_cases import build as older, normalized, sha
-    raw=Path(gen.__file__).read_bytes().replace(b"\r\n",b"\n")
-    if hashlib.sha256(raw).hexdigest()!=GENERATOR_SHA:
-        raise RuntimeError("Generator integrity mismatch; refuse new data")
-    old=gen.build()
-    old_source_hash=hashlib.sha256(gen.serialize(old)).hexdigest()
+    old_bytes=Path(oldgen.__file__).read_bytes().replace(b"\r\n",b"\n")
+    fresh_bytes=Path(gen.__file__).read_bytes().replace(b"\r\n",b"\n")
+    if (hashlib.sha256(old_bytes).hexdigest()!=GENERATOR_SHA or
+        hashlib.sha256(fresh_bytes).hexdigest()!=NEW_GENERATOR_SHA):
+        raise RuntimeError("Immutable old/fresh generator sources mismatch")
+    old=oldgen.build()
+    old_source_hash=hashlib.sha256(oldgen.serialize(old)).hexdigest()
     if old_source_hash!=OLD_SHA:
         raise RuntimeError("Old sealed reference not reproduced")
     fresh=gen.build(seed=seed)
@@ -74,6 +79,8 @@ def verify_manifest(manifest:dict,cases:list[dict],digest:str)->None:
     if (type(manifest) is not dict or manifest.get("source_commit")!=SOURCE_SHA
         or manifest.get("old_sealed_sha256")!=OLD_SHA
         or manifest.get("dataset_sha256")!=digest
+        or manifest.get("generator_source_sha256")!=NEW_GENERATOR_SHA
+        or manifest.get("historical_generator_sha256")!=GENERATOR_SHA
         or manifest.get("seed")!=SEED
         or manifest.get("count")!=100
         or manifest.get("categories")!={x:25 for x in CATEGORIES}):
@@ -272,7 +279,8 @@ def seal(out:Path)->None:
     manifest={"source_commit":SOURCE_SHA,"seed":SEED,"count":100,
               "categories":{c:25 for c in CATEGORIES},
               "dataset_sha256":digest,"old_sealed_sha256":OLD_SHA,
-              "generator_source_sha256":GENERATOR_SHA,
+              "generator_source_sha256":NEW_GENERATOR_SHA,
+              "historical_generator_sha256":GENERATOR_SHA,
               "reused_task_families":True,"task_text_uploaded":False,
               "created_before_gpu":True}
     out.mkdir(parents=True)
@@ -301,7 +309,7 @@ def measure(out:Path,manifest:dict)->None:
         raise RuntimeError("Explicit RTX4070 requirement failed")
     inventory=request("GET","/api/tags").get("models")
     modelmap={v.get("name"):v.get("digest") for v in inventory if type(v) is dict}
-    if modelmap.get(TUNED_TAG)!=TUNED_DIGEST or type(modelmap.get(BASE_TAG)) is not str:
+    if modelmap.get(TUNED_TAG)!=TUNED_DIGEST or modelmap.get(BASE_TAG)!=BASE_DIGEST:
         raise RuntimeError("Pinned model digest/untuned baseline unavailable")
     high=OllamaLocalBackend(BASE_TAG,inference_profile="measured_nonthinking_2048")
     raw_path=out/"raw-200.jsonl"
