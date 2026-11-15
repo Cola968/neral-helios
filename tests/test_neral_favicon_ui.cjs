@@ -170,3 +170,58 @@ test("legacy search panel never sends chat history, links to nonpublic hosts or 
  assert.doesNotMatch(s,/\.innerHTML\s*=/);
  assert.match(s,/nicht gelesen|nicht geprüft/i);
 });
+
+
+test("both NERAL web surfaces show actual candidate icons and reject unsafe provider URLs",async()=>{
+ const elements={};
+ for(const name of ["webSearchToggle","webSearchPanel","webSearchForm","webSearchQuery",
+  "webSearchResults","webSearchStatus","webSearchSubmit","webSearchClose"]){
+   elements[name]=new El();
+   elements[name].focus=()=>{};
+   elements[name].replaceChildren=function(){this.children=[]};
+ }
+ elements.webSearchPanel.hidden=true;
+ elements.webSearchQuery.value="Flughafen Frankfurt";
+ let calls=0;
+ vm.runInNewContext(read("static/neral-web-search.js"),{
+   document:{getElementById:id=>elements[id]||null,createElement:t=>new El(t)},
+   window:{NeralWebLive:{search:async ({query,csrf,onEvent})=>{
+     calls++;
+     assert.equal(query,"Flughafen Frankfurt");
+     assert.equal(csrf,"");
+     onEvent({type:"provider",name:"Wikipedia DE"});
+     onEvent({type:"candidate",source:{
+       title:"Flughafen Frankfurt Main",url:"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+       discovered:true,reachable:false,topically_relevant:true}});
+     onEvent({type:"candidate",source:{
+       title:"Nicht öffentlich",url:"https://localhost/private",
+       discovered:true,reachable:false,topically_relevant:true}});
+     onEvent({type:"source",source:{
+       title:"Flughafen Frankfurt Main",url:"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+       reachable:true}});
+     return {results:[],previews:[]};
+   }}},URL,AbortSignal
+ },{timeout:2000});
+ await elements.webSearchForm.handlers.submit({preventDefault(){}});
+ assert.equal(calls,1);
+ assert.equal(elements.webSearchResults.children.length,1);
+ const result=elements.webSearchResults.children[0];
+ assert.equal(result.dataset.reachable,"true");
+ const image=result.querySelector(".neral-web-favicon");
+ assert.ok(image);
+ assert.equal(image.src,"/api/web/favicon?host=de.wikipedia.org");
+ assert.match(elements.webSearchStatus.textContent,/Seiteninhalte nicht gelesen/);
+});
+
+test("Web toggle runs search for ordinary substantive questions, not greetings or attachment-only requests",()=>{
+ const source=read("static/neral-preview.js");
+ const a=source.indexOf("  function skipWebForLocalBasics(");
+ const b=source.indexOf("  // Snippets are untrusted evidence",a);
+ assert.ok(a>0&&b>a);
+ const get=vm.runInNewContext(source.slice(a,b)+"\n({shouldSearchWeb,makeSearchQuery})");
+ assert.equal(get.shouldSearchWeb("Wann wurde der BER eröffnet?"),true);
+ assert.equal(get.shouldSearchWeb("Welche Flüge gibt es ab Berlin?"),true);
+ assert.equal(get.shouldSearchWeb("Hallo"),false);
+ assert.ok(get.makeSearchQuery("Welcher Flughafen ".repeat(30)).length<=160);
+ assert.match(source,/selectedAttachments\.length===0\s*\|\|\s*explicitlyRequestsWeb\(text\)/);
+});
