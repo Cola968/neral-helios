@@ -301,7 +301,8 @@ def run_adaptive_planner(
                 and check.get("all_conditions_checked") is True
                 and check.get("proof_backend") in (
                     "independent_enumeration","trusted_source_arithmetic",
-                    "independent_unique_enumeration")
+                    "independent_unique_enumeration",
+                    "independent_user_source_docker")
                 and _valid_answer(check.get("answer"))
                 and type(execution.get("output")) is str
                 and execution["output"].strip()==str(check["answer"])):
