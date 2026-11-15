@@ -10,5 +10,6 @@
   "docker_diagnostic_and_archive_revision": 3,
   "new_generator_revision": 4,
   "docker_restored_run": "43721550711",
-  "final_full_preflight_revision": 5
+  "final_full_preflight_revision": 5,
+  "docker_same_job_activation_revision": 6
 }
