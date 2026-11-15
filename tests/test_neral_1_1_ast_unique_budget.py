@@ -279,6 +279,81 @@ class IndependentFiniteLogicCPU(unittest.TestCase):
         self.assertEqual(out["text"],"UNTOUCHED_FALLBACK")
 
 
+class StructuredProposalAndCallableProofCPU(unittest.TestCase):
+    def test_empty_schema_extra_on_python_is_harmless_only(self):
+        from neral_adaptive_ollama import make_local_adaptive_proposer
+        packet={"strategy":"PYTHON_SANDBOX",
+                "code":"answer=4\nassert answer == 2*2\nprint(answer)",
+                "schema":{}}
+        def fake(_):
+            return {"done":True,"done_reason":"stop",
+                    "message":{"content":json.dumps(packet)}}
+        proposal=make_local_adaptive_proposer(
+            "neral-qwen35-qlora-v1:latest",transport=fake)
+        response=proposal(turns(ROOM_OTHER),{
+            "preferred_strategy":"PYTHON_SANDBOX",
+            "allowed_strategies":("PYTHON_SANDBOX","DIRECT"),
+            "repair_round":0,"feedback_code":None})
+        self.assertEqual(set(response),{"strategy","code"})
+        self.assertEqual(response["code"],packet["code"])
+
+    def test_nonempty_schema_extra_rejected_on_python(self):
+        from neral_adaptive_ollama import make_local_adaptive_proposer
+        for injected in ({"schema":{"variables":{}}},{"schema":"{}"},
+                         {"unexpected":True},{"verified":True}):
+            packet={"strategy":"PYTHON_SANDBOX","code":"x=4\nassert x==2*2\nprint(x)",
+                    **injected}
+            def fake(_):
+                return {"done":True,"done_reason":"stop",
+                        "message":{"content":json.dumps(packet)}}
+            proposer=make_local_adaptive_proposer(
+                "neral-qwen35-qlora-v1:latest",transport=fake)
+            with self.assertRaises(ValueError):
+                proposer(turns(ROOM_OTHER),{
+                    "preferred_strategy":"PYTHON_SANDBOX",
+                    "allowed_strategies":("PYTHON_SANDBOX","DIRECT"),
+                    "repair_round":0,"feedback_code":None})
+
+    def test_unique_assert_inside_called_function_is_executed(self):
+        from neral_python_unique_logic import has_unique_enumeration_assert
+        source=(
+            "from itertools import permutations\n"
+            "def solve():\n"
+            "    solutions=[]\n"
+            "    for perm in permutations((1,2,3)):\n"
+            "        if perm[0]==1 and perm[2]==3:\n"
+            "            solutions.append(perm)\n"
+            "    assert len(solutions)==1\n"
+            "    return solutions[0][1]\n"
+            "print(solve())")
+        self.assertIsNone(inspect_python_contract(source))
+        self.assertTrue(has_unique_enumeration_assert(source,"room_assignment"))
+        proof=independent_unique_certificate(
+            source=ROOM_OTHER,code=source,output="2",canonical=None)
+        self.assertTrue(proof["verified"],proof)
+
+    def test_uncalled_function_assert_cannot_certify(self):
+        from neral_python_unique_logic import has_unique_enumeration_assert
+        source=(
+            "from itertools import permutations\n"
+            "def never():\n"
+            "    solutions=[]\n"
+            "    for perm in permutations((1,2,3)):\n"
+            "        solutions.append(perm)\n"
+            "    assert len(solutions)==1\n"
+            "print(2)")
+        self.assertFalse(has_unique_enumeration_assert(source,"room_assignment"))
+        self.assertFalse(independent_unique_certificate(
+            source=ROOM_OTHER,code=source,output="2",canonical=None)["verified"])
+
+    def test_callable_does_not_satisfy_empty_assertion(self):
+        source=(
+            "def solve():\n"
+            "    assert True\n"
+            "    return 2\n"
+            "print(solve())")
+        self.assertEqual(inspect_python_contract(source),"python_missing_assert")
+
 class BudgetedQwenFallbackCPU(unittest.TestCase):
     def test_local_only_non_thinking_hard_cap(self):
         packets=[]
