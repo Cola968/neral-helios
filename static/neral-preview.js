@@ -128,14 +128,8 @@
     if(!q||skipWebForLocalBasics(q)||
        /^(?:hallo|hi|hey)[,! ]+wie geht(?:'s| es) dir[?!.]*$/iu.test(q))return false;
     if(previousWebQuery&&isSearchFollowup(q))return true;
-    // The opt-in Web switch is checked by the caller. Fresh factual questions
-    // need search even without an explicit "suche im Internet" instruction.
-    if(/\b(?:suche|such|suchen|recherchiere|websuche|internet|online|quellen|news|nachrichten|aktuell|aktuelles|aktuelle|neuesten|neueste|heute|gestern|live)\b/iu.test(q))return true;
-    // Pure writing, explanation and calculation requests stay local; do not
-    // send private prose or a physics exercise to external search providers.
-    if(/^(?:bitte\s+)?(?:erkläre|erlaeutere|erläutere|rechne|berechne|übersetze|formuliere|schreibe|verfasse|korrigiere|programmier|debugge)\b/iu.test(q)||
-       /^(?:kannst|könntest|koenntest)\s+du\b[\s\S]*\b(?:erklären|erklaeren|berechnen|lösen|loesen|schreiben|formulieren|übersetzen|uebersetzen)\s*[?.!]*$/iu.test(q))return false;
-    return true;
+    if(/\b(suche|such|suchen|recherchiere|recherchieren|recherche|websuche|internet|online|quellen|belege|links|news|nachrichten|aktuell|aktuelles|aktuelle|aktuellen|neuesten|neueste|neuster|heute|gestern|dieser woche|diese woche|live)\b/iu.test(q))return true;
+    return /^(?:wie funktioniert|wie arbeiten|woraus besteht|wie unterscheiden sich)\b/iu.test(q);
   }
   // Reuse only a previous query already sent to a web provider, never private
   // conversation turns or the model's response.
@@ -712,8 +706,8 @@
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
       if($("useWebSearch").checked && !genericAttachmentOnly &&
-         (selectedAttachments.length===0 || explicitlyRequestsWeb(text)) &&
-         shouldSearchWeb(text,lastWebQuery)) {
+         shouldSearchWeb(text,lastWebQuery) &&
+         (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
         if(webQuery.length>160 || /[\r\n]/.test(webQuery))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
