@@ -33,7 +33,7 @@ jobs:
       - name: Install CPU-only proof dependencies
         run: python -m pip install 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
       - name: Compile planner and pre-existing guards
-        run: python -B -m py_compile neral_adaptive_planner.py neral_nl_verified_route.py neral_tir_regression_guard.py
+        run: python -B -m py_compile neral_adaptive_planner.py neral_python_logic_verifier.py neral_nl_verified_route.py neral_tir_regression_guard.py
       - name: Adaptive controller CPU tests (mock model and sandbox)
         run: python -B -m unittest discover -s tests -p 'test_neral_adaptive_planner.py' -v
       - name: New independent Python logic oracle CPU tests (zero GPU)
