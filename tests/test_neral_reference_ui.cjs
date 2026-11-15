@@ -104,7 +104,7 @@ test("slider and reset update the original FAST\/THINK radios without changing r
     };
   }
   const ids=["modeDropdownTrigger","modeDropdownMenu","modeOptionLow","modeOptionHigh",
-    "modeDropdownLabel","modeEffortSlider","modeSliderTitle","modeSliderReset","modeSliderCaption"];
+    "modeDropdownLabel","modeEffortSlider","modeEffortTrack","modeSliderTitle","modeSliderReset","modeSliderCaption"];
   const map=Object.fromEntries(ids.map(id=>[id,element(id)]));
   map.modeDropdownMenu.hidden=true;
   const fast=element("fast"),think=element("think");
