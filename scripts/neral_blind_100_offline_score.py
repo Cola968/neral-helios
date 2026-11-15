@@ -14,6 +14,7 @@ import re
 
 from scripts.neral_blind_100_cases import build, serialize
 from scripts.neral_generalization_100_run import parse_answer as primary_integer
+from neral_answer_contract import parse_terminal_final_integer
 
 _INTEGER=r"-?\d{1,10}"
 _ENCLOSED=rf"(?:\*\*)?({_INTEGER})(?:\*\*)?"
@@ -33,6 +34,23 @@ _MARKERS=re.compile(
 
 def conservative_final_integer(text:object)->int|None:
     if type(text) is not str or not text.strip() or len(text)>131072:
+        return None
+    # Shared exact terminal contract first. Older secondary parser recognised
+    # "Final answer" but ignored the underscore in FINAL_ANSWER:, producing a
+    # spurious 0/100 on a frozen prospective benchmark.
+    # The official score is NEVER rewritten by this secondary extractor.
+    if "<think>" in text.lower() or "</think>" in text.lower():
+        return None
+    terminal=parse_terminal_final_integer(text)
+    if terminal is not None:
+        # Reject conflicting earlier explicit answers, if any; intermediate
+        # arithmetic numerals by themselves are not conflicting answers.
+        earlier=_MARKERS.findall(text.rsplit("FINAL_ANSWER:",1)[0])
+        if any(int(x)!=terminal for x in earlier):
+            return None
+        return terminal
+    if "FINAL_ANSWER:" in text:
+        # Malformed, repeated or non-terminal marker: never rescue a partial.
         return None
     baseline=primary_integer(text)
     if baseline is not None:
