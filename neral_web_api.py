@@ -136,18 +136,19 @@ def register_web_search_api(app, service=None):
 
     def verified_with_fallback(result: dict, query: str, on_provider=None,
                                on_source=None, on_candidate=None) -> dict:
-        """Keep real topical provider previews; use multiple independent providers.
+        """Preserve all safe, relevant discovery hits across every provider.
 
-        A failed HEAD/GET does not erase an actual search hit. Only successful
-        HTTPS probes are called reachable. Wikipedia is a factual reference
-        fallback, not an assertion that an article was downloaded or read.
+        HTTPS reachability failure is NOT an empty search; a result preview
+        remains visible with reachable=False. News previews are preferable to
+        stale encyclopedia entries for explicitly fresh search intent.
         """
-        first = verified_results(result, on_source=on_source,
-                                 on_candidate=on_candidate, query=query)
+        first=verified_results(result,on_source=on_source,
+                               on_candidate=on_candidate,query=query)
         if first["results"]:
             return first
         contacted=list(result.get("providers_contacted",[]))
         current=first
+        retained=list(first.get("previews",[]))
         retry=getattr(search,"search_bing",None)
         if ("Bing RSS" not in contacted and result.get("provider")=="DuckDuckGo HTML"
                 and callable(retry)):
@@ -158,10 +159,12 @@ def register_web_search_api(app, service=None):
                            "providers_contacted":list(contacted)}
                 current=verified_results(secondary,on_source=on_source,
                                          on_candidate=on_candidate,query=query)
+                retained.extend(current.get("previews",[]))
             except WebSearchError:
                 current={**first,"providers_contacted":list(contacted)}
         if current["results"]:
             return current
+
         news=getattr(search,"search_news",None)
         if (is_fresh_news_query(query) and "Google News RSS" not in contacted
                 and callable(news)):
@@ -172,10 +175,17 @@ def register_web_search_api(app, service=None):
                              "providers_contacted":list(contacted)}
                 current=verified_results(news_result,on_source=on_source,
                                          on_candidate=on_candidate,query=query)
+                retained.extend(current.get("previews",[]))
             except WebSearchError:
                 current={**current,"providers_contacted":list(contacted)}
-        if current["results"]:
+        # A genuine, topic-matched News RSS hit stays visible even if the
+        # publisher disallows HEAD/GET checks. Do not erase it by replacing
+        # the result with a stale Wikipedia reference.
+        if current["results"] or (is_fresh_news_query(query)
+                and current.get("provider")=="Google News RSS"
+                and current.get("previews")):
             return current
+
         wiki=getattr(search,"search_wikipedia",None)
         if ("Wikipedia DE" not in contacted and
                 result.get("provider")!="Wikipedia DE" and callable(wiki)):
@@ -186,16 +196,24 @@ def register_web_search_api(app, service=None):
                            "providers_contacted":list(contacted)}
                 current=verified_results(reference,on_source=on_source,
                                          on_candidate=on_candidate,query=query)
+                retained.extend(current.get("previews",[]))
             except WebSearchError:
                 current={**current,"providers_contacted":list(contacted)}
+
+        seen=set()
         discovered=[]
-        known=set()
-        # Keep the verified reference results plus relevant search-engine hits.
-        for hit in [*current.get("previews",[]),*first.get("previews",[])]:
-            if hit.get("url") not in known:
+        for hit in [*current.get("previews",[]),*retained]:
+            url=hit.get("url")
+            if url and url not in seen:
                 discovered.append(hit)
-                known.add(hit["url"])
-        return {**current,"previews":discovered[:5],
+                seen.add(url)
+            if len(discovered)>=5:
+                break
+        result_provider=(current.get("provider") if current.get("results") else
+                         discovered[0].get("provider",current.get("provider"))
+                         if discovered else current.get("provider"))
+        return {**current,"previews":discovered,
+                "provider":result_provider,
                 "providers_contacted":list(contacted)}
 
     @app.post("/api/web/search/stream")
