@@ -129,16 +129,22 @@ def run_adaptive_planner(
     attempts, feedback, current_route = 0, None, preferred
 
     def fallback() -> dict:
+        # Reuse PR537's unchanged production guard, never approximate its
+        # promotion policy. It invokes raw Qwen on a fresh original-turn copy.
         try:
-            raw = raw_fallback([dict(m) for m in original])
-            if (type(raw) is not str or not raw.strip() or len(raw.encode("utf8")) > 32768
-                    or "NERAL_EXECUTE_JSON:" in raw or "<tool_call" in raw):
-                raise ValueError("Invalid raw model answer")
-            return {"text": raw, "verified": False, "safe_to_promote": False,
-                    "model_generated": True, "mode": "HIGH",
+            from neral_tir_regression_guard import choose_guarded_tir_reply
+            guarded = choose_guarded_tir_reply(
+                {"mode": "HIGH", "text": "", "verified": False,
+                 "model_generated": True, "calls_used": attempts, "seconds": 0.0,
+                 "verification_status": "adaptive_unverified",
+                 "verification_scope": "none"},
+                [dict(m) for m in original], raw_fallback)
+            if (guarded.get("selection_policy") != "raw_qwen_due_to_unverified_tir"
+                    or guarded.get("verified") is not False):
+                raise ValueError("PR537 fallback invariant rejected")
+            return {**guarded, "safe_to_promote": False,
                     "planner_route": current_route, "planner_attempts": attempts,
-                    "selection_policy": "raw_qwen_due_to_unverified_adaptive",
-                    "response_source": "raw_qwen"}
+                    "selection_policy": "raw_qwen_due_to_unverified_adaptive"}
         except Exception:
             return {"text": "Keine vollständig verifizierte Antwort verfügbar.",
                     "verified": False, "safe_to_promote": False,
