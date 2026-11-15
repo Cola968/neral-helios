@@ -8,6 +8,7 @@ on:
       - 'neral_adaptive_bounded_fallback.py'
       - 'neral_python_source_router.py'
       - 'tests/test_neral_1_1_ast_unique_budget.py'
+      - '.github/workflows/neral-1-1-ast-unique-budget-cpu.yml'
       - 'neral_python_assert_contract.py'
       - 'neral_python_math_verifier.py'
       - 'tests/test_neral_1_1_z3_first_failfast.py'
