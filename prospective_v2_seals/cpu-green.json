@@ -1,0 +1,15 @@
+{
+  "status": "cpu_preflight_docker_persistence_seal_all_green",
+  "dataset_sha256": "c43287a4ca6eb18fe4f45a45706f7af8155d27033638bb13c397a7417aacb157",
+  "preflight_run_id": "43721907187",
+  "preflight_conclusion": "success",
+  "artifact_id": 14164404359,
+  "original_source_commit": "737413f03b347676108d507ff3fe7693975dd269",
+  "dummy_records_actual": 4,
+  "dummy_raw_sha256": "5b669edeee050b9521d68381b6396b26d741b9274bec89cc35185d52bcd7c28f",
+  "docker_proof_scope": "exact_user_python_execution",
+  "pr537_policy": "independently_verified_tir",
+  "no_gpu_calls": true,
+  "no_merge": true,
+  "no_model_inference": true
+}
