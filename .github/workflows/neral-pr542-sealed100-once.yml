@@ -48,10 +48,13 @@ jobs:
           $request=Join-Path $env:GITHUB_WORKSPACE 'one_shot\blind100_requests\pr542-737413f0-once.json'
           if(-not(Test-Path -LiteralPath $request -PathType Leaf)){throw 'One-shot request missing'}
           $r=Get-Content -LiteralPath $request -Raw|ConvertFrom-Json
-          if((@($r.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'authorize,frozen_sha256,source_commit,version' -or
+          if((@($r.PSObject.Properties.Name|Sort-Object) -join ',') -ne 'authorize,frozen_sha256,historical_generator_commit,historical_generator_source_lf_sha256,previous_unlocated_sha256,source_commit,version' -or
              $r.authorize -ne 'RUN_PR542_737413F0_SEALED100_ONCE' -or
              $r.source_commit -ne '737413f03b347676108d507ff3fe7693975dd269' -or
-             $r.frozen_sha256 -ne '3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d' -or
+             $r.frozen_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $r.historical_generator_commit -ne '8c9c58b4cdc7ffda1fb3392a6e6277b59fae203f' -or
+             $r.historical_generator_source_lf_sha256 -ne '477d78aa72a2f52f1b4b37bea6f6c3afa8ffabbce41b44d4743215cdf7487fcd' -or
+             $r.previous_unlocated_sha256 -ne '3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d' -or
              [int]$r.version -ne 1){throw 'Invalid one-shot authorization'}
           $actual=(& git -C $source rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $actual -ne $r.source_commit){throw 'PR542 source SHA mismatch'}
@@ -80,7 +83,8 @@ jobs:
              'NERAL_ONESHOT_OUT='+$report+[Environment]::NewLine),
             [Text.UTF8Encoding]::new($false))
           Write-Host "PR542 SOURCE SHA VERIFIED: $actual"
-          Write-Host "Existing sealed corpus hash will be verified before any inference."
+          Write-Host "Official hash re-lock: from unlocated 3feca67d... to historical LF 74cf83ce... (generator 8c9c58b4)."
+          Write-Host "Immutable historical source and deterministic 100-case serialization are verified before inference."
       - name: Run exactly 100 paired RTX4070 evaluations, no training or merge
         run: |
           $ErrorActionPreference='Stop'
@@ -100,7 +104,10 @@ jobs:
           if($s.status -ne 'PR542_PROSPECTIVE_100_SINGLE_QLORA_Z3_RTX4070_REVIEW_ONLY' -or
              $s.case_count -ne 100 -or
              $s.source_commit -ne '737413f03b347676108d507ff3fe7693975dd269' -or
-             $s.existing_sealed_sha256 -ne '3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d' -or
+             $s.existing_sealed_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $s.historical_generator_commit -ne '8c9c58b4cdc7ffda1fb3392a6e6277b59fae203f' -or
+             $s.historical_generator_source_lf_sha256 -ne '477d78aa72a2f52f1b4b37bea6f6c3afa8ffabbce41b44d4743215cdf7487fcd' -or
+             $s.relocked_from_unlocated_sha256 -ne '3feca67d6ee9fd48b462bdbf3e15e256b9e72a1a35357d30d75d383b9a7b280d' -or
              $s.raw_model_outputs_uploaded -ne $false -or $s.training -ne $false -or
              $s.merged_to_main -ne $false){throw 'Unsafe or incomplete evidence'}
           foreach($kind in @('mathematics','logic','programming','mixed')){
