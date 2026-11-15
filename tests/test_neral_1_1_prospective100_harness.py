@@ -11,7 +11,7 @@ import unittest
 from scripts.neral_1_1_prospective_blind100 import (
     AUTHORIZE,BASE_TAG,TUNED_TAG,CATS,CONTROL_MAX_TOKENS,
     PILOT_SEED,base_packet,score_final,tally,frozen_cases,
-    write_new,sha
+    write_new,sha,json_bytes,recover_unstarted_future_corpus
 )
 
 class Prospective100HarnessCPU(unittest.TestCase):
@@ -94,6 +94,44 @@ class Prospective100HarnessCPU(unittest.TestCase):
             tally(cases,[row]*100)
         with self.assertRaises(ValueError):
             tally(cases,[])
+
+    def test_exact_original_seed_and_casepack_recovered_without_new_draw(self):
+        cases,blob=frozen_cases(PILOT_SEED)
+        pilot={"cases":[{"case_id":"cpu-"+str(k)} for k in range(4)],
+               "losses":0,"base_correct":4,"bounded_correct":4}
+        receipt=json_bytes(pilot)
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            write_new(root/"prospective100-sealed-cases.jsonl",blob)
+            write_new(root/"prospective100-seed-secret.txt",
+                (PILOT_SEED+"\n").encode("utf8"))
+            write_new(root/"pilot-safety-raw.json",receipt)
+            # QA test seed is deliberately NOT 64 hex chars and must fail.
+            with self.assertRaisesRegex(RuntimeError,"SHA mismatch"):
+                recover_unstarted_future_corpus(root,sha(blob),sha(receipt))
+
+    def test_recovered_sha_tamper_fails_closed_without_seed_redraw(self):
+        # A fixed SHA-derived QA seed is NOT the actual confidential GPU seed.
+        fake_seed=hashlib.sha256(PILOT_SEED.encode()).hexdigest()
+        cases,blob=frozen_cases(fake_seed)
+        pilot=json_bytes({"cases":[{"case_id":"cpu-"+str(k)} for k in range(4)],
+                          "losses":0,"base_correct":4,"bounded_correct":4})
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            write_new(root/"prospective100-sealed-cases.jsonl",blob)
+            write_new(root/"prospective100-seed-secret.txt",(fake_seed+"\n").encode())
+            write_new(root/"pilot-safety-raw.json",pilot)
+            from unittest.mock import patch
+            with patch("scripts.neral_1_1_prospective_blind100.secrets.token_hex",
+                       side_effect=AssertionError("Do not draw a fresh seed")):
+                recovered=recover_unstarted_future_corpus(root,sha(blob),sha(pilot))
+            self.assertEqual(recovered[0],fake_seed)
+            self.assertEqual(recovered[2],blob)
+            with self.assertRaisesRegex(RuntimeError,"SHA mismatch"):
+                recover_unstarted_future_corpus(root,sha(blob),sha(b"tampered"))
+            (root/"prospective100-sealed-cases.jsonl").write_bytes(blob+b"changed")
+            with self.assertRaisesRegex(RuntimeError,"SHA mismatch"):
+                recover_unstarted_future_corpus(root,sha(blob),sha(pilot))
 
     def test_artifacts_created_once_no_overwrite(self):
         with tempfile.TemporaryDirectory() as d:
