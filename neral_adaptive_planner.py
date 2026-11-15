@@ -137,6 +137,15 @@ def run_adaptive_planner(
     if type(canonical) is not dict:
         canonical=None
     preferred=deterministic_prefilter(question,canonical is not None)
+    # Recognized strict finite-uniqueness source must not be treated as
+    # conversational DIRECT merely because it starts with "Find".
+    if canonical is None and len(original)==2:
+        try:
+            from neral_python_unique_logic import parse_finite_unique_source
+            if parse_finite_unique_source(question) is not None:
+                preferred="PYTHON_SANDBOX"
+        except Exception:
+            pass
     allowed=("PYTHON_SANDBOX","DIRECT")
     attempts=0
     feedback=None
