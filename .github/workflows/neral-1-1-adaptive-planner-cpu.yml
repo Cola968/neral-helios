@@ -4,6 +4,8 @@ on:
     branches: [feat/neral-1.1-adaptive-planner]
     paths:
       - 'neral_adaptive_planner.py'
+      - 'neral_python_logic_verifier.py'
+      - 'tests/test_neral_python_logic_verifier.py'
       - 'tests/test_neral_adaptive_planner.py'
       - 'scripts/neral_1_1_offline_aggregate.py'
       - 'tests/test_neral_1_1_offline_aggregate.py'
@@ -34,6 +36,8 @@ jobs:
         run: python -B -m py_compile neral_adaptive_planner.py neral_nl_verified_route.py neral_tir_regression_guard.py
       - name: Adaptive controller CPU tests (mock model and sandbox)
         run: python -B -m unittest discover -s tests -p 'test_neral_adaptive_planner.py' -v
+      - name: New independent Python logic oracle CPU tests (zero GPU)
+        run: python -B -m unittest discover -s tests -p 'test_neral_python_logic_verifier.py' -v
       - name: Offline aggregate metadata-only tests
         run: python -B -m unittest discover -s tests -p 'test_neral_1_1_offline_aggregate.py' -v
       - name: Existing PR542 source and schema regression CPU suites
