@@ -39,8 +39,16 @@ _INSTRUCTION = (
     "fully source-certified finite constraint format. "
     "Prefer PYTHON_SANDBOX for finite combinatorics, constrained enumerations "
     "and exact arithmetic; keep code minimal, deterministic, and within limits. "
-    "The application will independently check every problem clause: "
-    "executing your code does NOT itself verify your interpretation. "
+    "For Python, include a meaningful top-level assert comparing a "
+    "computed variable with an independently calculated expression or "
+    "condition from the task. No trivial assert True or assert x==x. "
+    "For combinatorics verify counts or conditions with an additional "
+    "independent expression where possible. For multistep math include "
+    "a reverse calculation or an independent arithmetic cross-check. "
+    "Always print precisely ONE nonnegative integer, without prose. "
+    "The application independently parses the COMPLETE user question: "
+    "your self-authored assert NEVER establishes source correctness; "
+    "only an independent verifier may release the result. "
     "Return DIRECT for natural conversation or unsupported tasks."
 )
 
