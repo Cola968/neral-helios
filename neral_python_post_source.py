@@ -122,7 +122,7 @@ _PROGRAM=re.compile(
     r"Python 3 (?:code|program) print\?|Predict (?:the )?integer output of "
     r"(?:this|the) Python 3 script:|What integer is printed by the following "
     r"Python 3 program\?)\s*\n<FENCE>python\s*\n(?P<code>[\s\S]{1,3800}?)\n<FENCE>\s*\Z"
-    .replace("<FENCE>",String.fromCharCode(96,96,96))
+    .replace("<FENCE>",chr(96)*3)
 )
 
 def original_python_program(source:str)->str|None:
