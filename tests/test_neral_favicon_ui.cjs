@@ -219,8 +219,9 @@ test("every explicit web search uses shared results without exposing unrelated a
  const b=source.indexOf("  // Snippets are untrusted evidence",a);
  assert.ok(a>0&&b>a);
  const get=vm.runInNewContext(source.slice(a,b)+"\n({shouldSearchWeb,makeSearchQuery})");
- assert.equal(get.shouldSearchWeb("Wann wurde der BER eröffnet?"),true);
- assert.equal(get.shouldSearchWeb("Welche Flüge gibt es ab Berlin?"),true);
+ assert.equal(get.shouldSearchWeb("Suche nach dem BER"),true);
+ assert.equal(get.shouldSearchWeb("Welche aktuellen Flüge gibt es ab Berlin?"),true);
+ assert.equal(get.shouldSearchWeb("Was ist die Hauptstadt von Deutschland?"),false);
  assert.equal(get.shouldSearchWeb("Hallo"),false);
  assert.ok(get.makeSearchQuery("Welcher Flughafen ".repeat(30)).length<=160);
  assert.match(source,/selectedAttachments\.length===0\s*\|\|\s*explicitlyRequestsWeb\(text\)/);
