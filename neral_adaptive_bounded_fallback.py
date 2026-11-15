@@ -10,13 +10,16 @@ from __future__ import annotations
 from neral_nl_local_ollama import _localhost_transport
 
 MODEL="qwen3.5:9b"
-FALLBACK_MAX_TOKENS=640
+FALLBACK_MAX_TOKENS=1536
 MAX_REPLY_BYTES=32768
 MAX_ORIGINAL_BYTES=16384
 
-def make_bounded_fallback(model_tag: str, *, transport=None):
+def make_bounded_fallback(model_tag: str, *, transport=None,
+                          formatted_contract: bool=False):
     if type(model_tag) is not str or model_tag!=MODEL:
         raise ValueError("Only pinned local HIGH Qwen is eligible for bounded fallback")
+    if type(formatted_contract) is not bool:
+        raise ValueError("Invalid benchmark format gate")
     if transport is not None and not callable(transport):
         raise ValueError("Invalid local transport")
     send=_localhost_transport if transport is None else transport
@@ -39,14 +42,19 @@ def make_bounded_fallback(model_tag: str, *, transport=None):
                 "user" if i%2==1 else "assistant")
             if m["role"]!=expected:
                 raise ValueError("Untrusted chat role ordering")
+        messages=[dict(row) for row in original]
+        if formatted_contract:
+            from neral_answer_contract import BENCHMARK_FORMAT_V1
+            if BENCHMARK_FORMAT_V1 not in messages[0]["content"]:
+                messages[0]["content"] += BENCHMARK_FORMAT_V1
         payload={
             "model":MODEL,
-            "messages":[dict(row) for row in original],
+            "messages":messages,
             "stream":False,"think":False,
             "keep_alive":"5m",
             "options":{
                 "temperature":0,"num_predict":FALLBACK_MAX_TOKENS,
-                "num_ctx":4096,"repeat_penalty":1.05,
+                "num_ctx":4096,"repeat_penalty":1.05,"seed":0,
             },
         }
         result=send(payload)
@@ -59,5 +67,9 @@ def make_bounded_fallback(model_tag: str, *, transport=None):
                 or len(content.encode("utf8"))>MAX_REPLY_BYTES
                 or "<think>" in content.lower() or "</think>" in content.lower()):
             raise ValueError("Invalid or private Qwen final response")
+        if formatted_contract:
+            from neral_answer_contract import parse_terminal_final_integer
+            if parse_terminal_final_integer(content) is None:
+                raise ValueError("No complete FINAL_ANSWER from Qwen")
         return content
     return respond
