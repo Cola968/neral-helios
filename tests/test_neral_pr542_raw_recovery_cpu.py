@@ -40,6 +40,22 @@ class OriginalRunRawRecoveryTests(unittest.TestCase):
             self.assertEqual(found,[])
             self.assertEqual(meta["candidate_files"],0)
 
+    def test_prioritizes_first_supplied_root_before_large_other_root(self):
+        with tempfile.TemporaryDirectory() as home:
+            root=Path(home)
+            priority=root/"runner"
+            priority.mkdir()
+            candidate=priority/"private-results.jsonl"
+            candidate.write_text('{"synthetic":true}\n',encoding="utf8")
+            huge=root/"unrelated"
+            huge.mkdir()
+            for index in range(20):
+                (huge/f"entry-{index}.txt").write_text("dummy",encoding="utf8")
+            found,meta=scan_named_raw_files([priority,huge],
+                                            max_entries=5,deadline_seconds=5)
+            self.assertIn(candidate,found)
+            self.assertTrue(meta["incomplete"])
+
     def test_small_budget_reports_incomplete_not_false_negative(self):
         with tempfile.TemporaryDirectory() as home:
             root=Path(home)
