@@ -78,27 +78,37 @@ jobs:
           & $env:NERAL_V2_PY -B -m unittest discover -s (Join-Path $env:NERAL_V2_REVIEW 'tests') -p test_neral_pr542_prospective_v2_cpu.py -v
           if($LASTEXITCODE -ne 0){throw 'Synthetic CPU harness unit tests failed'}
           Write-Host 'PROSPECTIVE_V2_CPU_UNIT_TESTS_OK'
-      - name: Real Docker sandbox and PR537 guard CPU-only smoke (no Ollama calls)
+      - name: Diagnose real Docker sandbox and PR537 guard on CPU only (no Ollama calls)
         run: |
           $ErrorActionPreference='Stop'
-          @'
-          from neral_tir_experimental import run_experimental_tir
+          $lines=@'
+          from neral_tir_experimental import (
+              run_experimental_tir,execute_tir_tool,_isolated_readonly_python_source)
           from neral_tir_regression_guard import choose_guarded_tir_reply
-          q="What integer will the following exact Python 3 program print? Return one integer only.\n"+chr(96)*3+"python\nprint(9)\n"+chr(96)*3
+          code="print(9)"
+          q="What integer will the following exact Python 3 program print? Return one integer only.\n"+chr(96)*3+"python\n"+code+"\n"+chr(96)*3
           msg=[{"role":"system","content":"You are a precise local assistant."},{"role":"user","content":q}]
           def forbid_any_model(turns):
               raise RuntimeError("Unexpected model inference in CPU-only smoke")
+          print("CPU_SOURCE_STATIC_PARSE",_isolated_readonly_python_source(q) is not None)
+          isolated=execute_tir_tool("python_sandbox",code)
+          print("CPU_SANDBOX_TOOL_DIAGNOSTIC",{k:isolated.get(k) for k in ("status","error_type","verification_scope")})
           proposed=run_experimental_tir(msg,forbid_any_model)
           guarded=choose_guarded_tir_reply(proposed,msg,forbid_any_model)
-          print("CPU_DOCKER_PROOF_DIAGNOSTIC", {k:proposed.get(k) for k in ("verification_status","verification_scope","review_method","tool_used","tool_calls_succeeded","verified")})
+          print("CPU_DOCKER_PROOF_DIAGNOSTIC",{k:proposed.get(k) for k in ("verification_status","verification_scope","review_method","tool_used","tool_calls_succeeded","verified")})
           print("CPU_GUARD_DECISION",guarded.get("selection_policy"))
-          assert guarded["selection_policy"]=="independently_verified_tir"
-          assert guarded["verification_scope"]=="exact_user_python_execution"
-          assert guarded["tool_used"]=="neral_python_sandbox"
-          assert guarded["text"].strip()=="9"
-          print("SANDBOX_DOCKER_REAL_CPU_SOURCE_VERIFIED; NO_INFERENCE")
+          ok=(guarded.get("selection_policy")=="independently_verified_tir"
+              and guarded.get("verification_scope")=="exact_user_python_execution"
+              and guarded.get("tool_used")=="neral_python_sandbox"
+              and guarded.get("text","").strip()=="9")
+          print("SANDBOX_DOCKER_REAL_CPU_SOURCE_VERIFIED" if ok else "SANDBOX_DOCKER_PROOF_BLOCKED")
           '@ | & $env:NERAL_V2_PY -B -
-          if($LASTEXITCODE -ne 0){throw 'Real Docker CPU source verification failed'}
+          if($LASTEXITCODE -ne 0){throw 'CPU Docker diagnostics crashed'}
+          $lines|ForEach-Object {Write-Host $_}
+          $good=(@($lines|Where-Object {$_ -eq 'SANDBOX_DOCKER_REAL_CPU_SOURCE_VERIFIED'}).Count -gt 0)
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('NERAL_V2_SANDBOX_OK='+$good.ToString()+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
       - name: CPU dummy persist, reread and fresh 100 hash seal; no tasks uploaded
         run: |
           $ErrorActionPreference='Stop'
@@ -148,3 +158,10 @@ jobs:
             ${{ env.NERAL_V2_ROOT }}/fresh100-seal-${{ github.run_id }}/new-seal.json
           retention-days: 90
           if-no-files-found: error
+
+      - name: Final CPU gate (Docker must really verify; never authorize GPU on failure)
+        run: |
+          if($env:NERAL_V2_SANDBOX_OK -ne 'True'){
+            throw 'CPU preflight archive and seal were saved, but real Docker source verification is not available; GPU run blocked'
+          }
+          Write-Host 'CPU_PREFLIGHT_DOCKER_PERSISTENCE_SEAL_ALL_GREEN'
