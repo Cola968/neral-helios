@@ -128,8 +128,13 @@
     if(!q||skipWebForLocalBasics(q)||
        /^(?:hallo|hi|hey)[,! ]+wie geht(?:'s| es) dir[?!.]*$/iu.test(q))return false;
     if(previousWebQuery&&isSearchFollowup(q))return true;
-    // This is called only with the user's explicit Web consent enabled.
-    // Search all substantive questions, not just a fixed set of keywords.
+    // The opt-in Web switch is checked by the caller. Fresh factual questions
+    // need search even without an explicit "suche im Internet" instruction.
+    if(/\b(?:suche|such|suchen|recherchiere|websuche|internet|online|quellen|news|nachrichten|aktuell|aktuelles|aktuelle|neuesten|neueste|heute|gestern|live)\b/iu.test(q))return true;
+    // Pure writing, explanation and calculation requests stay local; do not
+    // send private prose or a physics exercise to external search providers.
+    if(/^(?:bitte\s+)?(?:erkläre|erlaeutere|erläutere|rechne|berechne|übersetze|formuliere|schreibe|verfasse|korrigiere|programmier|debugge)\b/iu.test(q)||
+       /^(?:kannst|könntest|koenntest)\s+du\b[\s\S]*\b(?:erklären|erklaeren|berechnen|lösen|loesen|schreiben|formulieren|übersetzen|uebersetzen)\s*[?.!]*$/iu.test(q))return false;
     return true;
   }
   // Reuse only a previous query already sent to a web provider, never private
