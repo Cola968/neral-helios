@@ -23,7 +23,7 @@ class AdaptivePlannerCPU(unittest.TestCase):
     def proposer(self, turns, signal):
         self.assertEqual(turns, self.original)
         self.feedback.append(signal)
-        return {"strategy": "PYTHON_SANDBOX", "code": "print(5)"}
+        return {"strategy": "PYTHON_SANDBOX", "code": "value=5\nassert value == (2+3)\nprint(value)"}
 
     def exercise(self, **kw):
         return run_adaptive_planner(
@@ -35,6 +35,7 @@ class AdaptivePlannerCPU(unittest.TestCase):
             kw.pop("verify_python", lambda **args: {"verified": False}),
             kw.pop("verify_z3", lambda **args: {"verified": False}),
             source_parser=kw.pop("source_parser", lambda q: None),
+            source_supported=kw.pop("source_supported", lambda q: True),
             **kw,
         )
 
@@ -95,7 +96,7 @@ class AdaptivePlannerCPU(unittest.TestCase):
         self.assertFalse(answer["verified"])
         self.assertEqual(len(self.feedback), MAX_REPAIRS + 1)
         self.assertEqual([f["feedback_code"] for f in self.feedback],
-                         [None, "python_runtime_failed", "python_runtime_failed"])
+                         [None, "python_runtime_failed"])
         self.assertNotIn("PRIVATE_USER_TEXT", str(self.feedback))
         self.assertEqual(self.fallback_calls, [self.original])
 
@@ -104,9 +105,9 @@ class AdaptivePlannerCPU(unittest.TestCase):
         def propose(turns, signal):
             feedbacks.append(signal["feedback_code"])
             return {"strategy": "PYTHON_SANDBOX",
-                    "code": "print(5)" if len(feedbacks) > 1 else "broken code"}
+                    "code": "value=5\nassert value == 2+3\nprint(value)" if len(feedbacks) > 1 else "broken code"}
         def execute(code):
-            return ({"status": "PASSED", "output": "5"} if code == "print(5)"
+            return ({"status": "PASSED", "output": "5"} if code.startswith("value=5")
                     else {"status": "FAILED", "traceback": "private"})
         answer = self.exercise(propose=propose, execute_python=execute,
             verify_python=lambda **args: {"verified": True, "full_source": True,
@@ -125,7 +126,7 @@ class AdaptivePlannerCPU(unittest.TestCase):
     def test_invalid_strategy_bounded(self):
         answer = self.exercise(propose=lambda *args: {
             "strategy": "ROOT_SHELL", "code": "print(5)"})
-        self.assertEqual(answer["planner_attempts"], 3)
+        self.assertEqual(answer["planner_attempts"], 1)
         self.assertEqual(answer["text"], "Original Qwen answer")
         self.assertEqual(len(self.fallback_calls), 1)
 
@@ -222,7 +223,7 @@ class AdaptivePlannerCPU(unittest.TestCase):
             verify_z3=lambda **args: {
                 "status": "coverage_rejected", "coverage_reason": "PRIVATE_PROMPT_STRING"})
         self.assertFalse(answer["verified"])
-        self.assertEqual(feedbacks, [None, "coverage_rejected", "coverage_rejected"])
+        self.assertEqual(feedbacks, [])
         self.assertNotIn("PRIVATE_PROMPT_STRING", str(feedbacks))
 
 
