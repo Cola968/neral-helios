@@ -1,0 +1,92 @@
+name: NERAL PR542 v2 recover local Docker daemon (CPU only)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - prospective_v2_requests/docker_cpu_repair.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-pr542-v2-docker-cpu-repair
+  cancel-in-progress: false
+
+jobs:
+  docker-cpu-only:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - name: Confirm no-model CPU-only authorization
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Try to restore existing Docker Desktop service and local sandbox image
+        run: |
+          $ErrorActionPreference='Stop'
+          $request=Get-Content 'prospective_v2_requests/docker_cpu_repair.json' -Raw|ConvertFrom-Json
+          if($request.authorization -ne 'RESTORE_LOCAL_DOCKER_DAEMON_CPU_ONLY' -or
+             $request.no_gpu -ne $true){
+             throw 'No authorization for CPU Docker recovery'
+          }
+          function IsDockerAlive {
+             & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
+             return ($LASTEXITCODE -eq 0)
+          }
+          $cli=(Get-Command docker -ErrorAction SilentlyContinue)
+          if($null -eq $cli){throw 'Docker CLI not installed'}
+          $daemonBefore=IsDockerAlive
+          Write-Host ("DOCKER_DAEMON_BEFORE="+$daemonBefore)
+          $svc=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          Write-Host ("DOCKER_WINDOWS_SERVICE_PRESENT="+($null -ne $svc))
+          if($null -ne $svc){
+            Write-Host ("DOCKER_WINDOWS_SERVICE_BEFORE="+$svc.Status)
+          }
+          if(-not $daemonBefore){
+            if($null -ne $svc -and $svc.Status -ne 'Running'){
+              try{
+                Start-Service -Name 'com.docker.service' -ErrorAction Stop
+                Write-Host 'DOCKER_SERVICE_START_REQUESTED'
+              }catch{
+                Write-Host 'DOCKER_SERVICE_COULD_NOT_START'
+              }
+            }
+            $desktop=Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+            Write-Host ("DOCKER_DESKTOP_INSTALLED="+(Test-Path -LiteralPath $desktop -PathType Leaf))
+            if(Test-Path -LiteralPath $desktop -PathType Leaf){
+              try{
+                Start-Process -FilePath $desktop -ErrorAction Stop
+                Write-Host 'DOCKER_DESKTOP_START_REQUESTED'
+              }catch{
+                Write-Host 'DOCKER_DESKTOP_COULD_NOT_LAUNCH'
+              }
+            }
+            for($i=0;$i -lt 22;$i++){
+              if(IsDockerAlive){break}
+              Start-Sleep -Seconds 4
+            }
+          }
+          $alive=IsDockerAlive
+          Write-Host ("DOCKER_DAEMON_AFTER="+$alive)
+          if(-not $alive){throw 'Docker daemon unavailable after bounded local recovery'}
+          & docker image inspect python:3.11-alpine 1>$null 2>$null
+          $haveImage=($LASTEXITCODE -eq 0)
+          Write-Host ("DOCKER_PY311_IMAGE_BEFORE="+$haveImage)
+          if(-not $haveImage){
+            Write-Host 'DOCKER_IMAGE_PULL_REQUIRED; sandbox itself still uses --pull never'
+            & docker pull python:3.11-alpine 1>$null
+            if($LASTEXITCODE -ne 0){throw 'Required free Python sandbox image unavailable'}
+            & docker image inspect python:3.11-alpine 1>$null 2>$null
+            if($LASTEXITCODE -ne 0){throw 'Required Docker image still unavailable'}
+          }
+          $output=(& docker run --rm --pull never --network none --read-only --memory 128m --cpus 0.5 --pids-limit 32 --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 python:3.11-alpine python -B -c 'print(9)')
+          if($LASTEXITCODE -ne 0 -or $output.Trim() -ne '9'){throw 'CPU Docker smoke failed'}
+          Write-Host 'DOCKER_CPU_SANDBOX_READY; no model/GPU executed'
