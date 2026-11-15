@@ -34,11 +34,9 @@ def mathematics(k,r):
         return (f"Find the least nonnegative remainder when {a} to the integer power "
                 f"{exp} is divided by {mod}.",pow(a,exp,mod),"modular_power")
     if f==3:
-        x=r.randint(1,7);n=r.randint(4,9);offset=r.randint(1,8)
+        start=r.randint(1,7);x=start;n=r.randint(4,9);offset=r.randint(1,8)
         for i in range(n):x=3*x+2*i+offset
-        return (f"An integer sequence begins with v(0)={r.randint(1,1)}. "
-                f"Ignore the illustrative value and use v(0)=SPECIAL.",0,"placeholder") if False else (
-                f"Starting at v(0)={x//(3**n) if False else 'START'}, iterate "
+        return (f"Starting at v(0)={start}, iterate "
                 f"v(k+1)=3*v(k)+2*k+{offset} for k=0 to {n-1}. Find v({n}).",
                 x,"tripled_recurrence")
     # Identical objects, capacity-limited assignments.
@@ -138,7 +136,8 @@ def mixed(k,r):
                 f"{speed} km per hour. What is the minimum whole number "
                 f"of hours required to complete the flight?",result,"ceil_flight_hours")
     if f==1:
-        initial=r.randint(3000,9000);flow=r.randint(4,23);burn=r.randint(20,70);eng=r.randint(2,4)
+        flow=r.randint(4,23);burn=r.randint(20,70);eng=r.randint(2,4)
+        initial=flow*burn*eng+r.randint(500,4000)
         answer=initial-flow*burn*eng
         return (f"A rocket stage starts with {initial} kg propellant. "
                 f"Each of {eng} engines consumes {flow} kg per second for "
