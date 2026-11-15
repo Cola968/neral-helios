@@ -15,7 +15,7 @@ SEALED = "74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258"
 CATS = ("mathematics", "logic", "programming", "mixed")
 FOLDER = "neral-pr542-sealed100-43709097701-1"
 STRICT = re.compile(r"\s*(?:(?:FINAL_ANSWER|NERAL_FINAL_TEXT):\s*)?(-?\d{1,10})\s*")
-NUM = re.compile(r"(?<![\w.])[-+]?(?:\d{1,3}(?:,\d{3})+|\d{1,11})(?![\w.])")
+NUM = re.compile(r"(?<![\w.])[-+]?(?:\d{1,3}(?:,\d{3})+|\d{1,11})(?!\w|\.\d)")
 LABEL = re.compile(r"(?:FINAL_ANSWER|NERAL_FINAL_TEXT|final\s+(?:answer|result)|"
     r"(?:the\s+)?(?:answer|result|total|count)\s*(?:is|equals|:|=)|"
     r"(?:there\s+(?:are|is)\s+(?:exactly\s+)?)|"
