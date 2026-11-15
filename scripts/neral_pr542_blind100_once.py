@@ -57,6 +57,7 @@ def measure(cases, out: Path, tags_before: dict):
     low = OllamaLocalBackend("qwen3:8b")
     high = OllamaLocalBackend("qwen3.5:9b",
                               inference_profile="measured_nonthinking_2048")
+    high.set_benchmark_seed(0)
     app = create_preview_app(low, experimental_high_backend=high)
     client = app.test_client()
     origin = "http://127.0.0.1:9690"
@@ -131,6 +132,7 @@ def measure(cases, out: Path, tags_before: dict):
         raise RuntimeError("Never grade incomplete 100-case evaluation")
     if local_tags(request) != tags_before:
         raise RuntimeError("Ollama inventory changed during evaluation")
+    high.set_benchmark_seed(None)
     return rows
 
 def main():
@@ -203,6 +205,9 @@ def main():
         "case_count": 100, "categories": groups,
         "baseline_model": "qwen3.5:9b",
         "baseline_digest": tags_before["qwen3.5:9b"],
+        "baseline_inference_profile": "measured_nonthinking_2048",
+        "matched_qwen_seed": 0,
+        "candidate_api": "/api/neral/chat/think nl_schema_consensus=true",
         "qlora_model": TUNED_TAG, "qlora_digest": TUNED_DIGEST,
         "pr537_guard_blob": guard,
         "baseline_correct": sum(r["base_correct"] for r in rows),
