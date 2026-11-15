@@ -26,6 +26,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_1_1_postverify_open_router.py' -v
       - name: 24 new full-source golden answers and source language invariants
         run: python -B -m unittest discover -s tests -p 'test_neral_1_1_postverify_dev24.py' -v
+      - name: New dev24 GPU harness CPU-only dry-run
+        run: python -B -m scripts.neral_1_1_postverify_dev24_gpu --cpu-preflight --authorize NERAL_1_1_POSTVERIFY_DEV24_LOCAL_GPU_ONCE
       - name: Existing independent source and regression contracts
         run: |
           set -e
