@@ -11,7 +11,7 @@ import math
 import random
 from itertools import permutations,product
 
-SEED=202611151847
+SEED=1511261847
 CATEGORIES=("mathematics","logic","programming","mixed")
 
 def mathematics(k,r):
