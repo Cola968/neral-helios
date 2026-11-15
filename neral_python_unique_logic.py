@@ -105,10 +105,12 @@ def _room_task(pieces: list[str]) -> FiniteUniqueTask | None:
     n=int(m.group(2))
     # Explicitly require canonical full names separated by comma, final "and".
     chunks=names_text.split(", ")
-    if len(chunks)<2 or not chunks[-1].count(" and ")==1:
-        return None
-    end_left,end_right=chunks[-1].split(" and ")
-    names=tuple(chunks[:-1]+[end_left,end_right])
+    if len(chunks)<2:return None
+    if " and " in chunks[-1]:
+        end_left,end_right=chunks[-1].split(" and ")
+        names=tuple(chunks[:-1]+[end_left,end_right])
+    else:
+        names=tuple(chunks)
     if (len(names)!=n or len(set(names))!=n
             or any(re.fullmatch(r"[A-Z][a-z]{1,10}",name) is None for name in names)):
         return None
@@ -237,6 +239,9 @@ def independent_unique_certificate(*,source: str,code: str,
         return decline
     if task.number_of_solutions!=1 or task.answer is None:
         return {"verified":False,"reason":"nonunique_or_unsatisfiable"}
+    from neral_python_assert_contract import inspect_python_contract
+    if inspect_python_contract(code) is not None:
+        return {"verified":False,"reason":"python_contract_missing"}
     if not has_unique_enumeration_assert(code,task.family):
         return {"verified":False,"reason":"missing_unique_enumeration_assert"}
     if output!=str(task.answer):
