@@ -38,7 +38,8 @@ def scan_named_raw_files(roots:Iterable[Path], *, max_entries:int=350000,
     found:list[Path]=[]
     seen_dirs=set()
     seen_files=set()
-    stack:list[tuple[Path,int]]=[(Path(p),0) for p in roots]
+    # LIFO traversal must preserve caller priority (runner TEMP before broad drives).
+    stack:list[tuple[Path,int]]=list(reversed([(Path(p),0) for p in roots]))
     visited=0
     denied=0
     timedout=False
@@ -93,9 +94,18 @@ def scan_named_raw_files(roots:Iterable[Path], *, max_entries:int=350000,
 def local_runner_roots()->list[Path]:
     env=os.environ
     home=Path(env.get("USERPROFILE",str(Path.home())))
-    roots=[
-      Path(r"C:\actions-runner"),
-      Path(r"C:\Users"),
+    roots=[]
+    # Check the original ephemeral evidence directory before any large tree.
+    if env.get("RUNNER_TEMP"):
+        roots.append(Path(env["RUNNER_TEMP"]))
+    roots += [
+      Path(r"C:\actions-runner\_work\_temp"),
+      Path(r"C:\actions-runner\_temp"),
+      home/"NERAL-PR542-GPU-RAW",
+      home/"NERAL-QLoRA-Research",
+      home/"Documents"/"NERAL",
+      home/"Desktop",
+      home/"Downloads",
       Path(r"D:\neral-qlora"),
       Path(r"D:\NERAL"),
       Path(r"D:\neral"),
@@ -103,13 +113,13 @@ def local_runner_roots()->list[Path]:
       Path(r"D:\benchmarks"),
       Path(r"D:\datasets"),
     ]
-    for name in ("RUNNER_TEMP","RUNNER_WORKSPACE","GITHUB_WORKSPACE",
-                 "TEMP","TMP"):
+    # Only after priority paths do we search broad runner/user/disk trees.
+    roots += [Path(r"C:\actions-runner"),Path(r"C:\Users")]
+    for name in ("RUNNER_WORKSPACE","GITHUB_WORKSPACE","TEMP","TMP"):
         if env.get(name):
             v=Path(env[name]);roots.extend([v,v.parent])
-    roots += [home,home/"Documents",home/"Desktop",home/"Downloads"]
-    # D:\ may contain other project folders. Traverse with bounded time.
     roots.append(Path("D:\\"))
+
     unique={}
     for root in roots:
         unique.setdefault(os.path.normcase(os.path.abspath(root)),root)
