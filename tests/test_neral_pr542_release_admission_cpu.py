@@ -56,6 +56,20 @@ class Admission(unittest.TestCase):
         self.assertEqual(result["admission"],"blocked")
         self.assertIn("provenance_mismatch",result["reasons"])
 
+    def test_malformed_offline_receipt_is_blocked_without_crash(self):
+        for bad in ("corrupt", [], 19):
+            with self.subTest(bad=type(bad).__name__):
+                result=assess_release_evidence(strict_receipt(),bad)
+                self.assertEqual(result["admission"],"blocked")
+                self.assertIn("invalid_offline_receipt",result["reasons"])
+
+    def test_wrong_net_gain_type_is_blocked_without_crash(self):
+        secondary=corrected_receipt()
+        secondary["net_gain"]=None
+        result=assess_release_evidence(strict_receipt(),secondary)
+        self.assertEqual(result["admission"],"blocked")
+        self.assertIn("invalid_category_accounting",result["reasons"])
+
     def test_category_counts_and_total_must_balance(self):
         secondary=corrected_receipt()
         secondary["categories"]["mixed"]["count"]=24
