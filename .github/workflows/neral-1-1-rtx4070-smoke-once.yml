@@ -184,7 +184,7 @@ jobs:
         if: success()
         uses: actions/download-artifact@v4
         with:
-          name: neral-1-1-rtx4070-raw8-${{ github.run_id }}
+          name: neral-1-1-z3-first-raw8-${{ github.run_id }}
           path: ${{ runner.temp }}/neral-1-1-verify-${{ github.run_id }}
       - name: Verify downloaded bytes equal local originals
         if: success()
