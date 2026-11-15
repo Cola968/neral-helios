@@ -1,4 +1,4 @@
-"""Repeated identical eight-case diagnostic smoke for pinned NERAL 1.1 Z3-first failfast commit 43e527ed.
+"""Pinned RTX4070 original eight diagnostics plus two strictly unseen unique logic probes for pinned NERAL 1.1 Z3-first failfast commit 43e527ed.
 
 Eight new synthetic *diagnostic* cases. No use of any 100-case corpus,
 generator, release gate, training file, or task ID. Never substitutes mocked
@@ -20,8 +20,8 @@ import time
 import traceback
 from urllib.request import Request
 
-PIN="43e527edd0be253fcbc431af83ba12e6d4709be6"
-RUN_AUTH="NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE"
+PIN="6ebe453af75c26d77767fb7e6cdd14c6896295ca"
+RUN_AUTH="NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE"
 BASE="qwen3.5:9b"
 TUNED="neral-qwen35-qlora-v1:latest"
 QUESTION1=("Color vertices 0..6 with red, green or blue. Vertex 0 is red, "
@@ -48,6 +48,14 @@ REPAIR=("Count 5-tuples with entries from 0 through 4. "
         "Exactly 3 entries are even. All entries are distinct.")
 NEGATIVE=("Count permutations of numbers 1 through 6. "
           "Number 1 is before number 2. Number 6 must be lucky.")
+FRESH_TRUTH=("Find the unique truth assignment for speakers A, B, C, D. "
+             "A says B lies. B says C tells the truth. C says D tells the truth. "
+             "D says A lies. Exactly 1 speakers tell the truth. "
+             "Return the truth bitmask.")
+FRESH_ROOM=("Find the unique room assignment for Lena, Milo, Nora, Otto, Pia "
+            "to rooms 1 through 5. Lena is first. Pia is last. "
+            "Milo is before Nora. Nora is immediately before Otto. "
+            "Return Milo's room number.")
 CASES=(
     {"id":"s01-new-graph7","group":"Z3","prompt":QUESTION1,"expected_route":"Z3_SCHEMA"},
     {"id":"s02-new-pin6","group":"Z3","prompt":QUESTION2,"expected_route":"Z3_SCHEMA"},
@@ -57,6 +65,8 @@ CASES=(
     {"id":"s06-math-multistep2","group":"MATH","prompt":MATH2,"expected_route":"PYTHON_SANDBOX"},
     {"id":"s07-correction-synthetic","group":"REPAIR","prompt":REPAIR,"expected_route":"PYTHON_SANDBOX"},
     {"id":"s08-ambiguous-negative","group":"NEGATIVE","prompt":NEGATIVE,"expected_route":"PYTHON_SANDBOX"},
+    {"id":"s09-fresh-truth4","group":"UNIQUE_LOGIC","prompt":FRESH_TRUTH,"expected_route":"PYTHON_SANDBOX"},
+    {"id":"s10-fresh-room5","group":"UNIQUE_LOGIC","prompt":FRESH_ROOM,"expected_route":"PYTHON_SANDBOX"},
 )
 
 
@@ -96,14 +106,15 @@ def source_preflight():
     from neral_python_logic_verifier import (
         parse_bounded_logic_source,independently_count)
     from neral_typed_constraints_v2 import PREFIX,solve_typed_constraints
-    assert digest(json.dumps(CASES,sort_keys=True,ensure_ascii=False).encode("utf8")) == (
+    from neral_python_unique_logic import parse_finite_unique_source
+    assert digest(json.dumps(CASES[:8],sort_keys=True,ensure_ascii=False).encode("utf8")) == (
         "432148ba99fe507a60cdd619a68b6b69a985789544c9c63ed29192d8e04d5de8"
     ), "Original synthetic eight-case matrix changed"
-    assert len(CASES)==8 and len({c["prompt"] for c in CASES})==8
-    assert len({c["id"] for c in CASES})==8
+    assert len(CASES)==10 and len({c["prompt"] for c in CASES})==10
+    assert len({c["id"] for c in CASES})==10
     assert tuple(x["group"] for x in CASES)==(
         "Z3","Z3","GENERAL_LOGIC","GENERAL_LOGIC",
-        "MATH","MATH","REPAIR","NEGATIVE")
+        "MATH","MATH","REPAIR","NEGATIVE","UNIQUE_LOGIC","UNIQUE_LOGIC")
     refs={}
     for c in CASES:
         question=c["prompt"]
@@ -115,6 +126,12 @@ def source_preflight():
             refs[c["id"]]=answer
         else:
             assert cert is None,c["id"]
+            if c["group"]=="UNIQUE_LOGIC":
+                unique=parse_finite_unique_source(question)
+                assert unique is not None and unique.number_of_solutions==1, c["id"]
+                assert type(unique.answer) is int, c["id"]
+                refs[c["id"]]=unique.answer
+                continue
             # No accidental source certification of unsupported general NL.
             if c["group"] in ("GENERAL_LOGIC","MATH","NEGATIVE"):
                 assert parse_bounded_logic_source(question) is None,c["id"]
@@ -124,7 +141,7 @@ def source_preflight():
                 refs[c["id"]]=independently_count(task)
             elif c["group"]!="NEGATIVE":
                 refs[c["id"]]=gold_for(c["id"])
-    assert len(refs)==7
+    assert len(refs)==9
     return refs
 
 
@@ -197,6 +214,7 @@ def run(out):
     from neral_agent_autonomy import OllamaLocalBackend
     from neral_local_chat_api import register_neral_local_chat_api
     import neral_adaptive_ollama as adaptive
+    import neral_adaptive_bounded_fallback as bounded
     import neral_adaptive_planner as planner
     from neral_nl_verified_route import strict_source_certificate
     from neral_typed_constraints_v2 import PREFIX,solve_typed_constraints
@@ -217,6 +235,7 @@ def run(out):
     register_neral_local_chat_api(app,backend)
     client=app.test_client()
     actual_transport=adaptive._localhost_transport
+    actual_bounded_transport=bounded._localhost_transport
     actual_fallback=backend.respond_chat
     actual_docker=planner.run_python_in_docker
     model_calls=[];fallback_calls=[];docker_calls=[]
@@ -233,6 +252,26 @@ def run(out):
                 n=result.get(field)
                 record[field+"_ms"]=(n/1e6 if isinstance(n,int) else None)
             record["done_reason"]=result.get("done_reason")
+            return result
+        except Exception as exc:
+            record["error_type"]=type(exc).__name__
+            raise
+        finally:
+            record["elapsed_ms"]=(time.perf_counter()-t)*1000
+            record["gpu_after"]=gpu_meta()
+    def record_bounded(packet):
+        record={"original_messages":packet.get("messages"),
+                "raw_request":packet,"time_start_ns":time.time_ns(),
+                "gpu_before":gpu_meta(),"transport":"budgeted_qwen_local"}
+        fallback_calls.append(record)
+        t=time.perf_counter()
+        try:
+            result=actual_bounded_transport(packet)
+            record["raw_model_envelope"]=result
+            record["raw_response"]=result.get("message",{}).get("content")
+            for key in ("load_duration","total_duration","eval_duration","prompt_eval_duration"):
+                n=result.get(key)
+                record[key+"_ms"]=n/1000000 if type(n) is int else None
             return result
         except Exception as exc:
             record["error_type"]=type(exc).__name__
@@ -272,7 +311,9 @@ def run(out):
         finally:
             record["elapsed_ms"]=(time.perf_counter()-t)*1000
     os.environ["NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER"]="1"
+    os.environ["NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK"]="1"
     adaptive._localhost_transport=record_model
+    bounded._localhost_transport=record_bounded
     planner.run_python_in_docker=record_docker
     backend.respond_chat=record_base
     records=[]
@@ -351,10 +392,11 @@ def run(out):
                 "gpu_qlora_proven":tuned_gpu_proven},ensure_ascii=False),flush=True)
     finally:
         adaptive._localhost_transport=actual_transport
+        bounded._localhost_transport=actual_bounded_transport
         planner.run_python_in_docker=actual_docker
         backend.respond_chat=actual_fallback
     summary={
-      "status":"completed" if len(records)==8 else "partial",
+      "status":"completed" if len(records)==10 else "partial",
       "source_commit":PIN,"case_count":len(records),"gpu_source":"real self-hosted RTX4070",
       "case_definitions_sha256":manifest["case_definitions_sha256"],
       "aggregate":{"verified_promotions":sum(x["trusted_verified"] for x in records),
@@ -389,7 +431,7 @@ def main():
         return
     result=run(args.out)
     print("SMOKE_FINAL_SCALARS "+json.dumps(result["aggregate"],sort_keys=True))
-    if result["case_count"]!=8:raise SystemExit(2)
+    if result["case_count"]!=10:raise SystemExit(2)
 
 
 if __name__=="__main__":
