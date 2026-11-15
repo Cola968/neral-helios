@@ -23,6 +23,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BING_ENDPOINT = "https://www.bing.com/search"
+NEWS_ENDPOINT = "https://news.google.com/rss/search"
 MAX_RESPONSE_BYTES = 600_000
 MAX_RESULTS = 10
 MAX_QUERY_CHARS = 160
@@ -458,6 +459,14 @@ def parse_search_results(markup: str, *, limit: int = MAX_RESULTS) -> list[dict[
     return parser.finish()
 
 
+def is_fresh_news_query(query: str) -> bool:
+    """Use a current news source only for queries that request recent events."""
+    return (isinstance(query, str) and
+            re.search(r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|"
+                      r"neuigkeiten|heute|gestern|live|this week|latest|breaking)\b",
+                      query, re.I) is not None)
+
+
 def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS) -> list[dict[str, str]]:
     """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
     if not isinstance(xml, str) or not 1 <= limit <= MAX_RESULTS or len(xml) > MAX_RESPONSE_BYTES:
@@ -494,6 +503,37 @@ class WebSearch:
         self._hits = deque()
         self._lock = threading.Lock()
 
+
+    def search_news(self, query: str, on_provider=None) -> list[dict[str, str]]:
+        """Public keyless Google News RSS metadata for explicit fresh/news queries.
+
+        Links are provider-discovered HTTPS search hits, never article reads.
+        The caller must still apply topical filtering and independent link checks.
+        """
+        if not isinstance(query, str) or any(ord(c)<32 or ord(c)==127 for c in query):
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        cleaned = _clean(query, MAX_QUERY_CHARS+1)
+        if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
+            raise WebSearchInputError("Ungültiger Suchbegriff.")
+        if on_provider is not None:
+            on_provider("Google News RSS")
+        url = (NEWS_ENDPOINT+"?q="+quote_plus(cleaned)+"&hl=de&gl=DE&ceid=DE:de")
+        req = Request(url, headers={
+            "User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
+            "Accept":"application/rss+xml, application/xml, text/xml",
+            "Accept-Language":"de,en;q=0.8",
+        }, method="GET")
+        try:
+            with self.opener.open(req, timeout=7.0) as response:
+                mime = response.headers.get("Content-Type","").lower()
+                if "xml" not in mime and "rss" not in mime:
+                    raise WebSearchError("Nachrichten-Suchanbieter lieferte unerwarteten Inhaltstyp.")
+                raw = response.read(MAX_RESPONSE_BYTES+1)
+            if len(raw)>MAX_RESPONSE_BYTES:
+                raise WebSearchError("Nachrichten-Suchantwort überschreitet das Limit.")
+            return parse_bing_rss(raw.decode("utf-8", errors="replace"))
+        except (HTTPError,URLError,TimeoutError,OSError,WebSearchError):
+            raise WebSearchError("Nachrichten-Suchanbieter nicht verfügbar.") from None
 
     def search_wikipedia(self, query: str, on_provider=None) -> list[dict[str, str]]:
         """Keyless DE Wikipedia reference fallback for the exact consented query.
@@ -640,6 +680,14 @@ class WebSearch:
             except (HTTPError, URLError, TimeoutError, OSError, WebSearchError):
                 bing_problem = True
                 results = []
+        if not results and is_fresh_news_query(cleaned):
+            contacted.append("Google News RSS")
+            try:
+                results=self.search_news(cleaned,on_provider=on_provider)
+                if results:
+                    provider="Google News RSS"
+            except WebSearchError:
+                results=[]
         if not results:
             contacted.append("Wikipedia DE")
             try:
