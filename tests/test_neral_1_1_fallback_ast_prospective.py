@@ -114,6 +114,34 @@ class ExpandedFallbackContract(unittest.TestCase):
                 make_bounded_fallback("qwen3.5:9b",transport=fake,
                                       formatted_contract=True)(original_turns())
 
+    def test_1536_length_retries_once_at_2048_without_leaking_partial(self):
+        packets=[]
+        def fake(packet):
+            packets.append(packet)
+            if packet["options"]["num_predict"]==1536:
+                return {"done":True,"done_reason":"length",
+                        "message":{"content":"Partial incorrect 77"}}
+            return {"done":True,"done_reason":"stop",
+                    "message":{"content":"FINAL_ANSWER: 65"}}
+        f=make_bounded_fallback("qwen3.5:9b",transport=fake,
+                                formatted_contract=True)
+        self.assertEqual(f(original_turns()),"FINAL_ANSWER: 65")
+        self.assertEqual([x["options"]["num_predict"] for x in packets],
+                         [1536,2048])
+        self.assertEqual(packets[0]["messages"],packets[1]["messages"])
+        self.assertEqual(packets[0]["options"]["seed"],packets[1]["options"]["seed"])
+
+    def test_length_then_second_length_never_returns_partial_answer(self):
+        packets=[]
+        def fake(packet):
+            packets.append(packet["options"]["num_predict"])
+            return {"done":True,"done_reason":"length",
+                    "message":{"content":"FINAL_ANSWER: 41"}}
+        with self.assertRaises(ValueError):
+            make_bounded_fallback("qwen3.5:9b",transport=fake,
+                                  formatted_contract=True)(original_turns())
+        self.assertEqual(packets,[1536,2048])
+
     def test_empty_whitespace_or_thinking_leak_rejected(self):
         for answer in ("","  ","<think>secret</think> FINAL_ANSWER: 42"):
             def fake(packet):
