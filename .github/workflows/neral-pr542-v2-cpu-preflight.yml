@@ -90,6 +90,8 @@ jobs:
               raise RuntimeError("Unexpected model inference in CPU-only smoke")
           proposed=run_experimental_tir(msg,forbid_any_model)
           guarded=choose_guarded_tir_reply(proposed,msg,forbid_any_model)
+          print("CPU_DOCKER_PROOF_DIAGNOSTIC", {k:proposed.get(k) for k in ("verification_status","verification_scope","review_method","tool_used","tool_calls_succeeded","verified")})
+          print("CPU_GUARD_DECISION",guarded.get("selection_policy"))
           assert guarded["selection_policy"]=="independently_verified_tir"
           assert guarded["verification_scope"]=="exact_user_python_execution"
           assert guarded["tool_used"]=="neral_python_sandbox"
