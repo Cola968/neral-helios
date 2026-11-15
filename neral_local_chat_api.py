@@ -65,7 +65,7 @@ def _provenance(backend) -> dict:
 
 
 def _runtime_greeting_reply(prompt: str) -> dict | None:
-    """Short small talk must not turn into dictionary articles or fake web work.
+    """Recover greetings contaminated by a stale client web-search envelope.
 
     The UI normally suppresses Web on greetings. Recognize the precise legacy
     WEBSTATUS envelope as a second defense for older installed frontends.
@@ -76,10 +76,11 @@ def _runtime_greeting_reply(prompt: str) -> dict | None:
     original=prompt.strip()
     prefix="[NERAL-WEBSTATUS – lokale Werkzeugmeldung]\n"
     delimiter="\n[URSPRÜNGLICHE FRAGE]\n"
-    if original.startswith(prefix):
-        if original.count(delimiter) != 1:
-            return None
-        original=original.split(delimiter,1)[-1].strip()
+    # Ordinary small talk must still be answered by the configured model.
+    # Intercept only a structurally precise, erroneous prior web-tool wrapper.
+    if not original.startswith(prefix) or original.count(delimiter) != 1:
+        return None
+    original=original.split(delimiter,1)[-1].strip()
     if not 1 <= len(original) <= 64:
         return None
     cleaned=re.sub(r"[\W_]+", " ", original.casefold(), flags=re.UNICODE).strip()
