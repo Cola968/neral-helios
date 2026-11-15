@@ -12,7 +12,7 @@ from neral_web_api import register_web_search_api
 from neral_web_search import WebSearch, fetch_public_favicon
 
 QUERIES = ("Flughafen Frankfurt", "NASA Artemis",
-           "Python Dokumentation", "Wetter Berlin")
+           "Python Dokumentation", "Wetter Berlin", "Aktuelle BER Nachrichten")
 class TracedSearch(WebSearch):
     def __init__(self):
         super().__init__()
