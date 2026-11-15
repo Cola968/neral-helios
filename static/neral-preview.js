@@ -128,8 +128,9 @@
     if(!q||skipWebForLocalBasics(q)||
        /^(?:hallo|hi|hey)[,! ]+wie geht(?:'s| es) dir[?!.]*$/iu.test(q))return false;
     if(previousWebQuery&&isSearchFollowup(q))return true;
-    if(/\b(suche|such|suchen|recherchiere|recherchieren|recherche|websuche|internet|online|quellen|belege|links|news|nachrichten|aktuell|aktuelles|aktuelle|aktuellen|neuesten|neueste|neuster|heute|gestern|dieser woche|diese woche|live)\b/iu.test(q))return true;
-    return /^(?:wie funktioniert|wie arbeiten|woraus besteht|wie unterscheiden sich)\b/iu.test(q);
+    // This is called only with the user's explicit Web consent enabled.
+    // Search all substantive questions, not just a fixed set of keywords.
+    return true;
   }
   // Reuse only a previous query already sent to a web provider, never private
   // conversation turns or the model's response.
@@ -142,7 +143,12 @@
     // This removes only common German search-command scaffolding, never
     // changes a question unless the speaker explicitly used an imperative.
     const subject=q.replace(/^(?:bitte\s+)?(?:suche|such|finde|recherchiere)\s+(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s+)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu,"").trim();
-    return subject.length>=2 ? subject : q;
+    const normalized=(subject.length>=2 ? subject : q).replace(/\s+/g," ").trim();
+    // A long user message must still reach the model; the provider receives
+    // only a bounded search phrase. Never reject the whole chat because of it.
+    if(normalized.length<=160)return normalized;
+    const cut=normalized.slice(0,160);
+    return cut.slice(0,cut.lastIndexOf(" "))||cut;
   }
   // Snippets are untrusted evidence, not independently read source pages.
   function webEvidencePrompt(question,evidence,attempted=true,verifiedCount=null) {
@@ -701,13 +707,14 @@
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
       if($("useWebSearch").checked && !genericAttachmentOnly &&
+         (selectedAttachments.length===0 || explicitlyRequestsWeb(text)) &&
          shouldSearchWeb(text,lastWebQuery)) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
         if(webQuery.length>160 || /[\r\n]/.test(webQuery))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
         motionActivity("search-query",mode,{query:webQuery});
-        const searchSignal=AbortSignal.any([signal,AbortSignal.timeout(28000)]);
+        const searchSignal=AbortSignal.any([signal,AbortSignal.timeout(45000)]);
         const liveHandler=event=>{
           if(controller.signal.aborted||startedEpoch!==conversationEpoch ||
              activeRequest!==controller)return;
