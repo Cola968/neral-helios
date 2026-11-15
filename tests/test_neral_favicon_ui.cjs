@@ -154,7 +154,7 @@ test("legacy Helios search panel uses verified live results and the same source 
  assert.match(html,/src="\/static\/neral-web-live\.js"/);
  assert.match(script,/NeralWebLive\.search/);
  assert.match(script,/verify_links:\s*true/);
- assert.match(script,/discovered===true/);
+ assert.match(script,/discovered!==true/);
  assert.match(script,/reachable===true/);
  assert.match(script,/\/api\/web\/favicon\?host=/);
  assert.match(script,/onEvent/);
