@@ -139,3 +139,30 @@ test("Frankfurt no-hits boilerplate is corrected when independent web tool has a
   assert.equal(clean(text,0,true,0),text);
   assert.equal(clean(text,5,false,5),text);
 });
+
+
+test("subjectless web command with greeting asks for a topic, never searches the word Hallo",async()=>{
+  const {calls,elements}=await runPrompt("hallo suche im internet",{web:true});
+  assert.equal(calls.filter(c=>c.url==="/api/web/search").length,0);
+  assert.equal(calls.filter(c=>c.url==="/api/neral/chat/generate").length,0);
+  const rendered=JSON.stringify(elements.messages.children);
+  assert.match(rendered,/Wonach.*Internet suchen/i);
+  assert.doesNotMatch(rendered,/NERAL-WEBSTATUS|5 Quellen/);
+});
+
+test("extract search topics after greeting and treat entity corrections as topical follow-ups",()=>{
+  const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
+  const start=source.indexOf("  function skipWebForLocalBasics(");
+  const end=source.indexOf("  // Snippets are untrusted evidence",start);
+  const get=vm.runInNewContext(source.slice(start,end)+"\n({makeSearchQuery,shouldSearchWeb})");
+  assert.equal(get.makeSearchQuery("Hallo suche im Internet"),"");
+  assert.equal(get.makeSearchQuery("Hallo, suche im Internet nach PEAK Spiel speichern"),
+               "PEAK Spiel speichern");
+  assert.equal(get.makeSearchQuery("^suche im internet ob man in PEAK speichern kann"),
+               "ob man in PEAK speichern kann");
+  assert.equal(get.shouldSearchWeb("nochmal PEAK ist ein Computerspiel","PEAK speichern"),true);
+  const correction=get.makeSearchQuery("nochmal PEAK ist ein Computerspiel","PEAK speichern");
+  assert.match(correction,/PEAK/);
+  assert.match(correction,/Computerspiel/);
+  assert.equal(get.shouldSearchWeb("Hallo 😊","PEAK speichern"),false);
+});
