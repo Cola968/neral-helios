@@ -324,6 +324,60 @@ class BudgetedQwenFallbackCPU(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fallback(messages)
 
+    def test_adaptive_http_bounded_fallback_requires_separate_env_flag(self):
+        from flask import Flask
+        import os
+        from unittest.mock import patch
+        from neral_agent_autonomy import OllamaLocalBackend
+        from neral_local_chat_api import register_neral_local_chat_api
+        app=Flask("bounded-fallback-cpu")
+        backend=OllamaLocalBackend("qwen3.5:9b",
+            inference_profile="measured_nonthinking_2048")
+        original_calls=[]
+        backend.respond_chat=lambda messages: original_calls.append(messages) or "RAW_STANDARD"
+        register_neral_local_chat_api(app,backend)
+        request={"prompt":"Describe a safe radio telescope.", "adaptive_planner":True}
+        invoked=[]
+        with patch.dict(os.environ,{
+                "NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER":"1",
+                "NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK":"1"}), \
+             patch("neral_adaptive_bounded_fallback.make_bounded_fallback",
+                   side_effect=lambda tag: (
+                       lambda turns: invoked.append((tag,turns)) or "BOUNDED_REAL_QWEN_STUB")):
+            response=app.test_client().post("/api/neral/chat/think",json=request)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json["text"],"BOUNDED_REAL_QWEN_STUB")
+        self.assertFalse(response.json["verified"])
+        self.assertFalse(response.json["safe_to_promote"])
+        self.assertTrue(response.json["fallback_bounded"])
+        self.assertEqual(response.json["fallback_token_limit"],640)
+        self.assertEqual(len(invoked),1)
+        self.assertEqual(invoked[0][0],"qwen3.5:9b")
+        self.assertEqual(invoked[0][1][-1]["content"],request["prompt"])
+        self.assertEqual(original_calls,[])
+
+    def test_adaptive_http_without_env_keeps_original_raw_fallback(self):
+        from flask import Flask
+        import os
+        from unittest.mock import patch
+        from neral_agent_autonomy import OllamaLocalBackend
+        from neral_local_chat_api import register_neral_local_chat_api
+        app=Flask("unbounded-default-cpu")
+        backend=OllamaLocalBackend("qwen3.5:9b",
+            inference_profile="measured_nonthinking_2048")
+        backend.respond_chat=lambda turns:"ORIGINAL_UNMODIFIED_RAW_QWEN"
+        register_neral_local_chat_api(app,backend)
+        with patch.dict(os.environ,{
+                "NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER":"1",
+                "NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK":"0"}), \
+             patch("neral_adaptive_bounded_fallback.make_bounded_fallback",
+                   side_effect=AssertionError("No bounded fallback without gate")):
+            response=app.test_client().post("/api/neral/chat/think",
+                json={"prompt":"Explain radio waves.", "adaptive_planner":True})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json["text"],"ORIGINAL_UNMODIFIED_RAW_QWEN")
+        self.assertFalse(response.json["fallback_bounded"])
+
     def test_strict_bounded_output_not_verified(self):
         from neral_tir_regression_guard import choose_guarded_tir_reply
         out=run_adaptive_planner(turns("Explain the difference between a star and a planet."),
