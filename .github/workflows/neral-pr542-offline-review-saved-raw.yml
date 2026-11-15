@@ -1,0 +1,90 @@
+name: NERAL PR542 offline regrade of existing Blind100 answers (CPU only)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - offline_review_requests/43709097701.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-pr542-43709097701-offline-regrade
+  cancel-in-progress: false
+
+jobs:
+  offline-review-existing-raw:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout review code only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify CPU-only one-shot review request
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content -LiteralPath 'offline_review_requests/43709097701.json' -Raw|ConvertFrom-Json
+          if($r.source_run -ne '43709097701' -or
+             $r.source_commit -ne '737413f03b347676108d507ff3fe7693975dd269' -or
+             $r.sealed_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $r.authorization -ne 'OFFLINE_REVIEW_EXISTING_ANSWERS_NO_GPU'){
+             throw 'Invalid offline-only review authorization'
+          }
+          $code=Get-Content -LiteralPath 'scripts/neral_pr542_offline_regrade_saved_raw.py' -Raw
+          if($code -match 'subprocess|requests\.|urllib\.request|api/chat|api/generate|ollama\.|torch\.|cuda\.|gpu_offload'){
+             throw 'Offline-only script contains forbidden GPU/remote/model invocation'
+          }
+          Write-Host 'OFFLINE_SOURCE_RUN 43709097701; no inference or retraining'
+      - name: Re-score stored raw answers without any model call
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{
+            Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          }
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){
+            throw 'Local Python required; no installs or model calls allowed'
+          }
+          $script=Join-Path $env:GITHUB_WORKSPACE 'scripts\neral_pr542_offline_regrade_saved_raw.py'
+          $out=Join-Path $env:RUNNER_TEMP ('neral-pr542-offline-review-43709097701-'+$env:GITHUB_RUN_ID+'.json')
+          if(Test-Path -LiteralPath $out){throw 'Refuse existing report target'}
+          & $python -B $script --self-test --out $out
+          if($LASTEXITCODE -ne 0){throw 'Fixed offline parser synthetic tests failed'}
+          & $python -B $script --out $out
+          if($LASTEXITCODE -ne 0){throw 'Offline source review failed closed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+            ('NERAL_OFFLINE_REVIEW_REPORT='+$out+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+      - name: Verify summary contains no source content
+        run: |
+          $ErrorActionPreference='Stop'
+          $s=Get-Content -LiteralPath $env:NERAL_OFFLINE_REVIEW_REPORT -Raw|ConvertFrom-Json
+          if($s.source_run -ne '43709097701' -or
+             $s.sealed_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $s.gpu_calls -ne 0 -or $s.inference_calls -ne 0 -or
+             $s.merged_to_main -ne $false -or $s.raw_outputs_uploaded -ne $false){
+             throw 'Offline report integrity failed'
+          }
+          $raw=Get-Content -LiteralPath $env:NERAL_OFFLINE_REVIEW_REPORT -Raw
+          foreach($needle in @('"question"','"base_reply"','"candidate_reply"','"gold_integer"')){
+            if($raw.Contains($needle)){throw 'Raw model/dataset fields must never be uploaded'}
+          }
+          Write-Host ('OFFLINE_REVIEW_VERIFIED '+$s.status)
+          Write-Host 'No questions or raw answers in report'
+      - name: Upload redacted review scalars and anonymous regression IDs only
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr542-blind100-offline-review-43709097701
+          path: ${{ runner.temp }}/neral-pr542-offline-review-43709097701-${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 30
