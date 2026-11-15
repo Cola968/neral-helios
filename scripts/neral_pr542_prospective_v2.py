@@ -220,7 +220,7 @@ def summarize(raw:list[dict],*,sealed_hash:str)->dict:
       "categories":cats,"baseline_correct":B,"candidate_correct":N,
       "net_gain":N-B,"gained_cases":len(gained_ids),"regressions":len(regression_ids),
       "regression_ids":sorted(regression_ids),"gain_ids":sorted(gained_ids),
-      "z3_verified_count":proof_z3,"z3_verified_logic_rate":cats["logic"]["neral"]/25,
+      "z3_verified_count":proof_z3,
       "sandbox_verified_count":proof_sandbox,
       "sandbox_verified_rate":proof_sandbox/100,
       "selection_counts":dict(policies),
