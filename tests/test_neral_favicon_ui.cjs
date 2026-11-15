@@ -213,7 +213,7 @@ test("both NERAL web surfaces show actual candidate icons and reject unsafe prov
  assert.match(elements.webSearchStatus.textContent,/Seiteninhalte nicht gelesen/);
 });
 
-test("Web toggle runs search for ordinary substantive questions, not greetings or attachment-only requests",()=>{
+test("every explicit web search uses shared results without exposing unrelated attachment prompts",()=>{
  const source=read("static/neral-preview.js");
  const a=source.indexOf("  function skipWebForLocalBasics(");
  const b=source.indexOf("  // Snippets are untrusted evidence",a);
