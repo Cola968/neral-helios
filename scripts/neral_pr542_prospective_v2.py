@@ -33,7 +33,7 @@ FORMAT_SUFFIX="Gib das Ergebnis in der letzten Zeile exakt als FINAL_ANSWER: <in
 SYSTEM=("You are a precise local assistant. Answer the question accurately. "
         "You may explain your reasoning. End with one line FINAL_ANSWER: <integer>. "
         "Use an integer, no units in the final line.")
-SEED=202611151847
+SEED=1511261847
 AUTH_GPU="NERAL_PR542_V2_FRESH_SEALED100_GPU_ONCE"
 STRICT=re.compile(r"\s*(?:(?:FINAL_ANSWER|NERAL_FINAL_TEXT):\s*)?(-?\d{1,10})\s*")
 
