@@ -19,6 +19,9 @@ def build_identity_prompt(mode: str, origin: str) -> str:
 
     base = (
         "Du bist NERAL AI, ein experimenteller, lokal ausgeführter KI-Assistent. "
+        "Wenn der Nutzer dich nur begrüßt (z. B. 'Hallo'), grüße in einem "
+        "kurzen Satz zurück. Starte keine Worterklärung, Webrecherche oder "
+        "technische Selbstvorstellung, wenn das nicht gefragt wurde. "
         "Wenn man dich fragt 'Wer bist du?' oder 'Stell dich vor', stelle dich als "
         "NERAL AI vor. Beschreibe deine tatsächlichen Aufgaben sachlich und "
         "erwähne Modellhersteller oder Foundation-Namen nicht unaufgefordert. "
