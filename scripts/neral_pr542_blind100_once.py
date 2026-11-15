@@ -23,7 +23,8 @@ def find_sealed_corpus(home: Path) -> Path:
     roots = [p for p in home.iterdir()
              if p.is_dir() and not p.is_symlink()
              and p.name.lower().startswith("neral-")]
-    roots += [home / "Documents" / "Codex", home / "Documents" / "NERAL"]
+    roots += [home / "Documents" / "Codex", home / "Documents" / "NERAL",
+              home / "Desktop", home / "Downloads"]
     omitted = {".git", ".venv", "venv", "site-packages", "node_modules",
                ".cache", "cache", "checkpoints", "adapter", "adapters",
                "models", "ollama", "training-env-py312"}
@@ -41,10 +42,11 @@ def find_sealed_corpus(home: Path) -> Path:
                        and not (Path(directory) / d).is_symlink()]
             for filename in files:
                 p = Path(directory) / filename
-                if p.suffix.lower() != ".jsonl" or p.is_symlink():
+                if p.suffix.lower() not in (".jsonl", ".json", ".ndjson", ".txt") or p.is_symlink():
                     continue
-                if not any(key in str(p).lower()
-                           for key in ("blind", "prospective", "100", "sealed")):
+                if (not root.name.lower().startswith("neral-")
+                    and not any(key in str(p).lower()
+                                for key in ("blind", "prospective", "100", "sealed"))):
                     continue
                 try:
                     if not 4000 <= p.stat().st_size <= 2_000_000:
