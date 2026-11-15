@@ -38,8 +38,17 @@ jobs:
              throw 'No authorization for CPU Docker recovery'
           }
           function IsDockerAlive {
-             & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
-             return ($LASTEXITCODE -eq 0)
+             $previous=$ErrorActionPreference
+             $ErrorActionPreference='Continue'
+             try {
+               $null = & docker info --format '{{.ServerVersion}}' 2>$null
+               $alive=($LASTEXITCODE -eq 0)
+             }catch{
+               $alive=$false
+             }finally{
+               $ErrorActionPreference=$previous
+             }
+             return $alive
           }
           $cli=(Get-Command docker -ErrorAction SilentlyContinue)
           if($null -eq $cli){throw 'Docker CLI not installed'}
