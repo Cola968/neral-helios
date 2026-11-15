@@ -274,6 +274,30 @@ class LiveSourcesTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["url"],
                          "https://news.google.com/rss/articles/ber-2026")
 
+    def test_ambiguous_game_name_does_not_admit_physics_storage_hits(self):
+        class Search:
+            def search(self,query,on_provider=None):
+                if on_provider:on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[
+                          {"title":"Spezifische Wärmekapazität",
+                           "url":"https://de.wikipedia.org/wiki/Spezifische_W%C3%A4rmekapazit%C3%A4t",
+                           "snippet":"Die Wärmeenergie ist im Stoff gespeichert."},
+                          {"title":"PEAK game: saving progress",
+                           "url":"https://example.org/games/peak-saving",
+                           "snippet":"How to save progress in the PEAK video game"},
+                        ]}
+        app=Flask(__name__);register_web_search_api(app,Search())
+        with patch("neral_web_api.verify_public_https_url",side_effect=lambda u:u):
+            r=app.test_client().post("/api/web/search",json={
+                "query":"Kann ich im PEAK Computerspiel speichern?","verify_links":True})
+        self.assertEqual(r.status_code,200)
+        sources=r.get_json()["results"]
+        self.assertEqual(len(sources),1)
+        self.assertIn("PEAK game",sources[0]["title"])
+        self.assertTrue(all("Wärmekapazität" not in x["title"] for x in sources))
+
     def test_wikipedia_reference_fallback_after_offtopic_bing_results(self):
         class Three:
             def search(self,query,on_provider=None):
