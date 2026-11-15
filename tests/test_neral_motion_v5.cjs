@@ -17,7 +17,7 @@ test("sources appear inside their own answer action bar, not as orphan chat mess
   render(answer,[{title:"BER Flughafen",url:"https://www.berlin-airport.de/de.html",reachable:true}]);
   const details=actions.querySelector(".neral-source-disclosure");
   assert.ok(details,"compact chip must live in answer actions");
-  assert.equal(details.querySelector(".neral-source-label").textContent,"1 Quelle");
+  assert.equal(details.querySelector(".neral-source-label").textContent,"1 Suchtreffer");
   const link=details.querySelector("a");assert.ok(link);
   assert.equal(link.attrs.rel,"noopener noreferrer");
   assert.equal(link.attrs.target,"_blank");
