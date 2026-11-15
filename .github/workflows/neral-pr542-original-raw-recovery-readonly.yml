@@ -1,0 +1,89 @@
+name: NERAL PR542 original Blind100 raw recovery (CPU-only read-only)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - offline_recovery_requests/43709097701.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-pr542-original-run-43709097701-readonly-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover-original-results:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      WANDB_DISABLED: 'true'
+    steps:
+      - name: Checkout read-only recovery tools only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify authorization and synthetic CPU tests
+        run: |
+          $ErrorActionPreference='Stop'
+          $request=Get-Content -LiteralPath 'offline_recovery_requests/43709097701.json' -Raw|ConvertFrom-Json
+          if($request.source_run -ne '43709097701' -or
+             $request.relocked_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $request.authorization -ne 'READ_ONLY_RECOVERY_NO_GPU'){
+            throw 'No valid read-only authorization'
+          }
+          $py=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{
+            Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          }
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){
+             throw 'Existing Windows Python missing; no installation performed'
+          }
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          & $py -B -m unittest discover -s tests -p test_neral_pr542_raw_recovery_cpu.py -v
+          if($LASTEXITCODE -ne 0){throw 'Synthetic recovery tests failed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+             ('NERAL_RECOVERY_PYTHON='+$py+[Environment]::NewLine),
+             [Text.UTF8Encoding]::new($false))
+      - name: Search original file names and validate with strict original receipts (no inference)
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH=$env:GITHUB_WORKSPACE
+          $script=Join-Path $env:GITHUB_WORKSPACE 'scripts\neral_pr542_recovery_readonly.py'
+          $report=Join-Path $env:RUNNER_TEMP ('neral-pr542-recovery-43709097701-'+$env:GITHUB_RUN_ID+'.json')
+          if(Test-Path -LiteralPath $report){throw 'Never overwrite an existing recovery report'}
+          & $env:NERAL_RECOVERY_PYTHON -B $script --out $report --deadline-seconds 150 --max-entries 350000
+          if($LASTEXITCODE -ne 0){throw 'CPU-only recovery failed'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,
+             ('NERAL_RECOVERY_REPORT='+$report+[Environment]::NewLine),
+             [Text.UTF8Encoding]::new($false))
+      - name: Enforce that report discloses no sealed prompts or model outputs
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Get-Content -LiteralPath $env:NERAL_RECOVERY_REPORT -Raw
+          $j=$report|ConvertFrom-Json
+          if($j.source_run -ne '43709097701' -or
+             $j.sealed_sha256 -ne '74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258' -or
+             $j.gpu_calls -ne 0 -or $j.inference_calls -ne 0 -or
+             $j.raw_outputs_uploaded -ne $false -or $j.merged_to_main -ne $false){
+            throw 'Unsafe or incorrect offline recovery proof'
+          }
+          foreach($forbidden in @('"question"','"gold_integer"','"base_reply"','"candidate_reply"')){
+            if($report.Contains($forbidden)){throw 'Sealed data detected in report'}
+          }
+          Write-Host ('CPU-ONLY-RECOVERY-RESULT '+$j.status)
+      - name: Upload anonymized summary only (never raw data)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-pr542-43709097701-raw-recovery-readonly
+          path: ${{ runner.temp }}/neral-pr542-recovery-43709097701-${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 30
