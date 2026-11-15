@@ -203,9 +203,10 @@
       /^(?:hallo|hallöchen|hi|hey|moin|guten\s+(?:morgen|tag|abend))\b\s*[,!?.]*\s*(?=(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b)/iu,"").trim();
     const request=/^(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b\s*[:：]?\s*(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s*)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu;
     const hasDirective=request.test(q);
-    let subject=(hasDirective?q.replace(request,""):q).trim()
-      .replace(/^[?!.,:;]+|[?!.,:;]+$/g,"").trim();
-    if(hasDirective && (!subject||/^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
+    let subject=(hasDirective?q.replace(request,""):q).trim();
+    if(hasDirective)subject=subject.replace(/^[?!.,:;]+/g,"").trim();
+    if(hasDirective && (!subject||/^[?!.,:;]+$/.test(subject)||
+       /^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
       return ""; // No subject was supplied: do not search the greeting.
     if(subject.length<2)subject=original;
     const normalized=subject.replace(/\s+/g," ").trim();
