@@ -184,49 +184,84 @@ def parse_finite_unique_source(source: str) -> FiniteUniqueTask | None:
 
 
 def has_unique_enumeration_assert(code: str, family: str) -> bool:
-    """Auxiliary AST check; not a source proof or sandbox replacement."""
-    if type(code) is not str or len(code.encode("utf8"))>_MAX_CODE_BYTES:
+    """Auxiliary AST shape check in an *executed* scope; never a proof.
+
+    A genuine top-level solution loop or a solver function called by the
+    terminal print may contain the enumeration and uniqueness assertion.
+    A dormant helper function is not sufficient.
+    """
+    if (type(code) is not str or type(family) is not str
+            or not 1 <= len(code.encode("utf8")) <= _MAX_CODE_BYTES
+            or family not in ("truth_teller","room_assignment")):
         return False
     try:
         tree=ast.parse(code)
     except (SyntaxError,ValueError,RecursionError,TypeError):
         return False
-    # Exact top-level `assert len(solutions) == 1` is mandatory, not ==2 or >=1.
-    expected=False
-    for node in tree.body:
-        if type(node) is not ast.Assert:
-            continue
-        expr=node.test
-        if (type(expr) is ast.Compare and len(expr.ops)==1 and
-                type(expr.ops[0]) is ast.Eq and len(expr.comparators)==1
-                and type(expr.comparators[0]) is ast.Constant
-                and type(expr.comparators[0].value) is int
-                and expr.comparators[0].value==1
-                and type(expr.left) is ast.Call and len(expr.left.args)==1
-                and not expr.left.keywords and type(expr.left.func) is ast.Name
-                and expr.left.func.id=="len" and
-                type(expr.left.args[0]) is ast.Name
-                and expr.left.args[0].id=="solutions"):
-            expected=True
-    if not expected:
-        return False
-    # Ensure a visible loop enumerates the domain and appends accepted
-    # assignments to solutions. Still not a semantic proof.
-    expected_generator="product" if family=="truth_teller" else "permutations"
-    def is_generator(call):
-        if type(call) is not ast.Call:return False
-        f=call.func
-        return ((type(f) is ast.Name and f.id==expected_generator) or
-                (type(f) is ast.Attribute and f.attr==expected_generator
-                 and type(f.value) is ast.Name and f.value.id=="itertools"))
-    loops=[n for n in ast.walk(tree) if type(n) in (ast.For,ast.AsyncFor)]
-    has_loop=any(any(is_generator(n) for n in ast.walk(loop.iter)) for loop in loops)
-    has_append=any(
-        type(n) is ast.Call and type(n.func) is ast.Attribute
-        and type(n.func.value) is ast.Name and n.func.value.id=="solutions"
-        and n.func.attr=="append" and len(n.args)==1
-        for loop in loops for n in ast.walk(loop))
-    return has_loop and has_append
+    scopes=[tree.body]
+    if tree.body and type(tree.body[-1]) is ast.Expr:
+        term=tree.body[-1].value
+        if (type(term) is ast.Call and type(term.func) is ast.Name
+                and term.func.id=="print" and len(term.args)==1
+                and type(term.args[0]) is ast.Call
+                and type(term.args[0].func) is ast.Name
+                and not term.args[0].args):
+            called=term.args[0].func.id
+            matches=[stmt for stmt in tree.body
+                     if type(stmt) is ast.FunctionDef and stmt.name==called]
+            if len(matches)==1:
+                scopes.append(matches[0].body)
+    generator="product" if family=="truth_teller" else "permutations"
+
+    def is_generator(node):
+        if type(node) is not ast.Call:return False
+        fn=node.func
+        return ((type(fn) is ast.Name and fn.id==generator)
+                or (type(fn) is ast.Attribute and fn.attr==generator
+                    and type(fn.value) is ast.Name and fn.value.id=="itertools"))
+
+    for body in scopes:
+        # The exact comparison must be `assert len(x) == 1` with x initialized
+        # as an empty list in this scope and appended inside an enumeration.
+        for i,statement in enumerate(body):
+            if type(statement) is not ast.Assert:
+                continue
+            expr=statement.test
+            if (type(expr) is not ast.Compare or len(expr.ops)!=1
+                    or type(expr.ops[0]) is not ast.Eq
+                    or len(expr.comparators)!=1
+                    or type(expr.comparators[0]) is not ast.Constant
+                    or type(expr.comparators[0].value) is not int
+                    or expr.comparators[0].value != 1
+                    or type(expr.left) is not ast.Call
+                    or len(expr.left.args)!=1 or expr.left.keywords
+                    or type(expr.left.func) is not ast.Name
+                    or expr.left.func.id != "len"
+                    or type(expr.left.args[0]) is not ast.Name):
+                continue
+            name=expr.left.args[0].id
+            initialized=any(
+                type(s) is ast.Assign and len(s.targets)==1
+                and type(s.targets[0]) is ast.Name and s.targets[0].id==name
+                and type(s.value) is ast.List and len(s.value.elts)==0
+                for s in body[:i])
+            if not initialized:
+                continue
+            loops=[n for statement in body[:i] for n in ast.walk(statement)
+                   if type(n) is ast.For]
+            for loop in loops:
+                has_generator=any(is_generator(n) for n in ast.walk(loop.iter))
+                if not has_generator:
+                    continue
+                appends=any(
+                    type(n) is ast.Call and type(n.func) is ast.Attribute
+                    and type(n.func.value) is ast.Name
+                    and n.func.value.id==name and n.func.attr=="append"
+                    and len(n.args)==1
+                    for item in loop.body for n in ast.walk(item))
+                if appends:
+                    return True
+    return False
 
 
 def independent_unique_certificate(*,source: str,code: str,
