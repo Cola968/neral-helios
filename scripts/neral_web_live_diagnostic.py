@@ -29,6 +29,12 @@ class TracedSearch(WebSearch):
             {"provider":"Bing RSS retry","count":len(hits),
              "first_titles":[x.get("title","")[:70] for x in hits[:3]]})
         return hits
+    def search_news(self, query, on_provider=None):
+        hits = super().search_news(query, on_provider=on_provider)
+        self.provider_raw.setdefault(query, []).append(
+            {"provider":"Google News RSS","count":len(hits),
+             "first_titles":[x.get("title","")[:70] for x in hits[:3]]})
+        return hits
 
 def run():
     service=TracedSearch()
