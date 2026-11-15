@@ -1,0 +1,57 @@
+name: NERAL v2 locate existing Docker/WSL CPU-only (no GPU)
+on:
+  push:
+    branches:
+      - verify/neral-pr542-sealed100-737413f0-once-20261115
+    paths:
+      - prospective_v2_requests/docker_locate.json
+permissions:
+  contents: read
+jobs:
+  inspect-runtime:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Locate Docker runtime alternatives without changing host or invoking GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Get-Content 'prospective_v2_requests/docker_locate.json' -Raw|ConvertFrom-Json
+          if($r.authorization -ne 'READONLY_DOCKER_WSL_DIAGNOSTIC' -or $r.no_gpu -ne $true){throw 'No CPU read-only authorization'}
+          $cli=Get-Command docker -ErrorAction SilentlyContinue
+          if($null -ne $cli){
+            $p=$cli.Source
+            $label=if($p -match 'Docker\\resources'){'desktop-cli'}elseif($p -match 'scoop'){'scoop-cli'}elseif($p -match 'choco'){'choco-cli'}else{'other-cli'}
+            Write-Host ('DOCKER_CLI_SOURCE_CLASS='+$label)
+          }else{
+            Write-Host 'DOCKER_CLI_SOURCE_CLASS=missing'
+          }
+          $possible=@(
+            (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Docker\Docker Desktop.exe'),
+            (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
+            'D:\Docker\Docker Desktop.exe',
+            'D:\Program Files\Docker\Docker\Docker Desktop.exe'
+          )
+          foreach($p in $possible){
+            Write-Host ('DOCKER_DESKTOP_CANDIDATE_PRESENT='+(Test-Path -LiteralPath $p -PathType Leaf))
+          }
+          $services=Get-Service -ErrorAction SilentlyContinue|Where-Object {$_.Name -match '(?i)docker|containerd|podman'}
+          Write-Host ('DOCKER_RELATED_SERVICE_COUNT='+@($services).Count)
+          $wsl=Get-Command wsl -ErrorAction SilentlyContinue
+          Write-Host ('WSL_CLI_PRESENT='+($null -ne $wsl))
+          if($null -ne $wsl){
+            $tmp=Join-Path $env:RUNNER_TEMP ('wsl-'+$env:GITHUB_RUN_ID+'.txt')
+            $p=Start-Process -FilePath $wsl.Source -ArgumentList '--list --quiet' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $tmp -RedirectStandardError ($tmp+'.err') -ErrorAction SilentlyContinue
+            Write-Host ('WSL_LIST_EXITCODE='+$(if($p){$p.ExitCode}else{'missing'}))
+            if(Test-Path $tmp){
+              $decoded=Get-Content $tmp -Encoding Unicode -ErrorAction SilentlyContinue
+              Write-Host ('WSL_DISTRO_COUNT='+@($decoded|Where-Object{$_ -and $_.Trim()}).Count)
+            }
+          }
+          Write-Host 'DOCKER_RUNTIME_LOCATE_COMPLETE_CPU_ONLY'
