@@ -1,0 +1,15 @@
+{
+  "authorization": "NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE",
+  "source_sha": "5cf30747e1d565c7af616a5613c649c40b28fd9c",
+  "cases": 100,
+  "categories": {
+    "mathematics": 25,
+    "logic": 25,
+    "programming": 25,
+    "mixed": 25
+  },
+  "no_old_blind_modification": true,
+  "no_training": true,
+  "no_merge": true,
+  "one_shot": true
+}
