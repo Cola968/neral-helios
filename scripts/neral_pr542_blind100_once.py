@@ -180,10 +180,20 @@ def main():
         raise RuntimeError("Unexpected benchmark case structure")
     generated = serialize(cases)
     generated_sha = hashlib.sha256(generated).hexdigest()
-    if generated_sha != EXPECTED_SHA:
-        raise RuntimeError("Frozen generator hash differs: " + generated_sha)
+    print("PR542_GENERATOR_SHA256 " + generated_sha, flush=True)
     existing = find_sealed_corpus(Path.home())
     original = existing.read_bytes()
+    first = next((json.loads(line) for line in original.decode("utf8").splitlines()
+                  if line.strip()), None)
+    print("EXISTING_SEALED_SAFE_METADATA " + json.dumps({
+        "file_name": existing.name,
+        "bytes": len(original),
+        "first_row_keys": sorted(first) if type(first) is dict else None,
+        "line_count": len([line for line in original.splitlines() if line.strip()]),
+    }, sort_keys=True), flush=True)
+    if generated_sha != EXPECTED_SHA:
+        raise RuntimeError("Frozen generator differs from original sealed SHA; "
+                           "refuse to run unverified scoring format. generator=" + generated_sha)
     observed_sha = hashlib.sha256(original).hexdigest()
     print("SEALED100_VERIFIED_SHA256 " + observed_sha, flush=True)
     if observed_sha != EXPECTED_SHA or original != generated:
