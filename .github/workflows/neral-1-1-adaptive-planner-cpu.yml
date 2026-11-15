@@ -5,6 +5,10 @@ on:
     paths:
       - 'neral_adaptive_planner.py'
       - 'neral_python_logic_verifier.py'
+      - 'neral_adaptive_ollama.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_adaptive_think_http.py'
+      - 'tests/test_neral_adaptive_ollama.py'
       - 'tests/test_neral_python_logic_verifier.py'
       - 'tests/test_neral_adaptive_planner.py'
       - 'scripts/neral_1_1_offline_aggregate.py'
@@ -38,6 +42,10 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_neral_adaptive_planner.py' -v
       - name: New independent Python logic oracle CPU tests (zero GPU)
         run: python -B -m unittest discover -s tests -p 'test_neral_python_logic_verifier.py' -v
+      - name: Adaptive local-model proposal contracts (CPU fake transport)
+        run: python -B -m unittest discover -s tests -p 'test_neral_adaptive_ollama.py' -v
+      - name: Explicit THINK HTTP opt-in and PR537 fallback (Flask CPU fakes)
+        run: python -B -m unittest discover -s tests -p 'test_neral_adaptive_think_http.py' -v
       - name: Offline aggregate metadata-only tests
         run: python -B -m unittest discover -s tests -p 'test_neral_1_1_offline_aggregate.py' -v
       - name: Existing PR542 source and schema regression CPU suites
