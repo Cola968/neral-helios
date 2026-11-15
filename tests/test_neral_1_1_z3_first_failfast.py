@@ -48,16 +48,17 @@ class Z3FirstFailFastCPU(unittest.TestCase):
         self.assertFalse(result["verified"])
         self.assertEqual(result["text"],"RAW_QWEN")
 
-    def test_unsupported_source_before_model_uses_raw_without_repair(self):
+    def test_unsupported_source_can_propose_but_cannot_promote_without_independent_oracle(self):
         unknown="Count permutations of numbers 1 through 4. Number 4 must be lucky."
         calls=[]
+        code="count=2\nassert count==1+1\nprint(count)"
         result=run_adaptive_planner(turns(unknown),
-            lambda *args:calls.append("model") or {"strategy":"PYTHON_SANDBOX","code":"print(2)"},
+            lambda *args:calls.append("model") or {"strategy":"PYTHON_SANDBOX","code":code},
             lambda _:calls.append("raw") or "RAW_QWEN",
-            lambda code:calls.append("docker") or {"status":"PASSED","output":"2"},
+            lambda code:calls.append("docker") or {"status":"PASSED","exit_code":0,"output":"2"},
             lambda **kwargs:{"verified":False})
-        self.assertEqual(calls,["raw"])
-        self.assertEqual(result["planner_attempts"],0)
+        self.assertEqual(calls,["model","docker","raw"])
+        self.assertEqual(result["planner_attempts"],1)
         self.assertFalse(result["safe_to_promote"])
 
     def test_duplicate_code_repair_stops_before_second_docker(self):
