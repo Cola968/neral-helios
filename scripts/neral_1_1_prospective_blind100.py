@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 
-SOURCE_SHA="a994f1178985897354f2634f07840b8118910792"
+SOURCE_SHA=os.environ.get("NERAL_PINNED_SOURCE_SHA","")
 AUTHORIZE="NERAL_1_1_FRESH_PROSPECTIVE100_RTX4070_ONCE"
 BASE_TAG="qwen3.5:9b"
 TUNED_TAG="neral-qwen35-qlora-v1:latest"
@@ -358,6 +358,13 @@ def run_case(case,transport):
 
 def live(out:Path):
     import neral_nl_local_ollama as local
+    if (type(SOURCE_SHA) is not str or len(SOURCE_SHA)!=40
+            or any(c not in "0123456789abcdef" for c in SOURCE_SHA)):
+        raise RuntimeError("Pinned source SHA missing or invalid")
+    actual=subprocess.run(["git","rev-parse","HEAD"],
+        capture_output=True,text=True,check=True,timeout=10).stdout.strip()
+    if actual != SOURCE_SHA:
+        raise RuntimeError("Code checkout does not match immutable source SHA")
     from neral_agent_autonomy import local_only_opener
     from scripts.neral_prospective_100_cases import serialize
     if out.exists() or out.is_symlink():
