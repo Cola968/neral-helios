@@ -20,7 +20,23 @@ def meaningful_python_assert(code: str) -> bool:
         tree=ast.parse(code,mode="exec")
     except (SyntaxError,ValueError,TypeError,RecursionError):
         return False
-    for stmt in tree.body:
+    candidates = list(tree.body)
+    # The final top-level print may explicitly invoke a declared solver
+    # function. Only assertions in that called function count as executable.
+    if tree.body and type(tree.body[-1]) is ast.Expr:
+        final_call=tree.body[-1].value
+        if (type(final_call) is ast.Call and
+                type(final_call.func) is ast.Name and final_call.func.id=="print"
+                and len(final_call.args)==1 and
+                type(final_call.args[0]) is ast.Call and
+                type(final_call.args[0].func) is ast.Name and
+                len(final_call.args[0].args)==0):
+            invoked=final_call.args[0].func.id
+            functions=[x for x in tree.body
+                       if type(x) is ast.FunctionDef and x.name==invoked]
+            if len(functions)==1:
+                candidates.extend(functions[0].body)
+    for stmt in candidates:
         if type(stmt) is not ast.Assert:
             continue
         check=stmt.test
