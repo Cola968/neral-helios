@@ -1,0 +1,9 @@
+{
+  "authorization": "CPU_ONLY_VALIDATE_ARCHIVE_AND_SEAL",
+  "source_commit": "737413f03b347676108d507ff3fe7693975dd269",
+  "old_sealed_sha256": "74cf83ce3e9b3644b306556438a3e51373589ffdaf254dc84abb74e08fd04258",
+  "no_gpu": true,
+  "no_training": true,
+  "no_merge": true,
+  "requested_count": 100
+}
