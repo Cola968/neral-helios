@@ -26,6 +26,9 @@
 
   function renderReadableModelText(container,value) {
     // Minimal, inert Markdown rendering. Never inject model-supplied HTML.
+    // Markdown escape sequences for literal list markers are not list syntax.
+    const escapedMarkers=String(value).split("\n").map(line=>
+      /^[ \t]{0,3}(?:\\[-*]|\d+\\\.)[ \t]+/.test(line));
     const clean=String(value).replace(/&#(?:x20|32);|&nbsp;/gi," ")
       .replace(/\\([*#.\-])/g,"$1")
       .replace(/(^|\n)[ \t]{0,3}#{1,6}[ \t]+/g,"$1")
@@ -59,7 +62,8 @@
     // structure. Plain prose keeps its original whitespace and inline markup.
     const listLine=/^[ \t]{0,3}([-*]|\d+\.)[ \t]+(.+)$/;
     if(clean.includes(String.fromCharCode(96).repeat(3))||
-       !clean.split("\n").some(line=>listLine.test(line))){
+       !clean.split("\n").some((line,index)=>
+         !escapedMarkers[index]&&listLine.test(line))){
       if(!clean.includes("**")&&!clean.includes("\x60"))
         container.textContent=clean;
       else inline(container,clean);
@@ -73,8 +77,8 @@
       container.append(p);
       paragraphs=[];
     }
-    for(const line of clean.split("\n")){
-      const matched=line.match(listLine);
+    for(const [index,line] of clean.split("\n").entries()){
+      const matched=escapedMarkers[index]?null:line.match(listLine);
       if(matched){
         flush();
         const kind=/^\d/.test(matched[1])?"ol":"ul";
