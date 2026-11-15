@@ -230,12 +230,16 @@ def summarize(raw:list[dict],*,sealed_hash:str)->dict:
       "z3_verified_count":proof_z3,
       "sandbox_verified_count":proof_sandbox,
       "sandbox_verified_rate":proof_sandbox/100,
+      "sandbox_verified_eligible_rate":proof_sandbox/75,
       "selection_counts":dict(policies),
       "unscorable_counts":dict(ambiguous),
       "baseline_latency_median_s":round(statistics.median(base_s),3),
       "baseline_latency_max_s":round(max(base_s),3),
       "neral_end_to_end_latency_median_s":round(statistics.median(end_s),3),
       "neral_end_to_end_latency_max_s":round(max(end_s),3),
+      "performance_gate_passed":bool(N-B>=8 and not regression_ids),
+      "evidence_gate_passed":bool(ambiguous.get("qwen",0)==0
+                                  and ambiguous.get("neral",0)==0),
       "release_gate_passed":bool(N-B>=8 and not regression_ids
                                  and ambiguous.get("qwen",0)==0
                                  and ambiguous.get("neral",0)==0),
@@ -322,8 +326,9 @@ def measure(out:Path,manifest:dict)->None:
         base_text=None;base_error=None
         try:
             base_text=high.respond_chat(original)
-        except OllamaCompletionError as exc:
-            base_error=exc.reason
+        except Exception as exc:
+            base_error=(exc.reason if isinstance(exc,OllamaCompletionError)
+                        else type(exc).__name__)
         base_s=time.monotonic()-started
         if gpu_offload_mib(BASE_TAG)<4096:
             raise RuntimeError("Baseline did not execute on RTX4070")
@@ -370,7 +375,7 @@ def measure(out:Path,manifest:dict)->None:
             if str(body.get("selection_policy","")).startswith("raw_qwen"):
                 if candidate_text!=base_text:
                     raise RuntimeError("guard_fallback_not_identical")
-        except (OllamaCompletionError,RuntimeError,ValueError,TypeError) as exc:
+        except Exception as exc:
             candidate_error=(exc.reason if isinstance(exc,OllamaCompletionError)
                              else type(exc).__name__)
             candidate_text=None
@@ -382,6 +387,8 @@ def measure(out:Path,manifest:dict)->None:
         details={
           "route":route,"verification_status":body.get("verification_status"),
           "verification_scope":body.get("verification_scope"),
+          "verification_method":body.get("verification_method"),
+          "review_method":body.get("review_method"),
           "tool_used":body.get("tool_used"),
           "safe_to_promote":body.get("safe_to_promote") is True,
           "verified":body.get("verified") is True,
@@ -389,6 +396,8 @@ def measure(out:Path,manifest:dict)->None:
           "model_generated":body.get("model_generated") is True,
           "selected_extractor":body.get("selected_extractor") if proof["z3"] else None,
           "tool_calls_succeeded":body.get("tool_calls_succeeded"),
+          "extraction_attempts":body.get("extraction_attempts"),
+          "calls_used":body.get("calls_used"),
         }
         append_durable(raw_path,row(case,"neral",candidate_text,candidate_s,
           decision=decision,proof=proof,error=candidate_error,details=details))
