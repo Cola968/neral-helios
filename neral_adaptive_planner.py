@@ -153,7 +153,9 @@ def run_adaptive_planner(
                     "selection_policy": "explicit_safe_refusal",
                     "response_source": "deterministic_safety_refusal"}
 
-    if preferred == "DIRECT":
+    # No context-dependent full-source certification: never plan against only
+    # the last turn in a conversation. Preserve the original Qwen fallback.
+    if len(original) != 2 or preferred == "DIRECT":
         return fallback()
     for repair_round in range(MAX_REPAIRS + 1):
         attempts += 1
