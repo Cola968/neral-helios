@@ -105,9 +105,15 @@ jobs:
           $defaultPy=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
           $py=if($env:NERAL_PYTHON){$env:NERAL_PYTHON}else{$defaultPy}
           if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pre-existing Python missing; no install permitted'}
-          $env:PYTHONPATH=$src
-          & $py -B -c 'import flask,z3,jsonschema;print("LOCAL_PYTHON_DEPS_OK")'
-          if($LASTEXITCODE -ne 0){throw 'Local CPU dependencies missing; no GPU execution'}
+          # Lightweight isolated CPU dependencies: no Torch/model reinstall,
+          # no mutation of the existing training environment or blind datasets.
+          $deps=Join-Path $env:RUNNER_TEMP ('neral-smoke-deps-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $deps){throw 'Occupied dependency output path'}
+          & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir --target $deps 'Flask>=3,<4' 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5'
+          if($LASTEXITCODE -ne 0){throw 'Isolated minimal Python dependency install failed'}
+          $env:PYTHONPATH=$src+';'+$deps
+          & $py -B -c 'import flask,z3,jsonschema;print("ISOLATED_CPU_DEPS_OK")'
+          if($LASTEXITCODE -ne 0){throw 'Isolated Python import check failed'}
           & $py -B (Join-Path $rev 'review\neral_1_1_smoke_gpu.py') --preflight --authorize NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE
           if($LASTEXITCODE -ne 0){throw 'Local CPU preflight failed'}
           $root=if($env:NERAL_EVIDENCE_ROOT){$env:NERAL_EVIDENCE_ROOT}else{Join-Path $env:USERPROFILE 'NERAL-Smoke-Evidence'}
@@ -119,7 +125,8 @@ jobs:
              'NERAL_SMOKE_SRC='+$src+[Environment]::NewLine+
              'NERAL_SMOKE_REVIEW='+$rev+[Environment]::NewLine+
              'NERAL_SMOKE_OUT='+$out+[Environment]::NewLine+
-             'PYTHONPATH='+$src+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+             'NERAL_SMOKE_DEPS='+$deps+[Environment]::NewLine+
+             'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
           Write-Host 'IMMUTABLE_PIN_OK; no 100-case data opened'
       - name: Assert real RTX4070, start existing Docker Desktop if required
         run: |
@@ -164,7 +171,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Evidence count failed'}
           if((@(& git -C $env:NERAL_SMOKE_SRC status --porcelain)).Count -ne 0){throw 'Pinned source modified'}
       - name: Upload original raw QLoRA packets, Docker traces, Qwen and proofs
-        if: always()
+        if: always() && env.NERAL_SMOKE_OUT != ''
         uses: actions/upload-artifact@v4
         with:
           name: neral-1-1-rtx4070-raw8-${{ github.run_id }}
@@ -194,3 +201,11 @@ jobs:
           print('REUPLOADED_GITHUB_RAW_EVIDENCE_VERIFIED; NO_MERGE_NO_TRAINING')
           '@ | & $env:NERAL_SMOKE_PY -B -
           if($LASTEXITCODE -ne 0){throw 'Artifact bytes differed'}
+
+      - name: Cleanup isolated CPU-only pip dependencies
+        if: always() && env.NERAL_SMOKE_DEPS != ''
+        run: |
+          $ErrorActionPreference='Continue'
+          if(Test-Path -LiteralPath $env:NERAL_SMOKE_DEPS){
+            Remove-Item -LiteralPath $env:NERAL_SMOKE_DEPS -Recurse -Force -ErrorAction SilentlyContinue
+          }
