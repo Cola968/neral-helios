@@ -1,11 +1,9 @@
 {
   "authorization": "NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE",
-  "source_commit": "3b8decd89f7e7d1d4c96a80622a99d514b64c3ff",
+  "source_commit": "43e527edd0be253fcbc431af83ba12e6d4709be6",
   "case_count": 8,
   "no_blind100_access": true,
   "no_training": true,
   "no_merge": true,
   "one_shot": true
 }
-
-
