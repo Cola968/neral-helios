@@ -166,6 +166,34 @@ class LiveSourcesTests(unittest.TestCase):
         self.assertEqual(answer["previews"],[])
 
 
+    def test_partial_bing_location_match_falls_back_instead_of_claiming_wrong_airport(self):
+        class Search:
+            def search(self, query, on_provider=None):
+                if on_provider:
+                    on_provider("DuckDuckGo HTML")
+                    on_provider("Bing RSS")
+                return {"query":query, "provider":"Bing RSS",
+                        "providers_contacted":["DuckDuckGo HTML","Bing RSS"],
+                        "results":[{"title":"FLUGHAFEN - BSAG",
+                                    "url":"https://www.bsag.de/linien/flughafen",
+                                    "snippet":"Straßenbahnhaltestelle am Flughafen Bremen"}]}
+            def search_wikipedia(self, query, on_provider=None):
+                if on_provider:on_provider("Wikipedia DE")
+                return [{"title":"Flughafen Frankfurt Main",
+                         "url":"https://de.wikipedia.org/wiki/Flughafen_Frankfurt_Main",
+                         "snippet":"Flughafen in Frankfurt am Main"}]
+        app=Flask(__name__)
+        register_web_search_api(app,Search())
+        with patch("neral_web_api.verify_public_https_url",side_effect=lambda url:url):
+            response=app.test_client().post("/api/web/search/stream",
+                json={"query":"Flughafen Frankfurt","verify_links":True})
+            events=[json.loads(chunk) for chunk in response.response]
+        result=next(x["result"] for x in events if x["type"]=="result")
+        self.assertEqual([x["title"] for x in result["results"]],["Flughafen Frankfurt Main"])
+        self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
+                         ["DuckDuckGo HTML","Bing RSS","Wikipedia DE"])
+        self.assertFalse(any("bsag" in row["url"] for row in result["previews"]))
+
     def test_wikipedia_reference_fallback_after_offtopic_bing_results(self):
         class Three:
             def search(self,query,on_provider=None):
