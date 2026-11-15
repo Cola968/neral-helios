@@ -166,18 +166,37 @@
               </div>
               <div class="actions composer-actions">
                 <div class="mode-dropdown">
-                  <button type="button" id="modeDropdownTrigger" aria-haspopup="menu"
+                  <button type="button" id="modeDropdownTrigger" aria-haspopup="dialog"
                     aria-expanded="false" aria-controls="modeDropdownMenu" title="Denkmodus auswählen">
                     <span id="modeDropdownLabel">LOW</span>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                   </button>
-                  <div id="modeDropdownMenu" class="mode-dropdown-menu" role="menu" aria-label="Denkmodus" hidden>
-                    <button id="modeOptionLow" type="button" role="menuitemradio" aria-checked="true">
-                      LOW <span class="mode-check" aria-hidden="true">✓</span>
-                    </button>
-                    <button id="modeOptionHigh" type="button" role="menuitemradio" aria-checked="false">
-                      HIGH <span class="mode-check" aria-hidden="true">✓</span>
-                    </button>
+                  <div id="modeDropdownMenu" class="mode-dropdown-menu mode-slider-popover" role="dialog" aria-label="NERAL Denkmodus" hidden>
+                    <div class="mode-slider-heading">
+                      <svg class="mode-slider-bolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5.5 13H11l-1 9 8.5-12H13.5L13 2Z"/></svg>
+                      <div class="mode-slider-copy" aria-live="polite">
+                        <span id="modeSliderTitle">Schnell</span>
+                        <span id="modeSliderCaption">NERAL · LOW</span>
+                      </div>
+                      <button id="modeSliderReset" type="button" class="mode-slider-reset"
+                        aria-label="Denkmodus auf LOW zurücksetzen" title="Zurücksetzen">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2.6 7M3 4v6h6"/></svg>
+                      </button>
+                    </div>
+                    <div class="mode-effort-track" id="modeEffortTrack" data-level="low">
+                      <span class="mode-effort-progress" aria-hidden="true"></span>
+                      <input id="modeEffortSlider" type="range" min="0" max="1" step="1" value="0"
+                        aria-label="Denkintensität" aria-valuetext="Schnell" aria-describedby="modeSliderCaption">
+                    </div>
+                    <div class="mode-slider-ends" aria-hidden="true"><span>LOW</span><span>HIGH</span></div>
+                    <div class="mode-legacy-options" hidden>
+                      <button id="modeOptionLow" type="button" role="menuitemradio" aria-checked="true">
+                        LOW <span class="mode-check" aria-hidden="true">✓</span>
+                      </button>
+                      <button id="modeOptionHigh" type="button" role="menuitemradio" aria-checked="false">
+                        HIGH <span class="mode-check" aria-hidden="true">✓</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
