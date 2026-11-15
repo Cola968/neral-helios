@@ -113,6 +113,19 @@ def parse_post_source(source:str)->PostTask|None:
         if airline:
             f,c,e=map(int,airline.groups())
             if e<=c:return PostTask("airline_load",f*(c-e),"trusted_source_arithmetic")
+        spring=_full(
+          rf"Calculate the spring energy for a stiffness of ({U}) N/m and a compression of ({U}) m, using E=k\*x\^2/2\.?",s)
+        if spring:
+            k,x=map(int,spring.groups())
+            if (k*x*x)%2==0:
+                return PostTask("spring_energy",k*x*x//2,"trusted_source_arithmetic")
+        stock=_full(
+          rf"A warehouse begins with ({U}) packages\. For ({U}) days it receives ({U}) each day and ships ({U}) each day\. How many remain\?",s)
+        if stock:
+            start,days,received,shipped=map(int,stock.groups())
+            value=start+days*(received-shipped)
+            if 0<=value<=10**12:
+                return PostTask("warehouse_stock",value,"trusted_source_arithmetic")
     except (ValueError,TypeError,SyntaxError,RecursionError,MemoryError):
         return None
     return None
