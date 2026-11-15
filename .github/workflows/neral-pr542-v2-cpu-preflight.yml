@@ -111,7 +111,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Fresh dataset seal generation failed'}
           [IO.File]::AppendAllText($env:GITHUB_ENV,
             ('NERAL_V2_DUMMY='+$dummy+[Environment]::NewLine+
-             'NERAL_V2_SEAL='+$seal+[Environment]::NewLine),
+             'NERAL_V2_SEAL='+$seal+[Environment]::NewLine+
+             'NERAL_V2_ROOT='+$root+[Environment]::NewLine),
             [Text.UTF8Encoding]::new($false))
       - name: Independent process verifies persistent dummy and sealed dataset hash
         run: |
@@ -140,8 +141,8 @@ jobs:
         with:
           name: neral-v2-preflight-seal-and-dummy-${{ github.run_id }}
           path: |
-            ${{ env.USERPROFILE }}\NERAL-Blind100-Evidence/cpu-dummy-${{ github.run_id }}/raw-200.jsonl
-            ${{ env.USERPROFILE }}\NERAL-Blind100-Evidence/cpu-dummy-${{ github.run_id }}/dummy-receipt.json
-            ${{ env.USERPROFILE }}\NERAL-Blind100-Evidence/fresh100-seal-${{ github.run_id }}/new-seal.json
+            ${{ env.NERAL_V2_ROOT }}/cpu-dummy-${{ github.run_id }}/raw-200.jsonl
+            ${{ env.NERAL_V2_ROOT }}/cpu-dummy-${{ github.run_id }}/dummy-receipt.json
+            ${{ env.NERAL_V2_ROOT }}/fresh100-seal-${{ github.run_id }}/new-seal.json
           retention-days: 90
           if-no-files-found: error
