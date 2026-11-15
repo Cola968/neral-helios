@@ -97,6 +97,39 @@ jobs:
              'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine),
             [Text.UTF8Encoding]::new($false))
           Write-Host 'FRESH100_V2_MODEL_AND_SOURCE_PINNED; original baseline SHA and PR537 verified before inference'
+      - name: Activate verified Docker Desktop inside this exact GPU job
+        run: |
+          $ErrorActionPreference='Stop'
+          function IsDockerReady {
+            $saved=$ErrorActionPreference
+            $ErrorActionPreference='Continue'
+            try {
+              $null=& docker info --format '{{.ServerVersion}}' 2>$null
+              $ready=($LASTEXITCODE -eq 0)
+            }catch{$ready=$false}
+            finally{$ErrorActionPreference=$saved}
+            return $ready
+          }
+          if(-not(IsDockerReady)){
+            $exe=Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'
+            if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){
+              throw 'Required local Docker Desktop missing: refuse GPU inference'
+            }
+            Start-Process -FilePath $exe -ErrorAction Stop
+            for($i=0;$i -lt 26;$i++){
+              if(IsDockerReady){break}
+              Start-Sleep -Seconds 4
+            }
+          }
+          if(-not(IsDockerReady)){throw 'Real Docker sandbox unavailable: refuse GPU inference'}
+          $previous=$ErrorActionPreference
+          $ErrorActionPreference='Continue'
+          try {
+            $null=& docker image inspect python:3.11-alpine 2>$null
+            $imageReady=($LASTEXITCODE -eq 0)
+          }finally{$ErrorActionPreference=$previous}
+          if(-not $imageReady){throw 'Previously CPU-verified Docker python:3.11-alpine image not found'}
+          Write-Host 'DOCKER_DAEMON_AND_SANDBOX_IMAGE_VERIFIED_IN_GPU_JOB; no GPU calls yet'
       - name: Execute exactly 100 Qwen vs combined sandbox plus PR537 and single-QLoRA-Z3 comparisons
         run: |
           $ErrorActionPreference='Stop'
