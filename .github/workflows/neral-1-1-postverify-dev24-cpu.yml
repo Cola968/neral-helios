@@ -1,0 +1,32 @@
+name: NERAL 1.1 post-verification open-router dev24 CPU
+on:
+  push:
+    branches: [feat/neral-1-1-postverify-open-router-dev24-20261115]
+permissions:
+  contents: read
+jobs:
+  cpu-postverify-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only proof dependencies
+        run: python -m pip install --disable-pip-version-check 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
+      - name: New source-open and complete answer contracts
+        run: python -B -m unittest discover -s tests -p 'test_neral_1_1_postverify_open_router.py' -v
+      - name: Existing independent source and regression contracts
+        run: |
+          set -e
+          for suite in test_neral_adaptive_planner.py test_neral_1_1_z3_first_failfast.py test_neral_1_1_ast_unique_budget.py test_neral_1_1_fallback_ast_prospective.py test_neral_blind_100_offline_score_cpu.py test_neral_tir_regression_guard.py; do
+            python -B -m unittest discover -s tests -p "$suite" -v
+          done
