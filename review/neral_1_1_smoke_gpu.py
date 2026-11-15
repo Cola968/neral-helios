@@ -96,6 +96,9 @@ def source_preflight():
     from neral_python_logic_verifier import (
         parse_bounded_logic_source,independently_count)
     from neral_typed_constraints_v2 import PREFIX,solve_typed_constraints
+    assert digest(json.dumps(CASES,sort_keys=True,ensure_ascii=False).encode("utf8")) == (
+        "432148ba99fe507a60cdd619a68b6b69a985789544c9c63ed29192d8e04d5de8"
+    ), "Original synthetic eight-case matrix changed"
     assert len(CASES)==8 and len({c["prompt"] for c in CASES})==8
     assert len({c["id"] for c in CASES})==8
     assert tuple(x["group"] for x in CASES)==(
