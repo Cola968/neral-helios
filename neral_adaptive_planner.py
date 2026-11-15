@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 import re
 from typing import Callable
-from neral_python_assert_contract import meaningful_python_assert
+from neral_python_assert_contract import inspect_python_contract
 
 MAX_REPAIRS = 1
 ROUTES = frozenset(("Z3_SCHEMA", "PYTHON_SANDBOX", "DIRECT"))
@@ -17,6 +17,7 @@ ERROR_CODES = frozenset((
     "invalid_proposal", "unsupported_route", "source_not_certified",
     "invalid_schema", "coverage_rejected", "z3_proof_rejected",
     "python_runtime_failed", "python_code_invalid", "independent_proof_missing",
+    "python_missing_assert", "python_missing_print",
 ))
 COMPUTE = re.compile(
     r"(?i)\b(?:count|counting|combinations?|permutations?|enumerat(?:e|ion)|"
@@ -173,9 +174,13 @@ def run_adaptive_planner(
         if source_supported is None:
             from neral_python_logic_verifier import parse_bounded_logic_source
             from neral_python_math_verifier import parse_strict_arithmetic_source
+            from neral_python_unique_logic import parse_finite_unique_source
             def source_supported(q: str) -> bool:
+                unique = parse_finite_unique_source(q)
                 return (parse_bounded_logic_source(q) is not None
-                        or parse_strict_arithmetic_source(q) is not None)
+                        or parse_strict_arithmetic_source(q) is not None
+                        or (unique is not None
+                            and unique.number_of_solutions == 1))
         try:
             supported=source_supported(question) is True
         except Exception:
@@ -240,9 +245,16 @@ def run_adaptive_planner(
             # Syntax errors are genuinely repairable, once.
             feedback="python_runtime_failed"
             continue
-        if not meaningful_python_assert(code):
-            # Model-authored assert cannot be trusted, but its absence is
-            # a contract failure, never grounds for repeated model loops.
+        contract_error = inspect_python_contract(code)
+        if contract_error is not None:
+            # Repair feedback is an enumerated code mapped to explicit safe
+            # instructions. Never pass the raw program or traceback back
+            # through feedback. A duplicate AST is blocked above.
+            if contract_error in ("python_missing_assert","python_missing_print",
+                                  "python_code_invalid"):
+                feedback=("python_runtime_failed" if contract_error=="python_code_invalid"
+                          else contract_error)
+                continue
             return fallback()
         try:
             execution=execute_python(code)
@@ -271,7 +283,8 @@ def run_adaptive_planner(
                 and check.get("full_source") is True
                 and check.get("all_conditions_checked") is True
                 and check.get("proof_backend") in (
-                    "independent_enumeration","trusted_source_arithmetic")
+                    "independent_enumeration","trusted_source_arithmetic",
+                    "independent_unique_enumeration")
                 and _valid_answer(check.get("answer"))
                 and type(execution.get("output")) is str
                 and execution["output"].strip()==str(check["answer"])):
