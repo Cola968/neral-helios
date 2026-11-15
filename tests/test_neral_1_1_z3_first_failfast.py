@@ -107,7 +107,7 @@ class Z3FirstFailFastCPU(unittest.TestCase):
             return {"strategy":"PYTHON_SANDBOX","code":(
                 "n=12\nassert n == (3*4)\nprint(n)"
                 if signal["repair_round"] else
-                "n=12\nassert n == (3*4)\nraise RuntimeError('synthetic')")}
+                "n=12\nassert n == (3*4)\nraise RuntimeError('synthetic')\nprint(n)")}
         def docker(code):
             return {"status":"FAILED","error_type":"RuntimeError"} if "raise" in code else {
                 "status":"PASSED","output":"12"}
