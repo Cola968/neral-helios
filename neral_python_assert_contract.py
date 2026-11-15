@@ -36,20 +36,48 @@ def meaningful_python_assert(code: str) -> bool:
                        if type(x) is ast.FunctionDef and x.name==invoked]
             if len(functions)==1:
                 candidates.extend(functions[0].body)
-    for stmt in candidates:
-        if type(stmt) is not ast.Assert:
-            continue
-        check=stmt.test
-        if type(check) is not ast.Compare or len(check.ops)!=1 or len(check.comparators)!=1:
-            continue
-        if not isinstance(check.ops[0],(ast.Eq,ast.NotEq,ast.Lt,ast.LtE,ast.Gt,ast.GtE)):
-            continue
-        left,right=check.left,check.comparators[0]
+    def integer_literal(node):
+        if type(node) is ast.Constant and type(node.value) is int:
+            return node.value
+        if (type(node) is ast.UnaryOp and type(node.op) is ast.USub
+                and type(node.operand) is ast.Constant
+                and type(node.operand.value) is int):
+            return -node.operand.value
+        return None
+
+    def substantive(test):
+        # A conjunction passes the AST gate only when one conjunct is
+        # demonstrably non-trivial. It is still NOT independent source proof.
+        if type(test) is ast.BoolOp and type(test.op) is ast.And:
+            return any(substantive(x) for x in test.values)
+        if type(test) is not ast.Compare or len(test.ops)!=1 or len(test.comparators)!=1:
+            return False
+        left,right=test.left,test.comparators[0]
+        if not isinstance(test.ops[0],(ast.Eq,ast.NotEq,ast.Lt,ast.LtE,ast.Gt,ast.GtE)):
+            return False
         if ast.dump(left,include_attributes=False)==ast.dump(right,include_attributes=False):
-            continue
-        if not any(type(node) is ast.Name for node in ast.walk(check)):
-            continue
+            return False
+        if not any(type(node) is ast.Name for node in ast.walk(test)):
+            return False
+        op=test.ops[0]
+        rl=integer_literal(right)
+        ll=integer_literal(left)
+        # Pure positivity checks are almost always true for an enumerated
+        # count and do not validate any of the user's constraints.
+        if rl is not None and (
+                (type(op) is ast.GtE and rl==0) or
+                (type(op) is ast.Gt and rl in (-1,0)) or
+                (type(op) is ast.NotEq and rl==-1)):
+            return False
+        if ll is not None and (
+                (type(op) is ast.LtE and ll==0) or
+                (type(op) is ast.Lt and ll in (-1,0))):
+            return False
         return True
+
+    for stmt in candidates:
+        if type(stmt) is ast.Assert and substantive(stmt.test):
+            return True
     return False
 
 
