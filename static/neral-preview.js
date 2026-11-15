@@ -25,35 +25,76 @@
 
 
   function renderReadableModelText(container,value) {
-    // Small, deliberately limited Markdown subset. Never inject model HTML.
+    // Minimal, inert Markdown rendering. Never inject model-supplied HTML.
     const clean=String(value).replace(/&#(?:x20|32);|&nbsp;/gi," ")
-      // Model replies sometimes contain escaped Markdown copied from HTML.
-      // Decode common Markdown punctuation only, never turn it into HTML.
       .replace(/\\([*#.\-])/g,"$1")
       .replace(/(^|\n)[ \t]{0,3}#{1,6}[ \t]+/g,"$1")
       .replace(/(^|\n)[ \t]*-{3,}[ \t]*(?=\n|$)/g,"$1");
-    // Plain responses remain plain text, including in screen readers.
-    if(!clean.includes("**") && !clean.includes("`")) {
-      container.textContent=clean;
+    function inline(target,content){
+      if(!content)return;
+      if(!content.includes("**")&&!content.includes("\x60")){
+        const span=document.createElement("span");
+        span.textContent=content;target.append(span);
+        return;
+      }
+      const tokens=/\*\*([^*\n]{1,300})\*\*|\x60([^\x60\n]{1,240})\x60/g;
+      let index=0,parts=0;
+      function plain(piece){
+        if(!piece)return;
+        const span=document.createElement("span");
+        span.textContent=piece;
+        target.append(span);
+      }
+      for(const match of content.matchAll(tokens)){
+        if(++parts>250){plain(content.slice(index));return;}
+        plain(content.slice(index,match.index));
+        const node=document.createElement(match[1]?"b":"code");
+        node.textContent=match[1]||match[2];
+        target.append(node);
+        index=match.index+match[0].length;
+      }
+      plain(content.slice(index));
+    }
+    // The existing code-fence renderer owns fenced blocks. Avoid changing its
+    // structure. Plain prose keeps its original whitespace and inline markup.
+    const listLine=/^[ \t]{0,3}([-*]|\d+\.)[ \t]+(.+)$/;
+    if(clean.includes(String.fromCharCode(96).repeat(3))||
+       !clean.split("\n").some(line=>listLine.test(line))){
+      if(!clean.includes("**")&&!clean.includes("\x60"))
+        container.textContent=clean;
+      else inline(container,clean);
       return;
     }
-    const tokens=/\*\*([^*\n]{1,300})\*\*|`([^`\n]{1,240})`/g;
-    let index=0,parts=0;
-    const plain=piece=>{
-      if(!piece)return;
-      const span=document.createElement("span");
-      span.textContent=piece;
-      container.append(span);
-    };
-    for(const match of clean.matchAll(tokens)) {
-      if(++parts>250){container.textContent=clean;return;}
-      plain(clean.slice(index,match.index));
-      const node=document.createElement(match[1]?"b":"code");
-      node.textContent=match[1]||match[2];
-      container.append(node);
-      index=match.index+match[0].length;
+    let paragraphs=[],list=null,listKind="";
+    function flush(){
+      if(!paragraphs.length)return;
+      const p=document.createElement("p");
+      inline(p,paragraphs.join("\n"));
+      container.append(p);
+      paragraphs=[];
     }
-    plain(clean.slice(index));
+    for(const line of clean.split("\n")){
+      const matched=line.match(listLine);
+      if(matched){
+        flush();
+        const kind=/^\d/.test(matched[1])?"ol":"ul";
+        if(!list||listKind!==kind){
+          list=document.createElement(kind);
+          list.className="neral-markdown-list";
+          container.append(list);
+        }
+        listKind=kind;
+        const item=document.createElement("li");
+        inline(item,matched[2]);
+        list.append(item);
+      }else{
+        list=null;
+        listKind="";
+        if(!line.trim())flush();
+        else paragraphs.push(line);
+      }
+    }
+    flush();
   }
   function append(role,text,origin,animate=false) {
     const empty=messages.querySelector(".welcome");
@@ -62,7 +103,11 @@
     item.className="message "+role+(animate?" neral-motion-enter":"");
     const heading=document.createElement("strong");
     heading.textContent=role==="user" ? "Du" : (origin||"NERAL");
-    const body=document.createElement("p");
+    const hasList=role==="assistant" &&
+      !text.includes(String.fromCharCode(96).repeat(3)) &&
+      /(?:^|\n)[ \t]{0,3}(?:[-*]|\d+\.)[ \t]+\S/.test(text);
+    const body=document.createElement(hasList?"div":"p");
+    if(hasList)body.className="neral-response-body";
     if(role==="assistant"){
       renderReadableModelText(body,text);
       // Fenced code is converted into real <pre><code> blocks by the
@@ -812,6 +857,12 @@
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      // A runtime greeting is not a researched answer. An outdated client
+      // may have performed a search first; never attach unrelated source cards.
+      const runtimeGreeting=result.tool_used==="runtime_greeting";
+      if(runtimeGreeting){
+        sources=[];verifiedSources=[];webAttempted=false;lastWebQuery="";
+      }
       if(selectedAttachments.length)motionActivity("files-done",mode);
       // HIGH (and non-streamed attachments) have already finished inference.
       // Reveal only the *final* verified text, gradually, with the same painter.
@@ -829,7 +880,8 @@
       partialNode?.remove();
       partialNode=null;
       const verified=result.verified===true && result.verification_scope!=="none";
-      let origin=result.model_generated===false&&result.tool_used
+      let origin=runtimeGreeting ? "NERAL" :
+        result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
         ? "NERAL HIGH · Endwert geprüft" : mode==="think"
         ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
