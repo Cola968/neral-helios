@@ -1,13 +1,13 @@
-name: NERAL 1.1 Z3-first RTX4070 exact-eight retest
+name: NERAL 1.1 new AST+unique logic RTX4070 original8 plus 2 unseen
 on:
   push:
-    branches: [verify/neral-1-1-z3-first-smoke-retest-20261115]
+    branches: [verify/neral-1-1-ast-unique-budget-rtx4070-20261115]
     paths: [smoke_requests/neral_1_1_gpu_once.json]
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: neral-1-1-z3-first-retest-eight-synthetic
+  group: neral-1-1-ast-unique-budget-retest10
   cancel-in-progress: false
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 43e527edd0be253fcbc431af83ba12e6d4709be6
+          ref: 6ebe453af75c26d77767fb7e6cdd14c6896295ca
           path: source
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -34,14 +34,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C source rev-parse HEAD)" = '43e527edd0be253fcbc431af83ba12e6d4709be6'
+          test "$(git -C source rev-parse HEAD)" = '6ebe453af75c26d77767fb7e6cdd14c6896295ca'
           python - <<'PY'
           import json,pathlib
           r=json.loads(pathlib.Path('review/smoke_requests/neral_1_1_gpu_once.json').read_text(encoding='utf8'))
           assert r=={
-              'authorization':'NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE',
-              'source_commit':'43e527edd0be253fcbc431af83ba12e6d4709be6',
-              'case_count':8,'no_blind100_access':True,'no_training':True,
+              'authorization':'NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE',
+              'source_commit':'6ebe453af75c26d77767fb7e6cdd14c6896295ca',
+              'case_count':10,'no_blind100_access':True,'no_training':True,
               'no_merge':True,'one_shot':True}
           print('PINNED_SYNTHETIC_ONE_SHOT_AUTHORIZATION_VERIFIED')
           PY
@@ -55,7 +55,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/source
         run: |
           python -B -m py_compile review/review/neral_1_1_smoke_gpu.py source/neral_adaptive_planner.py
-          python -B review/review/neral_1_1_smoke_gpu.py --preflight --authorize NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE
+          python -B review/review/neral_1_1_smoke_gpu.py --preflight --authorize NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE
       - name: Regress existing NERAL 1.1 controller, HTTP and source verifier
         env:
           PYTHONPATH: ${{ github.workspace }}/source
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 43e527edd0be253fcbc431af83ba12e6d4709be6
+          ref: 6ebe453af75c26d77767fb7e6cdd14c6896295ca
           path: source
           persist-credentials: false
           clean: true
@@ -96,10 +96,10 @@ jobs:
           $src=Join-Path $env:GITHUB_WORKSPACE 'source'
           $rev=Join-Path $env:GITHUB_WORKSPACE 'review'
           $r=Get-Content -LiteralPath (Join-Path $rev 'smoke_requests\neral_1_1_gpu_once.json') -Raw|ConvertFrom-Json
-          if((& git -C $src rev-parse HEAD).Trim() -ne '43e527edd0be253fcbc431af83ba12e6d4709be6'){throw 'Original source SHA changed'}
-          if($r.authorization -ne 'NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE' -or
-             $r.source_commit -ne '43e527edd0be253fcbc431af83ba12e6d4709be6' -or
-             $r.case_count -ne 8 -or $r.no_blind100_access -ne $true -or
+          if((& git -C $src rev-parse HEAD).Trim() -ne '6ebe453af75c26d77767fb7e6cdd14c6896295ca'){throw 'Original source SHA changed'}
+          if($r.authorization -ne 'NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE' -or
+             $r.source_commit -ne '6ebe453af75c26d77767fb7e6cdd14c6896295ca' -or
+             $r.case_count -ne 10 -or $r.no_blind100_access -ne $true -or
              $r.no_training -ne $true -or $r.no_merge -ne $true -or
              $r.one_shot -ne $true){throw 'Invalid one-shot request'}
           $defaultPy=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
@@ -116,11 +116,11 @@ jobs:
           & $py -B -c 'import flask,z3,jsonschema'
           if($LASTEXITCODE -ne 0){throw 'Isolated Python import check failed'}
           Write-Host 'ISOLATED_CPU_DEPS_OK'
-          & $py -B (Join-Path $rev 'review\neral_1_1_smoke_gpu.py') --preflight --authorize NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE
+          & $py -B (Join-Path $rev 'review\neral_1_1_smoke_gpu.py') --preflight --authorize NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE
           if($LASTEXITCODE -ne 0){throw 'Local CPU preflight failed'}
           $root=if($env:NERAL_EVIDENCE_ROOT){$env:NERAL_EVIDENCE_ROOT}else{Join-Path $env:USERPROFILE 'NERAL-Smoke-Evidence'}
           if(-not(Test-Path -LiteralPath $root)){New-Item -ItemType Directory -Path $root -Force|Out-Null}
-          $out=Join-Path $root ('neral-1-1-z3-first-retest-'+$env:GITHUB_RUN_ID)
+          $out=Join-Path $root ('neral-1-1-ast-unique-retest-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $out){throw 'Refuse occupied evidence output path'}
           [IO.File]::AppendAllText($env:GITHUB_ENV,(
              'NERAL_SMOKE_PY='+$py+[Environment]::NewLine+
@@ -155,7 +155,7 @@ jobs:
           $ErrorActionPreference='Stop'
           Push-Location $env:NERAL_SMOKE_SRC
           try {
-            & $env:NERAL_SMOKE_PY -B (Join-Path $env:NERAL_SMOKE_REVIEW 'review\neral_1_1_smoke_gpu.py') --live --authorize NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE --out $env:NERAL_SMOKE_OUT
+            & $env:NERAL_SMOKE_PY -B (Join-Path $env:NERAL_SMOKE_REVIEW 'review\neral_1_1_smoke_gpu.py') --live --authorize NERAL_1_1_AST_UNIQUE_BOUNDED_RTX4070_TEN_ONCE --out $env:NERAL_SMOKE_OUT
             if($LASTEXITCODE -ne 0){throw 'Incomplete smoke: preserve any evidence'}
           } finally {Pop-Location}
       - name: Assert 8 original cases and no mutation to original source checkout
@@ -166,9 +166,9 @@ jobs:
           import json,os,pathlib
           root=pathlib.Path(os.environ["NERAL_SMOKE_ROOT"])
           summary=json.loads((root/"summary.json").read_text(encoding="utf8"))
-          assert summary["case_count"]==8
-          assert len(list(root.glob("s??-*.json")))==8
-          print("EIGHT_RAW_CASE_FILES_VERIFIED")
+          assert summary["case_count"]==10
+          assert len(list(root.glob("s??-*.json")))==10
+          print("TEN_RAW_CASE_FILES_VERIFIED")
           '@ | & $env:NERAL_SMOKE_PY -B -
           if($LASTEXITCODE -ne 0){throw 'Evidence count failed'}
           if((@(& git -C $env:NERAL_SMOKE_SRC status --porcelain)).Count -ne 0){throw 'Pinned source modified'}
@@ -176,7 +176,7 @@ jobs:
         if: always() && env.NERAL_SMOKE_OUT != ''
         uses: actions/upload-artifact@v4
         with:
-          name: neral-1-1-z3-first-raw8-${{ github.run_id }}
+          name: neral-1-1-ast-unique-raw10-${{ github.run_id }}
           path: ${{ env.NERAL_SMOKE_OUT }}
           if-no-files-found: warn
           retention-days: 90
@@ -184,7 +184,7 @@ jobs:
         if: success()
         uses: actions/download-artifact@v4
         with:
-          name: neral-1-1-z3-first-raw8-${{ github.run_id }}
+          name: neral-1-1-ast-unique-raw10-${{ github.run_id }}
           path: ${{ runner.temp }}/neral-1-1-verify-${{ github.run_id }}
       - name: Verify downloaded bytes equal local originals
         if: success()
@@ -196,7 +196,7 @@ jobs:
           a=pathlib.Path(os.environ["NERAL_SMOKE_OUT"])
           b=pathlib.Path(os.environ["NERAL_SMOKE_REMOTE"])
           names={p.name for p in a.iterdir() if p.is_file()}
-          assert len(names)==10 and 'summary.json' in names and 'manifest.json' in names
+          assert len(names)==12 and 'summary.json' in names and 'manifest.json' in names
           assert names=={p.name for p in b.iterdir() if p.is_file()}
           for name in names:
               assert hashlib.sha256((a/name).read_bytes()).digest()==hashlib.sha256((b/name).read_bytes()).digest()
