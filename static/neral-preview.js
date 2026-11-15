@@ -165,7 +165,9 @@
   // conversation turn. Relevant questions and follow-ups to a previous search
   // are searched; greetings and local small talk stay on-device.
   function isSearchFollowup(question) {
-    return /^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu.test(String(question||"").trim());
+    const q=String(question||"").trim();
+    return /^(?:warum|wieso|weshalb|und|aber|wie|was|woran|wodurch)(?:\s+(?:nicht|denn|genau|noch|jetzt|eigentlich|so|das|weiter)){0,3}[?!.]*$/iu.test(q)
+      || (q.length<=120 && /^(?:nochmals?|nein,?\s+ich\s+meine|ich\s+meine|zur\s+klarstellung)\b[\s\S]{4,}$/iu.test(q));
   }
   // Explicit user requests for external lookup need an enabled Web toggle.
   // Do not pass such requests to an offline model and invite a false refusal.
@@ -186,17 +188,27 @@
   // Reuse only a previous query already sent to a web provider, never private
   // conversation turns or the model's response.
   function makeSearchQuery(question,previousWebQuery="") {
-    const q=String(question||"").trim();
+    const original=String(question||"").trim();
     const previous=String(previousWebQuery||"").trim();
-    if(previous&&isSearchFollowup(q)&&previous.length+1+q.length<=160)
-      return previous+" "+q;
-    // Search the requested subject, not an instruction like "suche nach ...".
-    // This removes only common German search-command scaffolding, never
-    // changes a question unless the speaker explicitly used an imperative.
-    const subject=q.replace(/^(?:bitte\s+)?(?:suche|such|finde|recherchiere)\s+(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s+)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu,"").trim();
-    const normalized=(subject.length>=2 ? subject : q).replace(/\s+/g," ").trim();
-    // A long user message must still reach the model; the provider receives
-    // only a bounded search phrase. Never reject the whole chat because of it.
+    if(previous&&isSearchFollowup(original)){
+      const correction=original.replace(
+        /^(?:nochmals?|nein,?\s+ich\s+meine|ich\s+meine|zur\s+klarstellung)\s*[,!:.]?\s*/iu,"").trim();
+      const combined=(previous+" "+correction).replace(/\s+/g," ").trim();
+      if(combined.length<=160)return combined;
+      const cut=combined.slice(0,160);
+      return cut.slice(0,cut.lastIndexOf(" "))||cut;
+    }
+    // Remove only a *leading* social greeting, not a topic mention of "Hallo".
+    let q=original.replace(/^[\s^>]+/,"").replace(
+      /^(?:hallo|hallöchen|hi|hey|moin|guten\s+(?:morgen|tag|abend))\b\s*[,!?.]*\s*(?=(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b)/iu,"").trim();
+    const request=/^(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\b\s*[:：]?\s*(?:mal\s+)?(?:(?:online|im\s+internet|im\s+web)\s*)?(?:nach\s+)?(?:(?:dem|der|den|das|die|einem|einer|einen)\s+)?/iu;
+    const hasDirective=request.test(q);
+    let subject=(hasDirective?q.replace(request,""):q).trim()
+      .replace(/^[?!.,:;]+|[?!.,:;]+$/g,"").trim();
+    if(hasDirective && (!subject||/^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
+      return ""; // No subject was supplied: do not search the greeting.
+    if(subject.length<2)subject=original;
+    const normalized=subject.replace(/\s+/g," ").trim();
     if(normalized.length<=160)return normalized;
     const cut=normalized.slice(0,160);
     return cut.slice(0,cut.lastIndexOf(" "))||cut;
@@ -760,6 +772,15 @@
          shouldSearchWeb(text,lastWebQuery) &&
          (selectedAttachments.length===0 || explicitlyRequestsWeb(text))) {
         const webQuery=makeSearchQuery(text,lastWebQuery);
+        if(!webQuery){
+          const answer="Wonach soll ich im Internet suchen? Nenne bitte ein konkretes Thema oder eine Frage, zum Beispiel „Suche nach PEAK Spielstand speichern“.";
+          append("assistant",answer,"NERAL",true);
+          memory.push({role:"user",content:text},{role:"assistant",content:answer});
+          if(memory.length>12)memory.splice(0,memory.length-12);
+          motionActivity("done",mode);
+          completedTurn=true;
+          return;
+        }
         if(webQuery.length>160 || /[\r\n]/.test(webQuery))
           throw new Error("Für Websuche bitte eine einzeilige Frage mit höchstens 160 Zeichen eingeben.");
         motionActivity("searching",mode);
