@@ -109,11 +109,13 @@ jobs:
           # no mutation of the existing training environment or blind datasets.
           $deps=Join-Path $env:RUNNER_TEMP ('neral-smoke-deps-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $deps){throw 'Occupied dependency output path'}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('NERAL_SMOKE_DEPS='+$deps+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
           & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir --target $deps 'Flask>=3,<4' 'z3-solver>=4.13,<5' 'jsonschema>=4.20,<5'
           if($LASTEXITCODE -ne 0){throw 'Isolated minimal Python dependency install failed'}
           $env:PYTHONPATH=$src+';'+$deps
-          & $py -B -c 'import flask,z3,jsonschema;print("ISOLATED_CPU_DEPS_OK")'
+          & $py -B -c 'import flask,z3,jsonschema'
           if($LASTEXITCODE -ne 0){throw 'Isolated Python import check failed'}
+          Write-Host 'ISOLATED_CPU_DEPS_OK'
           & $py -B (Join-Path $rev 'review\neral_1_1_smoke_gpu.py') --preflight --authorize NERAL_1_1_SYNTHETIC_RTX4070_EIGHT_ONCE
           if($LASTEXITCODE -ne 0){throw 'Local CPU preflight failed'}
           $root=if($env:NERAL_EVIDENCE_ROOT){$env:NERAL_EVIDENCE_ROOT}else{Join-Path $env:USERPROFILE 'NERAL-Smoke-Evidence'}
