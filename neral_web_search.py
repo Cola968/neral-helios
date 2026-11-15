@@ -469,6 +469,16 @@ def is_fresh_news_query(query: str) -> bool:
                       query, re.I) is not None)
 
 
+def news_subject(query: str) -> str:
+    """Remove generic request words but preserve the user's topic verbatim."""
+    subject = re.sub(
+        r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|"
+        r"neuest(?:e|en|er)?|neuigkeiten|heute|gestern|live|latest|breaking)\b",
+        " ", query, flags=re.I)
+    subject = re.sub(r"\s+", " ", subject).strip()
+    return subject if len(subject) >= 2 else query.strip()
+
+
 def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | None = None,
                    now_utc: datetime | None = None) -> list[dict[str, str]]:
     """Parse untrusted Bing RSS without DTDs, external entity expansion or fetching."""
@@ -535,7 +545,7 @@ class WebSearch:
             raise WebSearchInputError("Ungültiger Suchbegriff.")
         if on_provider is not None:
             on_provider("Google News RSS")
-        url = (NEWS_ENDPOINT+"?q="+quote_plus(cleaned+" when:7d")+"&hl=de&gl=DE&ceid=DE:de")
+        url = (NEWS_ENDPOINT+"?q="+quote_plus(news_subject(cleaned)+" when:7d")+"&hl=de&gl=DE&ceid=DE:de")
         req = Request(url, headers={
             "User-Agent":"Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
             "Accept":"application/rss+xml, application/xml, text/xml",
