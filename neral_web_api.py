@@ -48,8 +48,10 @@ def register_web_search_api(app, service=None):
                  "zur","online","internet","web","aktuell","aktuelle",
                  "aktuellen","aktueller","aktuelles","heute","neueste",
                  "neuesten","neuester","neuestes","neu","neue","neuen",
-                 "neuer","neues","quelle","quellen","links","news","information",
-                 "informationen","uber","ueber","zeige","mehr","deine",
+                 "neuer","neues","quelle","quellen","links","news",
+                 "nachricht","nachrichten","meldung","meldungen","berichte",
+                 "bericht","letzte","letzten","letzter","letztes",
+                 "information","informationen","uber","ueber","zeige","mehr","deine",
                  "site","www","https","http","2026","2025","2027","2028",
                  "official","offiziell","offizielle","offiziellen"}
         words = re.findall(r"[a-z0-9]{3,}", plain)
