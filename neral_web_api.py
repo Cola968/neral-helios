@@ -12,7 +12,7 @@ import json
 import re
 import unicodedata
 from urllib.parse import urlsplit
-from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url
+from neral_web_search import WebSearch, WebSearchError, WebSearchInputError, WebSearchRateLimitError, verify_public_https_url, fetch_public_favicon, safe_result_url, is_fresh_news_query
 
 
 def register_web_search_api(app, service=None):
@@ -162,6 +162,20 @@ def register_web_search_api(app, service=None):
                 current={**first,"providers_contacted":list(contacted)}
         if current["results"]:
             return current
+        news=getattr(search,"search_news",None)
+        if (is_fresh_news_query(query) and "Google News RSS" not in contacted
+                and callable(news)):
+            contacted.append("Google News RSS")
+            try:
+                hits=news(query,on_provider=on_provider)
+                news_result={**result,"results":hits,"provider":"Google News RSS",
+                             "providers_contacted":list(contacted)}
+                current=verified_results(news_result,on_source=on_source,
+                                         on_candidate=on_candidate,query=query)
+            except WebSearchError:
+                current={**current,"providers_contacted":list(contacted)}
+        if current["results"]:
+            return current
         wiki=getattr(search,"search_wikipedia",None)
         if ("Wikipedia DE" not in contacted and
                 result.get("provider")!="Wikipedia DE" and callable(wiki)):
@@ -272,8 +286,8 @@ def register_web_search_api(app, service=None):
     def web_search_status():
         return jsonify(configured=True, live_verified=False, free_for_all=True,
                        requires_account=False, requires_api_key=False,
-                       provider="DuckDuckGo HTML / Bing RSS / Wikipedia DE", model_provider="none",
-                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing und Wikipedia gesendet.")
+                       provider="DuckDuckGo HTML / Bing RSS / Google News RSS (aktuell) / Wikipedia DE", model_provider="none",
+                       disclosure="Nur der Suchbegriff wird an DuckDuckGo, bei Bedarf an Bing, Google News (aktuelle Nachrichten) oder Wikipedia gesendet.")
 
     @app.post("/api/web/search")
     def web_search_submit():
