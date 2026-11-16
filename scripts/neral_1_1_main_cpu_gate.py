@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE='2de4b034d79521e4f5c9d432af7f98a70087ed70'
+BASE='c0c714f3a32bca97b1458f91850f24751ac0caaa'
 PROTECTED=(
   'neral_web_search.py','neral_web_api.py',
   'static/neral-preview.js','static/neral-web-search.js',
