@@ -1,0 +1,142 @@
+name: NERAL v2-full frozen 9B+4B 40/24 and dialogue RAG evaluation
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-final-9b-luna-eval.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  frozen-v2-full-9b-and-luna-evaluation:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+      NERAL_PIN_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+          clean: true
+      - name: Require real frozen 9B rank16 and original v1; no training or holdout opened
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_PIN_SHA){throw 'Source pin mismatch'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $base='D:/neral-qlora/checkpoint'
+          $v1='D:/neral-qlora/full01/adapter'
+          $full='D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          $luna='D:/neral-qlora-v2/v2full-43931510428-1-luna'
+          $base4='D:/neral-qlora-v2/qwen35-4b-hf'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Trusted PEFT python missing'}
+          if(-not(Test-Path -LiteralPath (Join-Path $base 'config.json') -PathType Leaf)){throw 'Pinned base9 checkpoint missing'}
+          if(-not(Test-Path -LiteralPath (Join-Path $v1 'adapter_config.json') -PathType Leaf)){throw 'Original v1 adapter missing'}
+          if(-not(Test-Path -LiteralPath (Join-Path $full 'adapter/adapter_model.safetensors') -PathType Leaf)){throw 'Frozen v2 full 9B rank16 adapter absent; do NOT retrain'}
+          $trainReceipt=Get-Content -LiteralPath (Join-Path $full 'manifest.json') -Raw | ConvertFrom-Json
+          if($trainReceipt.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $trainReceipt.family -ne 'helios' -or $trainReceipt.rank -ne 16 -or $trainReceipt.train_rows -ne 1100 -or $trainReceipt.val_rows -ne 140 -or $trainReceipt.test_rows_opened -ne 0 -or $trainReceipt.validation_history.Count -ne 2){throw 'No certified frozen Helios rank16 output'}
+          $id=$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT
+          $out40="D:/neral-qlora-v2/final-9b40-$id.json"
+          $out24="D:/neral-qlora-v2/final-neral-pipeline24-$id.json"
+          $outRag="D:/neral-qlora-v2/final-dialogue-rag20-$id.json"
+          $outTools="D:/neral-qlora-v2/final-tools-smoke-$id.json"
+          foreach($f in @($out40,$out24,$outRag,$outTools)){if(Test-Path -LiteralPath $f){throw 'Refusing evaluation overwrite'}}
+          $test40=Join-Path $src 'datasets/neral_cpu_foundation/helios_terra_v2.test.jsonl'
+          if(-not(Test-Path -LiteralPath $test40 -PathType Leaf)){throw 'Pinned 40-case file missing'}
+          $env:PYTHONPATH=$src
+          Push-Location $src
+          try {
+            & $py -B -m py_compile scripts/neral_v2_final_eval40.py scripts/neral_v2_pipeline24_hf.py scripts/neral_v2_dialogue_rag_sample.py scripts/neral_v2_tools_regression_smoke.py
+            if($LASTEXITCODE -ne 0){throw 'Evaluator Python compile failed'}
+          } finally {Pop-Location}
+          $vars=@{
+            V2E_PY=$py;V2E_SRC=$src;V2E_BASE9=$base;V2E_V1=$v1;V2E_FULL=$full;
+            V2E_LUNA=$luna;V2E_BASE4=$base4;V2E_TEST40=$test40;
+            V2E_OUT40=$out40;V2E_OUT24=$out24;V2E_OUT_RAG=$outRag;V2E_OUT_TOOLS=$outTools;
+            PYTHONPATH=$src
+          }
+          foreach($var in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($var.Key+'='+$var.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          }
+          Write-Host 'FROZEN_9B_RANK16_PROOF_CHECK_PASSED_TEST40_UNTOUCHED'
+
+      - name: Release GPU from Ollama models; 9B v1/full/base all run under identical HF NF4
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($item in @($ps.models)){if($item -and $item.name){& $exe stop $item.name;if($LASTEXITCODE -ne 0){throw 'Ollama unload failed'}}}
+          Start-Sleep -Seconds 7
+          $gpu=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1){throw 'RTX4070 unavailable'}
+          Write-Host ('RTX4070_FREE_AFTER_OLLAMA '+$gpu[0])
+          $parts=$gpu[0].Split(',')
+          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[2].Trim() -lt 9500){throw 'Insufficient GPU space to compare models'}
+
+      - name: Qwen3.5-9B base vs QLoRA-v1 vs QLoRA-v2-full on exact frozen 40
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2E_SRC
+          try {
+            & $env:V2E_PY -B -m scripts.neral_v2_final_eval40 --base $env:V2E_BASE9 --v1 $env:V2E_V1 --full $env:V2E_FULL --test $env:V2E_TEST40 --out $env:V2E_OUT40
+            if($LASTEXITCODE -ne 0){throw 'Frozen 9B 40-case three-way comparison failed'}
+          } finally {Pop-Location}
+
+      - name: NERAL full 1.1 deterministic controller 24 original tasks with real PEFT v1 then v2-full
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2E_SRC
+          try {
+            & $env:V2E_PY -B -m scripts.neral_v2_pipeline24_hf --base $env:V2E_BASE9 --v1 $env:V2E_V1 --full $env:V2E_FULL --out $env:V2E_OUT24
+            if($LASTEXITCODE -ne 0){throw 'Original NERAL1.1 24-case HF-based adaptive pipeline incomplete'}
+          } finally {Pop-Location}
+
+      - name: Additional independent SymPy NetworkX Z3 and one-step AST Docker smoke
+        if: always() && env.V2E_SRC != ''
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2E_SRC
+          try {
+            & $env:V2E_PY -B -m scripts.neral_v2_tools_regression_smoke --out $env:V2E_OUT_TOOLS
+            if($LASTEXITCODE -ne 0){throw 'Independent added 1.2 tool smoke failed'}
+          } finally {Pop-Location}
+
+      - name: Compare original 9B baseline and v1/full plus 4B baseline versus Luna on 20 new RAG dialog probes
+        if: always() && env.V2E_SRC != ''
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not(Test-Path -LiteralPath (Join-Path $env:V2E_LUNA 'adapter/adapter_model.safetensors') -PathType Leaf)){throw 'No frozen Luna adapter - quality test blocked, do NOT retrain'}
+          if(-not(Test-Path -LiteralPath (Join-Path $env:V2E_BASE4 'model.safetensors.index.json') -PathType Leaf)){throw '4B full BF16 checkpoint unavailable'}
+          Push-Location $env:V2E_SRC
+          try {
+            & $env:V2E_PY -B -m scripts.neral_v2_dialogue_rag_sample --base9 $env:V2E_BASE9 --v1 $env:V2E_V1 --full $env:V2E_FULL --base4 $env:V2E_BASE4 --luna $env:V2E_LUNA --out $env:V2E_OUT_RAG
+            if($LASTEXITCODE -ne 0){throw 'Luna 20-case RAG dialogue sample failed'}
+          } finally {Pop-Location}
+
+      - name: Publish only scalar evaluation metrics and complete-vs-baseline regression counts
+        if: always() && env.V2E_SRC != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-full-luna-final-metrics-${{ github.run_id }}
+          path: |
+            ${{ env.V2E_OUT40 }}
+            ${{ env.V2E_OUT24 }}
+            ${{ env.V2E_OUT_TOOLS }}
+            ${{ env.V2E_OUT_RAG }}
+          if-no-files-found: warn
+          retention-days: 30

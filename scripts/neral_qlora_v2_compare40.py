@@ -73,7 +73,7 @@ def judge(row:dict,raw:str)->tuple[bool,bool]:
     return canon(obj)==canon(expected),False
 
 
-def run_model(label:str, adapter:Path,checkpoint:Path,rows:list[dict],tokenizer):
+def run_model(label:str, adapter:Path|None,checkpoint:Path,rows:list[dict],tokenizer):
     import torch
     from transformers import Qwen3_5ForCausalLM
     from peft import PeftModel
@@ -85,11 +85,14 @@ def run_model(label:str, adapter:Path,checkpoint:Path,rows:list[dict],tokenizer)
         str(checkpoint),local_files_only=True,
         quantization_config=create_config(BASE_MODEL),dtype=dtype,
         device_map={"":0},low_cpu_mem_usage=True)
-    model=PeftModel.from_pretrained(base,str(adapter),is_trainable=False)
+    model=(PeftModel.from_pretrained(base,str(adapter),is_trainable=False)
+           if adapter is not None else base)
     model.eval()
     good=0
     errors=0
     latencies=[]
+    correct_bits=[]
+    format_error_bits=[]
     tool_stats={t:{"correct":0,"total":0,"format_errors":0}
                 for t in ("sympy","networkx","z3")}
     print("QLORA_V2_COMPARISON_MODEL_LOADED "+label,flush=True)
@@ -116,6 +119,8 @@ def run_model(label:str, adapter:Path,checkpoint:Path,rows:list[dict],tokenizer)
         raw=tokenizer.decode(output[0,len(ids):],skip_special_tokens=True).strip()
         correct,invalid=judge(row,raw)
         good+=int(correct);errors+=int(invalid);latencies.append(sec)
+        correct_bits.append("1" if correct else "0")
+        format_error_bits.append("1" if invalid else "0")
         family=row["task"]["tool"]
         tool_stats[family]["correct"]+=int(correct)
         tool_stats[family]["total"]+=1
@@ -129,6 +134,8 @@ def run_model(label:str, adapter:Path,checkpoint:Path,rows:list[dict],tokenizer)
     result={"label":label,"correct":good,"total":len(rows),
             "accuracy":good/len(rows),
             "format_errors":errors,
+            "correct_bitset":"".join(correct_bits),
+            "format_error_bitset":"".join(format_error_bits),
             "median_latency_s":round(statistics.median(latencies),3),
             "peak_reserved_mib":round(peak,1),
             "peak_allocated_mib":round(allocated,1),
