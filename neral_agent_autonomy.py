@@ -100,13 +100,13 @@ def _is_high_long_form_request(messages: list[dict]) -> bool:
     question = current.get("content")
     if not isinstance(question, str) or not 1 <= len(question) <= 3000:
         return False
-    if re.search(r"\\bFINAL_ANSWER\\s*:", question, re.I):
+    if re.search(r"\bFINAL_ANSWER\s*:", question, re.I):
         return False
     return bool(
-        re.search(r"\\b(?:herleitung|herleite|beweise|beweis|derive|derivation|prove)\\b",
+        re.search(r"\b(?:herleitung|herleite|beweise|beweis|derive|derivation|prove)\b",
                   question, re.I)
-        or re.search(r"\\bleite\\b[\\s\\S]{0,350}?\\bher\\b", question, re.I)
-        or re.search(r"\\bbegründe\\b[\\s\\S]{0,250}\\bzwischenschritte\\b",
+        or re.search(r"\bleite\b[\s\S]{0,350}?\bher\b", question, re.I)
+        or re.search(r"\bbegründe\b[\s\S]{0,250}\bzwischenschritte\b",
                      question, re.I)
     )
 
@@ -459,7 +459,7 @@ class OllamaLocalBackend:
                             thinking=False, prose_continuation=True)
                     except AgentModelError as exc:
                         raise OllamaCompletionError("token_limit") from exc
-                    combined = partial.rstrip() + "\\n" + tail.lstrip()
+                    combined = partial.rstrip() + "\n" + tail.lstrip()
                     if (not tail.strip()
                             or len(combined) > 32768
                             or len(combined.encode("utf-8")) > 32768):
