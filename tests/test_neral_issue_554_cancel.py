@@ -65,6 +65,16 @@ class Cancellation554(unittest.TestCase):
         self.assertEqual(transport.payloads[0]["options"]["num_predict"],2048)
         self.assertFalse(transport.payloads[0]["think"])
 
+    def test_cancelled_before_inference_never_starts_ollama_request(self):
+        event=threading.Event()
+        event.set()
+        model=OllamaLocalBackend("qwen3.5:9b",inference_profile="measured_nonthinking_2048")
+        with patch("neral_agent_autonomy.local_only_opener") as open_ollama:
+            with self.assertRaises(OllamaCompletionError) as exc:
+                model.respond_high_final(REQUEST,cancel_event=event)
+            open_ollama.assert_not_called()
+        self.assertEqual(exc.exception.reason,"cancelled")
+
     def test_cancel_endpoint_requires_matching_id_and_local_csrf(self):
         class Fake:
             model="qwen3:8b"
