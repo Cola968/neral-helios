@@ -184,3 +184,9 @@ def test_real_package_contains_all_1_2_runtime_dependencies():
       "neral_cpu_foundation/web.py",
       "neral_cpu_foundation/generate.py"}
     assert required<=set(REQUIRED_FILES)
+
+def test_preview_requirements_include_actual_cpu_verifier_packages():
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[2]
+    deps=set((root/"requirements-neral-preview.txt").read_text().splitlines())
+    assert {"sympy==1.14.0","networkx==3.6.1"} <= deps

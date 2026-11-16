@@ -3,4 +3,6 @@ waitress>=3.0,<4.0
 pypdf>=5.0,<7.0
 # Optional NL v2 promotion requires real Z3 UNSAT proof; never silently treat enumeration as Z3.
 z3-solver==4.16.0.0
-# Local NERAL 1.2 CPU verifiers; no cloud or GPU runtime.\nsympy==1.14.0\nnetworkx==3.6.1\n
+# Local NERAL 1.2 CPU verifiers; no cloud or GPU runtime.
+sympy==1.14.0
+networkx==3.6.1
