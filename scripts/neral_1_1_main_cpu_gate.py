@@ -1,12 +1,14 @@
 """Pinned integration CPU gate; no GPU, model inference or corpus generation."""
 from __future__ import annotations
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE='2de4b034d79521e4f5c9d432af7f98a70087ed70'
+# Source of truth for approved web/UI blobs: the actual main merge base.
+# Using a hard-coded historical SHA breaks CI as soon as approved main evolves.
 PROTECTED=(
   'neral_web_search.py','neral_web_api.py',
   'static/neral-preview.js','static/neral-web-search.js',
@@ -14,13 +16,28 @@ PROTECTED=(
   'templates/neral_preview.html',
 )
 
+def _trusted_main_base():
+    # In PR CI, HEAD is GitHub's synthetic merge commit. Its merge-base with
+    # the locally fetched origin/main is the approved main state. In isolated
+    # integration branches it is the point where the branch diverged from main.
+    # Missing remote tracking data fails closed; never silently accept HEAD.
+    completed=subprocess.run(
+        ['git','merge-base','HEAD','refs/remotes/origin/main'],
+        cwd=ROOT,text=True,capture_output=True,timeout=15,check=True)
+    sha=completed.stdout.strip()
+    if re.fullmatch(r'[0-9a-f]{40}',sha) is None:
+        raise RuntimeError('APPROVED_MAIN_BASE_UNAVAILABLE')
+    return sha
+
+
 def verify_main_integrity():
+    base=_trusted_main_base()
     for name in PROTECTED:
         # Compare *repository blobs*, not checked-out bytes: Windows Git may
         # materialize LF source as CRLF without changing the tracked content.
         # Also refuse real uncommitted changes in the checked-out sources.
         old=subprocess.run(
-          ['git','rev-parse',BASE+':'+name],cwd=ROOT,text=True,
+          ['git','rev-parse',base+':'+name],cwd=ROOT,text=True,
           capture_output=True,timeout=15,check=True).stdout.strip()
         current=subprocess.run(
           ['git','rev-parse','HEAD:'+name],cwd=ROOT,text=True,
