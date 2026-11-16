@@ -163,6 +163,21 @@ class OllamaLocalBackend:
         with self._inference_lock:
             return self._respond(messages, require_json=False, thinking=False)
 
+    def respond_formal_extract(self, messages: list[dict], *,
+                               repair_turn: bool = False) -> str:
+        """Opt-in structured JSON: 384-token first pass, 1536-token retry.
+
+        The longer budget is available only for the one controller-authorized
+        repair turn; direct Qwen, normal chat and model weights stay unchanged.
+        """
+        if (self.model != "qwen3.5:9b"
+                or self.inference_profile != "measured_nonthinking_2048"
+                or type(repair_turn) is not bool):
+            raise AgentModelError("Constraint extraction requires measured local HIGH.")
+        with self._inference_lock:
+            return self._respond(messages, require_json=True,
+                                 extraction_only=True, repair_only=repair_turn)
+
     def respond_think(self, messages: list[dict]) -> str:
         # Separate, opt-in local reasoning channel. Do not return raw thoughts.
         with self._inference_lock:
@@ -258,16 +273,27 @@ class OllamaLocalBackend:
 
     def _respond(self, messages: list[dict], *, require_json: bool,
                  thinking: bool = False, final_only: bool = False,
-                 rescue_long_final: bool = False) -> str:
+                 rescue_long_final: bool = False,
+                 extraction_only: bool = False,
+                 repair_only: bool = False) -> str:
         if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
         if final_only and rescue_long_final:
             raise AgentModelError("Abschluss-Nachschlag darf nicht rekursiv sein.")
-        # Measured Qwen3.5 settings MUST be identical for raw and TIR.
+        if (repair_only and (not extraction_only or type(repair_only) is not bool)):
+            raise AgentModelError("Repair budget requires bounded JSON extraction.")
+        if extraction_only and (not require_json or thinking
+                                or final_only or rescue_long_final):
+            raise AgentModelError("Invalid opt-in constraint extraction mode.")
+        # Direct Qwen keeps 2,048 tokens. Only the bounded second schema
+        # proposal gets 1,536; first extraction stays at 384 tokens.
         measured = (self.inference_profile == "measured_nonthinking_2048"
-                    and not require_json)
+                    and (not require_json or extraction_only))
         budget = 512 if require_json else (2048 if (measured or thinking) else 1024)
         options = (
+            {"temperature": 0, "num_predict": (1536 if repair_only else 384),
+             "num_ctx": 4096}
+            if extraction_only else
             {"temperature": 0, "num_predict": 64, "num_ctx": 4096}
             if final_only else
             {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
@@ -287,7 +313,14 @@ class OllamaLocalBackend:
             "keep_alive": "5m",
         }
         if require_json:
-            request_data["format"] = "json"
+            if extraction_only:
+                from neral_turn0_extractor import extraction_response_format
+                # Classify only the current user data, never the system's
+                # worked examples. Recognized logic tasks cannot decode none.
+                question = messages[-1]["content"]
+                request_data["format"] = extraction_response_format(question)
+            else:
+                request_data["format"] = "json"
         diagnostic = {
             "endpoint": "/api/chat", "model": self.model,
             "request_keys": sorted(request_data),
@@ -305,6 +338,8 @@ class OllamaLocalBackend:
             "content_length": None,
             "thinking_length": None,
             "done_reason": None,
+            "eval_count": None,
+            "prompt_eval_count": None,
             "final_recovery_attempted": False,
             "final_recovery_succeeded": False,
         }
@@ -314,7 +349,8 @@ class OllamaLocalBackend:
         # Proxy handler is disabled. No cloud provider and no raw error logging.
         try:
             with local_only_opener().open(
-                    request, timeout=90.0 if (thinking or measured) else self.timeout
+                    request, timeout=min(self.timeout, 90.0) if extraction_only
+                    else 90.0 if (thinking or measured) else self.timeout
             ) as response:
                 diagnostic["ollama_http_status"] = getattr(response, "status", 200)
                 raw = response.read(128 * 1024 + 1)
@@ -323,6 +359,12 @@ class OllamaLocalBackend:
             packet = json.loads(raw)
             if not isinstance(packet, dict):
                 raise OllamaCompletionError("invalid_response")
+            for counter in ("eval_count", "prompt_eval_count"):
+                value = packet.get(counter)
+                diagnostic[counter] = (
+                    value if type(value) is int and 0 <= value <= 1_000_000
+                    else None
+                )
             reason = packet.get("done_reason")
             diagnostic["done_reason"] = (
                 reason if reason in ("stop", "length", "load", "unload") else "other"

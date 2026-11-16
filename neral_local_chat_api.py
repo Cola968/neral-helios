@@ -407,6 +407,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
@@ -472,26 +473,80 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             if not isinstance(payload, dict):
                 raise ValueError("Invalid JSON")
             experimental_tir = payload.get("experimental_tir", False)
-            if type(experimental_tir) is not bool:
-                raise ValueError("Invalid experimental flag")
-            # Keep _messages strict; a TIR switch is not a new chat message.
+            conservative_tir = payload.get("conservative_tir", False)
+            dual_routing = payload.get("dual_routing", False)
+            nl_schema_consensus = payload.get("nl_schema_consensus", False)
+            adaptive_planner = payload.get("adaptive_planner", False)
+            fast_verified_only = payload.get("fast_verified_only", False)
+            evaluation_final_answer = payload.get("evaluation_final_answer", False)
+            if (type(experimental_tir) is not bool
+                    or type(conservative_tir) is not bool
+                    or type(dual_routing) is not bool
+                    or type(nl_schema_consensus) is not bool
+                    or type(adaptive_planner) is not bool
+                    or type(fast_verified_only) is not bool
+                    or type(evaluation_final_answer) is not bool
+                    or (conservative_tir and not experimental_tir)
+                    or (dual_routing and not (conservative_tir and experimental_tir))
+                    or (fast_verified_only and not dual_routing)
+                    or (evaluation_final_answer and not dual_routing)
+                    or (nl_schema_consensus and (
+                        experimental_tir or conservative_tir or dual_routing
+                        or fast_verified_only or evaluation_final_answer))
+                    or (adaptive_planner and (
+                        experimental_tir or conservative_tir or dual_routing
+                        or nl_schema_consensus or fast_verified_only
+                        or evaluation_final_answer))):
+                raise ValueError("Invalid experimental, conservative or dual routing flag")
+            # Opt-in flags are not conversation messages.
             clean = {k: v for k, v in payload.items()
-                     if k != "experimental_tir"}
+                     if k not in ("experimental_tir", "conservative_tir", "dual_routing", "fast_verified_only", "evaluation_final_answer", "nl_schema_consensus", "adaptive_planner")}
             data = _messages(clean)
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            if evaluation_final_answer:
+                from neral_answer_contract import formatted_benchmark_system
+                data[0]["content"] = formatted_benchmark_system()
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer THINK-Chatinhalt."), 400
         if experimental_tir and os.environ.get("NERAL_EXPERIMENTAL_TIR") != "1":
             return jsonify(error="Experimenteller TIR-Modus nicht freigeschaltet."), 403
+        if nl_schema_consensus and os.environ.get("NERAL_EXPERIMENTAL_NL_SCHEMA") != "1":
+            return jsonify(error="Experimentelle NL-Schema-Extraktion nicht freigeschaltet."), 403
+        if adaptive_planner and os.environ.get("NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER") != "1":
+            return jsonify(error="Experimenteller Adaptive Planner nicht freigeschaltet."), 403
+        if dual_routing and os.environ.get("NERAL_EXPERIMENTAL_DUAL_ROUTE") != "1":
+            return jsonify(error="Experimentelles Dual-Routing nicht freigeschaltet."), 403
+        if (fast_verified_only
+                and os.environ.get("NERAL_EXPERIMENTAL_FAST_VERIFIED_ONLY") != "1"):
+            return jsonify(error="Schneller Proof-First-Modus nicht freigeschaltet."), 403
+        if (evaluation_final_answer
+                and os.environ.get("NERAL_FORMATTED_EVAL") != "1"):
+            return jsonify(error="Format-Benchmark ist nicht freigeschaltet."), 403
         if (experimental_tir and (
                 not isinstance(high_backend, OllamaLocalBackend)
                 or high_backend.model != "qwen3.5:9b"
                 or high_backend.inference_profile != "measured_nonthinking_2048")):
             return jsonify(error="TIR erfordert das lokale Qwen3.5:9B Testprofil."), 409
+        if (nl_schema_consensus and (
+                type(high_backend) is not OllamaLocalBackend
+                or high_backend.model != "qwen3.5:9b"
+                or high_backend.inference_profile != "measured_nonthinking_2048")):
+            return jsonify(error="NL-Schema-Konsens benötigt das lokale 9B-Testprofil."), 409
+        if adaptive_planner and (
+                type(high_backend) is not OllamaLocalBackend
+                or high_backend.model != "qwen3.5:9b"
+                or high_backend.inference_profile != "measured_nonthinking_2048"):
+            return jsonify(error="Adaptive Planner benötigt das lokale 9B-Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        # These references retain no user text and are only used on 503.
+        first_turn_probe_armed = False
+        first_turn_prior_event = None
+        first_turn_actual_event = None
+        first_turn_rejection_codes: list[str] = []
+        first_turn_solver_details: list[str] = []
         try:
             started = time.monotonic()
             greeting = _runtime_greeting_reply(data[-1]["content"])
@@ -520,6 +575,65 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             )
             if bounded_final:
                 local_respond = high_backend.respond_high_final
+            # NERAL 1.1 isolated experimental adaptive path. A single local
+            # QLoRA call emits BOTH strategy and tool payload, and independent
+            # full-source proof is required for every promoted result.
+            # No default THINK or ordinary chat routing is modified.
+            if adaptive_planner:
+                from neral_adaptive_planner import (
+                    run_adaptive_planner, run_python_in_docker)
+                from neral_adaptive_ollama import (
+                    make_local_adaptive_proposer, MODEL as ADAPTIVE_MODEL)
+                from neral_python_source_router import verify_python_full_source
+                # Lazy creation avoids even a model-planner setup on
+                # DIRECT and multi-turn requests.
+                proposer = None
+                def adaptive_propose(turns, signal):
+                    nonlocal proposer
+                    if proposer is None:
+                        proposer = make_local_adaptive_proposer(ADAPTIVE_MODEL)
+                    return proposer(turns, signal)
+                # A shorter Qwen answer changes output quality. Keep it
+                # additionally opt-in and ONLY inside adaptive THINK.
+                # PR537 receives the original turns and still refuses any
+                # truncated answer; default raw fallback stays untouched.
+                bounded_qwen = (
+                    os.environ.get("NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK") == "1"
+                )
+                raw_fallback = high_backend.respond_chat
+                if bounded_qwen:
+                    from neral_adaptive_bounded_fallback import (
+                        make_bounded_fallback, FALLBACK_MAX_TOKENS)
+                    raw_fallback = make_bounded_fallback(high_backend.model)
+                result = run_adaptive_planner(
+                    data, adaptive_propose, raw_fallback,
+                    run_python_in_docker, verify_python_full_source)
+                return jsonify({**result, "adaptive_planner": True,
+                                "fallback_bounded": bounded_qwen,
+                                "fallback_token_limit": (
+                                    FALLBACK_MAX_TOKENS if bounded_qwen else None),
+                                "planner_model": ADAPTIVE_MODEL,
+                                "fallback_model": high_backend.model,
+                                "experimental_tir": False, "dual_routing": False,
+                                **_provenance(high_backend)})
+            # Explicitly opt-in NL-to-v2 route, never regular THINK default.
+            # Three-way Z3 proof against an independent FULL-source parser is
+            # mandatory. Plain dual-model consensus is not a PR #537 signature.
+            # Any omission, unsupported wording or model failure retains the
+            # unchanged raw base-Qwen response with verified=False.
+            if nl_schema_consensus:
+                from neral_nl_verified_route import run_guarded_nl_bridge
+                from neral_nl_local_ollama import make_local_extractor
+                result = run_guarded_nl_bridge(
+                    data,
+                    make_local_extractor("neral-qwen35-qlora-v1:latest"),
+                    make_local_extractor("qwen3.5:9b"),
+                    high_backend.respond_chat,
+                )
+                return jsonify({**result, "nl_schema_consensus": True,
+                                "experimental_tir": False,
+                                "dual_routing": False,
+                                **_provenance(high_backend)})
             if deep_review:
                 from neral_high_verified_first import direct_high_reply
                 direct = direct_high_reply(data)
@@ -529,11 +643,94 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                                   "tool_calls_succeeded": 1,
                                   "experimental_tir": True}
                     return jsonify({**direct, **_provenance(high_backend)})
+            # Production dual-route shares this existing THINK/CSRF/busy lock,
+            # and is *never* the default. Its exact model digests are checked
+            # before either model is asked to generate a token.
+            if dual_routing:
+                from neral_dual_routing import run_dual_route, run_verified_source_fast
+                routed = (run_verified_source_fast(data)
+                          if fast_verified_only else run_dual_route(data))
+                if evaluation_final_answer:
+                    from neral_answer_contract import format_verified_terminal_answer
+                    routed = dict(routed)
+                    routed["text"] = format_verified_terminal_answer(
+                        routed["text"],
+                        independently_verified=(
+                            routed.get("selection_policy")=="independently_verified_tir"
+                            and routed.get("verified") is True
+                            and routed.get("model_generated") is False))
+                    routed["evaluation_final_answer"] = True
+                return jsonify({**_provenance(high_backend), **routed,
+                                "model": routed["tool_model"] or routed["fallback_model"],
+                                "model_origin": ("local_qwen_verified_fast"
+                                  if fast_verified_only else "local_qlora_tools_base_raw_dual")})
             prepare_model(high_backend)
             if experimental_tir:
                 from neral_tir_experimental import run_experimental_tir
-                result = run_experimental_tir(data, high_backend.respond_chat)
+                def bounded_observation_review(turns):
+                    # FIRST TIR/tool proposal and raw-Qwen fallback are unchanged.
+                    # Only the post-observation review may use a bounded
+                    # final-only turn in the measured HIGH profile.
+                    before = len(high_backend.inference_diagnostic_events)
+                    text = high_backend.respond_high_final(turns)
+                    events = high_backend.inference_diagnostic_events[before:]
+                    recovered = any(
+                        isinstance(row, dict)
+                        and row.get("final_recovery_succeeded") is True
+                        for row in events
+                    )
+                    return text, recovered
+                # Snapshot the first Ollama call only. Never expose prompt,
+                # generated code, private thinking or raw model text.
+                # Identity comparison survives the fixed-size diagnostic ring
+                # buffer even after more than 24 prior model calls.
+                previous_event = high_backend.last_inference_diagnostic
+                first_turn_prior_event = previous_event
+                first_turn_probe_armed = True
+                def first_turn_diagnostic():
+                    nonlocal first_turn_actual_event
+                    if type(first_turn_actual_event) is dict:
+                        return first_turn_actual_event
+                    event = high_backend.last_inference_diagnostic
+                    if event is previous_event or type(event) is not dict:
+                        return {}
+                    first_turn_actual_event = event
+                    return event
+                formal_extract_calls = 0
+                def bounded_formal_extract(turns):
+                    nonlocal first_turn_actual_event, formal_extract_calls
+                    # run_experimental_tir permits exactly one original proposal
+                    # and at most one complete solver-feedback repair. Do not
+                    # increase the general Qwen budget or allow extra retries.
+                    formal_extract_calls += 1
+                    if formal_extract_calls > 2:
+                        raise AgentModelError("Formal extraction retry limit.")
+                    try:
+                        return high_backend.respond_formal_extract(
+                            turns, repair_turn=(formal_extract_calls == 2))
+                    finally:
+                        # Snapshot only the initial extraction. Subsequent
+                        # model calls must not overwrite first-turn telemetry.
+                        if formal_extract_calls == 1:
+                            event = high_backend.last_inference_diagnostic
+                            if event is not previous_event and type(event) is dict:
+                                first_turn_actual_event = event
+                result = run_experimental_tir(
+                    data, high_backend.respond_chat,
+                    finalize_review=(bounded_observation_review
+                                     if bounded_final else None),
+                    first_turn_diagnostic=first_turn_diagnostic,
+                    extract_constraints=(bounded_formal_extract
+                                         if bounded_final else None),
+                    extraction_rejection_sink=first_turn_rejection_codes,
+                    solver_rejection_detail_sink=first_turn_solver_details)
+                if conservative_tir:
+                    from neral_tir_regression_guard import choose_guarded_tir_reply
+                    result = choose_guarded_tir_reply(
+                        result, data, high_backend.respond_chat)
                 return jsonify({**result, "experimental_tir": True,
+                                "conservative_tir": conservative_tir,
+                                "dual_routing": False,
                                 **_provenance(high_backend)})
             previous_event = (
                 high_backend.inference_diagnostic_events[-1]
@@ -568,17 +765,58 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         result["verification_status"] = "final_after_length_unverified"
             return jsonify({**result, **_provenance(high_backend)})
         except OllamaCompletionError as exc:
-            return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
-                           error_code=exc.reason), 503
+            error_packet = {"error": _SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                            "error_code": exc.reason}
+            if experimental_tir and first_turn_probe_armed:
+                # A failed first call can still record its Ollama token count
+                # and done_reason. Never return partial content or thoughts.
+                event = first_turn_actual_event
+                if event is None:
+                    current = high_backend.last_inference_diagnostic
+                    if (current is not first_turn_prior_event
+                            and type(current) is dict):
+                        event = current
+                if type(event) is dict:
+                    def bounded_count(key):
+                        n = event.get(key)
+                        return n if type(n) is int and 0 <= n <= 1_000_000 else None
+                    reason = event.get("done_reason")
+                    error_packet["first_turn_telemetry"] = {
+                        "eval_count": bounded_count("eval_count"),
+                        "prompt_eval_count": bounded_count("prompt_eval_count"),
+                        "done_reason": reason if reason in (
+                            "stop", "length", "load", "unload", "other") else None,
+                        "decision": "unavailable_on_failure",
+                    }
+                    # A later fallback failure still carries only the fixed
+                    # parser rejection label from the earlier extraction.
+                    from neral_turn0_extractor import (
+                        EXTRACTION_RESULT_CODES, SOLVER_REJECTION_DETAIL_CODES,
+                    )
+                    if (first_turn_rejection_codes
+                            and first_turn_rejection_codes[-1] in EXTRACTION_RESULT_CODES):
+                        error_packet["first_turn_telemetry"]["extraction_rejection_reason"] = first_turn_rejection_codes[-1]
+                    if (first_turn_solver_details and
+                            first_turn_solver_details[-1] in SOLVER_REJECTION_DETAIL_CODES):
+                        error_packet["first_turn_telemetry"]["solver_rejection_detail"] = first_turn_solver_details[-1]
+            return jsonify(error_packet), 503
         except AgentModelError:
             # A local Ollama transport/backend failure is distinct from
             # exhausted tokens and from unexpected application exceptions.
             return jsonify(error="Lokale Modell-Inferenz nicht verfügbar.",
                            error_code="model_error"), 503
-        except Exception:
-            # Never leak local paths, checkpoints, prompts or model outputs.
+        except Exception as exc:
+            # Local, session/CSRF-protected scalar diagnosis only; never the
+            # model's partial content, prompts or raw HTTP exception.
+            from neral_dual_routing import OllamaTransportFailure
+            if dual_routing and isinstance(exc,OllamaTransportFailure):
+                return jsonify(error="Lokale Generierung am unveränderten Ausgabelimit beendet."
+                               if exc.diagnostic.get("reason")=="token_limit" else
+                               "Lokale Ollama-Antwort konnte nicht vollständig bestätigt werden.",
+                               error_code="ollama_transport",
+                               diagnostic=exc.diagnostic),503
             return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden.",
-                           error_code="internal_error"), 503
+                           error_code="internal_error"),503
         finally:
             busy.release()
 
