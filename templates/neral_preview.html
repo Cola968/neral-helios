@@ -60,6 +60,12 @@
       <nav id="savedChatList" aria-label="Gespeicherte Chats"></nav>
       <div id="accountSection" class="sidebar-account">
         <span id="accountName">Gast · lokal</span>
+        <button id="showProfile" class="sidebar-profile-launch" type="button"
+          aria-haspopup="dialog" aria-controls="profileDashboard" title="NERAL Profil-Dashboard öffnen">
+          <span class="profile-launch-avatar" id="profileLaunchAvatar" aria-hidden="true">G</span>
+          <span class="profile-launch-title">Profil</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+        </button>
         <button id="showLogin" class="sidebar-login" type="button">Anmelden</button>
         <button id="logout" class="sidebar-login" type="button" hidden>Abmelden</button>
         <details id="accountSettings" hidden>
@@ -185,6 +191,8 @@
                     </div>
                     <div class="mode-effort-track" id="modeEffortTrack" data-level="low">
                       <span class="mode-effort-progress" aria-hidden="true"></span>
+                      <span class="mode-effort-stop mode-effort-stop-low" aria-hidden="true"></span>
+                      <span class="mode-effort-stop mode-effort-stop-high" aria-hidden="true"></span>
                       <input id="modeEffortSlider" type="range" min="0" max="1" step="1" value="0"
                         aria-label="Denkintensität" aria-valuetext="Schnell" aria-describedby="modeSliderCaption">
                     </div>
@@ -247,6 +255,43 @@
       </section>
     </div>
   </div>
+  <dialog id="profileDashboard" class="profile-dashboard" aria-labelledby="profileDashboardTitle">
+    <div class="profile-dashboard-shell">
+      <header class="profile-dashboard-header">
+        <span class="profile-dashboard-kicker">NERAL / KONTO</span>
+        <button id="profileClose" class="profile-dashboard-close" type="button" aria-label="Profil schließen">×</button>
+      </header>
+      <div class="profile-identity">
+        <span id="profileAvatar" class="profile-avatar" aria-hidden="true">G</span>
+        <div><h2 id="profileDashboardTitle">Mein Bereich</h2>
+          <p id="profileUsername">Gast</p></div>
+      </div>
+      <p class="profile-dashboard-note">Lokales Profil. Kontodaten und gespeicherte Chats bleiben auf diesem Gerät.</p>
+      <div class="profile-dashboard-metrics">
+        <section class="profile-dashboard-metric" aria-label="Gespeicherte Gespräche">
+          <span>Gespeicherte Chats</span><strong id="profileChatCount">—</strong>
+        </section>
+        <section class="profile-dashboard-metric" aria-label="Ausgewählter Denkmodus">
+          <span>Denkmodus</span><strong id="profileMode">LOW</strong>
+        </section>
+      </div>
+      <section class="profile-dashboard-section">
+        <h3>Konto und Daten</h3>
+        <div id="profileGuestActions">
+          <p>Für das Speichern von Gesprächen ist ein lokales Konto nötig.</p>
+          <button id="profileLogin" type="button" class="profile-dashboard-action">Lokal anmelden</button>
+        </div>
+        <div id="profileAccountActions" hidden>
+          <a id="profileExportChats" class="profile-dashboard-action" href="/api/neral/account/export"
+             download="neral-chats.json">Chats exportieren <span aria-hidden="true">↗</span></a>
+          <button id="profileOpenPassword" type="button" class="profile-dashboard-action">Passwort ändern</button>
+          <button id="profileSignOut" type="button" class="profile-dashboard-action">Abmelden</button>
+          <button id="profileDelete" type="button" class="profile-dashboard-action profile-dashboard-danger">Konto löschen</button>
+        </div>
+      </section>
+      <p class="profile-dashboard-footnote">Keine erfundenen Token-Zähler oder Cloud-Abonnements: Hier erscheinen ausschließlich lokale Kontoinformationen.</p>
+    </div>
+  </dialog>
   <dialog id="accountDialog" aria-labelledby="accountDialogTitle">
     <form id="accountForm" method="dialog">
       <h2 id="accountDialogTitle">Lokal anmelden</h2>
