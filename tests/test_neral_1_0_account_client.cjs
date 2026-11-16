@@ -35,7 +35,7 @@ function node(){
     }
   };
 }
-function harness({delayList=false,delayOpen=false,delaySave=false}={}){
+function harness({delayList=false,delayOpen=false,delaySave=false,guest=false}={}){
   const elements=new Map(),events=new Map(),requests=[];
   const listResult=deferred(),openResult=deferred(),saveResult=deferred();
   const writes=[];
@@ -54,7 +54,7 @@ function harness({delayList=false,delayOpen=false,delaySave=false}={}){
   const fetch=async(url,options={})=>{
     requests.push({url,options});
     if(url.endsWith("/session"))return response({csrf:"initial_csrf"});
-    if(url.endsWith("/me"))return response({authenticated:true,username:"alice"});
+    if(url.endsWith("/me"))return response(guest?{authenticated:false}:{authenticated:true,username:"alice"});
     if(url==="/api/neral/account/chats" && !options.method){
       return delayList?listResult.promise:response({chats:[chat]});
     }
@@ -172,4 +172,28 @@ test("profile actions preserve the existing local account flows",async()=>{
  await h.get("profileOpenPassword").events.click();
  assert.equal(h.get("accountManageDialog").open,true);
  assert.equal(h.get("accountManageTitle").textContent,"Passwort ändern");
+});
+
+test("guest profile is a compact login view without misleading usage cards",async()=>{
+ const h=harness({guest:true});
+ await h.flush();
+ assert.equal(h.get("profileLaunchName").textContent,"Gast");
+ assert.equal(h.get("profileGuestActions").hidden,false);
+ assert.equal(h.get("profileAccountActions").hidden,true);
+ assert.equal(h.get("profileChatCount").textContent,"—");
+ await h.get("showProfile").events.click();
+ assert.equal(h.get("profileDashboard").open,true);
+ await h.get("profileLogin").events.click();
+ assert.equal(h.get("profileDashboard").open,false);
+ assert.equal(h.get("accountDialog").open,true);
+});
+
+test("single profile entry updates after sign-out and hides account data",async()=>{
+ const h=harness();
+ await h.flush();
+ assert.equal(h.get("profileLaunchName").textContent,"alice");
+ await h.get("logout").events.click();
+ assert.equal(h.get("profileLaunchName").textContent,"Gast");
+ assert.equal(h.get("profileAccountActions").hidden,true);
+ assert.equal(h.get("profileChatCount").textContent,"—");
 });
