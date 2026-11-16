@@ -82,3 +82,95 @@ dialog input{border:1px solid #d8d9d6;border-radius:8px;padding:10px;width:100%;
     left:69px;width:220px;border:1px solid #e1e2df;border-radius:10px;
     background:#fff;padding:9px;box-shadow:0 10px 35px #0002}
 }
+
+
+/* NERAL profile surface: local data, existing account actions, no fake quota. */
+.sidebar-account .sidebar-profile-launch{
+  display:flex;align-items:center;gap:9px;justify-content:flex-start;
+  width:100%;padding:7px 9px;border:1px solid transparent;border-radius:12px;
+  background:transparent;color:var(--text);font-size:12px;text-align:left;cursor:pointer
+}
+.sidebar-account .sidebar-profile-launch:hover,
+.sidebar-account .sidebar-profile-launch:focus-visible{
+  background:var(--nr-hover,#e9eaed);border-color:var(--line)
+}
+.sidebar-account .profile-launch-avatar,
+.profile-avatar{
+  display:grid;place-items:center;border-radius:12px;
+  background:#273B59;color:#EDF3FF;font-weight:700;flex:0 0 auto
+}
+.sidebar-account .profile-launch-avatar{width:30px;height:30px;min-width:30px}
+.sidebar-account .profile-launch-title{flex:1;min-width:0;font-weight:600}
+.sidebar-account .sidebar-profile-launch svg{flex:0 0 auto;opacity:.55}
+.profile-dashboard{
+  position:fixed;inset:0 0 0 auto;box-sizing:border-box;
+  margin:0;padding:0;width:min(430px,100vw);
+  height:100dvh;max-height:100dvh;border:0;
+  border-left:1px solid #D7DBE4;border-radius:18px 0 0 18px;
+  background:#FAFBFC;color:#1D2736;
+  box-shadow:-18px 0 55px #121E3633
+}
+.profile-dashboard::backdrop{background:#10182791}
+.profile-dashboard-shell{height:100%;box-sizing:border-box;padding:28px 28px 24px;
+  overflow-y:auto;overscroll-behavior:contain}
+.profile-dashboard-header{display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #DFE4EA;padding-bottom:18px;gap:12px}
+.profile-dashboard-kicker{letter-spacing:1.8px;font-weight:700;font-size:10px;color:#5A6E87}
+.profile-dashboard .profile-dashboard-close{
+  display:grid;place-items:center;width:32px;height:32px;border:0;
+  background:transparent;border-radius:9px;color:#516176;
+  font-size:25px;line-height:1;padding:0
+}
+.profile-dashboard .profile-dashboard-close:hover{background:#E9EDF4}
+.profile-identity{display:flex;align-items:center;gap:15px;padding:28px 0 10px}
+.profile-avatar{width:54px;height:54px;font-size:24px;border-radius:17px}
+.profile-dashboard h2{font-size:23px;letter-spacing:-.65px;font-weight:700;
+  line-height:1.2;color:inherit;margin:0 0 5px}
+.profile-dashboard #profileUsername{font-size:13px;margin:0;color:#58697F;
+  font-weight:500;overflow-wrap:anywhere}
+.profile-dashboard-note{margin:12px 0 22px;font-size:12px;
+  color:#617089;line-height:1.6}
+.profile-dashboard-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.profile-dashboard-metric{min-width:0;border:1px solid #DBE1E9;
+  border-radius:14px;background:#F0F3F7;padding:15px 13px;display:flex;
+  flex-direction:column;gap:15px}
+.profile-dashboard-metric span{font-size:11px;color:#5E6D84;font-weight:550}
+.profile-dashboard-metric strong{font-size:25px;font-weight:720;letter-spacing:-.8px;
+  color:#263F69;font-variant-numeric:tabular-nums}
+.profile-dashboard-section{margin-top:30px}
+.profile-dashboard-section h3{text-transform:uppercase;letter-spacing:1.4px;
+  color:#6A788A;font-size:10px;font-weight:700;margin:0 0 11px}
+.profile-dashboard-section p{font-size:12px;color:#69788A}
+.profile-dashboard .profile-dashboard-action{
+  display:flex;width:100%;min-height:43px;align-items:center;justify-content:space-between;
+  text-align:left;box-sizing:border-box;padding:12px 14px;
+  background:transparent;color:#273346;border:0;border-radius:10px;
+  text-decoration:none;font-size:13px;font-weight:550;cursor:pointer
+}
+.profile-dashboard .profile-dashboard-action:hover,
+.profile-dashboard .profile-dashboard-action:focus-visible{background:#EDF0F6}
+.profile-dashboard .profile-dashboard-danger{color:#AD4848;margin-top:6px}
+.profile-dashboard-footnote{margin:32px 0 0;font-size:10px;
+  line-height:1.55;color:#8994A5}
+html[data-theme=dark] .profile-dashboard{
+  background:#191E27;color:#EAF0F8;border-left-color:#363F4D}
+html[data-theme=dark] .profile-dashboard-header{border-bottom-color:#313A48}
+html[data-theme=dark] .profile-dashboard-kicker,
+html[data-theme=dark] .profile-dashboard #profileUsername,
+html[data-theme=dark] .profile-dashboard-note,
+html[data-theme=dark] .profile-dashboard-section h3,
+html[data-theme=dark] .profile-dashboard-metric span{color:#A0AEC2}
+html[data-theme=dark] .profile-dashboard-metric{background:#222B38;border-color:#394357}
+html[data-theme=dark] .profile-dashboard-metric strong{color:#B6CDFF}
+html[data-theme=dark] .profile-dashboard .profile-dashboard-action{color:#E4EAF2}
+html[data-theme=dark] .profile-dashboard .profile-dashboard-action:hover,
+html[data-theme=dark] .profile-dashboard .profile-dashboard-close:hover{background:#2E3746}
+html[data-theme=dark] .profile-dashboard .profile-dashboard-danger{color:#ED9595}
+html[data-theme=dark] .profile-dashboard-footnote{color:#99A5B5}
+@media(max-width:520px){
+  .sidebar-account .sidebar-profile-launch{justify-content:center;padding:8px 0}
+  .sidebar-account .profile-launch-title,
+  .sidebar-account .sidebar-profile-launch svg{display:none}
+  .profile-dashboard{width:100vw;border-radius:0}
+  .profile-dashboard-shell{padding:20px}
+}

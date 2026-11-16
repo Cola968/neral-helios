@@ -624,3 +624,34 @@ html[data-theme=dark] #modeSliderTitle{color:#6da6ff}
 .message .neral-markdown-list li{padding-inline-start:2px;margin:5px 0;
   line-height:1.75}
 .message .neral-markdown-list li b{font-weight:650;color:var(--nr-text)}
+
+
+/* Two authentic LOW/HIGH stops, visually close to the compact ChatGPT picker.
+   NERAL uses a cooler muted blue and narrower shell; never fake extra modes. */
+.mode-dropdown-menu.mode-slider-popover{
+  width:min(294px,calc(100vw - 24px));
+  border-radius:19px;padding:13px 14px 10px
+}
+.mode-slider-heading{margin-bottom:14px}
+.mode-effort-track{height:29px;background:#4B4D54}
+.mode-effort-progress{background:#658AF0;transition:width .16s ease}
+.mode-effort-stop{position:absolute;z-index:1;pointer-events:none;
+  width:5px;height:5px;top:12px;border-radius:50%;background:#9EA4B2}
+.mode-effort-stop-low{left:13px}
+.mode-effort-stop-high{right:13px}
+.mode-effort-track[data-level="high"] .mode-effort-stop-high{background:#CDDAFF}
+.mode-effort-track input[type="range"]{height:29px;z-index:2}
+.mode-effort-track input::-webkit-slider-runnable-track{height:29px}
+.mode-effort-track input::-moz-range-track{height:29px}
+.mode-effort-track input::-webkit-slider-thumb{
+  width:32px;height:32px;margin-top:-1.5px;
+  background:#fff;border:1px solid #E4E6ED;
+  box-shadow:0 1px 5px #11192735
+}
+.mode-effort-track input::-moz-range-thumb{
+  width:30px;height:30px;background:#fff;border:1px solid #E4E6ED
+}
+#modeSliderTitle{color:#7297ED}
+html[data-theme=dark] .mode-slider-popover{background:#292B31}
+html[data-theme=dark] .mode-effort-track{background:#43464F}
+html[data-theme=dark] #modeSliderTitle{color:#95B2FF}

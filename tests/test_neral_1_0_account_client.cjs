@@ -135,3 +135,41 @@ test("two completed turns are persisted in order even while the first save waits
   assert.deepEqual(h.writes[1].messages.slice(-2).map(m=>m.content),
     ["Zweite Frage","Zweite Antwort"]);
 });
+
+
+test("local profile dashboard shows actual saved-chat count and current owner",async()=>{
+ const h=harness();
+ await h.flush();
+ assert.equal(h.get("profileChatCount").textContent,"1");
+ assert.equal(h.get("profileUsername").textContent,"alice");
+ await h.get("showProfile").events.click();
+ assert.equal(h.get("profileDashboard").open,true);
+ assert.equal(h.get("profileGuestActions").hidden,true);
+ assert.equal(h.get("profileAccountActions").hidden,false);
+ await h.get("profileClose").events.click();
+ assert.equal(h.get("profileDashboard").open,false);
+});
+
+test("profile closes and hides account information on logout and delayed results",async()=>{
+ const h=harness({delayList:true});
+ await h.flush();
+ await h.get("showProfile").events.click();
+ assert.equal(h.get("profileDashboard").open,true);
+ await h.get("logout").events.click();
+ assert.equal(h.get("profileDashboard").open,false);
+ assert.equal(h.get("profileUsername").textContent,"Gast");
+ assert.equal(h.get("profileChatCount").textContent,"—");
+ assert.equal(h.get("profileGuestActions").hidden,false);
+ assert.equal(h.get("profileAccountActions").hidden,true);
+ h.listResult.resolve({ok:true,json:async()=>({chats:[h.chat]})});
+ await h.flush();
+ assert.equal(h.get("profileChatCount").textContent,"—");
+});
+
+test("profile actions preserve the existing local account flows",async()=>{
+ const h=harness();
+ await h.flush();
+ await h.get("profileOpenPassword").events.click();
+ assert.equal(h.get("accountManageDialog").open,true);
+ assert.equal(h.get("accountManageTitle").textContent,"Passwort ändern");
+});
