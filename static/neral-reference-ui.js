@@ -6,7 +6,7 @@
   const trigger=$("modeDropdownTrigger"),menu=$("modeDropdownMenu");
   const low=$("modeOptionLow"),high=$("modeOptionHigh");
   const slider=$("modeEffortSlider"),track=$("modeEffortTrack");
-  const sliderTitle=$("modeSliderTitle"),sliderCaption=$("modeSliderCaption");
+  const sliderTitle=$("modeSliderTitle");
   const sliderReset=$("modeSliderReset");
   const radios={
     fast:document.querySelector('input[name="mode"][value="fast"]'),
@@ -15,7 +15,7 @@
   // Optional enhancement: never prevent code/math rendering when a preview
   // fixture or older embedded shell does not include the slider.
   if(trigger&&menu&&low&&high&&slider&&track&&sliderTitle&&
-     sliderCaption&&sliderReset&&radios.fast&&radios.think){
+     sliderReset&&radios.fast&&radios.think){
   const current=$("modeDropdownLabel");
   const entries={fast:low,think:high};
   const labels={fast:"LOW",think:"HIGH"};
@@ -27,7 +27,6 @@
     slider.value=selected==="think"?"1":"0";
     slider.setAttribute("aria-valuetext",titles[selected]);
     sliderTitle.textContent=titles[selected];
-    sliderCaption.textContent="NERAL · "+labels[selected];
     track.dataset.level=selected==="think"?"high":"low";
     for(const [key,option] of Object.entries(entries)){
       option.setAttribute("aria-checked",String(key===selected));
