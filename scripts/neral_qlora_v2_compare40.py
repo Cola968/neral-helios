@@ -15,7 +15,32 @@ from pathlib import Path
 import statistics
 import time
 
-from scripts.neral_qlora_v2_pilot import SYSTEM, TRAIN_SHA, VAL_SHA, _digest
+TRAIN_SHA = "8540083bf28b83856bcf684593aa97e6fc9c669bb75cbe6c58a5cd7939518af9"
+VAL_SHA = "5366eeee5090611239a740e57003f3a93dd0defd7917a16a622f60a6a2840805"
+SYSTEM = (
+    "Du bist ein lokaler Assistent für streng definierte Rechen-, Graph- "
+    "und Constraint-Aufgaben. Gib ausschließlich ein syntaktisch gültiges "
+    'JSON-Objekt mit genau den Schlüsseln "tool", "spec" und "answer" aus. '
+    "tool ist sympy, networkx oder z3. spec bildet die vollständige "
+    "Aufgabenspezifikation ab; answer ist das exakte, geprüfte Ergebnis. "
+    "Keine Markdown-Zäune, keine Erklärung, keine zusätzlichen Schlüssel."
+)
+
+
+def _digest(path: Path) -> str:
+    """Hash Git blobs reproducibly on Windows with Git CRLF checkout only.
+
+    Do not normalize whitespace, Unicode, extra carriage returns, or fields:
+    ONLY the CRLF->LF conversion known from Git checkout is allowed.
+    """
+    raw=path.read_bytes()
+    if b"\r" in raw:
+        if raw.count(b"\r") != raw.count(b"\r\n"):
+            raise ValueError("Unexpected non-CRLF bytes in frozen dataset")
+        raw=raw.replace(b"\r\n",b"\n")
+    return hashlib.sha256(raw).hexdigest()
+
+
 from scripts.neral_qlora_train_peft import BASE_MODEL, create_config
 
 TEST_SHA="c5e3962768a7a870df837f63624b2904cbcd6dfef559445f9c220e7ed6a7a7a7"
