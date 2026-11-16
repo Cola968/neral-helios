@@ -178,3 +178,28 @@ test("profile is a dedicated local dashboard, slider keeps two tactile stops",()
  assert.match(markup,/id="modeEffortSlider"[^>]*min="0"[^>]*max="1"/);
  assert.doesNotMatch(markup,/Premium freigeschaltet|Unbegrenzte Tokens/);
 });
+
+
+test("minimal NERAL slider contains only mode title, native range, end labels and reset",()=>{
+  const markup=html();
+  const section=markup.slice(markup.indexOf('id="modeDropdownMenu"'),markup.indexOf('id="modeDropdownMenu"')+2400);
+  assert.ok(section.includes('id="modeSliderTitle"'));
+  assert.ok(section.includes('id="modeSliderReset"'));
+  assert.ok(section.includes('id="modeEffortSlider"'));
+  assert.ok(section.includes('class="mode-slider-ends"'));
+  assert.doesNotMatch(section,/mode-slider-bolt|id="modeSliderCaption"|NERAL · LOW|NERAL \/ CONTROL|role="status"/);
+  assert.match(section,/aria-label="Denkmodus"/);
+  assert.match(section,/min="0"[^>]*max="1"[^>]*step="1"/);
+});
+
+test("minimal mode picker preserves original two backend modes and separate profile",()=>{
+  const markup=html(),source=js(),sheet=css();
+  assert.match(markup,/id="profileDashboard"/);
+  assert.match(markup,/name="mode" value="fast"/);
+  assert.match(markup,/name="mode" value="think"/);
+  assert.doesNotMatch(source,/modeSliderCaption/);
+  assert.match(source,/sliderTitle\.textContent=titles\[selected\]/);
+  assert.match(source,/sliderReset\.addEventListener\("click"/);
+  assert.match(sheet,/\.mode-slider-copy/);
+  assert.match(sheet,/\.mode-slider-ends/);
+});
