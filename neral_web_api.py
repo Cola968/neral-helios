@@ -159,6 +159,23 @@ def register_web_search_api(app, service=None):
         contacted=list(result.get("providers_contacted",[]))
         current=first
         retained=list(first.get("previews",[]))
+        def preserve_previews(payload: dict) -> dict:
+            """Retain genuine, previously screened provider discoveries.
+
+            A failed HEAD/TLS probe must not erase a topical DuckDuckGo hit
+            when a later provider offers a verified link. The preview remains
+            explicitly unverified and each URL appears only once.
+            """
+            seen=set()
+            previews=[]
+            for hit in [*payload.get("previews",[]), *retained]:
+                url=hit.get("url")
+                if url and url not in seen:
+                    previews.append(hit)
+                    seen.add(url)
+                if len(previews)>=5:
+                    break
+            return {**payload, "previews":previews}
         retry=getattr(search,"search_bing",None)
         if ("Bing RSS" not in contacted and result.get("provider")=="DuckDuckGo HTML"
                 and callable(retry)):
@@ -173,7 +190,7 @@ def register_web_search_api(app, service=None):
             except WebSearchError:
                 current={**first,"providers_contacted":list(contacted)}
         if current["results"]:
-            return current
+            return preserve_previews(current)
 
         news=getattr(search,"search_news",None)
         if (is_fresh_news_query(query) and "Google News RSS" not in contacted
@@ -194,7 +211,7 @@ def register_web_search_api(app, service=None):
         if current["results"] or (is_fresh_news_query(query)
                 and current.get("provider")=="Google News RSS"
                 and current.get("previews")):
-            return current
+            return preserve_previews(current)
 
         wiki=getattr(search,"search_wikipedia",None)
         if ("Wikipedia DE" not in contacted and
@@ -210,20 +227,12 @@ def register_web_search_api(app, service=None):
             except WebSearchError:
                 current={**current,"providers_contacted":list(contacted)}
 
-        seen=set()
-        discovered=[]
-        for hit in [*current.get("previews",[]),*retained]:
-            url=hit.get("url")
-            if url and url not in seen:
-                discovered.append(hit)
-                seen.add(url)
-            if len(discovered)>=5:
-                break
+        current=preserve_previews(current)
+        discovered=current["previews"]
         result_provider=(current.get("provider") if current.get("results") else
                          discovered[0].get("provider",current.get("provider"))
                          if discovered else current.get("provider"))
-        return {**current,"previews":discovered,
-                "provider":result_provider,
+        return {**current,"provider":result_provider,
                 "providers_contacted":list(contacted)}
 
     @app.post("/api/web/search/stream")
