@@ -29,6 +29,8 @@ jobs:
         run: node --test tests/test_neral_issue_554_web.cjs
       - name: Validate JS syntax
         run: node --check static/neral-preview.js
+      - name: Existing web state, relevance and live-source UI tests
+        run: node --test tests/test_neral_web_search_state.cjs tests/test_neral_chat_search_relevance.cjs tests/test_neral_live_sources.cjs
   attachments:
     runs-on: ubuntu-latest
     steps:
@@ -41,3 +43,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_neral_issue_554_attachments.py -v
       - name: Request-scoped local model cancellation contracts
         run: python -B -m unittest discover -s tests -p test_neral_issue_554_cancel.py -v
+      - name: Existing attachment and finalizer regression contracts
+        run: |
+          python -B -m unittest discover -s tests -p test_neral_1_0_attachments.py -v
+          python -B -m unittest discover -s tests -p test_neral_high_finalizer.py -v
+          python -B -m unittest discover -s tests -p test_neral_live_sources.py -v
