@@ -104,7 +104,7 @@ test("slider and reset update the original FAST\/THINK radios without changing r
     };
   }
   const ids=["modeDropdownTrigger","modeDropdownMenu","modeOptionLow","modeOptionHigh",
-    "modeDropdownLabel","modeEffortSlider","modeEffortTrack","modeSliderTitle","modeSliderReset","modeSliderCaption"];
+    "modeDropdownLabel","modeEffortSlider","modeEffortTrack","modeSliderTitle","modeSliderReset"];
   const map=Object.fromEntries(ids.map(id=>[id,element(id)]));
   map.modeDropdownMenu.hidden=true;
   const fast=element("fast"),think=element("think");
@@ -173,8 +173,7 @@ test("profile is a dedicated local dashboard, slider keeps two tactile stops",()
    assert.ok(markup.includes('id="'+id+'"'),"Missing profile element "+id);
  }
  assert.match(fs.readFileSync(path.join(root,"static/neral-accounts.css"),"utf8"),/\.profile-dashboard/);
- assert.match(markup,/mode-effort-stop/);
- assert.match(sheet,/\.mode-effort-stop/);
+ assert.doesNotMatch(markup,/mode-effort-stop|mode-slider-bolt|modeSliderCaption/);
  assert.match(markup,/id="modeEffortSlider"[^>]*min="0"[^>]*max="1"/);
  assert.doesNotMatch(markup,/Premium freigeschaltet|Unbegrenzte Tokens/);
 });
