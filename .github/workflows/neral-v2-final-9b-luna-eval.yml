@@ -77,6 +77,15 @@ jobs:
           }
           Write-Host 'FROZEN_9B_RANK16_PROOF_CHECK_PASSED_TEST40_UNTOUCHED'
 
+      - name: Verify all evaluation imports before touching original 40-case test set
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2E_SRC
+          try {
+            & $env:V2E_PY -B -c "import scripts.neral_qlora_v2_compare40, scripts.neral_v2_final_eval40, scripts.neral_v2_pipeline24_hf, scripts.neral_v2_dialogue_rag_sample; print('FINAL_COMPARISON_MODULES_READY')"
+            if($LASTEXITCODE -ne 0){throw 'Final evaluator dependency import failed; frozen test remains unopened'}
+          } finally {Pop-Location}
+
       - name: Release GPU from Ollama models; 9B v1/full/base all run under identical HF NF4
         run: |
           $ErrorActionPreference='Stop'
