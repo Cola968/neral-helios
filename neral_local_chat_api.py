@@ -786,6 +786,18 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                     result["completion_recovery_used"] = True
                     if not result.get("verified"):
                         result["verification_status"] = "final_after_length_unverified"
+                continued = any(
+                    row.get("prose_continuation_succeeded") is True
+                    for row in new_events if isinstance(row, dict)
+                )
+                if continued:
+                    result["calls_used"] += sum(
+                        row.get("prose_continuation_attempted") is True
+                        for row in new_events if isinstance(row, dict)
+                    )
+                    result["completion_continuation_used"] = True
+                    if not result.get("verified"):
+                        result["verification_status"] = "continued_unverified"
             return jsonify({**result, **_provenance(high_backend)})
         except OllamaCompletionError as exc:
             error_packet = {"error": _SAFE_OLLAMA_ERROR_TEXT[exc.reason],

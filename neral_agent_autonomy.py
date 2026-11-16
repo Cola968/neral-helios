@@ -86,6 +86,31 @@ def _safe_ollama_http_error_type(response) -> str:
     return "http_rejected"
 
 
+def _is_high_long_form_request(messages: list[dict]) -> bool:
+    """Conservatively select a larger budget for explicit derivations only.
+
+    Numeric FINAL_ANSWER contracts keep their historic bounded rescue; this
+    is routing metadata, not a proof that a mathematical answer is correct.
+    """
+    if not isinstance(messages, list) or not messages:
+        return False
+    current = messages[-1]
+    if not isinstance(current, dict) or current.get("role") != "user":
+        return False
+    question = current.get("content")
+    if not isinstance(question, str) or not 1 <= len(question) <= 3000:
+        return False
+    if re.search(r"\bFINAL_ANSWER\s*:", question, re.I):
+        return False
+    return bool(
+        re.search(r"\b(?:herleitung|herleite|beweise|beweis|derive|derivation|prove)\b",
+                  question, re.I)
+        or re.search(r"\bleite\b[\s\S]{0,350}?\bher\b", question, re.I)
+        or re.search(r"\bbegründe\b[\s\S]{0,250}\bzwischenschritte\b",
+                     question, re.I)
+    )
+
+
 class OllamaLocalBackend:
     """Opt-in localhost Ollama, never a remote provider or outbound proxy."""
 
@@ -194,7 +219,8 @@ class OllamaLocalBackend:
             raise AgentModelError("Kurzer HIGH-Abschluss nur im gemessenen Profil.")
         with self._inference_lock:
             return self._respond(messages, require_json=False,
-                                 thinking=False, rescue_long_final=True)
+                                 thinking=False, rescue_long_final=True,
+                                 long_form_budget=_is_high_long_form_request(messages))
 
     def respond_chat_stream(self, messages: list[dict]):
         """Yield actual Ollama FAST content chunks, never simulated tokens.
@@ -275,7 +301,9 @@ class OllamaLocalBackend:
                  thinking: bool = False, final_only: bool = False,
                  rescue_long_final: bool = False,
                  extraction_only: bool = False,
-                 repair_only: bool = False) -> str:
+                 repair_only: bool = False,
+                 long_form_budget: bool = False,
+                 prose_continuation: bool = False) -> str:
         if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
         if final_only and rescue_long_final:
@@ -285,6 +313,15 @@ class OllamaLocalBackend:
         if extraction_only and (not require_json or thinking
                                 or final_only or rescue_long_final):
             raise AgentModelError("Invalid opt-in constraint extraction mode.")
+        if (long_form_budget or prose_continuation) and (
+                type(long_form_budget) is not bool
+                or type(prose_continuation) is not bool
+                or require_json or thinking or final_only or extraction_only
+                or repair_only or self.model != "qwen3.5:9b"
+                or self.inference_profile != "measured_nonthinking_2048"
+                or (long_form_budget and not rescue_long_final)
+                or (prose_continuation and (rescue_long_final or long_form_budget))):
+            raise AgentModelError("Long-form budget is restricted to local HIGH.")
         # Direct Qwen keeps 2,048 tokens. Only the bounded second schema
         # proposal gets 1,536; first extraction stays at 384 tokens.
         measured = (self.inference_profile == "measured_nonthinking_2048"
@@ -302,6 +339,13 @@ class OllamaLocalBackend:
             if measured else
             {"temperature": 0, "num_predict": budget, "num_ctx": 4096}
         )
+        if long_form_budget:
+            # Only explicit HIGH derivations need this extra decoding space.
+            # The 8K context prevents the 4K reply from exhausting num_ctx.
+            options = {**options, "num_predict": 4096, "num_ctx": 8192}
+        if prose_continuation:
+            # Exactly one short continuation; no self-recursion or new oracle.
+            options = {"temperature": 0, "num_predict": 1536, "num_ctx": 8192}
         if measured and self._benchmark_seed is not None:
             options["seed"] = self._benchmark_seed
         request_data = {
@@ -342,16 +386,24 @@ class OllamaLocalBackend:
             "prompt_eval_count": None,
             "final_recovery_attempted": False,
             "final_recovery_succeeded": False,
+            "long_form_budget_used": long_form_budget,
+            "prose_continuation_attempted": False,
+            "prose_continuation_succeeded": False,
         }
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
         # Proxy handler is disabled. No cloud provider and no raw error logging.
         try:
-            with local_only_opener().open(
-                    request, timeout=min(self.timeout, 90.0) if extraction_only
-                    else 90.0 if (thinking or measured) else self.timeout
-            ) as response:
+            # The default 90-second socket timeout is too short for a 4K-token
+            # derivation on a local 12 GB GPU. Only this HIGH path gets 180 s.
+            timeout_s = (
+                180.0 if long_form_budget else
+                90.0 if prose_continuation else
+                min(self.timeout, 90.0) if extraction_only else
+                90.0 if (thinking or measured) else self.timeout
+            )
+            with local_only_opener().open(request, timeout=timeout_s) as response:
                 diagnostic["ollama_http_status"] = getattr(response, "status", 200)
                 raw = response.read(128 * 1024 + 1)
             if len(raw) > 128 * 1024:
@@ -388,6 +440,37 @@ class OllamaLocalBackend:
                     messages[-1].get("content") if messages
                     and isinstance(messages[-1], dict) else None)
                 partial = message.get("content") if isinstance(message, dict) else None
+                if (reason == "length" and long_form_budget
+                        and rescue_long_final and measured
+                        and packet.get("done") is True
+                        and isinstance(partial, str)
+                        and 40 <= len(partial.encode("utf-8")) <= 24576):
+                    # Keep the private partial only within this local call.
+                    # A second length/error still fails closed; this is not
+                    # a mathematical verification or a certified proof.
+                    diagnostic["prose_continuation_attempted"] = True
+                    continuation_turns = [dict(row) for row in messages] + [
+                        {"role": "assistant", "content": partial},
+                        {"role": "user", "content": (
+                            "Setze die vorige Herleitung genau ab der letzten "
+                            "Stelle fort. Wiederhole den bisherigen Text nicht. "
+                            "Beende die Argumentation kurz und vollständig. "
+                            "Erfinde keine fehlenden Beweise."
+                        )},
+                    ]
+                    try:
+                        tail = self._respond(
+                            continuation_turns, require_json=False,
+                            thinking=False, prose_continuation=True)
+                    except AgentModelError as exc:
+                        raise OllamaCompletionError("token_limit") from exc
+                    combined = partial.rstrip() + "\n" + tail.lstrip()
+                    if (not tail.strip()
+                            or len(combined) > 32768
+                            or len(combined.encode("utf-8")) > 32768):
+                        raise OllamaCompletionError("token_limit")
+                    diagnostic["prose_continuation_succeeded"] = True
+                    return combined
                 eligible = (
                     reason == "length" and rescue_long_final and measured
                     and packet.get("done") is True and not final_only

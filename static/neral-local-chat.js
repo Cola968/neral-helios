@@ -85,9 +85,15 @@
   }
 
   async function req(path, data) {
+    const text = data && typeof data.prompt === 'string' ? data.prompt : '';
+    const longHigh = path === 'think' && (!!text && !/\bFINAL_ANSWER\s*:/i.test(text) &&
+      (/\b(?:herleitung|herleite|beweise|beweis|derive|derivation|prove)\b/i.test(text) ||
+       /\bleite\b[\s\S]{0,350}?\bher\b/i.test(text) ||
+       /\bbegründe\b[\s\S]{0,250}\bzwischenschritte\b/i.test(text)));
     const init = data === undefined ? {method:'GET',signal:AbortSignal.timeout(8000)} : {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data), signal:AbortSignal.timeout(path === 'think' ? 180000 : 120000)
+      body:JSON.stringify(data),
+      signal:AbortSignal.timeout(path === 'think' ? (longHigh ? 300000 : 180000) : 120000)
     };
     const response = await fetch('/api/neral/chat/' + path, init);
     let obj;
