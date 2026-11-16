@@ -80,6 +80,27 @@ class HighAttachments554(unittest.TestCase):
         self.assertIn("Bild zeigt RAUTE731",self.high_messages[0][-1]["content"])
         self.high.respond_think.assert_not_called()
 
+    def test_stop_during_image_extraction_returns_safe_error_and_clears_busy_lock(self):
+        request_id="a"*32
+        # Use a separate app because the injected vision callable is fixed at setup.
+        low=StubOllama("qwen3:8b")
+        app=None
+        def cancel_during_vision(raw,question):
+            self.assertTrue(app._neral_chat_cancel_registry.cancel(request_id))
+            return "qwen3-vl:2b","Bild zeigt RAUTE731."
+        app=create_preview_app(low,secret_key=b"X"*32,vision_analyzer=cancel_during_vision)
+        client=app.test_client()
+        client.get("/",base_url=HOST)
+        token=client.get("/api/neral/preview/session",base_url=HOST).json["csrf"]
+        response=client.post(URL,
+            data={"prompt":"Was siehst du?","history":"[]","mode":"generate",
+                  "files":[(BytesIO(b"\\x89PNG\\r\\n\\x1a\\nRAUTE731"),"bild.png")]},
+            headers={"X-Neral-CSRF":token,"X-Neral-Request-Id":request_id},
+            content_type="multipart/form-data",base_url=HOST)
+        self.assertEqual(response.status_code,409,response.get_json())
+        self.assertEqual(response.json["error_code"],"cancelled")
+        self.assertFalse(app._neral_chat_cancel_registry.cancel(request_id))
+
     def test_high_file_truncation_returns_specific_safe_error(self):
         self.raise_error=True
         response=self.post("notes.txt",b"RAUTE731 Textnotiz")
