@@ -190,3 +190,30 @@ def test_preview_requirements_include_actual_cpu_verifier_packages():
     root=Path(__file__).resolve().parents[2]
     deps=set((root/"requirements-neral-preview.txt").read_text().splitlines())
     assert {"sympy==1.14.0","networkx==3.6.1"} <= deps
+
+def test_legacy_preview_starts_without_optional_networkx_installed():
+    import subprocess, sys
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[2]
+    child = """
+import builtins
+original = builtins.__import__
+def blocked(name, *args, **kwargs):
+    if name == "networkx" or name.startswith("networkx."):
+        raise ModuleNotFoundError("simulate lean 1.0 runtime missing networkx")
+    return original(name,*args,**kwargs)
+builtins.__import__ = blocked
+from neral_preview_server import create_preview_app
+class Fake:
+    model = "qwen3:8b"
+    def respond_chat(self,turns):return "OK"
+    respond_think = respond_chat
+    respond = respond_chat
+app=create_preview_app(Fake(),secret_key=b"B"*32)
+c=app.test_client()
+assert c.get("/",base_url="http://127.0.0.1:9690").status_code==200
+print("PREVIEW_NO_NETWORKX_OK")
+"""
+    r=subprocess.run([sys.executable,"-c",child],cwd=root,capture_output=True,text=True,timeout=25)
+    assert r.returncode==0,r.stderr[-1000:]
+    assert "PREVIEW_NO_NETWORKX_OK" in r.stdout

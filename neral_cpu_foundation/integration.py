@@ -14,7 +14,6 @@ import shutil
 from flask import jsonify, request
 
 from .symbolic import verify_symbolic
-from .graphs import verify_graph
 from .constraints import solve_constraints
 from .memory import LocalMemory
 from .rag import LocalRAG
@@ -143,7 +142,9 @@ def register_cpu_foundation_api(app):
         tool=data["tool"]
         try:
             if tool=="sympy": r=verify_symbolic(data["spec"])
-            elif tool=="networkx": r=verify_graph(data["spec"])
+            elif tool=="networkx":
+                from .graphs import verify_graph
+                r=verify_graph(data["spec"])
             elif tool=="z3": r=solve_constraints(data["spec"])
             else: return jsonify(error="Unbekanntes CPU-Werkzeug."),400
         except (ValueError,TypeError,KeyError,RuntimeError,ImportError) as exc:
