@@ -104,7 +104,7 @@ test("slider and reset update the original FAST\/THINK radios without changing r
     };
   }
   const ids=["modeDropdownTrigger","modeDropdownMenu","modeOptionLow","modeOptionHigh",
-    "modeDropdownLabel","modeEffortSlider","modeEffortTrack","modeSliderTitle","modeSliderReset","modeSliderCaption"];
+    "modeDropdownLabel","modeEffortSlider","modeEffortTrack","modeSliderTitle","modeSliderReset"];
   const map=Object.fromEntries(ids.map(id=>[id,element(id)]));
   map.modeDropdownMenu.hidden=true;
   const fast=element("fast"),think=element("think");
@@ -173,8 +173,32 @@ test("profile is a dedicated local dashboard, slider keeps two tactile stops",()
    assert.ok(markup.includes('id="'+id+'"'),"Missing profile element "+id);
  }
  assert.match(fs.readFileSync(path.join(root,"static/neral-accounts.css"),"utf8"),/\.profile-dashboard/);
- assert.match(markup,/mode-effort-stop/);
- assert.match(sheet,/\.mode-effort-stop/);
+ assert.doesNotMatch(markup,/mode-effort-stop|mode-slider-bolt|modeSliderCaption/);
  assert.match(markup,/id="modeEffortSlider"[^>]*min="0"[^>]*max="1"/);
  assert.doesNotMatch(markup,/Premium freigeschaltet|Unbegrenzte Tokens/);
+});
+
+
+test("minimal NERAL slider contains only mode title, native range, end labels and reset",()=>{
+  const markup=html();
+  const section=markup.slice(markup.indexOf('id="modeDropdownMenu"'),markup.indexOf('id="modeDropdownMenu"')+2400);
+  assert.ok(section.includes('id="modeSliderTitle"'));
+  assert.ok(section.includes('id="modeSliderReset"'));
+  assert.ok(section.includes('id="modeEffortSlider"'));
+  assert.ok(section.includes('class="mode-slider-ends"'));
+  assert.doesNotMatch(section,/mode-slider-bolt|id="modeSliderCaption"|NERAL · LOW|NERAL \/ CONTROL|role="status"/);
+  assert.match(section,/aria-label="Denkmodus"/);
+  assert.match(section,/min="0"[^>]*max="1"[^>]*step="1"/);
+});
+
+test("minimal mode picker preserves original two backend modes and separate profile",()=>{
+  const markup=html(),source=js(),sheet=css();
+  assert.match(markup,/id="profileDashboard"/);
+  assert.match(markup,/name="mode" value="fast"/);
+  assert.match(markup,/name="mode" value="think"/);
+  assert.doesNotMatch(source,/modeSliderCaption/);
+  assert.match(source,/sliderTitle\.textContent=titles\[selected\]/);
+  assert.match(source,/sliderReset\.addEventListener\("click"/);
+  assert.match(sheet,/\.mode-slider-copy/);
+  assert.match(sheet,/\.mode-slider-ends/);
 });
