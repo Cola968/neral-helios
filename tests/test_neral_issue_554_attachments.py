@@ -4,6 +4,7 @@ All tests use fake inference and local Flask. No GPU, file persistence or networ
 """
 from io import BytesIO
 import unittest
+from unittest.mock import Mock
 
 from neral_agent_autonomy import OllamaCompletionError, OllamaLocalBackend
 from neral_preview_server import create_preview_app
@@ -39,7 +40,18 @@ class StubOllama(OllamaLocalBackend):
 class HighAttachments554(unittest.TestCase):
     def setUp(self):
         self.low = StubOllama("qwen3:8b")
-        self.high = StubOllama("qwen3.5:9b",inference_profile="measured_nonthinking_2048")
+        self.high = OllamaLocalBackend("qwen3.5:9b",
+                inference_profile="measured_nonthinking_2048")
+        self.high_messages = []
+        self.raise_error = False
+        def high_final(messages, *, cancel_event=None):
+            self.high_messages.append(messages)
+            if self.raise_error:
+                raise OllamaCompletionError("token_limit")
+            return "Ich nutze die Dateiinformation: RAUTE731."
+        self.high.respond_high_final = Mock(side_effect=high_final)
+        self.high.respond_think = Mock(return_value="Alte allgemeine Antwort ohne Anhang.")
+        self.high.unload = Mock()
         self.app = create_preview_app(
             self.low, experimental_high_backend=self.high,
             secret_key=b"T" * 32,
@@ -64,17 +76,17 @@ class HighAttachments554(unittest.TestCase):
         self.assertEqual(response.json["mode"],"HIGH")
         self.assertFalse(response.json["verified"])
         self.assertFalse(response.json["attachment_context_verified"])
-        self.assertEqual(len(self.high.high_messages),1)
-        self.assertIn("Bild zeigt RAUTE731",self.high.high_messages[0][-1]["content"])
-        self.assertEqual(self.high.think_calls,0)
+        self.assertEqual(len(self.high_messages),1)
+        self.assertIn("Bild zeigt RAUTE731",self.high_messages[0][-1]["content"])
+        self.high.respond_think.assert_not_called()
 
     def test_high_file_truncation_returns_specific_safe_error(self):
-        self.high.raise_error=True
+        self.raise_error=True
         response=self.post("notes.txt",b"RAUTE731 Textnotiz")
         self.assertEqual(response.status_code,503)
         self.assertEqual(response.json["error_code"],"token_limit")
         self.assertIn("Ausgabelimit",response.json["error"])
-        self.assertEqual(self.high.think_calls,0)
+        self.high.respond_think.assert_not_called()
 
 
 if __name__ == "__main__":
