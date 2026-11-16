@@ -5,6 +5,7 @@ on:
       - 'neral_think.py'
       - 'tests/test_neral_high_first_pass_only.py'
       - 'tests/test_neral_high_finalizer.py'
+      - 'tests/test_neral_high_long_form.py'
       - 'neral_agent_autonomy.py'
       - 'tests/test_neral_1_0_high_depth.py'
       - 'tests/test_neral_high_response_format.py'
@@ -21,6 +22,7 @@ on:
       - 'neral_think.py'
       - 'tests/test_neral_high_first_pass_only.py'
       - 'tests/test_neral_high_finalizer.py'
+      - 'tests/test_neral_high_long_form.py'
       - 'neral_agent_autonomy.py'
       - 'tests/test_neral_1_0_high_depth.py'
       - 'tests/test_neral_high_response_format.py'
@@ -51,6 +53,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_neral_high_first_pass_only.py -v
       - name: 64-token HIGH finalizer and cutoff contracts
         run: python -m unittest discover -s tests -p test_neral_high_finalizer.py -v
+      - name: Long-form HIGH budget and safe continuation contracts
+        run: python -m unittest discover -s tests -p test_neral_high_long_form.py -v
       - name: Existing HIGH/THINK contracts
         run: python -m unittest discover -s tests -p test_neral_1_0_high_depth.py -v
       - name: Existing code and JSON output contracts
