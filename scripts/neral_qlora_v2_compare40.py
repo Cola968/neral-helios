@@ -20,7 +20,7 @@ from scripts.neral_qlora_train_peft import BASE_MODEL, create_config
 
 TEST_SHA="c5e3962768a7a870df837f63624b2904cbcd6dfef559445f9c220e7ed6a7a7a7"
 SEED=2026111602
-CONTEXT=2048
+CONTEXT=4096
 MAX_NEW_TOKENS=512
 
 
