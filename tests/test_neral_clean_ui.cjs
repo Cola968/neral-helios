@@ -90,3 +90,30 @@ test("offline voice setup is quiet on load and shown only after tapping the voic
   nodes.localVoiceStart.fire("click");
   assert.equal(nodes.localVoiceStatus.classList.contains("neral-status-alert"),true);
 });
+
+test("long draft is capped to a compact scrollable composer and shrinks after editing",()=>{
+  const css=read("static/neral-clean-ui.css");
+  assert.match(css,/#prompt\{[^}]*max-height:112px/);
+  const elements={};
+  const make=id=>{
+    const handlers={};
+    return elements[id]={id,style:{},scrollHeight:id==="prompt"?390:40,
+      classList:{toggle(){}},addEventListener:(event,fn)=>{handlers[event]=fn},
+      fire:event=>handlers[event]?.({target:elements[id]}),
+      setAttribute(){},focus(){},contains(){return false}};
+  };
+  for(const id of ["neralSidebar","sidebarToggle","sidebarBackdrop",
+    "chatForm","prompt","submit"])make(id);
+  const document={getElementById:id=>elements[id]||null,
+    addEventListener(){},querySelectorAll(){return []}};
+  const window={matchMedia:()=>({matches:false,addEventListener(){}}),
+    addEventListener(){}};
+  vm.runInNewContext(read("static/neral-modern.js"),
+    {document,window,MutationObserver:class{observe(){} }},{timeout:1000});
+  assert.equal(elements.prompt.style.height,"112px");
+  assert.equal(elements.prompt.style.overflowY,"auto");
+  elements.prompt.scrollHeight=48;
+  elements.prompt.fire("input");
+  assert.equal(elements.prompt.style.height,"48px");
+  assert.equal(elements.prompt.style.overflowY,"hidden");
+});
