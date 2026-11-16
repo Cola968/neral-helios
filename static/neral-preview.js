@@ -182,6 +182,10 @@
     if(!q||skipWebForLocalBasics(q)||
        /^(?:hallo|hi|hey)[,! ]+wie geht(?:'s| es) dir[?!.]*$/iu.test(q))return false;
     if(previousWebQuery&&isSearchFollowup(q))return true;
+    // Personal disclosures are not public fact lookups. A checked Web toggle
+    // is not permission to send intimate conversation text automatically.
+    if(/^(?:ich|mir|mein(?:e|en|em|er|es)?|wir|uns|meine)\b/iu.test(q) &&
+       !explicitlyRequestsWeb(q))return false;
     if(/\b(suche|such|suchen|recherchiere|recherchieren|recherche|websuche|internet|online|quellen|belege|links|news|nachrichten|aktuell|aktuelles|aktuelle|aktuellen|neuesten|neueste|neuster|heute|gestern|derzeit|momentan|zurzeit|dieser woche|diese woche|live)\b/iu.test(q))return true;
     // An enabled Web switch covers explicitly public, time-varying facts as
     // well as literal "search" commands. Never auto-upload private small talk.
