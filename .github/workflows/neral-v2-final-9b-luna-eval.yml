@@ -41,12 +41,15 @@ jobs:
           $base='D:/neral-qlora/checkpoint'
           $v1='D:/neral-qlora/full01/adapter'
           $full='D:/neral-qlora-v2/v2full-43931510428-1-helios'
-          $luna='D:/neral-qlora-v2/v2full-43931510428-1-luna'
+          $luna='D:/neral-qlora-v2/luna-43943279049-1-full'
           $base4='D:/neral-qlora-v2/qwen35-4b-hf'
           if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Trusted PEFT python missing'}
           if(-not(Test-Path -LiteralPath (Join-Path $base 'config.json') -PathType Leaf)){throw 'Pinned base9 checkpoint missing'}
           if(-not(Test-Path -LiteralPath (Join-Path $v1 'adapter_config.json') -PathType Leaf)){throw 'Original v1 adapter missing'}
           if(-not(Test-Path -LiteralPath (Join-Path $full 'adapter/adapter_model.safetensors') -PathType Leaf)){throw 'Frozen v2 full 9B rank16 adapter absent; do NOT retrain'}
+          if(-not(Test-Path -LiteralPath (Join-Path $luna 'adapter/adapter_model.safetensors') -PathType Leaf)){throw 'Frozen Luna4B adapter absent; block 40-case evaluation until 4B recovery succeeds'}
+          $lm=Get-Content -LiteralPath (Join-Path $luna 'manifest.json') -Raw|ConvertFrom-Json
+          if($lm.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $lm.family -ne 'luna' -or $lm.rank -ne 8 -or $lm.train_rows -ne 480 -or $lm.val_rows -ne 75 -or $lm.test_rows_opened -ne 0 -or $lm.validation_history.Count -ne 2){throw 'Luna4B adapter has not passed full frozen gate'}
           $trainReceipt=Get-Content -LiteralPath (Join-Path $full 'manifest.json') -Raw | ConvertFrom-Json
           if($trainReceipt.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $trainReceipt.family -ne 'helios' -or $trainReceipt.rank -ne 16 -or $trainReceipt.train_rows -ne 1100 -or $trainReceipt.val_rows -ne 140 -or $trainReceipt.test_rows_opened -ne 0 -or $trainReceipt.validation_history.Count -ne 2){throw 'No certified frozen Helios rank16 output'}
           $id=$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT
