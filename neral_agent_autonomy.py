@@ -223,6 +223,8 @@ class OllamaLocalBackend:
                 "options": options,
                 "keep_alive": "5m",
             }, ensure_ascii=False).encode("utf-8")
+            if cancel_event is not None and cancel_event.is_set():
+                raise OllamaCompletionError("cancelled")
             request = urllib.request.Request(
                 self.endpoint, data=payload,
                 headers={"Content-Type": "application/json"}, method="POST")
@@ -353,6 +355,8 @@ class OllamaLocalBackend:
             "final_recovery_attempted": False,
             "final_recovery_succeeded": False,
         }
+        if cancel_event is not None and cancel_event.is_set():
+            raise OllamaCompletionError("cancelled")
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
