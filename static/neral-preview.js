@@ -755,8 +755,13 @@
     prompt.value="";
     let partialNode=null, painter=null, partialBody=null;
     let completedTurn=false;
+    const longHigh = mode==="think" && (!!text && !/\bFINAL_ANSWER\s*:/i.test(text) &&
+      (/\b(?:herleitung|herleite|beweise|beweis|derive|derivation|prove)\b/i.test(text) ||
+       /\bleite\b[\s\S]{0,350}?\bher\b/i.test(text) ||
+       /\bbegründe\b[\s\S]{0,250}\bzwischenschritte\b/i.test(text)));
     const deadline=AbortSignal.timeout(selectedAttachments.length
-      ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
+      ? (mode==="think"?300000:220000)
+      : (mode==="think"?(longHigh?300000:190000):120000));
     const signal=AbortSignal.any([controller.signal,deadline]);
     function makePartial(){
       partialNode=document.createElement("div");
