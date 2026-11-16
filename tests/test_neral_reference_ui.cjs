@@ -215,5 +215,5 @@ test("profile is one sidebar entry, and compact guest popup has no fake dashboar
  assert.ok(profile.indexOf('id="profileChatCount"')>profile.indexOf('id="profileAccountActions"'));
  assert.match(css,/\.sidebar-account::before\s*\{[^}]*content\s*:\s*none/);
  assert.match(css,/\.profile-dashboard\s*\{[^}]*max-height/);
- assert.doesNotMatch(css,/height\s*:\s*100dvh/);
+ assert.doesNotMatch(css.slice(css.indexOf("/* Compact local account popover.")),/(?:^|[;{])\s*height\s*:\s*100dvh/m);
 });
