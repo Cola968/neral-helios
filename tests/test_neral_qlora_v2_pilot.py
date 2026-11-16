@@ -55,3 +55,18 @@ def test_test_split_unreadable_before_adapter_frozen(tmp_path,monkeypatch):
                       train=ROOT/"helios_terra_v2.jsonl",
                       val=ROOT/"helios_terra_v2.val.jsonl",
                       output=tmp_path/"report.json")
+
+
+def test_line_ending_normalization_does_not_mask_modified_dataset(tmp_path):
+    import hashlib
+    from scripts.neral_qlora_v2_pilot import _digest
+    f=tmp_path/"tiny.jsonl"
+    raw=b'{"i":1}\n{"i":2}\n'
+    expected=hashlib.sha256(raw).hexdigest()
+    f.write_bytes(raw.replace(b"\n",b"\r\n"))
+    assert _digest(f)==expected
+    f.write_bytes(raw.replace(b'2',b'3').replace(b"\n",b"\r\n"))
+    assert _digest(f)!=expected
+    f.write_bytes(raw.replace(b"\n",b"\r"))
+    with pytest.raises(ValueError):
+        _digest(f)

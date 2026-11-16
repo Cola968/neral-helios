@@ -35,7 +35,17 @@ SYSTEM = (
 
 
 def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hash Git blobs reproducibly on Windows with Git CRLF checkout only.
+
+    Do not normalize whitespace, Unicode, extra carriage returns, or fields:
+    ONLY the CRLF->LF conversion known from Git checkout is allowed.
+    """
+    raw=path.read_bytes()
+    if b"\r" in raw:
+        if raw.count(b"\r") != raw.count(b"\r\n"):
+            raise ValueError("Unexpected non-CRLF bytes in frozen dataset")
+        raw=raw.replace(b"\r\n",b"\n")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def training_target(row: dict) -> str:

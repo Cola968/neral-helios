@@ -15,7 +15,7 @@ from pathlib import Path
 import statistics
 import time
 
-from scripts.neral_qlora_v2_pilot import SYSTEM, TRAIN_SHA, VAL_SHA, training_target
+from scripts.neral_qlora_v2_pilot import SYSTEM, TRAIN_SHA, VAL_SHA, _digest
 from scripts.neral_qlora_train_peft import BASE_MODEL, create_config
 
 TEST_SHA="c5e3962768a7a870df837f63624b2904cbcd6dfef559445f9c220e7ed6a7a7a7"
@@ -43,7 +43,7 @@ def frozen_inputs(*, trained:Path, v1:Path, test:Path,train:Path,val:Path,output
     if hashlib.sha256((trained/"adapter/adapter_model.safetensors").read_bytes()).hexdigest()!=manifest["frozen_adapter_sha256"]:
         raise RuntimeError("Frozen v2 adapter file changed")
     # This is the FIRST place where the 40-case test file is opened.
-    if hashlib.sha256(test.read_bytes()).hexdigest()!=TEST_SHA:
+    if _digest(test)!=TEST_SHA:
         raise RuntimeError("Pinned 40-case test digest does not match")
     rows=[json.loads(s) for s in test.read_text(encoding="utf8").splitlines() if s.strip()]
     if len(rows)!=40 or len({x["id"] for x in rows})!=40:
