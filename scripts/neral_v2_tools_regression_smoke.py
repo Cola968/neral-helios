@@ -28,7 +28,7 @@ def main():
                        {"type":"difference_eq","vars":["a","b"],"value":3}]})
     if z3.get("verified") is not True or z3.get("result")!={"a":7,"b":4}:
         raise RuntimeError("Z3 exact witness failed")
-    broken="total=0\\nfor x in range(4)\\n    total+=x*x\\nprint(total)"
+    broken="total=0\nfor x in range(4)\n    total+=x*x\nprint(total)"
     correct=broken.replace("for x in range(4)","for x in range(4):")
     try:ast.parse(broken)
     except SyntaxError:pass
@@ -48,7 +48,7 @@ def main():
       "python_docker_one_step_ast":True,"docker_isolated_network":True,
       "does_not_substitute_for_24_original":True,"no_training":True}
     args.out.parent.mkdir(parents=True,exist_ok=True)
-    args.out.write_text(json.dumps(report,sort_keys=True,indent=2)+"\\n",encoding="utf8")
+    args.out.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n",encoding="utf8")
     print("NERAL_V2_TOOLS_REGRESSION "+json.dumps(report,sort_keys=True),flush=True)
 
 if __name__=="__main__":main()
