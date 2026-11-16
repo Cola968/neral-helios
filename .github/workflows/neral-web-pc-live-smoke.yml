@@ -1,0 +1,67 @@
+name: NERAL real DDG Bing websearch on user's Windows runner
+on:
+  push:
+    branches:
+      - test/neral-web-pc-real-20261116
+    paths:
+      - scripts/neral_web_pc_live_smoke.py
+      - .github/workflows/neral-web-pc-live-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-network-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Flask in disposable CI environment
+        run: python -m pip install 'Flask>=3,<4'
+      - name: Real DDG Bing and NERAL endpoint on GitHub-hosted Linux
+        shell: bash
+        run: python -B scripts/neral_web_pc_live_smoke.py
+
+  physical-windows-network:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    concurrency:
+      group: neral-web-pc-live-read-only
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Checkout only public project test sources into Actions workspace
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+      - name: Detect existing local Python and Flask without installing anything
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidates=@()
+          $old=Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research\training-env-py312\Scripts\python.exe'
+          if(Test-Path -LiteralPath $old -PathType Leaf){$candidates+=,$old}
+          if(Get-Command py -ErrorAction SilentlyContinue){
+            $candidate=(& py -3.12 -c 'import sys;print(sys.executable)' | Select-Object -Last 1).Trim()
+            if(Test-Path -LiteralPath $candidate -PathType Leaf){$candidates+=,$candidate}
+          }
+          $found=$null
+          foreach($python in $candidates){
+            & $python -c 'import flask;import sys;assert sys.version_info >= (3,10)'
+            if($LASTEXITCODE -eq 0){$found=$python;break}
+          }
+          if(-not $found){throw 'Existing Python with Flask unavailable; no packages installed'}
+          "NERAL_WEB_LIVE_PYTHON=$found" >> $env:GITHUB_ENV
+      - name: Real DuckDuckGo Bing and NERAL API - fixed public queries only
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:NERAL_WEB_LIVE_PYTHON -B scripts/neral_web_pc_live_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'Real local web-provider smoke failed'}
