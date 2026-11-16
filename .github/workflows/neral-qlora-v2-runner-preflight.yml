@@ -50,8 +50,10 @@ jobs:
           Write-Host "TEST_SPLIT_PRESENT=$(Test-Path -LiteralPath $test -PathType Leaf)"
           Write-Host "PYTHON_PRESENT=$([bool]$py)"
           if($py){
-            $code='import importlib.util,json; import torch; print(json.dumps({"torch":torch.__version__,"cuda":torch.cuda.is_available(),"transformers":bool(importlib.util.find_spec("transformers")),"peft":bool(importlib.util.find_spec("peft")),"bitsandbytes":bool(importlib.util.find_spec("bitsandbytes")),"accelerate":bool(importlib.util.find_spec("accelerate"))}))'
-            & $py -B -c $code
+            foreach($package in @('torch','transformers','peft','bitsandbytes','accelerate')){
+              & $py -B -m pip show $package | Select-String -Pattern '^(Name|Version):'
+              if($LASTEXITCODE -ne 0){throw ('MISSING_TRAIN_PACKAGE '+$package)}
+            }
           }
           if(-not(Test-Path -LiteralPath (Join-Path $model 'config.json') -PathType Leaf)){throw 'QWEN35_HF_CHECKPOINT_NOT_FOUND'}
           if(-not(Test-Path -LiteralPath (Join-Path $v1 'adapter_config.json') -PathType Leaf)){throw 'V1_PEFT_ADAPTER_NOT_FOUND'}
