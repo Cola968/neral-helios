@@ -321,6 +321,11 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                                  selected.respond)
                     from neral_agent_autonomy import OllamaLocalBackend
                     deep_review = isinstance(selected, OllamaLocalBackend)
+                    # Match the normal /api/neral/chat/think responder selection.
+                    # Otherwise screenshots/files silently bypass measured HIGH.
+                    if (deep_review and selected.model == "qwen3.5:9b"
+                            and selected.inference_profile == "measured_nonthinking_2048"):
+                        responder = selected.respond_high_final
                     result = think_reply(turns, responder, deep_review=deep_review)
                     if not isinstance(result, dict) or not isinstance(result.get("text"), str):
                         raise ValueError("Unvollständiges THINK-Ergebnis")
@@ -331,7 +336,14 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                 if (not result["text"].strip() or
                         len(result["text"].encode("utf-8")) > 32768):
                     raise ValueError("Ungültige Modellantwort")
-            except Exception:
+            except Exception as exc:
+                # Same fail-closed user-facing error as regular HIGH, without
+                # leaking private partial text, file contents or Ollama internals.
+                from neral_agent_autonomy import OllamaCompletionError
+                if isinstance(exc, OllamaCompletionError):
+                    from neral_local_chat_api import _SAFE_OLLAMA_ERROR_TEXT
+                    return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                                   error_code=exc.reason), 503
                 return jsonify(error="Lokale Analyse oder Modell-Inferenz fehlgeschlagen."), 503
             return jsonify({
                 **result,
