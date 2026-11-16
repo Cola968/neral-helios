@@ -325,3 +325,34 @@ class LiveSourcesTests(unittest.TestCase):
             ["DuckDuckGo HTML","Bing RSS","Wikipedia DE"])
         self.assertEqual([x["title"] for x in result["results"]],["Flughafen Frankfurt Main"])
         self.assertEqual(result["results"][0]["provider"],"Wikipedia DE")
+
+
+    def test_relevant_ddg_preview_survives_verified_bing_fallback(self):
+        """Never drop a genuine provider discovery just because HEAD failed."""
+        class Scripted:
+            def search(self,query,on_provider=None):
+                if on_provider:on_provider("DuckDuckGo HTML")
+                return {"query":query,"provider":"DuckDuckGo HTML",
+                        "providers_contacted":["DuckDuckGo HTML"],
+                        "results":[{"title":"Berlin Airport terminal guide",
+                                    "url":"https://ddg.example/ber",
+                                    "snippet":"Berlin Airport terminals"}]}
+            def search_bing(self,query,on_provider=None):
+                if on_provider:on_provider("Bing RSS")
+                return [{"title":"Berlin Airport check-in",
+                         "url":"https://bing.example/check-in",
+                         "snippet":"Berlin Airport information"}]
+        app=Flask(__name__);register_web_search_api(app,Scripted())
+        reachable=lambda url: url if url.endswith("/check-in") else None
+        with patch("neral_web_api.verify_public_https_url",side_effect=reachable):
+            response=app.test_client().post("/api/web/search",
+                json={"query":"Berlin Airport","verify_links":True})
+        self.assertEqual(response.status_code,200)
+        result=response.get_json()
+        self.assertEqual([x["url"] for x in result["results"]],
+                         ["https://bing.example/check-in"])
+        self.assertEqual([x["url"] for x in result["previews"]],
+                         ["https://bing.example/check-in","https://ddg.example/ber"])
+        self.assertTrue(result["previews"][1]["discovered"])
+        self.assertFalse(result["previews"][1]["reachable"])
+        self.assertEqual(result["previews"][1]["provider"],"DuckDuckGo HTML")
