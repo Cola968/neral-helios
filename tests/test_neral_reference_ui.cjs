@@ -164,3 +164,17 @@ test("Markdown bullets with bold labels render as real accessible list items, no
   assert.ok(safe.innerText.includes("<script>"));
   assert.equal(safe.children.some(e=>e.tagName==="SCRIPT"),false);
 });
+
+test("profile is a dedicated local dashboard, slider keeps two tactile stops",()=>{
+ const markup=html(),sheet=css();
+ for(const id of ["showProfile","profileDashboard","profileUsername","profileChatCount",
+                  "profileMode","profileGuestActions","profileAccountActions","profileClose",
+                  "profileOpenPassword","profileExportChats"]){
+   assert.ok(markup.includes('id="'+id+'"'),"Missing profile element "+id);
+ }
+ assert.match(sheet,/\.profile-dashboard/);
+ assert.match(markup,/mode-effort-stop/);
+ assert.match(sheet,/\.mode-effort-stop/);
+ assert.match(markup,/id="modeEffortSlider"[^>]*min="0"[^>]*max="1"/);
+ assert.doesNotMatch(markup,/Premium freigeschaltet|Unbegrenzte Tokens/);
+});
