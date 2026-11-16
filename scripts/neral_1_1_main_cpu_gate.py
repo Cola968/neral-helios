@@ -16,12 +16,22 @@ PROTECTED=(
 
 def verify_main_integrity():
     for name in PROTECTED:
-        original=subprocess.run(
-          ['git','show',BASE+':'+name],cwd=ROOT,capture_output=True,
-          timeout=15,check=True).stdout
-        current=(ROOT/name).read_bytes()
-        if original!=current:
+        # Compare *repository blobs*, not checked-out bytes: Windows Git may
+        # materialize LF source as CRLF without changing the tracked content.
+        # Also refuse real uncommitted changes in the checked-out sources.
+        old=subprocess.run(
+          ['git','rev-parse',BASE+':'+name],cwd=ROOT,text=True,
+          capture_output=True,timeout=15,check=True).stdout.strip()
+        current=subprocess.run(
+          ['git','rev-parse','HEAD:'+name],cwd=ROOT,text=True,
+          capture_output=True,timeout=15,check=True).stdout.strip()
+        if old!=current or not old:
             raise RuntimeError('CURRENT_MAIN_WEB_OR_UI_CHANGED: '+name)
+        clean=subprocess.run(
+          ['git','diff','--quiet','HEAD','--',name],
+          cwd=ROOT,capture_output=True,timeout=15,check=False)
+        if clean.returncode!=0:
+            raise RuntimeError('WORKTREE_DRIFT: '+name)
     print('MAIN_1_0_WEB_UI_SECURITY_BLOBS_PRESERVED',flush=True)
 
 def main():

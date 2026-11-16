@@ -3,9 +3,11 @@ tests/test_neral_1_0_attachments.py
 tests/test_neral_1_0_high_depth.py
 tests/test_neral_1_0_live_streaming.py
 tests/test_neral_1_0_ollama_mode_contracts.py
+tests/test_neral_1_0_release_artifact_freshness.py
 tests/test_neral_1_0_standalone_release.py
 tests/test_neral_1_1_ast_unique_budget.py
 tests/test_neral_1_1_fallback_ast_prospective.py
+tests/test_neral_1_1_main_hash_integrity.py
 tests/test_neral_1_1_merge_packaging.py
 tests/test_neral_1_1_offline_aggregate.py
 tests/test_neral_1_1_postverify_dev24.py
@@ -37,6 +39,7 @@ tests/test_neral_nl_schema_old_cases.py
 tests/test_neral_nl_schema_probe.py
 tests/test_neral_nl_single_promotion.py
 tests/test_neral_nl_verified_route.py
+tests/test_neral_ollama_diagnostics.py
 tests/test_neral_pin_fullsource_fallback_20261114.py
 tests/test_neral_pr533_boolean_ast_gpu_regression.py
 tests/test_neral_pr533_compound_controller_cpu.py

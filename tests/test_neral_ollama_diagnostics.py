@@ -246,12 +246,23 @@ class MeasuredOllamaDiagnosticTests(unittest.TestCase):
                     base_url=BASE_URL,headers=headers)
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertGreaterEqual(len(sent),2)
-        keys = ("model", "think", "options", "keep_alive", "stream")
+        # Base Qwen retains the measured full-output profile. NERAL 1.1
+        # additionally issues a strictly bounded, deterministic schema
+        # extraction call; it is NOT an equivalent baseline completion.
+        keys = ("model", "think", "keep_alive", "stream")
+        base = sent[0]["payload"]
+        extraction = {"temperature": 0, "num_predict": 384, "num_ctx": 4096}
+        variants = set()
         for item in sent:
             self.assertEqual(item["endpoint"], "http://127.0.0.1:11434/api/chat")
             self.assertEqual({k:item["payload"][k] for k in keys},
-                             {k:sent[0]["payload"][k] for k in keys})
+                             {k:base[k] for k in keys})
             self.assertIs(item["payload"]["think"], False)
+            opts = item["payload"]["options"]
+            self.assertIn(opts, (base["options"], extraction))
+            variants.add("formal" if opts == extraction else "measured")
+        self.assertIn("formal", variants)
+        self.assertIn("measured", variants)
 
 
 if __name__ == "__main__":
