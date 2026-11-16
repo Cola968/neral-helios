@@ -168,7 +168,7 @@ test("Markdown bullets with bold labels render as real accessible list items, no
 test("profile is a dedicated local dashboard, slider keeps two tactile stops",()=>{
  const markup=html(),sheet=css();
  for(const id of ["showProfile","profileDashboard","profileUsername","profileChatCount",
-                  "profileMode","profileGuestActions","profileAccountActions","profileClose",
+                  "profileLaunchName","profileGuestActions","profileAccountActions","profileClose",
                   "profileOpenPassword","profileExportChats"]){
    assert.ok(markup.includes('id="'+id+'"'),"Missing profile element "+id);
  }
@@ -201,4 +201,19 @@ test("minimal mode picker preserves original two backend modes and separate prof
   assert.match(source,/sliderReset\.addEventListener\("click"/);
   assert.match(sheet,/\.mode-slider-copy/);
   assert.match(sheet,/\.mode-slider-ends/);
+});
+
+test("profile is one sidebar entry, and compact guest popup has no fake dashboard",()=>{
+ const markup=html();
+ const sidebar=markup.slice(markup.indexOf('id="accountSection"'),markup.indexOf('</aside>'));
+ const profile=markup.slice(markup.indexOf('id="profileDashboard"'),markup.indexOf('<dialog id="accountDialog"'));
+ const css=fs.readFileSync(path.join(root,"static/neral-accounts.css"),"utf8");
+ assert.match(sidebar,/id="showProfile"/);
+ assert.match(sidebar,/class="account-legacy-controls" hidden/);
+ assert.match(sidebar,/id="profileLaunchName"/);
+ assert.doesNotMatch(profile,/id="profileMode"|profile-dashboard-footnote|profile-dashboard-metrics|NERAL \/ KONTO/);
+ assert.ok(profile.indexOf('id="profileChatCount"')>profile.indexOf('id="profileAccountActions"'));
+ assert.match(css,/\.sidebar-account::before\s*\{[^}]*content\s*:\s*none/);
+ assert.match(css,/\.profile-dashboard\s*\{[^}]*max-height/);
+ assert.doesNotMatch(css.slice(css.indexOf("/* Compact local account popover.")),/(?:^|[;{])\s*height\s*:\s*100dvh/m);
 });

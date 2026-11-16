@@ -21,6 +21,9 @@
   function clearChat(){window.dispatchEvent(new CustomEvent("neral:load-chat",{detail:{messages:[]}}));}
   function authUi(){
     $("accountName").textContent=username||"Gast · lokal";
+    $("profileLaunchName").textContent=username||"Gast";
+    $("profileLaunchSubtitle").textContent=username?"Lokales Konto":"Ohne Anmeldung";
+    $("showProfile").setAttribute("aria-label",username?"Konto: "+username:"Profil: Gast");
     $("showLogin").hidden=!!username;
     $("logout").hidden=!username;
     $("accountSettings").hidden=!username;
@@ -150,13 +153,9 @@
   form.addEventListener("submit",event=>{event.preventDefault();authenticate("login");});
   $("accountRegister").addEventListener("click",()=>authenticate("register"));
   const dashboard=$("profileDashboard");
-  function syncDashboardMode(){
-    $("profileMode").textContent=
-      document.querySelector?.('input[name="mode"]:checked')?.value==="think"
-        ?"HIGH":"LOW";
-  }
   $("showProfile").addEventListener("click",()=>{
-    syncDashboardMode();
+    // Guest and authenticated users share the same compact, keyboard-accessible
+    // entry point, but a guest never sees account-only usage data.
     dashboard.showModal();
   });
   $("profileClose").addEventListener("click",()=>{
