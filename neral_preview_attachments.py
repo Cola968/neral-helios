@@ -266,8 +266,8 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
             remaining = MAX_EXTRACT_BYTES
             for index, (name, ext, raw) in enumerate(incoming):
                 if cancel_event is not None and cancel_event.is_set():
-                    from neral_agent_autonomy import OllamaCompletionError
-                    raise OllamaCompletionError("cancelled")
+                    return jsonify(error="Lokale Berechnung abgebrochen.",
+                                   error_code="cancelled"), 409
                 if ext in IMAGE_TYPES:
                     try:
                         analyzed_model, extracted = vision(raw, question)
@@ -276,8 +276,8 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                     except Exception:
                         return jsonify(error="Bildanalyse fehlgeschlagen."), 503
                     if cancel_event is not None and cancel_event.is_set():
-                        from neral_agent_autonomy import OllamaCompletionError
-                        raise OllamaCompletionError("cancelled")
+                        return jsonify(error="Lokale Berechnung abgebrochen.",
+                                       error_code="cancelled"), 409
                     if analyzed_model not in VISION_MODELS or not extracted.strip():
                         return jsonify(error="Bildanalyse lieferte kein zugelassenes Ergebnis."), 503
                     vision_models.add(analyzed_model)
