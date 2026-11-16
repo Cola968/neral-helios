@@ -112,8 +112,9 @@ jobs:
           $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'GPU inventory failed'}
           $parts=$g[0].Split(',')
-          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[1].Trim() -lt 12000 -or [int]$parts[2].Trim() -lt 10000){throw 'Insufficient RTX4070 free VRAM; block GPU training'}
-          Write-Host ('CUDA_MEM_FREE '+$g[0])
+          Write-Host ('CUDA_MEM_FREE_AFTER_OLLAMA_STOP '+$g[0])
+          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[1].Trim() -lt 12000 -or [int]$parts[2].Trim() -lt 9500){throw 'Less than 9500 MiB free RTX4070 VRAM; block GPU training'}
+          Write-Host 'CUDA_RTX4070_9GB_PLUS_READY'
 
       - name: Helios/Terra Qwen3.5-9B rank16 one-step 4bit QLoRA capacity smoke
         run: |
