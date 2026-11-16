@@ -1,0 +1,59 @@
+name: NERAL QLoRA-v2 RTX4070 read-only preflight
+on:
+  push:
+    branches: [experiments/neral-1-2-qlora-v2-pilot-20261116]
+    paths: ['.github/workflows/neral-qlora-v2-runner-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  gpu-preflight:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Inspect GPU, cached Qwen3.5 weights, v1 adapter and local QLoRA python
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='D:\neral-qlora'
+          $model=Join-Path $root 'checkpoint'
+          $v1=Join-Path $root 'full01/adapter'
+          $train=Join-Path $env:GITHUB_WORKSPACE 'source/datasets/neral_cpu_foundation/helios_terra_v2.jsonl'
+          $val=Join-Path $env:GITHUB_WORKSPACE 'source/datasets/neral_cpu_foundation/helios_terra_v2.val.jsonl'
+          $test=Join-Path $env:GITHUB_WORKSPACE 'source/datasets/neral_cpu_foundation/helios_terra_v2.test.jsonl'
+          $pythonOptions=@(
+            (Join-Path $root 'venv/Scripts/python.exe'),
+            (Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe')
+          )
+          $py=$pythonOptions|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
+          $gpu=(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0){throw 'GPU status not available'}
+          Write-Host "GPU_INVENTORY $gpu"
+          Write-Host "HF_CHECKPOINT_PRESENT=$(Test-Path -LiteralPath $model -PathType Container)"
+          Write-Host "HF_MODEL_CONFIG_PRESENT=$(Test-Path -LiteralPath (Join-Path $model 'config.json') -PathType Leaf)"
+          Write-Host "V1_ADAPTER_PRESENT=$(Test-Path -LiteralPath (Join-Path $v1 'adapter_config.json') -PathType Leaf)"
+          Write-Host "TRAIN_SPLIT_PRESENT=$(Test-Path -LiteralPath $train -PathType Leaf)"
+          Write-Host "VAL_SPLIT_PRESENT=$(Test-Path -LiteralPath $val -PathType Leaf)"
+          Write-Host "TEST_SPLIT_PRESENT=$(Test-Path -LiteralPath $test -PathType Leaf)"
+          Write-Host "PYTHON_PRESENT=$([bool]$py)"
+          if($py){
+            $code='import importlib.util,json; import torch; print(json.dumps({"torch":torch.__version__,"cuda":torch.cuda.is_available(),"transformers":bool(importlib.util.find_spec("transformers")),"peft":bool(importlib.util.find_spec("peft")),"bitsandbytes":bool(importlib.util.find_spec("bitsandbytes")),"accelerate":bool(importlib.util.find_spec("accelerate"))}))'
+            & $py -B -c $code
+          }
+          if(-not(Test-Path -LiteralPath (Join-Path $model 'config.json') -PathType Leaf)){throw 'QWEN35_HF_CHECKPOINT_NOT_FOUND'}
+          if(-not(Test-Path -LiteralPath (Join-Path $v1 'adapter_config.json') -PathType Leaf)){throw 'V1_PEFT_ADAPTER_NOT_FOUND'}
+          if(-not $py){throw 'LOCAL_QLORA_PYTHON_NOT_FOUND'}
+          Write-Host 'QLORA_V2_RUNNER_PREFLIGHT_FILES_PASS'
