@@ -256,12 +256,18 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
 
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        registry=getattr(app,"_neral_chat_cancel_registry",None)
+        cancel_event=(registry.begin(request.headers.get("X-Neral-Request-Id"))
+                      if registry is not None else None)
         try:
             snippets = []
             meta = []
             vision_models = set()
             remaining = MAX_EXTRACT_BYTES
             for index, (name, ext, raw) in enumerate(incoming):
+                if cancel_event is not None and cancel_event.is_set():
+                    from neral_agent_autonomy import OllamaCompletionError
+                    raise OllamaCompletionError("cancelled")
                 if ext in IMAGE_TYPES:
                     try:
                         analyzed_model, extracted = vision(raw, question)
@@ -269,6 +275,9 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                         return jsonify(error=str(exc)), 409
                     except Exception:
                         return jsonify(error="Bildanalyse fehlgeschlagen."), 503
+                    if cancel_event is not None and cancel_event.is_set():
+                        from neral_agent_autonomy import OllamaCompletionError
+                        raise OllamaCompletionError("cancelled")
                     if analyzed_model not in VISION_MODELS or not extracted.strip():
                         return jsonify(error="Bildanalyse lieferte kein zugelassenes Ergebnis."), 503
                     vision_models.add(analyzed_model)
@@ -314,6 +323,9 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                 )
                 if callable(prepare_model):
                     prepare_model(selected)
+                if cancel_event is not None and cancel_event.is_set():
+                    from neral_agent_autonomy import OllamaCompletionError
+                    raise OllamaCompletionError("cancelled")
                 if mode == "think":
                     from neral_think import think_reply
                     responder = (getattr(selected, "respond_think", None) or
@@ -326,12 +338,19 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                     if (deep_review and selected.model == "qwen3.5:9b"
                             and selected.inference_profile == "measured_nonthinking_2048"):
                         responder = selected.respond_high_final
+                    if cancel_event is not None and isinstance(selected, OllamaLocalBackend):
+                        original_respond = responder
+                        responder = lambda messages: original_respond(
+                            messages, cancel_event=cancel_event)
                     result = think_reply(turns, responder, deep_review=deep_review)
                     if not isinstance(result, dict) or not isinstance(result.get("text"), str):
                         raise ValueError("Unvollständiges THINK-Ergebnis")
                 else:
                     responder = getattr(selected, "respond_chat", None) or selected.respond
-                    answer = responder(turns)
+                    from neral_agent_autonomy import OllamaLocalBackend
+                    answer = (responder(turns, cancel_event=cancel_event)
+                              if cancel_event is not None and isinstance(selected, OllamaLocalBackend)
+                              else responder(turns))
                     result = {"text": answer, "mode": "LOW", "model_generated": True}
                 if (not result["text"].strip() or
                         len(result["text"].encode("utf-8")) > 32768):
@@ -354,4 +373,6 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                 "file_bytes_persisted": False,
             })
         finally:
+            if registry is not None:
+                registry.end(cancel_event)
             busy.release()
