@@ -655,3 +655,77 @@ html[data-theme=dark] #modeSliderTitle{color:#6da6ff}
 html[data-theme=dark] .mode-slider-popover{background:#292B31}
 html[data-theme=dark] .mode-effort-track{background:#43464F}
 html[data-theme=dark] #modeSliderTitle{color:#95B2FF}
+
+
+/* NERAL minimal selector: title, reset, rail and two text labels only.
+   Keep the native accessible two-stop range and its original model routing. */
+.mode-dropdown-menu.mode-slider-popover{
+  width:min(295px,calc(100vw - 24px));
+  padding:14px 17px 12px;
+  border-radius:16px;
+  background:#f8f9fb;
+  border-color:#dde1e7;
+  box-shadow:0 5px 19px #1520390c
+}
+.mode-slider-heading{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  min-height:29px;
+  margin:0 0 13px;
+  gap:12px
+}
+.mode-slider-copy{
+  display:block;
+  min-width:0;
+  text-align:left
+}
+#modeSliderTitle{
+  font-size:15px;
+  line-height:20px;
+  font-weight:650;
+  letter-spacing:-.35px;
+  color:#273342
+}
+.mode-slider-popover .mode-slider-reset{
+  width:29px;height:29px;min-height:29px;
+  border-radius:8px;color:#8d96a5
+}
+.mode-effort-track{
+  height:25px;
+  border-radius:14px;
+  background:#e0e3e9
+}
+.mode-effort-progress{
+  width:15px;
+  background:#7f9bdd;
+  transition:width .16s ease
+}
+.mode-effort-track input[type="range"]{height:25px}
+.mode-effort-track input::-webkit-slider-runnable-track{height:25px}
+.mode-effort-track input::-moz-range-track{height:25px}
+.mode-effort-track input::-webkit-slider-thumb{
+  width:30px;height:30px;margin-top:-2.5px;
+  background:#fff;border:1px solid #e3e6ed;
+  box-shadow:0 1px 5px #17223629
+}
+.mode-effort-track input::-moz-range-thumb{
+  width:28px;height:28px;
+  background:#fff;border:1px solid #e3e6ed;
+  box-shadow:0 1px 5px #17223629
+}
+.mode-slider-ends{
+  padding:9px 2px 0;
+  font-size:10px;font-weight:600;
+  letter-spacing:.3px;color:#9ba3b0
+}
+html[data-theme=dark] .mode-dropdown-menu.mode-slider-popover{
+  background:#292b31;border-color:#444852;box-shadow:0 8px 25px #0004
+}
+html[data-theme=dark] #modeSliderTitle{color:#eff2f6}
+html[data-theme=dark] .mode-effort-track{background:#454750}
+html[data-theme=dark] .mode-effort-progress{background:#819be0}
+html[data-theme=dark] .mode-slider-ends{color:#acb3c1}
+@media(prefers-reduced-motion:reduce){
+  .mode-effort-progress{transition:none}
+}
