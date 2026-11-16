@@ -1,0 +1,100 @@
+name: NERAL QLoRA-v2 frozen adapter comparison40 only
+on:
+  push:
+    branches:
+      - experiments/neral-1-2-qlora-v2-frozen-eval-20261116
+    paths:
+      - 'scripts/neral_qlora_v2_compare40.py'
+      - '.github/workflows/neral-qlora-v2-frozen-compare40.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  frozen-v1-v2-eval40:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+      NERAL_EVAL_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          clean: true
+          persist-credentials: false
+      - name: Pin pre-trained v2 adapter and original v1 adapter, reject any retraining
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_EVAL_SOURCE_SHA){throw 'Source hash mismatch'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned QLoRA Python is missing'}
+          $base='D:/neral-qlora/checkpoint'
+          $v1='D:/neral-qlora/full01/adapter'
+          $frozen='D:/neral-qlora-v2/qlora-v2-43910031833-1-full'
+          if(-not(Test-Path -LiteralPath (Join-Path $base 'config.json') -PathType Leaf)){throw 'Original cached 9B checkpoint missing'}
+          if(-not(Test-Path -LiteralPath (Join-Path $v1 'adapter_config.json') -PathType Leaf)){throw 'Original v1 adapter missing'}
+          if(-not(Test-Path -LiteralPath (Join-Path $frozen 'adapter/adapter_model.safetensors') -PathType Leaf)){throw 'Existing frozen v2 adapter missing; NEVER retrain'}
+          $m=Get-Content -LiteralPath (Join-Path $frozen 'manifest.json') -Raw | ConvertFrom-Json
+          if($m.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $m.optimizer_steps -ne 46 -or $m.epochs -ne 2 -or $m.selected_epoch -ne 2 -or $m.test_rows_opened -ne 0 -or $m.frozen_adapter_sha256 -ne '551c7fa17ddb5ec453fa7f66105b5832c454fecfd6bf122266970e1e3e9eb257'){throw 'Frozen v2 training attestation mismatch'}
+          $train=Join-Path $src 'datasets/neral_cpu_foundation/helios_terra_v2.jsonl'
+          $val=Join-Path $src 'datasets/neral_cpu_foundation/helios_terra_v2.val.jsonl'
+          $test=Join-Path $src 'datasets/neral_cpu_foundation/helios_terra_v2.test.jsonl'
+          foreach($p in @($train,$val,$test)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Pinned split missing'}}
+          $out="D:/neral-qlora-v2/qlora-v2-frozen-eval-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT/comparison40.json"
+          if(Test-Path -LiteralPath $out){throw 'Refusing to overwrite prior evaluation report'}
+          $env:PYTHONPATH=$src
+          Push-Location $src
+          try {
+            & $py -B -m pytest -q tests/test_neral_qlora_v2_pilot.py
+            if($LASTEXITCODE -ne 0){throw 'Dataset and output-format CPU tests failed'}
+            & $py -B -m py_compile scripts/neral_qlora_v2_compare40.py
+            if($LASTEXITCODE -ne 0){throw 'Evaluator compile failed'}
+          } finally {Pop-Location}
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('V2EVAL_PY='+$py+[Environment]::NewLine+'V2EVAL_SOURCE='+$src+[Environment]::NewLine+'V2EVAL_BASE='+$base+[Environment]::NewLine+'V2EVAL_V1='+$v1+[Environment]::NewLine+'V2EVAL_FROZEN='+$frozen+[Environment]::NewLine+'V2EVAL_TRAIN='+$train+[Environment]::NewLine+'V2EVAL_VAL='+$val+[Environment]::NewLine+'V2EVAL_TEST='+$test+[Environment]::NewLine+'V2EVAL_OUT='+$out+[Environment]::NewLine+'PYTHONPATH='+$src+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          Write-Host 'FROZEN_ADAPTER_VALIDATED_NO_TRAINING'
+      - name: Free RTX4070 memory by stopping only loaded Ollama models
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -Method Get -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($entry in @($ps.models)){if($entry -and $entry.name){& $exe stop $entry.name;if($LASTEXITCODE -ne 0){throw 'Ollama unload failed'}}}
+          Start-Sleep -Seconds 6
+          $ps2=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -Method Get -TimeoutSec 15
+          if($null -ne $ps2.models -and @($ps2.models).Count -gt 0){throw 'Ollama resident model remains'}
+          $gpu=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1){throw 'GPU inventory failed'}
+          $parts=$gpu[0].Split(',')
+          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[1].Trim() -lt 12000 -or [int]$parts[2].Trim() -lt 10000){throw 'Not enough free VRAM for frozen v1/v2 evaluation'}
+          Write-Host ('GPU_READY '+$gpu[0])
+      - name: Run 40 held-out questions once with v1, then v2 – same 4096 context, decoding, 4-bit base
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2EVAL_SOURCE
+          try {
+            & $env:V2EVAL_PY -B -m scripts.neral_qlora_v2_compare40 --trained $env:V2EVAL_FROZEN --v1 $env:V2EVAL_V1 --checkpoint $env:V2EVAL_BASE --test $env:V2EVAL_TEST --train $env:V2EVAL_TRAIN --val $env:V2EVAL_VAL --out $env:V2EVAL_OUT
+            if($LASTEXITCODE -ne 0){throw '40-case frozen comparison failed; no score available'}
+          } finally {Pop-Location}
+      - name: Upload scalar comparison only – never prompts, answers, model weights, or raw generation
+        if: always() && env.V2EVAL_OUT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-frozen-40-case-comparison-${{ github.run_id }}
+          path: ${{ env.V2EVAL_OUT }}
+          retention-days: 30
+          if-no-files-found: warn
