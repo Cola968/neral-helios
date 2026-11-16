@@ -81,7 +81,7 @@ class LongFormHighTests(unittest.TestCase):
         self.assertNotIn(KEPLER[-1]["content"], str(model.inference_diagnostic_events))
 
     def test_second_length_fails_closed_no_partial_and_no_third_call(self):
-        wire = Wire(packet("length", "Schritt 1: begründet.\n"),
+        wire = Wire(packet("length", "Schritt 1: Aus Newtons Zentralkraft folgt ein erhaltener Drehimpuls.\n"),
                     packet("length", "Schritt 2: noch nicht fertig."))
         with patch("neral_agent_autonomy.local_only_opener", return_value=wire):
             with self.assertRaises(OllamaCompletionError) as raised:
@@ -119,6 +119,26 @@ class LongFormHighTests(unittest.TestCase):
         self.assertEqual(answer, "FINAL_ANSWER: 42")
         self.assertEqual(wire.calls[0]["options"]["num_predict"], 2048)
         self.assertEqual(wire.calls[1]["options"]["num_predict"], 64)
+
+
+    def test_high_http_marks_continuation_as_unverified_and_counts_both_calls(self):
+        from scripts.neral_same_base_live import BASE_URL, _high_client
+        model = self.model()
+        wire = Wire(packet("length", "Aus der Gleichung der Bewegung folgt die konstante Flächengeschwindigkeit.\\n"),
+                    packet("stop", "Nach Kürzen der Exzentrizität gilt T² ∝ a³."))
+        with patch("neral_agent_autonomy.local_only_opener", return_value=wire):
+            client, headers = _high_client(model)
+            response = client.post(
+                "/api/neral/chat/think",
+                json={"prompt": KEPLER[-1]["content"]},
+                base_url=BASE_URL, headers=headers)
+        self.assertEqual(response.status_code, 200, response.get_json())
+        result = response.get_json()
+        self.assertEqual(result["calls_used"], 2)
+        self.assertTrue(result["completion_continuation_used"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_status"], "continued_unverified")
+        self.assertEqual(len(wire.calls), 2)
 
 
 if __name__ == "__main__":
