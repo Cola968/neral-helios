@@ -395,10 +395,15 @@ class OllamaLocalBackend:
                                          headers={"Content-Type": "application/json"}, method="POST")
         # Proxy handler is disabled. No cloud provider and no raw error logging.
         try:
-            with local_only_opener().open(
-                    request, timeout=min(self.timeout, 90.0) if extraction_only
-                    else 90.0 if (thinking or measured) else self.timeout
-            ) as response:
+            # The default 90-second socket timeout is too short for a 4K-token
+            # derivation on a local 12 GB GPU. Only this HIGH path gets 180 s.
+            timeout_s = (
+                180.0 if long_form_budget else
+                90.0 if prose_continuation else
+                min(self.timeout, 90.0) if extraction_only else
+                90.0 if (thinking or measured) else self.timeout
+            )
+            with local_only_opener().open(request, timeout=timeout_s) as response:
                 diagnostic["ollama_http_status"] = getattr(response, "status", 200)
                 raw = response.read(128 * 1024 + 1)
             if len(raw) > 128 * 1024:
