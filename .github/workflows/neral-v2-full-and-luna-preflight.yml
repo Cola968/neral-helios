@@ -1,0 +1,97 @@
+name: NERAL v2-full and Luna source-provenance and DEV24 preflight
+
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - 'scripts/neral_v2_forgetting_dev24.py'
+      - 'tests/test_neral_v2_forgetting_dev24.py'
+      - '.github/workflows/neral-v2-full-and-luna-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  cpu-casepack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install pytest==8.4.2 sympy==1.14.0 networkx==3.6.1 z3-solver==4.16.0.0
+      - run: python -B -m pytest -q tests/test_neral_v2_forgetting_dev24.py
+
+  gpu-forgetting24-and-luna-inventory:
+    needs: cpu-casepack
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_PINNED_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Pin 9B and v1/v2, inspect actual Luna 4B HF training checkpoint
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_PINNED_SOURCE_SHA){throw 'Pinned source mismatch'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $checkpoint='D:/neral-qlora/checkpoint'
+          $v1='D:/neral-qlora/full01/adapter'
+          $v2='D:/neral-qlora-v2/qlora-v2-43910031833-1-full/adapter'
+          foreach($file in @((Join-Path $checkpoint 'config.json'),(Join-Path $v1 'adapter_config.json'),(Join-Path $v2 'adapter_config.json'),$py)){
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw ('Missing pinned artifact '+$file)}
+          }
+          $hf=Join-Path $env:USERPROFILE '.cache/huggingface/hub/models--Qwen--Qwen3.5-4B/snapshots'
+          $candidates=@('D:/neral-qlora/checkpoint-4b','D:/neral-qlora-v2/luna-checkpoint','D:/neral-models/Qwen3.5-4B')
+          if(Test-Path -LiteralPath $hf -PathType Container){
+            $candidates+=@(Get-ChildItem -LiteralPath $hf -Directory | Select-Object -ExpandProperty FullName)
+          }
+          $actual=@($candidates|Where-Object {Test-Path -LiteralPath (Join-Path $_ 'config.json') -PathType Leaf})
+          if($actual.Count -eq 0){Write-Host 'LUNA_4B_HF_CHECKPOINT_ABSENT_NO_DOWNLOAD_NO_TRAINING'}
+          else {Write-Host 'LUNA_4B_HF_CHECKPOINT_CANDIDATES_PRESENT';$actual|ForEach-Object {Write-Host $_}}
+          $report="D:/neral-qlora-v2/dev24-forgetting-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('N2_PY='+$py+[Environment]::NewLine+'N2_SRC='+$src+[Environment]::NewLine+'N2_BASE='+$checkpoint+[Environment]::NewLine+'N2_V1='+$v1+[Environment]::NewLine+'N2_V2='+$v2+[Environment]::NewLine+'N2_OUT='+$report+[Environment]::NewLine+'PYTHONPATH='+$src+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+      - name: Stop resident Ollama models, preserve local production models
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($entry in @($ps.models)){if($entry -and $entry.name){& $exe stop $entry.name;if($LASTEXITCODE -ne 0){throw 'Cannot free GPU'}}}
+          Start-Sleep -Seconds 7
+          $gpu=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1){throw 'GPU inventory unavailable'}
+          $parts=$gpu[0].Split(',')
+          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[2].Trim() -lt 10000){throw 'Cannot perform 24-case check with <10GB free'}
+          Write-Host ('DEV24_GPU_READY '+$gpu[0])
+      - name: 24 original tasks – direct PEFT v1 versus v2 only, no retraining
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:N2_SRC
+          try {
+            & $env:N2_PY -B -m scripts.neral_v2_forgetting_dev24 --checkpoint $env:N2_BASE --v1 $env:N2_V1 --v2 $env:N2_V2 --out $env:N2_OUT
+            if($LASTEXITCODE -ne 0){throw 'Direct DEV24 smoke failed'}
+          } finally {Pop-Location}
+      - name: Publish metrics only, no prompts or adapter files
+        if: always() && env.N2_OUT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-pilot-dev24-direct-${{ github.run_id }}
+          path: ${{ env.N2_OUT }}
+          retention-days: 30
+          if-no-files-found: warn
