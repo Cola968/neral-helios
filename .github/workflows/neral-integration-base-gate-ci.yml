@@ -1,0 +1,34 @@
+name: NERAL integration main-base integrity CPU
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_1_1_main_cpu_gate.py'
+      - 'tests/test_neral_1_1_main_integrity_base.py'
+      - '.github/workflows/neral-integration-base-gate-ci.yml'
+  push:
+    branches: [fix/neral-integration-gate-rebaseline-20261116]
+
+permissions:
+  contents: read
+
+jobs:
+  source-integrity:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regressions for fail-closed tracked main gate
+        run: python -B -m unittest discover -s tests -p test_neral_1_1_main_integrity_base.py -v
+      - name: Verify current approved base is preserved
+        run: python -B scripts/neral_1_1_main_cpu_gate.py
