@@ -116,8 +116,16 @@ def main() -> int:
     t0=time.perf_counter()
     tokenizer=AutoTokenizer.from_pretrained(str(args.checkpoint),
                  use_fast=True,local_files_only=True)
-    train_tokens=encode_answer_only(to_messages(rows),tokenizer,max_seq_length=args.context)
-    val_tokens=encode_answer_only(to_messages(val),tokenizer,max_seq_length=args.context)
+    if args.family=="luna":
+        # Qwen3.5-4B uses a different native assistant header from 9B.
+        # Derive exact supervised assistant offsets from the native FULL
+        # rendered chat, not an incompatible generation-prompt prefix.
+        from scripts.neral_v2_luna_encoding import assistant_only_4b
+        encode=assistant_only_4b
+    else:
+        encode=encode_answer_only
+    train_tokens=encode(to_messages(rows),tokenizer,max_seq_length=args.context)
+    val_tokens=encode(to_messages(val),tokenizer,max_seq_length=args.context)
     if len(train_tokens)!=len(rows) or len(val_tokens)!=len(val):
         raise RuntimeError("Tokenization unexpectedly dropped data")
     dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
