@@ -13,3 +13,9 @@ def test_exact_numeric_score_without_ambiguous_parsing():
     assert score('{"tool":"z3","spec":{},"answer":42}',42)==(True,False)
     assert score("the answer could be 42 or 43",42)==(False,True)
     assert score('{"answer":"42"}',42)==(False,True)
+
+
+def test_native_qwen35_batchencoding_is_unwrapped():
+    from collections import UserDict
+    from scripts.neral_v2_forgetting_dev24 import token_ids
+    assert token_ids(UserDict({"input_ids":[1,2,3],"attention_mask":[1,1,1]}))==[1,2,3]

@@ -10,6 +10,15 @@ from scripts.neral_1_1_postverify_dev24_cases import build, manifest
 from scripts.neral_qlora_train_peft import BASE_MODEL, create_config
 
 
+def token_ids(batch):
+    from collections.abc import Mapping
+    if isinstance(batch,Mapping):
+        batch=batch.get("input_ids")
+    if not isinstance(batch,list) or any(type(x) is not int for x in batch):
+        raise RuntimeError("Qwen tokenizer did not return flat token IDs")
+    return batch
+
+
 def score(text:str,gold:int)->tuple[bool,bool]:
     clean=text.strip()
     if re.fullmatch(r"[0-9]{1,13}",clean):
@@ -44,9 +53,9 @@ def eval_adapter(label,adapter,checkpoint,tokenizer,cases):
             {"role":"user","content":case["question"]}]
         tokens=tokenizer.apply_chat_template(messages,tokenize=True,
                          add_generation_prompt=True,enable_thinking=False)
-        if isinstance(tokens,dict):tokens=tokens["input_ids"]
-        if type(tokens) is not list or len(tokens)>3500:
-            raise RuntimeError("DEV24 prompt tokenized longer than 3500")
+        tokens=token_ids(tokens)
+        if len(tokens)>3500:
+            raise RuntimeError("DEV24 prompt truly exceeds 3500 tokens")
         inputs=torch.tensor([tokens],dtype=torch.long,device="cuda")
         torch.cuda.synchronize();now=time.monotonic()
         with torch.inference_mode():
