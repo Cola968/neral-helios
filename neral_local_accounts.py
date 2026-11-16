@@ -309,6 +309,11 @@ def register_local_accounts(app):
                              (user[0],)).fetchone()
             if row is None or not check_password_hash(row[0], password):
                 return jsonify(error="Passwort stimmt nicht."), 401
+            cleanup=getattr(app, "_neral_forget_cpu_user", None)
+            if callable(cleanup):
+                cleanup(user[0])  # remove 1.2 memory/RAG before deleting the account
             db.execute("DELETE FROM users WHERE id=?", (user[0],))
         rotate(None)
         return jsonify(deleted=True, authenticated=False, csrf=session["csrf"])
+    # Account-validated current user; no scope trusted from client JSON.
+    app._neral_authenticated_user_id = lambda: (row[0] if (row := auth()) else None)

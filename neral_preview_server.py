@@ -175,6 +175,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
 
     from neral_local_accounts import register_local_accounts
     register_local_accounts(app)
+    from neral_cpu_foundation.integration import register_cpu_foundation_api
+    register_cpu_foundation_api(app)
 
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same
@@ -204,6 +206,18 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
                                       "persistent_filesystem_access": False},
             "local_code_execution": {"available": False},
             "project_files": {"available": False},
+            "cpu_verified": {"available": True, "execution": "bounded_cpu",
+                             "full_source_proof_required_for_auto": True},
+            "persistent_memory": {"available": True, "requires_login": True,
+                                  "requires_explicit_consent_to_save": True},
+            "document_rag": {"available": True, "requires_login": True,
+                             "local_only": True},
+            "cpu_verified": {"available": True, "execution": "bounded_cpu",
+                            "full_source_proof_required_for_auto": True},
+            "persistent_memory": {"available": True, "requires_login": True,
+                                  "requires_explicit_consent_to_save": True},
+            "document_rag": {"available": True, "requires_login": True,
+                            "local_only": True},
         })
     @app.post("/api/neral/preview/codecheck")
     def preview_codecheck():

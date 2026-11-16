@@ -1,0 +1,10 @@
+{
+  "input": 256,
+  "verified": 256,
+  "rejected": 0,
+  "splits": {
+    "train": 184,
+    "val": 32,
+    "test": 40
+  }
+}
