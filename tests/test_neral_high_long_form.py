@@ -33,9 +33,11 @@ class Wire:
     def __init__(self, *packets):
         self.packets = list(packets)
         self.calls = []
+        self.timeouts = []
 
     def open(self, request, timeout=0):
         self.calls.append(json.loads(request.data))
+        self.timeouts.append(timeout)
         return Reply(self.packets.pop(0))
 
 
@@ -56,6 +58,7 @@ class LongFormHighTests(unittest.TestCase):
         self.assertEqual(len(wire.calls), 1)
         self.assertEqual(wire.calls[0]["options"]["num_predict"], 4096)
         self.assertEqual(wire.calls[0]["options"]["num_ctx"], 8192)
+        self.assertEqual(wire.timeouts, [180.0])
         self.assertFalse(wire.calls[0]["think"])
         self.assertTrue(model.last_inference_diagnostic["long_form_budget_used"])
         self.assertFalse(model.last_inference_diagnostic["prose_continuation_succeeded"])
@@ -72,6 +75,7 @@ class LongFormHighTests(unittest.TestCase):
         self.assertEqual(wire.calls[0]["options"]["num_predict"], 4096)
         self.assertEqual(wire.calls[1]["options"]["num_predict"], 1536)
         self.assertEqual(wire.calls[1]["options"]["num_ctx"], 8192)
+        self.assertEqual(wire.timeouts, [180.0, 90.0])
         self.assertEqual(wire.calls[1]["options"]["temperature"], 0)
         self.assertFalse(wire.calls[1]["think"])
         self.assertEqual(wire.calls[1]["messages"][-2], {"role": "assistant", "content": part1})
@@ -98,6 +102,7 @@ class LongFormHighTests(unittest.TestCase):
         self.assertEqual(len(wire.calls), 1)
         self.assertEqual(wire.calls[0]["options"]["num_predict"], 2048)
         self.assertEqual(wire.calls[0]["options"]["num_ctx"], 4096)
+        self.assertEqual(wire.timeouts, [90.0])
 
     def test_regular_high_query_keeps_original_budget(self):
         wire = Wire(packet("stop", "Eine Turbine verdichtet Luft."))
