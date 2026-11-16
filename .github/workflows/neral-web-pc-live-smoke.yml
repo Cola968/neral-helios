@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONPATH: .
+
 jobs:
   ubuntu-network-control:
     runs-on: ubuntu-latest
