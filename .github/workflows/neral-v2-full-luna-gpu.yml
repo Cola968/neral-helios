@@ -1,0 +1,183 @@
+name: NERAL Helios rank16 then Luna 4B 480 QLoRA GPU training
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-full-luna-gpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  gpu-helios-then-luna:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 330
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_HOME: 'D:/neral-qlora-v2/hf-cache'
+      HF_HUB_CACHE: 'D:/neral-qlora-v2/hf-cache/hub'
+      HF_XET_CACHE: 'D:/neral-qlora-v2/hf-cache/xet'
+      NERAL_EXPECTED_SOURCE_SHA: ${{ github.sha }}
+      NERAL_TRAIN_DATA_ARTIFACT_RUN: '43930008107'
+      NERAL_TRAIN_SOURCE_BRANCH: 'feat/qlora-v2-full-and-luna'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+          clean: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: neral-1100-balanced-docker-proven-43930008107
+          repository: Cola968/neral-helios
+          run-id: 43930008107
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: verified-data
+      - name: Confirm Git branch, 1100/140 and 480/75 source splits, real Docker attestation
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $data=Join-Path $env:GITHUB_WORKSPACE 'verified-data'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_EXPECTED_SOURCE_SHA){throw 'SOURCE_SHA_MISMATCH'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $base='D:/neral-qlora/checkpoint'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Trusted local PEFT python unavailable'}
+          if(-not(Test-Path -LiteralPath (Join-Path $base 'config.json') -PathType Leaf)){throw '9B text Qwen checkpoint missing'}
+          $manifest=Join-Path $data 'manifest.json'
+          $proof=Join-Path $data 'docker_proof.json'
+          $train=Join-Path $data 'helios_terra_full.train.jsonl'
+          $val=Join-Path $data 'helios_terra_full.val.jsonl'
+          $lunaTrain=Join-Path $data 'luna_v1.train.jsonl'
+          $lunaVal=Join-Path $data 'luna_v1.val.jsonl'
+          foreach($file in @($manifest,$proof,$train,$val,$lunaTrain,$lunaVal)){
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw 'Missing certified curriculum file'}
+          }
+          $d=Get-PSDrive -Name D
+          Write-Host "D_FREE_GIB=$([math]::Round($d.Free/1GB,2))"
+          if($d.Free -lt 19GB){throw 'D: requires >=19 GiB before two local training jobs'}
+          $root='D:/neral-qlora-v2'
+          $prefix=('v2full-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          $smoke=Join-Path $root ($prefix+'-helios-smoke')
+          $helios=Join-Path $root ($prefix+'-helios')
+          $lunaSmoke=Join-Path $root ($prefix+'-luna-smoke')
+          $luna=Join-Path $root ($prefix+'-luna')
+          foreach($dir in @($smoke,$helios,$lunaSmoke,$luna)){
+            if(Test-Path -LiteralPath $dir){throw ('Do not overwrite existing model or adapter '+$dir)}
+          }
+          $env:PYTHONPATH=$src
+          Push-Location $src
+          try {
+            & $py -B -m scripts.neral_v2_full_train --train $train --val $val --manifest $manifest --docker-proof $proof --family helios --checkpoint $base --out $helios --epochs 2 --context 2048 --check-only
+            if($LASTEXITCODE -ne 0){throw 'Helios 1100/140 fails Docker + split gate'}
+            & $py -B -m scripts.neral_v2_full_train --train $lunaTrain --val $lunaVal --manifest $manifest --docker-proof $proof --family luna --checkpoint $base --out $luna --epochs 2 --context 2048 --check-only
+            if($LASTEXITCODE -ne 0){throw 'Luna 480/75 fails Docker + split gate'}
+          } finally {Pop-Location}
+          $vars=@{
+            V2_SOURCE=$src;V2_PY=$py;V2_BASE=$base;
+            V2_TRAIN=$train;V2_VAL=$val;V2_LUNA_TRAIN=$lunaTrain;V2_LUNA_VAL=$lunaVal;
+            V2_MANIFEST=$manifest;V2_DOCKER_PROOF=$proof;
+            V2_SMOKE=$smoke;V2_HELIOS=$helios;V2_LUNA_SMOKE=$lunaSmoke;V2_LUNA=$luna;
+            V2_4B=($root+'/qwen35-4b-hf');PYTHONPATH=$src
+          }
+          foreach($pair in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($pair.Key+'='+$pair.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          }
+          Write-Host 'CERTIFIED_1100_140_AND_LUNA_480_75_GATE_PASS'
+
+      - name: Unload all Ollama models, verify clean RTX4070 VRAM for PyTorch
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($model in @($ps.models)){
+            if($model -and $model.name){
+              Write-Host ('OLLAMA_STOP '+$model.name)
+              & $exe stop $model.name
+              if($LASTEXITCODE -ne 0){throw 'Cannot unload Ollama model'}
+            }
+          }
+          Start-Sleep -Seconds 8
+          $now=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          if($null -ne $now.models -and @($now.models).Count -gt 0){throw 'Resident Ollama models still loaded'}
+          $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'GPU inventory failed'}
+          $parts=$g[0].Split(',')
+          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[1].Trim() -lt 12000 -or [int]$parts[2].Trim() -lt 10000){throw 'Insufficient RTX4070 free VRAM; block GPU training'}
+          Write-Host ('CUDA_MEM_FREE '+$g[0])
+
+      - name: Helios/Terra Qwen3.5-9B rank16 one-step 4bit QLoRA capacity smoke
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2_SOURCE
+          try {
+            & $env:V2_PY -B -m scripts.neral_v2_full_train --train $env:V2_TRAIN --val $env:V2_VAL --manifest $env:V2_MANIFEST --docker-proof $env:V2_DOCKER_PROOF --family helios --checkpoint $env:V2_BASE --out $env:V2_SMOKE --epochs 2 --context 2048 --max-steps 1
+            if($LASTEXITCODE -ne 0){throw '9B rank16 one-step smoke blocked'}
+          } finally {Pop-Location}
+
+      - name: Train Helios/Terra v2-full rank16 on 1100, 140 validation each of two epochs
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2_SOURCE
+          try {
+            & $env:V2_PY -B -m scripts.neral_v2_full_train --train $env:V2_TRAIN --val $env:V2_VAL --manifest $env:V2_MANIFEST --docker-proof $env:V2_DOCKER_PROOF --family helios --checkpoint $env:V2_BASE --out $env:V2_HELIOS --epochs 2 --context 2048
+            if($LASTEXITCODE -ne 0){throw '9B rank16 two-epoch training incomplete'}
+            $m=Get-Content -LiteralPath (Join-Path $env:V2_HELIOS 'manifest.json') -Raw|ConvertFrom-Json
+            if($m.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $m.rank -ne 16 -or $m.train_rows -ne 1100 -or $m.val_rows -ne 140 -or $m.test_rows_opened -ne 0 -or $m.validation_history.Count -ne 2){throw 'Full 9B adapter receipt incomplete'}
+          } finally {Pop-Location}
+          Write-Host 'HELIOS_V2_FULL_ADAPTER_FROZEN'
+
+      - name: Locate HF 4B weights on C and D then download to D only if missing
+        env:
+          HF_HUB_OFFLINE: '0'
+          TRANSFORMERS_OFFLINE: '0'
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2_SOURCE
+          try {
+            & $env:V2_PY -B -m scripts.neral_v2_luna_checkpoint --out $env:V2_4B
+            if($LASTEXITCODE -ne 0){throw 'Official Qwen3.5-4B full safetensors unavailable on D:'}
+          } finally {Pop-Location}
+
+      - name: Luna Qwen3.5-4B rank8 one-step smoke – direct think:false data
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2_SOURCE
+          try {
+            & $env:V2_PY -B -m scripts.neral_v2_full_train --train $env:V2_LUNA_TRAIN --val $env:V2_LUNA_VAL --manifest $env:V2_MANIFEST --docker-proof $env:V2_DOCKER_PROOF --family luna --checkpoint $env:V2_4B --out $env:V2_LUNA_SMOKE --epochs 2 --context 2048 --max-steps 1
+            if($LASTEXITCODE -ne 0){throw 'Luna 4B one-step smoke blocked'}
+          } finally {Pop-Location}
+
+      - name: Train Luna-v1 Qwen3.5-4B rank8 – 480 train and 75 validation per epoch
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2_SOURCE
+          try {
+            & $env:V2_PY -B -m scripts.neral_v2_full_train --train $env:V2_LUNA_TRAIN --val $env:V2_LUNA_VAL --manifest $env:V2_MANIFEST --docker-proof $env:V2_DOCKER_PROOF --family luna --checkpoint $env:V2_4B --out $env:V2_LUNA --epochs 2 --context 2048
+            if($LASTEXITCODE -ne 0){throw 'Luna 4B two-epoch training incomplete'}
+            $m=Get-Content -LiteralPath (Join-Path $env:V2_LUNA 'manifest.json') -Raw|ConvertFrom-Json
+            if($m.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $m.rank -ne 8 -or $m.train_rows -ne 480 -or $m.val_rows -ne 75 -or $m.test_rows_opened -ne 0 -or $m.validation_history.Count -ne 2){throw 'Luna frozen adapter receipt incomplete'}
+          } finally {Pop-Location}
+          Write-Host 'LUNA_V1_ADAPTER_FROZEN'
+
+      - name: Upload scalar manifest proof only – NEVER 9B/4B model weights, no user data
+        if: always() && env.V2_HELIOS != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-helios-full-and-luna-manifests-${{ github.run_id }}
+          path: |
+            ${{ env.V2_SMOKE }}/manifest.json
+            ${{ env.V2_HELIOS }}/manifest.json
+            ${{ env.V2_LUNA_SMOKE }}/manifest.json
+            ${{ env.V2_LUNA }}/manifest.json
+          retention-days: 30
+          if-no-files-found: warn

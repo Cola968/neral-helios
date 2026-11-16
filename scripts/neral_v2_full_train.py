@@ -1,4 +1,4 @@
-"""NERAL 1.2 QLoRA-v2 pilot: train-only 184 and validation-only 32.
+"""NERAL full rank16 QLoRA 9B or Luna rank8 QLoRA 4B on independently checked splits.
 
 The 40-case test file is not opened, imported, hashed, globbed or passed to
 the training process. Evaluation is a completely separate program and starts
@@ -24,7 +24,7 @@ from scripts.neral_qlora_train_peft import (
 TRAINING_SEED_FULL = 2026111620
 
 def _dataset_sha(path):
-    return hashlib.sha256(path.read_bytes().replace(b"\\r\\n",b"\\n")).hexdigest()
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n",b"\n")).hexdigest()
 
 def load_splits(train,val,manifest_path,proof_path,family):
     # The build manifest was made before training, and a separate Docker
