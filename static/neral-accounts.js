@@ -24,14 +24,27 @@
     $("showLogin").hidden=!!username;
     $("logout").hidden=!username;
     $("accountSettings").hidden=!username;
+    // Never expose the previous account's metrics or controls after logout.
+    $("profileUsername").textContent=username||"Gast";
+    const avatar=(username||"G").slice(0,1).toLocaleUpperCase("de");
+    $("profileAvatar").textContent=avatar;
+    $("profileLaunchAvatar").textContent=avatar;
+    $("profileGuestActions").hidden=!!username;
+    $("profileAccountActions").hidden=!username;
     $("newSavedChat").title=username?"Neues gespeichertes Gespräch":"Anmelden, um Chats zu speichern";
-    if(!username){list.replaceChildren();activeId=null;turns=[];}
+    if(!username){
+      list.replaceChildren();activeId=null;turns=[];
+      $("profileChatCount").textContent="—";
+      if($("profileDashboard").open)$("profileDashboard").close();
+    }
   }
   async function refresh(){
     if(!username)return;
     const startedAuth=authEpoch, owner=username;
     const data=await api("/api/neral/account/chats");
     if(startedAuth!==authEpoch || owner!==username)return;
+    // Count only the saved chats returned for the current authenticated user.
+    $("profileChatCount").textContent=String(Array.isArray(data.chats)?data.chats.length:0);
     list.replaceChildren();
     const today=new Date(),yesterday=new Date(today);
     yesterday.setDate(today.getDate()-1);
@@ -136,9 +149,36 @@
   }
   form.addEventListener("submit",event=>{event.preventDefault();authenticate("login");});
   $("accountRegister").addEventListener("click",()=>authenticate("register"));
+  const dashboard=$("profileDashboard");
+  function syncDashboardMode(){
+    $("profileMode").textContent=
+      document.querySelector?.('input[name="mode"]:checked')?.value==="think"
+        ?"HIGH":"LOW";
+  }
+  $("showProfile").addEventListener("click",()=>{
+    syncDashboardMode();
+    dashboard.showModal();
+  });
+  $("profileClose").addEventListener("click",()=>{
+    dashboard.close();$("showProfile").focus();
+  });
+  dashboard.addEventListener("click",event=>{
+    if(event.target===dashboard)dashboard.close();
+  });
+  $("profileLogin").addEventListener("click",()=>{
+    dashboard.close();dlg.showModal();
+  });
+  $("profileOpenPassword").addEventListener("click",()=>{
+    dashboard.close();openAccountSettings("password");
+  });
+  $("profileDelete").addEventListener("click",()=>{
+    dashboard.close();openAccountSettings("delete");
+  });
+
   $("showLogin").addEventListener("click",()=>dlg.showModal());
   $("accountCancel").addEventListener("click",()=>{dlg.close();$("accountPassword").value="";});
-  $("logout").addEventListener("click",async()=>{
+  async function signOut(){
+    if(!username)return;
     try{
       const data=await mutate("/api/neral/account/logout","POST");
       authEpoch++;navigationEpoch++;
@@ -146,7 +186,9 @@
       window.dispatchEvent(new CustomEvent("neral:account-csrf",{detail:{csrf}}));
       username=null;activeId=null;turns=[];clearChat();authUi();
     }catch(e){$("error").textContent=e.message;}
-  });
+  }
+  $("logout").addEventListener("click",signOut);
+  $("profileSignOut").addEventListener("click",signOut);
   $("newSavedChat").addEventListener("click",startNew);
   const searchInput=$("chatSearchInput");
   $("searchChats").addEventListener("click",()=>{
