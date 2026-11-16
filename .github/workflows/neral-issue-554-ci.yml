@@ -4,6 +4,9 @@ on:
     paths:
       - 'static/neral-preview.js'
       - 'neral_preview_attachments.py'
+      - 'neral_agent_autonomy.py'
+      - 'neral_local_chat_api.py'
+      - 'tests/test_neral_issue_554_cancel.py'
       - 'tests/test_neral_issue_554_web.cjs'
       - 'tests/test_neral_issue_554_attachments.py'
       - '.github/workflows/neral-issue-554-ci.yml'
@@ -36,3 +39,5 @@ jobs:
         run: python -m pip install 'Flask>=3,<4' 'pypdf>=5,<7' 'sympy>=1.13,<2' 'z3-solver==4.16.0.0'
       - name: High attachment responder contracts
         run: python -B -m unittest discover -s tests -p test_neral_issue_554_attachments.py -v
+      - name: Request-scoped local model cancellation contracts
+        run: python -B -m unittest discover -s tests -p test_neral_issue_554_cancel.py -v
