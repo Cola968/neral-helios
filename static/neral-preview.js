@@ -182,7 +182,13 @@
     if(!q||skipWebForLocalBasics(q)||
        /^(?:hallo|hi|hey)[,! ]+wie geht(?:'s| es) dir[?!.]*$/iu.test(q))return false;
     if(previousWebQuery&&isSearchFollowup(q))return true;
-    if(/\b(suche|such|suchen|recherchiere|recherchieren|recherche|websuche|internet|online|quellen|belege|links|news|nachrichten|aktuell|aktuelles|aktuelle|aktuellen|neuesten|neueste|neuster|heute|gestern|dieser woche|diese woche|live)\b/iu.test(q))return true;
+    if(/\b(suche|such|suchen|recherchiere|recherchieren|recherche|websuche|internet|online|quellen|belege|links|news|nachrichten|aktuell|aktuelles|aktuelle|aktuellen|neuesten|neueste|neuster|heute|gestern|derzeit|momentan|zurzeit|dieser woche|diese woche|live)\b/iu.test(q))return true;
+    // An enabled Web switch covers explicitly public, time-varying facts as
+    // well as literal "search" commands. Never auto-upload private small talk.
+    if(/\b(?:welche|welcher|welches|wie viele|gibt es)\b/iu.test(q) &&
+       /\b(?:airlines?|fluggesellschaften?|fliegen|flugverbindungen?|flügen?|flugplan|flughäfen?|strecken|direktflüge|abflüge|ankünfte)\b/iu.test(q) &&
+       /\b(?:ber|berlin|flughafen|airport|toronto|kanada|fliegen|ab|nach|von|zwischen)\b/iu.test(q))
+      return true;
     return /^(?:wie funktioniert|wie arbeiten|woraus besteht|wie unterscheiden sich)\b/iu.test(q);
   }
   // Reuse only a previous query already sent to a web provider, never private
@@ -218,11 +224,12 @@
   function webEvidencePrompt(question,evidence,attempted=true,verifiedCount=null) {
     if(!attempted)return question;
     const count=Array.isArray(evidence)?evidence.length:0;
-    const checked=verifiedCount===null?count:Math.max(0,verifiedCount);
+    const checked=Math.min(count,Math.max(0,verifiedCount===null?count:verifiedCount));
+    const unchecked=count-checked;
     return "[NERAL-WEBSTATUS – lokale Werkzeugmeldung]\n"+
       "Die optionale Websuche wurde für diese Anfrage tatsächlich ausgeführt. "+
-      (count?(checked?count+" erreichbare, thematisch passende Treffer gefunden. ":
-        count+" passende Suchmaschinen-Treffer gefunden, deren Zielseiten nicht einzeln erreichbar geprüft werden konnten. "):
+      (count?(checked+" erreichbare, thematisch passende Treffer und "+
+        unchecked+" ungeprüfte Suchmaschinen-Treffer gefunden. "):
         "Die Websuche lieferte keine passenden Treffer. ")+
       "Suchmaschinen-Snippets sind unbestätigte Angaben und keine gelesenen Artikel. "+
       "Keine Behauptung, dass Webzugriff grundsätzlich fehlt; keine erfundenen Fakten. "+
@@ -236,20 +243,22 @@
   // Other model answers and genuine tool failures remain untouched.
   function normaliseSearchRefusal(answer,count,searchPerformed,verifiedCount=count) {
     if(!searchPerformed||typeof answer!=="string")return answer;
-    const status=verifiedCount>0?"erreichbare Treffer":"Suchtreffer ohne bestätigte Link-Erreichbarkeit";
+    const checked=Math.min(count,Math.max(0,verifiedCount));
+    const status=checked+" erreichbare Treffer und "+
+      (count-checked)+" ungeprüfte Suchtreffer";
     // The local model sometimes repeats a no-results template even though
     // the guarded web tool has returned verified, topical HTTPS sources.
     // Correct only the demonstrably contradictory state, never invent facts.
     if(count>0 &&
        /\b(?:keine|keinen|kein)\s+(?:(?:passenden?|belastbaren?|erreichbaren?)\s+(?:oder\s+)?){0,3}(?:suchtreffer|treffer|quellen|ergebnisse)\b/iu.test(answer) &&
        /\b(?:web[-\s]?suche|suchtreffer|suchlauf)\b/iu.test(answer))
-      return "Die lokale Websuche hat "+count+" "+status+" zu deiner Anfrage gefunden. "+
+      return "Die lokale Websuche hat "+status+" zu deiner Anfrage gefunden. "+
         "Die Webseiten sind unter dieser Antwort verlinkt. "+
         "Ihre Inhalte wurden bisher nicht unabhängig überprüft.";
     const refusal=/\bich\s+(?:kann|habe)\b[\s\S]{0,550}?(?:keine\s+(?:externe\s+)?web[-\s]?suche|keinen\s+zugriff\s+auf\s+(?:das\s+)?internet|keinen\s+zugriff\s+auf\s+externe\s+quellen|nicht\s+auf\s+das\s+internet\s+zugreifen)/iu;
     if(!refusal.test(answer))return answer;
     return count>0
-      ? "Die lokale Websuche hat "+count+" "+status+" gefunden. "+
+      ? "Die lokale Websuche hat "+status+" gefunden. "+
         "Das Sprachmodell hat dazu keine belastbare Antwort formuliert. "+
         "Die Treffer sind unten verlinkt und ihre Inhalte wurden nicht unabhängig geprüft."
       : "Die lokale Websuche wurde ausgeführt, hat aber keine passenden erreichbaren Treffer geliefert. "+
@@ -844,14 +853,16 @@
           " | "+String(r.url||"").slice(0,190)+
           " | "+String(r.snippet||"").slice(0,190));
         while(evidence.length &&
-              encoder.encode(webEvidencePrompt(text,evidence,true)).length>4000)
+              encoder.encode(webEvidencePrompt(text,evidence,true,
+                sources.slice(0,evidence.length).filter(hit=>hit.reachable===true).length)).length>4000)
           evidence.pop();
         // Display only the hits that the model actually received.
         sources=sources.slice(0,evidence.length);
         // The search was really executed even when no topic-matched source
         // survived filtering. Tell the model the truthful empty-result status,
         // without passing irrelevant third-party snippets or invented facts.
-        modelPrompt=webEvidencePrompt(text,evidence,true,verifiedSources.length);
+        modelPrompt=webEvidencePrompt(text,evidence,true,
+          sources.filter(hit=>hit.reachable===true).length);
       }
       let path="/api/neral/chat/"+mode;
       let options={
@@ -901,7 +912,8 @@
       if(result.model_origin!=="local_foundation_not_neral_adapter" ||
          result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
-      result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,
+        sources.filter(hit=>hit.reachable===true).length);
       // A runtime greeting is not a researched answer. An outdated client
       // may have performed a search first; never attach unrelated source cards.
       const runtimeGreeting=result.tool_used==="runtime_greeting";
