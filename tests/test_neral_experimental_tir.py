@@ -64,31 +64,30 @@ class Qwen35WireProtocolRegression(unittest.TestCase):
         self.assertIsNone(parse_tool_call(
             '<tool_call>{"tool":"solve","code":"17*13"}</tool_call>'))
 
-    def test_repair_request_avoids_native_ollama_tool_delimiters(self):
-        from neral_tir_experimental import run_experimental_tir
+    def test_observation_request_avoids_native_ollama_tool_delimiters(self):
         turns_seen = []
-        results = iter([
-            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(x)"}',
+        replies = iter([
             'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(42)"}',
+            'NERAL_FINAL_TEXT: 42',
         ])
         def respond(turns):
             turns_seen.append([dict(t) for t in turns])
-            return next(results)
-        def runner(_tool, code):
-            if code == "print(x)":
-                return {"status":"FAILED","traceback":"NameError"}
-            return {"status":"PASSED","output":"42",
-                    "verification_scope":"execution_only"}
-        result = run_experimental_tir(messages("Compute answer"), respond,
-                                      tool_runner=runner)
-        self.assertEqual(result["tool_calls_triggered"], 2)
+            return next(replies)
+        result = run_experimental_tir(
+            messages("Compute answer"), respond,
+            tool_runner=lambda _tool,_code: {
+                "status":"PASSED", "output":"42",
+                "verification_scope":"execution_only",
+            })
+        self.assertEqual(result["tool_calls_triggered"], 1)
         self.assertEqual(result["tool_calls_succeeded"], 1)
-        self.assertNotIn("<tool_call",turns_seen[1][-1]["content"])
-        self.assertIn("NERAL_EXECUTE_JSON:",turns_seen[1][-1]["content"])
+        self.assertNotIn("<tool_call", turns_seen[1][-1]["content"])
+        self.assertIn("SANDBOX_OBSERVATION", turns_seen[1][-1]["content"])
 
 
 class TIRLoopRegression(unittest.TestCase):
     SUFFIX = SuffixRegression.SUFFIX
+
     def test_tool_schema_strict(self):
         self.assertEqual(parse_tool_call(
             'NERAL_EXECUTE_JSON: {"tool":"solve","code":"17*13"}'),
@@ -102,155 +101,107 @@ class TIRLoopRegression(unittest.TestCase):
             with self.subTest(candidate=candidate):
                 self.assertIsNone(parse_tool_call(candidate))
 
-
-    def test_three_exact_tasks_trigger_tools_with_format_suffix(self):
+    def test_success_needs_second_model_observation_and_final(self):
         tasks = (
             ("Calculate exactly 31 * 17.", "solve", "31*17", "527"),
             ("Count valid orders of A,B,C given A before B.", "python_sandbox",
              "print(3)", "3"),
-            ("Count Boolean assignments to A,B where exactly one is True.",
-             "python_sandbox", "print(2)", "2"),
         )
-        for question, tool, code, expected in tasks:
+        for question, tool, code, value in tasks:
             with self.subTest(question=question):
-                calls = []
-                def respond(turns):
-                    self.assertNotIn("Gib das Ergebnis", turns[-1]["content"])
-                    return 'NERAL_EXECUTE_JSON: ' + __import__("json").dumps(
-                        {"tool": tool, "code": code}) + ''
-                def runner(tool_name, python_code):
-                    calls.append((tool_name, python_code))
-                    return {"status": "PASSED", "output": expected,
-                            "verification_scope": "execution_only"}
-                out = run_experimental_tir(
-                    messages(question + self.SUFFIX), respond,
-                    tool_runner=runner)
-                self.assertEqual(calls, [(tool, code)])
-                self.assertEqual(out["tool_calls_triggered"], 1)
-                self.assertEqual(out["tool_calls_succeeded"], 1)
-                self.assertEqual(out["text"], "FINAL_ANSWER: " + expected)
+                seen=[]
+                responses=iter([
+                    'NERAL_EXECUTE_JSON: ' + __import__("json").dumps(
+                        {"tool":tool,"code":code}),
+                    'NERAL_FINAL_TEXT: FINAL_ANSWER: ' + value,
+                ])
+                def model(turns):
+                    seen.append(turns)
+                    return next(responses)
+                out=run_experimental_tir(
+                    messages(question+self.SUFFIX),model,
+                    tool_runner=lambda _tool,_code:{
+                        "status":"PASSED","output":value,
+                        "verification_scope":"execution_only"})
+                self.assertEqual(len(seen),2)
+                self.assertEqual(out["text"],"FINAL_ANSWER: "+value)
+                self.assertEqual(out["tool_calls_triggered"],1)
+                self.assertEqual(out["tool_calls_succeeded"],1)
+                self.assertEqual(out["verification_status"],"tool_observed_unverified")
+                self.assertFalse(out["verified"])
 
-    def test_success_requires_single_model_call_no_review(self):
-        seen = []
-        def respond(turns):
-            seen.append(turns)
-            return 'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(6*7)"}'
-        def runner(tool, code):
-            self.assertEqual((tool, code), ("python_sandbox", "print(6*7)"))
-            return {"status": "PASSED", "output": "42", "verification_scope": "execution_only"}
-        result = run_experimental_tir(messages("What is 6*7?"), respond, tool_runner=runner)
-        self.assertEqual(len(seen), 1)
-        self.assertEqual(result["text"], "42")
-        self.assertEqual(result["tool_calls_triggered"], 1)
-        self.assertEqual(result["tool_calls_succeeded"], 1)
-        self.assertEqual(result["verification_status"], "executed_unverified")
-        self.assertFalse(result["verified"])
-
-    def test_exactly_one_repair_after_failure(self):
-        responses = iter([
-            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(x)"}',
-            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(42)"}',
+    def test_successful_stdout_is_not_the_direct_user_answer(self):
+        seen=[]
+        answers=iter([
+            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(6*7)"}',
+            'NERAL_FINAL_TEXT: 42',
         ])
-        seen = []
-        def respond(turns):
+        def model(turns):
             seen.append(turns)
-            return next(responses)
-        def runner(tool, code):
-            return ({"status": "FAILED", "error_type": "RuntimeError",
-                     "traceback": "NameError: x is not defined"}
-                    if code == "print(x)" else
-                    {"status": "PASSED", "output": "42", "verification_scope": "execution_only"})
-        result = run_experimental_tir(messages("Find the value"), respond, tool_runner=runner)
-        self.assertEqual(len(seen), 2)
-        self.assertIn("NameError", seen[1][-1]["content"])
-        self.assertEqual(result["text"], "42")
-        self.assertEqual(result["tool_calls_triggered"], 2)
-        self.assertEqual(result["tool_calls_succeeded"], 1)
+            return next(answers)
+        out=run_experimental_tir(messages("What is 6*7?"),model,
+            tool_runner=lambda _tool,_code:{
+                "status":"PASSED","output":"41",
+                "verification_scope":"execution_only"})
+        self.assertEqual(len(seen),2)
+        self.assertEqual(out["text"],"42")
+        self.assertEqual(out["calls_used"],2)
+        self.assertFalse(out["verified"])
 
-    def test_error_twice_is_explicitly_unverified(self):
-        def respond(turns):
-            return 'NERAL_EXECUTE_JSON: {"tool":"solve","code":"1/0"}'
-        result = run_experimental_tir(messages("Calculate something"), respond,
-                                      tool_runner=lambda tool, code: {
-                                          "status": "FAILED", "error_type": "RuntimeError",
-                                          "traceback": "ZeroDivisionError"})
-        self.assertEqual(result["tool_calls_triggered"], 2)
-        self.assertEqual(result["tool_calls_succeeded"], 0)
-        self.assertEqual(result["verification_status"], "unverified_fallback")
-        self.assertFalse(result["verified"])
-
-    def test_plain_first_reply_gets_one_model_driven_tool_decision_retry(self):
-        """No benchmark-specific keywords: let the model reconsider tool use."""
-        calls = []
-        seen = []
-        replies = iter([
-            "I estimate the count is 42.",
-            'NERAL_EXECUTE_JSON: {"tool":"python_sandbox","code":"print(40+2)"}',
+    def test_error_causes_direct_qwen_fallback_without_second_sandbox(self):
+        seen=[]
+        replies=iter([
+            'NERAL_EXECUTE_JSON: {"tool":"solve","code":"1/0"}',
+            'FINAL_ANSWER: 7',
         ])
-        def respond(turns):
+        def model(turns):
             seen.append([dict(t) for t in turns])
             return next(replies)
-        def runner(tool, code):
-            calls.append((tool, code))
-            return {"status": "PASSED", "output": "42",
-                    "verification_scope": "execution_only"}
-        result = run_experimental_tir(
-            messages("Determine an exact combinatorial count with constraints."),
-            respond, tool_runner=runner)
-        self.assertEqual(len(seen), 2)
-        self.assertEqual(seen[1][-2]["role"], "assistant")
-        self.assertEqual(seen[1][-1]["role"], "user")
-        self.assertIn("NERAL_EXECUTE_JSON:", seen[1][-1]["content"])
-        self.assertNotIn("<tool_call", seen[1][-1]["content"])
-        self.assertEqual(calls, [("python_sandbox", "print(40+2)")])
-        self.assertEqual(result["tool_calls_triggered"], 1)
-        self.assertEqual(result["tool_calls_succeeded"], 1)
-        self.assertEqual(result["text"], "42")
+        original=messages("Calculate something")
+        out=run_experimental_tir(original,model,
+            tool_runner=lambda _tool,_code:{
+                "status":"FAILED","traceback":"ZeroDivisionError"})
+        self.assertEqual(seen[-1],original)
+        self.assertEqual(out["tool_calls_triggered"],1)
+        self.assertEqual(out["tool_calls_succeeded"],0)
+        self.assertEqual(out["verification_status"],"base_fallback_unverified")
+        self.assertEqual(out["text"],"FINAL_ANSWER: 7")
+        self.assertEqual(out["calls_used"],2)
 
-    def test_explicit_model_no_tool_decision_never_invokes_runner(self):
-        seen = []
-        def respond(turns):
-            seen.append(turns)
-            return "NERAL_FINAL_TEXT: A galaxy contains stars and gas."
-        result = run_experimental_tir(
-            messages("What is a galaxy?"), respond,
-            tool_runner=lambda *_: self.fail("No tool approved"))
-        self.assertEqual(len(seen), 1)
-        self.assertEqual(result["text"], "A galaxy contains stars and gas.")
-        self.assertFalse(result["verified"])
-        self.assertEqual(result["tool_calls_triggered"], 0)
-
-    def test_second_plain_answer_does_not_loop_or_execute(self):
-        seen = []
-        def respond(turns):
+    def test_plain_first_reply_falls_back_without_retry_tool_loop(self):
+        seen=[]
+        outputs=iter(["I estimate the count is 42.","The count is 42."])
+        def model(turns):
             seen.append([dict(t) for t in turns])
-            return "An ordinary explanatory answer."
-        result = run_experimental_tir(
-            messages("Explain a general concept."), respond,
-            tool_runner=lambda *_: self.fail("Must not call tools"))
-        self.assertEqual(len(seen), 2)
-        self.assertEqual(result["text"], "An ordinary explanatory answer.")
-        self.assertFalse(result["verified"])
-        self.assertEqual(result["tool_calls_triggered"], 0)
+            return next(outputs)
+        out=run_experimental_tir(messages("Count combinations"),
+            model,tool_runner=lambda *_:self.fail("no tool"))
+        self.assertEqual(len(seen),2)
+        self.assertEqual(seen[-1],messages("Count combinations"))
+        self.assertEqual(out["verification_status"],"base_fallback_unverified")
+        self.assertEqual(out["text"],"The count is 42.")
 
-    def test_plain_chat_never_calls_tools(self):
-        seen = []
-        result = run_experimental_tir(
-            messages("Explain what a galaxy is."),
-            lambda turns: "Eine Galaxie ist ein Sternsystem.",
-            tool_runner=lambda *args: seen.append(args))
-        self.assertEqual(seen, [])
-        self.assertEqual(result["tool_calls_triggered"], 0)
-        self.assertEqual(result["text"], "Eine Galaxie ist ein Sternsystem.")
+    def test_no_tool_decision_returns_one_model_answer(self):
+        seen=[]
+        out=run_experimental_tir(messages("What is a galaxy?"),
+            lambda turns:(seen.append(turns) or
+                "NERAL_FINAL_TEXT: A galaxy contains stars and gas."),
+            tool_runner=lambda *_:self.fail("no tool"))
+        self.assertEqual(len(seen),1)
+        self.assertEqual(out["tool_calls_triggered"],0)
+        self.assertEqual(out["text"],"A galaxy contains stars and gas.")
 
-    def test_rejects_extraneous_tool_instructions(self):
-        result = run_experimental_tir(
-            messages("Check something"), lambda turns:
+    def test_malformed_tool_packet_never_executes_and_falls_back(self):
+        replies=iter([
             'NERAL_EXECUTE_JSON: {"tool":"shell","code":"rm -rf /"}',
-            tool_runner=lambda *args: self.fail("Must not invoke unapproved tool"))
-        self.assertEqual(result["verification_status"], "unverified_fallback")
-        self.assertEqual(result["tool_calls_triggered"], 0)
-
+            "Direct safe answer.",
+        ])
+        out=run_experimental_tir(messages("Explain something"),
+            lambda turns:next(replies),
+            tool_runner=lambda *_:self.fail("invalid tool must not execute"))
+        self.assertEqual(out["tool_calls_triggered"],0)
+        self.assertEqual(out["verification_status"],"base_fallback_unverified")
+        self.assertEqual(out["text"],"Direct safe answer.")
 
 
 class TIRHttpGate(unittest.TestCase):

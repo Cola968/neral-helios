@@ -1,0 +1,113 @@
+name: NERAL 1.1 main integration CPU and RTX4070 smoke
+
+on:
+  push:
+    branches:
+      - integration/neral-1-1-main-verified-20261116
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_*.py'
+      - 'scripts/neral_1_1_*'
+      - 'tests/test_neral_*.py'
+      - 'requirements-neral-preview.txt'
+      - 'Start-Neral-1.0-Local.ps1'
+      - '.github/workflows/neral-1-1-main-integration-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neral-1-1-integrated-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cpu-integrated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact Python runtime and CPU-only test dependencies
+        run: |
+          python -m pip install -r requirements.txt -r requirements-neral-preview.txt
+          python -m pip install "jsonschema>=4.20,<5" PyYAML cryptography
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify main web/UI integrity and run full integration CPU contracts
+        run: python -B scripts/neral_1_1_main_cpu_gate.py --tests
+  rtx4070-integrated-smoke:
+    needs: cpu-integrated
+    # Never execute untrusted PR code on the user's real Windows PC.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/integration/neral-1-1-main-verified-20261116'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER: '1'
+      NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK: '1'
+      NERAL_INTEGRATION_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          clean: true
+          persist-credentials: false
+      - name: Verify pinned source and isolated preinstalled Windows Python
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_INTEGRATION_SOURCE_SHA) { throw 'Pinned integration source drift' }
+          $python = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'No existing verified local Python'}
+          $deps = Join-Path $env:RUNNER_TEMP ('neral-11-main-deps-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $deps){throw 'Ephemeral deps already exist'}
+          & $python -B -m pip install --disable-pip-version-check --no-cache-dir --no-input --target $deps 'z3-solver==4.16.0.0' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
+          if($LASTEXITCODE -ne 0){throw 'Dependencies unavailable'}
+          $env:PYTHONPATH=$src+';'+$deps
+          Push-Location $src
+          try {
+            & $python -B scripts/neral_1_1_main_cpu_gate.py
+            if($LASTEXITCODE -ne 0){throw 'Original main web/UI mismatch'}
+          } finally {Pop-Location}
+          $out = Join-Path $env:RUNNER_TEMP ('neral11-integrated-smoke-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('NERAL11_PYTHON='+$python+[Environment]::NewLine+'NERAL11_SOURCE='+$src+[Environment]::NewLine+'NERAL11_DEPS='+$deps+[Environment]::NewLine+'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine+'NERAL11_SCALAR='+$out+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+      - name: Perform real RTX4070, Ollama and Docker verified 3-case smoke
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:NERAL11_SOURCE
+          try {
+            & $env:NERAL11_PYTHON -B -m scripts.neral_1_1_main_gpu_smoke --out $env:NERAL11_SCALAR
+            if($LASTEXITCODE -ne 0){throw 'Merged-source GPU smoke BLOCKED'}
+          } finally { Pop-Location }
+      - name: Publish scalar-only evidence (never raw prompts or weights)
+        if: always() && env.NERAL11_SCALAR != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-1-1-merged-source-RTX4070-smoke-${{ github.run_id }}
+          path: ${{ env.NERAL11_SCALAR }}
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Remove only temporary CPU dependencies
+        if: always() && env.NERAL11_DEPS != ''
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if(Test-Path -LiteralPath $env:NERAL11_DEPS){Remove-Item -LiteralPath $env:NERAL11_DEPS -Recurse -Force -ErrorAction SilentlyContinue}
