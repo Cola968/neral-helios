@@ -335,7 +335,8 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                     deep_review = isinstance(selected, OllamaLocalBackend)
                     # Match the normal /api/neral/chat/think responder selection.
                     # Otherwise screenshots/files silently bypass measured HIGH.
-                    if (deep_review and selected.model == "qwen3.5:9b"
+                    if (type(selected) is OllamaLocalBackend
+                            and selected.model == "qwen3.5:9b"
                             and selected.inference_profile == "measured_nonthinking_2048"):
                         responder = selected.respond_high_final
                     if cancel_event is not None and isinstance(selected, OllamaLocalBackend):
