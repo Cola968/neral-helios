@@ -34,7 +34,8 @@ class OllamaCompletionError(AgentModelError):
     """Stable non-sensitive failure reason; no prompts or model text included."""
 
     VALID_REASONS = frozenset((
-        "token_limit", "incomplete", "empty_answer", "timeout", "invalid_response"
+        "token_limit", "incomplete", "empty_answer", "timeout", "invalid_response",
+        "cancelled"
     ))
     def __init__(self, reason: str):
         if reason not in self.VALID_REASONS:
