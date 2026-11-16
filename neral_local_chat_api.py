@@ -24,6 +24,7 @@ _SAFE_OLLAMA_ERROR_TEXT = {
     "empty_answer": "Das lokale Modell hat keinen fertigen Antworttext geliefert.",
     "timeout": "Das lokale Modell hat die Wartezeit überschritten. Bitte erneut versuchen.",
     "invalid_response": "Das lokale Modell hat ein ungültiges Antwortformat geliefert.",
+    "cancelled": "Lokale Berechnung wurde auf Abbruchanforderung beendet.",
 }
 
 
@@ -218,9 +219,43 @@ def _verified_math_request(prompt: str) -> dict | None:
     return None
 
 
+class _LocalCancelRegistry:
+    """Single active browser request; no prompt, private file or token stored."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._id = None
+        self._event = None
+
+    def begin(self, request_id):
+        if not isinstance(request_id, str) or re.fullmatch(r"[0-9a-f]{32}", request_id) is None:
+            return None
+        with self._lock:
+            if self._event is not None:
+                raise RuntimeError("Concurrent chat cancellation registration")
+            event = threading.Event()
+            self._id, self._event = request_id, event
+            return event
+
+    def cancel(self, request_id):
+        with self._lock:
+            if self._id != request_id or self._event is None:
+                return False
+            self._event.set()
+            return True
+
+    def end(self, event):
+        if event is None:
+            return
+        with self._lock:
+            if self._event is event:
+                self._id, self._event = None, None
+
+
 def register_neral_local_chat_api(app, backend, *, experimental_high_backend=None):
     """One local GPU chat lock for both foundations and all chat modes."""
     busy = threading.Lock()
+    cancellation = _LocalCancelRegistry()
+    app._neral_chat_cancel_registry = cancellation
     if experimental_high_backend is not None:
         if (not isinstance(backend, OllamaLocalBackend)
                 or not isinstance(experimental_high_backend, OllamaLocalBackend)
@@ -255,6 +290,22 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                         "experimental_high_enabled": experimental_high_backend is not None,
                         "experimental_high_model": (
                             high_backend.model if experimental_high_backend is not None else None)})
+
+    @app.post("/api/neral/chat/cancel")
+    def local_chat_cancel():
+        # The parent preview app authenticates same-origin + session + CSRF.
+        # Do not acquire the busy lock: the active GPU request owns it.
+        if not request.is_json:
+            return jsonify(error="Nur JSON erlaubt."), 415
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or set(data) != {"request_id"} or (
+                not isinstance(data["request_id"], str)
+                or re.fullmatch(r"[0-9a-f]{32}", data["request_id"]) is None):
+            return jsonify(error="Ungültige Abbruchkennung."), 400
+        if not cancellation.cancel(data["request_id"]):
+            return jsonify(error="Keine passende aktive Berechnung."), 409
+        # Acknowledges the *signal*, not an instantaneous GPU stop.
+        return jsonify(cancellation_requested=True, completed=False), 202
 
     @app.post("/api/neral/chat/compare")
     def local_chat_compare():
@@ -316,6 +367,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        cancel_event = cancellation.begin(request.headers.get("X-Neral-Request-Id"))
 
         def frame(event):
             return json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -354,7 +406,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 # Backends without streaming support still return a real
                 # complete answer in a final event, never fake token chunks.
                 if callable(stream):
-                    for part in stream(data):
+                    for part in (stream(data, cancel_event=cancel_event)
+                                 if cancel_event is not None and isinstance(backend, OllamaLocalBackend)
+                                 else stream(data)):
                         if not isinstance(part, str):
                             raise ValueError("Ungültiger Textabschnitt.")
                         total_bytes += len(part.encode("utf-8"))
@@ -391,6 +445,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 yield frame({"type": "error", "error":
                     "Lokale Generierung fehlgeschlagen oder nicht vollständig abgeschlossen."})
             finally:
+                cancellation.end(cancel_event)
                 busy.release()
 
         return Response(stream_with_context(events()),
@@ -414,6 +469,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        cancel_event = cancellation.begin(request.headers.get("X-Neral-Request-Id"))
         try:
             started = time.monotonic()
             greeting = _runtime_greeting_reply(data[-1]["content"])
@@ -450,7 +506,9 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 # not. HF adapter backends use their existing local respond().
                 prepare_model(backend)
                 reply = getattr(backend, "respond_chat", None)
-                text = reply(data) if callable(reply) else backend.respond(data)
+                text = (reply(data, cancel_event=cancel_event)
+                        if cancel_event is not None and isinstance(backend, OllamaLocalBackend)
+                        else reply(data) if callable(reply) else backend.respond(data))
             except OllamaCompletionError as exc:
                 return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
                                error_code=exc.reason), 503
@@ -467,6 +525,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 **_provenance(backend),
             })
         finally:
+            cancellation.end(cancel_event)
             busy.release()
 
     @app.post("/api/neral/chat/think")
@@ -553,6 +612,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Adaptive Planner benötigt das lokale 9B-Testprofil."), 409
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        cancel_event = cancellation.begin(request.headers.get("X-Neral-Request-Id"))
         # These references retain no user text and are only used on 503.
         first_turn_probe_armed = False
         first_turn_prior_event = None
@@ -598,6 +658,12 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             )
             if bounded_final:
                 local_respond = high_backend.respond_high_final
+            if (cancel_event is not None and isinstance(high_backend, OllamaLocalBackend)
+                    and not (experimental_tir or conservative_tir or dual_routing
+                             or nl_schema_consensus or adaptive_planner
+                             or fast_verified_only or evaluation_final_answer)):
+                raw_respond = local_respond
+                local_respond = lambda turns: raw_respond(turns, cancel_event=cancel_event)
             # NERAL 1.1 isolated experimental adaptive path. A single local
             # QLoRA call emits BOTH strategy and tool payload, and independent
             # full-source proof is required for every promoted result.
@@ -841,6 +907,7 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             return jsonify(error="Lokaler THINK-Modus konnte nicht ausgeführt werden.",
                            error_code="internal_error"),503
         finally:
+            cancellation.end(cancel_event)
             busy.release()
 
     return busy
