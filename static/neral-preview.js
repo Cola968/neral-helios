@@ -756,8 +756,24 @@
     errors.textContent="";
     stopAudio();
     const controller=new AbortController();
+    // No request id or network request when browser crypto is unavailable.
+    const requestId=browser.crypto?.getRandomValues
+      ? Array.from(browser.crypto.getRandomValues(new Uint8Array(16)),
+          byte=>byte.toString(16).padStart(2,"0")).join("") : null;
+    controller.neralRequestId=requestId;
     activeRequest=controller;
     const startedEpoch=conversationEpoch;
+    let stopPosted=false;
+    function stopLocalInference(){
+      if(stopPosted||!requestId)return;
+      stopPosted=true;
+      void fetch("/api/neral/chat/cancel",{
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
+        body:JSON.stringify({request_id:requestId})
+      }).catch(()=>{});
+    }
+    controller.signal.addEventListener("abort",stopLocalInference,{once:true});
     const selectedAttachments=attachments.slice();
     const pendingTopicRequested=pendingWebTopic;
     pendingWebTopic=false; // one turn only; cancel or other tasks consume it
@@ -771,6 +787,7 @@
     const deadline=AbortSignal.timeout(selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
     const signal=AbortSignal.any([controller.signal,deadline]);
+    deadline.addEventListener("abort",stopLocalInference,{once:true});
     function makePartial(){
       partialNode=document.createElement("div");
       partialNode.className="message assistant neral-live-partial";
@@ -871,7 +888,8 @@
       let path="/api/neral/chat/"+mode;
       let options={
         method:"POST",
-        headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
+        headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf,
+          ...(requestId?{"X-Neral-Request-Id":requestId}:{})},
         body:JSON.stringify({prompt:modelPrompt,history:safeHistory()}),
         signal
       };
@@ -882,7 +900,8 @@
         data.append("mode",mode);
         selectedAttachments.forEach(f=>data.append("files",f,f.name));
         path="/api/neral/preview/attachment-chat";
-        options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
+        options={method:"POST",headers:{"X-Neral-CSRF":csrf,
+          ...(requestId?{"X-Neral-Request-Id":requestId}:{})},body:data,signal};
       }
       const useLive=mode==="generate" && !selectedAttachments.length &&
         typeof browser.NeralLiveStream?.read==="function" &&
