@@ -18,7 +18,7 @@ test("Web opt-in finds public current BER airline route question without explici
 test("do not search normal chat, private information or small talk",()=>{
   for(const q of ["Hallo NERAL!","Wer bist du?","Wie geht es dir?",
       "Ich bin heute sehr traurig, können wir reden?","Was soll ich meiner Freundin sagen?",
-      "Wie funktioniert ein Kondensator?"]){
+      "Erkläre mir das elektrische Feld."]){
     assert.equal(web.shouldSearchWeb(q),false,q);
   }
 });
