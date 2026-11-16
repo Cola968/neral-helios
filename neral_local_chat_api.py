@@ -407,6 +407,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            add_context=getattr(app, "_neral_cpu_context", None)
+            if callable(add_context): add_context(data)
 
         except (TypeError, ValueError, UnicodeError):
             return jsonify(error="Ungültiger oder zu langer Chatinhalt."), 400
@@ -420,6 +422,14 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 return jsonify({**(greeting if greeting is not None else identity), "mode": "LOW",
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(backend)})
+            # NERAL 1.2 automatic full-source Z3 verification only.
+            if len(data)==2:
+                from neral_cpu_foundation.integration import default_source_verified_reply
+                source_proof=default_source_verified_reply(data)
+                if source_proof is not None:
+                    return jsonify({**source_proof, "mode":"LOW",
+                                    "seconds":round(time.monotonic()-started,3),
+                                    **_provenance(backend)})
             # Empty history only: never override an ongoing conversation.
             if len(data) == 2:
                 from neral_agent_quantitative import calculate_explicit
@@ -505,6 +515,8 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
             data[0]["content"] = build_identity_prompt(
                 "web", _provenance(backend)["model_origin"]
             )
+            add_context=getattr(app, "_neral_cpu_context", None)
+            if callable(add_context): add_context(data)
             if evaluation_final_answer:
                 from neral_answer_contract import formatted_benchmark_system
                 data[0]["content"] = formatted_benchmark_system()
@@ -555,6 +567,17 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
                 return jsonify({**(greeting if greeting is not None else identity), "mode": "HIGH",
                                 "seconds": round(time.monotonic() - started, 3),
                                 **_provenance(high_backend)})
+            # No automatic proposals from a model-authored schema.
+            # Only the strict full-source grammar / Z3 path may auto-promote.
+            if not (experimental_tir or conservative_tir or dual_routing or
+                    nl_schema_consensus or adaptive_planner or
+                    fast_verified_only or evaluation_final_answer):
+                from neral_cpu_foundation.integration import default_source_verified_reply
+                source_proof=default_source_verified_reply(data)
+                if source_proof is not None:
+                    return jsonify({**source_proof, "mode":"HIGH",
+                                    "seconds":round(time.monotonic()-started,3),
+                                    **_provenance(high_backend)})
             from neral_think import think_reply
             # Dedicated Ollama reasoning only for explicit THINK requests;
             # other HF backends keep their existing verified response path.

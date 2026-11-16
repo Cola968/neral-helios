@@ -1,4 +1,4 @@
-name: NERAL 1.2 isolated CPU foundation
+name: NERAL 1.2 integrated CPU, legacy differential and RTX4070
 on:
   push:
     branches:
@@ -7,6 +7,11 @@ on:
     paths:
       - 'neral_cpu_foundation/**'
       - 'tests/cpu_foundation/**'
+      - 'neral_local_chat_api.py'
+      - 'neral_local_accounts.py'
+      - 'neral_preview_server.py'
+      - 'requirements-neral-preview.txt'
+      - 'scripts/neral_1_2_*'
       - 'scripts/neral_cpu_foundation_build.py'
       - '.github/workflows/neral-1-2-cpu-foundation.yml'
   workflow_dispatch:
@@ -15,34 +20,158 @@ permissions:
 jobs:
   cpu-foundation:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - run: python -m pip install pytest==8.4.2 sympy==1.14.0 networkx==3.6.1 z3-solver==4.15.3.0
-      - name: CPU foundation tests (offline)
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt -r requirements-neral-preview.txt
+      - name: Offline NERAL1.2 CPU + HTTP + legacy differential unit contracts
         run: python -m pytest -q tests/cpu_foundation
-      - name: Build independently rechecked German CPU examples
+      - name: Independently regenerate and recheck German CPU samples
         run: PYTHONPATH=. python -B scripts/neral_cpu_foundation_build.py --output cpu-artifacts
-      - name: Upload evidence-only dataset and manifest
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: neral-1-2-verified-cpu-dataset
           path: cpu-artifacts/
-  existing-pytest:
+          retention-days: 30
+          if-no-files-found: error
+
+  legacy-differential:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: bf736d5d8e818936b0d5b8f34034c070a56b7358
+          path: baseline
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - run: python -m pip install -r requirements.txt sympy==1.14.0 networkx==3.6.1 z3-solver==4.15.3.0
-      - name: Install legacy CPU test dependencies
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Identical pinned CPU dependencies for both code revisions
         run: |
-          python -m pip install PyYAML cryptography
+          python -m pip install -r candidate/requirements.txt -r candidate/requirements-neral-preview.txt
+          python -m pip install PyYAML cryptography "jsonschema>=4.20,<5"
           python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-      - name: Existing and new pytest suites
-        run: python -m pytest -q tests
+      - name: Run complete main and candidate pytest independently
+        shell: bash
+        run: |
+          mkdir -p results
+          set +e
+          (cd baseline && python -B -m pytest -q --color=no tests --junitxml=../results/baseline.xml > ../results/baseline.log 2>&1)
+          printf '%s\n' "$?" > results/baseline.exit
+          (cd candidate && python -B -m pytest -q --color=no tests --junitxml=../results/candidate.xml > ../results/candidate.log 2>&1)
+          printf '%s\n' "$?" > results/candidate.exit
+          set -e
+          test -s results/baseline.xml
+          test -s results/candidate.xml
+          python candidate/scripts/neral_1_2_legacy_compare.py --extract results/baseline.xml > results/baseline.json
+          python candidate/scripts/neral_1_2_legacy_compare.py --extract results/candidate.xml > results/candidate.json
+      - name: Reject only failures introduced by PR547; preserve existing failures in report
+        run: |
+          python candidate/scripts/neral_1_2_legacy_compare.py --baseline results/baseline.json --candidate results/candidate.json --out results/differential.json
+      - name: Export inspectable baseline/candidate comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-1-2-legacy-main-vs-pr547
+          path: |
+            results/baseline.json
+            results/candidate.json
+            results/differential.json
+            results/baseline.exit
+            results/candidate.exit
+          retention-days: 30
+          if-no-files-found: warn
+
+  rtx4070-verified-smoke:
+    needs: [cpu-foundation, legacy-differential]
+    # A PR from an unreviewed fork must NEVER execute on a personal Windows PC.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat/neral-1-2-cpu-overnight-foundation'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 45
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NERAL_EXPERIMENTAL_ADAPTIVE_PLANNER: '1'
+      NERAL_EXPERIMENTAL_BOUNDED_QWEN_FALLBACK: '1'
+      NERAL_INTEGRATION_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+      - name: Check pinned source and install only ephemeral CPU verifier dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_INTEGRATION_SOURCE_SHA) {throw 'Source hash drift'}
+          $python = Join-Path $env:USERPROFILE 'NERAL-QLoRA-Research/training-env-py312/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Trusted Python missing'}
+          $deps = Join-Path $env:RUNNER_TEMP ('neral-12-cpu-deps-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          if(Test-Path -LiteralPath $deps){throw 'Temporary dependency path already exists'}
+          & $python -B -m pip install --disable-pip-version-check --no-cache-dir --no-input --target $deps 'z3-solver==4.16.0.0' 'sympy==1.14.0' 'networkx==3.6.1' 'jsonschema>=4.20,<5' 'Flask>=3,<4'
+          if($LASTEXITCODE -ne 0){throw 'CPU dependencies unavailable'}
+          $env:PYTHONPATH=$src+';'+$deps
+          $out1=Join-Path $env:RUNNER_TEMP ('neral12-dev24-smoke-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          $out2=Join-Path $env:RUNNER_TEMP ('neral12-integration-smoke-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
+          [IO.File]::AppendAllText($env:GITHUB_ENV,('NERAL12_PYTHON='+$python+[Environment]::NewLine+'NERAL12_SOURCE='+$src+[Environment]::NewLine+'NERAL12_DEPS='+$deps+[Environment]::NewLine+'PYTHONPATH='+$env:PYTHONPATH+[Environment]::NewLine+'NERAL12_DEV24_REPORT='+$out1+[Environment]::NewLine+'NERAL12_REPORT='+$out2+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+      - name: Rerun 1.1 independent verifier 3-case GPU regression guard on 1.2 source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:NERAL12_SOURCE
+          try {
+            & $env:NERAL12_PYTHON -B -m scripts.neral_1_1_main_gpu_smoke --out $env:NERAL12_DEV24_REPORT
+            if($LASTEXITCODE -ne 0){throw '1.1 regression guard failed on NERAL1.2 source'}
+          } finally {Pop-Location}
+      - name: Run actual NERAL1.2 HTTP verifier and Qwen3.5 fallback on RTX4070
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:NERAL12_SOURCE
+          try {
+            & $env:NERAL12_PYTHON -B -m scripts.neral_1_2_gpu_smoke --out $env:NERAL12_REPORT
+            if($LASTEXITCODE -ne 0){throw '1.2 integrated GPU smoke blocked'}
+          } finally {Pop-Location}
+      - name: Publish scalar-only proof receipts
+        if: always() && env.NERAL12_REPORT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-1-2-rtx4070-integrated-smoke-${{ github.run_id }}
+          path: |
+            ${{ env.NERAL12_DEV24_REPORT }}
+            ${{ env.NERAL12_REPORT }}
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Delete only temporary CPU dependencies
+        if: always() && env.NERAL12_DEPS != ''
+        run: |
+          $ErrorActionPreference='Continue'
+          if(Test-Path -LiteralPath $env:NERAL12_DEPS){Remove-Item -LiteralPath $env:NERAL12_DEPS -Recurse -Force -ErrorAction SilentlyContinue}
