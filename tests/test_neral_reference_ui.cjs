@@ -172,7 +172,7 @@ test("profile is a dedicated local dashboard, slider keeps two tactile stops",()
                   "profileOpenPassword","profileExportChats"]){
    assert.ok(markup.includes('id="'+id+'"'),"Missing profile element "+id);
  }
- assert.match(sheet,/\.profile-dashboard/);
+ assert.match(fs.readFileSync(path.join(root,"static/neral-accounts.css"),"utf8"),/\.profile-dashboard/);
  assert.match(markup,/mode-effort-stop/);
  assert.match(sheet,/\.mode-effort-stop/);
  assert.match(markup,/id="modeEffortSlider"[^>]*min="0"[^>]*max="1"/);
