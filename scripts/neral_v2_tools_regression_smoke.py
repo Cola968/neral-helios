@@ -42,7 +42,7 @@ def main():
         pin,"python","-B","-c",correct]
     run=subprocess.run(cmd,text=True,capture_output=True,timeout=55)
     if run.returncode!=0 or run.stdout.strip()!="14" or run.stderr.strip():
-        raise RuntimeError("Docker AST one-step correction not independently executed")
+        raise RuntimeError("Docker AST verification failed, exit_code="+str(run.returncode)+", stdout="+repr(run.stdout[-150:])+", stderr="+repr(run.stderr[-700:]))
     report={"status":"new_source_tool_regression_pass",
       "sympy":True,"networkx":True,"z3":True,
       "python_docker_one_step_ast":True,"docker_isolated_network":True,
