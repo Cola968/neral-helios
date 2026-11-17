@@ -1,0 +1,44 @@
+name: NERAL PR558 read-only localhost listener identity diagnostics
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: ['.github/workflows/neral-three-tier-port-owner-readonly.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  port-owner-readonly:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect only the loopback listener, no process stop or model load
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
+          $listen=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $out=@{task_present=($null -ne $task);task_running=($null -ne $task -and [string]$task.State -eq 'Running');listeners=$listen.Count}
+          if($listen.Count -eq 1){
+            $ownerPid=[int]$listen[0].OwningProcess
+            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$ownerPid) -ErrorAction SilentlyContinue
+            $expectedPath=[IO.Path]::GetFullPath('D:/neral-qlora/venv/Scripts/python.exe')
+            $out['proc_present']=($null -ne $proc)
+            $out['proc_name']=if($null -ne $proc){[string]$proc.Name}else{'unknown'}
+            $out['exact_python_exe']=($null -ne $proc -and [string]::Equals([IO.Path]::GetFullPath([string]$proc.ExecutablePath),$expectedPath,[StringComparison]::OrdinalIgnoreCase))
+            $line=if($null -ne $proc){[string]$proc.CommandLine}else{''}
+            $out['module_flag']=($line -match '(?i)-m\s+neral_preview_server')
+            $out['three_tier_flag']=($line -match '(?i)--experimental-three-tier-hf')
+            $out['adapter_flag']=($line -match '(?i)--helios-v2-full')
+            $out['parent_present']=($null -ne $proc -and [int]$proc.ParentProcessId -gt 0)
+            if($null -ne $proc){
+              $parent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$proc.ParentProcessId) -ErrorAction SilentlyContinue
+              $out['parent_name']=if($null -ne $parent){[string]$parent.Name}else{'not_running'}
+            }
+          }
+          Write-Host ('NERAL_PR558_PORT_OWNER_SAFE_FLAGS '+($out|ConvertTo-Json -Compress))
+          Write-Host 'NERAL_PR558_READONLY_NO_PROCESS_TOUCHED'
