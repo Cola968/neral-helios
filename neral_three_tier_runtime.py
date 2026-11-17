@@ -295,6 +295,27 @@ class ThreeTierRuntime:
         if (type(turns) is not list or len(turns) < 2 or
                 turns[-1].get("role") != "user"):
             raise ValueError("Invalid local chat turns")
+        # Recognize only complete, audited everyday sources. The default
+        # Luna stop is automatically upgraded to a real independent Python
+        # or Z3 tool result; no model-generated reasoning is called a proof.
+        from neral_everyday_verified import verify_everyday_source
+        everyday = verify_everyday_source(turns[-1]["content"], self.execute_python)
+        if everyday is not None:
+            preferred = everyday.pop("preferred_tier")
+            proven = everyday.get("verified") is True
+            effective = preferred if tier == "Luna" and proven else tier
+            origin = ("local_source_verified_tools_only" if proven
+                      else "local_source_unverified_tools_only")
+            result = {
+                **everyday, "tier": effective, "mode": effective.upper(),
+                "model": (self.helios.model if proven else
+                          self.luna.model if tier == "Luna" else self.helios.model),
+                "adapter_loaded": False, "adapter_sha256": None,
+                "model_origin": origin, "quality_improvement_proven": False,
+            }
+            if proven and effective != tier:
+                result["auto_promoted_from"] = tier
+            return result
         if tier in ("Terra", "Helios"):
             checked = self._verified_source(turns)
             if checked is not None:
@@ -307,7 +328,9 @@ class ThreeTierRuntime:
                 }
         chosen = self.luna if tier == "Luna" else self.helios
         self._switch(chosen)
-        response = chosen.respond_chat(turns, max_new_tokens=TIERS[tier])
+        from neral_everyday_verified import tidy_unverified_model_text
+        response = tidy_unverified_model_text(
+            chosen.respond_chat(turns, max_new_tokens=TIERS[tier]))
         if type(response) is not str or not response.strip():
             raise RuntimeError("Selected local HF model returned empty result")
         if chosen is self.helios and not chosen.loaded:
