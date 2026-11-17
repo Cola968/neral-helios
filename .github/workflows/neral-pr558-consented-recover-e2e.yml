@@ -1,0 +1,108 @@
+name: NERAL PR558 consented stopped-service recovery and browser acceptance
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: ['.github/workflows/neral-pr558-consented-recover-e2e.yml']
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  recover-and-prove:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check stopped dedicated task, empty port and exact source blobs
+        run: |
+          $ErrorActionPreference='Stop'
+          $version='909d1419c9ff'
+          $name='NERAL-PR558-ThreeTier-'+$version
+          $stable=Join-Path $env:LOCALAPPDATA ('NERAL/three-tier-pr558-'+$version+'/NERAL-1.0-Local')
+          $service=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -ne 'Ready'){throw 'Dedicated NERAL task not stopped/Ready; no process termination authorized'}
+          if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){throw 'Scheduled task is not the pinned PR558 service'}
+          if(-not(Test-Path -LiteralPath $service -PathType Leaf)){throw 'Expected managed PR558 service missing'}
+          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port 9690 occupied; do not stop or modify processes'}
+          $pairs=@(
+            @{path='neral_three_tier_runtime.py';before='499f21c278f8c62d3ee82856f5fe8e978336f0d9';after='c2bda8aa38a7c504eda3d922e43b8e599666949b'},
+            @{path='static/neral-preview.js';before='e627ada9165757def69c4dcb81628c526b6644d4';after='666a9e4b2d2467f6397a16b107a709dcf34746c2'}
+          )
+          foreach($p in $pairs){
+            $src=Join-Path $env:GITHUB_WORKSPACE $p.path
+            $dst=Join-Path $stable $p.path
+            if(-not(Test-Path -LiteralPath $src -PathType Leaf) -or -not(Test-Path -LiteralPath $dst -PathType Leaf)){throw ('File missing '+$p.path)}
+            $repoBlob=(& git rev-parse ('HEAD:'+$p.path)).Trim()
+            $diskBlob=(& git -c core.autocrlf=true hash-object --path=$p.path $dst).Trim()
+            if($repoBlob -ne $p.after){throw ('Expected reviewed source differs '+$p.path)}
+            if($diskBlob -ne $p.before -and $diskBlob -ne $p.after){throw ('Unknown installed source '+$p.path)}
+          }
+          & node --check (Join-Path $env:GITHUB_WORKSPACE 'static/neral-preview.js')
+          if($LASTEXITCODE -ne 0){throw 'Invalid preview JS'}
+          & node --check (Join-Path $env:GITHUB_WORKSPACE 'scripts/neral_three_tier_browser_e2e.cjs')
+          if($LASTEXITCODE -ne 0){throw 'Invalid E2E JS'}
+          Write-Host 'NERAL_PR558_SAFE_RECOVERY_PREFLIGHT_PASS'
+      - name: Update only pinned source files in stopped PR558 service
+        run: |
+          $ErrorActionPreference='Stop'
+          $stable=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $pairs=@(
+            @{path='neral_three_tier_runtime.py';before='499f21c278f8c62d3ee82856f5fe8e978336f0d9';after='c2bda8aa38a7c504eda3d922e43b8e599666949b'},
+            @{path='static/neral-preview.js';before='e627ada9165757def69c4dcb81628c526b6644d4';after='666a9e4b2d2467f6397a16b107a709dcf34746c2'}
+          )
+          foreach($p in $pairs){
+            $src=Join-Path $env:GITHUB_WORKSPACE $p.path
+            $dst=Join-Path $stable $p.path
+            $diskBlob=(& git -c core.autocrlf=true hash-object --path=$p.path $dst).Trim()
+            if($diskBlob -eq $p.after){continue}
+            $backup=$dst+'.before-pr558-consented-recovery'
+            if(Test-Path -LiteralPath $backup -PathType Leaf){throw ('Existing backup: refuse to overwrite '+$p.path)}
+            Copy-Item -LiteralPath $dst -Destination $backup -ErrorAction Stop
+            Copy-Item -LiteralPath $src -Destination $dst -ErrorAction Stop
+            $now=(& git -c core.autocrlf=true hash-object --path=$p.path $dst).Trim()
+            if($now -ne $p.after){throw ('Updated source hash mismatch '+$p.path)}
+          }
+          Write-Host 'NERAL_PR558_PINNED_FILES_UPDATED_WHILE_STOPPED'
+      - name: Start only the previously registered PR558 task and verify HTTP
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='NERAL-PR558-ThreeTier-909d1419c9ff'
+          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port changed; refuse task start'}
+          Start-ScheduledTask -TaskName $name -ErrorAction Stop
+          $ok=$false
+          for($i=0;$i -lt 100;$i++){
+            Start-Sleep -Milliseconds 900
+            try {
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $page=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -WebSession $session -TimeoutSec 4
+              $receipt=Invoke-RestMethod -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -WebSession $session -TimeoutSec 4
+              if($page.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true -and
+                 (@($receipt.three_tier_levels) -join ',') -eq 'Luna,Terra,Helios'){$ok=$true;break}
+            }catch{}
+          }
+          if(-not $ok){throw 'Updated NERAL not answering on localhost; keep draft'}
+          Write-Host 'NERAL_PR558_RECOVERED_HTTP_200'
+      - name: Genuine Windows browser full E2E
+        run: |
+          $ErrorActionPreference='Stop'
+          $chrome=@(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+            (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+          ) | Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+          if(-not $chrome){throw 'Chrome/Edge not installed'}
+          $env:NERAL_CHROME_EXE=$chrome
+          & node scripts/neral_three_tier_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Browser E2E did not pass; do not merge'}
+          Write-Host 'NERAL_PR558_FULL_BROWSER_E2E_PASS'
