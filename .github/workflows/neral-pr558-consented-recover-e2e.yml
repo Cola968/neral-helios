@@ -30,10 +30,21 @@ jobs:
           $stable=Join-Path $env:LOCALAPPDATA ('NERAL/three-tier-pr558-'+$version+'/NERAL-1.0-Local')
           $service=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
           $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-          if([string]$task.State -ne 'Ready'){throw 'Dedicated NERAL task not stopped/Ready; no process termination authorized'}
           if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){throw 'Scheduled task is not the pinned PR558 service'}
           if(-not(Test-Path -LiteralPath $service -PathType Leaf)){throw 'Expected managed PR558 service missing'}
           if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port 9690 occupied; do not stop or modify processes'}
+          if([string]$task.State -eq 'Running'){
+            # User explicitly approved restarting this exact dedicated PR558 task.
+            # No arbitrary PID is selected or terminated.
+            Stop-ScheduledTask -TaskName $name -ErrorAction Stop
+            for($i=0;$i -lt 25;$i++){
+              Start-Sleep -Milliseconds 300
+              $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+              if([string]$task.State -eq 'Ready'){break}
+            }
+          }
+          if([string]$task.State -ne 'Ready'){throw ('Dedicated task not ready after safe stop: '+[string]$task.State)}
+          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port occupied after task stop; preserve other processes'}
           $pairs=@(
             @{path='neral_three_tier_runtime.py';before='499f21c278f8c62d3ee82856f5fe8e978336f0d9';after='c2bda8aa38a7c504eda3d922e43b8e599666949b'},
             @{path='static/neral-preview.js';before='e627ada9165757def69c4dcb81628c526b6644d4';after='666a9e4b2d2467f6397a16b107a709dcf34746c2'}
