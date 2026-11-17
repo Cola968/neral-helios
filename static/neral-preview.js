@@ -941,10 +941,19 @@
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
         throw new Error("Leere Modellantwort.");
+      const autoProof=threeTierEnabled &&
+        result.auto_promoted_from===selectedTier && selectedTier==="Luna" &&
+        ["Terra","Helios"].includes(result.tier) &&
+        result.model_generated===false && result.verified===true &&
+        result.safe_to_promote===true &&
+        result.model_origin==="local_source_verified_tools_only" &&
+        ((result.tier==="Terra" && result.proof_backend==="trusted_source_arithmetic") ||
+         (result.tier==="Helios" && result.proof_backend==="z3_sat_witness"));
       if(threeTierEnabled){
-        if(result.runtime_tier_verified!==true || result.tier!==selectedTier)
+        if(result.runtime_tier_verified!==true ||
+           (result.tier!==selectedTier && !autoProof))
           throw new Error("Modus oder Modellantwort nicht zugeordnet.");
-        const luna=selectedTier==="Luna";
+        const luna=result.tier==="Luna";
         if(result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
           throw new Error("Unzulässiger stiller Modellwechsel.");
         if(result.model_generated===true){
@@ -954,10 +963,17 @@
           if(!luna && (result.model_origin!=="local_neral_lora_experimental" ||
                        result.adapter_loaded!==true || !/^[0-9a-f]{64}$/.test(result.adapter_sha256||"")))
             throw new Error("Helios-v2-full-Adapter wurde nicht nachgewiesen.");
-        }else if(result.verified!==true ||
-                 result.model_origin!=="local_source_verified_tools_only" ||
-                 !["full_source_independent","full_source_grammar_exact"].includes(result.verification_scope))
-          throw new Error("Werkzeugantwort ohne unabhängigen Vollquellenbeweis.");
+        }else if(result.verified===true){
+          if(result.model_origin!=="local_source_verified_tools_only" ||
+             result.safe_to_promote!==true || result.adapter_loaded!==false ||
+             !["full_source_independent","full_source_grammar_exact"].includes(result.verification_scope))
+            throw new Error("Werkzeugantwort ohne unabhängigen Vollquellenbeweis.");
+        }else if(result.verified!==false ||
+                 result.model_origin!=="local_source_unverified_tools_only" ||
+                 result.safe_to_promote!==false ||
+                 result.verification_scope!=="none" ||
+                 result.proof_backend!==null)
+          throw new Error("Ungeprüfte Werkzeugantwort darf nicht als Beweis erscheinen.");
       }else if(result.model_origin!=="local_foundation_not_neral_adapter" ||
                result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
@@ -987,7 +1003,7 @@
       const verified=result.verified===true && result.model_generated===false &&
         result.verification_scope!=="none";
       let origin=threeTierEnabled
-        ? ("NERAL "+selectedTier+(verified
+        ? ("NERAL "+result.tier+(autoProof?" (automatisch)":"")+(verified
              ? " · Verifiziert ("+(result.proof_backend||"Werkzeug")+")"
              : " · ungeprüft")) : runtimeGreeting ? "NERAL" :
         result.model_generated===false&&result.tool_used
