@@ -1,0 +1,55 @@
+name: NERAL v3 legacy failure classification (reuse existing CPU JUnit, no GPU)
+on:
+  push:
+    branches: [feat/neral-v3-prep-and-cleanup]
+    paths:
+      - '.github/workflows/neral-v3-legacy-triage.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  classify-old-failures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 44082633286
+          name: neral-v3-prep-full-cpu-44082633286
+          path: baseline-junit
+          github-token: ${{ github.token }}
+      - name: Classify original 38 CPU failures without rerunning missing legacy weights
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET,collections,json
+          from pathlib import Path
+          path=Path('baseline-junit/pytest.xml')
+          root=ET.parse(path).getroot()
+          issues=[]
+          for tc in root.iter('testcase'):
+              failure=tc.find('failure')
+              if failure is None:failure=tc.find('error')
+              if failure is None:continue
+              name=tc.get('classname','')+'::'+tc.get('name','')
+              msg=failure.attrib.get('message','').replace('\n',' ')[:320]
+              tail=(failure.text or '').strip().splitlines()[-4:]
+              issues.append({'test':name,'message':msg,'tail':tail})
+          assert len(issues)==38,('Expected the original 38, got',len(issues))
+          for x in issues:
+              print('NERAL_V3_LEGACY_FAIL '+json.dumps(x,ensure_ascii=False))
+          categories=collections.defaultdict(list)
+          for x in issues:
+              category=x['test'].split('::')[0]
+              categories[category].append(x['test'])
+          print('NERAL_V3_LEGACY_GROUPS '+json.dumps({k:len(v) for k,v in categories.items()}))
+          Path('legacy_classification.json').write_text(json.dumps({'count':38,'issues':issues,'groups':{k:len(v) for k,v in categories.items()}},indent=2)+'\n','utf8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-legacy-classification-${{ github.run_id }}
+          path: legacy_classification.json
+          if-no-files-found: error
