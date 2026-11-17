@@ -46,21 +46,22 @@ def verify_main_integrity():
         current=subprocess.run(
           ['git','rev-parse','HEAD:'+name],cwd=ROOT,text=True,
           capture_output=True,timeout=15,check=True).stdout.strip()
-        # PR558 deliberately updates exactly one preview JavaScript file.
-        # Accept only its independently reviewed Git blob, never arbitrary
-        # UI drift or any changed security endpoint/template.
-        approved_pr558_blobs = {
+        # Only exact audited PR558/PR561 blob SHAs are accepted for the
+        # web-search and status-UI updates; no arbitrary protected-file drift.
+        approved_blobs = {
+            'neral_web_search.py': 'd9a34976abe4824b2ef7c7ae65613b7f38ba5d40',
             'static/neral-preview.js': (
                 '666a9e4b2d2467f6397a16b107a709dcf34746c2',
                 'ce535f84c2e779d6619a968ca1e9b2582d20edbf',
+                '8e1f9056c13afffef1dae0a30e37d4d32306ca46',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
         }
-        approved = approved_pr558_blobs.get(name)
-        allowed_pr558 = (base == CURRENT_MAIN and approved is not None
+        approved = approved_blobs.get(name)
+        allowed_pinned_patch = (base == CURRENT_MAIN and approved is not None
                          and current in (approved if isinstance(approved, tuple)
                                          else (approved,)))
-        if (old!=current and not allowed_pr558) or not old:
+        if (old!=current and not allowed_pinned_patch) or not old:
             raise RuntimeError('CURRENT_MAIN_WEB_OR_UI_CHANGED: '+name)
         clean=subprocess.run(
           ['git','diff','--quiet','HEAD','--',name],
