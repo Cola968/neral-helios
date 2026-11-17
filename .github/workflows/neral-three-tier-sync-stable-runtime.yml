@@ -144,9 +144,27 @@ jobs:
                  [string]$activeProc.CreationDate -ne $attestedCreated){
                 throw 'Listener PID reused after attestation; preserve it'
               }
-              Stop-Process -Id $activePid -Force -ErrorAction Stop
-              Start-Sleep -Milliseconds 1500
-              Write-Host 'NERAL_PR558_ONE_VERIFIED_LISTENER_STOPPED'
+              # Windows venv Python can be a supervisor which respawns
+              # its child if only the socket-owner PID is stopped.
+              # Both processes have independently verified NERAL CLI flags.
+              # Stop supervisor first, then only its original verified child.
+              $parentLive=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$activeParent.ProcessId) -ErrorAction SilentlyContinue
+              if($null -eq $parentLive -or
+                 [string]$parentLive.CreationDate -ne [string]$activeParent.CreationDate -or
+                 [string]$parentLive.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+                throw 'NERAL supervisor identity changed; preserve it'
+              }
+              Stop-Process -Id ([int]$activeParent.ProcessId) -Force -ErrorAction Stop
+              $childLive=Get-CimInstance Win32_Process -Filter ('ProcessId = '+$activePid) -ErrorAction SilentlyContinue
+              if($null -ne $childLive){
+                if([string]$childLive.CreationDate -ne [string]$activeProc.CreationDate -or
+                   [string]$childLive.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+                  throw 'NERAL child identity changed; preserve it'
+                }
+                Stop-Process -Id $activePid -Force -ErrorAction Stop
+              }
+              Start-Sleep -Milliseconds 1800
+              Write-Host 'NERAL_PR558_VERIFIED_SUPERVISOR_CHILD_STOPPED'
             }
             $remaining=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
             if($remaining.Count -ne 0){throw 'Unable to clear NERAL listener safely'}
