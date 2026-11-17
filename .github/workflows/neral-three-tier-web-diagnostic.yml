@@ -32,7 +32,9 @@ jobs:
           $query='aktuellen BER-Flugverbindungen.'
           $headers=@{'X-Neral-CSRF'=[string]$receipt.csrf}
           function Probe([bool]$verify) {
-            $body=@{query=$query;verify_links=$verify}|ConvertTo-Json -Compress
+            $payload=@{query=$query}
+            if($verify){$payload['verify_links']=$true}
+            $body=$payload|ConvertTo-Json -Compress
             return Invoke-RestMethod -Method Post -Uri ($base+'/api/web/search') -WebSession $session -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 70
           }
           $raw=Probe $false
