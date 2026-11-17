@@ -154,5 +154,67 @@ class ThreeTierContracts(unittest.TestCase):
         self.assertEqual(response.json["model"], "qwen3.5:4b")
 
 
+    def test_account_memory_document_rag_and_web_consent_are_preserved_in_three_tier_chat(self):
+        from neral_preview_server import create_preview_app
+        from neral_agent_autonomy import OllamaLocalBackend
+        from neral_cpu_foundation.web import Result
+        from unittest.mock import patch
+        import tempfile
+        from pathlib import Path
+        runtime, low, high, _ = make_runtime()
+        legacy = OllamaLocalBackend("qwen3:8b")
+        runtime.legacy_backend = legacy
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_preview_app(legacy, secret_key=b"M"*32,
+                                     three_tier_runtime=runtime)
+            app.config["NERAL_ACCOUNT_DB"] = str(Path(directory)/"accounts.sqlite3")
+            search_calls = []
+            class LocalFakeSearch:
+                def search(self, query):
+                    search_calls.append(query)
+                    return [Result("BER-Testquelle", "https://example.org/ber",
+                                   "Untrusted synthetic preview.", "test", "[S1]")]
+            app.config["NERAL_CPU_SEARCH_CLIENT"] = LocalFakeSearch()
+            client = app.test_client()
+            base = "http://127.0.0.1:9690"
+            client.get("/", base_url=base)
+            token = client.get("/api/neral/preview/session",base_url=base).json["csrf"]
+            headers = {"X-Neral-CSRF":token}
+            def send(path, payload, hdr=None):
+                return client.post(path,json=payload,headers=hdr or headers,base_url=base)
+            registration = send("/api/neral/account/register",
+                                {"username":"tierdemo","password":"Safe-test-password-2026"})
+            self.assertEqual(registration.status_code,201)
+            headers = {"X-Neral-CSRF":registration.json["csrf"]}
+            mem = send("/api/neral/cpu/memory",{
+                "key":"projekt","value":"NERAL-Testprojekt mit Lorentzkraft-Notizen",
+                "kind":"project","consent":True})
+            self.assertEqual(mem.status_code,200)
+            stored = send("/api/neral/cpu/documents",{
+                "doc_id":"physik","source":"physik-notizen.md",
+                "text":"Die Lorentzkraft ist eine magnetische Kraft. "*18})
+            self.assertEqual(stored.status_code,200)
+            without_consent = send("/api/neral/cpu/web-search",{
+                "query":"Aktuelles vom BER","consent":False})
+            self.assertEqual(without_consent.status_code,400)
+            self.assertEqual(search_calls,[])
+            with_consent = send("/api/neral/cpu/web-search",{
+                "query":"Aktuelles vom BER","consent":True})
+            self.assertEqual(with_consent.status_code,200)
+            self.assertEqual(search_calls,["Aktuelles vom BER"])
+            with patch.object(legacy,"unload",return_value=None):
+                answer = send("/api/neral/chat/three-tier",{
+                    "tier":"Terra","prompt":"Analysiere das Projekt und Dokument zur Lorentzkraft",
+                    "history":[]})
+            self.assertEqual(answer.status_code,200,answer.get_json())
+            self.assertFalse(answer.json["verified"])
+            self.assertTrue(high.calls)
+            system = high.calls[-1]["turns"][0]["content"]
+            self.assertIn("NERAL-Testprojekt",system)
+            self.assertIn("[physik#c0]",system)
+            self.assertNotIn("Untrusted synthetic preview.",system,
+                             "Search snippets must never enter the model without the browser's explicit evidence selection")
+
+
 if __name__ == "__main__":
     unittest.main()
