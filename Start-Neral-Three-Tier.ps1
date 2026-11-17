@@ -1,5 +1,6 @@
 param(
     [switch]$CheckOnly,
+    [switch]$PrepareOnly,
     [switch]$NoBrowser
 )
 $ErrorActionPreference = 'Stop'
@@ -98,6 +99,10 @@ if($LASTEXITCODE -ne 0 -or -not (@($names | Where-Object {$_ -match '^\s*qwen3:8
 }
 if($CheckOnly){
     Write-Host 'Luna 4B und Helios v2-full sind lokal verifiziert. Keine GPU-Inferenz gestartet.' -ForegroundColor Green
+    return
+}
+if($PrepareOnly){
+    Write-Host 'Isolierte Waitress-Abhaengigkeit bereit; kein Server gestartet.'
     return
 }
 $port = 9690
