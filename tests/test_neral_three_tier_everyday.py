@@ -88,7 +88,7 @@ class EverydayLiveChat(unittest.TestCase):
         self.assertEqual(result["auto_promoted_from"],"Luna")
         self.assertEqual(result["proof_backend"],"z3_sat_witness")
         for name in "ABCD":
-            self.assertRegex(result["text"], rf"\\b{name}\\s+\\d+[–-]\\d+")
+            self.assertRegex(result["text"], rf"\b{name}\s+\d+[–-]\d+")
         self.assertIn("Person 1",result["text"])
         self.assertIn("Person 2",result["text"])
         self.assertNotIn("Grenze:",result["text"])
