@@ -72,12 +72,20 @@ def test_luna_fast_route_never_thinks_and_has_bounded_96_output():
     assert route.tier=="Luna"
     assert route.base=="qwen3.5:4b"
     assert route.think is False
-    assert route.adapter_id=="luna-v1-4b-peft"
+    assert route.adapter_id is None  # Default Luna FAST uses unmodified Qwen3.5:4B
     assert route.max_new_tokens==96
     profile=generation_profile(route)
     assert profile["think"] is False
     assert profile["options"]["num_predict"]==96
-    assert profile["adapter_id"]==route.adapter_id
+    assert profile["adapter_id"] is None
+    assert profile["model"]=="qwen3.5:4b"
+
+
+def test_luna_lora_only_in_explicit_experimental_benchmark():
+    route=choose_route("Hallo", experimental_luna_adapter=True)
+    assert route.adapter_id=="luna-v1-4b-peft"
+    assert generation_profile(route)["adapter_id"]=="luna-v1-4b-peft"
+    assert choose_route("Hallo").adapter_id is None
 
 
 def test_escalation_drops_luna_adapter_and_cannot_keep_luna_budget():
