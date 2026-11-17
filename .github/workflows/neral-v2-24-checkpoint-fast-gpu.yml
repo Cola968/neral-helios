@@ -43,7 +43,7 @@ jobs:
           $base='D:/neral-qlora/checkpoint'
           $v1='D:/neral-qlora/full01/adapter'
           $full='D:/neral-qlora-v2/v2full-43931510428-1-helios'
-          $ckpt='D:/neral-qlora-v2/dev24-hf-bound256-v1'
+          $ckpt='D:/neral-qlora-v2/dev24-hf-sourcefirst-bound256-v2-20261117'
           $out="D:/neral-qlora-v2/dev24-hf-fast-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
           $tool="D:/neral-qlora-v2/dev24-hf-docker-preflight-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
           foreach($f in @($py,(Join-Path $base 'config.json'),(Join-Path $v1 'adapter_config.json'),
@@ -97,6 +97,9 @@ jobs:
           try{
             & $env:D24_PY -B -m scripts.neral_v2_tools_regression_smoke --out $env:D24_TOOL
             if($LASTEXITCODE -ne 0){throw 'Docker and SymPy NetworkX Z3 independent verification failed'}
+            # Real source-first controller, real Docker, real Z3. CPU only.
+            & $env:D24_PY -B -m scripts.neral_hf_source_docker_smoke
+            if($LASTEXITCODE -ne 0){throw 'CPU/Docker source-first Python and Z3 integration failed; GPU run blocked'}
           }finally{Pop-Location}
           Write-Host 'WINDOWS_DOCKER_SYMPY_NETWORKX_Z3_AST_READY_FOR_REAL_PIPELINE24'
 
@@ -150,7 +153,7 @@ jobs:
           # Durable, atomic one-shot claim survives workflow reruns and failures.
           # Never remove automatically: completed case checkpoints remain reusable
           # only after explicit review of any interrupted attempt.
-          $claim='D:/neral-qlora-v2/dev24-hf-bound256-v1.auto-start-20261117.json'
+          $claim='D:/neral-qlora-v2/dev24-hf-sourcefirst-bound256-v2-20261117.auto-start-20261117.json'
           $stream=[IO.File]::Open($claim,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
           try{
             $receipt=@{run_id=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT;sha=$env:GITHUB_SHA;utc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Compress
@@ -168,6 +171,10 @@ jobs:
           if($m.status -ne '24_original_cases_through_real_neral_verifier_HF_engine' -or
               $m.v1_pipeline.complete_pairs -ne 24 -or $m.v2full_pipeline.complete_pairs -ne 24 -or
               $m.per_generation_max_new_tokens -ne 256){throw 'Incomplete or different protocol scored as full DEV24'}
+          if($m.v2full_pipeline.release_gate_passed -ne $true){
+            throw 'DEV24_RELEASE_GATE_BLOCKED: verifications, zero regressions, and gains required'
+          }
+          Write-Host 'DEV24_RELEASE_GATE_PASSED_V2_FULL'
           Write-Host ('NERAL_V2_DEV24_RESULT '+($m.v2full_vs_v1_pipeline|ConvertTo-Json -Compress))
           Write-Host 'NERAL_FULL24_V1_V2_GPU_COMPLETE'
 
