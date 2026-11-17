@@ -1,0 +1,112 @@
+name: NERAL Helios v3 Colab dataset fully verified on Linux Docker (CPU only)
+on:
+  push:
+    branches: [feat/neral-v3-prep-and-cleanup]
+    paths:
+      - '.github/workflows/neral-v3-colab-dataset-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-v3-colab-dataset-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build-and-verify-without-gpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run CPU contract tests for new corpus and native notebook JSON
+        run: |
+          python -m pip install --disable-pip-version-check pytest==8.4.2
+          python -m pytest -q tests/test_neral_helios_v3_colab_data.py tests/test_neral_v3_prep_router_docker.py
+          python - <<'PY'
+          import ast,json
+          from pathlib import Path
+          p=Path('notebooks/neral_helios_v3_colab.ipynb')
+          n=json.loads(p.read_text('utf8'))
+          assert n['nbformat']==4 and len(n['cells'])>=9
+          assert any('Qwen3.5-9B' in ''.join(x['source']) for x in n['cells'])
+          for cell in n['cells']:
+              if cell['cell_type']=='code':
+                  ast.parse(''.join(cell['source']))
+          print('NERAL_COLAB_IPYNB_ALL_CELLS_PYTHON_SYNTAX_VALID')
+          PY
+      - name: Build immutable v3 train/validation JSONL with pinned protected split exclusion
+        run: |
+          mkdir -p "$RUNNER_TEMP/v3-dataset"
+          rmdir "$RUNNER_TEMP/v3-dataset"
+          python -B -m scripts.neral_helios_v3_colab_data --out "$RUNNER_TEMP/v3-dataset"
+      - name: Build verifier image with pinned Z3, SymPy and NetworkX dependencies
+        run: |
+          docker build --pull -f docker/neral_v3_verifier.Dockerfile -t neral-v3-verifier:py312-20261117 .
+          docker image inspect neral-v3-verifier:py312-20261117 --format '{{.Id}}'
+      - name: Check all 540 examples in network-disabled read-only Linux Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --cap-drop ALL \
+             --security-opt no-new-privileges --pids-limit 64 --memory 1g --cpus 2 \
+             --user 65534:65534 --tmpfs /tmp:rw,nosuid,size=64m \
+             -v "$GITHUB_WORKSPACE:/source:ro" \
+             -v "$RUNNER_TEMP/v3-dataset:/data:ro" \
+             -w /source neral-v3-verifier:py312-20261117 \
+             python -B -m scripts.neral_helios_v3_colab_data --worker --dataset /data \
+             | tee "$RUNNER_TEMP/v3-docker.log"
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          d=Path(os.environ['RUNNER_TEMP'])/'v3-dataset'
+          lines=(Path(os.environ['RUNNER_TEMP'])/'v3-docker.log').read_text('utf8').splitlines()
+          prefixes=[s.split(' ',1)[1] for s in lines if s.startswith('NERAL_V3_DOCKER_PROOF ')]
+          if len(prefixes)!=1:raise RuntimeError('Docker emitted no unique verified proof')
+          proof=json.loads(prefixes[0])
+          meta=json.loads((d/'manifest.json').read_text('utf8'))
+          assert proof['status']=='v3_all_oracles_verified_linux_docker'
+          assert proof['verified_rows']==540 and proof['tool_rows']==448 and proof['style_rows']==92
+          assert meta['exclusion']['overlap_count']==0 and meta['exclusion']['train_val_overlap_count']==0
+          for split in ('train','validation'):
+              checksum=hashlib.sha256((d/(split+'.jsonl')).read_bytes()).hexdigest()
+              assert checksum==meta['split_sha256'][split]==proof[split+'_sha256']
+          proof.update(docker_runtime_network_none=True,
+                       docker_read_only=True,
+                       docker_verified=True,
+                       github_source_sha=os.environ['GITHUB_SHA'])
+          (d/'docker_proof.json').write_text(json.dumps(proof,sort_keys=True,indent=2)+'\n','utf8')
+          print('NERAL_V3_540_INDEPENDENT_DOCKER_ORACLES_AND_EXCLUSION_PASS')
+          PY
+      - name: Create human-readable Colab package readme
+        run: |
+          cat > "$RUNNER_TEMP/v3-dataset/README.txt" <<'TXT'
+          NERAL Helios v3: SYNTHETIC UNTRAINED DATA FOR COLAB EXPERIMENT ONLY
+          Dataset: train.jsonl = 480 rows; validation.jsonl = 60 rows.
+          docker_proof.json confirms independent network-isolated Linux Docker
+          execution of Z3, SymPy, NetworkX and Python verifier.
+          The protected 40-test, 32-val and DEV24 splits are excluded.
+          RAG/dialogue samples are fictional and NOT human-reviewed.
+          Download this Actions artifact as ZIP; upload the whole ZIP into
+          notebooks/neral_helios_v3_colab.ipynb on Google Colab.
+          GPU training was NOT run in this workflow; quality NOT proven.
+          TXT
+      - name: Publish complete Colab-ready, scalar-certified v3 dataset ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-helios-v3-verified-dataset-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/v3-dataset/train.jsonl
+            ${{ runner.temp }}/v3-dataset/validation.jsonl
+            ${{ runner.temp }}/v3-dataset/manifest.json
+            ${{ runner.temp }}/v3-dataset/docker_proof.json
+            ${{ runner.temp }}/v3-dataset/README.txt
+          retention-days: 30
+          if-no-files-found: error
