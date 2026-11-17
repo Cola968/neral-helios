@@ -32,19 +32,64 @@ jobs:
           $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
           if([string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){throw 'Scheduled task is not the pinned PR558 service'}
           if(-not(Test-Path -LiteralPath $service -PathType Leaf)){throw 'Expected managed PR558 service missing'}
-          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port 9690 occupied; do not stop or modify processes'}
-          if([string]$task.State -eq 'Running'){
-            # User explicitly approved restarting this exact dedicated PR558 task.
-            # No arbitrary PID is selected or terminated.
-            Stop-ScheduledTask -TaskName $name -ErrorAction Stop
-            for($i=0;$i -lt 25;$i++){
-              Start-Sleep -Milliseconds 300
-              $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-              if([string]$task.State -eq 'Ready'){break}
+          # A running, correctly attested PR558 service is NOT an unknown
+          # occupied port. Reuse it without terminating any process.
+          $listeners=@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          $loopback=@($listeners|Where-Object {$_.LocalAddress -eq '127.0.0.1'})
+          $reuse=$false
+          if($listeners.Count -gt 0){
+            if($listeners.Count -ne 1 -or $loopback.Count -ne 1 -or
+               [string]$task.State -ne 'Running'){
+              throw 'Port 9690 is not the unique running loopback PR558 service; preserve all processes'
+            }
+            $ownerPid=[int]$loopback[0].OwningProcess
+            $owner=Get-CimInstance Win32_Process -Filter ('ProcessId = '+$ownerPid) -ErrorAction Stop
+            $parent=if($null -ne $owner -and [int]$owner.ParentProcessId -gt 0){
+              Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$owner.ParentProcessId) -ErrorAction Stop
+            }else{$null}
+            $grandparent=if($null -ne $parent -and [int]$parent.ParentProcessId -gt 0){
+              Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$parent.ParentProcessId) -ErrorAction SilentlyContinue
+            }else{$null}
+            if($null -eq $owner -or $null -eq $parent -or $null -eq $grandparent -or
+               [string]$owner.Name -notmatch '(?i)^pythonw?\.exe$' -or
+               [string]$parent.Name -notmatch '(?i)^pythonw?\.exe$' -or
+               [string]$grandparent.Name -notmatch '(?i)^powershell\.exe$' -or
+               [string]$grandparent.CommandLine -notlike ('*'+$service+'*') -or
+               [string]$owner.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+               [string]$parent.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+               [string]$owner.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+               [string]$parent.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+               [string]$owner.CommandLine -notmatch '(?i)--helios-v2-full' -or
+               [string]$owner.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*' -or
+               [string]$owner.CommandLine -notlike '*D:/neral-qlora-v2/qwen35-4b-hf*'){
+              throw 'Port 9690 is not proven to belong to the exact managed NERAL service'
+            }
+            $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $page=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -WebSession $session -TimeoutSec 12
+            $receipt=Invoke-RestMethod -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -WebSession $session -TimeoutSec 12
+            if($page.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
+               (@($receipt.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
+              throw 'Managed PR558 loopback session does not match expected tiers'
+            }
+            $reuse=$true
+          }else{
+            if([string]$task.State -eq 'Running'){
+              Stop-ScheduledTask -TaskName $name -ErrorAction Stop
+              for($i=0;$i -lt 25;$i++){
+                Start-Sleep -Milliseconds 300
+                $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+                if([string]$task.State -eq 'Ready'){break}
+              }
+            }
+            if([string]$task.State -ne 'Ready'){throw ('Dedicated task not ready for start: '+[string]$task.State)}
+            if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){
+              throw 'Unexpected new listener after task stop; preserve it'
             }
           }
-          if([string]$task.State -ne 'Ready'){throw ('Dedicated task not ready after safe stop: '+[string]$task.State)}
-          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port occupied after task stop; preserve other processes'}
+          if($reuse){
+            'NERAL_PR558_SAFE_REUSE=1' >> $env:GITHUB_ENV
+            Write-Host 'NERAL_PR558_VERIFIED_RUNNING_SERVICE_REUSE_NO_STOP'
+          }
           $pairs=@(
             @{path='neral_three_tier_runtime.py';before='499f21c278f8c62d3ee82856f5fe8e978336f0d9';after='c2bda8aa38a7c504eda3d922e43b8e599666949b'},
             @{path='static/neral-preview.js';before='e627ada9165757def69c4dcb81628c526b6644d4';after='666a9e4b2d2467f6397a16b107a709dcf34746c2'}
@@ -57,6 +102,9 @@ jobs:
             $diskBlob=(& git -c core.autocrlf=true hash-object --path=$p.path $dst).Trim()
             if($repoBlob -ne $p.after){throw ('Expected reviewed source differs '+$p.path)}
             if($diskBlob -ne $p.before -and $diskBlob -ne $p.after){throw ('Unknown installed source '+$p.path)}
+            if($reuse -and $diskBlob -ne $p.after){
+              throw ('Running PR558 file is not already updated; stop the service using the separate verified lifecycle first: '+$p.path)
+            }
           }
           & node --check (Join-Path $env:GITHUB_WORKSPACE 'static/neral-preview.js')
           if($LASTEXITCODE -ne 0){throw 'Invalid preview JS'}
@@ -67,6 +115,10 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $stable=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          if($env:NERAL_PR558_SAFE_REUSE -eq '1'){
+            Write-Host 'NERAL_PR558_ALREADY_PINNED_SOURCES_NO_FILES_CHANGED'
+            return
+          }
           $pairs=@(
             @{path='neral_three_tier_runtime.py';before='499f21c278f8c62d3ee82856f5fe8e978336f0d9';after='c2bda8aa38a7c504eda3d922e43b8e599666949b'},
             @{path='static/neral-preview.js';before='e627ada9165757def69c4dcb81628c526b6644d4';after='666a9e4b2d2467f6397a16b107a709dcf34746c2'}
@@ -88,8 +140,12 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $name='NERAL-PR558-ThreeTier-909d1419c9ff'
-          if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port changed; refuse task start'}
-          Start-ScheduledTask -TaskName $name -ErrorAction Stop
+          if($env:NERAL_PR558_SAFE_REUSE -eq '1'){
+            Write-Host 'NERAL_PR558_REUSING_VERIFIED_LIVE_TASK'
+          }else{
+            if(@(Get-NetTCPConnection -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue).Count -ne 0){throw 'Port changed; refuse task start'}
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop
+          }
           $ok=$false
           for($i=0;$i -lt 100;$i++){
             Start-Sleep -Milliseconds 900
