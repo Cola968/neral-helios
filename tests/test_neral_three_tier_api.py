@@ -79,6 +79,57 @@ class ThreeTierContracts(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertFalse(high.calls, "Source proof must not secretly load HF weights")
 
+    def test_terra_source_proof_after_prior_luna_chat_history(self):
+        """History must not disable a complete current-source Python proof."""
+        calls=[]
+        runtime, low, high, old = make_runtime(
+            docker=lambda code: calls.append(code) or
+                   {"status":"PASSED","exit_code":0,"output":"16"})
+        prior = [
+            {"role":"system","content":"local system"},
+            {"role":"user","content":"Hallo, ich bin in einem Chat"},
+            {"role":"assistant","content":"Hallo!"},
+            {"role":"user","content":"How many positive divisors does the integer 120 have?"},
+        ]
+        answer = runtime.answer(prior,"Terra")
+        self.assertTrue(answer["verified"])
+        self.assertEqual(answer["text"],"16")
+        self.assertEqual(answer["proof_backend"],"trusted_source_arithmetic")
+        self.assertEqual(answer["response_source"],"independent_source_python")
+        self.assertEqual(len(calls),1)
+        self.assertFalse(high.calls)
+        self.assertFalse(low.calls)
+
+    def test_helios_z3_current_source_after_prior_messages(self):
+        """A complete new graph question remains independently provable."""
+        from scripts.neral_1_1_postverify_dev24_cases import build
+        graph=next(c for c in build() if c["family"]=="graph_coloring_z3")
+        runtime, low, high, _ = make_runtime()
+        turns=[
+            {"role":"system","content":"local system"},
+            {"role":"user","content":"Good morning!"},
+            {"role":"assistant","content":"Good morning."},
+            {"role":"user","content":graph["question"]},
+        ]
+        answer=runtime.answer(turns,"Helios")
+        self.assertTrue(answer["verified"])
+        self.assertEqual(answer["text"],str(graph["gold_integer"]))
+        self.assertEqual(answer["proof_backend"],"z3_unsat")
+        self.assertFalse(high.calls)
+
+    def test_history_only_never_counts_as_current_full_source(self):
+        runtime, low, high, _ = make_runtime()
+        turns=[
+            {"role":"system","content":"local system"},
+            {"role":"user","content":"How many positive divisors does the integer 120 have?"},
+            {"role":"assistant","content":"16"},
+            {"role":"user","content":"And what about the previous calculation?"},
+        ]
+        answer=runtime.answer(turns,"Terra")
+        self.assertFalse(answer["verified"])
+        self.assertIsNone(answer["proof_backend"])
+        self.assertEqual(len(high.calls),1)
+
     def test_unknown_source_cannot_receive_verified_badge(self):
         runtime, low, high, _ = make_runtime()
         answer = runtime.answer(
