@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.neral_v2_eval_checkpoint import prepare, load_completed, save_completed, PROTOCOL
-from neral_cpu_foundation.router import choose_route, escalate
+from neral_cpu_foundation.router import choose_route, escalate, generation_profile
 
 
 def cases():
@@ -65,3 +65,27 @@ def test_reject_wrong_token_budget(tmp_path):
     with pytest.raises(ValueError,match="approved"):
         prepare(tmp_path,label="v1",casepack_sha="a"*64,
                 adapter_sha="b"*64,max_new_tokens=512)
+
+
+def test_luna_fast_route_never_thinks_and_has_bounded_96_output():
+    route=choose_route("Hallo, wie geht es dir?")
+    assert route.tier=="Luna"
+    assert route.base=="qwen3.5:4b"
+    assert route.think is False
+    assert route.adapter_id=="luna-v1-4b-peft"
+    assert route.max_new_tokens==96
+    profile=generation_profile(route)
+    assert profile["think"] is False
+    assert profile["options"]["num_predict"]==96
+    assert profile["adapter_id"]==route.adapter_id
+
+
+def test_escalation_drops_luna_adapter_and_cannot_keep_luna_budget():
+    route=escalate(choose_route("Hallo"), uncertain=True)
+    assert route.tier=="Terra"
+    assert generation_profile(route)["options"]["num_predict"]==256
+    assert route.adapter_id is None
+    heavy=choose_route("Beweise mit Z3 die Graphfärbung")
+    assert heavy.tier=="Helios"
+    assert generation_profile(heavy)["options"]["num_predict"]==768
+    assert heavy.adapter_id is None
