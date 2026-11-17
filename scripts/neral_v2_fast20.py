@@ -17,7 +17,8 @@ from scripts.neral_v2_eval_checkpoint import model_sha
 
 
 def fast_luna_profile():
-    route = choose_route("Hallo")
+    # Explicit historical PEFT comparison only; production default remains plain 4B.
+    route = choose_route("Hallo", experimental_luna_adapter=True)
     settings = generation_profile(route)
     if (route.tier != "Luna" or route.think is not False
         or route.adapter_id != "luna-v1-4b-peft"
