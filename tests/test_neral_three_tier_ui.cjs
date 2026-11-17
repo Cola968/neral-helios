@@ -82,5 +82,9 @@ test("HTTP chat changes only with pinned opt-in and never mislabels adapter outp
   assert.match(chat,/result\.adapter_loaded!==true/);
   assert.match(chat,/result\.model_generated===false/);
   assert.match(css,/data-level="terra"[^}]*width:50%/);
+  assert.match(chat,/neral-tool-status/);
+  assert.match(chat,/Werkzeug: Websuche/);
+  assert.match(chat,/Werkzeug: Z3-Solver/);
+  assert.match(chat,/auto_escalated_from/);
   assert.doesNotMatch(chat,/\.innerHTML\s*=/);
 });
