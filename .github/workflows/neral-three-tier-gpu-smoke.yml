@@ -94,9 +94,10 @@ jobs:
           }
           $out=Join-Path $env:RUNNER_TEMP ('neral-three-tier-live-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT+'.json')
           $env:PYTHONPATH=$src
-          foreach($line in @('TT_PY='+$py,'TT_SRC='+$src,'TT_BASE4='+$base4,'TT_BASE9='+$base9,
-                             'TT_FULL='+$full,'TT_OUT='+$out,'PYTHONPATH='+$src)){
-            [IO.File]::AppendAllText($env:GITHUB_ENV,$line+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          $vars=@{TT_PY=$py;TT_SRC=$src;TT_BASE4=$base4;TT_BASE9=$base9;
+                  TT_FULL=$full;TT_OUT=$out;PYTHONPATH=$src}
+          foreach($entry in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($entry.Key+'='+[string]$entry.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
           }
           Write-Host 'NERAL_THREE_TIER_GPU_EXCLUSIVE_PREFLIGHT_PASS'
       - name: Real sequential 4B Luna warm latency, 9B v2-full load, Python Docker and Z3
