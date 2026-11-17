@@ -34,7 +34,8 @@ class OllamaCompletionError(AgentModelError):
     """Stable non-sensitive failure reason; no prompts or model text included."""
 
     VALID_REASONS = frozenset((
-        "token_limit", "incomplete", "empty_answer", "timeout", "invalid_response"
+        "token_limit", "incomplete", "empty_answer", "timeout", "invalid_response",
+        "cancelled"
     ))
     def __init__(self, reason: str):
         if reason not in self.VALID_REASONS:
@@ -157,11 +158,12 @@ class OllamaLocalBackend:
             except (OSError, ValueError, TypeError, urllib.error.URLError) as exc:
                 raise AgentModelError("Lokales Modell konnte nicht entladen werden.") from exc
 
-    def respond_chat(self, messages: list[dict]) -> str:
+    def respond_chat(self, messages: list[dict], *, cancel_event=None) -> str:
         # FAST: avoid spending the 512-token tool budget on internal thinking.
         # Explicitly disable it; Qwen3 family defaults otherwise vary by tag.
         with self._inference_lock:
-            return self._respond(messages, require_json=False, thinking=False)
+            return self._respond(messages, require_json=False, thinking=False,
+                                 cancel_event=cancel_event)
 
     def respond_formal_extract(self, messages: list[dict], *,
                                repair_turn: bool = False) -> str:
@@ -178,12 +180,13 @@ class OllamaLocalBackend:
             return self._respond(messages, require_json=True,
                                  extraction_only=True, repair_only=repair_turn)
 
-    def respond_think(self, messages: list[dict]) -> str:
+    def respond_think(self, messages: list[dict], *, cancel_event=None) -> str:
         # Separate, opt-in local reasoning channel. Do not return raw thoughts.
         with self._inference_lock:
-            return self._respond(messages, require_json=False, thinking=True)
+            return self._respond(messages, require_json=False, thinking=True,
+                                 cancel_event=cancel_event)
 
-    def respond_high_final(self, messages: list[dict]) -> str:
+    def respond_high_final(self, messages: list[dict], *, cancel_event=None) -> str:
         """HIGH-only, opt-in bounded final line recovery after model truncation.
 
         RAW Qwen and other callers retain strict original failure behavior.
@@ -194,9 +197,10 @@ class OllamaLocalBackend:
             raise AgentModelError("Kurzer HIGH-Abschluss nur im gemessenen Profil.")
         with self._inference_lock:
             return self._respond(messages, require_json=False,
-                                 thinking=False, rescue_long_final=True)
+                                 thinking=False, rescue_long_final=True,
+                                 cancel_event=cancel_event)
 
-    def respond_chat_stream(self, messages: list[dict]):
+    def respond_chat_stream(self, messages: list[dict], *, cancel_event=None):
         """Yield actual Ollama FAST content chunks, never simulated tokens.
 
         Caller MUST close an abandoned generator. A last `done: true` packet
@@ -220,6 +224,8 @@ class OllamaLocalBackend:
                 "options": options,
                 "keep_alive": "5m",
             }, ensure_ascii=False).encode("utf-8")
+            if cancel_event is not None and cancel_event.is_set():
+                raise OllamaCompletionError("cancelled")
             request = urllib.request.Request(
                 self.endpoint, data=payload,
                 headers={"Content-Type": "application/json"}, method="POST")
@@ -232,6 +238,8 @@ class OllamaLocalBackend:
                 with local_only_opener().open(
                         request, timeout=90.0 if measured else self.timeout) as response:
                     for raw in response:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise OllamaCompletionError("cancelled")
                         if not isinstance(raw, bytes):
                             raise AgentModelError("Ungültiger lokaler Modell-Datenstrom.")
                         packet_bytes += len(raw)
@@ -254,6 +262,8 @@ class OllamaLocalBackend:
                             written.append(part)
                             yield part
                         if packet.get("done") is True:
+                            if cancel_event is not None and cancel_event.is_set():
+                                raise OllamaCompletionError("cancelled")
                             reason = packet.get("done_reason")
                             if reason != "stop":
                                 raise OllamaCompletionError(
@@ -275,7 +285,8 @@ class OllamaLocalBackend:
                  thinking: bool = False, final_only: bool = False,
                  rescue_long_final: bool = False,
                  extraction_only: bool = False,
-                 repair_only: bool = False) -> str:
+                 repair_only: bool = False,
+                 cancel_event=None) -> str:
         if require_json and (thinking or final_only or rescue_long_final):
             raise AgentModelError("JSON-Werkzeugaufrufe erfordern FAST.")
         if final_only and rescue_long_final:
@@ -308,7 +319,9 @@ class OllamaLocalBackend:
             "model": self.model,
             "messages": messages,
             "think": False if measured else thinking,
-            "stream": False,
+            # Opt-in cancellable path only: baseline benchmarks retain the
+            # existing non-streaming transport and identical decode settings.
+            "stream": cancel_event is not None,
             "options": options,
             "keep_alive": "5m",
         }
@@ -343,6 +356,8 @@ class OllamaLocalBackend:
             "final_recovery_attempted": False,
             "final_recovery_succeeded": False,
         }
+        if cancel_event is not None and cancel_event.is_set():
+            raise OllamaCompletionError("cancelled")
         payload = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
@@ -353,10 +368,44 @@ class OllamaLocalBackend:
                     else 90.0 if (thinking or measured) else self.timeout
             ) as response:
                 diagnostic["ollama_http_status"] = getattr(response, "status", 200)
-                raw = response.read(128 * 1024 + 1)
-            if len(raw) > 128 * 1024:
-                raise AgentModelError("Modellantwort zu groß.")
-            packet = json.loads(raw)
+                if cancel_event is None:
+                    raw = response.read(128 * 1024 + 1)
+                    if len(raw) > 128 * 1024:
+                        raise AgentModelError("Modellantwort zu groß.")
+                    packet = json.loads(raw)
+                else:
+                    # Server-side request cancellation closes the local Ollama
+                    # stream on the next received chunk. No partial answer is
+                    # returned or silently promoted as verified.
+                    packet = None
+                    pieces = []
+                    accumulated = 0
+                    for index, raw in enumerate(response):
+                        if cancel_event.is_set():
+                            raise OllamaCompletionError("cancelled")
+                        if (not isinstance(raw, bytes) or len(raw) > 8192 or
+                                index >= 5000):
+                            raise OllamaCompletionError("invalid_response")
+                        accumulated += len(raw)
+                        if accumulated > 256 * 1024:
+                            raise OllamaCompletionError("invalid_response")
+                        row = json.loads(raw)
+                        if not isinstance(row, dict) or not isinstance(row.get("message"), dict):
+                            raise OllamaCompletionError("invalid_response")
+                        piece = row["message"].get("content", "")
+                        if not isinstance(piece, str):
+                            raise OllamaCompletionError("invalid_response")
+                        pieces.append(piece)
+                        if row.get("done") is True:
+                            packet = row
+                            break
+                    if cancel_event.is_set():
+                        raise OllamaCompletionError("cancelled")
+                    if packet is None:
+                        raise OllamaCompletionError("incomplete")
+                    packet["message"]["content"] = "".join(pieces)
+                    if len(packet["message"]["content"].encode("utf-8")) > 32768:
+                        raise OllamaCompletionError("invalid_response")
             if not isinstance(packet, dict):
                 raise OllamaCompletionError("invalid_response")
             for counter in ("eval_count", "prompt_eval_count"):
@@ -412,7 +461,8 @@ class OllamaLocalBackend:
                     try:
                         followup = self._respond(
                             followup_turns, require_json=False,
-                            thinking=False, final_only=True)
+                            thinking=False, final_only=True,
+                            cancel_event=cancel_event)
                     except AgentModelError:
                         raise OllamaCompletionError("token_limit")
                     if re.fullmatch(
@@ -455,7 +505,8 @@ class OllamaLocalBackend:
                 try:
                     final = self._respond(
                         followup_turns, require_json=False,
-                        thinking=False, final_only=True)
+                        thinking=False, final_only=True,
+                        cancel_event=cancel_event)
                 except AgentModelError:
                     # Unlike a length-truncated first call, this reply DID
                     # finish. Preserve it if final-only extraction failed.

@@ -256,12 +256,18 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
 
         if not busy.acquire(blocking=False):
             return jsonify(error="NERAL berechnet bereits eine Antwort."), 409
+        registry=getattr(app,"_neral_chat_cancel_registry",None)
+        cancel_event=(registry.begin(request.headers.get("X-Neral-Request-Id"))
+                      if registry is not None else None)
         try:
             snippets = []
             meta = []
             vision_models = set()
             remaining = MAX_EXTRACT_BYTES
             for index, (name, ext, raw) in enumerate(incoming):
+                if cancel_event is not None and cancel_event.is_set():
+                    return jsonify(error="Lokale Berechnung abgebrochen.",
+                                   error_code="cancelled"), 409
                 if ext in IMAGE_TYPES:
                     try:
                         analyzed_model, extracted = vision(raw, question)
@@ -269,6 +275,9 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                         return jsonify(error=str(exc)), 409
                     except Exception:
                         return jsonify(error="Bildanalyse fehlgeschlagen."), 503
+                    if cancel_event is not None and cancel_event.is_set():
+                        return jsonify(error="Lokale Berechnung abgebrochen.",
+                                       error_code="cancelled"), 409
                     if analyzed_model not in VISION_MODELS or not extracted.strip():
                         return jsonify(error="Bildanalyse lieferte kein zugelassenes Ergebnis."), 503
                     vision_models.add(analyzed_model)
@@ -314,6 +323,9 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                 )
                 if callable(prepare_model):
                     prepare_model(selected)
+                if cancel_event is not None and cancel_event.is_set():
+                    from neral_agent_autonomy import OllamaCompletionError
+                    raise OllamaCompletionError("cancelled")
                 if mode == "think":
                     from neral_think import think_reply
                     responder = (getattr(selected, "respond_think", None) or
@@ -321,17 +333,37 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                                  selected.respond)
                     from neral_agent_autonomy import OllamaLocalBackend
                     deep_review = isinstance(selected, OllamaLocalBackend)
+                    # Match the normal /api/neral/chat/think responder selection.
+                    # Otherwise screenshots/files silently bypass measured HIGH.
+                    if (type(selected) is OllamaLocalBackend
+                            and selected.model == "qwen3.5:9b"
+                            and selected.inference_profile == "measured_nonthinking_2048"):
+                        responder = selected.respond_high_final
+                    if cancel_event is not None and isinstance(selected, OllamaLocalBackend):
+                        original_respond = responder
+                        responder = lambda messages: original_respond(
+                            messages, cancel_event=cancel_event)
                     result = think_reply(turns, responder, deep_review=deep_review)
                     if not isinstance(result, dict) or not isinstance(result.get("text"), str):
                         raise ValueError("Unvollständiges THINK-Ergebnis")
                 else:
                     responder = getattr(selected, "respond_chat", None) or selected.respond
-                    answer = responder(turns)
+                    from neral_agent_autonomy import OllamaLocalBackend
+                    answer = (responder(turns, cancel_event=cancel_event)
+                              if cancel_event is not None and isinstance(selected, OllamaLocalBackend)
+                              else responder(turns))
                     result = {"text": answer, "mode": "LOW", "model_generated": True}
                 if (not result["text"].strip() or
                         len(result["text"].encode("utf-8")) > 32768):
                     raise ValueError("Ungültige Modellantwort")
-            except Exception:
+            except Exception as exc:
+                # Same fail-closed user-facing error as regular HIGH, without
+                # leaking private partial text, file contents or Ollama internals.
+                from neral_agent_autonomy import OllamaCompletionError
+                if isinstance(exc, OllamaCompletionError):
+                    from neral_local_chat_api import _SAFE_OLLAMA_ERROR_TEXT
+                    return jsonify(error=_SAFE_OLLAMA_ERROR_TEXT[exc.reason],
+                                   error_code=exc.reason), 503
                 return jsonify(error="Lokale Analyse oder Modell-Inferenz fehlgeschlagen."), 503
             return jsonify({
                 **result,
@@ -342,4 +374,6 @@ def register_preview_attachment_api(app, backend, busy, *, vision_analyzer=None,
                 "file_bytes_persisted": False,
             })
         finally:
+            if registry is not None:
+                registry.end(cancel_event)
             busy.release()
