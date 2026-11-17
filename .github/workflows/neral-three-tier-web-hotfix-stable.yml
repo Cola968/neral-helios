@@ -32,7 +32,7 @@ jobs:
       - name: Validate exact reviewed JS and regression contract before any change
         run: |
           $ErrorActionPreference='Stop'
-          $expected='84733b1ac861403b231d6fa6ee07ffb17bd198ef'
+          $expected='e627ada9165757def69c4dcb81628c526b6644d4'
           $actual=(& git rev-parse 'HEAD:static/neral-preview.js').Trim()
           if($actual -ne $expected){throw 'PR branch web-query JS is not exactly pinned reviewed blob'}
           & git diff --quiet HEAD -- static/neral-preview.js
@@ -53,7 +53,7 @@ jobs:
           $server=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
           $runtime=Join-Path $stable 'neral_three_tier_runtime.py'
           $oldSha='e729dab25b81bab5b433a6a704a778781f63033c'
-          $newSha='84733b1ac861403b231d6fa6ee07ffb17bd198ef'
+          $newSha='e627ada9165757def69c4dcb81628c526b6644d4'
           $runtimeSha='c2bda8aa38a7c504eda3d922e43b8e599666949b'
           $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
           if([string]$task.State -ne 'Running' -or [string]$task.Actions[0].Arguments -notlike ('*'+$server+'*')){
