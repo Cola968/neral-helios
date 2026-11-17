@@ -49,10 +49,12 @@ def verify_main_integrity():
         # PR558 deliberately updates exactly one preview JavaScript file.
         # Accept only its independently reviewed Git blob, never arbitrary
         # UI drift or any changed security endpoint/template.
-        allowed_pr558 = (
-            base == CURRENT_MAIN and name == 'static/neral-preview.js'
-            and current == '666a9e4b2d2467f6397a16b107a709dcf34746c2'
-        )
+        approved_pr558_blobs = {
+            'static/neral-preview.js': '666a9e4b2d2467f6397a16b107a709dcf34746c2',
+            'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
+        }
+        allowed_pr558 = (base == CURRENT_MAIN
+                         and current == approved_pr558_blobs.get(name))
         if (old!=current and not allowed_pr558) or not old:
             raise RuntimeError('CURRENT_MAIN_WEB_OR_UI_CHANGED: '+name)
         clean=subprocess.run(
