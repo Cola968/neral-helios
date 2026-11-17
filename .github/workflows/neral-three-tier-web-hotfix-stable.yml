@@ -1,5 +1,8 @@
 name: NERAL PR558 pinned browser web-query hotfix into existing stable preview
 on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: ['.github/workflows/neral-three-tier-web-hotfix-stable.yml']
   workflow_dispatch:
     inputs:
       confirmation:
@@ -13,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   stable-browser-source:
-    if: inputs.confirmation == 'NERAL_PR558_WEB_QUERY_REPAIR_APPROVED' && github.ref == 'refs/heads/feat/neral-three-tier-local-live-20261117'
+    if: (github.event_name == 'push' || inputs.confirmation == 'NERAL_PR558_WEB_QUERY_REPAIR_APPROVED') && github.ref == 'refs/heads/feat/neral-three-tier-local-live-20261117'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 8
     defaults:
