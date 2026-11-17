@@ -38,6 +38,22 @@ jobs:
             if($null -ne $proc){
               $parent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$proc.ParentProcessId) -ErrorAction SilentlyContinue
               $out['parent_name']=if($null -ne $parent){[string]$parent.Name}else{'not_running'}
+              $out['parent_exact_python_exe']=($null -ne $parent -and [string]::Equals([IO.Path]::GetFullPath([string]$parent.ExecutablePath),$expectedPath,[StringComparison]::OrdinalIgnoreCase))
+              $out['parent_is_powershell']=($null -ne $parent -and [string]$parent.Name -match '(?i)powershell|pwsh')
+              $out['parent_has_server_flags']=($null -ne $parent -and [string]$parent.CommandLine -match '(?i)--experimental-three-tier-hf')
+              if($null -ne $parent -and [int]$parent.ParentProcessId -gt 0){
+                $grandparent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$parent.ParentProcessId) -ErrorAction SilentlyContinue
+                $out['grandparent_name']=if($null -ne $grandparent){[string]$grandparent.Name}else{'not_running'}
+                $out['grandparent_managed_service_script']=($null -ne $grandparent -and
+                  [string]$grandparent.CommandLine -like '*Start-Neral-Three-Tier-Service.ps1*')
+              }
+              $out['listener_exe_has_venv_path']=($null -ne $proc -and
+                [string]$proc.ExecutablePath -match '(?i)neral-qlora.*venv')
+              $out['listener_exe_same_bytes_as_venv']=($null -ne $proc -and
+                (Test-Path -LiteralPath ([string]$proc.ExecutablePath) -PathType Leaf) -and
+                ((Get-FileHash -LiteralPath $proc.ExecutablePath -Algorithm SHA256).Hash -eq
+                 (Get-FileHash -LiteralPath $expectedPath -Algorithm SHA256).Hash))
+
             }
           }
           Write-Host ('NERAL_PR558_PORT_OWNER_SAFE_FLAGS '+($out|ConvertTo-Json -Compress))
