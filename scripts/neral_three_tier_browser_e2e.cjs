@@ -81,7 +81,10 @@ async function send(tier,prompt,kind=""){
       "const n=a.at(-1);const h=n?.querySelector('strong');return {count:a.length,"+
       "body:n?.innerText||'',badge:h?.getAttribute('aria-label')||h?.title||'',"+
       "busy:document.getElementById('submit').disabled,error:document.getElementById('error')?.textContent||''};})()");
-    if(value?.error&&!value.busy&&value.count<=original)throw Error("Chat UI returned error");
+    if(value?.error&&!value.busy&&value.count<=original){
+      out.ui_error_hint=String(value.error).slice(0,180);
+      throw Error("Chat UI returned error");
+    }
     return value?.count>original&&!value.busy?value:null;
   },tier==="Helios"?175000:130000);
   check(res.body.trim(),"Empty assistant response");
