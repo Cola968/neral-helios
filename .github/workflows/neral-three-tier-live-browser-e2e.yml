@@ -136,7 +136,7 @@ jobs:
           $action=New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $stable
           $trigger=New-ScheduledTaskTrigger -Once -At ((Get-Date).AddHours(1))
           $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-          $principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel LeastPrivilege
+          $principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
           Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'User-authorized NERAL localhost preview' -ErrorAction Stop | Out-Null
           Start-ScheduledTask -TaskName $name
           $ready=$false
