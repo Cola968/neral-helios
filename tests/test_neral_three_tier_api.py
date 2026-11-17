@@ -125,5 +125,31 @@ class ThreeTierContracts(unittest.TestCase):
         self.assertFalse(r.json["verified"])
 
 
+    def test_preview_routes_share_session_csrf_and_expose_explicit_opt_in(self):
+        from neral_preview_server import create_preview_app
+        from neral_agent_autonomy import OllamaLocalBackend
+        runtime, low, high, _ = make_runtime()
+        # No model is initialized or asked for inference at app construction.
+        legacy = OllamaLocalBackend("qwen3:8b")
+        runtime.legacy_backend = legacy
+        app = create_preview_app(legacy, secret_key=b"z"*32,
+                                 three_tier_runtime=runtime)
+        client = app.test_client()
+        client.get("/")
+        session = client.get("/api/neral/preview/session").json
+        self.assertTrue(session["three_tier_enabled"])
+        self.assertEqual(session["three_tier_levels"], ["Luna", "Terra", "Helios"])
+        body = {"tier": "Luna", "prompt": "Test", "history": []}
+        blocked = client.post("/api/neral/chat/three-tier", json=body)
+        self.assertEqual(blocked.status_code, 403)
+        from unittest.mock import patch
+        # This is only a mocked transport. It does not prove an Ollama GPU call.
+        with patch.object(legacy, "unload", return_value=None):
+            response = client.post("/api/neral/chat/three-tier", json=body,
+                                   headers={"X-Neral-CSRF":session["csrf"]})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["model"], "qwen3.5:4b")
+
+
 if __name__ == "__main__":
     unittest.main()
