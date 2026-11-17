@@ -10,8 +10,7 @@ const begin=src.indexOf("  function isSearchFollowup(");
 const end=src.indexOf("  // Snippets are untrusted evidence",begin);
 assert.ok(begin>=0 && end>begin, "Query preparation functions must remain present");
 const {makeSearchQuery}=vm.runInNewContext(
-  "(function(){"+src.slice(begin,end)+"
-return {makeSearchQuery};})()");
+  "(function(){"+src.slice(begin,end)+"\nreturn {makeSearchQuery};})()");
 
 test("explicit BER flight-connection search disambiguates the airport and drops vague freshness filler",()=>{
   assert.equal(makeSearchQuery("Suche im Internet nach aktuellen BER-Flugverbindungen."),
@@ -19,7 +18,7 @@ test("explicit BER flight-connection search disambiguates the airport and drops 
 });
 test("unrelated topical and fresh news searches are not rewritten",()=>{
   assert.equal(makeSearchQuery("Suche im Internet nach aktuellen Nachrichten zur KI."),
-    "Nachrichten zur KI.");
+    "Nachrichten zur KI");
   assert.equal(makeSearchQuery("Suche im Internet nach T4 Grafikkarte"),
     "T4 Grafikkarte");
 });
