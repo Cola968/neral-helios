@@ -31,9 +31,9 @@ jobs:
           $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
           if([string]$task.State -ne 'Running'){throw 'Persistent NERAL service not running'}
           $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
-          $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
+          $homepage=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
           $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 12
-          if($home.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
+          if($homepage.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
              (@($receipt.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
             throw 'Three-tier HTTP session is not initialized'
           }
