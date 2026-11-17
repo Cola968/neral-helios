@@ -95,7 +95,7 @@ jobs:
           if($env:NERAL_E2E_REUSE -eq '1'){throw 'Unmanaged preview is not a stable installation'}
           $py='D:/neral-qlora/venv/Scripts/python.exe'
           $archive=Join-Path $env:RUNNER_TEMP ('neral-three-tier-source-'+$env:GITHUB_RUN_ID+'.zip')
-          & $py -B scripts/build_neral_1_0_preview.py --root $env:GITHUB_WORKSPACE --out $archive
+          & $py -B -m scripts.build_neral_1_0_preview --root $env:GITHUB_WORKSPACE --out $archive
           if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $archive)){throw 'Source-only release build failed'}
           $version=$env:GITHUB_SHA.Substring(0,12)
           $parent=Join-Path $env:LOCALAPPDATA 'NERAL'
