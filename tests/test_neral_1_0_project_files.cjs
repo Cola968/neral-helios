@@ -120,9 +120,9 @@ test("truncated attachment excerpts are disclosed beside the model answer",async
   x.handlers.get("projectFiles:change")();
   x.element("prompt").value="Bitte zusammenfassen.";
   await x.handlers.get("chatForm:submit")({preventDefault(){}});
-  const assistantHeaders=x.created.filter(e=>e.tagName==="strong")
+  const statuses=x.created.filter(e=>e.className==="neral-tool-status")
     .map(e=>e.textContent);
-  assert.ok(assistantHeaders.some(t=>/Auszüge gekürzt/i.test(t)),
+  assert.ok(statuses.some(t=>/Auszüge gekürzt/i.test(t)),
     "Users must see that not all document content was processed");
 });
 
@@ -148,12 +148,12 @@ test("answer provenance displays selected HIGH foundation and does not claim fil
   x.handlers.get("projectFiles:change")();
   x.element("prompt").value="Was steht auf diesem Bild?";
   await x.handlers.get("chatForm:submit")({preventDefault(){}});
-  const labels=x.created.filter(e=>e.tagName==="strong").map(e=>e.textContent);
-  const heading=labels.find(s=>s.includes("NERAL HIGH"));
-  assert.ok(heading,"HIGH response is visible");
-  assert.match(heading,/qwen3\.5:9b/,"show real model identity, not an implicit Qwen8B label");
-  assert.match(heading,/Anhänge verarbeitet/);
-  assert.doesNotMatch(heading,/Anhänge ausgewertet/,"upload alone is not proof of content understanding");
+  const labels=x.created.filter(e=>e.className==="neral-tool-status").map(e=>e.textContent);
+  const status=labels.find(s=>s.includes("Modus: HIGH"));
+  assert.ok(status,"HIGH response provenance is visible independently from the NERAL heading");
+  assert.match(status,/qwen3\.5:9b/,"show real model identity, not an implicit Qwen8B label");
+  assert.match(status,/Anhänge verarbeitet/);
+  assert.doesNotMatch(status,/Anhänge ausgewertet/,"upload alone is not proof of content understanding");
 });
 
 test("each attachment chip exposes an accessible x remove button",async()=>{
