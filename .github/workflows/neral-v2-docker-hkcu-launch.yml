@@ -1,0 +1,48 @@
+name: NERAL Docker HKCU startup and 90s daemon probe
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-docker-hkcu-launch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  launch:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 7
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Start registered per-user Docker Desktop and verify daemon
+        run: |
+          $ErrorActionPreference='Stop'
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          $ok=($LASTEXITCODE -eq 0)
+          if(-not $ok){
+            $entries=@(Get-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -eq 'Docker Desktop' })
+            if($entries.Count -ne 1){throw 'Not exactly one per-user Docker Desktop registry entry'}
+            $root=[string]$entries[0].InstallLocation
+            if([string]::IsNullOrWhiteSpace($root)){throw 'Docker Desktop registration has no InstallLocation'}
+            $exe=Join-Path $root 'Docker Desktop.exe'
+            if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'Registered Docker Desktop exe does not exist'}
+            Write-Host 'PER_USER_DOCKER_DESKTOP_EXECUTABLE_VERIFIED'
+            Start-Process -FilePath $exe -ErrorAction Stop
+            Write-Host 'PER_USER_DOCKER_DESKTOP_START_REQUESTED'
+            $deadline=[DateTime]::UtcNow.AddSeconds(90)
+            do {
+              Start-Sleep -Seconds 3
+              & cmd.exe /d /c 'docker info >NUL 2>&1'
+              $ok=($LASTEXITCODE -eq 0)
+              if($ok){break}
+            } while ([DateTime]::UtcNow -lt $deadline)
+          }
+          $desktop=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue).Count
+          Write-Host ('DOCKER_DESKTOP_PROCESS_COUNT '+$desktop)
+          Write-Host ('WINDOWS_DOCKER_DAEMON_READY '+$ok)
+          if(-not $ok){throw 'Registered Docker Desktop startup failed: runner may lack an interactive Windows session'}
+          & docker info --format 'Docker daemon version={{.ServerVersion}}'
+          if($LASTEXITCODE -ne 0){throw 'Docker info failed after readiness'}
+          Write-Host 'NERAL_WINDOWS_DOCKER_READY_FOR_24_BENCH'

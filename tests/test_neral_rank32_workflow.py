@@ -99,7 +99,9 @@ class Rank32WorkflowContracts(TestCase):
         script=(ROOT/'scripts'/'Start-NERAL-QLoRA-Action.ps1').read_text('utf-8')
         self.assertIn('.cache\\neral\\qwen25-smoke\\c03e6d358207e414f1eca0bb1891e29f1db0e242',script)
         self.assertIn('helios-manifest.json',script)
-        self.assertIn('verify_hashes=True',script)
+        self.assertIn('scripts\\neral_snapshot_preflight.py',script)
+        self.assertIn('Local HF snapshot validation refused',script)
+        self.assertIn('scripts/neral_qlora_pilot.py',script)
 
     def test_artifact_upload_depends_on_allowlist_guard(self):
         content=(ROOT/'.github'/'workflows'/'neral-qwen7b-r32-qlora.yml').read_text('utf-8')

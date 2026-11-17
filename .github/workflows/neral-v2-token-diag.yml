@@ -1,0 +1,39 @@
+name: NERAL Qwen3.5 DEV24 tokenizer length diagnostic
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - 'scripts/neral_v2_token_diagnostic.py'
+      - '.github/workflows/neral-v2-token-diag.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  token-diagnostic:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 12
+    concurrency:
+      group: neral-qwen7b-r32-gpu-exclusive
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Inspect native tokenizer structures without model inference
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $env:PYTHONPATH=$src
+          Push-Location $src
+          try {
+            & 'D:/neral-qlora/venv/Scripts/python.exe' -B -m scripts.neral_v2_token_diagnostic
+            if($LASTEXITCODE -ne 0){throw 'Tokenizer diagnostic failed'}
+          } finally {Pop-Location}

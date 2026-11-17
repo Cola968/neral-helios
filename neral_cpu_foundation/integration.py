@@ -17,7 +17,7 @@ from .symbolic import verify_symbolic
 from .constraints import solve_constraints
 from .memory import LocalMemory
 from .rag import LocalRAG
-from .router import choose_route
+from .router import choose_route, generation_profile
 from .web import SearchClient
 
 
@@ -161,9 +161,14 @@ def register_cpu_foundation_api(app):
             return jsonify(error="Prompt erforderlich."),400
         try: r=choose_route(data["prompt"])
         except (ValueError,TypeError): return jsonify(error="Ungültige Anfrage."),400
+        profile=generation_profile(r)
         return jsonify(tier=r.tier,planned_model=r.base,think=r.think,
+                       max_new_tokens=r.max_new_tokens,
+                       adapter_planned=r.adapter_id,
+                       generation_options=profile["options"],
                        tools=r.tools,reason=r.reason,
                        model_switch_performed=False,
+                       adapter_loaded=False,
                        independent_proof=False)
 
     @app.route("/api/neral/cpu/memory",methods=["GET","POST"])

@@ -1,0 +1,141 @@
+name: NERAL final recovery reuse frozen 40 score without re-testing
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-final-resume-no40.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+
+jobs:
+  resume-frozen-evaluation:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONUNBUFFERED: '1'
+      NERAL_PIN_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+          clean: true
+
+      - name: Verify previously finished frozen 40 report without accessing sealed cases
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_PIN_SHA){throw 'Source SHA drift'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $base='D:/neral-qlora/checkpoint'
+          $v1='D:/neral-qlora/full01/adapter'
+          $full='D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          $luna='D:/neral-qlora-v2/luna-43943279049-1-full'
+          $base4='D:/neral-qlora-v2/qwen35-4b-hf'
+          $out40='D:/neral-qlora-v2/final-9b40-43949751421-1.json'
+          foreach($f in @($py,(Join-Path $base 'config.json'),(Join-Path $v1 'adapter_config.json'),(Join-Path $full 'manifest.json'),(Join-Path $luna 'manifest.json'),(Join-Path $base4 'model.safetensors.index.json'),$out40)){
+            if(-not(Test-Path -LiteralPath $f -PathType Leaf)){throw ('Missing pre-existing frozen evidence: '+$f)}
+          }
+          $hm=Get-Content -LiteralPath (Join-Path $full 'manifest.json') -Raw|ConvertFrom-Json
+          $lm=Get-Content -LiteralPath (Join-Path $luna 'manifest.json') -Raw|ConvertFrom-Json
+          if($hm.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $hm.rank -ne 16 -or $hm.selected_epoch -ne 1 -or $hm.train_rows -ne 1100 -or $hm.val_rows -ne 140 -or $hm.test_rows_opened -ne 0){throw 'Frozen full 9B source receipt drift'}
+          if($lm.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $lm.rank -ne 8 -or $lm.selected_epoch -ne 2 -or $lm.train_rows -ne 480 -or $lm.val_rows -ne 75 -or $lm.test_rows_opened -ne 0){throw 'Frozen Luna 4B source receipt drift'}
+          foreach($pair in @(@($full,$hm),@($luna,$lm))){
+            $actual=(Get-FileHash -LiteralPath (Join-Path $pair[0] 'adapter/adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($actual -ne $pair[1].frozen_adapter_sha256){throw 'Frozen model bytes changed'}
+          }
+          $report=Get-Content -LiteralPath $out40 -Raw|ConvertFrom-Json
+          if($report.status -ne 'frozen_three_way_40_complete' -or $report.case_count -ne 40 -or $report.no_training -ne $true -or $report.same_base -ne $true -or $report.same_prompt -ne $true -or $report.same_decode -ne $true -or $report.full_9b_training_sha256 -ne $hm.frozen_adapter_sha256){throw 'Previous 40-case report not certified'}
+          if($report.test_sha256 -ne 'c5e3962768a7a870df837f63624b2904cbcd6dfef559445f9c220e7ed6a7a7a7'){throw 'Previously sealed 40-case test hash mismatch'}
+          foreach($label in @('base_qwen35_9b','qlora_v1','qlora_v2_full')){
+            $m=$report.models.$label
+            if($null -eq $m -or $m.correct_bitset.Length -ne 40 -or $m.correct -lt 0 -or $m.correct -gt 40){throw 'Incomplete previous 40-case model scores'}
+            $ones=([regex]::Matches($m.correct_bitset,'1')).Count
+            if($ones -ne $m.correct -or ($m.correct_bitset -notmatch '^[01]{40}$')){throw '40-case scores disagree with per-case correct bitset'}
+          }
+          if($report.full_vs_v1.net -ne ($report.models.qlora_v2_full.correct-$report.models.qlora_v1.correct)){throw 'Incorrect prior delta v1'}
+          $id=$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT
+          $out24="D:/neral-qlora-v2/resumed-neral-pipeline24-$id.json"
+          $outTools="D:/neral-qlora-v2/resumed-tools-smoke-$id.json"
+          $outRag="D:/neral-qlora-v2/resumed-dialogue-rag20-$id.json"
+          foreach($f in @($out24,$outTools,$outRag)){if(Test-Path -LiteralPath $f){throw 'Refuse to overwrite existing metrics'}}
+          $vars=@{V2R_SRC=$src;V2R_PY=$py;V2R_BASE9=$base;V2R_V1=$v1;V2R_FULL=$full;
+            V2R_LUNA=$luna;V2R_BASE4=$base4;V2R_OUT40=$out40;V2R_OUT24=$out24;
+            V2R_OUT_TOOLS=$outTools;V2R_OUT_RAG=$outRag;PYTHONPATH=$src}
+          foreach($entry in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($entry.Key+'='+$entry.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          }
+          Write-Host ('PREVIOUS_PROTECTED_40_REUSED_NO_REPEAT '+($report.models | ConvertTo-Json -Compress -Depth 4))
+          Write-Host ('40_DELTA_V1 '+($report.full_vs_v1 | ConvertTo-Json -Compress))
+          Write-Host 'FROZEN_40_REUSE_GATE_PASS'
+
+      - name: Release GPU safely and check RTX4070 memory for remaining evaluation
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($entry in @($ps.models)){if($entry -and $entry.name){& $exe stop $entry.name;if($LASTEXITCODE -ne 0){throw 'Cannot stop Ollama model'}}}
+          Start-Sleep -Seconds 7
+          $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'GPU unavailable'}
+          $p=$g[0].Split(',')
+          if($p[0] -notmatch 'RTX 4070' -or [int]$p[2].Trim() -lt 9500){throw 'RTX 4070 less than 9500 MiB free'}
+          Write-Host ('RTX4070_FOR_RESUME '+$g[0])
+
+      - name: Continue original 24-case real NERAL controller evaluation v1 vs v2-full
+        timeout-minutes: 110
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2R_SRC
+          try {
+            & $env:V2R_PY -B -m scripts.neral_v2_pipeline24_hf --base $env:V2R_BASE9 --v1 $env:V2R_V1 --full $env:V2R_FULL --out $env:V2R_OUT24
+            if($LASTEXITCODE -ne 0){throw '24-case real NERAL 1.1 HF controller test failed'}
+          } finally {Pop-Location}
+
+      - name: Independent SymPy NetworkX Z3 and isolated AST Docker smoke
+        if: always() && env.V2R_SRC != ''
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2R_SRC
+          try {
+            & $env:V2R_PY -B -m scripts.neral_v2_tools_regression_smoke --out $env:V2R_OUT_TOOLS
+            if($LASTEXITCODE -ne 0){throw 'New independent tool verification failed'}
+          } finally {Pop-Location}
+
+      - name: Compare 9B Qwen v1 v2 and 4B base Luna on fresh dialogue-RAG probes
+        if: always() && env.V2R_SRC != ''
+        timeout-minutes: 85
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:V2R_SRC
+          try {
+            & $env:V2R_PY -B -m scripts.neral_v2_dialogue_rag_sample --base9 $env:V2R_BASE9 --v1 $env:V2R_V1 --full $env:V2R_FULL --base4 $env:V2R_BASE4 --luna $env:V2R_LUNA --out $env:V2R_OUT_RAG
+            if($LASTEXITCODE -ne 0){throw 'New dialogue-RAG sample failed'}
+          } finally {Pop-Location}
+
+      - name: Archive scalar-only 40 reused plus 24 tools and dialogue results
+        if: always() && env.V2R_OUT40 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v2-resumed-no40-metrics-${{ github.run_id }}
+          path: |
+            ${{ env.V2R_OUT40 }}
+            ${{ env.V2R_OUT24 }}
+            ${{ env.V2R_OUT_TOOLS }}
+            ${{ env.V2R_OUT_RAG }}
+          if-no-files-found: warn
+          retention-days: 30

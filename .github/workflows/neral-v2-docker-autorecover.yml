@@ -1,0 +1,137 @@
+name: NERAL Docker Desktop auto-recover and verified tools
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-docker-autorecover.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-v2-docker-autorecover
+  cancel-in-progress: false
+jobs:
+  docker-sandbox-recovery:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 14
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Check Docker daemon, start Docker Desktop if needed, wait up to 90 seconds
+        run: |
+          $ErrorActionPreference='Stop'
+          $desktop='C:\Program Files\Docker\Docker\Docker Desktop.exe'
+          $docker=(Get-Command docker -ErrorAction Stop).Source
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          $ready=($LASTEXITCODE -eq 0)
+          if(-not $ready){
+            $candidates=@(
+              $desktop,
+              (Join-Path $env:LOCALAPPDATA 'Programs/Docker/Docker/Docker Desktop.exe'),
+              'D:\Docker\Docker\Docker Desktop.exe',
+              'D:\Program Files\Docker\Docker\Docker Desktop.exe'
+            )
+            try{
+              $registry=(Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Docker Desktop.exe' -ErrorAction Stop).'(default)'
+              if($registry){$candidates+= [string]$registry}
+            } catch {}
+            # Docker Desktop can be installed per-user without com.docker.service.
+            # The read-only runner inventory confirmed an HKCU uninstall entry
+            # whose InstallLocation contains the actual Desktop executable.
+            foreach($uninstall in @(
+              'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')){
+              $records=@(Get-ItemProperty -Path $uninstall -ErrorAction SilentlyContinue |
+                Where-Object {$_.DisplayName -eq 'Docker Desktop'})
+              foreach($record in $records){
+                if($record.InstallLocation){
+                  $candidates+=Join-Path ([string]$record.InstallLocation) 'Docker Desktop.exe'
+                }
+              }
+            }
+            $desktop=$candidates|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
+            $svc=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+            if($svc){Write-Host ('DOCKER_SERVICE '+$svc.Status);if($svc.Status -ne 'Running'){try{Start-Service -Name 'com.docker.service' -ErrorAction Stop;Write-Host 'DOCKER_SERVICE_START_REQUESTED'}catch{Write-Host ('DOCKER_SERVICE_START_DENIED '+$_.Exception.GetType().Name)}}}
+            if($desktop){Write-Host 'DOCKER_DESKTOP_START_REQUESTED_FROM_VERIFIED_INSTALL';Start-Process -FilePath $desktop -ErrorAction Stop}
+            else {Write-Host 'DOCKER_DESKTOP_BINARY_MISSING_IN_KNOWN_INSTALL_LOCATIONS'}
+            $deadline=[datetime]::UtcNow.AddSeconds(90)
+            do {
+              Start-Sleep -Seconds 3
+              & cmd.exe /d /c 'docker info >NUL 2>&1'
+              $ready=($LASTEXITCODE -eq 0)
+            } until ($ready -or [datetime]::UtcNow -ge $deadline)
+          }
+          if(-not $ready){throw 'Docker Desktop server did not become ready within 90 seconds; Windows interactive session may be required'}
+          Write-Host 'DOCKER_DAEMON_LIVE'
+          & $docker info --format 'Server={{.ServerVersion}} Driver={{.Driver}}'
+          if($LASTEXITCODE -ne 0){throw 'Docker daemon stopped responding'}
+      - name: Run actual SymPy NetworkX Z3 and network-isolated Python AST repair Docker smoke
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path $py -PathType Leaf)){throw 'Trusted local Python venv missing'}
+          $source=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $out="D:/neral-qlora-v2/docker-tool-recovery-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          if(Test-Path $out){throw 'Refusing overwrite of tool evidence'}
+          $env:PYTHONPATH=$source
+          Push-Location $source
+          try {
+            & $py -B -m scripts.neral_v2_tools_regression_smoke --out $out
+            if($LASTEXITCODE -ne 0){throw 'Independent Docker AST tool verification failed'}
+          } finally {Pop-Location}
+          $proof=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($proof.status -ne 'new_source_tool_regression_pass' -or
+             -not($proof.sympy -and $proof.networkx -and $proof.z3 -and $proof.python_docker_one_step_ast -and $proof.docker_isolated_network)){
+            throw 'Incomplete independent four-tool proof'
+          }
+          Write-Host 'DOCKER_ALL_FOUR_TOOLS_PROVEN'
+          ('NERAL_DOCKER_TOOL_EVIDENCE='+$out) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Publish only scalar Docker verification proof
+        if: always() && env.NERAL_DOCKER_TOOL_EVIDENCE != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-docker-autorecovery-proof-${{ github.run_id }}
+          path: ${{ env.NERAL_DOCKER_TOOL_EVIDENCE }}
+          retention-days: 30
+          if-no-files-found: warn
+
+  fallback-ubuntu-independent-docker-proof:
+    needs: [docker-sandbox-recovery]
+    if: always() && needs.docker-sandbox-recovery.result != 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verifiers from packages, never substitute CPU for RTX4070
+        run: |
+          python -m pip install --no-cache-dir sympy==1.14.0 networkx==3.5 z3-solver==4.16.0.0
+      - name: Prove same SymPy NetworkX Z3 and isolated AST Python Docker on independent Linux daemon
+        run: |
+          docker info --format '{{.ServerVersion}}'
+          # Avoid initial image-pull chatter in the strict sandbox stderr proof.
+          docker pull python:3.12.8-alpine3.21
+          docker image inspect python:3.12.8-alpine3.21 --format '{{.Id}}'
+          python -m scripts.neral_v2_tools_regression_smoke --out "$RUNNER_TEMP/neral-tools-docker-ubuntu.json"
+          python -c "import json,sys; r=json.load(open(sys.argv[1])); assert all(r[k] is True for k in ('sympy','networkx','z3','python_docker_one_step_ast','docker_isolated_network')); print('INDEPENDENT_LINUX_DOCKER_TOOL_PROOF_PASS_ NOT_WINDOWS_GPU',r)" "$RUNNER_TEMP/neral-tools-docker-ubuntu.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral-docker-independent-linux-proof-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-tools-docker-ubuntu.json
+          if-no-files-found: warn
+          retention-days: 30

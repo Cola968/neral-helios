@@ -1,0 +1,59 @@
+name: NERAL Windows Docker installation inventory read-only
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-docker-install-inventory.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read-only diagnosis of actual Docker CLI installation and desktop environment
+        run: |
+          $ErrorActionPreference='Stop'
+          $Error.Clear()
+          $exe=Get-Command docker -ErrorAction SilentlyContinue
+          Write-Host ('DOCKER_CLI_PRESENT '+[bool]$exe)
+          if($exe){
+            $bin=Split-Path $exe.Source -Parent
+            Write-Host ('DOCKER_CLI_PARENT_IS_STANDARD_DESKTOP '+($bin -match '(?i)Docker[\\/]Docker[\\/]resources[\\/]bin'))
+            Write-Host ('DOCKER_CLI_PARENT_IS_USER_PROFILE '+($bin -like ($env:USERPROFILE+'*')))
+            Write-Host ('DOCKER_CLI_PARENT_IS_D_DRIVE '+$bin.StartsWith('D:',[System.StringComparison]::OrdinalIgnoreCase))
+          }
+          foreach($regpath in @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )){
+            $items=@(Get-ItemProperty -Path $regpath -ErrorAction SilentlyContinue |
+                Where-Object {$_.DisplayName -match '(?i)^Docker Desktop$'})
+            Write-Host ('DOCKER_DESKTOP_UNINSTALL_REGISTRY_MATCHES '+$items.Count)
+            foreach($item in $items){
+              $location=[string]$item.InstallLocation
+              $candidate=Join-Path $location 'Docker Desktop.exe'
+              Write-Host ('DOCKER_DESKTOP_REGISTERED_EXE_EXISTS '+(Test-Path -LiteralPath $candidate -PathType Leaf))
+            }
+          }
+          $desktopService=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          Write-Host ('DOCKER_SERVICE_REGISTERED '+[bool]$desktopService)
+          if($desktopService){Write-Host ('DOCKER_SERVICE_STATE '+$desktopService.Status)}
+          $wsl=Get-Command 'wsl.exe' -ErrorAction SilentlyContinue
+          Write-Host ('WSL_EXECUTABLE_FOUND '+[bool]$wsl)
+          if($wsl){
+            # Avoid printing usernames or distro-local paths.
+            $txt=(& wsl.exe --list --quiet 2>$null | Out-String)
+            Write-Host ('WSL_DOCKER_DESKTOP_DISTRO_PRESENT '+($txt -match 'docker-desktop'))
+            Write-Host ('WSL_HAS_ANY_DISTRO '+[bool]($txt.Trim()))
+          }
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          $online=($LASTEXITCODE -eq 0)
+          Write-Host ('WINDOWS_RUNNER_DOCKER_DAEMON_REACHABLE '+$online)
+          Write-Host 'DOCKER_INVENTORY_FINISHED_NO_CHANGES'
+          exit 0

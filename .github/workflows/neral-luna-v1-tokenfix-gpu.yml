@@ -1,0 +1,122 @@
+name: NERAL Luna-v1 4B verified-tokenizer GPU recovery only
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-luna-v1-tokenfix-gpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  luna-tokenfix-4b:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 200
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONUNBUFFERED: '1'
+      NERAL_EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          clean: true
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: neral-1100-balanced-docker-proven-43930008107
+          repository: Cola968/neral-helios
+          run-id: 43930008107
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: verified-data
+      - name: Confirm existing frozen Helios rank16 remains untouched and original Luna dataset Docker certificate
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          if((& git -C $src rev-parse HEAD).Trim() -ne $env:NERAL_EXPECTED_SHA){throw 'Source SHA drift'}
+          $data=Join-Path $env:GITHUB_WORKSPACE 'verified-data'
+          $train=Join-Path $data 'luna_v1.train.jsonl'
+          $val=Join-Path $data 'luna_v1.val.jsonl'
+          $manifest=Join-Path $data 'manifest.json'
+          $proof=Join-Path $data 'docker_proof.json'
+          foreach($p in @($train,$val,$manifest,$proof)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Missing certified Luna data'}}
+          $helios='D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          $hm=Get-Content -LiteralPath (Join-Path $helios 'manifest.json') -Raw|ConvertFrom-Json
+          if($hm.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $hm.rank -ne 16 -or $hm.selected_epoch -ne 1 -or $hm.frozen_adapter_sha256 -ne '53e4092213fb143c9865ac8133354c7ea38d9b10c6f789b6b7cea630e3acdda3'){throw 'Original full 9B frozen receipt drift; refuse recovery'}
+          $sha=(Get-FileHash -LiteralPath (Join-Path $helios 'adapter/adapter_model.safetensors') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -ne $hm.frozen_adapter_sha256){throw 'Frozen Helios weights changed'}
+          Write-Host 'HELIOS_9B_FROZEN_REUSED_NO_RETRAIN'
+          $base4='D:/neral-qlora-v2/qwen35-4b-hf'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath (Join-Path $base4 'model.safetensors.index.json') -PathType Leaf)){throw 'Pinned official Luna HF model missing'}
+          $id=$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT
+          $smoke="D:/neral-qlora-v2/luna-$id-smoke"
+          $full="D:/neral-qlora-v2/luna-$id-full"
+          foreach($p in @($smoke,$full)){if(Test-Path -LiteralPath $p){throw 'Refuse to overwrite previous Luna attempt'}}
+          $vars=@{L4_SRC=$src;L4_PY=$py;L4_BASE=$base4;L4_TRAIN=$train;L4_VAL=$val;
+                  L4_MANIFEST=$manifest;L4_PROOF=$proof;L4_SMOKE=$smoke;L4_FULL=$full;PYTHONPATH=$src}
+          foreach($v in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($v.Key+'='+$v.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          }
+          Write-Host 'LUNA_RECOVERY_USES_EXACT_SAME_DOCKER_VERIFIED_SPLIT'
+
+      - name: CPU tokenize every Luna example with full 4B native chat template before model loading
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:L4_SRC
+          try {
+            & $env:L4_PY -B -m scripts.neral_v2_luna_preflight --train $env:L4_TRAIN --val $env:L4_VAL --manifest $env:L4_MANIFEST --docker-proof $env:L4_PROOF --checkpoint $env:L4_BASE
+            if($LASTEXITCODE -ne 0){throw '555 native 4B response token labels failed CPU preflight'}
+          } finally {Pop-Location}
+      - name: Stop resident Ollama models, check RTX4070 VRAM
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -Method Get -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($entry in @($ps.models)){if($entry -and $entry.name){& $exe stop $entry.name;if($LASTEXITCODE -ne 0){throw 'Cannot stop resident Ollama model'}}}
+          Start-Sleep -Seconds 7
+          $gpu=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $gpu.Count -ne 1){throw 'CUDA GPU inventory error'}
+          Write-Host ('LUNA_GPU_READY '+$gpu[0])
+          $parts=$gpu[0].Split(',')
+          if($parts[0] -notmatch 'RTX 4070' -or [int]$parts[1].Trim() -lt 12000 -or [int]$parts[2].Trim() -lt 9500){throw 'Insufficient free VRAM; no training'}
+      - name: Luna 4B rank8 one optimizer-step smoke only after 555 masks verified
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:L4_SRC
+          try {
+            & $env:L4_PY -B -m scripts.neral_v2_full_train --family luna --train $env:L4_TRAIN --val $env:L4_VAL --manifest $env:L4_MANIFEST --docker-proof $env:L4_PROOF --checkpoint $env:L4_BASE --out $env:L4_SMOKE --epochs 2 --context 2048 --max-steps 1
+            if($LASTEXITCODE -ne 0){throw 'Luna one CUDA optimizer step smoke failed'}
+          } finally {Pop-Location}
+      - name: Luna 4B rank8 two full epochs and independent validation each epoch
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:L4_SRC
+          try {
+            & $env:L4_PY -B -m scripts.neral_v2_full_train --family luna --train $env:L4_TRAIN --val $env:L4_VAL --manifest $env:L4_MANIFEST --docker-proof $env:L4_PROOF --checkpoint $env:L4_BASE --out $env:L4_FULL --epochs 2 --context 2048
+            if($LASTEXITCODE -ne 0){throw 'Luna full QLoRA 4B training failed'}
+            $m=Get-Content -LiteralPath (Join-Path $env:L4_FULL 'manifest.json') -Raw|ConvertFrom-Json
+            if($m.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $m.family -ne 'luna' -or $m.rank -ne 8 -or $m.train_rows -ne 480 -or $m.val_rows -ne 75 -or $m.test_rows_opened -ne 0 -or $m.validation_history.Count -ne 2){throw 'Luna frozen final receipt incomplete'}
+            Write-Host 'LUNA_V1_4B_FROZEN_SUCCESS'
+          } finally {Pop-Location}
+      - name: Upload scalar manifests only, never model weights or training cases
+        if: always() && env.L4_SMOKE != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-luna-v1-only-manifests-${{ github.run_id }}
+          path: |
+            ${{ env.L4_SMOKE }}/manifest.json
+            ${{ env.L4_FULL }}/manifest.json
+          retention-days: 30
+          if-no-files-found: warn

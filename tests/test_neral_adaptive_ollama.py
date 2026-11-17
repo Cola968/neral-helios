@@ -97,7 +97,7 @@ class AdaptiveProposalTransportCPU(unittest.TestCase):
             {"done": False, "done_reason": "stop",
              "message": {"content": '{"strategy":"DIRECT"}'}},
             {"done": True, "done_reason": "length",
-             "message": {"content": '{"strategy":"DIRECT"}'}},
+             "message": {"content": '{"strategy":"DIRECT"'}},
             {"done": True, "done_reason": "stop",
              "message": {"content": ""}},
             {"done": True, "done_reason": "stop", "message": {}},

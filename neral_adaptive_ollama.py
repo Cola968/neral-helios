@@ -7,6 +7,7 @@ Trusted execution/verification/fallback live in neral_adaptive_planner.py.
 from __future__ import annotations
 
 import json
+import re
 from neral_nl_local_ollama import _localhost_transport
 from neral_adaptive_planner import ERROR_CODES, MAX_REPAIRS, ROUTES
 
@@ -95,10 +96,35 @@ def _signal(signal: object) -> dict:
     return dict(signal)
 
 
+def _strip_hf_tool_wrappers(text: str) -> str:
+    """Accept complete JSON even when HF emits a bounded reasoning/fence wrapper.
+
+    Never scan through arbitrary chatter for an inner JSON object: such
+    extraction could execute an instruction the model did not commit to.
+    """
+    clean=text.strip()
+    if clean.startswith("<think>"):
+        match=re.match(r"\A(?:<think>[\s\S]*?</think>\s*)+", clean)
+        if match is None:
+            raise ValueError("Unclosed HF private reasoning")
+        clean=clean[match.end():].strip()
+    # Qwen/HF stop markers are permitted at the end, not inside a payload.
+    if clean.endswith("<|im_end|>"):
+        clean=clean[:-len("<|im_end|>")].strip()
+    if clean.startswith("```"):
+        match=re.fullmatch(r"```(?:json)?[ \t]*\n(?P<json>[\s\S]*?)\n```",clean)
+        if match is None:
+            raise ValueError("Malformed HF JSON code fence")
+        clean=match.group("json").strip()
+    if any(tag in clean for tag in ("<think>", "</think>", "```", "<|im_start|>")):
+        raise ValueError("Unexpected HF control token")
+    return clean
+
+
 def _parse_proposal(text: object, allowed: list[str] | tuple[str, ...]) -> dict:
     if (type(text) is not str or not 2 <= len(text.encode("utf8")) <= MAX_OUTPUT_BYTES):
         raise ValueError("Invalid proposal size")
-    packet = json.loads(text, object_pairs_hook=_strict_pairs)
+    packet = json.loads(_strip_hf_tool_wrappers(text), object_pairs_hook=_strict_pairs)
     if type(packet) is not dict or packet.get("strategy") not in allowed:
         raise ValueError("Unsupported proposal route")
     # Ollama structured-output sampling can emit both optional properties.
@@ -195,7 +221,7 @@ def make_local_adaptive_proposer(model_tag: str, *, transport=None):
         }
         reply = send(packet)
         if (type(reply) is not dict or reply.get("done") is not True
-                or reply.get("done_reason") != "stop"
+                or reply.get("done_reason") not in ("stop", "length")
                 or type(reply.get("message")) is not dict):
             raise ValueError("Incomplete local model proposal")
         return _parse_proposal(reply["message"].get("content"), allowed)

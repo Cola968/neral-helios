@@ -1,0 +1,47 @@
+name: NERAL Docker runner session and context probe
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-docker-session-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check-runner-docker-session:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 7
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read-only runtime diagnosis of Docker processes, service, contexts and Windows named pipes
+        run: |
+          $ErrorActionPreference='Stop'
+          $docker=(Get-Command docker -ErrorAction Stop).Source
+          Write-Host ('DOCKER_CLI_FOUND '+(Split-Path $docker -Leaf))
+          foreach($name in @('Docker Desktop','com.docker.backend','com.docker.service','dockerd')){
+            $ps=@(Get-Process -Name $name -ErrorAction SilentlyContinue)
+            Write-Host ('PROCESS '+$name+' COUNT '+$ps.Count)
+          }
+          $service=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+          Write-Host ('DOCKER_WINDOWS_SERVICE '+$(if($service){$service.Status}else{'not_registered'}))
+          foreach($file in @(
+             'C:\Program Files\Docker\Docker\Docker Desktop.exe',
+             (Join-Path $env:LOCALAPPDATA 'Programs/Docker/Docker/Docker Desktop.exe'),
+             'D:\Docker\Docker\Docker Desktop.exe',
+             'D:\Program Files\Docker\Docker\Docker Desktop.exe')){
+             Write-Host ('DOCKER_DESKTOP_PATH_FOUND '+(Test-Path -LiteralPath $file -PathType Leaf))
+          }
+          $pipes=@(Get-ChildItem -LiteralPath '\\.\pipe\' -ErrorAction SilentlyContinue |
+             Where-Object {$_.Name -match '(?i)docker'} | Select-Object -ExpandProperty Name)
+          Write-Host ('DOCKER_VISIBLE_PIPE_NAMES '+($pipes -join ','))
+          $ctx=@(& $docker context ls --format '{{.Name}}' 2>$null)
+          foreach($name in $ctx){
+             if([string]::IsNullOrWhiteSpace($name) -or $name -notmatch '^[A-Za-z0-9_-]{1,64}$'){continue}
+             & cmd.exe /d /c "docker --context $name info >NUL 2>&1"
+             Write-Host ('DOCKER_CONTEXT_STATUS '+$name+' '+$(if($LASTEXITCODE -eq 0){'reachable'}else{'unreachable'}))
+          }
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          Write-Host ('DOCKER_DEFAULT_STATUS '+$(if($LASTEXITCODE -eq 0){'reachable'}else{'unreachable'}))
+          Write-Host 'NERAL_DOCKER_SESSION_DIAG_COMPLETED_NO_DAEMON_MUTATIONS'

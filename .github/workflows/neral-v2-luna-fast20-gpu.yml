@@ -1,0 +1,95 @@
+name: NERAL frozen Luna-v1 PEFT nonthinking fast96 vs Helios 20 GPU
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-luna-fast20-gpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  luna-fast20-real-rtx4070:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 80
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HOME: 'D:/neral-qlora-v2/hf-cache'
+      HF_HUB_CACHE: 'D:/neral-qlora-v2/hf-cache/hub'
+      HF_XET_CACHE: 'D:/neral-qlora-v2/hf-cache/xet'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Check exact frozen Helios/Luna weights, profile tests and output path
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $full='D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          $luna='D:/neral-qlora-v2/luna-43943279049-1-full'
+          $v1='D:/neral-qlora/full01/adapter'
+          $base9='D:/neral-qlora/checkpoint'
+          $base4='D:/neral-qlora-v2/qwen35-4b-hf'
+          $out="D:/neral-qlora-v2/fast20-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          foreach($file in @($py,(Join-Path $full 'adapter/adapter_model.safetensors'),(Join-Path $luna 'adapter/adapter_model.safetensors'),
+              (Join-Path $v1 'adapter_config.json'),(Join-Path $base9 'config.json'),(Join-Path $base4 'model.safetensors.index.json'))){
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw ('Frozen model missing: '+$file)}
+          }
+          if(Test-Path -LiteralPath $out){throw 'Do not overwrite prior inference measurements'}
+          $vars=@{L20_PY=$py;L20_SRC=$src;L20_FULL9=$full;L20_LUNA4=$luna;L20_V1=$v1;
+              L20_BASE9=$base9;L20_BASE4=$base4;L20_OUT=$out;PYTHONPATH=$src}
+          foreach($kv in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($kv.Key+'='+$kv.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          }
+          Push-Location $src
+          try{
+            & $py -B -m py_compile scripts/neral_v2_fast20.py neral_cpu_foundation/router.py scripts/neral_v2_eval_checkpoint.py scripts/neral_v2_pipeline24_hf.py
+            if($LASTEXITCODE -ne 0){throw 'Python syntax preflight failed'}
+            & $py -B -c "from scripts.neral_v2_fast20 import fast_luna_profile; print('LUNA_FAST_PROFILE',fast_luna_profile())"
+            if($LASTEXITCODE -ne 0){throw 'Luna fast router profile not verified'}
+          } finally {Pop-Location}
+          Write-Host 'LUNA_FAST20_FROZEN_PRECHECK_PASS'
+
+      - name: Unload Ollama and certify RTX4070 memory
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path -LiteralPath $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($model in @($ps.models)){if($model -and $model.name){& $exe stop $model.name;if($LASTEXITCODE -ne 0){throw 'Cannot unload Ollama'}}}
+          Start-Sleep -Seconds 7
+          $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'Real RTX4070 missing'}
+          $p=$g[0].Split(',')
+          if($p[0] -notmatch 'RTX 4070' -or [int]$p[2].Trim() -lt 9500){throw 'Not enough free VRAM'}
+          Write-Host ('GPU_READY '+$g[0])
+
+      - name: Real GPU same twenty prompts Qwen4 base Luna4 PEFT and Helios9 PEFT fast96
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:L20_SRC
+          try{
+            & $env:L20_PY -B -m scripts.neral_v2_fast20 --base9 $env:L20_BASE9 --full9 $env:L20_FULL9 --base4 $env:L20_BASE4 --luna4 $env:L20_LUNA4 --v1 $env:L20_V1 --out $env:L20_OUT
+            if($LASTEXITCODE -ne 0){throw 'Luna/Helios 20-case real-GPU comparison failed'}
+          } finally {Pop-Location}
+
+      - name: Upload scalar measurements only
+        if: always() && env.L20_OUT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-luna-fast20-real-rtx4070-${{ github.run_id }}
+          path: ${{ env.L20_OUT }}
+          if-no-files-found: warn
+          retention-days: 30

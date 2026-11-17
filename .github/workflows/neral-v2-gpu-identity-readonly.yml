@@ -1,0 +1,43 @@
+name: NERAL GPU compute process identity read-only
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths: ['.github/workflows/neral-v2-gpu-identity-readonly.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  identity:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Identify GPU compute process basenames and free VRAM without changes
+        run: |
+          $ErrorActionPreference='Stop'
+          $rows=@(& nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0){throw 'GPU inventory unavailable'}
+          $valid=@($rows | Where-Object {$_.Trim()})
+          Write-Host ('GPU_PROCESS_COUNT '+$valid.Count)
+          foreach($row in $valid){
+            $id=$row.Trim()
+            if($id -notmatch '^\d+$'){Write-Host 'GPU_PROCESS non_numeric_pid';continue}
+            $p=Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue
+            $name=if($p){$p.ProcessName}else{'not_found'}
+            if($name -notmatch '^[A-Za-z0-9_.-]{1,100}$'){$name='invalid_name'}
+            Write-Host ('GPU_PROCESS '+$name+' PID '+$id)
+          }
+          $gpu=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0){throw 'GPU memory info unavailable'}
+          Write-Host ('GPU_MEMORY '+($gpu -join '; '))
+          try {
+            $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 4
+            Write-Host ('OLLAMA_LOADED_MODELS_COUNT '+@($ps.models).Count)
+          } catch {
+            Write-Host 'OLLAMA_API_NOT_AVAILABLE'
+          }
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          Write-Host ('DOCKER_INFO_SUCCESS '+($LASTEXITCODE -eq 0))
+          Write-Host 'NERAL_GPU_READONLY_IDENTITY_COMPLETE'

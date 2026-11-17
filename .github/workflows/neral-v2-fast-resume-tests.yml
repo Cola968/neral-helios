@@ -1,0 +1,25 @@
+name: NERAL DEV24 checkpoint and Luna fast preflight
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-fast-resume-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  code-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify fresh Python script syntax
+        run: |
+          python -m py_compile scripts/neral_v2_eval_checkpoint.py scripts/neral_v2_pipeline24_hf.py scripts/neral_v2_fast20.py scripts/neral_v2_tools_regression_smoke.py neral_cpu_foundation/router.py neral_adaptive_planner.py neral_adaptive_ollama.py neral_verified_source_code.py scripts/neral_hf_source_docker_smoke.py
+      - name: Install only required CPU test framework
+        run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Exercise immutable checkpoint and 3-stage router regression tests
+        run: python -m pytest -q tests/test_neral_v2_checkpoint_fast.py tests/test_neral_v2_24_gpu_recovery_contract.py tests/test_neral_hf_route_source_contract.py tests/test_neral_adaptive_planner.py tests/test_neral_adaptive_ollama.py
