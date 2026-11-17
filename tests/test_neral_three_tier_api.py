@@ -215,11 +215,6 @@ class ThreeTierContracts(unittest.TestCase):
             self.assertNotIn("Untrusted synthetic preview.",system,
                              "Search snippets must never enter the model without the browser's explicit evidence selection")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_switch_back_to_legacy_unloads_active_hf_model_before_ollama(self):
         from neral_preview_server import create_preview_app
         from neral_agent_autonomy import OllamaLocalBackend
@@ -249,6 +244,12 @@ if __name__ == "__main__":
         self.assertFalse(low.loaded,"Old Ollama endpoint must evict HF CUDA model first")
         self.assertIsNone(runtime.active_backend)
         self.assertGreaterEqual(low.unloads,1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
 
 
 class GPUCacheReleaseCPUContracts(unittest.TestCase):
