@@ -11,6 +11,9 @@ from scripts.neral_math_v2_eval import ensure_pinned_model_runtime
 
 class PinnedRuntimeImports(unittest.TestCase):
     def setUp(self):
+        self._saved_modules={name:sys.modules.pop(name,None) for name in ('model_catalog','qwen_local_runtime','neral_adapter_candidate')}
+        self._saved_path=sys.path.copy()
+        self.addCleanup(self._restore_runtime)
         self.tmp=tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root=Path(self.tmp.name)
@@ -21,6 +24,12 @@ class PinnedRuntimeImports(unittest.TestCase):
         for name in ('model_catalog.py','qwen_local_runtime.py','neral_adapter_candidate.py'):
             (self.trainer/name).write_text('PINNED = True\n',encoding='utf8')
         (self.control/'model_catalog.py').write_text('PINNED = False\n',encoding='utf8')
+
+    def _restore_runtime(self):
+        sys.path[:]=self._saved_path
+        for name,old in self._saved_modules.items():
+            sys.modules.pop(name,None)
+            if old is not None:sys.modules[name]=old
 
     def test_pinned_model_catalog_wins_even_from_control_cwd(self):
         with patch.object(sys,'path',[str(self.control)]+sys.path[:]):
