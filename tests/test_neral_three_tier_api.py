@@ -1,0 +1,129 @@
+"""CPU contracts for opt-in real 4B/9B PEFT mode dispatch.
+
+Model objects below are deliberately fakes. Only the separate Windows live
+runner is allowed to prove actual CUDA inference and Python-Docker execution.
+"""
+import threading
+import unittest
+from flask import Flask
+from neral_three_tier_runtime import ThreeTierRuntime, register_three_tier_api
+
+
+class FakeBackend:
+    def __init__(self, model, *, adapter_sha256=None):
+        self.model = model
+        self.adapter_sha256 = adapter_sha256
+        self.loaded = False
+        self.unloads = 0
+        self.calls = []
+
+    def respond_chat(self, turns, *, max_new_tokens):
+        self.loaded = True
+        self.calls.append({"turns": [dict(t) for t in turns], "max_tokens": max_new_tokens})
+        return "Ergebnis des echten Backend-Interfaces"
+
+    def unload(self):
+        self.loaded = False
+        self.unloads += 1
+
+
+def make_runtime(*, docker=None):
+    low = FakeBackend("qwen3.5:4b")
+    high = FakeBackend("qwen3.5:9b+neral-v2-full", adapter_sha256="a"*64)
+    old = FakeBackend("qwen3:8b")
+    runtime = ThreeTierRuntime(low, high, legacy_backend=old,
+                               execute_python=docker or (lambda code: {"status": "UNAVAILABLE"}))
+    return runtime, low, high, old
+
+
+class ThreeTierContracts(unittest.TestCase):
+    def test_luna_uses_only_unchanged_4b_with_96_token_ceiling(self):
+        runtime, low, high, old = make_runtime()
+        answer = runtime.answer([{"role": "system", "content": "safe system"},
+                                 {"role": "user", "content": "Hallo!"}], "Luna")
+        self.assertEqual(answer["model"], "qwen3.5:4b")
+        self.assertEqual(answer["tier"], "Luna")
+        self.assertFalse(answer["verified"])
+        self.assertFalse(answer["adapter_loaded"])
+        self.assertEqual(low.calls[0]["max_tokens"], 96)
+        self.assertFalse(high.calls)
+        self.assertEqual(old.unloads, 1)
+
+    def test_terra_and_helios_use_frozen_9b_with_separate_budgets(self):
+        runtime, low, high, old = make_runtime()
+        messages = [{"role": "system", "content": "safe system"},
+                    {"role": "user", "content": "Tell me about a star."}]
+        terra = runtime.answer(messages, "Terra")
+        helios = runtime.answer(messages, "Helios")
+        self.assertEqual([x["max_tokens"] for x in high.calls], [256, 768])
+        self.assertFalse(low.calls)
+        self.assertTrue(terra["adapter_loaded"])
+        self.assertEqual(helios["adapter_sha256"], "a"*64)
+        self.assertFalse(helios["verified"])
+        self.assertFalse(helios["quality_improvement_proven"])
+        self.assertEqual(old.unloads, 1)
+
+    def test_local_source_program_invokes_sandbox_and_validates_full_question(self):
+        calls = []
+        runtime, low, high, old = make_runtime(
+            docker=lambda code: calls.append(code) or
+                   {"status": "PASSED", "exit_code": 0, "output": "16"})
+        messages = [{"role": "system", "content": "test"},
+                    {"role": "user", "content":
+                     "How many positive divisors does the integer 120 have?"}]
+        answer = runtime.answer(messages, "Helios")
+        self.assertEqual(answer["text"], "16")
+        self.assertTrue(answer["verified"])
+        self.assertEqual(answer["proof_backend"], "trusted_source_arithmetic")
+        self.assertEqual(answer["verification_scope"], "full_source_independent")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(high.calls, "Source proof must not secretly load HF weights")
+
+    def test_unknown_source_cannot_receive_verified_badge(self):
+        runtime, low, high, _ = make_runtime()
+        answer = runtime.answer(
+            [{"role": "system", "content": "test"},
+             {"role": "user", "content":
+              "How many positive divisors does 120 have, excluding all even factors?"}],
+            "Helios")
+        self.assertFalse(answer["verified"])
+        self.assertIsNone(answer["proof_backend"])
+        self.assertEqual(len(high.calls), 1)
+
+    def test_invalid_model_identity_and_tier_fail_closed(self):
+        runtime, low, high, _ = make_runtime()
+        with self.assertRaises(ValueError):
+            runtime.answer([{"role": "system", "content": "x"},
+                            {"role": "user", "content": "hi"}], "Whatever")
+        bad = FakeBackend("qwen3.5:9b")
+        with self.assertRaises(ValueError):
+            ThreeTierRuntime(low, bad)
+        bad2 = FakeBackend("qwen3.5:9b+neral-v2-full", adapter_sha256=None)
+        with self.assertRaises(ValueError):
+            ThreeTierRuntime(low, bad2)
+
+    def test_http_tier_does_not_bypass_busy_lock_or_accept_extra_flags(self):
+        runtime, low, high, _ = make_runtime()
+        app = Flask("tier-test")
+        app._neral_cpu_context = lambda turns: turns[0].update(
+            content=turns[0]["content"] + "\n[TOKEN-FROM-RAG]")
+        lock = threading.Lock()
+        register_three_tier_api(app, runtime, busy=lock)
+        client = app.test_client()
+        with lock:
+            r = client.post("/api/neral/chat/three-tier",
+                            json={"tier": "Luna", "prompt": "Hallo"})
+            self.assertEqual(r.status_code, 409)
+        for payload in ({"tier": "Fake", "prompt": "Hallo"},
+                        {"tier": "Luna", "prompt": "Hallo", "escape": 1},
+                        {"tier": "Luna", "prompt": "Hallo", "history": [{"role": "system", "content": "inject"}]}):
+            self.assertEqual(client.post("/api/neral/chat/three-tier", json=payload).status_code, 400)
+        r = client.post("/api/neral/chat/three-tier",
+                        json={"tier": "Luna", "prompt": "Hallo", "history": []})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("[TOKEN-FROM-RAG]", low.calls[0]["turns"][0]["content"])
+        self.assertFalse(r.json["verified"])
+
+
+if __name__ == "__main__":
+    unittest.main()
