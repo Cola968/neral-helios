@@ -1,0 +1,78 @@
+name: NERAL Docker Desktop auto-recover and verified tools
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-docker-autorecover.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-v2-docker-autorecover
+  cancel-in-progress: false
+jobs:
+  docker-sandbox-recovery:
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 14
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Check Docker daemon, start Docker Desktop if needed, wait up to 90 seconds
+        run: |
+          $ErrorActionPreference='Stop'
+          $desktop='C:\Program Files\Docker\Docker\Docker Desktop.exe'
+          $docker=(Get-Command docker -ErrorAction Stop).Source
+          & $docker info --format '{{.ServerVersion}}' 2>$null
+          $ready=($LASTEXITCODE -eq 0)
+          if(-not $ready){
+            if(-not(Test-Path -LiteralPath $desktop -PathType Leaf)){throw 'Docker Desktop executable not installed at approved path'}
+            Write-Host 'DOCKER_DESKTOP_START_REQUESTED'
+            Start-Process -FilePath $desktop -ErrorAction Stop
+            $deadline=[datetime]::UtcNow.AddSeconds(90)
+            do {
+              Start-Sleep -Seconds 3
+              & $docker info --format '{{.ServerVersion}}' 2>$null
+              $ready=($LASTEXITCODE -eq 0)
+            } until ($ready -or [datetime]::UtcNow -ge $deadline)
+          }
+          if(-not $ready){throw 'Docker Desktop server did not become ready within 90 seconds; Windows interactive session may be required'}
+          Write-Host 'DOCKER_DAEMON_LIVE'
+          & $docker info --format 'Server={{.ServerVersion}} Driver={{.Driver}}'
+          if($LASTEXITCODE -ne 0){throw 'Docker daemon stopped responding'}
+      - name: Run actual SymPy NetworkX Z3 and network-isolated Python AST repair Docker smoke
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path $py -PathType Leaf)){throw 'Trusted local Python venv missing'}
+          $source=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $out="D:/neral-qlora-v2/docker-tool-recovery-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          if(Test-Path $out){throw 'Refusing overwrite of tool evidence'}
+          $env:PYTHONPATH=$source
+          Push-Location $source
+          try {
+            & $py -B -m scripts.neral_v2_tools_regression_smoke --out $out
+            if($LASTEXITCODE -ne 0){throw 'Independent Docker AST tool verification failed'}
+          } finally {Pop-Location}
+          $proof=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($proof.status -ne 'new_source_tool_regression_pass' -or
+             -not($proof.sympy -and $proof.networkx -and $proof.z3 -and $proof.python_docker_one_step_ast -and $proof.docker_isolated_network)){
+            throw 'Incomplete independent four-tool proof'
+          }
+          Write-Host 'DOCKER_ALL_FOUR_TOOLS_PROVEN'
+          ('NERAL_DOCKER_TOOL_EVIDENCE='+$out) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Publish only scalar Docker verification proof
+        if: always() && env.NERAL_DOCKER_TOOL_EVIDENCE != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-docker-autorecovery-proof-${{ github.run_id }}
+          path: ${{ env.NERAL_DOCKER_TOOL_EVIDENCE }}
+          retention-days: 30
+          if-no-files-found: warn
