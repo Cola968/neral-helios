@@ -1038,6 +1038,16 @@
         : threeTierEnabled
         ? "Modus: "+result.tier+" ("+(result.tier === "Luna" ? "Direktantwort ohne Werkzeug" : "Modellantwort ungeprüft")+")"
         : (mode === "think" ? "Modus: HIGH (ungeprüft)" : "Modus: LOW (Direktantwort)");
+      if(typeof result.model==="string" && !threeTierEnabled &&
+         /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
+        origin+=" · Modell "+result.model;
+      if(selectedAttachments.length) {
+        origin+=" · Anhänge verarbeitet";
+        if(Array.isArray(result.attachments)&&result.attachments.some(a=>a.truncated===true))
+          origin+=" · Auszüge gekürzt";
+      }
+      if(Array.isArray(result.vision_models)&&result.vision_models.length)
+        origin+=" · Bildmodell "+result.vision_models.join(", ");
       const answerNode=append("assistant",result.text,origin,true);
       // Progressive enhancement: interactive components are built only from
       // data already present in this reply or locally verified tool results.
