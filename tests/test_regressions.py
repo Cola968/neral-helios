@@ -56,8 +56,14 @@ def test_original_untouched_and_parameter_count():
 def backend(monkeypatch):
     import app
     app._hits.clear();app.app.config['TESTING']=True
+    # The independent CI test uses a deterministic model stub; do not load
+    # private checkpoint weights or bypass HTTP session/Origin controls.
+    monkeypatch.setattr(app,'checkpoint_loaded',True)
     monkeypatch.setattr(app,'generate_tokens',lambda *args:app.tokenizer.encode('Testantwort.',eos=True))
-    return app,app.app.test_client()
+    client=app.app.test_client()
+    login=client.get('/',base_url='http://127.0.0.1:9680')
+    assert login.status_code==200  # Obtain the real HttpOnly session cookie
+    return app,client
 def post(client,payload,**kw):return client.post('/api/generate',json=payload,base_url='http://127.0.0.1:9680',**kw)
 @pytest.mark.parametrize('payload',[None,[],['x'],7,{'prompt':1},{'prompt':True},{'prompt':''},{'prompt':'Hi','temperature':float('nan')},{'prompt':'Hi','temperature':float('inf')},{'prompt':'Hi','temperature':True},{'prompt':'Hi','max_new_tokens':True},{'prompt':'Hi','max_new_tokens':513},{'prompt':'Hi','history':{}},{'prompt':'Hi','history':[{'role':'system','content':'x'}]},{'prompt':'Hi','top_k':-1},{'prompt':'Hi','request_id':'x'}])
 def test_api_rejects_invalid(backend,payload):
@@ -86,8 +92,13 @@ def test_api_cancel(backend):
     finally:app._jobs.pop('a'*16)
 def test_api_rate_limit(backend):
     app,c=backend
-    for _ in range(app.RATE_LIMIT):assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==200
+    # The production guard has distinct control (180) and generation (30)
+    # quotas. Test both; do not lower the production security ceiling.
+    for _ in range(180):assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==200
     assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==429
+    app._hits.clear()
+    for _ in range(app.RATE_LIMIT):assert post(c,{'prompt':'2+2','mode':'solve'}).status_code==200
+    assert post(c,{'prompt':'2+2','mode':'solve'}).status_code==429
 def test_api_redacts_output(backend,monkeypatch):
     app,c=backend;monkeypatch.setattr(app,'generate_tokens',lambda *a:app.tokenizer.encode('sk-'+'a'*30,eos=True));r=post(c,{'prompt':'Hi'});assert r.json['output_secret_redacted'];assert 'sk-' not in r.json['text']
 def test_model_selection_preserves_on_error(backend):
