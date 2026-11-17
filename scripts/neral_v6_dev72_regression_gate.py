@@ -28,6 +28,9 @@ def _int(value, lower: int, upper: int) -> bool:
 
 def analyze_dev72(report: dict) -> dict:
     """Validate counts, SHA identities and pair deltas before blocking promotion."""
+    from scripts.neral_v6_fresh_dev_eval import report_exposes_locked_holdout
+    if report_exposes_locked_holdout(report):
+        raise ValueError("Locked holdout material is not an input to this decision")
     if (not isinstance(report, dict)
             or report.get("schema") != 1
             or report.get("status") != "NERAL_V6_NEW_STRUCTURAL_DEV_72_THREE_WAY"

@@ -80,6 +80,29 @@ def _hash_file(path:Path)->str:
     return sha256(path.read_bytes()).hexdigest()
 
 
+def _locked_scores_unchanged(actual:dict, locked:dict) -> bool:
+    """Historical 29/24/21 fields stay the contract.
+
+    Reports saved before the partition fields exist still match. If those
+    newer fields are already in the locked file, they must agree too.
+    """
+    fields=("correct","total","incomplete","ungraded_completed","per_domain")
+    extra=("strict_correct","wrong_readable_number","unreadable")
+    if not isinstance(actual, dict) or not isinstance(locked, dict):
+        return False
+    if set(actual)!=set(locked):
+        return False
+    for name, old in locked.items():
+        new=actual.get(name)
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            return False
+        if any(new.get(field)!=old.get(field) for field in fields):
+            return False
+        if any(field in old and new.get(field)!=old[field] for field in extra):
+            return False
+    return True
+
+
 def diagnose_saved(cases:list[dict], outputs:dict, locked_report:dict,
                    *,review_limit:int=20)->tuple[dict,list[dict]]:
     if type(review_limit) is not int or not 0<=review_limit<=20:
@@ -87,7 +110,7 @@ def diagnose_saved(cases:list[dict], outputs:dict, locked_report:dict,
     if cases != build_cases() or suite_fingerprint(cases)!=locked_report.get("suite_sha256"):
         raise ValueError("Historical fresh dev72 task identity mismatch")
     actual=score_three_way(cases,outputs)
-    if (actual["scores"]!=locked_report.get("scores") or
+    if (not _locked_scores_unchanged(actual["scores"], locked_report.get("scores")) or
             actual["paired"]!=locked_report.get("paired") or
             actual["status"]!=locked_report.get("status")):
         raise ValueError("Original scores changed; refuse retrospective edits")
