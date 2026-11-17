@@ -9,7 +9,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import urllib.cookiejar
+import http.cookiejar
 import urllib.request
 
 OLLAMA = "http://127.0.0.1:11434"
@@ -88,7 +88,7 @@ def collect_inventory(adapter_root: Path, *, fetch=_json_get) -> dict:
     except (OSError, TypeError, ValueError):
         pass
     try:
-        jar = urllib.cookiejar.CookieJar()
+        jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
         with opener.open(PREVIEW + "/", timeout=5) as resp:
