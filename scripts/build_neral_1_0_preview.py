@@ -42,6 +42,7 @@ REQUIRED_FILES = (
     "neral_adaptive_planner.py",
     "neral_verified_source_code.py",
     "neral_three_tier_runtime.py",
+    "neral_everyday_verified.py",
     "scripts/neral_three_tier_runtime_inventory.py",
     "neral_cpu_foundation/__init__.py",
     "neral_cpu_foundation/integration.py",
