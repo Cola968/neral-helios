@@ -84,19 +84,130 @@ jobs:
           $attestedParent=if($null -ne $attestedProc -and [int]$attestedProc.ParentProcessId -gt 0){
             Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$attestedProc.ParentProcessId) -ErrorAction Stop
           }else{$null}
-          $attestedGrandparent=if($null -ne $attestedParent -and [int]$attestedParent.ParentProcessId -gt 0){
-            Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$attestedParent.ParentProcessId) -ErrorAction Stop
-          }else{$null}
-          if($null -eq $attestedProc -or $null -eq $attestedParent -or $null -eq $attestedGrandparent -or
-             [string]$attestedProc.Name -notmatch '(?i)^pythonw?\.exe$' -or
-             [string]$attestedParent.Name -notmatch '(?i)^pythonw?\.exe$' -or
-             [string]$attestedGrandparent.Name -notmatch '(?i)^powershell\.exe$' -or
-             [string]$attestedGrandparent.CommandLine -notlike ('*'+$server+'*') -or
+          # Win32 venv python can spawn a second python.exe. Its original
+          # PowerShell ancestor may exit while the registered task remains
+          # Running, so an existing grandparent is NOT reliable ownership
+          # evidence. Instead pin both python command lines, model paths, the
+          # unique listener, the registered task script and the stable blob SHA.
+          if($null -eq $attestedProc -or $null -eq $attestedParent -or
+             [string]$attestedProc.Name -notmatch '(?i)^pythonw?\.exe
+          $attestedCreated=[string]$attestedProc.CreationDate
+          Write-Host 'NERAL_PR558_PRESTOP_MANAGED_LISTENER_ATTESTED'
+          $complete=$false
+          try{
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($i=0;$i -lt 35;$i++){
+              $t=Get-ScheduledTask -TaskName $taskName
+              if([string]$t.State -ne 'Running'){break}
+              Start-Sleep -Milliseconds 500
+            }
+            $afterListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+            if($afterListeners.Count -gt 0){
+              if($afterListeners.Count -ne 1 -or [int]$afterListeners[0].OwningProcess -ne $attestedPid){
+                throw 'Listener PID changed; preserve unknown service'
+              }
+              $stillProc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$attestedPid) -ErrorAction Stop
+              if($null -eq $stillProc -or [string]$stillProc.CreationDate -ne $attestedCreated -or
+                 [string]$stillProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+                throw 'Listener process identity changed since attestation; preserve it'
+              }
+              Stop-Process -Id $attestedPid -Force -ErrorAction Stop
+              Start-Sleep -Milliseconds 1500
+              $other=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+              if($other.Count -ne 0){throw 'Port still occupied after verified process stop'}
+              Write-Host 'NERAL_PR558_VERIFIED_ORPHAN_SERVER_STOPPED'
+            }
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+            $new=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
+            if($new -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){
+              throw 'Upgraded local module differs from reviewed source'
+            }
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($i=0;$i -lt 135;$i++){
+              Start-Sleep -Milliseconds 800
+              try{
+                $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                $page=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
+                $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 4
+                if($page.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true){
+                  $complete=$true;break
+                }
+              }catch{}
+            }
+            if(-not $complete){throw 'Upgraded preview did not start'}
+            Write-Host 'NERAL_PR558_STABLE_RUNTIME_UPGRADED_HTTP_200'
+          }finally{
+            if(-not $complete){
+              try{Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+              Copy-Item -LiteralPath $backup -Destination $destination -Force
+              try{Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+              Write-Host 'NERAL_PR558_ROLLBACK_ATTEMPTED'
+            }
+          }
+ -or
+             [string]$attestedParent.Name -notmatch '(?i)^pythonw?\.exe
+          $attestedCreated=[string]$attestedProc.CreationDate
+          Write-Host 'NERAL_PR558_PRESTOP_MANAGED_LISTENER_ATTESTED'
+          $complete=$false
+          try{
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($i=0;$i -lt 35;$i++){
+              $t=Get-ScheduledTask -TaskName $taskName
+              if([string]$t.State -ne 'Running'){break}
+              Start-Sleep -Milliseconds 500
+            }
+            $afterListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+            if($afterListeners.Count -gt 0){
+              if($afterListeners.Count -ne 1 -or [int]$afterListeners[0].OwningProcess -ne $attestedPid){
+                throw 'Listener PID changed; preserve unknown service'
+              }
+              $stillProc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$attestedPid) -ErrorAction Stop
+              if($null -eq $stillProc -or [string]$stillProc.CreationDate -ne $attestedCreated -or
+                 [string]$stillProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+                throw 'Listener process identity changed since attestation; preserve it'
+              }
+              Stop-Process -Id $attestedPid -Force -ErrorAction Stop
+              Start-Sleep -Milliseconds 1500
+              $other=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+              if($other.Count -ne 0){throw 'Port still occupied after verified process stop'}
+              Write-Host 'NERAL_PR558_VERIFIED_ORPHAN_SERVER_STOPPED'
+            }
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+            $new=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
+            if($new -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){
+              throw 'Upgraded local module differs from reviewed source'
+            }
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($i=0;$i -lt 135;$i++){
+              Start-Sleep -Milliseconds 800
+              try{
+                $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                $page=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
+                $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 4
+                if($page.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true){
+                  $complete=$true;break
+                }
+              }catch{}
+            }
+            if(-not $complete){throw 'Upgraded preview did not start'}
+            Write-Host 'NERAL_PR558_STABLE_RUNTIME_UPGRADED_HTTP_200'
+          }finally{
+            if(-not $complete){
+              try{Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+              Copy-Item -LiteralPath $backup -Destination $destination -Force
+              try{Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+              Write-Host 'NERAL_PR558_ROLLBACK_ATTEMPTED'
+            }
+          }
+ -or
+             [string]$attestedParent.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
              [string]$attestedParent.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
              [string]$attestedProc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
              [string]$attestedProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
-             [string]$attestedProc.CommandLine -notmatch '(?i)--helios-v2-full'){
-            throw 'Pre-stop process lineage does not match managed NERAL service; preserve it'
+             [string]$attestedProc.CommandLine -notmatch '(?i)--helios-v2-full' -or
+             [string]$attestedProc.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*' -or
+             [string]$attestedProc.CommandLine -notlike '*D:/neral-qlora-v2/qwen35-4b-hf*'){
+            throw 'Pre-stop listener is not the exactly pinned NERAL three-tier preview; preserve it'
           }
           $attestedCreated=[string]$attestedProc.CreationDate
           Write-Host 'NERAL_PR558_PRESTOP_MANAGED_LISTENER_ATTESTED'
