@@ -1,34 +1,33 @@
-"""GPU recovery contract: never interrupt an unknown process to run DEV24."""
+"""Guard Windows WDDM graphics without allowing concurrent CUDA training."""
 from pathlib import Path
 
-WORKFLOW = (
-    Path(__file__).resolve().parents[1]
-    / ".github/workflows/neral-v2-24-checkpoint-fast-gpu.yml"
-)
+WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/neral-v2-24-checkpoint-fast-gpu.yml"
 
 def _gpu_gate() -> str:
     text = WORKFLOW.read_text(encoding="utf-8")
-    start = text.index("      - name: Require idle RTX4070")
+    start = text.index("      - name: Verify RTX4070 GPU compute availability")
     end = text.index("      - name: Paired 24 real full NERAL pipeline", start)
     return text[start:end]
 
-def test_unknown_gpu_processes_must_abort_without_stopping_anything():
+def test_wddm_desktop_processes_are_not_incorrectly_considered_compute_jobs():
     gate = _gpu_gate()
     assert "Get-Process -Id $gpuPid" in gate
-    assert "GPU occupied by non-Ollama process" in gate
-    assert gate.index("GPU occupied by non-Ollama process") < gate.index("ollama stop")
+    assert "GPU compute worker detected; preserving active workload" in gate
+    assert "WINDOWS_WDDM_DESKTOP_PROCESSES_TOLERATED" in gate
     assert "Stop-Process" not in gate
     assert "taskkill" not in gate
+    assert "ollama stop" not in gate
 
-def test_ollama_only_release_rechecks_gpu_and_vram_before_start():
+def test_gate_requires_sufficient_stable_vram_and_no_loaded_ollama():
     gate = _gpu_gate()
     assert "http://127.0.0.1:11434/api/ps" in gate
-    assert "ollama stop" in gate
-    assert "GPU still occupied after Ollama release" in gate
-    assert "DEV24_FAST_GPU_READY" in gate
+    assert "Ollama model already loaded" in gate
+    assert "nvidia-smi --query-gpu=name,memory.total,memory.free" in gate
     assert "9500" in gate
+    assert "DEV24_FAST_GPU_READY" in gate
+    assert "Start-Sleep -Seconds 3" in gate
 
-def test_durable_case_checkpoint_claim_unchanged():
+def test_immutable_checkpoint_and_branch_guards_preserved():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "dev24-hf-bound256-v1.auto-start-20261117.json" in text
     assert "[IO.FileMode]::CreateNew" in text
