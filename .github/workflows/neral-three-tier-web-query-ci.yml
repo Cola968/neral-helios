@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   query-contract:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
