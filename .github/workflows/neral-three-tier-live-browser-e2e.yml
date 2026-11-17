@@ -89,26 +89,68 @@ jobs:
             Write-Host 'NERAL_THREE_TIER_LAUNCHER_WAITRESS_MISSING_KNOWN_SAFE'
           }
           Write-Host 'NERAL_E2E_PREFLIGHT_PASS'
-      - name: Install only isolated Waitress after explicit consent and start local preview
+      - name: Install source-only stable NERAL outside runner checkout and register standalone Windows task
         run: |
           $ErrorActionPreference='Stop'
-          if($env:NERAL_E2E_REUSE -eq '1'){
-            Write-Host 'NERAL_THREE_TIER_LOCAL_PREVIEW_ALREADY_RUNNING'
-            $probe=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
-            if($probe.StatusCode -ne 200){throw 'Existing opt-in preview no longer responds'}
-            Write-Host 'NERAL_THREE_TIER_LOCAL_APP_HTTP_200_PASS'
-            return
-          }
+          if($env:NERAL_E2E_REUSE -eq '1'){throw 'Unmanaged preview is not a stable installation'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $archive=Join-Path $env:RUNNER_TEMP ('neral-three-tier-source-'+$env:GITHUB_RUN_ID+'.zip')
+          & $py -B scripts/build_neral_1_0_preview.py --root $env:GITHUB_WORKSPACE --out $archive
+          if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $archive)){throw 'Source-only release build failed'}
+          $version=$env:GITHUB_SHA.Substring(0,12)
+          $parent=Join-Path $env:LOCALAPPDATA 'NERAL'
+          $dest=Join-Path $parent ('three-tier-pr558-'+$version)
+          if(Test-Path -LiteralPath $dest){throw 'Stable deployment already exists; no automatic overwrite'}
+          New-Item -ItemType Directory -Path $parent -Force | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $dest
+          $stable=Join-Path $dest 'NERAL-1.0-Local'
+          $launcher=Join-Path $stable 'Start-Neral-Three-Tier.ps1'
+          if(-not(Test-Path -LiteralPath $launcher -PathType Leaf)){throw 'Stable source bundle incomplete'}
           $env:NERAL_THREE_TIER_INSTALL_CONSENT='1'
-          # Github runner normally cleans up processes with its tracking ID.
-          # The user explicitly requested that this local app stays usable after CI.
-          Remove-Item Env:RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
-          $launcher=Join-Path $env:GITHUB_WORKSPACE 'Start-Neral-Three-Tier.ps1'
-          & $launcher -NoBrowser
-          if($LASTEXITCODE -ne 0){throw 'Local launcher returned failure'}
-          $probe=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
-          if($probe.StatusCode -ne 200){throw 'Local preview did not return HTTP 200'}
-          Write-Host 'NERAL_THREE_TIER_LOCAL_APP_HTTP_200_PASS'
+          & $launcher -PrepareOnly -NoBrowser
+          if($LASTEXITCODE -ne 0){throw 'Isolated dependency preparation failed'}
+          if(-not(Test-Path -LiteralPath (Join-Path $stable 'local_state/three-tier-web-deps/waitress/__init__.py'))){
+            throw 'Isolated Waitress missing in stable deployment'
+          }
+          $server=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $serve=@'
+          $ErrorActionPreference='Stop'
+          $root=$PSScriptRoot
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $env:HF_HOME='D:/neral-qlora-v2/hf-cache'
+          $env:HF_HUB_CACHE='D:/neral-qlora-v2/hf-cache/hub'
+          $env:HF_XET_CACHE='D:/neral-qlora-v2/hf-cache/xet'
+          $env:HF_HUB_OFFLINE='1'
+          $env:TRANSFORMERS_OFFLINE='1'
+          $env:HF_DATASETS_OFFLINE='1'
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:PYTHONPATH=(Join-Path $root 'local_state/three-tier-web-deps') + [IO.Path]::PathSeparator + $root
+          Set-Location -LiteralPath $root
+          & $py -B -m neral_preview_server --model qwen3:8b --experimental-three-tier-hf --luna-4b-hf 'D:/neral-qlora-v2/qwen35-4b-hf' --helios-9b-hf 'D:/neral-qlora/checkpoint' --helios-v2-full 'D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          '@
+          [IO.File]::WriteAllText($server,$serve,[Text.UTF8Encoding]::new($false))
+          $name='NERAL-PR558-ThreeTier-'+$version
+          if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){throw 'Task exists already; refuse replacement'}
+          $exe=Join-Path $PSHOME 'powershell.exe'
+          $args='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+$server+'"'
+          $action=New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $stable
+          $trigger=New-ScheduledTaskTrigger -Once -At ((Get-Date).AddHours(1))
+          $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+          $principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel LeastPrivilege
+          Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'User-authorized NERAL localhost preview' -ErrorAction Stop | Out-Null
+          Start-ScheduledTask -TaskName $name
+          $ready=$false
+          for($i=0;$i -lt 90;$i++){
+            Start-Sleep -Milliseconds 800
+            try{
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
+              $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 4
+              if($home.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true){$ready=$true;break}
+            }catch{}
+          }
+          if(-not $ready){throw 'Scheduled stable local server did not become reachable'}
+          Write-Host 'NERAL_THREE_TIER_STABLE_TASK_HTTP_200_PASS'
       - name: Genuine Chrome headless UI interactions + SQLite/RAG + public web + Z3/Python
         run: |
           $ErrorActionPreference='Stop'
