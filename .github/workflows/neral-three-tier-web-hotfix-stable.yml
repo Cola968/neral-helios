@@ -32,14 +32,14 @@ jobs:
       - name: Validate exact reviewed JS and regression contract before any change
         run: |
           $ErrorActionPreference='Stop'
-          $expected='e627ada9165757def69c4dcb81628c526b6644d4'
+          $expected='666a9e4b2d2467f6397a16b107a709dcf34746c2'
           $actual=(& git rev-parse 'HEAD:static/neral-preview.js').Trim()
           if($actual -ne $expected){throw 'PR branch web-query JS is not exactly pinned reviewed blob'}
           & git diff --quiet HEAD -- static/neral-preview.js
           if($LASTEXITCODE -ne 0){throw 'Dirty preview JS worktree; block hotfix'}
           & node --check static/neral-preview.js
           if($LASTEXITCODE -ne 0){throw 'Preview JavaScript syntax invalid'}
-          & node --test tests/test_neral_web_query_specificity.cjs
+          & node --test tests/test_neral_web_query_specificity.cjs tests/test_neral_source_only_web_fallback.cjs
           if($LASTEXITCODE -ne 0){throw 'Web-query behavioral tests failed; do not change local app'}
           Write-Host 'NERAL_PR558_WEB_HOTFIX_PINNED_JS_AND_TEST_GREEN'
       - name: Replace only attested stable static JS with exact SHA and rollback
@@ -52,8 +52,8 @@ jobs:
           $source=Join-Path $env:GITHUB_WORKSPACE 'static/neral-preview.js'
           $server=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
           $runtime=Join-Path $stable 'neral_three_tier_runtime.py'
-          $oldSha='e729dab25b81bab5b433a6a704a778781f63033c'
-          $newSha='e627ada9165757def69c4dcb81628c526b6644d4'
+          $oldSha='e627ada9165757def69c4dcb81628c526b6644d4'
+          $newSha='666a9e4b2d2467f6397a16b107a709dcf34746c2'
           $runtimeSha='c2bda8aa38a7c504eda3d922e43b8e599666949b'
           $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
           if([string]$task.State -ne 'Running' -or [string]$task.Actions[0].Arguments -notlike ('*'+$server+'*')){
@@ -84,7 +84,7 @@ jobs:
             Write-Host 'NERAL_PR558_BROWSER_SOURCE_ALREADY_UPGRADED'
             return
           }
-          $backup=Join-Path $stable 'local_state/neral-preview.pre-ber-web-hotfix.js'
+          $backup=Join-Path $stable 'local_state/neral-preview.pre-source-only-fallback.js'
           if(Test-Path -LiteralPath $backup -PathType Leaf){
             $backupSha=(& git -c core.autocrlf=true hash-object --path=static/neral-preview.js $backup).Trim()
             if($backupSha -ne $oldSha){throw 'Existing hotfix backup differs; refuse overwrite'}
