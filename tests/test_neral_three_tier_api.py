@@ -220,6 +220,37 @@ if __name__ == "__main__":
     unittest.main()
 
 
+    def test_switch_back_to_legacy_unloads_active_hf_model_before_ollama(self):
+        from neral_preview_server import create_preview_app
+        from neral_agent_autonomy import OllamaLocalBackend
+        from unittest.mock import patch
+        runtime, low, high, _ = make_runtime()
+        legacy = OllamaLocalBackend("qwen3:8b")
+        runtime.legacy_backend = legacy
+        app = create_preview_app(legacy, secret_key=b"S"*32,
+                                 three_tier_runtime=runtime)
+        client = app.test_client()
+        base="http://127.0.0.1:9690"
+        client.get("/",base_url=base)
+        csrf=client.get("/api/neral/preview/session",base_url=base).json["csrf"]
+        headers={"X-Neral-CSRF":csrf}
+        with patch.object(legacy,"unload",return_value=None), \
+             patch.object(legacy,"respond_chat",return_value="Lokale Ollama-Antwort"):
+            hf=client.post("/api/neral/chat/three-tier",
+                           json={"tier":"Luna","prompt":"Erzähl mir ein Beispiel."},
+                           headers=headers,base_url=base)
+            self.assertEqual(hf.status_code,200,hf.json)
+            self.assertTrue(low.loaded)
+            self.assertIs(runtime.active_backend,low)
+            legacy_chat=client.post("/api/neral/chat/generate",
+                                    json={"prompt":"Schreibe einen Satz über Vögel."},
+                                    headers=headers,base_url=base)
+            self.assertEqual(legacy_chat.status_code,200,legacy_chat.json)
+        self.assertFalse(low.loaded,"Old Ollama endpoint must evict HF CUDA model first")
+        self.assertIsNone(runtime.active_backend)
+        self.assertGreaterEqual(low.unloads,1)
+
+
 class GPUCacheReleaseCPUContracts(unittest.TestCase):
     def test_idle_cuda_cache_is_released_before_refusing_9b_switch(self):
         """Real measured incident: free 8145 MiB, reserved 2920 MiB, allocated 9 MiB."""
