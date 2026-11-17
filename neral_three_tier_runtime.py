@@ -34,6 +34,29 @@ def _offline():
     })
 
 
+def probe_cuda_free_after_cache_flush(torch, minimum_free_mib: int):
+    """Release only this process's idle CUDA cache before rejecting a 9B switch.
+
+    Do not terminate other GPU workers and do not lower the original free-VRAM
+    admission threshold. A fresh driver measurement after empty_cache remains
+    authoritative; allocated tensors are never force-freed.
+    """
+    def snapshot():
+        free, _ = torch.cuda.mem_get_info(0)
+        allocated = torch.cuda.memory_allocated(0)
+        reserved = torch.cuda.memory_reserved(0)
+        return tuple(round(size / 1024**2, 1)
+                     for size in (free, allocated, reserved))
+    free, allocated, reserved = snapshot()
+    if free < minimum_free_mib:
+        torch.cuda.synchronize(0)
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize(0)
+        free, allocated, reserved = snapshot()
+    return free, allocated, reserved
+
+
 class FrozenQwen35HF:
     """Lazy NF4 CUDA inference; frozen 9B PEFT weights or unchanged 4B."""
 
@@ -81,11 +104,10 @@ class FrozenQwen35HF:
         from peft import PeftModel
         if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
             raise RuntimeError("Exactly one local CUDA GPU is required")
-        free, _ = torch.cuda.mem_get_info(0)
-        self.free_mib_before_load = round(free/1024**2, 1)
-        self.allocated_mib_before_load = round(torch.cuda.memory_allocated(0)/1024**2, 1)
-        self.reserved_mib_before_load = round(torch.cuda.memory_reserved(0)/1024**2, 1)
-        if free < self.minimum_free_mib * 1024 * 1024:
+        (self.free_mib_before_load, self.allocated_mib_before_load,
+         self.reserved_mib_before_load) = probe_cuda_free_after_cache_flush(
+             torch, self.minimum_free_mib)
+        if self.free_mib_before_load < self.minimum_free_mib:
             raise RuntimeError("Insufficient free GPU memory; no other model was stopped")
         if self.root is not None and not frozen_v2_full(self.root):
             raise RuntimeError("Frozen Helios adapter bytes changed")
@@ -121,7 +143,9 @@ class FrozenQwen35HF:
         try:
             import torch
             if torch.cuda.is_available():
+                torch.cuda.synchronize(0)
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize(0)
         except ImportError:
             pass
 
