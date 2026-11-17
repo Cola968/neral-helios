@@ -100,54 +100,48 @@ jobs:
           }finally{Pop-Location}
           Write-Host 'WINDOWS_DOCKER_SYMPY_NETWORKX_Z3_AST_READY_FOR_REAL_PIPELINE24'
 
-      - name: Require idle RTX4070 or release verified Ollama models only
+      - name: Verify RTX4070 GPU compute availability without blocking ordinary WDDM graphics
         run: |
           $ErrorActionPreference='Stop'
-          $active=@(& nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
+          # Under Windows WDDM nvidia-smi can list desktop/compositor/browser graphics
+          # applications as compute-apps. Presence of a PID alone does not prove
+          # that an independent CUDA model is running.
+          $rows=@(& nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0){throw 'Cannot verify GPU process inventory'}
-          $activePids=@($active | Where-Object { $_.Trim() } | ForEach-Object {
-            $value=$_.Trim()
-            if($value -notmatch '^\d+$'){throw 'Non-numeric GPU PID; fail closed'}
-            [int]$value
-          })
-          if($activePids.Count -ne 0){
-            # Verify EVERY existing GPU process is an Ollama inference worker before
-            # touching any loaded models; never terminate foreign GPU work.
-            foreach($gpuPid in $activePids){
-              $proc=Get-Process -Id $gpuPid -ErrorAction SilentlyContinue
-              if(-not $proc -or $proc.ProcessName -notmatch '^(?i:ollama(?:[._-].*)?|llama(?:[._-]server)?)$'){
-                throw ('GPU occupied by non-Ollama process; no changes to active jobs: '+$gpuPid)
-              }
+          foreach($item in @($rows | Where-Object {$_.Trim()})){
+            $idText=$item.Trim()
+            if($idText -notmatch '^\d+$'){throw 'Unparseable GPU PID inventory; abort'}
+            $gpuPid=[int]$idText
+            $proc=Get-Process -Id $gpuPid -ErrorAction SilentlyContinue
+            if($proc -and $proc.ProcessName -match '^(?i:pythonw?(?:[._-].*)?|ollama(?:[._-].*)?|llama(?:[._-]server)?|vllm|triton|comfyui|blender|pytorch|torchrun)$'){
+              throw ('GPU compute worker detected; preserving active workload: '+$proc.ProcessName)
             }
-            $ollama=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
-            if(-not(Test-Path -LiteralPath $ollama -PathType Leaf)){
-              $command=Get-Command ollama -ErrorAction SilentlyContinue
-              if(-not $command){throw 'Ollama CLI missing; fail closed'}
-              $ollama=$command.Source
-            }
-            try{
-              $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 10
-            }catch{
-              throw 'Ollama model API unavailable; refuse GPU release'
-            }
-            $loaded=@($ps.models | Where-Object {$null -ne $_ -and $_.name})
-            if($loaded.Count -eq 0){throw 'GPU busy but Ollama has no loaded models; fail closed'}
-            foreach($entry in $loaded){
-              & $ollama stop $entry.name
-              if($LASTEXITCODE -ne 0){throw 'Safe ollama stop failed; abort before evaluation'}
-            }
-            Start-Sleep -Seconds 7
-            $active=@(& nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
-            if($LASTEXITCODE -ne 0 -or @($active | Where-Object {$_.Trim()}).Count -ne 0){
-              throw 'GPU still occupied after Ollama release'
-            }
-            Write-Host 'DEV24_GPU_RELEASED_ONLY_VERIFIED_OLLAMA_MODELS'
           }
+          # A loaded Ollama model is a separate exclusive compute workload.
+          $loadedCount=0
+          try {
+            $modelList=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 5
+            $loadedCount=@($modelList.models | Where-Object {$null -ne $_}).Count
+          } catch {
+            Write-Host 'OLLAMA_API_UNAVAILABLE_NO_MODEL_UNLOAD_ATTEMPTED'
+          }
+          if($loadedCount -gt 0){throw 'Ollama model already loaded; no GPU work interrupted'}
           $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'RTX4070 absent'}
           $p=$g[0].Split(',')
-          if($p[0] -notmatch 'RTX 4070' -or [int]$p[2].Trim() -lt 9500){throw 'Insufficient free VRAM'}
-          Write-Host ('DEV24_FAST_GPU_READY '+$g[0])
+          if($p.Count -ne 3 -or $p[0] -notmatch 'RTX 4070'){throw 'Unexpected GPU identity'}
+          $totalMiB=[int]$p[1].Trim()
+          $freeMiB=[int]$p[2].Trim()
+          if($totalMiB -lt 11500 -or $freeMiB -lt 9500){throw 'Insufficient free VRAM for DEV24'}
+          Start-Sleep -Seconds 3
+          $g2=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $g2.Count -ne 1){throw 'Cannot recheck GPU memory'}
+          $q=$g2[0].Split(',')
+          if($q.Count -ne 3 -or $q[0] -notmatch 'RTX 4070' -or [int]$q[2].Trim() -lt 9500){
+            throw 'VRAM no longer available after idle observation'
+          }
+          Write-Host 'WINDOWS_WDDM_DESKTOP_PROCESSES_TOLERATED'
+          Write-Host ('DEV24_FAST_GPU_READY '+$g2[0])
 
       - name: Paired 24 real full NERAL pipeline v1 v2 with persistent case checkpoints and bounded 256-token attempts
         timeout-minutes: 210
