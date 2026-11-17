@@ -60,8 +60,9 @@ try{
 # and only after explicit user consent. Never download or alter model weights.
 $state = Join-Path $root 'local_state'
 $webDeps = Join-Path $state 'three-tier-web-deps'
-& $py -B -c 'import waitress' 2>$null
-$nativeWaitress = ($LASTEXITCODE -eq 0)
+$waitressProbe = @(& $py -B -c 'import importlib.util;print("YES" if importlib.util.find_spec("waitress") else "NO")')
+if($LASTEXITCODE -ne 0 -or $waitressProbe.Count -ne 1){throw 'Waitress-Verfuegbarkeit konnte nicht geprueft werden.'}
+$nativeWaitress = ($waitressProbe[0].Trim() -eq 'YES')
 if(-not $nativeWaitress){
     $waitressFile = Join-Path $webDeps 'waitress/__init__.py'
     if(-not (Test-Path -LiteralPath $waitressFile -PathType Leaf)){
