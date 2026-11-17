@@ -37,7 +37,7 @@ $env:PYTHONPATH = $root
 $check = @'
 import sys
 from pathlib import Path
-import torch, transformers, peft, bitsandbytes, z3, flask, waitress
+import torch, transformers, peft, bitsandbytes, z3, flask
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
 from neral_three_tier_runtime import FrozenQwen35HF
 assert sys.version_info >= (3,11)
@@ -53,6 +53,42 @@ try{
         throw 'HF-GPU-Umgebung benötigt vorhandenes Flask/Waitress oder Modellpfade fehlen. Nichts wurde installiert.'
     }
 }finally{ Pop-Location }
+
+# Production HTTP server dependency is intentionally NOT installed in the
+# frozen QLoRA / HF Python environment. Waitress has no third-party dependencies,
+# so install only its standalone files into an isolated app-local directory,
+# and only after explicit user consent. Never download or alter model weights.
+$state = Join-Path $root 'local_state'
+$webDeps = Join-Path $state 'three-tier-web-deps'
+& $py -B -c 'import waitress' 2>$null
+$nativeWaitress = ($LASTEXITCODE -eq 0)
+if(-not $nativeWaitress){
+    $waitressFile = Join-Path $webDeps 'waitress/__init__.py'
+    if(-not (Test-Path -LiteralPath $waitressFile -PathType Leaf)){
+        if($CheckOnly){
+            throw 'Waitress fehlt in der HF-Umgebung. Ohne Installation starten mit Zustimmung; CheckOnly bleibt schreibgeschuetzt.'
+        }
+        if($env:NERAL_THREE_TIER_INSTALL_CONSENT -ne '1'){
+            Write-Host 'NERAL benoetigt einmalig Waitress 3.0.2 aus PyPI (kleines Webserver-Paket). Die QLoRA-Umgebung bleibt unveraendert.' -ForegroundColor Yellow
+            $consent = Read-Host 'Nur Waitress separat in local_state installieren? (J/N)'
+            if($consent -notin @('J','j','Ja','ja')){
+                throw 'Waitress-Installation nicht freigegeben. Keine Aenderungen vorgenommen.'
+            }
+        }
+        if(Test-Path -LiteralPath $webDeps){
+            throw 'Isolierte Waitress-Installation unvollstaendig; vorhandenen Ordner manuell pruefen.'
+        }
+        if(-not $CheckOnly){ New-Item -ItemType Directory -Path $state -Force | Out-Null }
+        & $py -B -m pip install --disable-pip-version-check --no-input --no-cache-dir --no-deps --target $webDeps waitress==3.0.2
+        if($LASTEXITCODE -ne 0){
+            throw 'Isolierte Waitress-Installation fehlgeschlagen. QLoRA-Umgebung unveraendert.'
+        }
+    }
+    $env:NERAL_THREE_TIER_WEB_DEPS = $webDeps
+    $env:PYTHONPATH = $webDeps + [IO.Path]::PathSeparator + $root
+    & $py -B -c 'import os,waitress;from pathlib import Path; assert Path(waitress.__file__).resolve().is_relative_to(Path(os.environ["NERAL_THREE_TIER_WEB_DEPS"]).resolve())'
+    if($LASTEXITCODE -ne 0){ throw 'Isoliertes Waitress konnte nicht sicher geladen werden.' }
+}
 $ollama = Get-Command ollama -CommandType Application -ErrorAction SilentlyContinue
 if(-not $ollama){throw 'Bestehendes Ollama für den Legacy-Rückwechsel fehlt.'}
 $names = @(& $ollama.Source list)
