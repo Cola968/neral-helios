@@ -1,0 +1,54 @@
+name: NERAL read-only Windows daily chat readiness
+on:
+  push:
+    branches: [feat/neral-daily-readiness-20261117]
+    paths:
+      - .github/workflows/neral-daily-readiness.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-readiness:
+    if: github.ref == 'refs/heads/feat/neral-daily-readiness-20261117'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    concurrency:
+      group: neral-readonly-daily-readiness
+      cancel-in-progress: false
+    steps:
+      - name: Inspect localhost availability and installed adapters without touching private data
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $readiness=[ordered]@{
+            probe='NERAL_DAILY_READINESS_20261117_V1'
+            local_preview_http_200=$false
+            ollama_api_reachable=$false
+            installed_qwen35_4b=$false
+            installed_qwen35_9b=$false
+            v2full_frozen_adapter_present=$false
+            v2full_training_receipt_present=$false
+            local_hf_python_present=$false
+            docker_daemon_reachable=$false
+            live_chat_modes_tested=$false
+            live_memory_rag_web_tested=$false
+            new_training_started=$false
+          }
+          try{
+            $resp=Invoke-WebRequest -Uri 'http://127.0.0.1:9690/' -UseBasicParsing -TimeoutSec 4 -Method GET
+            $readiness.local_preview_http_200=($resp.StatusCode -eq 200)
+          }catch{ }
+          try{
+            $obj=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5 -Method GET
+            $names=@($obj.models | ForEach-Object { [string]$_.name })
+            $readiness.ollama_api_reachable=$true
+            $readiness.installed_qwen35_4b=($names -contains 'qwen3.5:4b')
+            $readiness.installed_qwen35_9b=($names -contains 'qwen3.5:9b')
+          }catch{ }
+          $root='D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          $readiness.v2full_frozen_adapter_present=Test-Path -LiteralPath (Join-Path $root 'adapter/adapter_model.safetensors') -PathType Leaf
+          $readiness.v2full_training_receipt_present=Test-Path -LiteralPath (Join-Path $root 'manifest.json') -PathType Leaf
+          $readiness.local_hf_python_present=Test-Path -LiteralPath 'D:/neral-qlora/venv/Scripts/python.exe' -PathType Leaf
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          $readiness.docker_daemon_reachable=($LASTEXITCODE -eq 0)
+          Write-Host ('NERAL_DAILY_READINESS '+($readiness|ConvertTo-Json -Compress))
