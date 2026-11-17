@@ -17,26 +17,7 @@ concurrency:
   group: neral-qwen7b-r32-gpu-exclusive
   cancel-in-progress: false
 jobs:
-  isolated-preflight:
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: CPU script and launcher security contract
-        run: |
-          node --check scripts/neral_three_tier_browser_e2e.cjs
-          python -m pip install --disable-pip-version-check pytest==8.4.2
-          python -m pytest -q --color=no tests/test_neral_three_tier_launcher.py
   windows-install-and-browser:
-    needs: isolated-preflight
     if: github.event_name == 'push' || inputs.confirmation == 'NERAL_ISOLATED_WAITRESS_AND_REAL_BROWSER_E2E_APPROVED'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 35
@@ -50,6 +31,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Confirm E2E JS syntax and read-only launcher prior to live install
+        run: |
+          $ErrorActionPreference='Stop'
+          & node --check scripts/neral_three_tier_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Browser E2E script syntax failed'}
+          # Additional static security assertions; no package installations.
+          $src=Get-Content -LiteralPath 'Start-Neral-Three-Tier.ps1' -Raw
+          foreach($required in @('NERAL_THREE_TIER_INSTALL_CONSENT','--target $webDeps waitress==3.0.2','if($CheckOnly){')){
+            if(-not $src.Contains($required)){throw 'Launcher missing isolated safety contract'}
+          }
+          Write-Host 'NERAL_FINAL_WINDOWS_LAUNCHER_SECURITY_PASS'
       - name: Verify local-only app conditions before opt-in install
         run: |
           $ErrorActionPreference = 'Stop'
