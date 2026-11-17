@@ -36,3 +36,19 @@ def test_check_only_must_never_prompt_or_install():
     source = LAUNCHER.read_text(encoding="utf-8")
     assert "$CheckOnly" in source
     assert "if(-not $CheckOnly)" in source
+
+def test_powershell_python_c_instructions_do_not_require_lossy_quoted_literals():
+    """Windows PowerShell 5.1 strips the inner quote characters in -c argv."""
+    source=LAUNCHER.read_text(encoding="utf-8")
+    assert 'print("NERAL_THREE_TIER_LOCAL_PINNED_READY")' not in source
+    assert 'find_spec("waitress")' not in source
+    assert 'os.environ["NERAL_THREE_TIER_WEB_DEPS"]' not in source
+    assert "print(1)" in source
+    assert "Path(sys.path[1])" in source
+
+
+def test_launcher_dependency_install_must_be_separate_from_windows_checkonly():
+    source=LAUNCHER.read_text(encoding="utf-8")
+    assert "pip list --format=freeze" in source
+    assert "if($CheckOnly){" in source
+    assert "--target $webDeps waitress==3.0.2" in source
