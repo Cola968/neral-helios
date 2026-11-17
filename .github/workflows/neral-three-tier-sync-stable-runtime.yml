@@ -32,7 +32,12 @@ jobs:
           $py='D:/neral-qlora/venv/Scripts/python.exe'
           & $py -B -m py_compile (Join-Path $repo 'neral_three_tier_runtime.py')
           if($LASTEXITCODE -ne 0){throw 'New runtime syntax invalid'}
-          Write-Host 'NERAL_PR558_HISTORY_PROOF_SOURCE_PINNED'
+          Push-Location -LiteralPath $repo
+          try{
+            & $py -B -m unittest discover -s tests -p test_neral_three_tier_api.py -q
+            if($LASTEXITCODE -ne 0){throw 'Real Windows CPU contract tests did not pass; block local app modification'}
+          }finally{Pop-Location}
+          Write-Host 'NERAL_PR558_HISTORY_PROOF_SOURCE_PINNED_AND_CPU_GREEN'
       - name: Update only NERAL-owned registered task runtime with rollback
         run: |
           $ErrorActionPreference='Stop'
