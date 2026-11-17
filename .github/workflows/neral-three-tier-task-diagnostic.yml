@@ -1,0 +1,45 @@
+name: NERAL PR558 read-only stable task startup diagnosis
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-task-diagnostic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Inspect only PR558 scheduled service task and nonsecret source integrity
+        run: |
+          $ErrorActionPreference='Stop'
+          $version='909d1419c9ff'
+          $name='NERAL-PR558-ThreeTier-'+$version
+          $stable=Join-Path $env:LOCALAPPDATA ('NERAL/three-tier-pr558-'+$version+'/NERAL-1.0-Local')
+          $script=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $exists=Test-Path -LiteralPath $script -PathType Leaf
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+          $info=if($task){Get-ScheduledTaskInfo -TaskName $name}else{$null}
+          $parseErr=0
+          if($exists){
+            $tokens=$null;$errors=$null
+            [Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors) | Out-Null
+            $parseErr=@($errors).Count
+          }
+          $webPresent=Test-Path -LiteralPath (Join-Path $stable 'local_state/three-tier-web-deps/waitress/__init__.py')
+          $sourcePresent=Test-Path -LiteralPath (Join-Path $stable 'neral_preview_server.py')
+          $listening=$false
+          try{ $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
+               $listening=($r.StatusCode -eq 200) }catch{}
+          Write-Host ('NERAL_THREE_TIER_DURABLE_DIAGNOSTIC '+(
+            @{task_found=($null -ne $task);state=if($task){[string]$task.State}else{'missing'};
+              last_result=if($info){$info.LastTaskResult}else{$null};
+              ever_ran=if($info){$info.LastRunTime.Year -gt 2020}else{$false};
+              script_exists=$exists;script_parse_errors=$parseErr;
+              waitress_isolated=$webPresent;source_files_present=$sourcePresent;
+              port_listening=$listening} | ConvertTo-Json -Compress))
