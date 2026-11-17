@@ -77,8 +77,10 @@ jobs:
           }
           # Attest the exact managed listener BEFORE stopping Scheduler:
           # the service's PowerShell ancestor may disappear on task stop.
-          $priorListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction Stop)
-          if($priorListeners.Count -ne 1){throw 'No unique managed loopback listener before restart'}
+          $priorListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          if($priorListeners.Count -gt 1){throw 'Multiple loopback listeners; preserve unknown processes'}
+          $attestedPid=0
+          if($priorListeners.Count -eq 1){
           $attestedPid=[int]$priorListeners[0].OwningProcess
           $attestedProc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$attestedPid) -ErrorAction Stop
           $attestedParent=if($null -ne $attestedProc -and [int]$attestedProc.ParentProcessId -gt 0){
@@ -101,6 +103,9 @@ jobs:
           }
           $attestedCreated=[string]$attestedProc.CreationDate
           Write-Host 'NERAL_PR558_PRESTOP_MANAGED_LISTENER_ATTESTED'
+          }else{
+            Write-Host 'NERAL_PR558_PORT_EMPTY_USER_STOP_CONFIRMED'
+          }
           $complete=$false
           try{
             Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
@@ -111,6 +116,7 @@ jobs:
             }
             $afterListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
             if($afterListeners.Count -gt 0){
+              if($attestedPid -eq 0){throw 'Unexpected new listener after empty-port attestation; preserve it'}
               if($afterListeners.Count -ne 1 -or [int]$afterListeners[0].OwningProcess -ne $attestedPid){
                 throw 'Listener PID changed; preserve unknown service'
               }
