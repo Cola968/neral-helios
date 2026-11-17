@@ -210,7 +210,17 @@
        /^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
       return ""; // No subject was supplied: do not search the greeting.
     if(subject.length<2)subject=original;
-    const normalized=subject.replace(/\s+/g," ").trim();
+    let normalized=subject.replace(/\s+/g," ").trim();
+    // A bare BER-flight shorthand plus "aktuell" was repeatedly interpreted
+    // by public search providers as general news, yielding zero topical hits.
+    // Expand only this unambiguous airport-route intent; other search queries,
+    // especially current news searches, keep their original freshness words.
+    const berFlights=/\bBER[-–\s]+(?:Flugverbindungen|Flugziele|Flugstrecken|Flüge)(?=$|[\s.!?,])/iu;
+    if(berFlights.test(normalized)){
+      normalized=normalized.replace(/^aktuell(?:e|en|es|er)?\s+/iu,"")
+        .replace(berFlights,"BER Berlin Brandenburg Flughafen Flugziele")
+        .replace(/[.!?]+$/g,"").trim();
+    }
     if(normalized.length<=160)return normalized;
     const cut=normalized.slice(0,160);
     return cut.slice(0,cut.lastIndexOf(" "))||cut;
