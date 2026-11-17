@@ -207,7 +207,7 @@
     }
     let q=original.replace(/^[\s^>]+/,"").replace(
       /^(?:hallo|hallöchen|hi|hey|moin|guten\s+(?:morgen|tag|abend))\b\s*[,!?.]*\s*/iu,"").trim();
-    const prefixRe=/^(?:(?:bitte|mal|aktuell(?:e|en|es|er)?|suche|such|finde|recherchiere|recherchier|im\s+internet|im\s+web|online|nach)\s*[:：]?\s*)+/iu;
+    const prefixRe=/^(?:(?:bitte|mal|aktuell(?:en|es|er|e)?|suche|such|finde|recherchiere|recherchier|im\s+internet|im\s+web|online|nach)\b\s*[:：]?\s*)+/iu;
     const hadDirective=prefixRe.test(q);
     q=q.replace(prefixRe,"").trim();
     q=q.replace(/(?:[?!.]\s*)?(?:nenne|gib|zeige|liste|nenn)\s+(?:mir\s+)?(?:deine\s+|die\s+|bitte\s+)?(?:quellen|links|belege)(?:\s+an)?[.!?]*\s*$/iu,"").trim();
@@ -217,14 +217,15 @@
     if(q.length<2)q=original;
 
     const berFlights=/\bBER[-–\s]+(?:Flugverbindungen|Flugziele|Flugstrecken|Flüge)(?=$|[\s.!?,])/iu;
-    if(berFlights.test(q)){
+    const expandedBerFlights=berFlights.test(q);
+    if(expandedBerFlights){
       q=q.replace(/^aktuell(?:e|en|es|er)?\s+/iu,"")
         .replace(berFlights,"BER Berlin Brandenburg Flughafen Flugziele")
         .replace(/[.!?]+$/g,"").trim();
     }
 
     const words=q.split(/\s+/);
-    if(words.length>4 || /^(?:wie|was|wer|wann|wo|warum|wieso|welche[rs]?)\b/iu.test(q)){
+    if(!expandedBerFlights && (words.length>4 || /^(?:wie|was|wer|wann|wo|warum|wieso|welche[rs]?)\b/iu.test(q))){
       const stop=new Set([
         "wie","hoch","ist","sind","war","waren","heute","aktuell","aktuelle",
         "aktuellen","der","die","das","den","dem","des","ein","eine","einer",
