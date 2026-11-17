@@ -29,7 +29,7 @@ def test_gate_requires_sufficient_stable_vram_and_no_loaded_ollama():
 
 def test_immutable_checkpoint_and_branch_guards_preserved():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "dev24-hf-bound256-v1.auto-start-20261117.json" in text
+    assert "dev24-hf-sourcefirst-bound256-v2-20261117.auto-start-20261117.json" in text
     assert "[IO.FileMode]::CreateNew" in text
     assert "--checkpoint-root $env:D24_CKPT" in text
     assert "runs-on: [self-hosted,windows,x64,neral-gpu]" in text
