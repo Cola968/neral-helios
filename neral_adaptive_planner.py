@@ -220,6 +220,45 @@ def run_adaptive_planner(
         # Z3 proof failure. Fail closed to the unmodified Qwen fallback.
         return fallback()
 
+    # Fully parsed user source has a stronger trust anchor than a speculative
+    # model-authored tool request. Execute the independent source-derived
+    # program in the SAME Docker sandbox, and promote only after a separate
+    # full-source verifier confirms the exact numeric stdout. This route
+    # never sees benchmark gold and is not available for partial grammar.
+    try:
+        from neral_verified_source_code import source_program
+        trusted_code=source_program(question)
+    except Exception:
+        trusted_code=None
+    if trusted_code is not None:
+        try:
+            execution=execute_python(trusted_code)
+            if (type(execution) is dict and execution.get("status")=="PASSED"
+                    and execution.get("exit_code",0)==0
+                    and type(execution.get("output")) is str):
+                check=verify_python(source=question,code=trusted_code,
+                    output=execution["output"],canonical=None)
+                if (type(check) is dict and check.get("verified") is True
+                        and check.get("full_source") is True
+                        and check.get("all_conditions_checked") is True
+                        and check.get("proof_backend") in (
+                           "independent_enumeration","trusted_source_arithmetic",
+                           "independent_unique_enumeration",
+                           "independent_user_source_docker")
+                        and _valid_answer(check.get("answer"))
+                        and execution["output"].strip()==str(check["answer"])):
+                    return {"text":str(check["answer"]),"mode":"HIGH",
+                            "verified":True,"safe_to_promote":True,
+                            "model_generated":False,"planner_route":"PYTHON_SANDBOX",
+                            "planner_attempts":0,
+                            "verification_scope":"full_source_independent",
+                            "verification_status":"source_python_independently_verified",
+                            "proof_backend":check["proof_backend"],
+                            "selection_policy":"independently_source_verified_python",
+                            "response_source":"independent_source_python"}
+        except Exception:
+            pass  # Bounded model planner remains eligible; do not promote.
+
     seen=set()
     for repair_round in range(MAX_REPAIRS+1):
         attempts+=1
