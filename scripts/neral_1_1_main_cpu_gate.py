@@ -7,6 +7,8 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 BASE='2de4b034d79521e4f5c9d432af7f98a70087ed70'
+# Updated main from before this PR. Protect its newer UI exactly on merge commits.
+CURRENT_MAIN='f7affa3ff06b018bd7460e2802be4b19cd67a265'
 PROTECTED=(
   'neral_web_search.py','neral_web_api.py',
   'static/neral-preview.js','static/neral-web-search.js',
@@ -14,13 +16,32 @@ PROTECTED=(
   'templates/neral_preview.html',
 )
 
+def _protected_base():
+    """Keep the original feature branch and the merged PR integrity-pinned.
+
+    A feature checkout descends from BASE; a PR merge checkout descends from
+    CURRENT_MAIN. Only the corresponding immutable source blobs are accepted.
+    Never infer a baseline from mutable branch names or untrusted CI input.
+    """
+    for sha in (CURRENT_MAIN, BASE):
+        result=subprocess.run(
+            ['git','merge-base','--is-ancestor',sha,'HEAD'],
+            cwd=ROOT,capture_output=True,timeout=15,check=False)
+        if result.returncode==0:
+            return sha
+        if result.returncode!=1:
+            raise RuntimeError('INTEGRITY_BASE_UNKNOWN: incomplete git history')
+    raise RuntimeError('INTEGRITY_BASE_UNKNOWN: unrecognized ancestry')
+
+
 def verify_main_integrity():
+    base=_protected_base()
     for name in PROTECTED:
         # Compare *repository blobs*, not checked-out bytes: Windows Git may
         # materialize LF source as CRLF without changing the tracked content.
         # Also refuse real uncommitted changes in the checked-out sources.
         old=subprocess.run(
-          ['git','rev-parse',BASE+':'+name],cwd=ROOT,text=True,
+          ['git','rev-parse',base+':'+name],cwd=ROOT,text=True,
           capture_output=True,timeout=15,check=True).stdout.strip()
         current=subprocess.run(
           ['git','rev-parse','HEAD:'+name],cwd=ROOT,text=True,
