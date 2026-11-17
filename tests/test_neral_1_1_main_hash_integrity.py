@@ -1,6 +1,6 @@
 """Hermetic CPU security contracts for pinned main integrity without shallow Git history.
 
-Production gate remains fail-closed and unchanged. GitHub Actions checkout
+Production gate remains fail-closed; both historical and new main anchors are pinned. GitHub Actions checkout
 with fetch-depth=1 cannot resolve its historical protected BASE blob, so
 mock only immutable git process outputs and assert the full security behavior.
 """
@@ -11,12 +11,18 @@ import pytest
 from scripts import neral_1_1_main_cpu_gate as gate
 
 
-def _git(case="same"):
+def _git(case="same", *, merge_current=False, history_unknown=False):
     calls=[]
     def run(cmd,**kwargs):
         calls.append(tuple(cmd))
+        if cmd[:3]==["git","merge-base","--is-ancestor"]:
+            selected=cmd[3]
+            is_current=selected=="f7affa3ff06b018bd7460e2802be4b19cd67a265"
+            is_original=selected=="2de4b034d79521e4f5c9d432af7f98a70087ed70"
+            return subprocess.CompletedProcess(cmd,
+                0 if not history_unknown and (is_current and merge_current or is_original) else 1)
         if cmd[:2]==["git","rev-parse"]:
-            assert cmd[2].startswith(("HEAD:","2de4b034d79521e4f5c9d432af7f98a70087ed70:"))
+            assert cmd[2].startswith(("HEAD:","2de4b034d79521e4f5c9d432af7f98a70087ed70:","f7affa3ff06b018bd7460e2802be4b19cd67a265:"))
             if case=="mismatch" and cmd[2].startswith("HEAD:"):
                 digest="f"*40
             else:
