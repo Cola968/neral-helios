@@ -54,7 +54,12 @@ def probe_cuda_free_after_cache_flush(torch, minimum_free_mib: int):
         torch.cuda.empty_cache()
         torch.cuda.synchronize(0)
         free, allocated, reserved = snapshot()
-    return free, allocated, reserved
+    # Driver-free memory excludes this process's re-usable CUDA caching
+    # allocator. Count only reserved-but-not-allocated bytes; external CUDA
+    # workloads have no access to this process's private PyTorch cache.
+    # The 9,500 MiB admission threshold remains unchanged.
+    effective = round(free + max(0, reserved - allocated), 1)
+    return free, allocated, reserved, effective
 
 
 class FrozenQwen35HF:
@@ -90,6 +95,7 @@ class FrozenQwen35HF:
         self.free_mib_before_load = None
         self.allocated_mib_before_load = None
         self.reserved_mib_before_load = None
+        self.effective_mib_before_load = None
 
     @property
     def loaded(self) -> bool:
@@ -105,9 +111,10 @@ class FrozenQwen35HF:
         if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
             raise RuntimeError("Exactly one local CUDA GPU is required")
         (self.free_mib_before_load, self.allocated_mib_before_load,
-         self.reserved_mib_before_load) = probe_cuda_free_after_cache_flush(
+         self.reserved_mib_before_load,
+         self.effective_mib_before_load) = probe_cuda_free_after_cache_flush(
              torch, self.minimum_free_mib)
-        if self.free_mib_before_load < self.minimum_free_mib:
+        if self.effective_mib_before_load < self.minimum_free_mib:
             raise RuntimeError("Insufficient free GPU memory; no other model was stopped")
         if self.root is not None and not frozen_v2_full(self.root):
             raise RuntimeError("Frozen Helios adapter bytes changed")
