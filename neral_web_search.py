@@ -472,9 +472,10 @@ def is_fresh_news_query(query: str) -> bool:
 def news_subject(query: str) -> str:
     """Remove generic request words but preserve the user's topic verbatim."""
     subject = re.sub(
-        r"\b(?:news|nachrichten|aktuell(?:e|es|en|er)?|"
-        r"neuest(?:e|en|er)?|neuigkeiten|heute|gestern|live|latest|breaking)\b",
+        r"\b(?:suche|bitte|im\s+web|im\s+internet|online|quellen|news|nachrichten|"
+        r"aktuell(?:e|es|en|er)?|neuest(?:e|en|er)?|neuigkeiten|heute|gestern|live|latest|breaking)\b",
         " ", query, flags=re.I)
+    subject = re.sub(r"[?:!.,;]+", " ", subject)
     subject = re.sub(r"\s+", " ", subject).strip()
     return subject if len(subject) >= 2 else query.strip()
 
