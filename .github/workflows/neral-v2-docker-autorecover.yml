@@ -43,10 +43,24 @@ jobs:
               $registry=(Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Docker Desktop.exe' -ErrorAction Stop).'(default)'
               if($registry){$candidates+= [string]$registry}
             } catch {}
+            # Docker Desktop can be installed per-user without com.docker.service.
+            # The read-only runner inventory confirmed an HKCU uninstall entry
+            # whose InstallLocation contains the actual Desktop executable.
+            foreach($uninstall in @(
+              'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')){
+              $records=@(Get-ItemProperty -Path $uninstall -ErrorAction SilentlyContinue |
+                Where-Object {$_.DisplayName -eq 'Docker Desktop'})
+              foreach($record in $records){
+                if($record.InstallLocation){
+                  $candidates+=Join-Path ([string]$record.InstallLocation) 'Docker Desktop.exe'
+                }
+              }
+            }
             $desktop=$candidates|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
             $svc=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
             if($svc){Write-Host ('DOCKER_SERVICE '+$svc.Status);if($svc.Status -ne 'Running'){try{Start-Service -Name 'com.docker.service' -ErrorAction Stop;Write-Host 'DOCKER_SERVICE_START_REQUESTED'}catch{Write-Host ('DOCKER_SERVICE_START_DENIED '+$_.Exception.GetType().Name)}}}
-            if($desktop){Write-Host ('DOCKER_DESKTOP_START_REQUESTED '+$desktop);Start-Process -FilePath $desktop -ErrorAction Stop}
+            if($desktop){Write-Host 'DOCKER_DESKTOP_START_REQUESTED_FROM_VERIFIED_INSTALL';Start-Process -FilePath $desktop -ErrorAction Stop}
             else {Write-Host 'DOCKER_DESKTOP_BINARY_MISSING_IN_KNOWN_INSTALL_LOCATIONS'}
             $deadline=[datetime]::UtcNow.AddSeconds(90)
             do {
