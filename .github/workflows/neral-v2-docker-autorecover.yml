@@ -109,6 +109,9 @@ jobs:
       - name: Prove same SymPy NetworkX Z3 and isolated AST Python Docker on independent Linux daemon
         run: |
           docker info --format '{{.ServerVersion}}'
+          # Avoid initial image-pull chatter in the strict sandbox stderr proof.
+          docker pull python:3.12.8-alpine3.21
+          docker image inspect python:3.12.8-alpine3.21 --format '{{.Id}}'
           python -m scripts.neral_v2_tools_regression_smoke --out "$RUNNER_TEMP/neral-tools-docker-ubuntu.json"
           python -c "import json,sys; r=json.load(open(sys.argv[1])); assert all(r[k] is True for k in ('sympy','networkx','z3','python_docker_one_step_ast','docker_isolated_network')); print('INDEPENDENT_LINUX_DOCKER_TOOL_PROOF_PASS_ NOT_WINDOWS_GPU',r)" "$RUNNER_TEMP/neral-tools-docker-ubuntu.json"
       - uses: actions/upload-artifact@v4
