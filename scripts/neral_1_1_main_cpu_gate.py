@@ -53,7 +53,7 @@ def verify_main_integrity():
             'static/neral-preview.js': (
                 '666a9e4b2d2467f6397a16b107a709dcf34746c2',
                 'ce535f84c2e779d6619a968ca1e9b2582d20edbf',
-                '8e1f9056c13afffef1dae0a30e37d4d32306ca46',
+                '77e124c98e61c54f2427269e840a21de7feee03e',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
         }
