@@ -114,6 +114,24 @@ def run(base4: Path, base9: Path, full: Path) -> dict:
                 and stats["switch_back_luna_confirmed"])
             else "GPU_TIERS_NOT_RELEASE_READY")
         return stats
+    except Exception as exc:
+        allowlist = {"HF response did not finish inside its token/time budget",
+                     "Incomplete or untrusted HF final answer",
+                     "Insufficient free GPU memory; no other model was stopped",
+                     "Frozen Helios adapter bytes changed",
+                     "Bounded local HF context exceeded",
+                     "Exactly one local CUDA GPU is required",
+                     "Unclosed private model reasoning"}
+        stats["status"] = "GPU_TIERS_FAILED"
+        stats["stage"] = LAST_STAGE
+        stats["error_class"] = type(exc).__name__
+        stats["safe_error_kind"] = (
+            str(exc) if str(exc) in allowlist else "unclassified")
+        stats["luna_free_mib_before_load"] = low.free_mib_before_load
+        stats["helios_free_mib_before_load"] = high.free_mib_before_load
+        stats["helios_allocated_mib_before_load"] = high.allocated_mib_before_load
+        stats["helios_reserved_mib_before_load"] = high.reserved_mib_before_load
+        return stats
     finally:
         low.unload()
         high.unload()
