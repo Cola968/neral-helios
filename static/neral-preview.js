@@ -302,6 +302,18 @@
     return matches.length>=Math.ceil(topics.length*0.75) &&
       matches.some(word=>title.has(word));
   }
+  // Source-only degradation is permitted only for a real, topic-matched
+  // HTTPS search hit after the explicit 3-tier model runtime error. This is
+  // not an AI answer and must never carry a verification badge.
+  function sourceOnlyWebFallback(error,attempted,sources,threeTierEnabled){
+    if(!threeTierEnabled||attempted!==true||!Array.isArray(sources)||
+       String(error?.message||"")!=="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.")
+      return false;
+    return sources.some(source=>source&&typeof source.url==="string" &&
+      /^https:\/\/[^/\s]+\.[^/\s]+/iu.test(source.url) &&
+      (source.reachable===true ||
+       (source.discovered===true&&source.topically_relevant===true)));
+  }
   // A citation belongs to the exact answer whose prompt received the evidence.
   // Link reachability was verified by the local backend. Search excerpts are
   // not treated as an independently checked article or factual endorsement.
@@ -803,11 +815,9 @@
         onPaint:()=>{messages.scrollTop=messages.scrollHeight;}
       });
     }
+    let sources=[],verifiedSources=[],webAttempted=false;
     try {
       let modelPrompt=text;
-      let sources=[];
-      let verifiedSources=[];
-      let webAttempted=false;
       // Attached files are processed locally even if the optional web tool is on.
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
@@ -1033,6 +1043,27 @@
       fileStatus.textContent="Keine Dateien ausgewählt.";
       speak(result.text);
     } catch(e) {
+      if(startedEpoch===conversationEpoch&&!controller.signal.aborted&&!deadline.aborted &&
+         sourceOnlyWebFallback(e,webAttempted,sources,threeTierEnabled)){
+        // Do not drop search-provider evidence because local HF generation
+        // could not finish. Clearly distinguish this from a model answer.
+        const message="Die Websuche hat "+sources.length+
+          " thematisch passende Suchtreffer gefunden. "+
+          "Die lokale Modellzusammenfassung konnte nicht erzeugt werden. "+
+          "Die Quellen sind unten verlinkt; ihre Inhalte wurden nicht unabhängig geprüft.";
+        partialNode?.remove();partialNode=null;
+        const answerNode=append("assistant",message,
+          "NERAL Websuche · Suchtreffer ohne Modellzusammenfassung",true);
+        appendSources(answerNode,sources,true);
+        memory.push({role:"user",content:text},{role:"assistant",content:message});
+        if(memory.length>12)memory.splice(0,memory.length-12);
+        browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
+          detail:{user:text,assistant:message}
+        }));
+        motionActivity("done",mode);
+        completedTurn=true;
+        return;
+      }
       if(startedEpoch===conversationEpoch){
         userNode.className+=" neral-message-failed";
         if(!prompt.value.trim())prompt.value=text;
