@@ -19,9 +19,6 @@ import re
 import time
 from collections.abc import Mapping
 
-from flask import jsonify, request
-
-from neral_local_chat_api import _messages
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
 
 LUNA = "qwen3.5:4b"
@@ -274,6 +271,9 @@ class ThreeTierRuntime:
 
 
 def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
+    # The CUDA evaluation environment need not install the Flask preview.
+    from flask import jsonify, request
+    from neral_local_chat_api import _messages
     if not isinstance(runtime, ThreeTierRuntime):
         raise ValueError("Three-tier runtime not installed")
     if not callable(getattr(busy, "acquire", None)):
