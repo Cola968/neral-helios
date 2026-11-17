@@ -48,10 +48,23 @@ jobs:
           if((& git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA){throw 'Checked-out source SHA mismatch'}
           $port=9690
           $c=New-Object System.Net.Sockets.TcpClient
-          try{
-            $c.Connect('127.0.0.1',$port)
-            throw 'Preview port already occupied: never take over an existing local user session'
-          }catch [System.Net.Sockets.SocketException]{}finally{$c.Dispose()}
+          $occupied=$false
+          try{$c.Connect('127.0.0.1',$port);$occupied=$true}
+          catch [System.Net.Sockets.SocketException]{}
+          finally{$c.Dispose()}
+          if($occupied){
+            # Reuse only the previous opt-in three-tier preview; never take over
+            # an unrelated local service and never stop any user process.
+            $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 10
+            $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 10
+            if($home.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
+               (@($receipt.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
+              throw 'Port 9690 is occupied by an unverified service; preserve it'
+            }
+            'NERAL_E2E_REUSE=1' >> $env:GITHUB_ENV
+            Write-Host 'NERAL_THREE_TIER_PRIOR_LOCAL_PREVIEW_IDENTIFIED'
+          }
           $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'GPU inventory unavailable'}
           $v=@($g[0].Split(',').Trim())
@@ -79,6 +92,13 @@ jobs:
       - name: Install only isolated Waitress after explicit consent and start local preview
         run: |
           $ErrorActionPreference='Stop'
+          if($env:NERAL_E2E_REUSE -eq '1'){
+            Write-Host 'NERAL_THREE_TIER_LOCAL_PREVIEW_ALREADY_RUNNING'
+            $probe=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
+            if($probe.StatusCode -ne 200){throw 'Existing opt-in preview no longer responds'}
+            Write-Host 'NERAL_THREE_TIER_LOCAL_APP_HTTP_200_PASS'
+            return
+          }
           $env:NERAL_THREE_TIER_INSTALL_CONSENT='1'
           # Github runner normally cleans up processes with its tracking ID.
           # The user explicitly requested that this local app stays usable after CI.
