@@ -102,8 +102,6 @@ def main() -> None:
         or luna_manifest.get("test_rows_opened")!=0
         or luna_manifest.get("frozen_adapter_sha256")!=model_sha(args.luna4/"adapter")):
         raise RuntimeError("Real frozen Luna PEFT adapter not verified")
-    from transformers import AutoTokenizer
-    from pathlib import Path
     import torch
     if not torch.cuda.is_available() or torch.cuda.device_count()!=1:
         raise RuntimeError("Real RTX4070 is mandatory")
