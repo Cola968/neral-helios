@@ -220,6 +220,17 @@ class ThreeTierRuntime:
             raise ValueError("Docker execution callback missing")
         self.execute_python = execute_python
 
+    def release_for_legacy(self):
+        """Drop only this service's HF CUDA state before an Ollama reply.
+
+        Caller owns the preview-wide GPU lock; the source-verified path never
+        invokes an Ollama model or bypasses the lock.
+        """
+        if self.active_backend is not None:
+            current = self.active_backend
+            current.unload()
+            self.active_backend = None
+
     def _switch(self, chosen):
         if self.active_backend is chosen:
             return
@@ -308,6 +319,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
         raise ValueError("Three-tier runtime not installed")
     if not callable(getattr(busy, "acquire", None)):
         raise ValueError("Global NERAL GPU lock required")
+
+    # Hook the existing Ollama prepare_model closure, not just the externally
+    # exposed app._neral_prepare_model: normal, streaming, THINK, and file
+    # routes all use that closure and must release HF CUDA allocations.
+    app._neral_before_legacy_model = runtime.release_for_legacy
 
     @app.get("/api/neral/chat/three-tier/status")
     def three_tier_status():
