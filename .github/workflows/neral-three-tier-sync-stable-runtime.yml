@@ -114,23 +114,43 @@ jobs:
               if([string]$t.State -ne 'Running'){break}
               Start-Sleep -Milliseconds 500
             }
-            $afterListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
-            if($afterListeners.Count -gt 0){
-              if($attestedPid -eq 0){throw 'Unexpected new listener after empty-port attestation; preserve it'}
-              if($afterListeners.Count -ne 1 -or [int]$afterListeners[0].OwningProcess -ne $attestedPid){
-                throw 'Listener PID changed; preserve unknown service'
-              }
-              $stillProc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$attestedPid) -ErrorAction Stop
-              if($null -eq $stillProc -or [string]$stillProc.CreationDate -ne $attestedCreated -or
-                 [string]$stillProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
-                throw 'Listener process identity changed since attestation; preserve it'
-              }
-              Stop-Process -Id $attestedPid -Force -ErrorAction Stop
-              Start-Sleep -Milliseconds 1500
-              $other=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
-              if($other.Count -ne 0){throw 'Port still occupied after verified process stop'}
-              Write-Host 'NERAL_PR558_VERIFIED_ORPHAN_SERVER_STOPPED'
+            # Task stop may detach a venv Python child or change its PID.
+            # Never kill based on an old PID alone. Re-attest each unique
+            # listener against the exact NERAL model flags before stopping it.
+            if([string](Get-ScheduledTask -TaskName $taskName).State -eq 'Running'){
+              throw 'NERAL task still running after controlled stop; preserve listener'
             }
+            for($round=0;$round -lt 4;$round++){
+              $owners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+              if($owners.Count -eq 0){break}
+              if($owners.Count -ne 1){throw 'Multiple port owners after stop; preserve unknown listeners'}
+              $activePid=[int]$owners[0]
+              $activeProc=Get-CimInstance Win32_Process -Filter ('ProcessId = '+$activePid) -ErrorAction Stop
+              $activeParent=if($null -ne $activeProc -and [int]$activeProc.ParentProcessId -gt 0){
+                Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$activeProc.ParentProcessId) -ErrorAction SilentlyContinue
+              }else{$null}
+              if($null -eq $activeProc -or $null -eq $activeParent -or
+                 [string]$activeProc.Name -notmatch '(?i)^pythonw?\.exe$' -or
+                 [string]$activeParent.Name -notmatch '(?i)^pythonw?\.exe$' -or
+                 [string]$activeProc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+                 [string]$activeParent.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+                 [string]$activeProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+                 [string]$activeParent.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+                 [string]$activeProc.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*' -or
+                 [string]$activeProc.CommandLine -notlike '*D:/neral-qlora-v2/qwen35-4b-hf*'){
+                throw 'Listener changed to unknown process; preserve it'
+              }
+              if($attestedPid -eq $activePid -and
+                 [string]$activeProc.CreationDate -ne $attestedCreated){
+                throw 'Listener PID reused after attestation; preserve it'
+              }
+              Stop-Process -Id $activePid -Force -ErrorAction Stop
+              Start-Sleep -Milliseconds 1500
+              Write-Host 'NERAL_PR558_ONE_VERIFIED_LISTENER_STOPPED'
+            }
+            $remaining=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+            if($remaining.Count -ne 0){throw 'Unable to clear NERAL listener safely'}
+            Write-Host 'NERAL_PR558_PORT_EMPTY_FOR_PINNED_HOTFIX'
             Copy-Item -LiteralPath $source -Destination $destination -Force
             $new=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
             if($new -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){
