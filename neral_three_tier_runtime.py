@@ -64,6 +64,9 @@ class FrozenQwen35HF:
         self._model = None
         self._base_model = None
         self._tokenizer = None
+        self.free_mib_before_load = None
+        self.allocated_mib_before_load = None
+        self.reserved_mib_before_load = None
 
     @property
     def loaded(self) -> bool:
@@ -79,6 +82,9 @@ class FrozenQwen35HF:
         if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
             raise RuntimeError("Exactly one local CUDA GPU is required")
         free, _ = torch.cuda.mem_get_info(0)
+        self.free_mib_before_load = round(free/1024**2, 1)
+        self.allocated_mib_before_load = round(torch.cuda.memory_allocated(0)/1024**2, 1)
+        self.reserved_mib_before_load = round(torch.cuda.memory_reserved(0)/1024**2, 1)
         if free < self.minimum_free_mib * 1024 * 1024:
             raise RuntimeError("Insufficient free GPU memory; no other model was stopped")
         if self.root is not None and not frozen_v2_full(self.root):
