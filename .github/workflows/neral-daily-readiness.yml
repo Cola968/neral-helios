@@ -17,7 +17,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Inspect localhost availability and installed adapters without touching private data
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference='Stop'
           $readiness=[ordered]@{
