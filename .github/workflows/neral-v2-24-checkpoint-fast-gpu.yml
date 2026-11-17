@@ -1,0 +1,132 @@
+name: NERAL DEV24 full HF paired checkpointed fast256 GPU Docker-required
+on:
+  push:
+    branches: [feat/qlora-v2-full-and-luna]
+    paths:
+      - '.github/workflows/neral-v2-24-checkpoint-fast-gpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  cpu-tdd-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Execute immutable checkpoint and Luna strict token budget unit tests
+        run: |
+          python -m pip install --no-cache-dir pytest
+          python -m pytest -q tests/test_neral_v2_checkpoint_fast.py tests/test_neral_v2_luna_encoding.py
+          python -m py_compile scripts/neral_v2_eval_checkpoint.py scripts/neral_v2_pipeline24_hf.py scripts/neral_v2_fast20.py neral_cpu_foundation/router.py
+  full24-live-rtx4070:
+    needs: [cpu-tdd-preflight]
+    runs-on: [self-hosted,windows,x64,neral-gpu]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    env:
+      HF_HOME: 'D:/neral-qlora-v2/hf-cache'
+      HF_HUB_CACHE: 'D:/neral-qlora-v2/hf-cache/hub'
+      HF_XET_CACHE: 'D:/neral-qlora-v2/hf-cache/xet'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Ensure pinned sources, immutable adapters and per-case checkpoint directory on D
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $base='D:/neral-qlora/checkpoint'
+          $v1='D:/neral-qlora/full01/adapter'
+          $full='D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          $ckpt='D:/neral-qlora-v2/dev24-hf-bound256-v1'
+          $out="D:/neral-qlora-v2/dev24-hf-fast-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          $tool="D:/neral-qlora-v2/dev24-hf-docker-preflight-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          foreach($f in @($py,(Join-Path $base 'config.json'),(Join-Path $v1 'adapter_config.json'),
+             (Join-Path $full 'adapter/adapter_model.safetensors'),(Join-Path $full 'manifest.json'))){
+             if(-not(Test-Path -LiteralPath $f -PathType Leaf)){throw ('Frozen model/source missing: '+$f)}
+          }
+          $hm=Get-Content -LiteralPath (Join-Path $full 'manifest.json') -Raw|ConvertFrom-Json
+          if($hm.status -ne 'frozen_adapter_ready_for_heldout_comparison' -or $hm.rank -ne 16 -or $hm.train_rows -ne 1100 -or $hm.val_rows -ne 140 -or $hm.test_rows_opened -ne 0){throw 'Helios frozen source receipt drift'}
+          foreach($f in @($out,$tool)){if(Test-Path $f){throw 'Do not overwrite report'}}
+          $env:PYTHONPATH=$src
+          $vars=@{D24_SRC=$src;D24_PY=$py;D24_BASE=$base;D24_V1=$v1;D24_FULL=$full;
+                  D24_CKPT=$ckpt;D24_OUT=$out;D24_TOOL=$tool;PYTHONPATH=$src}
+          foreach($entry in $vars.GetEnumerator()){
+            [IO.File]::AppendAllText($env:GITHUB_ENV,($entry.Key+'='+$entry.Value+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          }
+          Write-Host 'FROZEN_DEV24_DATA_AND_ADAPTER_RECEIPTS_PASS_SEALED40_UNOPENED'
+
+      - name: Require active Windows Docker Desktop before claiming full pipeline
+        run: |
+          $ErrorActionPreference='Stop'
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
+          if($LASTEXITCODE -ne 0){throw 'WINDOWS_DOCKER_UNAVAILABLE_FULL_PIPELINE24_BLOCKED; local tools cannot be replaced by cloud CPU proof'}
+          Push-Location $env:D24_SRC
+          try{
+            & $env:D24_PY -B -m scripts.neral_v2_tools_regression_smoke --out $env:D24_TOOL
+            if($LASTEXITCODE -ne 0){throw 'Docker and SymPy NetworkX Z3 independent verification failed'}
+          }finally{Pop-Location}
+          Write-Host 'WINDOWS_DOCKER_SYMPY_NETWORKX_Z3_AST_READY_FOR_REAL_PIPELINE24'
+
+      - name: Stop resident Ollama models and confirm RTX4070 free GPU
+        run: |
+          $ErrorActionPreference='Stop'
+          $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 15
+          $exe=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+          if(-not(Test-Path $exe -PathType Leaf)){$exe=(Get-Command ollama -ErrorAction Stop).Source}
+          foreach($item in @($ps.models)){if($item -and $item.name){& $exe stop $item.name;if($LASTEXITCODE -ne 0){throw 'Cannot unload resident model'}}}
+          Start-Sleep -Seconds 7
+          $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'RTX4070 absent'}
+          $p=$g[0].Split(',')
+          if($p[0] -notmatch 'RTX 4070' -or [int]$p[2].Trim() -lt 9500){throw 'Insufficient free VRAM'}
+          Write-Host ('DEV24_FAST_GPU_READY '+$g[0])
+
+      - name: Paired 24 real full NERAL pipeline v1 v2 with persistent case checkpoints and bounded 256-token attempts
+        timeout-minutes: 210
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location $env:D24_SRC
+          try{
+            & $env:D24_PY -B -m scripts.neral_v2_pipeline24_hf --base $env:D24_BASE --v1 $env:D24_V1 --full $env:D24_FULL --out $env:D24_OUT --checkpoint-root $env:D24_CKPT
+            if($LASTEXITCODE -ne 0){throw '24-case paired comparison failed; completed per-case evidence remains on D for resume'}
+          }finally{Pop-Location}
+          $m=Get-Content -LiteralPath $env:D24_OUT -Raw|ConvertFrom-Json
+          if($m.status -ne '24_original_cases_through_real_neral_verifier_HF_engine' -or
+              $m.v1_pipeline.complete_pairs -ne 24 -or $m.v2full_pipeline.complete_pairs -ne 24 -or
+              $m.per_generation_max_new_tokens -ne 256){throw 'Incomplete or different protocol scored as full DEV24'}
+          Write-Host ('NERAL_V2_DEV24_RESULT '+($m.v2full_vs_v1_pipeline|ConvertTo-Json -Compress))
+          Write-Host 'NERAL_FULL24_V1_V2_GPU_COMPLETE'
+
+      - name: Upload only numerical summary and per-case scalar checkpoints
+        if: always() && env.D24_CKPT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-dev24-checkpoint256-${{ github.run_id }}
+          path: |
+            ${{ env.D24_OUT }}
+            ${{ env.D24_TOOL }}
+            ${{ env.D24_CKPT }}/v1/manifest.json
+            ${{ env.D24_CKPT }}/v1/cases/*.json
+            ${{ env.D24_CKPT }}/v2full/manifest.json
+            ${{ env.D24_CKPT }}/v2full/cases/*.json
+          if-no-files-found: warn
+          retention-days: 30
