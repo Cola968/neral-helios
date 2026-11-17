@@ -57,3 +57,21 @@ def test_modified_worktree_is_rejected():
     with patch.object(subprocess,"run",run):
         with pytest.raises(RuntimeError,match="WORKTREE_DRIFT"):
             gate.verify_main_integrity()
+
+
+
+def test_pull_request_merge_anchors_the_updated_main_without_dropping_blob_guard():
+    run,calls=_git(merge_current=True)
+    with patch.object(subprocess,"run",run):
+        gate.verify_main_integrity()
+    assert any(c[:2]==("git","rev-parse") and
+               c[2].startswith("f7affa3ff06b018bd7460e2802be4b19cd67a265:")
+               for c in calls)
+    assert len([c for c in calls if c[:3]==("git","diff","--quiet")])==len(gate.PROTECTED)
+
+
+def test_unrecognized_git_ancestry_fails_closed():
+    run,_=_git(history_unknown=True)
+    with patch.object(subprocess,"run",run):
+        with pytest.raises(RuntimeError,match="INTEGRITY_BASE_UNKNOWN"):
+            gate.verify_main_integrity()
