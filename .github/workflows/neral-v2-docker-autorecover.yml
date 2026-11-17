@@ -33,9 +33,21 @@ jobs:
           & cmd.exe /d /c 'docker info >NUL 2>&1'
           $ready=($LASTEXITCODE -eq 0)
           if(-not $ready){
-            if(-not(Test-Path -LiteralPath $desktop -PathType Leaf)){throw 'Docker Desktop executable not installed at approved path'}
-            Write-Host 'DOCKER_DESKTOP_START_REQUESTED'
-            Start-Process -FilePath $desktop -ErrorAction Stop
+            $candidates=@(
+              $desktop,
+              (Join-Path $env:LOCALAPPDATA 'Programs/Docker/Docker/Docker Desktop.exe'),
+              'D:\Docker\Docker\Docker Desktop.exe',
+              'D:\Program Files\Docker\Docker\Docker Desktop.exe'
+            )
+            try{
+              $registry=(Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Docker Desktop.exe' -ErrorAction Stop).'(default)'
+              if($registry){$candidates+= [string]$registry}
+            } catch {}
+            $desktop=$candidates|Where-Object{Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
+            $svc=Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+            if($svc){Write-Host ('DOCKER_SERVICE '+$svc.Status);if($svc.Status -ne 'Running'){try{Start-Service -Name 'com.docker.service' -ErrorAction Stop;Write-Host 'DOCKER_SERVICE_START_REQUESTED'}catch{Write-Host ('DOCKER_SERVICE_START_DENIED '+$_.Exception.GetType().Name)}}}
+            if($desktop){Write-Host ('DOCKER_DESKTOP_START_REQUESTED '+$desktop);Start-Process -FilePath $desktop -ErrorAction Stop}
+            else {Write-Host 'DOCKER_DESKTOP_BINARY_MISSING_IN_KNOWN_INSTALL_LOCATIONS'}
             $deadline=[datetime]::UtcNow.AddSeconds(90)
             do {
               Start-Sleep -Seconds 3
