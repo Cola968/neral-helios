@@ -4,6 +4,8 @@ on:
     branches: [feat/neral-three-tier-local-live-20261117]
     paths:
       - '.github/workflows/neral-three-tier-gpu-smoke.yml'
+      - 'scripts/neral_three_tier_gpu_smoke.py'
+      - 'neral_three_tier_runtime.py'
   workflow_dispatch:
 permissions:
   contents: read
