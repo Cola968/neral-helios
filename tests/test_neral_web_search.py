@@ -120,6 +120,7 @@ class FreshNewsContracts(unittest.TestCase):
         self.assertEqual(news_subject("Aktuelle BER Nachrichten"),"BER")
         self.assertEqual(news_subject("NASA Artemis News heute"),"NASA Artemis")
         self.assertEqual(news_subject("News"),"News")
+        self.assertEqual(news_subject("Suche bitte aktuell im Web: EZB Leitzins heute?"),"EZB Leitzins")
 
     def test_google_news_query_is_constrained_to_fixed_public_feed(self):
         from neral_web_search import NEWS_ENDPOINT
