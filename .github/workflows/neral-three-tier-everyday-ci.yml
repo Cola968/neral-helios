@@ -1,0 +1,30 @@
+name: NERAL everyday source-proof CPU regression
+on:
+  push:
+    branches: [fix/neral-luna-auto-verified-everyday-20261117]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_everyday_verified.py'
+      - 'static/neral-preview.js'
+      - 'tests/test_neral_three_tier_everyday.py'
+      - '.github/workflows/neral-three-tier-everyday-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  everyday-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install exact CPU verifier dependencies
+        run: python -m pip install 'pytest>=8,<10' 'z3-solver==4.16.0.0'
+      - name: Prove source-grounded routing, cents, Z3 and fail-closed
+        run: python -m pytest -q tests/test_neral_three_tier_everyday.py
+      - name: Preview JavaScript syntax
+        run: node --check static/neral-preview.js
