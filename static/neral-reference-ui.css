@@ -571,6 +571,8 @@ html[data-theme=dark] .reference-code-keyword{color:#c39bfa}
   transition:width .14s ease
 }
 .mode-effort-track[data-level="high"] .mode-effort-progress{width:100%}
+/* Only the server-confirmed HF 3-tier mode exposes this middle stop. */
+.mode-effort-track[data-level="terra"] .mode-effort-progress{width:50%}
 .mode-effort-track input[type="range"]{
   -webkit-appearance:none;appearance:none;
   display:block;position:absolute;z-index:1;inset:0;

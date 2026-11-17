@@ -9,6 +9,7 @@
 
   const encoder=new TextEncoder();
   let csrf=null, busy=false, recognizer=null, listening=false;
+  let threeTierEnabled=false; // Explicit local HF opt-in; legacy default unchanged.
   let activeRequest=null, conversationEpoch=0;
   stopRequest.disabled=true;
   let attachments=[];
@@ -206,10 +207,20 @@
     let subject=(hasDirective?q.replace(request,""):q).trim();
     if(hasDirective)subject=subject.replace(/^[?!.,:;]+/g,"").trim();
     if(hasDirective && (!subject||/^[?!.,:;]+$/.test(subject)||
-       /^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
+       /^(?:bitte|mal|online|internet|web|nach)$/iu.test(subject)))
       return ""; // No subject was supplied: do not search the greeting.
     if(subject.length<2)subject=original;
-    const normalized=subject.replace(/\s+/g," ").trim();
+    let normalized=subject.replace(/\s+/g," ").trim();
+    // A bare BER-flight shorthand plus "aktuell" was repeatedly interpreted
+    // by public search providers as general news, yielding zero topical hits.
+    // Expand only this unambiguous airport-route intent; other search queries,
+    // especially current news searches, keep their original freshness words.
+    const berFlights=/\bBER[-–\s]+(?:Flugverbindungen|Flugziele|Flugstrecken|Flüge)(?=$|[\s.!?,])/iu;
+    if(berFlights.test(normalized)){
+      normalized=normalized.replace(/^aktuell(?:e|en|es|er)?\s+/iu,"")
+        .replace(berFlights,"BER Berlin Brandenburg Flughafen Flugziele")
+        .replace(/[.!?]+$/g,"").trim();
+    }
     if(normalized.length<=160)return normalized;
     const cut=normalized.slice(0,160);
     return cut.slice(0,cut.lastIndexOf(" "))||cut;
@@ -290,6 +301,18 @@
     // when the question actually contains multiple distinct topical terms.
     return matches.length>=Math.ceil(topics.length*0.75) &&
       matches.some(word=>title.has(word));
+  }
+  // Source-only degradation is permitted only for a real, topic-matched
+  // HTTPS search hit after the explicit 3-tier model runtime error. This is
+  // not an AI answer and must never carry a verification badge.
+  function sourceOnlyWebFallback(error,attempted,sources,threeTierEnabled){
+    if(!threeTierEnabled||attempted!==true||!Array.isArray(sources)||
+       String(error?.message||"")!=="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.")
+      return false;
+    return sources.some(source=>source&&typeof source.url==="string" &&
+      /^https:\/\/[^/\s]+\.[^/\s]+/iu.test(source.url) &&
+      (source.reachable===true ||
+       (source.discovered===true&&source.topically_relevant===true)));
   }
   // A citation belongs to the exact answer whose prompt received the evidence.
   // Link reachability was verified by the local backend. Search excerpts are
@@ -411,6 +434,17 @@
       if(status.model_origin!=="local_foundation_not_neral_adapter" ||
          status.model!==session.model || status.adapter_loaded!==false) {
         throw new Error("Unbekannte Modellherkunft. NERAL-Chat verweigert.");
+      }
+      if(session.three_tier_enabled===true){
+        const pinned=await json("/api/neral/chat/three-tier/status");
+        if(pinned.enabled!==true || pinned.luna!=="qwen3.5:4b" ||
+           pinned.helios!=="qwen3.5:9b+neral-v2-full" ||
+           !Array.isArray(pinned.tiers) ||
+           pinned.tiers.join(",")!=="Luna,Terra,Helios")
+          throw new Error("Drei-Modell-Profil nicht eindeutig verifiziert.");
+        threeTierEnabled=true;
+        document.documentElement.dataset.neralThreeTier="true";
+        browser.dispatchEvent?.(new CustomEvent("neral:three-tier-ready"));
       }
     } catch(e) {
       csrf=null;
@@ -734,8 +768,14 @@
       errors.textContent="Websuche ist ausgeschaltet. Bitte den Schalter „Web“ aktivieren und die Anfrage erneut senden.";
       return;
     }
-    const mode=form.querySelector('input[name="mode"]:checked')?.value==="think"
-       ? "think":"generate";
+    if(threeTierEnabled && attachments.length){
+      errors.textContent="Anhänge sind im experimentellen Drei-Modell-Modus noch nicht freigeschaltet.";
+      return;
+    }
+    const modeRadio=form.querySelector('input[name="mode"]:checked')?.value;
+    const selectedTier=threeTierEnabled
+      ? ({fast:"Luna",terra:"Terra",think:"Helios"}[modeRadio] || "Luna") : null;
+    const mode=modeRadio==="think" ? "think":"generate";
     if(listening)cancelRecognition();
     busy=true;
     submit.disabled=true;
@@ -775,11 +815,9 @@
         onPaint:()=>{messages.scrollTop=messages.scrollHeight;}
       });
     }
+    let sources=[],verifiedSources=[],webAttempted=false;
     try {
       let modelPrompt=text;
-      let sources=[];
-      let verifiedSources=[];
-      let webAttempted=false;
       // Attached files are processed locally even if the optional web tool is on.
       const genericAttachmentOnly=selectedAttachments.length>0 &&
         /^analysiere die anhänge[.!?]?$/i.test(text);
@@ -869,7 +907,12 @@
         path="/api/neral/preview/attachment-chat";
         options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
       }
-      const useLive=mode==="generate" && !selectedAttachments.length &&
+      if(threeTierEnabled){
+        path="/api/neral/chat/three-tier";
+        options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
+                                     history:safeHistory()});
+      }
+      const useLive=!threeTierEnabled && mode==="generate" && !selectedAttachments.length &&
         typeof browser.NeralLiveStream?.read==="function" &&
         typeof ReadableStream!=="undefined";
       if(useLive)path="/api/neral/chat/generate-stream";
@@ -898,8 +941,25 @@
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
         throw new Error("Leere Modellantwort.");
-      if(result.model_origin!=="local_foundation_not_neral_adapter" ||
-         result.adapter_loaded!==false)
+      if(threeTierEnabled){
+        if(result.runtime_tier_verified!==true || result.tier!==selectedTier)
+          throw new Error("Modus oder Modellantwort nicht zugeordnet.");
+        const luna=selectedTier==="Luna";
+        if(result.model!==(luna?"qwen3.5:4b":"qwen3.5:9b+neral-v2-full"))
+          throw new Error("Unzulässiger stiller Modellwechsel.");
+        if(result.model_generated===true){
+          if(luna && (result.model_origin!=="local_foundation_not_neral_adapter" ||
+                      result.adapter_loaded!==false))
+            throw new Error("Luna benutzt nicht das unveränderte 4B-Modell.");
+          if(!luna && (result.model_origin!=="local_neral_lora_experimental" ||
+                       result.adapter_loaded!==true || !/^[0-9a-f]{64}$/.test(result.adapter_sha256||"")))
+            throw new Error("Helios-v2-full-Adapter wurde nicht nachgewiesen.");
+        }else if(result.verified!==true ||
+                 result.model_origin!=="local_source_verified_tools_only" ||
+                 !["full_source_independent","full_source_grammar_exact"].includes(result.verification_scope))
+          throw new Error("Werkzeugantwort ohne unabhängigen Vollquellenbeweis.");
+      }else if(result.model_origin!=="local_foundation_not_neral_adapter" ||
+               result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
       // A runtime greeting is not a researched answer. An outdated client
@@ -924,14 +984,18 @@
       // The provisional display is replaced by the verified complete answer.
       partialNode?.remove();
       partialNode=null;
-      const verified=result.verified===true && result.verification_scope!=="none";
-      let origin=runtimeGreeting ? "NERAL" :
+      const verified=result.verified===true && result.model_generated===false &&
+        result.verification_scope!=="none";
+      let origin=threeTierEnabled
+        ? ("NERAL "+selectedTier+(verified
+             ? " · Verifiziert ("+(result.proof_backend||"Werkzeug")+")"
+             : " · ungeprüft")) : runtimeGreeting ? "NERAL" :
         result.model_generated===false&&result.tool_used
         ? "NERAL · lokal geprüft" : verified
         ? "NERAL HIGH · Endwert geprüft" : mode==="think"
         ? "NERAL HIGH · ungeprüft" : "NERAL LOW";
       if(typeof result.model==="string" &&
-         /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
+         !threeTierEnabled && /^(?:qwen3:8b|qwen3\.5:9b)$/.test(result.model))
         origin+=" · Modell "+result.model;
       if(sources.length) origin+=" · mit Suchtreffern";
       if(selectedAttachments.length) {
@@ -979,6 +1043,27 @@
       fileStatus.textContent="Keine Dateien ausgewählt.";
       speak(result.text);
     } catch(e) {
+      if(startedEpoch===conversationEpoch&&!controller.signal.aborted&&!deadline.aborted &&
+         sourceOnlyWebFallback(e,webAttempted,sources,threeTierEnabled)){
+        // Do not drop search-provider evidence because local HF generation
+        // could not finish. Clearly distinguish this from a model answer.
+        const message="Die Websuche hat "+sources.length+
+          " thematisch passende Suchtreffer gefunden. "+
+          "Die lokale Modellzusammenfassung konnte nicht erzeugt werden. "+
+          "Die Quellen sind unten verlinkt; ihre Inhalte wurden nicht unabhängig geprüft.";
+        partialNode?.remove();partialNode=null;
+        const answerNode=append("assistant",message,
+          "NERAL Websuche · Suchtreffer ohne Modellzusammenfassung",true);
+        appendSources(answerNode,sources,true);
+        memory.push({role:"user",content:text},{role:"assistant",content:message});
+        if(memory.length>12)memory.splice(0,memory.length-12);
+        browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
+          detail:{user:text,assistant:message}
+        }));
+        motionActivity("done",mode);
+        completedTurn=true;
+        return;
+      }
       if(startedEpoch===conversationEpoch){
         userNode.className+=" neral-message-failed";
         if(!prompt.value.trim())prompt.value=text;

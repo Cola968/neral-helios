@@ -16,6 +16,8 @@ import zipfile
 REQUIRED_FILES = (
     "START HIER.txt",
     "Start NERAL 1.0 Local.cmd",
+    "Start NERAL 3 Modi.cmd",
+    "Start-Neral-Three-Tier.ps1",
     "Start NERAL 1.0 Stark.cmd",
     "Install NERAL Voice.cmd",
     "Install-Neral-Local-Voice.ps1",
@@ -39,6 +41,8 @@ REQUIRED_FILES = (
     "neral_tir_regression_guard.py",
     "neral_adaptive_planner.py",
     "neral_verified_source_code.py",
+    "neral_three_tier_runtime.py",
+    "scripts/neral_three_tier_runtime_inventory.py",
     "neral_cpu_foundation/__init__.py",
     "neral_cpu_foundation/integration.py",
     "neral_cpu_foundation/constraints.py",

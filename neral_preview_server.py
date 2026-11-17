@@ -73,7 +73,7 @@ def build_experimental_high(low_model: str, enabled: bool):
         inference_profile="measured_nonthinking_2048")
 
 
-def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None, experimental_high_backend=None):
+def create_preview_app(backend=None, *, secret_key=None, search_service=None, vision_analyzer=None, voice_service=None, experimental_high_backend=None, three_tier_runtime=None):
     if backend is None:
         from neral_agent_autonomy import OllamaLocalBackend
         backend = OllamaLocalBackend("qwen3:8b")
@@ -159,7 +159,10 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
                            getattr(experimental_high_backend, "model", None)),
                        experimental_high_enabled=experimental_high_backend is not None,
                        model_origin="local_foundation_not_neral_adapter",
-                       release_validated=False,adapter_promoted=False)
+                       release_validated=False,adapter_promoted=False,
+                       three_tier_enabled=three_tier_runtime is not None,
+                       three_tier_levels=(['Luna','Terra','Helios']
+                                          if three_tier_runtime is not None else []))
 
     from neral_local_chat_api import register_neral_local_chat_api
     chat_busy = register_neral_local_chat_api(
@@ -177,6 +180,11 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     register_local_accounts(app)
     from neral_cpu_foundation.integration import register_cpu_foundation_api
     register_cpu_foundation_api(app)
+    # Optional pinned 4B/9B HF endpoints share the original CSRF, account
+    # context and single-GPU lock. Default app behavior is unchanged.
+    if three_tier_runtime is not None:
+        from neral_three_tier_runtime import register_three_tier_api
+        register_three_tier_api(app, three_tier_runtime, busy=chat_busy)
 
     # Web search stays opt-in: constructing a service or reading status must
     # never send data off the machine. All API routes inherit the same
@@ -258,6 +266,14 @@ def main(argv=None):
                         help="Experimental measured profile; default stays legacy.")
     parser.add_argument("--experimental-high-qwen35",action="store_true",
                         help="Opt-in HIGH with installed Qwen3.5:9b; defaults off.")
+    parser.add_argument("--experimental-three-tier-hf",action="store_true",
+                        help="Explicit local 4B Luna + frozen Helios-v2-full HF; default off.")
+    parser.add_argument("--luna-4b-hf",type=Path,
+                        default=Path("D:/neral-qlora-v2/qwen35-4b-hf"))
+    parser.add_argument("--helios-9b-hf",type=Path,
+                        default=Path("D:/neral-qlora/checkpoint"))
+    parser.add_argument("--helios-v2-full",type=Path,
+                        default=Path("D:/neral-qlora-v2/v2full-43931510428-1-helios"))
     parser.add_argument("--experimental-dual-routing",action="store_true",
                         help="Opt-in pinned QLoRA for TIR and base-Qwen for raw fallback; default off.")
     args=parser.parse_args(argv)
@@ -271,13 +287,26 @@ def main(argv=None):
         require_exact_models()  # fail before listening if either digest differs
         import os
         os.environ["NERAL_EXPERIMENTAL_DUAL_ROUTE"]="1"
-    app=create_preview_app(OllamaLocalBackend(
-        args.model,timeout=90,inference_profile=args.inference_profile),
-        experimental_high_backend=high)
+    if args.experimental_three_tier_hf and (args.experimental_high_qwen35 or args.experimental_dual_routing):
+        raise ValueError("Three-tier HF cannot share experimental Ollama HIGH/dual routing")
+    legacy=OllamaLocalBackend(args.model,timeout=90,
+                              inference_profile=args.inference_profile)
+    tier_runtime=None
+    if args.experimental_three_tier_hf:
+        from neral_three_tier_runtime import FrozenQwen35HF, ThreeTierRuntime
+        # Never download or install models here. Fail closed if any local
+        # snapshot or the frozen adapter receipt is missing or modified.
+        tier_runtime=ThreeTierRuntime(
+            FrozenQwen35HF(args.luna_4b_hf),
+            FrozenQwen35HF(args.helios_9b_hf,full_root=args.helios_v2_full),
+            legacy_backend=legacy)
+    app=create_preview_app(legacy,experimental_high_backend=high,
+                           three_tier_runtime=tier_runtime)
     print(f"NERAL 1.0 Local Preview: {ORIGIN} | LOW={args.model} | "
           f"HIGH={getattr(high,'model',args.model)} | "
           f"inference_profile={args.inference_profile} | "
           f"dual_routing_opt_in={args.experimental_dual_routing} | "
+          f"three_tier_hf_opt_in={tier_runtime is not None} | "
           "no default model promotion",flush=True)
     serve(app,host=HOST,port=PORT,threads=4)
 

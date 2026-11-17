@@ -1,0 +1,26 @@
+name: NERAL PR558 BER web query specificity regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-web-query-ci.yml'
+      - 'tests/test_neral_web_query_specificity.cjs'
+      - 'tests/test_neral_source_only_web_fallback.cjs'
+      - 'static/neral-preview.js'
+permissions:
+  contents: read
+jobs:
+  query-contract:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert BER query and unrelated query behavior
+        run: node --test tests/test_neral_web_query_specificity.cjs tests/test_neral_source_only_web_fallback.cjs

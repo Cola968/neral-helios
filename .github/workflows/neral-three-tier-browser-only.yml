@@ -1,0 +1,56 @@
+name: NERAL PR558 true browser E2E of durable localhost service
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-browser-only.yml'
+      - 'scripts/neral_three_tier_browser_e2e.cjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-pr558-browser-only
+  cancel-in-progress: false
+jobs:
+  browser-accept:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm task and three-tier HTTP session on actual Windows PC
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction Stop
+          if([string]$task.State -ne 'Running'){throw 'Persistent NERAL service not running'}
+          $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          $homepage=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 12
+          $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 12
+          if($homepage.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
+             (@($receipt.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
+            throw 'Three-tier HTTP session is not initialized'
+          }
+          $chrome=@(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+            (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+          ) | Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+          if(-not $chrome){throw 'No real installed Chrome/Edge found'}
+          "NERAL_CHROME_EXE=$chrome" >> $env:GITHUB_ENV
+          Write-Host 'NERAL_PR558_DURABLE_HTTP_SESSION_PASS'
+      - name: Real browser slider, multi-tier HF, source proof, SQLite, RAG and live web
+        run: |
+          $ErrorActionPreference='Stop'
+          & node --check scripts/neral_three_tier_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Browser test syntax failed'}
+          & node scripts/neral_three_tier_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Live browser E2E failure; keep PR draft'}
+          Write-Host 'NERAL_PR558_BROWSER_FULL_PASS'

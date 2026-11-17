@@ -1,0 +1,46 @@
+name: NERAL Windows real public web search smoke
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-live-websearch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-windows-public-websearch-readonly
+  cancel-in-progress: false
+jobs:
+  fixed-public-query:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: One bounded real public query, no user content
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned local Python missing'}
+          $out=Join-Path $env:RUNNER_TEMP ('neral-web-live-'+$env:GITHUB_RUN_ID+'.json')
+          $env:PYTHONPATH=$src
+          Push-Location $src
+          try{
+            & $py -B -m scripts.neral_windows_web_live_smoke --out $out
+            if($LASTEXITCODE -ne 0){throw 'Windows real web provider search did not return a verified discovery result'}
+          }finally{Pop-Location}
+          "WEB_PROBE_SCALAR=$out" >> $env:GITHUB_ENV
+      - name: Upload only scalar status (no URL, snippet or question)
+        if: always() && env.WEB_PROBE_SCALAR != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-windows-real-web-smoke-${{ github.run_id }}
+          path: ${{ env.WEB_PROBE_SCALAR }}
+          retention-days: 14
+          if-no-files-found: warn

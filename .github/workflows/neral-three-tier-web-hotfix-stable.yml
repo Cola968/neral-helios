@@ -1,0 +1,110 @@
+name: NERAL PR558 pinned browser web-query hotfix into existing stable preview
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths: ['.github/workflows/neral-three-tier-web-hotfix-stable.yml']
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        type: string
+        required: true
+        description: 'NERAL_PR558_WEB_QUERY_REPAIR_APPROVED'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  stable-browser-source:
+    if: (github.event_name == 'push' || inputs.confirmation == 'NERAL_PR558_WEB_QUERY_REPAIR_APPROVED') && github.ref == 'refs/heads/feat/neral-three-tier-local-live-20261117'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate exact reviewed JS and regression contract before any change
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected='666a9e4b2d2467f6397a16b107a709dcf34746c2'
+          $actual=(& git rev-parse 'HEAD:static/neral-preview.js').Trim()
+          if($actual -ne $expected){throw 'PR branch web-query JS is not exactly pinned reviewed blob'}
+          & git diff --quiet HEAD -- static/neral-preview.js
+          if($LASTEXITCODE -ne 0){throw 'Dirty preview JS worktree; block hotfix'}
+          & node --check static/neral-preview.js
+          if($LASTEXITCODE -ne 0){throw 'Preview JavaScript syntax invalid'}
+          & node --test tests/test_neral_web_query_specificity.cjs tests/test_neral_source_only_web_fallback.cjs
+          if($LASTEXITCODE -ne 0){throw 'Web-query behavioral tests failed; do not change local app'}
+          Write-Host 'NERAL_PR558_WEB_HOTFIX_PINNED_JS_AND_TEST_GREEN'
+      - name: Replace only attested stable static JS with exact SHA and rollback
+        run: |
+          $ErrorActionPreference='Stop'
+          $version='909d1419c9ff'
+          $taskName='NERAL-PR558-ThreeTier-'+$version
+          $stable=Join-Path $env:LOCALAPPDATA ('NERAL/three-tier-pr558-'+$version+'/NERAL-1.0-Local')
+          $target=Join-Path $stable 'static/neral-preview.js'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'static/neral-preview.js'
+          $server=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $runtime=Join-Path $stable 'neral_three_tier_runtime.py'
+          $oldSha='e627ada9165757def69c4dcb81628c526b6644d4'
+          $newSha='666a9e4b2d2467f6397a16b107a709dcf34746c2'
+          $runtimeSha='c2bda8aa38a7c504eda3d922e43b8e599666949b'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State -ne 'Running' -or [string]$task.Actions[0].Arguments -notlike ('*'+$server+'*')){
+            throw 'Not the exact registered, running NERAL PR558 service'
+          }
+          if(-not(Test-Path -LiteralPath $target -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $server -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $runtime -PathType Leaf)){
+            throw 'Stable NERAL installation files missing'
+          }
+          $runtimeActual=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $runtime).Trim()
+          if($runtimeActual -ne $runtimeSha){throw 'Stable independent verifier not updated; block frontend patch'}
+          $sourceSha=(& git -c core.autocrlf=true hash-object --path=static/neral-preview.js $source).Trim()
+          if($sourceSha -ne $newSha){throw 'Source file has changed; block patch'}
+          $previous=(& git -c core.autocrlf=true hash-object --path=static/neral-preview.js $target).Trim()
+          if($previous -ne $oldSha -and $previous -ne $newSha){
+            Write-Host ('NERAL_PR558_UNEXPECTED_PREVIEW_BLOB '+$previous)
+            throw 'Unknown current preview source; leave user files unchanged'
+          }
+          $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          $page=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/' -WebSession $session -TimeoutSec 12
+          $receipt=Invoke-RestMethod -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -WebSession $session -TimeoutSec 12
+          if($page.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
+             (@($receipt.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
+            throw 'Expected loopback server and all three modes not responding'
+          }
+          if($previous -eq $newSha){
+            Write-Host 'NERAL_PR558_BROWSER_SOURCE_ALREADY_UPGRADED'
+            return
+          }
+          $backup=Join-Path $stable 'local_state/neral-preview.pre-source-only-fallback.js'
+          if(Test-Path -LiteralPath $backup -PathType Leaf){
+            $backupSha=(& git -c core.autocrlf=true hash-object --path=static/neral-preview.js $backup).Trim()
+            if($backupSha -ne $oldSha){throw 'Existing hotfix backup differs; refuse overwrite'}
+          }else{
+            Copy-Item -LiteralPath $target -Destination $backup -ErrorAction Stop
+          }
+          $complete=$false
+          try{
+            Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
+            $updated=(& git -c core.autocrlf=true hash-object --path=static/neral-preview.js $target).Trim()
+            if($updated -ne $newSha){throw 'Installed frontend source hash mismatch'}
+            $page=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:9690/static/neral-preview.js' -WebSession $session -TimeoutSec 12
+            if($page.StatusCode -ne 200 -or [string]$page.Content -notmatch 'BER Berlin Brandenburg Flughafen Flugziele'){
+              throw 'Running server not serving the new query code'
+            }
+            $complete=$true
+            Write-Host 'NERAL_PR558_STABLE_WEB_QUERY_JS_PINNED_AND_HTTP_200'
+          }finally{
+            if(-not $complete){
+              Copy-Item -LiteralPath $backup -Destination $target -Force -ErrorAction Stop
+              Write-Host 'NERAL_PR558_STABLE_BROWSER_JS_ROLLBACK'
+            }
+          }

@@ -1,0 +1,198 @@
+name: NERAL PR558 trusted single-file runtime correction in stable local preview
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-sync-stable-runtime.yml'
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        type: string
+        required: true
+        description: 'NERAL_PR558_VERIFIED_HISTORY_HOTFIX_APPROVED'
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  stable-runtime-correction:
+    if: (github.event_name == 'push' || inputs.confirmation == 'NERAL_PR558_VERIFIED_HISTORY_HOTFIX_APPROVED') && github.ref == 'refs/heads/feat/neral-three-tier-local-live-20261117'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 14
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen source and full question proof syntax
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=($env:GITHUB_WORKSPACE)
+          $actual=(& git -C $repo rev-parse 'HEAD:neral_three_tier_runtime.py').Trim()
+          & git -C $repo diff --quiet HEAD -- neral_three_tier_runtime.py | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'Tracked runtime worktree changed'}
+          if($actual -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){throw 'Source hash differs from reviewed history fix'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m py_compile (Join-Path $repo 'neral_three_tier_runtime.py')
+          if($LASTEXITCODE -ne 0){throw 'New runtime syntax invalid'}
+          Push-Location -LiteralPath $repo
+          try{
+            & $py -B -m unittest discover -s tests -p test_neral_three_tier_api.py -q
+            if($LASTEXITCODE -ne 0){throw 'Real Windows CPU contract tests did not pass; block local app modification'}
+          }finally{Pop-Location}
+          Write-Host 'NERAL_PR558_HISTORY_PROOF_SOURCE_PINNED_AND_CPU_GREEN'
+      - name: Update only NERAL-owned registered task runtime with rollback
+        run: |
+          $ErrorActionPreference='Stop'
+          $version='909d1419c9ff'
+          $taskName='NERAL-PR558-ThreeTier-'+$version
+          $stable=Join-Path $env:LOCALAPPDATA ('NERAL/three-tier-pr558-'+$version+'/NERAL-1.0-Local')
+          $destination=Join-Path $stable 'neral_three_tier_runtime.py'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'neral_three_tier_runtime.py'
+          $server=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if(-not(Test-Path -LiteralPath $destination -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $server -PathType Leaf)){
+            throw 'Managed NERAL stable files missing'
+          }
+          if([string]$task.State -ne 'Running' -or
+             [string]$task.Actions[0].Arguments -notlike ('*'+$server+'*')){
+            throw 'Expected exact self-owned NERAL task is not running the pinned service'
+          }
+          $old=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
+          if($old -ne '499f21c278f8c62d3ee82856f5fe8e978336f0d9'){
+            throw 'Stable source drift: refuse to overwrite an unknown runtime'
+          }
+          $backup=Join-Path $stable 'local_state/neral_three_tier_runtime.pre-history-proof.py'
+          if(Test-Path -LiteralPath $backup){
+            $backupHash=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $backup).Trim()
+            if($backupHash -ne '499f21c278f8c62d3ee82856f5fe8e978336f0d9'){
+              throw 'Backup source changed; refuse retry'
+            }
+          }else{
+            Copy-Item -LiteralPath $destination -Destination $backup -ErrorAction Stop
+          }
+          # Attest the exact managed listener BEFORE stopping Scheduler:
+          # the service's PowerShell ancestor may disappear on task stop.
+          $priorListeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          if($priorListeners.Count -gt 1){throw 'Multiple loopback listeners; preserve unknown processes'}
+          $attestedPid=0
+          if($priorListeners.Count -eq 1){
+          $attestedPid=[int]$priorListeners[0].OwningProcess
+          $attestedProc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$attestedPid) -ErrorAction Stop
+          $attestedParent=if($null -ne $attestedProc -and [int]$attestedProc.ParentProcessId -gt 0){
+            Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$attestedProc.ParentProcessId) -ErrorAction Stop
+          }else{$null}
+          # The task's original PowerShell ancestor may have exited.
+          # Attest the exact NERAL command-line model paths and both Python
+          # processes instead; always pin the task script, blob and PID.
+          if($null -eq $attestedProc -or $null -eq $attestedParent -or
+             [string]$attestedProc.Name -notmatch '(?i)^pythonw?\.exe$' -or
+             [string]$attestedParent.Name -notmatch '(?i)^pythonw?\.exe$' -or
+             [string]$attestedParent.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+             [string]$attestedParent.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+             [string]$attestedProc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+             [string]$attestedProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+             [string]$attestedProc.CommandLine -notmatch '(?i)--helios-v2-full' -or
+             [string]$attestedProc.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*' -or
+             [string]$attestedProc.CommandLine -notlike '*D:/neral-qlora-v2/qwen35-4b-hf*'){
+            throw 'Pre-stop listener is not pinned NERAL three-tier preview; preserve it'
+          }
+          $attestedCreated=[string]$attestedProc.CreationDate
+          Write-Host 'NERAL_PR558_PRESTOP_MANAGED_LISTENER_ATTESTED'
+          }else{
+            Write-Host 'NERAL_PR558_PORT_EMPTY_USER_STOP_CONFIRMED'
+          }
+          $complete=$false
+          try{
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($i=0;$i -lt 35;$i++){
+              $t=Get-ScheduledTask -TaskName $taskName
+              if([string]$t.State -ne 'Running'){break}
+              Start-Sleep -Milliseconds 500
+            }
+            # Task stop may detach a venv Python child or change its PID.
+            # Never kill based on an old PID alone. Re-attest each unique
+            # listener against the exact NERAL model flags before stopping it.
+            if([string](Get-ScheduledTask -TaskName $taskName).State -eq 'Running'){
+              throw 'NERAL task still running after controlled stop; preserve listener'
+            }
+            for($round=0;$round -lt 4;$round++){
+              $owners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+              if($owners.Count -eq 0){break}
+              if($owners.Count -ne 1){throw 'Multiple port owners after stop; preserve unknown listeners'}
+              $activePid=[int]$owners[0]
+              $activeProc=Get-CimInstance Win32_Process -Filter ('ProcessId = '+$activePid) -ErrorAction Stop
+              $activeParent=if($null -ne $activeProc -and [int]$activeProc.ParentProcessId -gt 0){
+                Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$activeProc.ParentProcessId) -ErrorAction SilentlyContinue
+              }else{$null}
+              if($null -eq $activeProc -or $null -eq $activeParent -or
+                 [string]$activeProc.Name -notmatch '(?i)^pythonw?\.exe$' -or
+                 [string]$activeParent.Name -notmatch '(?i)^pythonw?\.exe$' -or
+                 [string]$activeProc.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+                 [string]$activeParent.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+                 [string]$activeProc.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+                 [string]$activeParent.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+                 [string]$activeProc.CommandLine -notlike '*D:/neral-qlora-v2/v2full-43931510428-1-helios*' -or
+                 [string]$activeProc.CommandLine -notlike '*D:/neral-qlora-v2/qwen35-4b-hf*'){
+                throw 'Listener changed to unknown process; preserve it'
+              }
+              if($attestedPid -eq $activePid -and
+                 [string]$activeProc.CreationDate -ne $attestedCreated){
+                throw 'Listener PID reused after attestation; preserve it'
+              }
+              # Windows venv Python can be a supervisor which respawns
+              # its child if only the socket-owner PID is stopped.
+              # Both processes have independently verified NERAL CLI flags.
+              # Stop supervisor first, then only its original verified child.
+              $parentLive=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$activeParent.ProcessId) -ErrorAction SilentlyContinue
+              if($null -eq $parentLive -or
+                 [string]$parentLive.CreationDate -ne [string]$activeParent.CreationDate -or
+                 [string]$parentLive.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+                throw 'NERAL supervisor identity changed; preserve it'
+              }
+              Stop-Process -Id ([int]$activeParent.ProcessId) -Force -ErrorAction Stop
+              $childLive=Get-CimInstance Win32_Process -Filter ('ProcessId = '+$activePid) -ErrorAction SilentlyContinue
+              if($null -ne $childLive){
+                if([string]$childLive.CreationDate -ne [string]$activeProc.CreationDate -or
+                   [string]$childLive.CommandLine -notmatch '(?i)--experimental-three-tier-hf'){
+                  throw 'NERAL child identity changed; preserve it'
+                }
+                Stop-Process -Id $activePid -Force -ErrorAction Stop
+              }
+              Start-Sleep -Milliseconds 1800
+              Write-Host 'NERAL_PR558_VERIFIED_SUPERVISOR_CHILD_STOPPED'
+            }
+            $remaining=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+            if($remaining.Count -ne 0){throw 'Unable to clear NERAL listener safely'}
+            Write-Host 'NERAL_PR558_PORT_EMPTY_FOR_PINNED_HOTFIX'
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+            $new=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
+            if($new -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){
+              throw 'Upgraded local module differs from reviewed source'
+            }
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($i=0;$i -lt 135;$i++){
+              Start-Sleep -Milliseconds 800
+              try{
+                $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                $page=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
+                $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 4
+                if($page.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true){
+                  $complete=$true;break
+                }
+              }catch{}
+            }
+            if(-not $complete){throw 'Upgraded preview did not start'}
+            Write-Host 'NERAL_PR558_STABLE_RUNTIME_UPGRADED_HTTP_200'
+          }finally{
+            if(-not $complete){
+              try{Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+              Copy-Item -LiteralPath $backup -Destination $destination -Force
+              try{Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+              Write-Host 'NERAL_PR558_ROLLBACK_ATTEMPTED'
+            }
+          }

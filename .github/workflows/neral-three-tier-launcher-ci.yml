@@ -1,0 +1,63 @@
+name: NERAL three-tier isolated Waitress launcher CPU contract
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - 'Start-Neral-Three-Tier.ps1'
+      - 'tests/test_neral_three_tier_launcher.py'
+      - '.github/workflows/neral-three-tier-launcher-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Start-Neral-Three-Tier.ps1'
+      - 'tests/test_neral_three_tier_launcher.py'
+      - '.github/workflows/neral-three-tier-launcher-ci.yml'
+permissions:
+  contents: read
+jobs:
+  launcher-security-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check isolated dependency consent and zero training environment mutations
+        run: |
+          python -m pip install --disable-pip-version-check pytest==8.4.2
+          python -m pytest -q --color=no tests/test_neral_three_tier_launcher.py
+  windows-checkonly-readonly:
+    # Only inventory / syntax; no model inference, downloads or GPU memory changes.
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise real Windows CheckOnly without installation or server start
+        run: |
+          $ErrorActionPreference='Stop'
+          $webdeps=Join-Path $env:GITHUB_WORKSPACE 'local_state/three-tier-web-deps'
+          $before=Test-Path -LiteralPath $webdeps
+          $env:NERAL_THREE_TIER_INSTALL_CONSENT='0'
+          try {
+            & (Join-Path $env:GITHUB_WORKSPACE 'Start-Neral-Three-Tier.ps1') -CheckOnly -NoBrowser
+            Write-Host 'NERAL_THREE_TIER_CHECKONLY_DEPENDENCIES_READY'
+          } catch {
+            $message=[string]$_.Exception.Message
+            if($message -notmatch 'Waitress fehlt'){
+              throw
+            }
+            Write-Host 'NERAL_THREE_TIER_CHECKONLY_MISSING_WAITRESS_SAFE'
+          }
+          $after=Test-Path -LiteralPath $webdeps
+          if($before -ne $after) {
+            throw 'CheckOnly unexpectedly installed dependencies'
+          }
+          Write-Host 'NERAL_THREE_TIER_WINDOWS_CHECKONLY_NO_INSTALL_PASS'

@@ -239,6 +239,13 @@ def register_neral_local_chat_api(app, backend, *, experimental_high_backend=Non
         may have retained it from an earlier process. No call during direct
         verified-tool answers. Other routes share the chat busy lock.
         """
+        # The opt-in HF runtime may hold its own CUDA model. Evict that
+        # runtime before every legacy Ollama model generation while the
+        # existing global chat lock is held; do not leave both GPU backends
+        # resident after switching modes.
+        release_hf = getattr(app, "_neral_before_legacy_model", None)
+        if callable(release_hf):
+            release_hf()
         if experimental_high_backend is None:
             return
         if active_model[0] != selected.model:

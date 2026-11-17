@@ -20,14 +20,16 @@
   const entries={fast:low,think:high};
   const labels={fast:"LOW",think:"HIGH"};
   const titles={fast:"Schnell",think:"Intensiv"};
+  let threeTier=false;
 
   function refresh(){
-    const selected=radios.think.checked?"think":"fast";
+    const selected=threeTier&&radios.terra?.checked?"terra":radios.think.checked?"think":"fast";
     current.textContent=labels[selected];
-    slider.value=selected==="think"?"1":"0";
+    slider.value=threeTier?(selected==="think"?"2":selected==="terra"?"1":"0"):
+                 (selected==="think"?"1":"0");
     slider.setAttribute("aria-valuetext",titles[selected]);
     sliderTitle.textContent=titles[selected];
-    track.dataset.level=selected==="think"?"high":"low";
+    track.dataset.level=selected==="think"?"high":selected==="terra"?"terra":"low";
     for(const [key,option] of Object.entries(entries)){
       option.setAttribute("aria-checked",String(key===selected));
       option.classList.toggle("is-selected",key===selected);
@@ -45,20 +47,50 @@
     const input=radios[value];if(!input)return;
     // Keep the original hidden radio group as the single source of truth for
     // POST /generate (LOW) vs POST /think (HIGH). No new model mode is invented.
-    radios.fast.checked=value==="fast";
-    radios.think.checked=value==="think";
+    for(const [key,radio] of Object.entries(radios)) radio.checked=key===value;
     input.dispatchEvent(new Event("change",{bubbles:true}));
     refresh();
     if(closeAfter)close(true);
   }
   trigger.addEventListener("click",()=>menu.hidden?open():close(true));
-  slider.addEventListener("input",()=>choose(slider.value==="1"?"think":"fast"));
+  slider.addEventListener("input",()=>choose(threeTier
+    ? ({"0":"fast","1":"terra","2":"think"}[slider.value]||"fast")
+    : (slider.value==="1"?"think":"fast")));
   sliderReset.addEventListener("click",()=>{
     choose("fast");slider.focus();
   });
   low.addEventListener("click",()=>choose("fast",true));
   high.addEventListener("click",()=>choose("think",true));
   for(const input of Object.values(radios))input.addEventListener("change",refresh);
+  // Activated only after server session plus pinned runtime-status validation.
+  // The original two-stop selector is unchanged in every default preview.
+  function enableThreeTier(){
+    if(threeTier)return;
+    const group=document.querySelector(".modes");
+    if(!group || typeof document.createElement!=="function")return;
+    const label=document.createElement("label");
+    const middle=document.createElement("input");
+    middle.type="radio";middle.name="mode";middle.value="terra";
+    const text=document.createTextNode(" Terra");
+    label.append(middle,text);group.append(label);
+    radios.terra=middle;
+    middle.addEventListener("change",refresh);
+    labels.fast="Luna";labels.terra="Terra";labels.think="Helios";
+    titles.fast="Schnell";titles.terra="Ausgewogen";titles.think="Mit Verifikation";
+    slider.max="2";
+    sliderReset.setAttribute("aria-label","Modus auf Luna zurücksetzen");
+    const ends=menu.querySelector(".mode-slider-ends");
+    if(ends && typeof ends.replaceChildren==="function"){
+      const nodes=["Luna","Terra","Helios"].map(name=>{
+        const node=document.createElement("span");node.textContent=name;return node;
+      });
+      ends.replaceChildren(...nodes);
+    }
+    threeTier=true;
+    refresh();
+  }
+  if(document.documentElement?.dataset?.neralThreeTier==="true") enableThreeTier();
+  window.addEventListener?.("neral:three-tier-ready",enableThreeTier);
   menu.addEventListener("keydown",event=>{
     if(event.key==="Escape"){event.preventDefault();close(true);}
     // The native range handles ArrowLeft, ArrowRight, Home and End itself.

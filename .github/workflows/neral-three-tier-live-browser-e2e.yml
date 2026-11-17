@@ -1,0 +1,159 @@
+name: NERAL final consented three-tier real browser live acceptance
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-live-browser-e2e.yml'
+      - 'scripts/neral_three_tier_browser_e2e.cjs'
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'NERAL_ISOLATED_WAITRESS_AND_REAL_BROWSER_E2E_APPROVED'
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: neral-qwen7b-r32-gpu-exclusive
+  cancel-in-progress: false
+jobs:
+  windows-install-and-browser:
+    if: github.event_name == 'push' || inputs.confirmation == 'NERAL_ISOLATED_WAITRESS_AND_REAL_BROWSER_E2E_APPROVED'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm E2E JS syntax and read-only launcher prior to live install
+        run: |
+          $ErrorActionPreference='Stop'
+          & node --check scripts/neral_three_tier_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Browser E2E script syntax failed'}
+          # Additional static security assertions; no package installations.
+          $src=Get-Content -LiteralPath 'Start-Neral-Three-Tier.ps1' -Raw
+          foreach($required in @('NERAL_THREE_TIER_INSTALL_CONSENT','--target $webDeps waitress==3.0.2','if($CheckOnly){')){
+            if(-not $src.Contains($required)){throw 'Launcher missing isolated safety contract'}
+          }
+          Write-Host 'NERAL_FINAL_WINDOWS_LAUNCHER_SECURITY_PASS'
+      - name: Verify local-only app conditions before opt-in install
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if((& git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA){throw 'Checked-out source SHA mismatch'}
+          $port=9690
+          $c=New-Object System.Net.Sockets.TcpClient
+          $occupied=$false
+          try{$c.Connect('127.0.0.1',$port);$occupied=$true}
+          catch [System.Net.Sockets.SocketException]{}
+          finally{$c.Dispose()}
+          if($occupied){
+            # Reuse only the previous opt-in three-tier preview; never take over
+            # an unrelated local service and never stop any user process.
+            $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 10
+            $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 10
+            if($home.StatusCode -ne 200 -or $receipt.three_tier_enabled -ne $true -or
+               (@($receipt.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
+              throw 'Port 9690 is occupied by an unverified service; preserve it'
+            }
+            'NERAL_E2E_REUSE=1' >> $env:GITHUB_ENV
+            Write-Host 'NERAL_THREE_TIER_PRIOR_LOCAL_PREVIEW_IDENTIFIED'
+          }
+          $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
+          if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'GPU inventory unavailable'}
+          $v=@($g[0].Split(',').Trim())
+          if($v[0] -notmatch 'RTX 4070' -or [int]$v[2] -lt 9500){throw 'RTX4070 or free VRAM insufficient; preserve other GPU workloads'}
+          $loaded=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 8
+          if(@($loaded.models|Where-Object{$null -ne $_}).Count -gt 0){throw 'Another Ollama model is active; no model unload allowed'}
+          $browser=@(
+            'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+            'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+            (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+          ) | Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+          if(-not $browser){throw 'No existing Chrome or Edge browser for genuine E2E'}
+          "NERAL_CHROME_EXE=$browser" >> $env:GITHUB_ENV
+          $launcher=Join-Path $env:GITHUB_WORKSPACE 'Start-Neral-Three-Tier.ps1'
+          $env:NERAL_THREE_TIER_INSTALL_CONSENT='0'
+          try{
+            & $launcher -CheckOnly -NoBrowser
+            Write-Host 'NERAL_THREE_TIER_LAUNCHER_READONLY_PASS'
+          }catch{
+            if($_.Exception.Message -notmatch 'Waitress fehlt'){throw}
+            Write-Host 'NERAL_THREE_TIER_LAUNCHER_WAITRESS_MISSING_KNOWN_SAFE'
+          }
+          Write-Host 'NERAL_E2E_PREFLIGHT_PASS'
+      - name: Install source-only stable NERAL outside runner checkout and register standalone Windows task
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:NERAL_E2E_REUSE -eq '1'){throw 'Unmanaged preview is not a stable installation'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $archive=Join-Path $env:RUNNER_TEMP ('neral-three-tier-source-'+$env:GITHUB_RUN_ID+'.zip')
+          & $py -B -m scripts.build_neral_1_0_preview --root $env:GITHUB_WORKSPACE --out $archive
+          if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $archive)){throw 'Source-only release build failed'}
+          $version=$env:GITHUB_SHA.Substring(0,12)
+          $parent=Join-Path $env:LOCALAPPDATA 'NERAL'
+          $dest=Join-Path $parent ('three-tier-pr558-'+$version)
+          if(Test-Path -LiteralPath $dest){throw 'Stable deployment already exists; no automatic overwrite'}
+          New-Item -ItemType Directory -Path $parent -Force | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $dest
+          $stable=Join-Path $dest 'NERAL-1.0-Local'
+          $launcher=Join-Path $stable 'Start-Neral-Three-Tier.ps1'
+          if(-not(Test-Path -LiteralPath $launcher -PathType Leaf)){throw 'Stable source bundle incomplete'}
+          $env:NERAL_THREE_TIER_INSTALL_CONSENT='1'
+          & $launcher -PrepareOnly -NoBrowser
+          if($LASTEXITCODE -ne 0){throw 'Isolated dependency preparation failed'}
+          if(-not(Test-Path -LiteralPath (Join-Path $stable 'local_state/three-tier-web-deps/waitress/__init__.py'))){
+            throw 'Isolated Waitress missing in stable deployment'
+          }
+          $server=Join-Path $stable 'Start-Neral-Three-Tier-Service.ps1'
+          $serve=@'
+          $ErrorActionPreference='Stop'
+          $root=$PSScriptRoot
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $env:HF_HOME='D:/neral-qlora-v2/hf-cache'
+          $env:HF_HUB_CACHE='D:/neral-qlora-v2/hf-cache/hub'
+          $env:HF_XET_CACHE='D:/neral-qlora-v2/hf-cache/xet'
+          $env:HF_HUB_OFFLINE='1'
+          $env:TRANSFORMERS_OFFLINE='1'
+          $env:HF_DATASETS_OFFLINE='1'
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:PYTHONPATH=(Join-Path $root 'local_state/three-tier-web-deps') + [IO.Path]::PathSeparator + $root
+          Set-Location -LiteralPath $root
+          & $py -B -m neral_preview_server --model qwen3:8b --experimental-three-tier-hf --luna-4b-hf 'D:/neral-qlora-v2/qwen35-4b-hf' --helios-9b-hf 'D:/neral-qlora/checkpoint' --helios-v2-full 'D:/neral-qlora-v2/v2full-43931510428-1-helios'
+          '@
+          [IO.File]::WriteAllText($server,$serve,[Text.UTF8Encoding]::new($false))
+          $name='NERAL-PR558-ThreeTier-'+$version
+          if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){throw 'Task exists already; refuse replacement'}
+          $exe=Join-Path $PSHOME 'powershell.exe'
+          $args='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+$server+'"'
+          $action=New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $stable
+          $trigger=New-ScheduledTaskTrigger -Once -At ((Get-Date).AddHours(1))
+          $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+          $principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+          Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'User-authorized NERAL localhost preview' -ErrorAction Stop | Out-Null
+          Start-ScheduledTask -TaskName $name
+          $ready=$false
+          for($i=0;$i -lt 90;$i++){
+            Start-Sleep -Milliseconds 800
+            try{
+              $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+              $home=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 4
+              $receipt=Invoke-RestMethod -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 4
+              if($home.StatusCode -eq 200 -and $receipt.three_tier_enabled -eq $true){$ready=$true;break}
+            }catch{}
+          }
+          if(-not $ready){throw 'Scheduled stable local server did not become reachable'}
+          Write-Host 'NERAL_THREE_TIER_STABLE_TASK_HTTP_200_PASS'
+      - name: Genuine Chrome headless UI interactions + SQLite/RAG + public web + Z3/Python
+        run: |
+          $ErrorActionPreference='Stop'
+          & node scripts/neral_three_tier_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Browser E2E blocked. Inspect scalar previous line; do not merge.'}
+          Write-Host 'NERAL_THREE_TIER_FULL_BROWSER_E2E_PASS'
