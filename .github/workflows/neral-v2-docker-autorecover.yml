@@ -30,7 +30,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $desktop='C:\Program Files\Docker\Docker\Docker Desktop.exe'
           $docker=(Get-Command docker -ErrorAction Stop).Source
-          & $docker info --format '{{.ServerVersion}}' 2>$null
+          & cmd.exe /d /c 'docker info >NUL 2>&1'
           $ready=($LASTEXITCODE -eq 0)
           if(-not $ready){
             if(-not(Test-Path -LiteralPath $desktop -PathType Leaf)){throw 'Docker Desktop executable not installed at approved path'}
@@ -39,7 +39,7 @@ jobs:
             $deadline=[datetime]::UtcNow.AddSeconds(90)
             do {
               Start-Sleep -Seconds 3
-              & $docker info --format '{{.ServerVersion}}' 2>$null
+              & cmd.exe /d /c 'docker info >NUL 2>&1'
               $ready=($LASTEXITCODE -eq 0)
             } until ($ready -or [datetime]::UtcNow -ge $deadline)
           }
