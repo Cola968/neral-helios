@@ -33,6 +33,8 @@ async function launch(){
   });
   out.real_browser=true;
   await command("Page.enable");await command("Runtime.enable");
+  // Do not trust the /json/new query parameter as navigation proof.
+  await command("Page.navigate",{url:base});
 }
 function command(method,params={}){
   return new Promise((resolve,reject)=>{
