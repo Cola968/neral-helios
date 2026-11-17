@@ -1,5 +1,8 @@
 name: NERAL exact everyday Python Z3 repair and real Windows browser acceptance
 on:
+  push:
+    branches: [fix/neral-luna-auto-verified-everyday-20261117]
+    paths: ['.github/workflows/neral-everyday-live-repair.yml']
   workflow_dispatch:
     inputs:
       confirmation:
@@ -13,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy-test-exact-prompts:
-    if: inputs.confirmation == 'NERAL_EVERYDAY_VERIFIED_REPAIR_APPROVED' && github.ref == 'refs/heads/fix/neral-luna-auto-verified-everyday-20261117'
+    if: (github.event_name == 'push' || inputs.confirmation == 'NERAL_EVERYDAY_VERIFIED_REPAIR_APPROVED') && github.ref == 'refs/heads/fix/neral-luna-auto-verified-everyday-20261117'
     runs-on: [self-hosted, windows, x64, neral-gpu]
     timeout-minutes: 35
     defaults:
