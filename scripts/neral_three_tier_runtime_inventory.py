@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from importlib.util import find_spec
 from pathlib import Path
 import http.cookiejar
 import urllib.request
@@ -63,6 +64,9 @@ def collect_inventory(adapter_root: Path, *, fetch=_json_get) -> dict:
         "ollama_4b_installed": False,
         "ollama_9b_installed": False,
         "ollama_available": False,
+        "hf_python_flask_available": find_spec("flask") is not None,
+        "hf_python_waitress_available": find_spec("waitress") is not None,
+        "hf_python_peft_available": find_spec("peft") is not None,
         "preview_running": False,
         "preview_active_foundation": None,
         "preview_three_tier_runtime_enabled": False,
