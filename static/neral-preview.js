@@ -207,7 +207,7 @@
     let subject=(hasDirective?q.replace(request,""):q).trim();
     if(hasDirective)subject=subject.replace(/^[?!.,:;]+/g,"").trim();
     if(hasDirective && (!subject||/^[?!.,:;]+$/.test(subject)||
-       /^(?:bitte|mal|online|internet|web)$/iu.test(subject)))
+       /^(?:bitte|mal|online|internet|web|nach)$/iu.test(subject)))
       return ""; // No subject was supplied: do not search the greeting.
     if(subject.length<2)subject=original;
     let normalized=subject.replace(/\s+/g," ").trim();
