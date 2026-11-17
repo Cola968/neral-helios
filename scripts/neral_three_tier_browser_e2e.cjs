@@ -4,7 +4,7 @@ const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {spawn}=require("node:child_process"),crypto=require("node:crypto");
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const base="http://127.0.0.1:9690/";
-const out={status:"BLOCKED",real_browser:false,slider:[],models:[],memory:false,rag:false,web:false,account_deleted:false,everyday_money:false,everyday_z3:false};
+const out={status:"BLOCKED",real_browser:false,slider:[],models:[],memory:false,rag:false,web:false,web_model_answer:false,account_deleted:false,everyday_money:false,everyday_z3:false};
 let browser,ws,profile,csrf,password,stage="init",nextId=0;
 const pending=new Map();
 function check(ok,message){if(!ok)throw Error(message)}
@@ -157,10 +157,19 @@ async function main(){
       stage="live-web-consent";
       await evaluate("(()=>{const w=document.getElementById('useWebSearch');w.checked=true;"+
         "w.dispatchEvent(new Event('change',{bubbles:true}));return w.checked;})()");
-      await send("Luna","Suche im Internet nach aktuellen BER-Flugverbindungen.");
+      const webResponse=await send("Luna","Suche im Internet nach aktuellen BER-Flugverbindungen.");
       const links=await evaluate("document.querySelectorAll('.neral-source-link').length");
       check(links>0,"Real browser did not render search sources");
-      out.web=true;out.live_search_links=links;
+      // Previously E2E accepted source-only fallback as a successful search.
+      const web_model_answer = webResponse.body.trim().length>45 &&
+        /BER|Brandenburg|Flug|Airport/i.test(webResponse.body) &&
+        !/Suchtreffer ohne Modellzusammenfassung|NERAL Websuche/.test(webResponse.badge) &&
+        !/Die lokale Websuche hat \\d+|Die Websuche hat \\d+/.test(webResponse.body) &&
+        !/Modellzusammenfassung konnte nicht erzeugt werden/i.test(webResponse.body);
+      out.web_model_answer=web_model_answer;
+      out.live_search_links=links;
+      check(web_model_answer,"Web search has links but no usable model answer");
+      out.web=true;
       out.status="BROWSER_E2E_PASS";
     }finally{
       out.last_active_stage=stage;
