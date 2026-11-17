@@ -164,7 +164,7 @@ async function main(){
       const web_model_answer = webResponse.body.trim().length>45 &&
         /BER|Brandenburg|Flug|Airport/i.test(webResponse.body) &&
         !/Suchtreffer ohne Modellzusammenfassung|NERAL Websuche/.test(webResponse.badge) &&
-        !/Die lokale Websuche hat \\d+|Die Websuche hat \\d+/.test(webResponse.body) &&
+        !/Die lokale Websuche hat \d+|Die Websuche hat \d+/.test(webResponse.body) &&
         !/Modellzusammenfassung konnte nicht erzeugt werden/i.test(webResponse.body);
       out.web_model_answer=web_model_answer;
       out.live_search_links=links;
