@@ -96,16 +96,28 @@ jobs:
               if($listeners.Count -ne 1){throw 'Port owner cannot be established uniquely'}
               $ownerPid=[int]$listeners[0].OwningProcess
               $owner=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$ownerPid) -ErrorAction Stop
-              $expectedPy='D:/neral-qlora/venv/Scripts/python.exe'
-              $expectedPath=[IO.Path]::GetFullPath($expectedPy)
-              if($null -eq $owner -or
-                 -not [string]::Equals([IO.Path]::GetFullPath([string]$owner.ExecutablePath),
-                                       $expectedPath,[StringComparison]::OrdinalIgnoreCase) -or
-                 ([string]$owner.CommandLine) -notmatch '(?i)-m\s+neral_preview_server' -or
-                 ([string]$owner.CommandLine) -notmatch '(?i)--experimental-three-tier-hf' -or
-                 ([string]$owner.CommandLine) -notmatch '(?i)--helios-v2-full'){
-                throw 'Port owner does not match approved NERAL HF service; preserve it'
+              # Verify process ancestry all the way to this uniquely named,
+              # Task-Scheduler-owned NERAL service script. Windows venv may
+              # launch the real base python.exe as a subprocess; executable
+              # path equality is therefore not a sufficient identity check.
+              $parent=if($null -ne $owner -and [int]$owner.ParentProcessId -gt 0){
+                Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$owner.ParentProcessId) -ErrorAction Stop
+              }else{$null}
+              $grandparent=if($null -ne $parent -and [int]$parent.ParentProcessId -gt 0){
+                Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$parent.ParentProcessId) -ErrorAction Stop
+              }else{$null}
+              if($null -eq $owner -or $null -eq $parent -or $null -eq $grandparent -or
+                 [string]$owner.Name -notmatch '(?i)^pythonw?\.exe$' -or
+                 [string]$parent.Name -notmatch '(?i)^pythonw?\.exe$' -or
+                 [string]$grandparent.Name -notmatch '(?i)^powershell\.exe$' -or
+                 [string]$grandparent.CommandLine -notlike ('*'+$server+'*') -or
+                 [string]$parent.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+                 [string]$owner.CommandLine -notmatch '(?i)-m\s+neral_preview_server' -or
+                 [string]$owner.CommandLine -notmatch '(?i)--experimental-three-tier-hf' -or
+                 [string]$owner.CommandLine -notmatch '(?i)--helios-v2-full'){
+                throw 'Port owner not linked to exact managed NERAL service task; preserve it'
               }
+              Write-Host 'NERAL_PR558_MANAGED_PROCESS_ANCESTRY_CONFIRMED'
               Stop-Process -Id $ownerPid -Force -ErrorAction Stop
               Start-Sleep -Milliseconds 1500
               $other=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
