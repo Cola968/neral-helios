@@ -32,7 +32,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $repo=($env:GITHUB_WORKSPACE)
           $actual=(& git -C $repo rev-parse 'HEAD:neral_three_tier_runtime.py').Trim()
-          if((& git -C $repo diff --quiet HEAD -- neral_three_tier_runtime.py) -ne $null){} # git exit checked separately
+          & git -C $repo diff --quiet HEAD -- neral_three_tier_runtime.py | Out-Null
           if($LASTEXITCODE -ne 0){throw 'Tracked runtime worktree changed'}
           if($actual -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){throw 'Source hash differs from reviewed history fix'}
           $py='D:/neral-qlora/venv/Scripts/python.exe'
@@ -62,7 +62,7 @@ jobs:
              [string]$task.Actions[0].Arguments -notlike ('*'+$server+'*')){
             throw 'Expected exact self-owned NERAL task is not running the pinned service'
           }
-          $old=(& git hash-object --no-filters $destination).Trim()
+          $old=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
           if($old -ne '499f21c278f8c62d3ee82856f5fe8e978336f0d9'){
             throw 'Stable source drift: refuse to overwrite an unknown runtime'
           }
@@ -84,7 +84,7 @@ jobs:
             finally{$probe.Dispose()}
             if($still){throw 'Port remains occupied after task stop; no other local service is touched'}
             Copy-Item -LiteralPath $source -Destination $destination -Force
-            $new=(& git hash-object --no-filters $destination).Trim()
+            $new=(& git -c core.autocrlf=true hash-object --path=neral_three_tier_runtime.py $destination).Trim()
             if($new -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){
               throw 'Upgraded local module differs from reviewed source'
             }
