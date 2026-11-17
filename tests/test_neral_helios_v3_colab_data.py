@@ -2,7 +2,7 @@
 import json
 import ast
 from scripts.neral_helios_v3_colab_data import (
-    generate, recipe, fingerprint, COUNTS_TRAIN, TRAIN, VAL, _oracle, sha,
+    generate, recipe, fingerprint, TRAIN, VAL, _oracle, sha,
 )
 
 def test_expected_train_validation_sizes_and_fingerprints():
