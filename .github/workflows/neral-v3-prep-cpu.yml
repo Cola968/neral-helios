@@ -1,0 +1,59 @@
+name: NERAL v3 preparation full Linux CPU regression audit
+on:
+  push:
+    branches: [feat/neral-v3-prep-and-cleanup]
+    paths:
+      - '.github/workflows/neral-v3-prep-cpu.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-v3-prep-cpu-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  full-linux-cpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install same pinned CPU dependencies as previous legacy differential
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt -r requirements-neral-preview.txt
+          python -m pip install --disable-pip-version-check PyYAML cryptography "jsonschema>=4.20,<5"
+          python -m pip install --disable-pip-version-check torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Run complete CPU suite and record exact JUnit failures and skips
+        shell: bash
+        run: |
+          mkdir -p cpu-results
+          set +e
+          python -B -m pytest -q --color=no tests --junitxml=cpu-results/pytest.xml > cpu-results/pytest.log 2>&1
+          status=$?
+          set -e
+          echo "$status" > cpu-results/pytest.exit
+          python scripts/neral_1_2_legacy_compare.py --extract cpu-results/pytest.xml > cpu-results/pytest-summary.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('cpu-results/pytest-summary.json').read_text())
+          print('NERAL_V3_CPU_SUITE',json.dumps({'tests':r['tests'],'failures':len(r['failures']),'errors':r['errors']},sort_keys=True))
+          print('NERAL_V3_CPU_FAILED_NAMES',json.dumps(r['failures'],sort_keys=True))
+          PY
+          exit "$status"
+      - name: Upload precise failure records, including raw pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-v3-prep-full-cpu-${{ github.run_id }}
+          path: cpu-results/
+          if-no-files-found: warn
+          retention-days: 14
