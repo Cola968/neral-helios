@@ -1,0 +1,59 @@
+name: NERAL three-tier Windows read-only inventory
+on:
+  push:
+    branches: [feat/neral-three-tier-local-live-20261117]
+    paths:
+      - '.github/workflows/neral-three-tier-readonly-inventory.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: neral-three-tier-readonly-inventory
+  cancel-in-progress: false
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test read-only inventory and SHA-based adapter verification
+        run: python -m unittest discover -s tests -p test_neral_three_tier_runtime_inventory.py -v
+  live-inventory:
+    needs: unit
+    if: github.ref == 'refs/heads/feat/neral-three-tier-local-live-20261117'
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Read installed model tags, frozen manifest and preview API without starting anything
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned existing Python missing'}
+          $src=Join-Path $env:GITHUB_WORKSPACE 'source'
+          $out=Join-Path $env:RUNNER_TEMP ('neral-three-tier-inventory-'+$env:GITHUB_RUN_ID+'.json')
+          Push-Location $src
+          try{
+            & $py -B -m scripts.neral_three_tier_runtime_inventory --adapter-root 'D:/neral-qlora-v2/v2full-43931510428-1-helios' --out $out
+            if($LASTEXITCODE -ne 0){throw 'Inventory failed'}
+          }finally{Pop-Location}
+          "NERAL_THREE_TIER_INVENTORY_FILE=$out" >> $env:GITHUB_ENV
+      - name: Upload only boolean capability report
+        if: always() && env.NERAL_THREE_TIER_INVENTORY_FILE != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: neral-three-tier-readonly-inventory-${{ github.run_id }}
+          path: ${{ env.NERAL_THREE_TIER_INVENTORY_FILE }}
+          retention-days: 14
+          if-no-files-found: warn
