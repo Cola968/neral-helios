@@ -13,6 +13,8 @@ import time
 from neral_three_tier_runtime import FrozenQwen35HF, ThreeTierRuntime
 from scripts.neral_three_tier_runtime_inventory import frozen_v2_full
 
+LAST_STAGE = "preflight"
+
 
 def run(base4: Path, base9: Path, full: Path) -> dict:
     import torch
@@ -44,10 +46,13 @@ def run(base4: Path, base9: Path, full: Path) -> dict:
             {"role": "user", "content": question}], tier)
         stats["case_count"] += 1
         return reply, round(time.perf_counter() - start, 4)
+    global LAST_STAGE
     try:
         # Two real generations on the unchanged 4B snapshot. The first call
         # includes model loading; only the second is a warm latency sample.
+        LAST_STAGE = "luna_first_4b"
         first, first_s = ask("Luna", "Antworte exakt mit einem Wort: Hallo.")
+        LAST_STAGE = "luna_warm_4b"
         second, warm_s = ask("Luna", "Antworte exakt mit einem Wort: Hallo.")
         stats["luna_first_cold_s"] = first_s
         stats["luna_warm_s"] = warm_s
@@ -59,6 +64,7 @@ def run(base4: Path, base9: Path, full: Path) -> dict:
 
         # The trusted arithmetic compiler must execute inside real Docker,
         # and its independently parsed source must match the sandbox stdout.
+        LAST_STAGE = "terra_python_docker"
         source, source_s = ask(
             "Terra", "How many positive divisors does the integer 120 have?")
         stats["terra_source_python_verified"] = (
@@ -69,6 +75,7 @@ def run(base4: Path, base9: Path, full: Path) -> dict:
 
         # Force actual 9B PEFT inference rather than accepting a 24-case
         # compiler-only green result as proof of adapter activation.
+        LAST_STAGE = "helios_first_9b"
         answer, high_s = ask(
             "Helios", "Nenne einen einzigen kurzen Unterschied zwischen Stern und Planet.")
         stats["helios_frozen_v2_full_model_generated"] = (
@@ -82,6 +89,7 @@ def run(base4: Path, base9: Path, full: Path) -> dict:
         # fixture; never a claimed blind generalization result.
         from scripts.neral_1_1_postverify_dev24_cases import build
         case = next(x for x in build() if x["family"] == "graph_coloring_z3")
+        LAST_STAGE = "helios_z3_source"
         proof, z3_s = ask("Helios", case["question"])
         stats["helios_source_z3_verified"] = (
             proof.get("verified") is True and
@@ -90,6 +98,7 @@ def run(base4: Path, base9: Path, full: Path) -> dict:
         stats["helios_source_z3_s"] = z3_s
 
         # This must genuinely release the 9B model before reloading 4B.
+        LAST_STAGE = "luna_return_4b"
         last, back_s = ask("Luna", "Antworte exakt mit einem Wort: Hallo.")
         stats["switch_back_luna_confirmed"] = (
             last.get("model") == "qwen3.5:4b"
@@ -120,8 +129,19 @@ def main(argv=None) -> int:
     try:
         stats=run(args.base4,args.base9,args.full)
     except Exception as exc:
+        allowlist = {"HF response did not finish inside its token/time budget",
+                     "Incomplete or untrusted HF final answer",
+                     "Insufficient free GPU memory; no other model was stopped",
+                     "Frozen Helios adapter bytes changed",
+                     "Bounded local HF context exceeded",
+                     "Source hash changed",
+                     "Exactly one local CUDA GPU is required",
+                     "Unclosed private model reasoning"}
+        safe_reason = str(exc) if str(exc) in allowlist else "unclassified"
         stats={
             "status":"GPU_TIERS_FAILED",
+            "stage":LAST_STAGE,
+            "safe_error_kind":safe_reason,
             "error_class":type(exc).__name__,
             "no_training":True,
             "no_model_download":True,
