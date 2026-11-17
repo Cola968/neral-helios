@@ -138,7 +138,19 @@ async function main(){
         out.account_deleted=deletion.deleted===true;}catch{out.account_deleted=false}
       if(!out.account_deleted)out.status="BLOCKED_ACCOUNT_CLEANUP";
     }
-  }catch(e){out.status="BROWSER_E2E_BLOCKED";out.failed_stage=stage;out.error_type=e?.name||"Error";}
+  }catch(e){
+    out.status="BROWSER_E2E_BLOCKED";out.failed_stage=stage;out.error_type=e?.name||"Error";
+    try{
+      const diagnostic=await evaluate("(async()=>{const s=await fetch('/api/neral/preview/session').then(r=>r.json()).catch(()=>({}));return {"+
+        "on_expected_url:location.origin==='http://127.0.0.1:9690',"+
+        "ready_state:document.readyState,slider_exists:!!document.getElementById('modeEffortSlider'),"+
+        "slider_max:document.getElementById('modeEffortSlider')?.max||null,"+
+        "tier_dataset:document.documentElement?.dataset?.neralThreeTier||null,"+
+        "script_count:document.scripts?.length||0,session_three_tier:s.three_tier_enabled===true,"+
+        "session_tier_count:Array.isArray(s.three_tier_levels)?s.three_tier_levels.length:0};})()");
+      out.boot_diagnostic=diagnostic;
+    }catch{out.boot_diagnostic="CDP_DIAGNOSTIC_UNAVAILABLE"}
+  }
   finally{try{ws?.close()}catch{}try{browser?.kill()}catch{}
     if(profile)try{fs.rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:200})}catch{}
     console.log("NERAL_THREE_TIER_BROWSER_SCALAR "+JSON.stringify(out));
