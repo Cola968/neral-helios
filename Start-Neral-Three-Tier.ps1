@@ -44,13 +44,13 @@ assert sys.version_info >= (3,11)
 assert frozen_v2_full(Path(sys.argv[3]))
 FrozenQwen35HF(Path(sys.argv[1]))
 FrozenQwen35HF(Path(sys.argv[2]),full_root=Path(sys.argv[3]))
-print("NERAL_THREE_TIER_LOCAL_PINNED_READY")
+print(1)
 '@
 Push-Location -LiteralPath $root
 try{
     & $py -B -c $check $base4 $base9 $full
     if($LASTEXITCODE -ne 0){
-        throw 'HF-GPU-Umgebung benötigt vorhandenes Flask/Waitress oder Modellpfade fehlen. Nichts wurde installiert.'
+        throw 'HF-GPU-Umgebung oder Modellpfade unvollstaendig. Keine Installation erfolgt.'
     }
 }finally{ Pop-Location }
 
@@ -60,9 +60,9 @@ try{
 # and only after explicit user consent. Never download or alter model weights.
 $state = Join-Path $root 'local_state'
 $webDeps = Join-Path $state 'three-tier-web-deps'
-$waitressProbe = @(& $py -B -c 'import importlib.util;print("YES" if importlib.util.find_spec("waitress") else "NO")')
-if($LASTEXITCODE -ne 0 -or $waitressProbe.Count -ne 1){throw 'Waitress-Verfuegbarkeit konnte nicht geprueft werden.'}
-$nativeWaitress = ($waitressProbe[0].Trim() -eq 'YES')
+$installedPkgs = @(& $py -B -m pip list --format=freeze)
+if($LASTEXITCODE -ne 0){throw 'Isolierte Python-Paketinventur fehlgeschlagen.'}
+$nativeWaitress = (@($installedPkgs | Where-Object {$_ -match '^waitress==[0-9]' }).Count -gt 0)
 if(-not $nativeWaitress){
     $waitressFile = Join-Path $webDeps 'waitress/__init__.py'
     if(-not (Test-Path -LiteralPath $waitressFile -PathType Leaf)){
@@ -87,7 +87,7 @@ if(-not $nativeWaitress){
     }
     $env:NERAL_THREE_TIER_WEB_DEPS = $webDeps
     $env:PYTHONPATH = $webDeps + [IO.Path]::PathSeparator + $root
-    & $py -B -c 'import os,waitress;from pathlib import Path; assert Path(waitress.__file__).resolve().is_relative_to(Path(os.environ["NERAL_THREE_TIER_WEB_DEPS"]).resolve())'
+    & $py -B -c 'import waitress,sys;from pathlib import Path;assert Path(waitress.__file__).resolve().is_relative_to(Path(sys.path[1]).resolve())'
     if($LASTEXITCODE -ne 0){ throw 'Isoliertes Waitress konnte nicht sicher geladen werden.' }
 }
 $ollama = Get-Command ollama -CommandType Application -ErrorAction SilentlyContinue
