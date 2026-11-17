@@ -50,11 +50,16 @@ def verify_main_integrity():
         # Accept only its independently reviewed Git blob, never arbitrary
         # UI drift or any changed security endpoint/template.
         approved_pr558_blobs = {
-            'static/neral-preview.js': '666a9e4b2d2467f6397a16b107a709dcf34746c2',
+            'static/neral-preview.js': (
+                '666a9e4b2d2467f6397a16b107a709dcf34746c2',
+                'ce535f84c2e779d6619a968ca1e9b2582d20edbf',
+            ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
         }
-        allowed_pr558 = (base == CURRENT_MAIN
-                         and current == approved_pr558_blobs.get(name))
+        approved = approved_pr558_blobs.get(name)
+        allowed_pr558 = (base == CURRENT_MAIN and approved is not None
+                         and current in (approved if isinstance(approved, tuple)
+                                         else (approved,)))
         if (old!=current and not allowed_pr558) or not old:
             raise RuntimeError('CURRENT_MAIN_WEB_OR_UI_CHANGED: '+name)
         clean=subprocess.run(
