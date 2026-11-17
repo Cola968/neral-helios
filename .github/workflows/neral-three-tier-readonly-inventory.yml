@@ -4,6 +4,8 @@ on:
     branches: [feat/neral-three-tier-local-live-20261117]
     paths:
       - '.github/workflows/neral-three-tier-readonly-inventory.yml'
+      - 'scripts/neral_three_tier_runtime_inventory.py'
+      - 'tests/test_neral_three_tier_runtime_inventory.py'
   workflow_dispatch:
 permissions:
   contents: read
