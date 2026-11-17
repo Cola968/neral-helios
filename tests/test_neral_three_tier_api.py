@@ -277,10 +277,11 @@ class GPUCacheReleaseCPUContracts(unittest.TestCase):
                 self.reserve = self.alloc
         class Torch:
             cuda = Cuda()
-        free, allocated, reserved = probe_cuda_free_after_cache_flush(Torch, 9500)
+        free, allocated, reserved, effective = probe_cuda_free_after_cache_flush(Torch, 9500)
         self.assertEqual(free, 11065)
         self.assertEqual(allocated, 9)
         self.assertEqual(reserved, 9)
+        self.assertEqual(effective, 11065)
         self.assertEqual(Torch.cuda.flushed, 1)
         self.assertGreaterEqual(Torch.cuda.synced, 1)
 
@@ -299,6 +300,43 @@ class GPUCacheReleaseCPUContracts(unittest.TestCase):
                 pass
         class Torch:
             cuda = Cuda()
-        free, allocated, reserved = probe_cuda_free_after_cache_flush(Torch, 9500)
-        self.assertLess(free, 9500)
+        free, allocated, reserved, effective = probe_cuda_free_after_cache_flush(Torch, 9500)
+        self.assertLess(effective, 9500)
         self.assertEqual(reserved, 9)
+
+
+    def test_same_process_reusable_cuda_cache_counts_but_foreign_memory_does_not(self):
+        from neral_three_tier_runtime import probe_cuda_free_after_cache_flush
+        class Cuda:
+            def __init__(self):
+                self.flushed = 0
+            def mem_get_info(self, _device):
+                return (8145*1024**2, 12282*1024**2)
+            def memory_allocated(self, _device):
+                return 8.8*1024**2
+            def memory_reserved(self, _device):
+                return 2920*1024**2
+            def synchronize(self, _device=0): pass
+            def empty_cache(self): self.flushed += 1
+        class Torch:
+            cuda = Cuda()
+        free, allocated, reserved, usable = probe_cuda_free_after_cache_flush(Torch,9500)
+        self.assertEqual(free,8145)
+        self.assertEqual(allocated,8.8)
+        self.assertEqual(reserved,2920)
+        self.assertGreater(usable,11050)
+        self.assertLess(usable,12282)
+        self.assertEqual(Torch.cuda.flushed,1)
+
+    def test_loaded_cuda_model_allocation_does_not_count_as_reusable(self):
+        from neral_three_tier_runtime import probe_cuda_free_after_cache_flush
+        class Cuda:
+            def mem_get_info(self, _device):return(4000*1024**2,12282*1024**2)
+            def memory_allocated(self, _device):return(3000*1024**2)
+            def memory_reserved(self, _device):return(3300*1024**2)
+            def synchronize(self, _device=0):pass
+            def empty_cache(self):pass
+        class Torch: cuda=Cuda()
+        free, allocated, reserved, usable=probe_cuda_free_after_cache_flush(Torch,9500)
+        self.assertEqual(usable,4300)
+        self.assertLess(usable,9500)
