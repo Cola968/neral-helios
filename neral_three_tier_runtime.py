@@ -326,6 +326,15 @@ class ThreeTierRuntime:
                     "model_origin": "local_source_verified_tools_only",
                     "quality_improvement_proven": False,
                 }
+        escalated = False
+        if tier == "Luna" and re.search(
+            r"(?:\d+\s*(?:watt|kw|kwh|cent|€|eur|%|kg|stunden|std|tage)\b|"
+            r"\b(?:zusammen|doppelt so|dreifach so|schwerer als|größer als|älter als|"
+            r"nicht gleichzeitig|zeitplan|gleichung)\b)",
+            turns[-1]["content"], re.I
+        ):
+            tier = "Helios"
+            escalated = True
         chosen = self.luna if tier == "Luna" else self.helios
         self._switch(chosen)
         from neral_everyday_verified import tidy_unverified_model_text
@@ -337,6 +346,7 @@ class ThreeTierRuntime:
             raise RuntimeError("Helios adapter loading was not confirmed")
         return {
             "tier": tier, "mode": tier.upper(), "text": response,
+            **({"auto_escalated_from": "Luna"} if escalated else {}),
             "model": chosen.model, "model_generated": True,
             "verified": False, "safe_to_promote": False,
             "verification_scope": "none", "proof_backend": None,
