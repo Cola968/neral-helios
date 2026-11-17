@@ -31,7 +31,9 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $repo=($env:GITHUB_WORKSPACE)
-          $actual=(& git -C $repo hash-object --no-filters (Join-Path $repo 'neral_three_tier_runtime.py')).Trim()
+          $actual=(& git -C $repo rev-parse 'HEAD:neral_three_tier_runtime.py').Trim()
+          if((& git -C $repo diff --quiet HEAD -- neral_three_tier_runtime.py) -ne $null){} # git exit checked separately
+          if($LASTEXITCODE -ne 0){throw 'Tracked runtime worktree changed'}
           if($actual -ne 'c2bda8aa38a7c504eda3d922e43b8e599666949b'){throw 'Source hash differs from reviewed history fix'}
           $py='D:/neral-qlora/venv/Scripts/python.exe'
           & $py -B -m py_compile (Join-Path $repo 'neral_three_tier_runtime.py')
