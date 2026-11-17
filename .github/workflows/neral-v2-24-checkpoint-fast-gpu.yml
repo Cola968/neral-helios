@@ -100,12 +100,49 @@ jobs:
           }finally{Pop-Location}
           Write-Host 'WINDOWS_DOCKER_SYMPY_NETWORKX_Z3_AST_READY_FOR_REAL_PIPELINE24'
 
-      - name: Require idle RTX4070 without interrupting other GPU work
+      - name: Require idle RTX4070 or release verified Ollama models only
         run: |
           $ErrorActionPreference='Stop'
           $active=@(& nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0){throw 'Cannot verify GPU process inventory'}
-          if(@($active | Where-Object { $_.Trim() }).Count -ne 0){throw 'GPU already occupied; no unloading, parallel job or retry'}
+          $activePids=@($active | Where-Object { $_.Trim() } | ForEach-Object {
+            $value=$_.Trim()
+            if($value -notmatch '^\d+$'){throw 'Non-numeric GPU PID; fail closed'}
+            [int]$value
+          })
+          if($activePids.Count -ne 0){
+            # Verify EVERY existing GPU process is an Ollama inference worker before
+            # touching any loaded models; never terminate foreign GPU work.
+            foreach($gpuPid in $activePids){
+              $proc=Get-Process -Id $gpuPid -ErrorAction SilentlyContinue
+              if(-not $proc -or $proc.ProcessName -notmatch '^(?i:ollama(?:[._-].*)?|llama(?:[._-]server)?)$'){
+                throw ('GPU occupied by non-Ollama process; no changes to active jobs: '+$gpuPid)
+              }
+            }
+            $ollama=Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'
+            if(-not(Test-Path -LiteralPath $ollama -PathType Leaf)){
+              $command=Get-Command ollama -ErrorAction SilentlyContinue
+              if(-not $command){throw 'Ollama CLI missing; fail closed'}
+              $ollama=$command.Source
+            }
+            try{
+              $ps=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 10
+            }catch{
+              throw 'Ollama model API unavailable; refuse GPU release'
+            }
+            $loaded=@($ps.models | Where-Object {$null -ne $_ -and $_.name})
+            if($loaded.Count -eq 0){throw 'GPU busy but Ollama has no loaded models; fail closed'}
+            foreach($entry in $loaded){
+              & $ollama stop $entry.name
+              if($LASTEXITCODE -ne 0){throw 'Safe ollama stop failed; abort before evaluation'}
+            }
+            Start-Sleep -Seconds 7
+            $active=@(& nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
+            if($LASTEXITCODE -ne 0 -or @($active | Where-Object {$_.Trim()}).Count -ne 0){
+              throw 'GPU still occupied after Ollama release'
+            }
+            Write-Host 'DEV24_GPU_RELEASED_ONLY_VERIFIED_OLLAMA_MODELS'
+          }
           $g=@(& nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits)
           if($LASTEXITCODE -ne 0 -or $g.Count -ne 1){throw 'RTX4070 absent'}
           $p=$g[0].Split(',')
