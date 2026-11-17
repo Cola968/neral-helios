@@ -218,3 +218,55 @@ class ThreeTierContracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GPUCacheReleaseCPUContracts(unittest.TestCase):
+    def test_idle_cuda_cache_is_released_before_refusing_9b_switch(self):
+        """Real measured incident: free 8145 MiB, reserved 2920 MiB, allocated 9 MiB."""
+        from neral_three_tier_runtime import probe_cuda_free_after_cache_flush
+        class Cuda:
+            def __init__(self):
+                self.free = 8145
+                self.alloc = 9
+                self.reserve = 2920
+                self.synced = 0
+                self.flushed = 0
+            def mem_get_info(self, _device):
+                return (self.free * 1024**2, 12282 * 1024**2)
+            def memory_allocated(self, _device):
+                return self.alloc * 1024**2
+            def memory_reserved(self, _device):
+                return self.reserve * 1024**2
+            def synchronize(self, _device=0):
+                self.synced += 1
+            def empty_cache(self):
+                self.flushed += 1
+                self.free = 11065
+                self.reserve = self.alloc
+        class Torch:
+            cuda = Cuda()
+        free, allocated, reserved = probe_cuda_free_after_cache_flush(Torch, 9500)
+        self.assertEqual(free, 11065)
+        self.assertEqual(allocated, 9)
+        self.assertEqual(reserved, 9)
+        self.assertEqual(Torch.cuda.flushed, 1)
+        self.assertGreaterEqual(Torch.cuda.synced, 1)
+
+    def test_other_workloads_cannot_be_bypassed_by_cache_flush(self):
+        from neral_three_tier_runtime import probe_cuda_free_after_cache_flush
+        class Cuda:
+            def mem_get_info(self, _device):
+                return (7400 * 1024**2, 12282 * 1024**2)
+            def memory_allocated(self, _device):
+                return 9 * 1024**2
+            def memory_reserved(self, _device):
+                return 9 * 1024**2
+            def synchronize(self, _device=0):
+                pass
+            def empty_cache(self):
+                pass
+        class Torch:
+            cuda = Cuda()
+        free, allocated, reserved = probe_cuda_free_after_cache_flush(Torch, 9500)
+        self.assertLess(free, 9500)
+        self.assertEqual(reserved, 9)
