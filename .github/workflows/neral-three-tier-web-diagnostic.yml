@@ -29,7 +29,7 @@ jobs:
           if($homepage.StatusCode -ne 200){throw 'Local browser-compatible session could not start'}
           $receipt=Invoke-RestMethod -Uri ($base+'/api/neral/preview/session') -WebSession $session -TimeoutSec 10
           if($receipt.three_tier_enabled -ne $true -or -not $receipt.csrf){throw 'No authenticated browser-compatible preview session'}
-          $query='Flughafen Berlin Brandenburg Flugverbindungen'
+          $query='BER Berlin Brandenburg Flughafen Flugziele'
           $headers=@{'X-Neral-CSRF'=[string]$receipt.csrf}
           function Probe([bool]$verify) {
             $payload=@{query=$query}
@@ -44,6 +44,8 @@ jobs:
             raw_hits=@($raw.results).Count
             raw_titles=@($raw.results|Select-Object -First 5|ForEach-Object {[string]$_.title})
             verified_hits=@($verified.results).Count
+            verified_titles=@($verified.results|ForEach-Object {[string]$_.title})
+            preview_titles=@($verified.previews|ForEach-Object {[string]$_.title})
             discovered_previews=@($verified.previews).Count
             provider=[string]$verified.provider
             providers_contacted=@($verified.providers_contacted)
