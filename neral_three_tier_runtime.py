@@ -249,9 +249,18 @@ class ThreeTierRuntime:
         self.active_backend = chosen
 
     def _verified_source(self, turns: list[dict]) -> dict | None:
-        if len(turns) != 2:
+        # A complete standalone question remains independently provable even
+        # after ordinary chat turns. Prove ONLY the current user source: no
+        # historical messages or model-derived facts may form a certificate.
+        if (len(turns) < 2 or turns[0].get("role") != "system"
+                or turns[-1].get("role") != "user"
+                or type(turns[-1].get("content")) is not str):
             return None
         question = turns[-1]["content"]
+        source_turns = [
+            {"role": "system", "content": turns[0]["content"]},
+            {"role": "user", "content": question},
+        ]
         from neral_nl_verified_route import strict_source_certificate
         from neral_verified_source_code import source_program
         try:
@@ -266,7 +275,7 @@ class ThreeTierRuntime:
         def no_model(*_args, **_kwargs):
             raise RuntimeError("Trusted full-source proof must not call a model")
         report = run_adaptive_planner(
-            turns, no_model, no_model,
+            source_turns, no_model, no_model,
             self.execute_python, verify_python_full_source)
         if (report.get("verified") is True and
                 report.get("safe_to_promote") is True and
