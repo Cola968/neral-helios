@@ -52,3 +52,10 @@ def test_launcher_dependency_install_must_be_separate_from_windows_checkonly():
     assert "pip list --format=freeze" in source
     assert "if($CheckOnly){" in source
     assert "--target $webDeps waitress==3.0.2" in source
+
+
+def test_prepare_only_must_return_after_dependency_setup_before_http_listener():
+    script=LAUNCHER.read_text(encoding="utf-8")
+    assert "[switch]$PrepareOnly" in script
+    assert "if($PrepareOnly){" in script
+    assert script.index("if($PrepareOnly){") < script.index("$port = 9690")
