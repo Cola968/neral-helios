@@ -16,6 +16,8 @@ import zipfile
 REQUIRED_FILES = (
     "START HIER.txt",
     "Start NERAL 1.0 Local.cmd",
+    "Start NERAL 3 Modi.cmd",
+    "Start-Neral-Three-Tier.ps1",
     "Start NERAL 1.0 Stark.cmd",
     "Install NERAL Voice.cmd",
     "Install-Neral-Local-Voice.ps1",
