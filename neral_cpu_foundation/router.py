@@ -10,6 +10,14 @@ class Route:
     think: bool
     tools: tuple[str,...]
     reason: str
+    max_new_tokens: int = 256
+    adapter_id: str | None = None
+
+
+# Profile for the frozen HF Qwen3.5-4B + Luna-v1 PEFT adapter.
+# This advisory router does not itself load or activate the adapter.
+LUNA_FAST_MAX_NEW_TOKENS = 96
+LUNA_ADAPTER_ID = 'luna-v1-4b-peft'
 
 
 LEVELS = ("Luna","Terra","Helios")
@@ -28,11 +36,32 @@ def choose_route(prompt: str, *, has_files: bool=False, force: str|None=None, un
     if force is not None: level=max(level,LEVELS.index(force))
     tier=LEVELS[level]
     tools=() if level==0 else ("web","rag","python") if level==1 else ("web","rag","python","z3","sympy","networkx","docker")
-    return Route(tier, "qwen3.5:4b" if level==0 else "qwen3.5:9b", level==2, tools, "complex" if serious else "context" if context else "simple")
+    return Route(tier, "qwen3.5:4b" if level==0 else "qwen3.5:9b", level==2,
+                 tools, "complex" if serious else "context" if context else "simple",
+                 96 if level==0 else 256 if level==1 else 768,
+                 LUNA_ADAPTER_ID if level==0 else None)
 
 
 def escalate(route:Route, *, uncertain:bool=False, tool_failed:bool=False)->Route:
     if route.tier=="Helios": return route
     target = "Helios" if tool_failed else "Terra" if uncertain or route.tier=="Luna" else "Helios"
-    if target=="Terra": return Route("Terra","qwen3.5:9b",False,("web","rag","python"),"escalation")
-    return Route("Helios","qwen3.5:9b",True,("web","rag","python","z3","sympy","networkx","docker"),"escalation")
+    if target=="Terra": return Route("Terra","qwen3.5:9b",False,("web","rag","python"),"escalation",256)
+    return Route("Helios","qwen3.5:9b",True,("web","rag","python","z3","sympy","networkx","docker"),"escalation",768)
+
+
+def generation_profile(route: Route) -> dict:
+    """A strict generation profile for the selected tier, not a model switch.
+
+    Actual model execution must separately confirm the chosen adapter bytes.
+    Luna's PEFT fast path always disables thinking and limits generation.
+    """
+    if not isinstance(route, Route) or route.tier not in LEVELS:
+        raise ValueError("Unknown route profile")
+    expected = {"Luna": 96, "Terra": 256, "Helios": 768}[route.tier]
+    if (route.max_new_tokens != expected or
+        route.think is not (route.tier=="Helios") or
+        (route.adapter_id == LUNA_ADAPTER_ID) is not (route.tier=="Luna")):
+        raise ValueError("Unsafe or inconsistent route profile")
+    return {"model": route.base, "think": route.think,
+            "options": {"num_predict": expected, "temperature": 0},
+            "adapter_id": route.adapter_id}
