@@ -61,6 +61,9 @@ def test_original_untouched_and_parameter_count():
 def backend(monkeypatch):
     import app
     app._hits.clear();app.app.config['TESTING']=True
+    # The checkpoint is deliberately absent on Linux CI. Generation is fully
+    # stubbed below, so simulate a loaded checkpoint for HTTP contract tests.
+    monkeypatch.setattr(app,'checkpoint_loaded',True)
     monkeypatch.setattr(app,'generate_tokens',lambda *args:app.tokenizer.encode('Testantwort.',eos=True))
     client=app.app.test_client()
     login=client.get('/',base_url='http://127.0.0.1:9680')
@@ -84,7 +87,7 @@ def test_api_tools_labelled(backend):
 def test_api_context_and_busy(backend):
     app,c=backend
     assert post(c,{'prompt':'x'*3900,'max_new_tokens':512}).status_code==413
-    assert post(c,{'prompt':'Hi','history':[{'role':'user','content':'x'*4096}]}).status_code==413
+    assert post(c,{'prompt':'Hi','history':[{'role':'user','content':'x'*4095},{'role':'assistant','content':'ok'}]}).status_code==413
     app._generation_lock.acquire()
     try:assert post(c,{'prompt':'Hi'}).status_code==429
     finally:app._generation_lock.release()
@@ -94,8 +97,12 @@ def test_api_cancel(backend):
     finally:app._jobs.pop('a'*16)
 def test_api_rate_limit(backend):
     app,c=backend
-    for _ in range(app.RATE_LIMIT):assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==200
+    # Production differentiates control (180) and generation (RATE_LIMIT).
+    for _ in range(180):assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==200
     assert c.get('/api/info',base_url='http://127.0.0.1:9680').status_code==429
+    app._hits.clear()
+    for _ in range(app.RATE_LIMIT):assert post(c,{'prompt':'2+2','mode':'solve'}).status_code==200
+    assert post(c,{'prompt':'2+2','mode':'solve'}).status_code==429
 def test_api_redacts_output(backend,monkeypatch):
     app,c=backend;monkeypatch.setattr(app,'generate_tokens',lambda *a:app.tokenizer.encode('sk-'+'a'*30,eos=True));r=post(c,{'prompt':'Hi'});assert r.json['output_secret_redacted'];assert 'sk-' not in r.json['text']
 def test_model_selection_preserves_on_error(backend):
