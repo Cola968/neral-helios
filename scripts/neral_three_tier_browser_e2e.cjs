@@ -4,7 +4,7 @@ const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {spawn}=require("node:child_process"),crypto=require("node:crypto");
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const base="http://127.0.0.1:9690/";
-const out={status:"BLOCKED",real_browser:false,slider:[],models:[],memory:false,rag:false,web:false,account_deleted:false};
+const out={status:"BLOCKED",real_browser:false,slider:[],models:[],memory:false,rag:false,web:false,account_deleted:false,everyday_money:false,everyday_z3:false};
 let browser,ws,profile,csrf,password,stage="init",nextId=0;
 const pending=new Map();
 function check(ok,message){if(!ok)throw Error(message)}
@@ -90,6 +90,25 @@ async function send(tier,prompt,kind=""){
   check(res.body.trim(),"Empty assistant response");
   if(kind==="proof")check(/Verifiziert/i.test(res.badge)&&/z3_unsat|trusted_source_arithmetic|independent_enumeration/.test(res.badge),
                            "Independent proof badge missing");
+  if(kind==="everyday-money"){
+    check(/NERAL Terra \(automatisch\).*Verifiziert.*trusted_source_arithmetic/.test(res.badge),
+          "Luna did not automatically route math to verified Terra/Python");
+    check(res.body.includes("3.226,89 €")&&res.body.includes("613,11 €")&&
+          res.body.includes("1.613,44 €")&&res.body.includes("968,07 €")&&
+          res.body.includes("645,38 €"),"Exact cents or three phase allocations missing");
+    check(!/Grenze:|liefern\.Rechnung:/.test(res.body),"Misleading model math disclaimer");
+    out.everyday_money=true;
+  }
+  if(kind==="everyday-z3"){
+    check(/NERAL Helios \(automatisch\).*Verifiziert.*z3_sat_witness/.test(res.badge),
+          "Luna did not automatically route schedule to verified Z3");
+    check(/Person 1/.test(res.body)&&/Person 2/.test(res.body)&&
+          /Gesamtdauer:/.test(res.body)&&
+          ["A","B","C","D"].every(n=>new RegExp("\\b"+n+"\\s+\\d+[–-]\\d+").test(res.body)),
+          "Z3 schedule has no complete, concrete task windows");
+    check(!/Grenze:|liefern\.Plan:/.test(res.body),"Misleading model schedule disclaimer");
+    out.everyday_z3=true;
+  }
   if(kind==="memory")check(/ganymed[- ]?47/i.test(res.body),"Saved SQLite fact not recalled");
   if(kind==="rag")check(/17/.test(res.body)&&/e2eber|quelle|#c\d/i.test(res.body),"RAG answer missing value/citation");
   return res;
@@ -132,6 +151,9 @@ async function main(){
       out.rag=true;
       await send("Helios","Color vertices 0..5 with red, green or blue. Vertex 0 is red, and endpoints of edges [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (0, 4), (1, 5)] must differ. How many valid colorings?","proof");
       out.models.push("Helios");
+      // The EXACT two real user prompts, with the slider LEFT on Luna.
+      await send("Luna","Teile 3.840 € brutto (inkl. 19 % MwSt.) exakt in Netto und Steuer auf und verteile den Nettobetrag im Verhältnis 5 : 3 : 2 auf drei Projektphasen.","everyday-money");
+      await send("Luna","Vier Aufgaben A (3 Std.), B (4 Std.), C (2 Std.) und D (5 Std.) müssen auf zwei Personen verteilt werden. A muss vor B abgeschlossen sein, B und C dürfen nicht gleichzeitig laufen, und die Gesamtdauer darf 8 Stunden nicht überschreiten. Erstelle einen gültigen Zeitplan.","everyday-z3");
       stage="live-web-consent";
       await evaluate("(()=>{const w=document.getElementById('useWebSearch');w.checked=true;"+
         "w.dispatchEvent(new Event('change',{bubbles:true}));return w.checked;})()");
