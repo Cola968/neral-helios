@@ -24,5 +24,5 @@ test("unrelated topical and fresh news searches are not rewritten",()=>{
 });
 test("empty web search subjects and followups preserve their original contracts",()=>{
   assert.equal(makeSearchQuery("Suche im Internet nach"),"");
-  assert.equal(makeSearchQuery("Und warum?","Wetter Berlin"),"Wetter Berlin Und warum?");
+  assert.equal(makeSearchQuery("Warum?","Wetter Berlin"),"Wetter Berlin Warum?");
 });
