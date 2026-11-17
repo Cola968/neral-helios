@@ -46,7 +46,14 @@ def verify_main_integrity():
         current=subprocess.run(
           ['git','rev-parse','HEAD:'+name],cwd=ROOT,text=True,
           capture_output=True,timeout=15,check=True).stdout.strip()
-        if old!=current or not old:
+        # PR558 deliberately updates exactly one preview JavaScript file.
+        # Accept only its independently reviewed Git blob, never arbitrary
+        # UI drift or any changed security endpoint/template.
+        allowed_pr558 = (
+            base == CURRENT_MAIN and name == 'static/neral-preview.js'
+            and current == '666a9e4b2d2467f6397a16b107a709dcf34746c2'
+        )
+        if (old!=current and not allowed_pr558) or not old:
             raise RuntimeError('CURRENT_MAIN_WEB_OR_UI_CHANGED: '+name)
         clean=subprocess.run(
           ['git','diff','--quiet','HEAD','--',name],
