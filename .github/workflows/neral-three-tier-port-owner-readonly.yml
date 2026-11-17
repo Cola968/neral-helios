@@ -23,6 +23,58 @@ jobs:
           $task=Get-ScheduledTask -TaskName 'NERAL-PR558-ThreeTier-909d1419c9ff' -ErrorAction SilentlyContinue
           $listen=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
           $out=@{task_present=($null -ne $task);task_running=($null -ne $task -and [string]$task.State -eq 'Running');listeners=$listen.Count}
+          $uniquePids=@($listen | Select-Object -ExpandProperty OwningProcess -Unique)
+          $out['unique_owner_count']=$uniquePids.Count
+          $out['listener_addresses']=@($listen | Select-Object -ExpandProperty LocalAddress -Unique)
+          $out['owners']=@()
+          foreach($listenPid in $uniquePids){
+            $p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$listenPid) -ErrorAction SilentlyContinue
+            $line=if($null -ne $p){[string]$p.CommandLine}else{''}
+            $out['owners']+=@{
+              is_python=($null -ne $p -and [string]$p.Name -match '(?i)^pythonw?\.exe
+          if($listen.Count -eq 1){
+            $ownerPid=[int]$listen[0].OwningProcess
+            $proc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$ownerPid) -ErrorAction SilentlyContinue
+            $expectedPath=[IO.Path]::GetFullPath('D:/neral-qlora/venv/Scripts/python.exe')
+            $out['proc_present']=($null -ne $proc)
+            $out['proc_name']=if($null -ne $proc){[string]$proc.Name}else{'unknown'}
+            $out['exact_python_exe']=($null -ne $proc -and [string]::Equals([IO.Path]::GetFullPath([string]$proc.ExecutablePath),$expectedPath,[StringComparison]::OrdinalIgnoreCase))
+            $line=if($null -ne $proc){[string]$proc.CommandLine}else{''}
+            $out['module_flag']=($line -match '(?i)-m\s+neral_preview_server')
+            $out['three_tier_flag']=($line -match '(?i)--experimental-three-tier-hf')
+            $out['adapter_flag']=($line -match '(?i)--helios-v2-full')
+            $out['parent_present']=($null -ne $proc -and [int]$proc.ParentProcessId -gt 0)
+            if($null -ne $proc){
+              $parent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$proc.ParentProcessId) -ErrorAction SilentlyContinue
+              $out['parent_name']=if($null -ne $parent){[string]$parent.Name}else{'not_running'}
+              $out['parent_exact_python_exe']=($null -ne $parent -and [string]::Equals([IO.Path]::GetFullPath([string]$parent.ExecutablePath),$expectedPath,[StringComparison]::OrdinalIgnoreCase))
+              $out['parent_is_powershell']=($null -ne $parent -and [string]$parent.Name -match '(?i)powershell|pwsh')
+              $out['parent_has_server_flags']=($null -ne $parent -and [string]$parent.CommandLine -match '(?i)--experimental-three-tier-hf')
+              if($null -ne $parent -and [int]$parent.ParentProcessId -gt 0){
+                $grandparent=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$parent.ParentProcessId) -ErrorAction SilentlyContinue
+                $out['grandparent_name']=if($null -ne $grandparent){[string]$grandparent.Name}else{'not_running'}
+                $out['grandparent_managed_service_script']=($null -ne $grandparent -and
+                  [string]$grandparent.CommandLine -like '*Start-Neral-Three-Tier-Service.ps1*')
+              }
+              $out['listener_exe_has_venv_path']=($null -ne $proc -and
+                [string]$proc.ExecutablePath -match '(?i)neral-qlora.*venv')
+              $out['listener_exe_same_bytes_as_venv']=($null -ne $proc -and
+                (Test-Path -LiteralPath ([string]$proc.ExecutablePath) -PathType Leaf) -and
+                ((Get-FileHash -LiteralPath $proc.ExecutablePath -Algorithm SHA256).Hash -eq
+                 (Get-FileHash -LiteralPath $expectedPath -Algorithm SHA256).Hash))
+
+            }
+          }
+          Write-Host ('NERAL_PR558_PORT_OWNER_SAFE_FLAGS '+($out|ConvertTo-Json -Compress))
+          Write-Host 'NERAL_PR558_READONLY_NO_PROCESS_TOUCHED'
+)
+              has_three_tier=($line -match '(?i)--experimental-three-tier-hf')
+              has_preview=($line -match '(?i)-m\s+neral_preview_server')
+              has_helios=($line -match '(?i)--helios-v2-full')
+              task_running=($null -ne $task -and [string]$task.State -eq 'Running')
+            }
+          }
+
           if($listen.Count -eq 1){
             $ownerPid=[int]$listen[0].OwningProcess
             $proc=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$ownerPid) -ErrorAction SilentlyContinue
