@@ -135,17 +135,20 @@ class ThreeTierContracts(unittest.TestCase):
         app = create_preview_app(legacy, secret_key=b"z"*32,
                                  three_tier_runtime=runtime)
         client = app.test_client()
-        client.get("/")
-        session = client.get("/api/neral/preview/session").json
+        base_url = "http://127.0.0.1:9690"
+        self.assertEqual(client.get("/").status_code, 403)
+        client.get("/", base_url=base_url)
+        session = client.get("/api/neral/preview/session", base_url=base_url).json
         self.assertTrue(session["three_tier_enabled"])
         self.assertEqual(session["three_tier_levels"], ["Luna", "Terra", "Helios"])
         body = {"tier": "Luna", "prompt": "Test", "history": []}
-        blocked = client.post("/api/neral/chat/three-tier", json=body)
+        blocked = client.post("/api/neral/chat/three-tier", json=body, base_url=base_url)
         self.assertEqual(blocked.status_code, 403)
         from unittest.mock import patch
         # This is only a mocked transport. It does not prove an Ollama GPU call.
         with patch.object(legacy, "unload", return_value=None):
             response = client.post("/api/neral/chat/three-tier", json=body,
+                                   base_url=base_url,
                                    headers={"X-Neral-CSRF":session["csrf"]})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["model"], "qwen3.5:4b")
