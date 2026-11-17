@@ -14,12 +14,12 @@ async function launch(){
   check(exe&&fs.existsSync(exe),"Chrome/Edge executable missing");
   profile=fs.mkdtempSync(path.join(os.tmpdir(),"neral-live-chrome-"));
   browser=spawn(exe,["--headless=new","--disable-gpu","--disable-extensions",
-    "--disable-background-networking","--no-first-run","--no-default-browser-check",
+    "--disable-background-networking","--no-proxy-server","--no-first-run","--no-default-browser-check",
     "--remote-debugging-address=127.0.0.1","--remote-debugging-port=0",
     "--user-data-dir="+profile,"about:blank"],{stdio:"ignore",windowsHide:true});
   const file=path.join(profile,"DevToolsActivePort");
   const port=await poll(()=>fs.existsSync(file)&&Number(fs.readFileSync(file,"utf8").trim().split(/\r?\n/)[0]),20000);
-  const resp=await fetch("http://127.0.0.1:"+port+"/json/new?"+encodeURIComponent(base),{method:"PUT"});
+  const resp=await fetch("http://127.0.0.1:"+port+"/json/new?about:blank",{method:"PUT"});
   check(resp.ok,"Chrome CDP create target failed");
   const tab=await resp.json();
   ws=new WebSocket(tab.webSocketDebuggerUrl);
@@ -34,7 +34,10 @@ async function launch(){
   out.real_browser=true;
   await command("Page.enable");await command("Runtime.enable");
   // Do not trust the /json/new query parameter as navigation proof.
-  await command("Page.navigate",{url:base});
+  await sleep(500);
+  const navigation=await command("Page.navigate",{url:base});
+  out.nav_error=navigation.errorText||null;
+  if(navigation.errorText)throw Error("Chrome rejected local navigation");
 }
 function command(method,params={}){
   return new Promise((resolve,reject)=>{
@@ -144,7 +147,7 @@ async function main(){
     out.status="BROWSER_E2E_BLOCKED";out.failed_stage=stage;out.error_type=e?.name||"Error";
     try{
       const diagnostic=await evaluate("(async()=>{const s=await fetch('/api/neral/preview/session').then(r=>r.json()).catch(()=>({}));return {"+
-        "on_expected_url:location.origin==='http://127.0.0.1:9690',"+
+        "on_expected_url:location.origin==='http://127.0.0.1:9690',location_scheme:location.protocol,location_host:location.host,"+
         "ready_state:document.readyState,slider_exists:!!document.getElementById('modeEffortSlider'),"+
         "slider_max:document.getElementById('modeEffortSlider')?.max||null,"+
         "tier_dataset:document.documentElement?.dataset?.neralThreeTier||null,"+
