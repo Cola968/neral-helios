@@ -138,13 +138,14 @@ async function main(){
       out.web=true;out.live_search_links=links;
       out.status="BROWSER_E2E_PASS";
     }finally{
+      out.last_active_stage=stage;
       stage="delete-synthetic-account";
       try{const deletion=await api("/api/neral/account","DELETE",{password});
         out.account_deleted=deletion.deleted===true;}catch{out.account_deleted=false}
       if(!out.account_deleted)out.status="BLOCKED_ACCOUNT_CLEANUP";
     }
   }catch(e){
-    out.status="BROWSER_E2E_BLOCKED";out.failed_stage=stage;out.error_type=e?.name||"Error";
+    out.status="BROWSER_E2E_BLOCKED";out.failed_stage=out.last_active_stage||stage;out.error_type=e?.name||"Error";out.safe_error_hint=String(e?.message||"unknown").slice(0,135);
     try{
       const diagnostic=await evaluate("(async()=>{const s=await fetch('/api/neral/preview/session').then(r=>r.json()).catch(()=>({}));return {"+
         "on_expected_url:location.origin==='http://127.0.0.1:9690',location_scheme:location.protocol,location_host:location.host,"+
