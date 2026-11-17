@@ -88,3 +88,33 @@ jobs:
           path: ${{ env.NERAL_DOCKER_TOOL_EVIDENCE }}
           retention-days: 30
           if-no-files-found: warn
+
+  fallback-ubuntu-independent-docker-proof:
+    needs: [docker-sandbox-recovery]
+    if: always() && needs.docker-sandbox-recovery.result != 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verifiers from packages, never substitute CPU for RTX4070
+        run: |
+          python -m pip install --no-cache-dir sympy==1.14.0 networkx==3.5 z3-solver==4.16.0.0
+      - name: Prove same SymPy NetworkX Z3 and isolated AST Python Docker on independent Linux daemon
+        run: |
+          docker info --format '{{.ServerVersion}}'
+          python -m scripts.neral_v2_tools_regression_smoke --out "$RUNNER_TEMP/neral-tools-docker-ubuntu.json"
+          python -c "import json,sys; r=json.load(open(sys.argv[1])); assert all(r[k] is True for k in ('sympy','networkx','z3','python_docker_one_step_ast','docker_isolated_network')); print('INDEPENDENT_LINUX_DOCKER_TOOL_PROOF_PASS_ NOT_WINDOWS_GPU',r)" "$RUNNER_TEMP/neral-tools-docker-ubuntu.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: neral-docker-independent-linux-proof-${{ github.run_id }}
+          path: ${{ runner.temp }}/neral-tools-docker-ubuntu.json
+          if-no-files-found: warn
+          retention-days: 30
