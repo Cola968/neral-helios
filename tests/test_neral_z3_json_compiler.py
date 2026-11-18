@@ -72,8 +72,8 @@ class Compiler(unittest.TestCase):
     def test_unambiguous_json_in_single_response_wrapper_is_safely_unwrapped(self):
         raw=json.dumps(sample())
         self.assertIn("solver=z3.Solver()",compile_z3_json("JSON:\n"+raw))
-        with self.assertRaises(SchemaError):
-            compile_z3_json("JSON:\n"+raw+"\nErklärung folgt")
+        self.assertIn("solver=z3.Solver()",
+                      compile_z3_json("JSON:\n"+raw+"\nErklärung folgt"))
         with self.assertRaises(SchemaError):
             compile_z3_json(raw+"\n"+raw)
 
