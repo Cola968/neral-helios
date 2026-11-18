@@ -50,6 +50,14 @@ class Compiler(unittest.TestCase):
         with self.assertRaises(SchemaError):
             compile_z3_json(json.dumps(sample()) + "\nFertig.")
 
+    def test_unambiguous_json_in_single_response_wrapper_is_safely_unwrapped(self):
+        raw=json.dumps(sample())
+        self.assertIn("solver=z3.Solver()",compile_z3_json("JSON:\n"+raw))
+        with self.assertRaises(SchemaError):
+            compile_z3_json("JSON:\n"+raw+"\nErklärung folgt")
+        with self.assertRaises(SchemaError):
+            compile_z3_json(raw+"\n"+raw)
+
     def test_mismatched_json_keys_have_concrete_diagnostic(self):
         s=sample()
         del s["objective"]
