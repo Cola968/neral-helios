@@ -76,6 +76,29 @@ class UniversalRouter(unittest.TestCase):
         self.assertFalse(low.calls)
         self.assertFalse(result["verified"])
 
+    def test_selected_web_search_evidence_is_sandboxed_as_readonly_json(self):
+        runtime,low,high,executed=fixture()
+        staged=[]
+        runtime.execute_dataset_python=lambda code,files: staged.append(files) or {
+            "status":"PASSED","output":"7"}
+        app=Flask("v21-web")
+        register_three_tier_api(app,runtime,busy=threading.Lock())
+        response=app.test_client().post("/api/neral/chat/three-tier",json={
+            "tier":"Luna","prompt":"Vergleiche diese zwei Werte der gefundenen Treffer.",
+            "history":[],
+            "web_data":[{"title":"Monat A","snippet":"Wert 3","url":"https://example.org/a"},
+                        {"title":"Monat B","snippet":"Wert 4","url":"https://example.org/b"}]})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertTrue(response.json["sandbox_executed"])
+        self.assertIn(b"Monat A",staged[0]["data/data1.json"])
+        self.assertFalse(low.calls)
+        for malicious in ([{"title":"X","snippet":"a","url":"http://bad.site"}],
+                          [{"title":"X","snippet":"a","url":"file:///etc/passwd"}],
+                          [{"title":"X","snippet":"a","url":"https://a.org","extra":"yes"}]):
+            result=app.test_client().post("/api/neral/chat/three-tier",json={
+                "tier":"Luna","prompt":"Vergleiche Daten","web_data":malicious})
+            self.assertEqual(result.status_code,400)
+
     def test_force_flag_strict_http_contract(self):
         runtime,low,high,executed=fixture()
         app=Flask("v21")
