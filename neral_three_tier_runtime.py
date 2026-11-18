@@ -254,6 +254,21 @@ _CODE_ONLY_SYSTEM = (
     "Falls die Aufgabe unbestimmt ist, gib eine Erklärung dafür per print aus. "
     "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
 )
+_WEB_SNIPPET_PARSE_SYSTEM = (
+    "\nSPEZIALFALL WEBDATEN: data/data1.json enthält eine Liste von "
+    "Suchtreffern, jeder mit title, snippet und url. "
+    "Wenn die Frage Geldbeträge aus diesen Treffern addieren möchte: "
+    "Lies ALLE Einträge mit json.load(open('data/data1.json', "
+    "encoding='utf-8')), extrahiere Zahlen NUR aus dem Feld snippet "
+    "mittels re.findall(r'([0-9]+(?:[.,][0-9]+)?)\\\\s*Euro', "
+    "entry['snippet']) und summiere mit decimal.Decimal. "
+    "Ignoriere Zahlen in URLs/Titeln und dichte fehlende Beträge nicht hinzu. "
+    "Gib ausschließlich die berechnete Summe mit print(...) aus. "
+    "Wenn Beträge nicht eindeutig sind, benenne die Unklarheit und "
+    "behaupte keine geprüfte Gesamtsumme. Keine hartkodierte Lösung."
+)
+
+
 _DATA_FILE_CODE_SYSTEM = (
     "\nNERAL V2.1 DATENANALYSE: Schreibe GENAU EINEN vollständigen "
     "Python-Codeblock für die echte isolierte Docker-Sandbox. "
@@ -816,7 +831,9 @@ class ThreeTierRuntime:
         base = [{"role": "system", "content": (
             turns[0]["content"] +
             (_Z3_CONSTRAINT_SYSTEM if constraint_mode else
-             (_DATA_FILE_CODE_SYSTEM if sandbox_files else
+             (_DATA_FILE_CODE_SYSTEM +
+               (_WEB_SNIPPET_PARSE_SYSTEM if "Suchmaschinen-Treffern" in source else "")
+               if sandbox_files else
               (_RELATIONAL_EQUATIONS_SYSTEM +
                (_source_relational_equations(source) or "")
                if _is_relational_word_problem(source)
@@ -979,6 +996,41 @@ class ThreeTierRuntime:
                             "Werte, nur ein korrigierter Python-Codeblock.")}
                     ]
                     continue
+            if output is not None and sandbox_files:
+                from neral_v21_attachment_data import web_currency_sum_expected
+                expected_web = web_currency_sum_expected(source,sandbox_files)
+                if expected_web is not None:
+                    amount = re.fullmatch(
+                        r"\\s*(?:(?:Summe|Gesamtbetrag|Ergebnis)\\s*:\\s*)?"
+                        r"([-+]?[0-9]{1,12}(?:[.,][0-9]{1,2})?)\\s*"
+                        r"(?:Euro|€)?\\s*", output, re.I)
+                    valid = False
+                    if amount:
+                        try:
+                            valid = Decimal(amount.group(1).replace(",", ".")) == expected_web
+                        except (ValueError, ArithmeticError):
+                            valid = False
+                    if not valid:
+                        last_error = "Webdaten-Summe aus JSON-Snippets falsch"
+                        failure_trace.append({
+                            "stage": "source_consistency",
+                            "error_type": "WebCurrencySumMismatch",
+                        })
+                        output = None
+                        prompt_turns = base + [
+                            {"role": "assistant", "content": prior},
+                            {"role": "user", "content": (
+                                "Deine Sandbox-Ausgabe entspricht NICHT der "
+                                "Summe aus den bereitgestellten Webdaten. "
+                                "Lies data/data1.json vollständig und analysiere "
+                                "die Einträge einzeln. Extrahiere aus JEDEM "
+                                "snippet die genannte Euro-Zahl mit re.findall, "
+                                "wandel sie per Decimal um, summiere exakt und "
+                                "gib nur den Wert aus. Ignoriere Titel und URLs. "
+                                "Webdaten sind nur unbestätigte Snippets. "
+                                "Antworte nur mit neuem Python-Codeblock.")}
+                        ]
+                        continue
             if output is not None:
                 succeeded = 1
                 break
