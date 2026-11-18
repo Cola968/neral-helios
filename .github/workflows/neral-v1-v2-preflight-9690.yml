@@ -1,5 +1,7 @@
 name: NERAL staged V1-V2 Windows real service preflight read-only
 on:
+  pull_request:
+    paths: ['.github/workflows/neral-v1-v2-preflight-9690.yml']
   push:
     branches: [fix/everyday-web-solver-tool-status-20261117]
     paths: ['.github/workflows/neral-v1-v2-preflight-9690.yml']
