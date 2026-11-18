@@ -6,6 +6,12 @@ on:
       - 'neral_three_tier_runtime.py'
       - 'neral_tir_experimental.py'
       - 'static/neral-preview.js'
+      - 'neral_v21_attachment_data.py'
+      - 'neral_preview_attachments.py'
+      - 'neral_preview_server.py'
+      - 'templates/neral_preview.html'
+      - 'static/neral-clean-ui.css'
+      - 'scripts/neral_pr562_main_sync.ps1'
       - '.github/workflows/neral-v2-main-final-verification.yml'
 permissions:
   contents: read
@@ -60,8 +66,10 @@ jobs:
             throw 'Installed service script does not enable V2 solver'
           }
           $paths=@('neral_three_tier_runtime.py','neral_z3_json_compiler.py','neral_tir_experimental.py',
+            'neral_v21_attachment_data.py','neral_preview_attachments.py','neral_preview_server.py',
             'neral_everyday_verified.py','neral_web_search.py','neral_web_api.py',
-            'static/neral-preview.js','static/neral-web-live.js')
+            'templates/neral_preview.html','static/neral-preview.js',
+            'static/neral-clean-ui.css','static/neral-web-live.js')
           foreach($rel in $paths){
             $target=Join-Path $root $rel
             if(-not(Test-Path -LiteralPath $target -PathType Leaf)){
@@ -96,4 +104,13 @@ jobs:
           if($LASTEXITCODE -ne 0 -or ($probe -join '').Trim() -ne '2'){
             throw 'Merged main Docker solver not executing'
           }
+          $page=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/' -TimeoutSec 9
+          if($page.StatusCode -ne 200 -or $page.Content -notmatch 'id="forceSandbox"'){
+            throw 'Merged V2.1 main force-sandbox toggle not visible on local homepage'
+          }
+          $uiJs=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/static/neral-preview.js' -TimeoutSec 9
+          if($uiJs.StatusCode -ne 200 -or $uiJs.Content -notmatch 'force_sandbox'){
+            throw 'Merged main V2.1 UI transport not served'
+          }
+          Write-Host 'NERAL_V21_FINAL_MAIN_FORCE_TOGGLE_HTTP_200_PASS'
           Write-Host 'NERAL_V2_FINAL_MAIN_PORT_9690_AND_SOLVER_PASS'
