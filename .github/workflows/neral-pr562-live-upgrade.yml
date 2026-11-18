@@ -1,0 +1,63 @@
+name: NERAL PR562 gated live five-task Docker and Chrome acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_pr562_live_upgrade.ps1'
+      - 'scripts/neral_pr562_browser_e2e.cjs'
+      - '.github/workflows/neral-pr562-live-upgrade.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  v2-rtx4070-five-live:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Require an explicitly approved V2 installation commit
+        id: gate
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject=(& git log -1 --format=%s).Trim()
+          if($subject -eq 'ops(live): run approved V2 on 9690 with five real Docker tests'){
+            'run=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_PR562_INSTALL_USER_AUTHORIZED_COMMIT'
+          }else{
+            'run=false' >> $env:GITHUB_OUTPUT
+            Write-Host 'NERAL_PR562_INSTALL_SAFE_SKIP_NOT_REQUESTED'
+          }
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: '22'
+      - name: Verify source syntax and five-task CPU contracts before local install
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=$null;$e=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_pr562_live_upgrade.ps1'),[ref]$t,[ref]$e) | Out-Null
+          if(@($e).Count -ne 0){throw 'V2 installation PowerShell syntax invalid'}
+          & node --check scripts/neral_pr562_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Real Chrome V2 test source invalid'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m py_compile neral_three_tier_runtime.py neral_tir_experimental.py scripts/neral_v2_live5.py
+          if($LASTEXITCODE -ne 0){throw 'V2 Python code syntax invalid'}
+          & $py -B -m pytest -q tests/test_neral_code_loop_v2.py tests/test_neral_code_sandbox_image_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2 CPU integration regression failure'}
+          Write-Host 'NERAL_PR562_PREINSTALL_CPU_SYNTAX_PASS'
+      - name: Build isolated V2 solver and prove five real Helios tasks plus browser, else rollback V1
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_pr562_live_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'Real V2 user-authorized five-case deployment not proved'}
+          Write-Host 'NERAL_PR562_LOCAL_V2_5_OF_5_BROWSER_SUCCESS'

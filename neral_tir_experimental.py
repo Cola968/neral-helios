@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -163,9 +164,12 @@ def _run_ephemeral_python(code: str) -> dict:
         return {"status": "FAILED", "error_type": "SyntaxError",
                 "traceback": type(exc).__name__ + ": invalid program"}
     from neral_agent_sandbox import IMAGE
+    # Optional, locally prebuilt solver image only. This flag cannot pick
+    # arbitrary images; there is no docker pull or host-code fallback.
+    image = "neral-python-tools:v2" if os.environ.get("NERAL_CODE_SANDBOX_V2") == "1" else IMAGE
     try:
         inspect = subprocess.run(
-            ["docker", "image", "inspect", IMAGE],
+            ["docker", "image", "inspect", image],
             capture_output=True, timeout=3, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
@@ -183,13 +187,14 @@ def _run_ephemeral_python(code: str) -> dict:
         cmd = [
             "docker", "run", "--rm", "--pull", "never",
             "--network", "none", "--read-only",
-            "--memory", "128m", "--memory-swap", "128m",
+            "--memory", "256m" if image != IMAGE else "128m",
+            "--memory-swap", "256m" if image != IMAGE else "128m",
             "--cpus", "0.5", "--pids-limit", "32",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--user", "65534:65534",
             "--mount", f"type=bind,src={root.resolve()},dst=/work,readonly",
             "--workdir", "/work", "--env", "PYTHONDONTWRITEBYTECODE=1",
-            IMAGE, "python", "-B", "run.py",
+            image, "python", "-B", "run.py",
         ]
         try:
             completed = subprocess.run(

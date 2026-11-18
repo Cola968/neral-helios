@@ -1,0 +1,45 @@
+name: NERAL V2 Windows installer static safety checks
+on:
+  pull_request:
+    paths:
+      - 'scripts/neral_pr562_live_upgrade.ps1'
+      - 'scripts/neral_pr562_browser_e2e.cjs'
+      - '.github/workflows/neral-v2-deploy-static-ci.yml'
+permissions:
+  contents: read
+jobs:
+  windows-static:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse V2 PowerShell without running it
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=$null;$e=$null
+          [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_pr562_live_upgrade.ps1'),
+            [ref]$t,[ref]$e) | Out-Null
+          if(@($e).Count -ne 0){
+            Write-Host ('PowerShell parse errors: '+@($e).Count)
+            foreach($item in $e){Write-Host $item.Message}
+            throw 'V2 installer source failed syntax inspection'
+          }
+          Write-Host 'NERAL_V2_DEPLOY_POWERSHELL_PARSE_PASS'
+      - name: Browser JS source syntax
+        run: node --check scripts/neral_pr562_browser_e2e.cjs
+      - name: Verify source-only pipeline cannot run before explicit approval
+        shell: powershell
+        run: |
+          $s=Get-Content -LiteralPath .github/workflows/neral-pr562-live-upgrade.yml -Raw
+          foreach($needle in @('ops(live): run approved V2 on 9690 with five real Docker tests',
+              'neral-pr562-live-upgrade.yml','neral-v1-v2-windows-deploy')){
+            if(-not $s.Contains($needle)){throw 'Gated V2 deployment contract missing'}
+          }
+          Write-Host 'NERAL_V2_LIVE_DEPLOY_GATE_STATIC_PASS'
