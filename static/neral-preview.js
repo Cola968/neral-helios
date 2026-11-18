@@ -185,6 +185,10 @@
     return /\b(?:websuche|internetrecherche)\b|\b(?:suche|such|recherchiere|recherchier)\b.{0,60}\b(?:im internet|im web|online)\b/iu.test(q)
       || /^(?:bitte\s+)?(?:suche|such|finde|recherchiere|recherchier)\s+nach\b/iu.test(q);
   }
+  function isWebDataQuestion(question){
+    const q=String(question||"");
+    return /[0-9]|\b(?:summier\w*|auswert\w*|analysier\w*|filter\w*|vergleich\w*|berechn\w*|preis\w*|mittelwert\w*|durchschnitt\w*|wachstum\w*|anteil\w*|prozent\w*|zahlen\w*|werte\w*|ausreißer\w*|differenz\w*|tabelle\w*|statistik\w*)\b/iu.test(q);
+  }
   function shouldSearchWeb(question,previousWebQuery="") {
     const q=String(question||"").trim();
     if(!q||skipWebForLocalBasics(q)||
@@ -917,7 +921,8 @@
         // Search hits are already real provider metadata. Do not make the user
         // wait for a 9B model to rewrite snippets or claim it read those sites.
         // The exact original source URLs are rendered as separate safe links.
-        if(sources.length>0 && selectedAttachments.length===0){
+        if(sources.length>0 && selectedAttachments.length===0 &&
+           !(threeTierEnabled && (forceSandbox||isWebDataQuestion(text)))){
           const short=part=>String(part||"").replace(/\bGrenze\s*:/giu,"Hinweis:").trim();
           const snippets=sources.slice(0,5).map((hit,i)=>{
             const title=short(hit.title).slice(0,120);
@@ -942,6 +947,12 @@
           return;
         }
       }
+      const webData=sources.filter(hit=>typeof hit?.url==="string" &&
+        /^https:\/\/[^\s]+$/i.test(hit.url)).slice(0,5).map(hit=>({
+          title:String(hit.title||"Treffer").slice(0,120),
+          snippet:String(hit.snippet||"").slice(0,350),
+          url:hit.url.slice(0,190)
+        }));
       let path="/api/neral/chat/"+mode;
       let options={
         method:"POST",
@@ -965,7 +976,9 @@
       if(threeTierEnabled && !selectedAttachments.length){
         path="/api/neral/chat/three-tier";
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
-                                     history:safeHistory(),force_sandbox:forceSandbox});
+                                     history:safeHistory(),force_sandbox:forceSandbox,
+                                     ...(webData.length && (forceSandbox||isWebDataQuestion(text))
+                                       ? {web_data:webData}: {})});
       }
       const useLive=!threeTierEnabled && mode==="generate" && !selectedAttachments.length &&
         typeof browser.NeralLiveStream?.read==="function" &&
