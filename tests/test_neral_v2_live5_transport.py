@@ -2,10 +2,13 @@
 
 No credentials, model calls, Docker runs or network connections here.
 """
+import io
 import json
 import unittest
+from contextlib import redirect_stdout
+from fractions import Fraction
 from unittest.mock import patch
-from scripts.neral_v2_live5 import Live, _check_stdout
+from scripts.neral_v2_live5 import Live, _check_stdout, _run_cases
 
 
 class Response:
@@ -57,6 +60,35 @@ class ClientTransport(unittest.TestCase):
             _check_stdout("chips","9 12 24 2",gold)
         with self.assertRaises(ValueError):
             _check_stdout("chips","12 9 24",gold)
+
+    def test_five_tasks_all_attempted_logged_even_when_first_fails(self):
+        cases=[("shifts","A",Fraction(2)), ("credit","B",Fraction(4)),
+               ("discount","C",Fraction(4)), ("fraction","D",Fraction(4)),
+               ("credit_again","E",Fraction(4))]
+        class FakeApi:
+            def __init__(self):
+                self.prompts=[]
+            def call(self,path,data):
+                self.prompts.append(data["prompt"])
+                if data["prompt"]=="A":
+                    return {"verified":False, "sandbox_executed":False,
+                            "sandbox_failure_trace":[{"error_type":"InvalidZ3JSON"}]}
+                return {"verified":False, "safe_to_promote":False,
+                        "sandbox_executed":True,"tool_used":"helios_code_sandbox",
+                        "tool_calls_succeeded":1,"tier":"Helios",
+                        "auto_escalated_from":"Luna",
+                        "text":"Sandbox-Ausgabe (nicht unabhängig geprüft):\n4"}
+        api=FakeApi()
+        log=io.StringIO()
+        with redirect_stdout(log):
+            passed, failed=_run_cases(api,cases)
+        self.assertEqual(api.prompts,["A","B","C","D","E"])
+        self.assertEqual(passed,["credit","discount","fraction","credit_again"])
+        self.assertEqual(failed,["shifts"])
+        entries=[json.loads(line.split(" ",1)[1]) for line in
+                 log.getvalue().splitlines() if line.startswith("NERAL_V2_REAL5_CASE ")]
+        self.assertEqual(len(entries),5)
+        self.assertEqual([e["pass"] for e in entries],[False,True,True,True,True])
 
     def test_post_registration_accepts_successful_201_created(self):
         live=Live()
