@@ -1,0 +1,52 @@
+name: NERAL V2.1 Windows read-only CPU and UI gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'neral_v21_attachment_data.py'
+      - 'neral_preview_attachments.py'
+      - 'neral_preview_server.py'
+      - 'templates/neral_preview.html'
+      - 'static/neral-preview.js'
+      - 'scripts/neral_v21_live3.py'
+      - 'scripts/neral_v21_browser_e2e.cjs'
+      - 'tests/test_neral_v21_*'
+      - '.github/workflows/neral-v21-windows-cpu.yml'
+permissions:
+  contents: read
+jobs:
+  windows-readonly:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Assert V2.1 source syntax and old/new CPU behavior only
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          if(-not(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Pinned Python absent'}
+          & $py -B -m py_compile neral_three_tier_runtime.py neral_tir_experimental.py neral_v21_attachment_data.py neral_preview_attachments.py neral_preview_server.py scripts/neral_v21_live3.py
+          if($LASTEXITCODE -ne 0){throw 'V2.1 source syntax invalid'}
+          & node --check static/neral-preview.js
+          if($LASTEXITCODE -ne 0){throw 'V2.1 browser source invalid'}
+          & node --check scripts/neral_v21_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.1 Chrome E2E source invalid'}
+          foreach($name in @('test_neral_v21_universal.py',
+              'test_neral_v21_attachment_sandbox.py',
+              'test_neral_three_tier_api.py',
+              'test_neral_code_loop_v2.py',
+              'test_neral_code_sandbox_image_v2.py')){
+            & $py -B -m unittest discover -s tests -p $name -q
+            if($LASTEXITCODE -ne 0){throw ('CPU test failure: '+$name)}
+          }
+          & node --test tests/test_neral_v21_ui.cjs tests/test_neral_code_loop_ui_v2.cjs tests/test_neral_three_tier_ui.cjs
+          if($LASTEXITCODE -ne 0){throw 'V2.1 UI tests failed'}
+          Write-Host 'NERAL_V21_WINDOWS_READONLY_CPU_PASS'
