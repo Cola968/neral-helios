@@ -49,12 +49,18 @@ def verify_main_integrity():
         # Only exact audited PR558/PR561 blob SHAs are accepted for the
         # web-search and status-UI updates; no arbitrary protected-file drift.
         approved_blobs = {
-            'neral_web_search.py': 'd9a34976abe4824b2ef7c7ae65613b7f38ba5d40',
+            'neral_web_search.py': (
+                'd9a34976abe4824b2ef7c7ae65613b7f38ba5d40',
+                '08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c',
+            ),
+            'neral_web_api.py': 'a4d621b318666d8521a758e7699ee19f408756ee',
+            'static/neral-web-live.js': 'a0e30ebf2dbca66a25556a07740b5ac93bb4c472',
             'static/neral-preview.js': (
                 '666a9e4b2d2467f6397a16b107a709dcf34746c2',
                 'ce535f84c2e779d6619a968ca1e9b2582d20edbf',
                 '77e124c98e61c54f2427269e840a21de7feee03e',
                 'b886736b5be3cccf2fb4657124ff8ca4fef2f1a2',
+                '42dcc9338bf5701ed3d982848c3db5ebe240b0b5',
             ),
             'static/neral-reference-ui.js': 'a28912ebcc43892555c8a30b7a75663252c76f10',
         }
