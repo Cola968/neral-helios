@@ -23,7 +23,7 @@ $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
   'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
   'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
-  'neral_three_tier_runtime.py'='01ffd13d53aadeaebbdadbea0ab4a43f896a6390'
+  'neral_three_tier_runtime.py'='a524694ef7cff9852dce58b6b591e78c6841a124'
   'neral_tir_experimental.py'='d6aebf27f52a05bf59027b44053cf518b64e6d72'
   'static/neral-preview.js'='224a691c4ff9869d9513ec18ed7d554cfa3ed079'
 }
