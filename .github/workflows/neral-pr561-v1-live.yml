@@ -1,11 +1,6 @@
 name: NERAL PR561 exact three-case live Chrome acceptance and staged install
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/neral_pr561_live_upgrade.ps1'
-      - 'scripts/neral_pr561_live_browser_e2e.cjs'
-      - '.github/workflows/neral-pr561-v1-live.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
