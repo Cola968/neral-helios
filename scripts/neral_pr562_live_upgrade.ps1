@@ -1,3 +1,4 @@
+# V2 approved retry after separately tested CSRF bootstrap + HTTP 201 fix.
 # V2 live retest on Windows: use built-in unittest; preserve isolated training virtualenv.
 # User authorization: 2026-11-18. Run isolated V2 upgrade on 9690 only with full rollback.
 # Explicitly user-authorized staged V2 local 9690 acceptance: 2026-11-18
