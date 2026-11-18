@@ -158,11 +158,19 @@ def _run_ephemeral_python(code: str) -> dict:
                 "traceback": "Input exceeds sandbox limit"}
     try:
         tree = ast.parse(code)
-        if sum(1 for _ in ast.walk(tree)) > 384:
-            raise ValueError("Too many AST nodes")
-    except (SyntaxError, RecursionError, ValueError) as exc:
+    except SyntaxError as exc:
+        reason = "".join(c for c in str(exc.msg)[:95] if
+                         c.isalnum() or c in " .,:;-_")
         return {"status": "FAILED", "error_type": "SyntaxError",
-                "traceback": type(exc).__name__ + ": invalid program"}
+                "traceback": f"Python syntax invalid at line {exc.lineno or 0}: {reason}"}
+    except (RecursionError, ValueError):
+        return {"status": "FAILED", "error_type": "SyntaxError",
+                "traceback": "Python source nesting or parser input invalid"}
+    nodes = sum(1 for _ in ast.walk(tree))
+    if nodes > 384:
+        return {"status": "FAILED", "error_type": "CodeComplexityLimit",
+                "traceback": f"Python AST has {nodes} nodes; maximum 384. "
+                             "Write shorter SymPy equations, loops or functions."}
     from neral_agent_sandbox import IMAGE
     # Optional, locally prebuilt solver image only. This flag cannot pick
     # arbitrary images; there is no docker pull or host-code fallback.
