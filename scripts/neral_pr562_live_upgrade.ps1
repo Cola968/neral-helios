@@ -1,3 +1,4 @@
+# Approved bounded-format-retry V2 gate; all five real tasks and Chrome proof remain mandatory.
 # Approved repeat after strict ordered-triple stdout verification fix; all 5 cases required.
 # Approved repeat: diagnose five-task chip output in first case; keep all five mandatory.
 # V2 approved retry after separately tested CSRF bootstrap + HTTP 201 fix.
