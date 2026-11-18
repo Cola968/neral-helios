@@ -43,6 +43,15 @@ class Compiler(unittest.TestCase):
         with self.assertRaises(SchemaError):
             compile_z3_json(json.dumps(sample()) + "\nFertig.")
 
+    def test_mismatched_json_keys_have_concrete_diagnostic(self):
+        s=sample()
+        del s["objective"]
+        s["answer"]=2
+        with self.assertRaises(SchemaError) as failure:
+            compile_z3_json(json.dumps(s))
+        self.assertIn("objective",str(failure.exception))
+        self.assertIn("answer",str(failure.exception))
+
     def test_reject_duplicate_keys_fields_and_variable_names(self):
         raw = json.dumps(sample()).replace('"objective": "count_all"', '"objective": "count_all", "objective": "find_one"')
         with self.assertRaises(SchemaError):
