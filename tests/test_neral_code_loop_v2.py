@@ -282,6 +282,42 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIsNone(_source_relational_equations(
             "Anna und Ben haben zusammen sieben Dinge."))
 
+    def test_loan_source_first_year_interest_then_repayment_then_interest(self):
+        from neral_three_tier_runtime import _source_loan_equations
+        q=("Ein Darlehen von 1600 Euro wird jedes Jahr mit 5 Prozent "
+           "verzinst. Nach dem ersten Jahr leiste ich eine Sondertilgung "
+           "von 300 Euro. Wie hoch ist die Restschuld nach dem zweiten Jahr?")
+        formula=_source_loan_equations(q)
+        self.assertIn("P=1600",formula)
+        self.assertIn("r=5",formula)
+        self.assertIn("T=300",formula)
+        self.assertIn("Rest1=P*(1+r/100)",formula)
+        self.assertIn("Rest2=(Rest1-T)*(1+r/100)",formula)
+        self.assertIsNone(_source_loan_equations("Berechne 17 plus 19"))
+
+    def test_loan_assertion_error_triggers_source_grounded_repair(self):
+        q=("Ein Darlehen von 1600 Euro wird jedes Jahr mit 5 Prozent "
+           "verzinst. Nach dem ersten Jahr leiste ich eine Sondertilgung "
+           "von 300 Euro. Wie hoch ist die Restschuld nach dem zweiten Jahr?")
+        attempts=[]
+        def tool(code):
+            attempts.append(code)
+            if len(attempts)==1:
+                return {"status":"FAILED","error_type":"RuntimeError",
+                        "traceback":"AssertionError at Rest1*Zinsen+Rest1-Sondertilgung==Rest2"}
+            return {"status":"PASSED","output":"1449.00"}
+        rt,_,helios=runtime([
+            "\x60\x60\x60python\nprint('incorrect')\n\x60\x60\x60",
+            "\x60\x60\x60python\nprint('1449.00')\n\x60\x60\x60",
+            "Die Restschuld ist aus der Sandbox.",
+        ],tool)
+        result=rt._free_code_loop(turns(q),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        self.assertEqual(len(attempts),2)
+        self.assertIn("Rest2=(Rest1-T)*(1+r/100)",str(helios.calls[0][0]))
+        self.assertIn("Sondertilgung",str(helios.calls[1][0]))
+        self.assertEqual(result["sandbox_attempts"],2)
+
     def test_discount_mismatch_retries_using_original_percentage_source(self):
         from neral_three_tier_runtime import _source_sequential_percent_ok
         source=("Ein Produkt kostet 200 Euro. Zuerst werden 10 Prozent Rabatt "
