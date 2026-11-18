@@ -147,12 +147,26 @@ def _unwrap_repair_json(generated: object) -> tuple[object, str]:
     return body, label
 
 
-def _run_ephemeral_python(code: str) -> dict:
+def _run_ephemeral_python(code: str, *, staged_files: dict[str, bytes] | None = None) -> dict:
     """Execute only inside preinstalled Docker: net=none, immutable FS, 5 sec.
 
     Local temporary material only contains the generated program and is never
     uploaded to GitHub. No host Python execution and no docker pull.
     """
+    # Only the validated multipart handler can supply whitelisted data names.
+    # No arbitrary bind paths or executable uploads enter this sandbox.
+    staged = {} if staged_files is None else staged_files
+    if type(staged) is not dict or len(staged)>3:
+        return {"status":"FAILED","error_type":"InvalidDataset","traceback":"Dataset file count invalid"}
+    total=0
+    for rel,blob in staged.items():
+        if (type(rel) is not str or
+                re.fullmatch(r"data/data[1-3]\\.(?:csv|json|txt)",rel) is None or
+                type(blob) is not bytes or not 1<=len(blob)<=4*1024*1024):
+            return {"status":"FAILED","error_type":"InvalidDataset","traceback":"Dataset path/type/size invalid"}
+        total+=len(blob)
+    if total>12*1024*1024:
+        return {"status":"FAILED","error_type":"InvalidDataset","traceback":"Dataset total exceeds limit"}
     if not 1 <= len(code.encode("utf-8")) <= 4096:
         return {"status": "FAILED", "error_type": "RuntimeError",
                 "traceback": "Input exceeds sandbox limit"}
@@ -187,6 +201,13 @@ def _run_ephemeral_python(code: str) -> dict:
         root = Path(folder)
         program = root / "run.py"
         program.write_text(code, encoding="utf-8")
+        if staged:
+            data_root=root / "data"
+            data_root.mkdir(mode=0o755)
+            for rel,blob in staged.items():
+                target=root / rel
+                target.write_bytes(blob)
+                target.chmod(0o644)
         try:
             root.chmod(0o755)
             program.chmod(0o644)
