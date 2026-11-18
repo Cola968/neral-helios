@@ -279,6 +279,9 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("c=2*b", guidance)
         self.assertIn("Mira", guidance)
         self.assertIn("Tessa", guidance)
+        self.assertIn("sp.solve(eqs,[a,b,c],dict=True)",guidance)
+        self.assertIn("assert all(eq.lhs.subs(sol)==eq.rhs.subs(sol) for eq in eqs)",guidance)
+        self.assertIn("print(f'Mira={sol[a]}; Lino={sol[b]}; Tessa={sol[c]}')",guidance)
         self.assertIsNone(_source_relational_equations(
             "Anna und Ben haben zusammen sieben Dinge."))
 
@@ -322,6 +325,27 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("Rest2=(Rest1-T)*(1+r/100)",str(helios.calls[0][0]))
         self.assertIn("Sondertilgung",str(helios.calls[1][0]))
         self.assertEqual(result["sandbox_attempts"],2)
+
+    def test_discount_source_hint_compiles_sequential_decimal_template(self):
+        from neral_three_tier_runtime import _source_sequential_percent_hint
+        q=("Ein Produkt kostet 200 Euro. Zuerst werden 10 Prozent Rabatt "
+           "abgezogen, vom neuen Preis weitere 5 Prozent. Danach kommen "
+           "19 Prozent Mehrwertsteuer hinzu. Was ist der Endpreis?")
+        hint=_source_sequential_percent_hint(q)
+        self.assertIn("Decimal('200')",hint)
+        self.assertIn("Decimal('10')",hint)
+        self.assertIn("Decimal('5')",hint)
+        self.assertIn("Decimal('19')",hint)
+        self.assertIn("ROUND_HALF_UP",hint)
+        self.assertNotIn("203.49",hint)
+        self.assertIsNone(_source_sequential_percent_hint("Hallo."))
+        rt,_,helios=runtime([
+            "\x60\x60\x60python\nprint('203.49')\n\x60\x60\x60",
+            "Sandbox-Ergebnis liegt vor.",
+        ],lambda _:{"status":"PASSED","output":"203.49"})
+        response=rt._free_code_loop(turns(q),auto_from="Luna")
+        self.assertTrue(response["sandbox_executed"])
+        self.assertIn("ROUND_HALF_UP",helios.calls[0][0][0]["content"])
 
     def test_discount_mismatch_retries_using_original_percentage_source(self):
         from neral_three_tier_runtime import _source_sequential_percent_ok
