@@ -146,6 +146,8 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertNotEqual(r.get("tool_calls_succeeded"),1)
         self.assertEqual(len(helios.calls),3)
         self.assertNotIn("12",r["text"])
+        self.assertEqual([x["stage"] for x in r["sandbox_failure_trace"]],
+                         ["docker", "docker", "docker"])
 
     def test_missing_container_does_not_retry_model_or_run_host_python(self):
         seen=[]
@@ -180,6 +182,8 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertFalse(r["verified"])
         self.assertEqual(len(helios.calls),3)
         self.assertNotIn("42",r["text"])
+        self.assertEqual([x["stage"] for x in r["sandbox_failure_trace"]],
+                         ["model_format", "model_format", "model_format"])
 
     def test_two_fenced_blocks_or_surrounding_prose_are_not_accepted(self):
         for text in ("\x60\x60\x60python\nprint(2)\n\x60\x60\x60\n"
