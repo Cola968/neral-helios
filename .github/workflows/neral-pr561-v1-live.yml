@@ -1,0 +1,45 @@
+name: NERAL PR561 exact three-case live Chrome acceptance and staged install
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_pr561_live_upgrade.ps1'
+      - 'scripts/neral_pr561_live_browser_e2e.cjs'
+      - '.github/workflows/neral-pr561-v1-live.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  v1-staged-live:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse audited PowerShell, Python and Chrome/CDP sources before any file changes
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/neral_pr561_live_upgrade.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){throw ('Windows V1 installer syntax errors: '+@($errors).Count)}
+          & node --check scripts/neral_pr561_live_browser_e2e.cjs
+          if($LASTEXITCODE -ne 0){throw 'Real Chrome script syntax invalid'}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          & $py -B -m py_compile neral_web_search.py neral_everyday_verified.py neral_three_tier_runtime.py
+          if($LASTEXITCODE -ne 0){throw 'Pinned V1 Python code syntax invalid'}
+          Write-Host 'NERAL_PR561_PREINSTALL_SOURCE_SYNTAX_PASS'
+      - name: Immutable source-only V1 install, real browser EZB + Python + Z3; rollback on failure
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_pr561_live_upgrade.ps1
+          if($LASTEXITCODE -ne 0){throw 'V1 real Chrome acceptance not passed'}
+          Write-Host 'NERAL_PR561_WINDOWS_V1_LIVE_3_OF_3_PASS'
