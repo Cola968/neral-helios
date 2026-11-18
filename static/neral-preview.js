@@ -914,6 +914,33 @@
         // survived filtering. Tell the model the truthful empty-result status,
         // without passing irrelevant third-party snippets or invented facts.
         modelPrompt=webEvidencePrompt(text,evidence,true,verifiedSources.length);
+        // Search hits are already real provider metadata. Do not make the user
+        // wait for a 9B model to rewrite snippets or claim it read those sites.
+        // The exact original source URLs are rendered as separate safe links.
+        if(sources.length>0 && selectedAttachments.length===0){
+          const short=part=>String(part||"").replace(/\\bGrenze\\s*:/giu,"Hinweis:").trim();
+          const snippets=sources.slice(0,5).map((hit,i)=>{
+            const title=short(hit.title).slice(0,120);
+            const excerpt=short(hit.snippet).slice(0,230);
+            return (i+1)+". "+title+(excerpt?" – "+excerpt:"");
+          });
+          const answer="Gefundene Suchtreffer zu „"+webQuery+"“:\\n"+
+            snippets.join("\\n")+"\\n\\n"+
+            "Die Angaben stammen aus Suchmaschinen-Snippets. "+
+            "Die verlinkten Seiten wurden nicht inhaltlich unabhängig geprüft.";
+          const origin="Werkzeug: Websuche ("+sources.length+" "+
+            (sources.length===1?"Quelle":"Quellen")+")";
+          motionActivity("done",mode);
+          const answerNode=append("assistant",answer,origin,true);
+          appendSources(answerNode,sources,true);
+          memory.push({role:"user",content:text},{role:"assistant",content:answer});
+          if(memory.length>12)memory.splice(0,memory.length-12);
+          browser.dispatchEvent?.(new CustomEvent("neral:turn-complete",{
+            detail:{user:text,assistant:answer}
+          }));
+          completedTurn=true;
+          return;
+        }
       }
       let path="/api/neral/chat/"+mode;
       let options={
