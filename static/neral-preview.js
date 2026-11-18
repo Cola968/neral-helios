@@ -918,14 +918,14 @@
         // wait for a 9B model to rewrite snippets or claim it read those sites.
         // The exact original source URLs are rendered as separate safe links.
         if(sources.length>0 && selectedAttachments.length===0){
-          const short=part=>String(part||"").replace(/\\bGrenze\\s*:/giu,"Hinweis:").trim();
+          const short=part=>String(part||"").replace(/\bGrenze\s*:/giu,"Hinweis:").trim();
           const snippets=sources.slice(0,5).map((hit,i)=>{
             const title=short(hit.title).slice(0,120);
             const excerpt=short(hit.snippet).slice(0,230);
             return (i+1)+". "+title+(excerpt?" – "+excerpt:"");
           });
-          const answer="Gefundene Suchtreffer zu „"+webQuery+"“:\\n"+
-            snippets.join("\\n")+"\\n\\n"+
+          const answer="Gefundene Suchtreffer zu „"+webQuery+"“:\n"+
+            snippets.join("\n")+"\n\n"+
             "Die Angaben stammen aus Suchmaschinen-Snippets. "+
             "Die verlinkten Seiten wurden nicht inhaltlich unabhängig geprüft.";
           const origin="Werkzeug: Websuche ("+sources.length+" "+
