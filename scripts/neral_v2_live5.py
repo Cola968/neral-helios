@@ -97,6 +97,15 @@ def _task_cases() -> list[tuple[str, str, object]]:
 
 def _check_stdout(kind: str, stdout: str, gold: object) -> None:
     if kind == "chips":
+        # The prompt fixes the output order as Anna, Ben, Cora. A bare triplet
+        # is therefore as objectively checkable as three named assignments.
+        # Admit only EXACTLY three unsigned integers and no other text.
+        bare = re.fullmatch(r"\s*(\d+)[\s,;]+(\d+)[\s,;]+(\d+)\s*", stdout)
+        if bare is not None:
+            values = tuple(map(int, bare.groups()))
+            if values != tuple(gold[n] for n in ("Anna", "Ben", "Cora")):
+                raise ValueError("Incorrect ordered chip quantities")
+            return
         found = {}
         for name in ("Anna", "Ben", "Cora"):
             hit = re.search(r"\b"+name+r"\b[^\d]{0,20}(\d+)",stdout,re.I)
