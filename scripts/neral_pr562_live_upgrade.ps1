@@ -1,3 +1,4 @@
+# Owner approved 2026-11-18: strict canonical JSON + targeted SymPy key repair; still require 5/5 and real Chrome, else rollback.
 # Explicitly user approved 2026-11-18: continue JSON Z3/SymPy fixes; retest full 5/5 and Chrome, rollback on failure.
 # Owner-approved source equation/percent + compact Z3 JSON live5 retest; exact 5/5 and Chrome gate unchanged.
 # User approved: semantic-preserving Boolean AST normalization and SymPy relational equation solver; 5/5+Chrome or rollback.
@@ -33,8 +34,8 @@ $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
   'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
   'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
-  'neral_three_tier_runtime.py'='c5522d8a4af85366b1bb88b73d059e0baaa4ceee'
-  'neral_z3_json_compiler.py'='098387136de96301306c640148a7fc91f5e4a17f'
+  'neral_three_tier_runtime.py'='32eb8cec6eeb94cb506aab3260499cde5c5cba34'
+  'neral_z3_json_compiler.py'='db2e300ffd515d0118dc51b2454b2084512cf928'
   'neral_tir_experimental.py'='2c87ea13b7aecb927f16b089ae11a62f3c5ba50a'
   'static/neral-preview.js'='224a691c4ff9869d9513ec18ed7d554cfa3ed079'
 }
