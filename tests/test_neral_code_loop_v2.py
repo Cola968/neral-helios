@@ -121,7 +121,7 @@ def turns(text):
 class GenericCodeLoop(unittest.TestCase):
     def test_five_free_tasks_execute_model_proposed_python_and_keep_unverified(self):
         for question, program, expected in CASES:
-            if 'Schicht' in question:
+            if 'schicht' in question.casefold():
                 continue  # Z3 has a separate JSON→compiler regression below.
             with self.subTest(question=question[:35]):
                 calls=[]
@@ -177,7 +177,8 @@ class GenericCodeLoop(unittest.TestCase):
             ast.parse(code)
             observed.append(code)
             self.assertIn("while solver.check() == z3.sat:",code)
-            self.assertEqual(code.count("assert z3.is_true("),6)
+            self.assertEqual(code.count("assert z3.is_true("),1)
+            self.assertIn("for rid,rule in rules:",code)
             self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))",code)
             return {"status":"PASSED","output":"2"}
         rt,_,helios=runtime([json.dumps(proposal), "Die Sandbox gab 2 aus."],sandbox)
