@@ -522,6 +522,67 @@ def parse_bing_rss(xml: str, *, limit: int = MAX_RESULTS, max_age_days: int | No
     return output
 
 
+_QUERY_STOP = frozenset((
+    "wie","hoch","ist","sind","war","waren","heute","aktuell","aktuelle",
+    "aktuellen","aktueller","aktuelles","der","die","das","den","dem","des",
+    "ein","eine","einer","eines","einem","einen","von","vom","zu","zum",
+    "zur","im","in","am","an","auf","für","fur","mit","und","oder",
+    "was","wer","wann","wo","warum","wieso","welche","welcher","welches",
+    "hat","haben","wird","werden","kann","können","man","mir","mich",
+    "bitte","gibt","es","noch","suche","such","finde","recherchiere",
+    "internet","web","online","nach","quellen","quelle","links","nenne",
+    "nenn","gib","zeige","deine","neueste","neuesten","news","nachrichten"
+))
+
+
+def rewrite_search_query(query: str) -> str:
+    """Compress explicit search questions before any external provider request.
+
+    Preserve user topic spellings and named entities; freshness is an optional
+    search keyword, not a statement that returned metadata was fact-checked.
+    """
+    if not isinstance(query, str):
+        raise WebSearchInputError("Ungültiger Suchbegriff.")
+    original = _clean(query, MAX_QUERY_CHARS + 1)
+    fresh = bool(re.search(r"\b(?:heute|aktuell(?:e|en|er|es)?|"
+                           r"neuest(?:e|en|er|es)?|news|nachrichten|2026)\b",
+                           original, re.I))
+    q = re.sub(r"^(?:hallo|hallöchen|hi|hey|moin)\b\s*[,!.]*\s*",
+               "", original, flags=re.I)
+    # Strip repeated directives, including the literal 'Suche bitte aktuell im Web:'.
+    for _ in range(5):
+        next_q = re.sub(
+            r"^(?:(?:suche|such|finde|recherchiere|recherchier)\s+)?"
+            r"(?:(?:bitte|mal|aktuell(?:e|en|er|es)?|im\s+(?:web|internet)|"
+            r"online|nach)\s+)*[:：]?\s*",
+            "", q, flags=re.I)
+        if next_q == q:
+            break
+        q = next_q
+    q = re.sub(
+        r"(?:[?!.]\s*)?(?:nenne|nenn|gib|zeige|liste)\s+(?:mir\s+)?"
+        r"(?:(?:deine|die|bitte)\s+)?(?:quellen|links|belege)"
+        r"(?:\s+an)?[!?.]*\s*$", "", q, flags=re.I).strip()
+    q = re.sub(r"^[?!.,:;\s]+|[?!.,:;\s]+$", "", q)
+    if not q:
+        return ""
+    words = q.split()
+    if len(words) > 3 or re.match(r"^(?:wie|was|wer|wann|wo|warum|wieso|welche[rs]?)\b", q, re.I):
+        keywords = [
+            w for raw in words
+            if (w := re.sub(r"^[^\w-]+|[^\w-]+$", "", raw)) and
+            len(w) >= 2 and w.casefold() not in _QUERY_STOP
+        ]
+        if keywords:
+            q = " ".join(keywords[:5])
+    if fresh and not re.search(r"\b(?:aktuell|2026|news)\b", q, re.I):
+        q += " aktuell"
+    q = " ".join(q.split())
+    if len(q) > MAX_QUERY_CHARS:
+        q = q[:MAX_QUERY_CHARS].rsplit(" ", 1)[0] or q[:MAX_QUERY_CHARS]
+    return q
+
+
 class WebSearch:
     """A bounded, explicitly requested search. No external API key needed."""
     def __init__(self, *, opener=None, max_per_minute: int = 6):
@@ -553,7 +614,7 @@ class WebSearch:
             "Accept-Language":"de,en;q=0.8",
         }, method="GET")
         try:
-            with self.opener.open(req, timeout=7.0) as response:
+            with self.opener.open(req, timeout=4.0) as response:
                 mime = response.headers.get("Content-Type","").lower()
                 if "xml" not in mime and "rss" not in mime:
                     raise WebSearchError("Nachrichten-Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -586,7 +647,7 @@ class WebSearch:
             "Accept":"application/json", "Accept-Language":"de,en;q=0.8"
         },method="GET")
         try:
-            with self.opener.open(req,timeout=7.0) as response:
+            with self.opener.open(req,timeout=4.0) as response:
                 mime=response.headers.get("Content-Type","").lower()
                 if "json" not in mime:
                     raise WebSearchError("Referenzsuche lieferte unerwarteten Inhaltstyp.")
@@ -641,7 +702,7 @@ class WebSearch:
             "Accept-Language": "de,en;q=0.8",
         }, method="GET")
         try:
-            with self.opener.open(req, timeout=7.0) as response:
+            with self.opener.open(req, timeout=4.0) as response:
                 mime = response.headers.get("Content-Type", "").lower()
                 if "xml" not in mime:
                     raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
@@ -655,7 +716,7 @@ class WebSearch:
     def search(self, query: str, on_provider=None) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
-        cleaned = _clean(query, MAX_QUERY_CHARS + 1)
+        cleaned = rewrite_search_query(query)
         if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchbegriff muss 2 bis 160 Zeichen lang sein.")
         with self._lock:
@@ -673,7 +734,7 @@ class WebSearch:
                 "User-Agent": "Mozilla/5.0 (compatible; NeralLocalSearch/1.0)",
                 "Accept": accept, "Accept-Language": "de,en;q=0.8",
             }, method="GET")
-            with self.opener.open(req, timeout=7.0) as response:
+            with self.opener.open(req, timeout=4.0) as response:
                 mime = response.headers.get("Content-Type", "").lower()
                 if expected_type not in mime:
                     raise WebSearchError("Suchanbieter lieferte unerwarteten Inhaltstyp.")
