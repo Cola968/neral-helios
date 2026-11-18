@@ -32,13 +32,15 @@ class Compiler(unittest.TestCase):
         self.assertIn("while solver.check() == z3.sat:", code)
         self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))", code)
         self.assertEqual(code.count("assert z3.is_true("), 1)
-        self.assertIn("for rid,rule in rules:",code)
-        self.assertIn("('R6',cora != 1)",code)
-        self.assertIn("for rid,rule in rules:",code)
-        self.assertIn("for v,lo,hi in bounds:",code)
+        self.assertIn("for rid,rule in zip(rule_ids,rules):",code)
+        self.assertIn("R6",code)
+        self.assertIn("cora != 1",code)
+        self.assertIn("for rid,rule in zip(rule_ids,rules):",code)
+        self.assertIn("for v,lo,hi in zip(all_vars,bounds_lo,bounds_hi):",code)
         self.assertIn("solver.add(v>=lo,v<=hi)",code)
         self.assertIn("print(count)", code)
-        self.assertIn("(ada,0,2)", code)
+        self.assertIn("bounds_lo=[0,0,0]", code)
+        self.assertIn("bounds_hi=[2,2,2]", code)
 
     def test_json_without_markdown_only(self):
         raw = chr(96) * 3 + "json\n" + json.dumps(sample()) + "\n" + chr(96) * 3
@@ -93,7 +95,7 @@ class Compiler(unittest.TestCase):
         }))
         self.assertLessEqual(len(code.encode("utf-8")),4096)
         self.assertLessEqual(sum(1 for _ in ast.walk(ast.parse(code))),384)
-        self.assertIn("for rid,rule in rules:",code)
+        self.assertIn("for rid,rule in zip(rule_ids,rules):",code)
         self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))",code)
 
     def test_allow_only_approved_functions_and_arithmetic(self):
