@@ -131,18 +131,24 @@ def register_web_search_api(app, service=None):
             return index, ({**item, "url":checked_url,"reachable":True}
                            if checked_url else None)
         accepted = {}
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(previews)]
-            for task in as_completed(tasks):
-                index, checked = task.result()
-                if checked is not None:
-                    accepted[index] = checked
+        fresh = is_fresh_news_query(query or result.get("query", ""))
+        # For fresh searches, link verification adds substantial HTTPS latency.
+        # Provider-discovered HTTPS URLs remain usable, but are labelled as
+        # metadata-only instead of claiming their destinations were contacted.
+        if not fresh:
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                tasks = [pool.submit(verify, i, hit) for i, hit in enumerate(previews[:3])]
+                for task in as_completed(tasks):
+                    index, checked = task.result()
+                    if checked is not None:
+                        accepted[index] = checked
         verified = [accepted[i] for i in sorted(accepted)][:5]
         if on_source is not None:
             for hit in verified:
                 on_source(hit)
         return {**result, "results": verified, "previews": previews,
-                "link_check": "public_https_tls_and_http_only"}
+                "link_check": ("provider_metadata_only" if fresh else
+                               "public_https_tls_and_http_only")}
 
     def verified_with_fallback(result: dict, query: str, on_provider=None,
                                on_source=None, on_candidate=None) -> dict:
