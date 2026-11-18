@@ -1,3 +1,4 @@
+# Explicit V2.1 owner approval: run real RTX4070 live3 and Chrome with automatic rollback; main untouched until pass.
 # Owner-approved V2.1 staged Windows upgrade. Only the attested NERAL service
 # and eight fixed runtime files are touched; no trainer, model weights or user files.
 param()
