@@ -159,14 +159,35 @@ def compile_z3_json(raw: object) -> str:
     except SchemaError:
         raise
     except json.JSONDecodeError as exc:
-        raise SchemaError(
-            f"JSON syntaktisch ungültig (Zeile {exc.lineno}, Spalte {exc.colno}): "
-            + str(exc.msg)[:75]) from exc
+        if exc.msg != "Extra data":
+            raise SchemaError(
+                f"JSON syntaktisch ungültig (Zeile {exc.lineno}, Spalte {exc.colno}): "
+                + str(exc.msg)[:75]) from exc
+        # The model sometimes adds a plain-language sentence after a complete
+        # object. Accept ONLY the first unambiguous complete JSON object.
+        # Never select between two JSON payloads or consume following code.
+        try:
+            payload, offset = json.JSONDecoder(
+                object_pairs_hook=_unique_pairs,
+                parse_constant=_bad_constant).raw_decode(raw.lstrip())
+            trailing = raw.lstrip()[offset:].strip()
+            if (type(payload) is not dict or not trailing or
+                    len(trailing) > 180 or
+                    any(ch in trailing for ch in "[]{}\x60\"'\\") and trailing != "}" or
+                    re.fullmatch(r"(?i)(?:true|false|null|[-+]?\d+)",trailing) or
+                    not all(ch.isprintable() or ch in "\n\t" for ch in trailing)):
+                raise SchemaError("Mehrdeutige JSON-Zusatzausgabe")
+        except (ValueError, TypeError, RecursionError) as parse_exc:
+            raise SchemaError("Mehrdeutige JSON-Zusatzausgabe") from parse_exc
     except (ValueError, TypeError, RecursionError) as exc:
         raise SchemaError("Erwartet wird genau ein gültiges JSON-Objekt") from exc
     if type(payload) is not dict:
         raise SchemaError("JSON muss ein Objekt sein; erhalten: " + type(payload).__name__)
     expected = {"variables", "constraints", "objective"}
+    # Ignore one non-executable schema-description field only when every
+    # required data field is independently present. No aliases or inferred data.
+    if set(payload) == expected | {"schema"}:
+        payload = {key: payload[key] for key in expected}
     if set(payload) != expected:
         missing = ",".join(sorted(expected - set(payload))) or "-"
         unexpected = ",".join(sorted(
