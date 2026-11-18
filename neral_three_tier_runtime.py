@@ -349,9 +349,17 @@ _Z3_COUNT_RE = re.compile(
 )
 
 
+def _original_web_question(source: str) -> str:
+    """Never let retrieved web snippets control numeric/logic routing."""
+    if source.startswith("[NERAL-WEBSTATUS"):
+        marker="\n[URSPRÜNGLICHE FRAGE]\n"
+        return source.rsplit(marker,1)[-1] if marker in source else ""
+    return source
+
+
 def _is_constraint_task(source: object) -> bool:
     """Route free-form constraint intent; does NOT certify rule completeness."""
-    return type(source) is str and bool(_Z3_KEYWORD_RE.search(source))
+    return type(source) is str and bool(_Z3_KEYWORD_RE.search(_original_web_question(source)))
 
 
 def _is_constraint_count(source: str) -> bool:
@@ -398,7 +406,8 @@ def _is_free_compute_task(source: object) -> bool:
         return False
     # The browser wraps web-search results in a synthetic message containing
     # source numbers and dates. Never confuse these snippets with user math.
-    if source.startswith("[NERAL-WEBSTATUS"):
+    source = _original_web_question(source)
+    if not source:
         return False
     if any(ch.isdecimal() for ch in source):
         return True
