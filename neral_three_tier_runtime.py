@@ -156,7 +156,14 @@ class FrozenQwen35HF:
         except ImportError:
             pass
 
-    def respond_chat(self, turns: list[dict], *, max_new_tokens: int) -> str:
+    def respond_chat(self, turns: list[dict], *, max_new_tokens: int,
+                     temperature: float | None = None) -> str:
+        # Transformers does not accept temperature=0 as a sampling
+        # temperature. Explicit zero means GREEDY decoding, so use
+        # do_sample=False and do not pass temperature to generate().
+        if temperature is not None and (type(temperature) not in (float, int) or
+                                        temperature != 0.0):
+            raise ValueError("Only temperature=0.0 (greedy) is approved")
         if type(max_new_tokens) is not int or max_new_tokens not in (96, 256, 768):
             raise ValueError("Unapproved NERAL inference budget")
         if self.model == LUNA and max_new_tokens != 96:
@@ -224,6 +231,62 @@ _CODE_ONLY_SYSTEM = (
     "Falls die Aufgabe unbestimmt ist, gib eine Erklärung dafür per print aus. "
     "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
 )
+_Z3_CONSTRAINT_SYSTEM = (
+    "\nNERAL-SPEZIALMODUS: KOMBINATORIK / ZUORDNUNGEN / SCHICHTPLÄNE. "
+    "Hier zwingend Z3 statt bloßer Handrechnung oder itertools benutzen. "
+    "Schreibe als EINEN Python-Codeblock ein kleines, vollständiges Z3-Skript. "
+    "Verwende import z3, solver=z3.Solver() und für jede Entscheidung eine "
+    "z3.Int('name') oder z3.Bool('name') Variable. "
+    "Bewahre alle Variablen als all_vars=[...]. "
+    "Extrahiere zuerst JEDE einzelne Aussage aus der Aufgabenstellung, "
+    "einschließlich Negationen ('nicht', 'nie'), Eindeutigkeit, Zahlenbereich, "
+    "'höchstens' und 'mindestens'. Überspringe KEINE Ausschlussbedingung. "
+    "Für JEDE einzelne Regel schreibe einen eigenen kommentierten Block "
+    "# Regel 1: ... gefolgt von solver.add(...), dann # Regel 2: ... usw. "
+    "Fasse zwei unterschiedliche Regeln NICHT in einer einzigen "
+    "solver.add-Anweisung zusammen. "
+    "PRÜFE die Regeln VOR jeder endgültigen Ausgabe unabhängig vom "
+    "solver.add-Code erneut durch separate assert-Anweisungen für jede "
+    "Regel, bezogen auf die konkreten Modelldaten. Verwende bei z3.Int "
+    "m[v].as_long(), bei z3.Bool z3.is_true(m[v]). "
+    "Falls eine assertion fehlschlägt, soll das Programm FEHLSCHLAGEN "
+    "statt einen falschen Wert zu drucken; der Controller versucht dann "
+    "eine Reparatur. "
+    "Bei ZÄHLAUFGABEN alle Modelle in einem Loop vollständig enumerieren: "
+    "count=0; while solver.check() == z3.sat:; m=solver.model(); "
+    "assert <jede einzelne Nutzerregel>; count += 1; "
+    "solver.add(z3.Or([v != m[v] for v in all_vars])); "
+    "und erst NACH dem Loop print(count). Schreibe diese Befehle mit "
+    "korrekten Zeilenumbrüchen und Python-Einrückung. "
+    "Modellvariablen und Kommentare müssen vor der Schleife definiert sein. "
+    "Zähle nie Modelle ohne die Blocking-Klausel. "
+    "Gib keine vorgegebene erwartete Anzahl ein; ermittle sie durch Z3. "
+    "Die Code-Ausführung bleibt Modell-Evidenz, keine unabhängige Verifikation."
+)
+_Z3_KEYWORD_RE = re.compile(
+    r"(?iu)\b(?:schicht\w*|dienst\w*|plan(?:ung|e|en)?|pläne?|"
+    r"zuordn\w*|zuweisung\w*|verteil\w*|ausschluss\w*|zuläss\w*|"
+    r"nie|niemals|höchstens|mindestens|kombinator\w*|"
+    r"constraint\w*|assignment\w*|scheduling\w*)\b"
+    r"|\bnicht\s+zusammen\b"
+)
+_Z3_COUNT_RE = re.compile(
+    r"(?iu)\b(?:wie\s+viele|anzahl|zähle|zählen|zählung|"
+    r"wieviele|wie\s+oft|möglichkeit(?:en)?|"
+    r"zulässige(?:n|r|s)?|verschiedene(?:n|r|s)?|"
+    r"kombination(?:en)?|count|enumerate)\b"
+)
+
+
+def _is_constraint_task(source: object) -> bool:
+    """Route free-form constraint intent; does NOT certify rule completeness."""
+    return type(source) is str and bool(_Z3_KEYWORD_RE.search(source))
+
+
+def _is_constraint_count(source: str) -> bool:
+    return bool(_Z3_COUNT_RE.search(source))
+
+
 _CODE_FENCE = re.compile(r"\A\x60\x60\x60python[ \t]*\r?\n(?P<code>[\s\S]*?)\r?\n\x60\x60\x60\Z", re.I)
 _CODE_SIGNAL = frozenset((
     "berechne","berechnen","rechnung","rechne","rechnen","errechne","ermittle",
@@ -388,7 +451,11 @@ class ThreeTierRuntime:
         """At most three scripts, two repairs; success is EXECUTED, never VERIFIED."""
         self._switch(self.helios)
         source = turns[-1]["content"]
-        base = [{"role": "system", "content": turns[0]["content"] + _CODE_ONLY_SYSTEM}]
+        constraint_mode = _is_constraint_task(source)
+        count_mode = constraint_mode and _is_constraint_count(source)
+        base = [{"role": "system", "content": (
+            turns[0]["content"] + _CODE_ONLY_SYSTEM +
+            (_Z3_CONSTRAINT_SYSTEM if constraint_mode else ""))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
         succeeded = 0
@@ -401,7 +468,7 @@ class ThreeTierRuntime:
         for attempt in range(3):
             # Model code is data, not a trusted program or source certificate.
             candidate = self.helios.respond_chat(prompt_turns,
-                max_new_tokens=TIERS["Helios"])
+                max_new_tokens=TIERS["Helios"], temperature=0.0)
             attempted = attempt + 1
             code = _one_python_block(candidate)
             if code is None:
