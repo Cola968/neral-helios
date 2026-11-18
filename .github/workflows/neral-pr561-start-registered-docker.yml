@@ -1,0 +1,76 @@
+name: NERAL Windows start registered Docker Desktop
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-start-registered-docker.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-pr561-start-registered-docker
+  cancel-in-progress: false
+jobs:
+  start:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Start existing user-owned Docker Desktop from Windows registered location
+        run: |
+          $ErrorActionPreference='Stop'
+          $cmd=Get-Command docker.exe -ErrorAction SilentlyContinue
+          if(-not $cmd){throw 'Docker CLI absent'}
+          $ready=$false
+          try{
+            & $cmd.Source info --format '{{.ServerVersion}}' 2>$null | Out-Null
+            $ready=($LASTEXITCODE -eq 0)
+          }catch{}
+          $exe=$null;$registryFound=$false
+          $entries=Get-ChildItem -Path 'HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*','HKCU:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*' -ErrorAction SilentlyContinue |
+            ForEach-Object {try{Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue}catch{}} |
+            Where-Object {$_.DisplayName -match '(?i)^Docker Desktop'}
+          $registryFound=(@($entries).Count -gt 0)
+          $candidates=New-Object System.Collections.Generic.List[string]
+          foreach($entry in $entries){
+            $loc=[string]$entry.InstallLocation
+            if($loc){$candidates.Add((Join-Path ($loc.Trim('"')) 'Docker Desktop.exe'))}
+            $icon=[string]$entry.DisplayIcon
+            if($icon -match '(?i)^"?(?<p>[A-Z]:[^"]*Docker Desktop\.exe)'){ $candidates.Add($Matches.p) }
+          }
+          foreach($base in @(
+              (Join-Path $env:LOCALAPPDATA 'Programs'),
+              (Join-Path $env:LOCALAPPDATA 'Docker'),
+              (Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop'),
+              'C:/Program Files/Docker',
+              'D:/Program Files/Docker')){
+            if(-not(Test-Path -LiteralPath $base -PathType Container)){continue}
+            $candidates.Add((Join-Path $base 'Docker Desktop.exe'))
+            $candidates.Add((Join-Path $base 'Docker/Docker Desktop.exe'))
+            $found=Get-ChildItem -Path $base -Filter 'Docker Desktop.exe' -File -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 2
+            foreach($f in $found){$candidates.Add($f.FullName)}
+          }
+          $exe=@($candidates | Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1)[0]
+          $started=$false
+          if(-not $ready -and $exe){
+            $running=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)
+            if($running.Count -eq 0){
+              Start-Process -FilePath $exe -ErrorAction Stop | Out-Null
+              $started=$true
+            }
+            for($i=0;$i -lt 80;$i++){
+              Start-Sleep -Seconds 2
+              try{
+                & $cmd.Source info --format '{{.ServerVersion}}' 2>$null | Out-Null
+                if($LASTEXITCODE -eq 0){$ready=$true;break}
+              }catch{}
+            }
+          }
+          $result=@{registry_present=$registryFound;desktop_exe_found=($null -ne $exe);
+            started=$started;docker_ready=$ready;
+            desktop_processes=@(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue).Count}
+          Write-Host ('NERAL_DOCKER_REGISTERED_START '+($result|ConvertTo-Json -Compress))
+          if(-not $ready){throw 'Existing Docker Desktop could not be started; no runtime image build allowed'}
+          Write-Host 'NERAL_DOCKER_ENGINE_LOCAL_READY'
+          exit 0
