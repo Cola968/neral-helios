@@ -18,7 +18,7 @@ class FakeModel:
         self.adapter_sha256=sha
         self.loaded=False
         self.calls=[]
-    def respond_chat(self, turns, *, max_new_tokens):
+    def respond_chat(self, turns, *, max_new_tokens, temperature=None, max_time_seconds=None):
         self.calls.append(max_new_tokens)
         self.loaded=True
         return "Grenze: Ein lokales Modell kann keinen mathematischen Beweis liefern.Plan: ungeprüft"
@@ -181,7 +181,11 @@ class EverydayLiveChat(unittest.TestCase):
         self.assertEqual(result["tier"],"Helios")
         self.assertEqual(result.get("auto_escalated_from"),"Luna")
         self.assertEqual(luna.calls,[])
-        self.assertEqual(helios.calls,[768])
+        # A malformed non-code response receives at most two bounded retries
+        # without ever becoming a fabricated verified/tool-executed answer.
+        self.assertEqual(helios.calls,[768,768,768])
+        self.assertEqual(result.get("sandbox_attempts"),3)
+        self.assertFalse(result.get("sandbox_executed"))
 
 
 if __name__=="__main__":

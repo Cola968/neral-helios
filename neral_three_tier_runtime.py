@@ -10,12 +10,15 @@ preview chat lock. Nothing is downloaded or executed on the host.
 """
 from __future__ import annotations
 
+import ast
+from decimal import Decimal, ROUND_HALF_UP
 import gc
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+from fractions import Fraction
 import time
 from collections.abc import Mapping
 
@@ -156,9 +159,24 @@ class FrozenQwen35HF:
         except ImportError:
             pass
 
-    def respond_chat(self, turns: list[dict], *, max_new_tokens: int) -> str:
+    def respond_chat(self, turns: list[dict], *, max_new_tokens: int,
+                     temperature: float | None = None,
+                     max_time_seconds: float | None = None) -> str:
+        # Transformers does not accept temperature=0 as a sampling
+        # temperature. Explicit zero means GREEDY decoding, so use
+        # do_sample=False and do not pass temperature to generate().
+        if temperature is not None and (type(temperature) not in (float, int) or
+                                        temperature != 0.0):
+            raise ValueError("Only temperature=0.0 (greedy) is approved")
         if type(max_new_tokens) is not int or max_new_tokens not in (96, 256, 768):
             raise ValueError("Unapproved NERAL inference budget")
+        # Only model-authored V2 code gets the additional bounded generation
+        # time; ordinary Luna/Terra/Helios conversations remain unchanged.
+        if max_time_seconds is not None and not (
+                type(max_time_seconds) is float and max_time_seconds == 80.0
+                and self.model == HELIOS and max_new_tokens == 768
+                and temperature == 0.0):
+            raise ValueError("Unapproved V2 code-generation time budget")
         if self.model == LUNA and max_new_tokens != 96:
             raise ValueError("Luna is explicitly bounded to 96 tokens")
         if self.model == HELIOS and max_new_tokens == 96:
@@ -177,7 +195,8 @@ class FrozenQwen35HF:
             with torch.inference_mode():
                 output = self._model.generate(
                     input_ids=ids, do_sample=False, max_new_tokens=max_new_tokens,
-                    max_time=50.0 if max_new_tokens == 768 else 25.0,
+                    max_time=(max_time_seconds if max_time_seconds is not None
+                              else 50.0 if max_new_tokens == 768 else 25.0),
                     use_cache=True,
                     pad_token_id=self._tokenizer.pad_token_id,
                     eos_token_id=self._tokenizer.eos_token_id)
@@ -188,7 +207,9 @@ class FrozenQwen35HF:
                 if type(token_id) is int and token_id >= 0:
                     eos.add(token_id)
             if not produced or produced[-1] not in eos:
-                raise RuntimeError("HF response did not finish inside its token/time budget")
+                if len(produced) >= max_new_tokens:
+                    raise RuntimeError("HF token budget exhausted")
+                raise RuntimeError("HF time budget exhausted")
             final = self._tokenizer.decode(produced, skip_special_tokens=True).strip()
             if "<think>" in final:
                 if "</think>" not in final:
@@ -200,6 +221,449 @@ class FrozenQwen35HF:
             return final
         finally:
             del ids
+
+
+
+# V2 code generation is not a source proof. All generated programs are untrusted
+# and may execute ONLY via the pre-existing isolated Docker callback.
+_CODE_ONLY_SYSTEM = (
+    "\nNERAL V2 RECHENWERKZEUG (kein mathematischer Beweis): "
+    "Antworte NUR mit einem einzigen vollständigen Python-Codeblock im Format "
+    "\x60\x60\x60python<Zeilenumbruch>...<Zeilenumbruch>\x60\x60\x60. "
+    "Kein Text vor oder nach dem Codeblock. "
+    "Löse die aktuelle Nutzerfrage anhand der gegebenen Daten; erfinde keine "
+    "fehlenden Werte. Nutze bei Bedarf decimal.Decimal, fractions.Fraction, "
+    "sympy oder z3. Bei kombinatorischen Zuordnungen nutze bevorzugt "
+    "itertools.permutations und einfache Bedingungen statt komplexer "
+    "verschachtelter Funktionen. Verwende nur ASCII-Bezeichner für Variablen "
+    "und Funktionen. Bei Aufteilungs- oder Verhältnisaufgaben löse "
+    "die Gleichungen mit fractions.Fraction oder sympy aus genau den "
+    "aktuellen Nutzerangaben; rate niemals Zahlen, kopiere keine "
+    "Beispielwerte, und prüfe alle Beziehungen gegen den Originaltext. "
+    "Prüfe im Skript so viele Zwischenschritte wie möglich "
+    "mit assert. Gib den errechneten Endwert mit print(...) aus. "
+    "Bei mehreren benannten Personen oder Variablen drucke die Werte mit "
+    "eindeutigen Name=Wert-Bezeichnungen aus. "
+    "Keine Dateien, kein Netzwerk, keine Shell, keine Installation, keine "
+    "Eingaben und kein Zugriff auf andere Programme. "
+    "Bei exakten Bruchgleichungen mit x verwende fractions.Fraction "
+    "oder sympy.Rational für sämtliche Koeffizienten, setze "
+    "a mal x plus b gleich c als a*x+b=c an und löse nach x. "
+    "Verifiziere die Lösung durch Einsetzen: assert a*x+b==c. "
+    "Gib nur das exakte x aus und keine Zwischenergebnisse. "
+    "Falls die Aufgabe unbestimmt ist, gib eine Erklärung dafür per print aus. "
+    "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
+)
+_RELATIONAL_EQUATIONS_SYSTEM = (
+    "\nNERAL KOMPAKTE PYTHON-GLEICHUNGSSYSTEME: Antworte nur als "
+    "EIN ausführbarer \x60\x60\x60python-Codeblock mit maximal 25 Zeilen, "
+    "ohne Text davor oder danach. "
+    "Importiere sympy; verwende sympy.symbols(..., integer=True), "
+    "sympy.Eq für JEDE Relation aus der aktuellen Frage und "
+    "sympy.solve([...],[...],dict=True) für die eindeutige Lösung. "
+    "Grundstruktur: drei symbolische Unbekannte, drei sympy.Eq "
+    "für Gesamtsumme, Differenz und Multiplikator, eine solve-Anweisung, "
+    "danach direkte assert-Tests für die DREI Originalgleichungen "
+    "anhand der Lösung und genau EIN print der Name=Wert-Antworten. "
+    "Bei nicht eindeutiger Lösung gib eine klare Fehlermeldung aus. "
+    "Keine frei geschätzten Zahlen, keine ungenutzten Funktionen, "
+    "keine geschachtelten Klassen, keine Wiederholung derselben Rechnung. "
+    "Nutze nur die Nutzerzahlen und behalte den Code kurz genug "
+    "für eine isolierte 384-AST-Knoten-Docker-Sandbox. "
+    "Keine Dateien, kein Netzwerk, keine Shell, keine Installation."
+)
+
+
+def _is_relational_word_problem(source: object) -> bool:
+    return (type(source) is str and
+            "insgesamt" in source.casefold() and
+            any(term in source.casefold() for term in
+                ("mehr als", "weniger als", "doppelt", "dreifach", "so viele")))
+
+
+_Z3_CONSTRAINT_SYSTEM = (
+    "\nNERAL Z3-JSON-MODUS, KEIN PYTHON: Schreibe AUSSCHLIESSLICH "
+    "ein gültiges kompaktes JSON-Objekt ohne Markdown-Fences, ohne "
+    "Einleitung und ohne nachfolgenden Text. Exakte Top-Level-Felder: "
+    "variables, constraints, objective. "
+    "variables ist eine Liste von 1..12 Objekten mit exakt name, min, max; "
+    "name ist klein geschriebenes ASCII wie ada, berta, cora, min und max "
+    "sind ganze Zahlen mit min <= max. Jede Variable ist eine z3.Int-"
+    "Entscheidung, z.B. Person->Schichtindex 0=Morgen, 1=Abend, 2=Nacht. "
+    "constraints ist eine Liste von 1..16 Objekten mit exakt rule_id "
+    "(R1, R2,...), description (kurzer Original-Regeltext) und expr "
+    "(ein boolescher Ausdruck als STRING). "
+    "In expr sind ausschließlich definierte Variablennamen, Ganzzahlen, "
+    "+, -, *, ==, !=, <=, <, >=, > und And(...), Or(...), "
+    "Not(...), Implies(...) zulässig. KEINE Funktionsdefinitionen, "
+    "Attribute, Imports, for, Python-Ausgabe, Distinct(), Sum(), "
+    "Tupel, boolesches and/or oder Programmcode. "
+    "Jede atomare Nutzerregel muss als Rn erfasst werden, besonders "
+    "alle NICHT-/NIE-Ausschlüsse, genau-einmal und Wertebereiche. "
+    "Für paarweise unterschiedliche Schichten schreibe z.B. "
+    "ada != berta, ada != cora und berta != cora als getrennte Regeln. "
+    "objective='count_all' bei 'wie viele' oder 'Anzahl', "
+    "sonst 'find_one'. JSON-Stringwerte verwenden doppelte Anführungszeichen. "
+    "Der feste Compiler erstellt Z3, Assertions und Modellblocking; "
+    "DU erzeugst ausdrücklich KEINEN ausführbaren Python-Code. "
+    "EXAKTES JSON-FORMATBEISPIEL, NICHT ALS LÖSUNG ÜBERNEHMEN: "
+    "{\"variables\":[{\"name\":\"x\",\"min\":0,\"max\":1}],"
+    "\"constraints\":[{\"rule_id\":\"R1\",\"description\":\"x ist eins\", "
+    "\"expr\":\"x == 1\"}],\"objective\":\"count_all\"}. "
+    "Ersetze ALLE Beispielwerte und Regeln durch die aktuelle Aufgabe. "
+    "Die Wörter rules, result, explanation, answer sind als JSON-Schlüssel "
+    "auf oberster Ebene VERBOTEN; Regeln gehören NUR in constraints. "
+    "Es darf KEIN vierter Top-Level-Schlüssel erscheinen."
+)
+_Z3_KEYWORD_RE = re.compile(
+    r"(?iu)\b(?:schicht\w*|dienst\w*|plan(?:ung|e|en)?|pläne?|"
+    r"zuordn\w*|zuweisung\w*|verteil\w*|ausschluss\w*|zuläss\w*|"
+    r"nie|niemals|höchstens|mindestens|kombinator\w*|"
+    r"constraint\w*|assignment\w*|scheduling\w*)\b"
+    r"|\bnicht\s+zusammen\b"
+)
+_Z3_COUNT_RE = re.compile(
+    r"(?iu)\b(?:wie\s+viele|anzahl|zähle|zählen|zählung|"
+    r"wieviele|wie\s+oft|möglichkeit(?:en)?|"
+    r"zulässige(?:n|r|s)?|verschiedene(?:n|r|s)?|"
+    r"kombination(?:en)?|count|enumerate)\b"
+)
+
+
+def _is_constraint_task(source: object) -> bool:
+    """Route free-form constraint intent; does NOT certify rule completeness."""
+    return type(source) is str and bool(_Z3_KEYWORD_RE.search(source))
+
+
+def _is_constraint_count(source: str) -> bool:
+    return bool(_Z3_COUNT_RE.search(source))
+
+
+_CODE_FENCE = re.compile(r"\A\x60\x60\x60python[ \t]*\r?\n(?P<code>[\s\S]*?)\r?\n\x60\x60\x60\Z", re.I)
+_CODE_SIGNAL = frozenset((
+    "berechne","berechnen","rechnung","rechne","rechnen","errechne","ermittle",
+    "gleichung","gleichungen","brüche","bruchgleichung","bruch","lösung",
+    "prozent","prozente","rabatt","staffel","zins","zinsen","zinseszins",
+    "tilgung","sondertilgung","kredit","preis","endpreis","restschuld",
+    "optimierung","optimiere","minimal","maximal","minimieren","maximieren",
+    "logik","logisch","bedingung","bedingungen","rätsel","kombination",
+    "kombinationen","plan","pläne","zeitplan","schicht","schichten",
+    "schichtplanung","planung","verteilung","verteile","vergleich","vergleiche",
+    "mehr","weniger","größer","kleiner","doppelt","dreifach","zusammen",
+    "anzahl","anzahlen","wieviele","möglich","möglichkeiten","python",
+    "code","solver","z3","sympy","calculate","compute","solve","equation",
+    "constraint","constraints","schedule","scheduling","optimization",
+    "fraction","fractions","interest","discount","percent",
+))
+
+
+def _is_free_compute_task(source: object) -> bool:
+    """Broad intent routing, not a rigid language parser or proof certificate."""
+    if type(source) is not str or len(source.encode("utf-8")) > 4096:
+        return False
+    # The browser wraps web-search results in a synthetic message containing
+    # source numbers and dates. Never confuse these snippets with user math.
+    if source.startswith("[NERAL-WEBSTATUS"):
+        return False
+    if any(ch.isdecimal() for ch in source):
+        return True
+    words = set(re.findall(r"[\wäöüß]+", source.casefold()))
+    return bool(words & _CODE_SIGNAL)
+
+
+def _one_python_block(generated: object) -> str | None:
+    if type(generated) is not str or len(generated.encode("utf-8")) > 3500:
+        return None
+    m = _CODE_FENCE.fullmatch(generated.strip())
+    if m is None:
+        return None
+    code = m["code"].strip()
+    # Reject nested or multiple fenced blocks, even if the outer fence matches.
+    if "```" in code:
+        return None
+    if not 1 <= len(code.encode("utf-8")) <= 2300:
+        return None
+    if any(ord(ch) < 32 and ch not in "\r\n\t" for ch in code):
+        return None
+    return code
+
+
+def _constraint_code_issue(code: str, *, counted: bool) -> str | None:
+    """Static syntactic Z3 contract, NOT independent rule-completeness proof.
+
+    Do not run model code on the host. Reject scripts that lack executable
+    per-rule assertions before print and, for counts, complete model blocking.
+    """
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError:
+        return "Python-Code syntaktisch ungültig"
+    imports_z3 = any(
+        isinstance(node, ast.Import) and
+        any(alias.name == "z3" for alias in node.names)
+        for node in ast.walk(tree))
+    if not imports_z3:
+        return "Z3-Modul muss explizit mit import z3 importiert werden"
+    calls = [ast.unparse(n.func) for n in ast.walk(tree)
+             if isinstance(n, ast.Call)]
+    if not any(c in ("z3.Int", "z3.Bool") for c in calls):
+        return "Es fehlen Z3-Entscheidungsvariablen (z3.Int oder z3.Bool)"
+    if calls.count("solver.add") < 2:
+        return "Mehrere einzelne solver.add-Regeln sind erforderlich"
+    rule_comments = re.findall(r"(?m)^[ \t]*#\s*Regel\s*\d+", code, re.I)
+    if len(rule_comments) < 2:
+        return "Jede Regel braucht einen eigenen Kommentar '# Regel N'"
+    assertions = [n for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+    if len(assertions) < len(rule_comments):
+        return "Vor der Ausgabe fehlt eine assert-Prüfung pro Regel"
+    prints = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Name) and n.func.id == "print"]
+    if not prints or max(n.lineno for n in assertions) >= max(n.lineno for n in prints):
+        return "Regel-asserts müssen vor dem abschließenden print stehen"
+    if counted:
+        if not re.search(r"while\s+solver\.check\(\)\s*==\s*z3\.sat\s*:", code):
+            return "Zählaufgabe braucht while solver.check() == z3.sat"
+        if not re.search(r"solver\.add\s*\(\s*z3\.Or\s*\(", code):
+            return "Z3-Zählung ohne Blocking-Klausel"
+        if not re.search(r"v\s*!=\s*m\[v\]", code) or "all_vars" not in code:
+            return "Z3-Blocking muss jedes Modell über all_vars ausschließen"
+    return None
+
+
+_SOURCE_FRACTION_EQUATION = re.compile(
+    r"(?iu)\b(?P<anum>\d{1,6})\s*/\s*(?P<aden>\d{1,6})\s*"
+    r"(?:mal|\*)\s*x\s*(?:plus|\+)\s*"
+    r"(?P<bnum>\d{1,6})\s*/\s*(?P<bden>\d{1,6})\s*"
+    r"(?:gleich|=)\s*(?P<cnum>\d{1,7})\s*/\s*(?P<cden>\d{1,6})\b"
+)
+
+
+def _source_fraction_equation_ok(source: object, stdout: object) -> bool | None:
+    """Reject inconsistent sandbox output for unambiguous a*x+b=c source.
+
+    This is a limited source-grounded REJECTION oracle, never a model proof.
+    It does not synthesize code, change output or label anything verified.
+    """
+    if type(source) is not str:
+        return None
+    match = _SOURCE_FRACTION_EQUATION.search(source)
+    if match is None:
+        return None
+    if type(stdout) is not str:
+        return False
+    answer = re.fullmatch(
+        r"\s*(?:x\s*=\s*)?([-+]?\d{1,10}(?:/\d{1,10}|\.\d{1,8})?)\s*",
+        stdout, re.I)
+    if answer is None:
+        return False
+    try:
+        a = Fraction(int(match["anum"]), int(match["aden"]))
+        b = Fraction(int(match["bnum"]), int(match["bden"]))
+        c = Fraction(int(match["cnum"]), int(match["cden"]))
+        x = Fraction(answer.group(1))
+        return a * x + b == c
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return False
+
+
+_SOURCE_THREE_PERSON_TOTAL = re.compile(
+    r"(?iu)\b(?P<a>[A-Za-zÄÖÜäöüß]{2,20}),\s*"
+    r"(?P<b>[A-Za-zÄÖÜäöüß]{2,20})\s+und\s+"
+    r"(?P<c>[A-Za-zÄÖÜäöüß]{2,20})\s+haben\s+"
+    r"insgesamt\s+(?P<total>\d{1,6})\b"
+)
+
+_SOURCE_SEQ_PERCENT = re.compile(
+    r"(?iu)\bProdukt\s+kostet\s+(\d{1,6})\s+Euro\.\s*"
+    r"Zuerst\s+werden\s+(\d{1,3})\s+Prozent\s+Rabatt\s+abgezogen,\s*"
+    r"vom\s+neuen\s+Preis\s+weitere\s+(\d{1,3})\s+Prozent\.\s*"
+    r"Danach\s+kommen\s+(\d{1,3})\s+Prozent\s+Mehrwertsteuer\s+hinzu"
+)
+
+
+_SOURCE_TWO_YEAR_LOAN = re.compile(
+    r"(?isu)\b(?:Darlehen|Kredit)\s+von\s+(\d{1,8})\s*(?:Euro|€)\b"
+    r".{0,200}?\b(?:jedes\s+Jahr|jährlich|pro\s+Jahr)\s+mit\s+"
+    r"(\d{1,2})\s+Prozent\s+verzinst"
+    r".{0,200}?\b(?:Sondertilgung|Rückzahlung)\s+von\s+"
+    r"(\d{1,8})\s*(?:Euro|€)\b"
+)
+
+
+def _source_loan_parameters(source: object) -> tuple[int, int, int] | None:
+    if type(source) is not str or len(source)>4096:
+        return None
+    found = _SOURCE_TWO_YEAR_LOAN.search(source)
+    if found is None or not re.search(r"(?iu)\bzweiten\s+Jahr\b",source):
+        return None
+    principal, rate, repayment = map(int, found.groups())
+    if not (1 <= principal <= 100_000_000 and 0 <= rate <= 99
+            and 0 <= repayment <= principal * 2):
+        return None
+    return principal,rate,repayment
+
+
+def _source_loan_equations(source: object) -> str | None:
+    """Copy only independently parsed financial relations, not the answer."""
+    values = _source_loan_parameters(source)
+    if values is None:
+        return None
+    principal, rate, repayment = values
+    return (
+        "\nNERAL QUELLENFORMEL KREDIT (keine vorgegebene Lösung): "
+        f"P={principal}; r={rate}; T={repayment}. "
+        "Rest1=P*(1+r/100) nach dem ERSTEN Zinsjahr. "
+        "Danach zuerst T abziehen. "
+        "Rest2=(Rest1-T)*(1+r/100) nach dem ZWEITEN Zinsjahr. "
+        "Verwende Decimal für P, r, T und beide Restwerte; "
+        "prüfe die Formeln mit assert und runde NUR Rest2 am Ende "
+        "mittels quantize(Decimal('0.01'),rounding=ROUND_HALF_UP). "
+        "Das falsche Rest2=Rest1*(1+r/100)-T ist ausdrücklich zu vermeiden."
+    )
+
+
+def _source_loan_output_ok(source: object, stdout: object) -> bool | None:
+    """Reject a wrong amount for the explicitly parsed two-year loan grammar."""
+    values=_source_loan_parameters(source)
+    if values is None:
+        return None
+    if type(stdout) is not str:
+        return False
+    output = re.fullmatch(
+        r"\s*(?:Restschuld(?:\s+nach\s+(?:Jahr\s+\d+|\d+\s+Jahren?))?\s*:\s*)?"
+        r"([-+]?\d{1,10}(?:[.,]\d{1,2})?)\s*(?:Euro|€)?\s*",
+        stdout, re.I)
+    if output is None:
+        return False
+    principal,rate,repayment=values
+    r=Decimal(rate)/Decimal(100)
+    expected=((Decimal(principal)*(1+r)-Decimal(repayment))*(1+r)).quantize(
+        Decimal("0.01"),rounding=ROUND_HALF_UP)
+    try:
+        return Decimal(output[1].replace(",", ".")) == expected
+    except (ValueError,ArithmeticError):
+        return False
+
+
+def _source_relational_equations(source: object) -> str | None:
+    """Transcribe source relations into equations; never calculate an answer."""
+    if type(source) is not str:
+        return None
+    head = _SOURCE_THREE_PERSON_TOTAL.search(source)
+    if head is None:
+        return None
+    a,b,c = head["a"],head["b"],head["c"]
+    if len({a.casefold(),b.casefold(),c.casefold()}) != 3:
+        return None
+    difference = re.search(
+        r"(?iu)\b" + re.escape(b) + r"\s+besitzt\s+(\d{1,5})\s+mehr\s+als\s+" +
+        re.escape(a) + r"\b", source)
+    double = re.search(
+        r"(?iu)\b" + re.escape(c) + r"\s+besitzt\s+(?:exakt\s+)?doppelt\s+"
+        r"so\s+viele\s+wie\s+" + re.escape(b) + r"\b", source)
+    if difference is None or double is None:
+        return None
+    total,delta=int(head["total"]),int(difference[1])
+    return (
+        "\nNERAL QUELLENTREUE GLEICHUNGSÜBERTRAGUNG (keine Lösung): "
+        f"a={a}, b={b}, c={c}. Aus dem aktuellen Nutzertext folgt "
+        f"a+b+c={total}; b=a+{delta}; c=2*b. "
+        "Erstelle genau diese drei sympy.Eq Bedingungen für symbolische "
+        "Unbekannte und löse sie mit sympy.solve; danach assert für alle "
+        "drei ursprünglichen Gleichungen. Keine geschätzten Teilwerte. "
+        "\nKOMPAKTE PYTHON-VORLAGE DIREKT AUS DER QUELLFRAGE (kein Ergebnis vorgegeben):\n"
+        "import sympy as sp\n"
+        "a,b,c=sp.symbols('a b c',integer=True)\n"
+        f"eqs=[sp.Eq(a+b+c,{total}),sp.Eq(b,a+{delta}),sp.Eq(c,2*b)]\n"
+        "rows=sp.solve(eqs,[a,b,c],dict=True)\n"
+        "assert len(rows)==1\n"
+        "sol=rows[0]\n"
+        "assert all(eq.lhs.subs(sol)==eq.rhs.subs(sol) for eq in eqs)\n"
+        f"print(f'{a}={{sol[a]}}; {b}={{sol[b]}}; {c}={{sol[c]}}')\n"
+        "Antworte mit genau einem solchen Python-Codeblock, ohne weitere Texte."
+    )
+
+
+def _source_sequential_percent_hint(source: object) -> str | None:
+    """Prepare a general source-parameterized template, never a known answer."""
+    if type(source) is not str or len(source)>4096:
+        return None
+    match=_SOURCE_SEQ_PERCENT.search(source)
+    if match is None:
+        return None
+    p,d1,d2,tax=map(int,match.groups())
+    if not (0 <= p <= 1_000_000 and 0 <= d1 <= 100
+            and 0 <= d2 <= 100 and 0 <= tax <= 100):
+        return None
+    return (
+        "\nNERAL QUELLENFORMEL SEQUENZIELLE PROZENTRECHNUNG: "
+        "Nacheinander zwei Rabatte vom jeweils reduzierten Preis abziehen, "
+        "danach Mehrwertsteuer addieren; nur ganz am Ende runden. "
+        "Nimm die folgende kurze Python-Vorlage für die AKTUELLE "
+        "Aufgabe und gib einen einzelnen Python-Codeblock zurück:\n"
+        "from decimal import Decimal, ROUND_HALF_UP\n"
+        f"p=Decimal('{p}')\n"
+        f"d1=Decimal('{d1}')/100\n"
+        f"d2=Decimal('{d2}')/100\n"
+        f"tax=Decimal('{tax}')/100\n"
+        "final=(p*(1-d1)*(1-d2)*(1+tax)).quantize("
+        "Decimal('0.01'),rounding=ROUND_HALF_UP)\n"
+        "print(f'{final:.2f}')\n"
+        "Es wird KEIN Soll-Ergebnis vorgegeben; Docker muss es berechnen."
+    )
+
+
+def _source_sequential_percent_ok(source: object, stdout: object) -> bool | None:
+    """Reject mathematically inconsistent scalar from explicit rate sequence."""
+    if type(source) is not str:
+        return None
+    match = _SOURCE_SEQ_PERCENT.search(source)
+    if match is None:
+        return None
+    if type(stdout) is not str:
+        return False
+    output = re.fullmatch(
+        r"\s*(?:(?:Preis|Endpreis|Finaler Preis)\s*:\s*)?"
+        r"([-+]?\d{1,10}(?:[.,]\d{1,2})?)\s*(?:Euro|€)?\s*",
+        stdout, re.I)
+    if output is None:
+        return False
+    original,first,second,tax=map(int, match.groups())
+    if not all(0 <= rate <= 100 for rate in (first,second,tax)):
+        return False
+    try:
+        expected = (Decimal(original) *
+                    (1-Decimal(first)/100) *
+                    (1-Decimal(second)/100) *
+                    (1+Decimal(tax)/100)).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP)
+        actual = Decimal(output[1].replace(",", "."))
+        return actual == expected
+    except (ValueError, ArithmeticError):
+        return False
+
+
+def _sandbox_error(report: object) -> str:
+    if type(report) is not dict:
+        return "Sandbox-Rückgabe ungültig"
+    value = report.get("traceback") or report.get("stderr") or report.get("error_type") or "Keine gültige Ausgabe"
+    if type(value) is not str:
+        return "Sandbox-Ausführung fehlgeschlagen"
+    return "".join(ch for ch in value[-320:] if ch.isprintable() or ch in "\n\t")
+
+
+def _sandbox_output(report: object) -> str | None:
+    if type(report) is not dict or report.get("status") != "PASSED":
+        return None
+    value = report.get("output")
+    if type(value) is not str or not value.strip():
+        return None
+    value = value.strip()
+    if len(value.encode("utf-8")) > 512 or any(
+            ord(ch) < 32 and ch not in "\n\t" for ch in value):
+        return None
+    return value
+
 
 
 class ThreeTierRuntime:
@@ -289,6 +753,281 @@ class ThreeTierRuntime:
             return report
         return None
 
+
+    def _free_code_loop(self, turns: list[dict], *, auto_from: str | None) -> dict:
+        """At most three scripts, two repairs; success is EXECUTED, never VERIFIED."""
+        self._switch(self.helios)
+        source = turns[-1]["content"]
+        constraint_mode = _is_constraint_task(source)
+        count_mode = constraint_mode and _is_constraint_count(source)
+        base = [{"role": "system", "content": (
+            turns[0]["content"] +
+            (_Z3_CONSTRAINT_SYSTEM if constraint_mode else
+             (_RELATIONAL_EQUATIONS_SYSTEM +
+              (_source_relational_equations(source) or "")
+              if _is_relational_word_problem(source)
+              else _CODE_ONLY_SYSTEM +
+                   (_source_loan_equations(source) or "") +
+                   (_source_sequential_percent_hint(source) or ""))))}]
+        base.extend(dict(t) for t in turns[1:])
+        attempted = 0
+        succeeded = 0
+        output = None
+        prompt_turns = base
+        last_error = "Keine ausführbare Codeantwort"
+        failure_trace = []
+        from neral_everyday_verified import tidy_unverified_model_text
+
+        for attempt in range(3):
+            # Helios proposes JSON data for Z3; only the trusted builder writes Python.
+            candidate = self.helios.respond_chat(prompt_turns,
+                max_new_tokens=TIERS["Helios"], temperature=0.0,
+                max_time_seconds=80.0)
+            attempted = attempt + 1
+            prior = candidate[:1600] if type(candidate) is str else ""
+            if constraint_mode:
+                from neral_z3_json_compiler import SchemaError, compile_z3_json
+                try:
+                    code = compile_z3_json(candidate)
+                except SchemaError as exc:
+                    last_error = "Z3-JSON-Validierung: " + str(exc)
+                    failure_trace.append({
+                        "stage": "schema",
+                        "error_type": "InvalidZ3JSON",
+                        "detail": str(exc)[:170],
+                    })
+                    forbidden = next((
+                        key for key in ("rules", "schema")
+                        if "unerwartet=" + key in str(exc)), None)
+                    if forbidden:
+                        # Do not condition greedy decoding on the prior malformed
+                        # answer; force fresh regeneration with explicit key error.
+                        prompt_turns = base + [
+                            {"role": "user", "content": (
+                                "DEIN VORHERIGES JSON WAR ABGELEHNT. "
+                                "Der zusätzliche Top-Level-Schlüssel \"" +
+                                forbidden + "\" ist VERBOTEN. Entferne ihn "
+                                "vollständig und verwende KEIN Wrapper-Schema. "
+                                "Benutze ausschließlich die DREI Schlüssel "
+                                "\"variables\", \"constraints\", \"objective\". "
+                                "Die eigentlichen Regeln stehen NUR im Array "
+                                "\"constraints\" mit rule_id, description, expr. "
+                                "Erzeuge das JSON zur Originalaufgabe komplett "
+                                "neu, keine Erklärung, kein Markdown, kein Code.")}
+                        ]
+                    else:
+                        prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Dein JSON wurde NICHT als Python ausgeführt. Fehler: "
+                            + str(exc)[:220]
+                            + ". Korrigiere das vollständige Z3-Regel-JSON. "
+                            "Erfasse jede Regel aus der Originalfrage. "
+                            "Nur ein reines JSON-Objekt mit exakt variables, "
+                            "constraints und objective, ohne zusätzliche Schlüssel. "
+                            "variables=[{name,min,max}], "
+                            "constraints=[{rule_id,description,expr}], "
+                            "objective=count_all oder find_one. "
+                            "Fülle aus der aktuellen Aufgabe alle Regeln neu aus. "
+                            "Keine Python-Fences oder Erklärungen.")}
+                    ]
+                    continue
+            else:
+                code = _one_python_block(candidate)
+                if code is None:
+                    last_error = "Helios lieferte keinen einzelnen gültigen Python-Codeblock"
+                    failure_trace.append({"stage": "model_format",
+                                          "error_type": "InvalidPythonFence"})
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Deine vorherige Antwort enthielt keinen einzelnen "
+                            "gültigen Python-Codeblock. Der Code wurde NICHT "
+                            "ausgeführt. Schreibe genau EINEN ausführbaren "
+                            "Python-Codeblock in dreifachen Backticks, ohne "
+                            "Text davor oder danach. Keine Dateien, kein "
+                            "Netzwerk, keine Shell. Werte mit print ausgeben.")}
+                    ]
+                    continue
+            try:
+                report = self.execute_python(code)
+            except Exception:
+                report = {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
+            output = _sandbox_output(report)
+            if output is not None and not constraint_mode:
+                source_ok = _source_fraction_equation_ok(source, output)
+                if source_ok is False:
+                    # Docker ran, but its numeric output conflicts with the
+                    # original rational equation. Never publish it as success.
+                    last_error = "Eingabegleichung durch Einsetzen nicht erfüllt"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "FractionEquationMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Der Docker-Code wurde ausgeführt, aber die Ausgabe "
+                            "erfüllt die Eingabegleichung NICHT. "
+                            "Schreibe die Bruchgleichung a*x+b=c aus der "
+                            "ursprünglichen Nutzeraufgabe korrekt ab, löse "
+                            "exakt mit Fraction und prüfe mit assert "
+                            "a*x+b==c. Nutze keine Dezimalnäherungen. "
+                            "Nur ein neuer Python-Codeblock, kein Text.")}
+                    ]
+                    continue
+            if output is not None and not constraint_mode:
+                loan_ok = _source_loan_output_ok(source, output)
+                if loan_ok is False:
+                    last_error = "Kredit-Endwert widerspricht den Quellformeln"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "LoanEquationMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Die Sandbox-Ausgabe widerspricht der zweijährigen "
+                            "Kreditrechnung. Erst Rest1=P*(1+r/100), dann "
+                            "Rest2=(Rest1-T)*(1+r/100). Verwende Decimal und "
+                            "runde nur am Ende auf Cent. Schreibe genau "
+                            "einen korrigierten Python-Codeblock ohne Text.")}
+                    ]
+                    continue
+            if output is not None and not constraint_mode:
+                percent_ok = _source_sequential_percent_ok(source, output)
+                if percent_ok is False:
+                    last_error = "Rabatt- und Mehrwertsteuerfolge stimmt nicht"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "SequentialPercentMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Der Docker-Lauf war ausführbar, aber der Preis "
+                            "verletzt die ursprüngliche Rabatt-/Steuer-Aufgabe. "
+                            "Wende die Rabatte NACHEINANDER auf den jeweils "
+                            "reduzierten Preis an und addiere erst danach "
+                            "die Mehrwertsteuer. Nutze Decimal mit "
+                            "ROUND_HALF_UP erst am Ende auf Cent. Prüfe alle "
+                            "ursprünglichen Prozentzahlen, keine geratenen "
+                            "Werte, nur ein korrigierter Python-Codeblock.")}
+                    ]
+                    continue
+            if output is not None:
+                succeeded = 1
+                break
+            last_error = _sandbox_error(report)
+            failure_trace.append({
+                "stage": "docker",
+                "status": report.get("status", "INVALID") if type(report) is dict else "INVALID",
+                "error_type": report.get("error_type") if type(report) is dict else "InvalidReport",
+                "detail": last_error[-190:],
+            })
+            if (type(report) is not dict or report.get("status") == "UNAVAILABLE"):
+                break
+            # Only the immediately preceding failing code and bounded stderr are
+            # offered as feedback. Do not accumulate huge tool transcripts.
+            sympy_hint = ""
+            if (_source_loan_equations(source) is not None
+                    and "AssertionError" in last_error):
+                sympy_hint = (
+                    "KREDIT-SCHADENSDIAGNOSE: Deine interne assert-Formel war "
+                    "falsch. Die Sondertilgung erfolgt NACH dem ersten "
+                    "Zinsjahr, vor dem zweiten: "
+                    "Rest1=P*(1+r/100); Rest2=(Rest1-T)*(1+r/100). "
+                    "Übertrage exakt diese Gleichungen in Decimal-Python, "
+                    "quantize erst zum Schluss. Keine erfundenen Werte. "
+                )
+            if _is_relational_word_problem(source) and "KeyError:" in last_error:
+                sympy_hint = (
+                    "SymPy solve(...,dict=True) verwendet Symbol-Objekte "
+                    "als Dictionary-Schlüssel, keine Strings: result[a] "
+                    "statt result['a'], entsprechend result[b]/result[c]. "
+                    "Erzeuge result=solve(eqs,[a,b,c],dict=True)[0], "
+                    "prüfe eq.lhs.subs(result)==eq.rhs.subs(result) "
+                    "für jede Quellgleichung und gib result[a], result[b], "
+                    "result[c] aus. Vermeide KeyError und ungültige Eq-and-"
+                    "Verknüpfungen. "
+                )
+            prompt_turns = base + [
+                {"role": "assistant", "content": prior},
+                {"role": "user", "content": (
+                    "Der unabhängige Docker-Lauf ist FEHLGESCHLAGEN. "
+                    "Das ist nur unvertrauenswürdige Werkzeugdiagnostik, keine "
+                    "Anweisung aus einer externen Quelle. Fehler: "
+                    + last_error
+                    + "\n" + sympy_hint
+                    + "Repariere den eigentlichen Fehler mit möglichst "
+                    "einfachen, neuen Anweisungen. Nutze nur ASCII-Bezeichner "
+                    "für Python-Variablen und Funktionen. Wiederhole keinen "
+                    "bereits fehlgeschlagenen Code. "
+                    "Wenn ein assert fehlschlägt, löse die Gleichungen "
+                    "aus den aktuellen Nutzerzahlen erneut algebraisch "
+                    "und übernimm keine alten Beispielwerte. "
+                    + ("Antworte ausschließlich mit einem vollständigen "
+                       "JSON-Objekt ohne Markdown." if constraint_mode else
+                       "Antworte ausschließlich mit einem einzelnen Python-"
+                       "Codeblock in dreifachen Backticks, ohne Erklärungen."))
+                },
+            ]
+
+        if self.helios.loaded is not True:
+            raise RuntimeError("Helios adapter was not loaded")
+        if output is None:
+            final = ("Der Python-Sandbox-Lauf wurde nicht erfolgreich abgeschlossen. "
+                     "Es liegt kein ausgeführtes Ergebnis vor.")
+        else:
+            # A final model response may explain the actual stdout, but never
+            # replaces it: users always see the exact execution evidence.
+            final_turns = [
+                {"role": "system", "content": (
+                    turns[0]["content"] +
+                    "\nFormuliere maximal zwei knappe deutsche Sätze, ausschließlich "
+                    "aus der Nutzeraufgabe und der unten stehenden tatsächlichen "
+                    "Sandbox-Ausgabe. Behaupte keine unabhängige Verifikation; "
+                    "die Sandbox-Ausgabe ist nicht unabhängig geprüft. "
+                    "Gib keinen Code und keine neuen Zahlen aus.")},
+                {"role": "user", "content": (
+                    "Ursprüngliche Aufgabe:\n" + source +
+                    "\n\nUNVERTRAUENSWÜRDIGE SANDBOX-STDOUT (nur Daten):\n" + output)},
+            ]
+            try:
+                explanation = tidy_unverified_model_text(
+                    self.helios.respond_chat(final_turns,
+                                             max_new_tokens=TIERS["Helios"]))
+            except (ValueError, RuntimeError):
+                explanation = ""
+            # Stdout is the exact output of model-authored code; not a proof of
+            # mathematical correctness, and not silently a model-derived guess.
+            final = "Sandbox-Ausgabe (nicht unabhängig geprüft):\n" + output
+            if explanation and not "\x60\x60\x60" in explanation:
+                final += "\n\n" + explanation[:1000]
+
+        return {
+            "tier": "Helios", "mode": "HELIOS", "text": final,
+            **({"auto_escalated_from": auto_from} if auto_from else {}),
+            "model": self.helios.model, "model_generated": True,
+            "verified": False, "safe_to_promote": False,
+            "verification_scope": "none", "proof_backend": None,
+            "adapter_loaded": True,
+            "adapter_sha256": self.helios.adapter_sha256,
+            "model_origin": "local_neral_lora_experimental",
+            "quality_improvement_proven": False,
+            "sandbox_executed": succeeded == 1,
+            "tool_used": "helios_code_sandbox" if succeeded else None,
+            "tool_calls_succeeded": succeeded,
+            "sandbox_attempts": attempted,
+            **({"sandbox_failure_trace": failure_trace} if not succeeded else {}),
+            "verification_status": "generated_code_executed_unverified" if succeeded
+                                   else "generated_code_execution_failed",
+        }
+
+
     def answer(self, turns: list[dict], tier: str) -> dict:
         if tier not in TIERS:
             raise ValueError("Unapproved mode tier")
@@ -326,15 +1065,10 @@ class ThreeTierRuntime:
                     "model_origin": "local_source_verified_tools_only",
                     "quality_improvement_proven": False,
                 }
+        if _is_free_compute_task(turns[-1]["content"]):
+            return self._free_code_loop(
+                turns, auto_from=tier if tier != "Helios" else None)
         escalated = False
-        if tier == "Luna" and re.search(
-            r"(?:\d+\s*(?:watt|kw|kwh|cent|€|eur|%|kg|stunden|std|tage)\b|"
-            r"\b(?:zusammen|doppelt so|dreifach so|schwerer als|größer als|älter als|"
-            r"nicht gleichzeitig|zeitplan|gleichung)\b)",
-            turns[-1]["content"], re.I
-        ):
-            tier = "Helios"
-            escalated = True
         chosen = self.luna if tier == "Luna" else self.helios
         self._switch(chosen)
         from neral_everyday_verified import tidy_unverified_model_text
@@ -358,6 +1092,26 @@ class ThreeTierRuntime:
                              "local_foundation_not_neral_adapter"),
             "quality_improvement_proven": False,
         }
+
+
+def _safe_runtime_error_code(exc: Exception) -> str:
+    """Categorize local inference failures without exposing text or stack."""
+    message = str(exc)
+    if isinstance(exc, RuntimeError):
+        if "HF token budget exhausted" in message:
+            return "hf_token_budget"
+        if ("HF time budget exhausted" in message or
+                "HF response did not finish" in message):
+            return "hf_time_budget"
+        if "Unclosed private model reasoning" in message:
+            return "hf_reasoning_unclosed"
+        if "Incomplete or untrusted HF final answer" in message:
+            return "hf_invalid_final"
+    if "GPU memory" in message or "CUDA out of memory" in message:
+        return "gpu_memory"
+    if isinstance(exc, ValueError) and "HF context exceeded" in message:
+        return "context_exceeded"
+    return "runtime_unavailable"
 
 
 def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
@@ -407,7 +1161,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             result = runtime.answer(turns, payload["tier"])
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
-        except Exception:
-            return jsonify(error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig."), 503
+        except Exception as exc:
+            # This is a bounded failure CLASSIFICATION only, not exception text.
+            # User prompts, model completions and stack traces are never returned.
+            return jsonify(
+                error="Drei-Modell-Laufzeit nicht bereit oder Modellantwort unvollständig.",
+                error_code=_safe_runtime_error_code(exc)), 503
         finally:
             busy.release()

@@ -819,7 +819,8 @@
     prompt.value="";
     let partialNode=null, painter=null, partialBody=null;
     let completedTurn=false;
-    const deadline=AbortSignal.timeout(selectedAttachments.length
+    const deadline=AbortSignal.timeout(threeTierEnabled ? 260000
+      : selectedAttachments.length
       ? (mode==="think"?300000:220000) : (mode==="think"?190000:120000));
     const signal=AbortSignal.any([controller.signal,deadline]);
     function makePartial(){
@@ -1000,8 +1001,9 @@
         result.model_origin==="local_source_verified_tools_only" &&
         ((result.tier==="Terra" && result.proof_backend==="trusted_source_arithmetic") ||
          (result.tier==="Helios" && result.proof_backend==="z3_sat_witness"));
-      const autoEscalation=threeTierEnabled && selectedTier==="Luna" &&
-        result.tier==="Helios" && result.auto_escalated_from==="Luna" &&
+      const autoEscalation=threeTierEnabled &&
+        ["Luna","Terra"].includes(selectedTier) &&
+        result.tier==="Helios" && result.auto_escalated_from===selectedTier &&
         result.verified===false && result.model_generated===true &&
         result.safe_to_promote===false && result.proof_backend===null;
       if(threeTierEnabled){
@@ -1065,6 +1067,10 @@
         ? (result.tool_used === "z3_solver"
             ? "Werkzeug: Z3-Solver (verifiziert)"
             : "Werkzeug: Python-Sandbox (verifiziert)")
+        : result.tool_used === "helios_code_sandbox" &&
+          result.sandbox_executed === true &&
+          result.verified === false && result.safe_to_promote === false
+        ? "Werkzeug: Helios Code-Sandbox (ausgeführt)"
         : sources.length
         ? "Werkzeug: Websuche ("+sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
         : threeTierEnabled

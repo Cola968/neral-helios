@@ -50,7 +50,8 @@ class LiveSourcesTests(unittest.TestCase):
         response=app.test_client().post('/api/web/search/stream',json={'query':'Artemis','verify_links':True})
         payload=[json.loads(line) for line in response.response]
         self.assertEqual(response.status_code,200)
-        self.assertEqual([x['type'] for x in payload],['error','end'])
+        self.assertEqual([x['type'] for x in payload],['status','error','end'])
+        self.assertEqual(payload[0]['state'],'searching')
         self.assertNotIn('private diagnostic',repr(payload))
 
 
@@ -270,8 +271,12 @@ class LiveSourcesTests(unittest.TestCase):
         self.assertEqual(result["provider"],"Google News RSS")
         self.assertEqual([x["name"] for x in events if x["type"]=="provider"],
                          ["DuckDuckGo HTML","Bing RSS","Google News RSS"])
-        self.assertIn("BER Flughafen",result["results"][0]["title"])
-        self.assertEqual(result["results"][0]["url"],
+        # Fresh news returns immediately as provider-sourced metadata rather
+        # than waiting for independent HTTPS destination checks.
+        self.assertEqual(result["results"],[])
+        self.assertEqual(result["link_check"],"provider_metadata_only")
+        self.assertIn("BER Flughafen",result["previews"][0]["title"])
+        self.assertEqual(result["previews"][0]["url"],
                          "https://news.google.com/rss/articles/ber-2026")
 
     def test_ambiguous_game_name_does_not_admit_physics_storage_hits(self):

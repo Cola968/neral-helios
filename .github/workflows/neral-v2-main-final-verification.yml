@@ -1,0 +1,81 @@
+name: NERAL V2 final main localhost 9690 and installed-source verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'neral_three_tier_runtime.py'
+      - 'neral_tir_experimental.py'
+      - 'static/neral-preview.js'
+      - '.github/workflows/neral-v2-main-final-verification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-v1-v2-windows-deploy
+  cancel-in-progress: false
+jobs:
+  main-local-install-attestation:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify installed main source hashes, V2 service environment and live HTTP
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
+          $service=Join-Path $root 'Start-Neral-Three-Tier-Service.ps1'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State -ne 'Running' -or
+             [string]$task.Actions[0].Arguments -notlike ('*'+$service+'*')){
+            throw 'Expected NERAL V2 owned task not running'
+          }
+          $text=[IO.File]::ReadAllText($service)
+          if($text -notmatch 'NERAL_CODE_SANDBOX_V2' -or
+             $text -notmatch '(?i)neral_preview_server' -or
+             $text -notmatch '--experimental-three-tier-hf'){
+            throw 'Installed service script does not enable V2 solver'
+          }
+          $paths=@('neral_three_tier_runtime.py','neral_tir_experimental.py',
+            'neral_everyday_verified.py','neral_web_search.py','neral_web_api.py',
+            'static/neral-preview.js','static/neral-web-live.js')
+          foreach($rel in $paths){
+            $target=Join-Path $root $rel
+            if(-not(Test-Path -LiteralPath $target -PathType Leaf)){
+              throw ('Main source file absent from running installation: '+$rel)
+            }
+            $expected=(& git rev-parse ('HEAD:'+$rel)).Trim()
+            $actual=(& git -c core.autocrlf=true hash-object --path=$rel $target).Trim()
+            if($LASTEXITCODE -ne 0 -or $expected -ne $actual){
+              throw ('Installed source differs from merged main: '+$rel)
+            }
+          }
+          Write-Host ('NERAL_V2_FINAL_MAIN_SOURCE_BLOBS_PASS count='+$paths.Count)
+          $listeners=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9690 -State Listen -ErrorAction SilentlyContinue)
+          if($listeners.Count -ne 1){throw 'Port 9690 listener not unique'}
+          $session=New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          $h=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/' -TimeoutSec 9
+          $a=Invoke-WebRequest -UseBasicParsing -WebSession $session -Uri 'http://127.0.0.1:9690/api/neral/preview/session' -TimeoutSec 9
+          $data=$a.Content|ConvertFrom-Json
+          if($h.StatusCode -ne 200 -or $a.StatusCode -ne 200 -or
+             $data.three_tier_enabled -ne $true -or
+             (@($data.three_tier_levels) -join ',') -ne 'Luna,Terra,Helios'){
+            throw 'Merged main V2 live session not ready'
+          }
+          $ui=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/static/neral-preview.js' -TimeoutSec 9
+          if($ui.StatusCode -ne 200 -or $ui.Content -notmatch 'Helios Code-Sandbox \(ausgeführt\)'){
+            throw 'V2 UI origin marker not served'
+          }
+          $docker=(Get-Command docker.exe -ErrorAction Stop).Source
+          & $docker image inspect neral-python-tools:v2 *> $null
+          if($LASTEXITCODE -ne 0){throw 'Solver image not present after merged main'}
+          $probe=@(& $docker run --rm --pull never --network none --read-only --memory 256m --cpus 0.5 --pids-limit 32 neral-python-tools:v2 python -B -c 'import sympy,z3;print(sympy.Rational(3,2)+sympy.Rational(1,2))')
+          if($LASTEXITCODE -ne 0 -or ($probe -join '').Trim() -ne '2'){
+            throw 'Merged main Docker solver not executing'
+          }
+          Write-Host 'NERAL_V2_FINAL_MAIN_PORT_9690_AND_SOLVER_PASS'
