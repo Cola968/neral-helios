@@ -255,19 +255,22 @@ _CODE_ONLY_SYSTEM = (
     "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
 )
 _RELATIONAL_EQUATIONS_SYSTEM = (
-    "\nNERAL-TEXTAUFGABE MIT MEHREREN UNBEKANNTEN: RATE KEINE "
-    "Einzelwerte und verwende KEINE fest vorgegebenen Lösungen. "
-    "Stelle zuerst die unbekannten Größen mit sympy.symbols(..., "
-    "integer=True) dar. Übertrage JEDE Relation aus der aktuellen "
-    "Frage einzeln in sympy.Eq(...), einschließlich der Gesamtsumme, "
-    "Differenzen ('mehr als', 'weniger als') und Multiplikatoren "
-    "('doppelt', 'dreifach'). Löse das entstehende Gleichungssystem "
-    "mit sympy.solve([...], [...], dict=True). "
-    "Prüfe die gefundene Belegung gegen JEDE Originalgleichung mit "
-    "assert, bevor Du die Zahlen als Name=Wert ausgibst. "
-    "Alle Zahlen stammen nur aus der aktuellen Nutzerfrage. "
-    "Verwende SymPy statt händischem algebraischem Raten; "
-    "bei keiner oder mehreren Lösungen gib keine erfundene Zuordnung aus."
+    "\nNERAL KOMPAKTE PYTHON-GLEICHUNGSSYSTEME: Antworte nur als "
+    "EIN ausführbarer \x60\x60\x60python-Codeblock mit maximal 25 Zeilen, "
+    "ohne Text davor oder danach. "
+    "Importiere sympy; verwende sympy.symbols(..., integer=True), "
+    "sympy.Eq für JEDE Relation aus der aktuellen Frage und "
+    "sympy.solve([...],[...],dict=True) für die eindeutige Lösung. "
+    "Grundstruktur: drei symbolische Unbekannte, drei sympy.Eq "
+    "für Gesamtsumme, Differenz und Multiplikator, eine solve-Anweisung, "
+    "danach direkte assert-Tests für die DREI Originalgleichungen "
+    "anhand der Lösung und genau EIN print der Name=Wert-Antworten. "
+    "Bei nicht eindeutiger Lösung gib eine klare Fehlermeldung aus. "
+    "Keine frei geschätzten Zahlen, keine ungenutzten Funktionen, "
+    "keine geschachtelten Klassen, keine Wiederholung derselben Rechnung. "
+    "Nutze nur die Nutzerzahlen und behalte den Code kurz genug "
+    "für eine isolierte 384-AST-Knoten-Docker-Sandbox. "
+    "Keine Dateien, kein Netzwerk, keine Shell, keine Installation."
 )
 
 
@@ -657,10 +660,10 @@ class ThreeTierRuntime:
         base = [{"role": "system", "content": (
             turns[0]["content"] +
             (_Z3_CONSTRAINT_SYSTEM if constraint_mode else
-             _CODE_ONLY_SYSTEM + (
-                 _RELATIONAL_EQUATIONS_SYSTEM +
-                 (_source_relational_equations(source) or "")
-                 if _is_relational_word_problem(source) else "")))}]
+             (_RELATIONAL_EQUATIONS_SYSTEM +
+              (_source_relational_equations(source) or "")
+              if _is_relational_word_problem(source)
+              else _CODE_ONLY_SYSTEM)))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
         succeeded = 0
