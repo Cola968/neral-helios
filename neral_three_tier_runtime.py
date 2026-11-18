@@ -260,7 +260,7 @@ _WEB_SNIPPET_PARSE_SYSTEM = (
     "Wenn die Frage Geldbeträge aus diesen Treffern addieren möchte: "
     "Lies ALLE Einträge mit json.load(open('data/data1.json', "
     "encoding='utf-8')), extrahiere Zahlen NUR aus dem Feld snippet "
-    "mittels re.findall(r'([0-9]+(?:[.,][0-9]+)?)\\\\s*Euro', "
+    "mittels re.findall(r'([0-9]+(?:[.,][0-9]+)?)\\s*Euro', "
     "entry['snippet']) und summiere mit decimal.Decimal. "
     "Ignoriere Zahlen in URLs/Titeln und dichte fehlende Beträge nicht hinzu. "
     "Gib ausschließlich die berechnete Summe mit print(...) aus. "
@@ -1001,9 +1001,9 @@ class ThreeTierRuntime:
                 expected_web = web_currency_sum_expected(source,sandbox_files)
                 if expected_web is not None:
                     amount = re.fullmatch(
-                        r"\\s*(?:(?:Summe|Gesamtbetrag|Ergebnis)\\s*:\\s*)?"
-                        r"([-+]?[0-9]{1,12}(?:[.,][0-9]{1,2})?)\\s*"
-                        r"(?:Euro|€)?\\s*", output, re.I)
+                        r"\s*(?:(?:Summe|Gesamtbetrag|Ergebnis)\s*:\s*)?"
+                        r"([-+]?[0-9]{1,12}(?:[.,][0-9]{1,2})?)\s*"
+                        r"(?:Euro|€)?\s*", output, re.I)
                     valid = False
                     if amount:
                         try:
