@@ -81,12 +81,9 @@ test("web plugin stays off unless selected and searches only after submission",a
   ctx.element("prompt").value="Suche Python documentation";
   await ctx.handlers.get("chatForm:submit")({preventDefault(){}});
   assert.equal(ctx.calls.filter(x=>x.url==="/api/web/search").length,1);
-  const sent=ctx.calls.find(x=>x.url==="/api/neral/chat/generate");
-  assert.ok(sent);
-  const msg=JSON.parse(sent.opts.body);
-  assert.ok(msg.prompt.includes("https://docs.python.org/3/"));
-  assert.ok(msg.prompt.includes("Suche Python documentation"));
-  assert.ok(!msg.history.length);
+  // Real provider snippets and source cards now render immediately instead
+  // of forcing an extra 9B model request.
+  assert.equal(ctx.calls.filter(x=>x.url==="/api/neral/chat/generate").length,0);
 });
 
 test("stop voice cancels speech and a missing browser speech API disables mic",async()=>{
