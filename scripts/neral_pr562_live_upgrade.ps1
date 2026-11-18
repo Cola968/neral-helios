@@ -1,3 +1,4 @@
+# Approved live V2 retest after passing CPU and Windows static checks for general Python generation.
 # Approved V2 code/Docker failure-stage diagnostic run with identical mandatory five-case gate.
 # Approved bounded-format-retry V2 gate; all five real tasks and Chrome proof remain mandatory.
 # Approved repeat after strict ordered-triple stdout verification fix; all 5 cases required.
