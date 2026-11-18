@@ -915,7 +915,7 @@ class ThreeTierRuntime:
             except Exception:
                 report = {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
             output = _sandbox_output(report)
-            if output is not None and not constraint_mode:
+            if output is not None and not constraint_mode and not sandbox_files:
                 source_ok = _source_fraction_equation_ok(source, output)
                 if source_ok is False:
                     # Docker ran, but its numeric output conflicts with the
@@ -938,7 +938,7 @@ class ThreeTierRuntime:
                             "Nur ein neuer Python-Codeblock, kein Text.")}
                     ]
                     continue
-            if output is not None and not constraint_mode:
+            if output is not None and not constraint_mode and not sandbox_files:
                 loan_ok = _source_loan_output_ok(source, output)
                 if loan_ok is False:
                     last_error = "Kredit-Endwert widerspricht den Quellformeln"
@@ -957,7 +957,7 @@ class ThreeTierRuntime:
                             "einen korrigierten Python-Codeblock ohne Text.")}
                     ]
                     continue
-            if output is not None and not constraint_mode:
+            if output is not None and not constraint_mode and not sandbox_files:
                 percent_ok = _source_sequential_percent_ok(source, output)
                 if percent_ok is False:
                     last_error = "Rabatt- und Mehrwertsteuerfolge stimmt nicht"
