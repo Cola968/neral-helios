@@ -169,18 +169,119 @@ Write-Host 'NERAL_PR561_BASELINE_HTTP_READY_BEFORE_PATCH'
 
 $backup=Join-Path $oldRoot 'local_state/rollback-before-pr561-v1'
 if(-not(Test-Path -LiteralPath $backup -PathType Container)){
-  New-Item -ItemType Directory -Path $backup -Force | Out-Null
-  foreach($rel in $approvedPrevious.Keys){
-    $target=Join-Path $backup $rel
+  New-Item -ItemType Directory -Path $backup -Force|Out-Null
+}
+foreach($rel in $approvedPrevious.Keys){
+  $target=Join-Path $backup $rel
+  if(-not(Test-Path -LiteralPath $target -PathType Leaf)){
     New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force|Out-Null
     Copy-Item -LiteralPath (Join-Path $oldRoot $rel) -Destination $target -ErrorAction Stop
   }
-}
-foreach($rel in $approvedPrevious.Keys){
   if((HashFor $rel $backup) -ne $approvedPrevious[$rel]){
     throw "Rollback source has changed: $rel"
   }
 }
+# Snapshot the complete reviewed preview release allowlist, not just the six
+# patched files. Preserve local_state and the separately owned service script.
+$rawManifest=@(& $py -B -c 'import json;from scripts.build_neral_1_0_preview import REQUIRED_FILES;print(json.dumps(REQUIRED_FILES))' 2>&1)
+if($LASTEXITCODE -ne 0 -or @($rawManifest).Count -ne 1){
+  throw 'Cannot read audited complete source-only release manifest'
+}
+$managed=@(ConvertFrom-Json -InputObject ([string]$rawManifest[0]))
+if($managed.Count -lt 80 -or $managed.Count -gt 150){
+  throw 'Unexpected managed release file count; refuse installation'
+}
+$snapshot=Join-Path $backup 'source-package-snapshot'
+New-Item -ItemType Directory -Path $snapshot -Force|Out-Null
+$managedBefore=@{}
+foreach($rel in $managed){
+  if($rel -notmatch '^[A-Za-z0-9_./ -]{1,160}
+try{
+  StopOwnedTask $oldName $oldServer
+  $modified=$true
+  foreach($rel in $managed){
+    $source=Join-Path $repo $rel
+    $dest=Join-Path $oldRoot $rel
+    New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null
+    Copy-Item -LiteralPath $source -Destination $dest -Force -ErrorAction Stop
+    if((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash){
+      throw "Managed release source did not install bit-exactly: $rel"
+    }
+  }
+  foreach($rel in $approved.Keys){
+    if((HashFor $rel $oldRoot) -ne $approved[$rel]){throw "Installed V1 file changed: $rel"}
+  }
+  Write-Host ('NERAL_PR561_FULL_MANAGED_RUNTIME_HASHES_PASS files='+$managed.Count)
+  Start-ScheduledTask -TaskName $oldName -ErrorAction Stop
+  WaitForOwnApp
+  $js=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/static/neral-preview.js' -TimeoutSec 8
+  if($js.StatusCode -ne 200 -or [string]$js.Content -notmatch 'neral-tool-status'){
+    throw 'Running in-place NERAL did not serve PR561 UI'
+  }
+  $browser=@('C:/Program Files/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    (Join-Path $env:LOCALAPPDATA 'Google/Chrome/Application/chrome.exe')) |
+      Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+  if(-not $browser){throw 'No real Chrome or Edge browser'}
+  $env:NERAL_CHROME_EXE=$browser
+  & node scripts/neral_pr561_live_browser_e2e.cjs
+  if($LASTEXITCODE -ne 0){throw 'Real V1 browser acceptance failed'}
+  $passed=$true
+  Write-Host 'NERAL_PR561_REAL_3_CASES_HOTPATCH_PASS'
+}finally{
+  if(-not $passed -and $modified){
+    Write-Host 'NERAL_PR561_HOTPATCH_ROLLBACK_BEGIN'
+    try{
+      StopOwnedTask $oldName $oldServer
+      foreach($rel in $managed){
+        $dest=Join-Path $oldRoot $rel
+        if($managedBefore[$rel].existed){
+          Copy-Item -LiteralPath (Join-Path $snapshot $rel) -Destination $dest -Force -ErrorAction Stop
+          if((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -ne $managedBefore[$rel].sha){
+            throw "Rollback source digest mismatch: $rel"
+          }
+        }elseif(Test-Path -LiteralPath $dest -PathType Leaf){
+          Remove-Item -LiteralPath $dest -Force -ErrorAction Stop
+        }
+      }
+      foreach($rel in $approvedPrevious.Keys){
+        if((HashFor $rel $oldRoot) -ne $approvedPrevious[$rel]){throw 'Rollback verification failed'}
+      }
+      Start-ScheduledTask -TaskName $oldName -ErrorAction Stop
+      WaitForOwnApp
+      Write-Host 'NERAL_PR561_HOTPATCH_ORIGINAL_RESTORED_HTTP_200'
+    }catch{
+      Write-Host ('NERAL_PR561_HOTPATCH_ROLLBACK_CHECK_REQUIRED '+$_.Exception.GetType().Name)
+    }
+  }
+}
+ -or
+      $rel -match '(^|/)\.\.?(/|$)' -or $rel.StartsWith('/')){
+    throw 'Unexpected runtime source path; refuse installation'
+  }
+  $source=Join-Path $repo $rel
+  if(-not(Test-Path -LiteralPath $source -PathType Leaf)){
+    throw "Reviewed source missing from PR561: $rel"
+  }
+  $oldFile=Join-Path $oldRoot $rel
+  $exists=Test-Path -LiteralPath $oldFile -PathType Leaf
+  $managedBefore[$rel]=@{existed=$exists;sha=''}
+  if($exists){
+    $originalSha=(Get-FileHash -LiteralPath $oldFile -Algorithm SHA256).Hash
+    $managedBefore[$rel].sha=$originalSha
+    $target=Join-Path $snapshot $rel
+    if(-not(Test-Path -LiteralPath $target -PathType Leaf)){
+      New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force|Out-Null
+      Copy-Item -LiteralPath $oldFile -Destination $target -ErrorAction Stop
+    }
+    if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $originalSha){
+      throw "Release rollback snapshot drift: $rel"
+    }
+  }
+}
+Write-Host ('NERAL_PR561_SOURCE_PACKAGE_SNAPSHOT_READY files='+$managed.Count)
 $modified=$false
 $passed=$false
 try{
