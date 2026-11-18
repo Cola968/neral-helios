@@ -7,6 +7,7 @@ import json
 import unittest
 from contextlib import redirect_stdout
 from fractions import Fraction
+from decimal import Decimal
 from unittest.mock import patch
 from scripts.neral_v2_live5 import Live, _check_stdout, _run_cases
 
@@ -89,6 +90,14 @@ class ClientTransport(unittest.TestCase):
                  log.getvalue().splitlines() if line.startswith("NERAL_V2_REAL5_CASE ")]
         self.assertEqual(len(entries),5)
         self.assertEqual([e["pass"] for e in entries],[False,True,True,True,True])
+
+    def test_credit_label_with_year_is_not_mistaken_for_second_result(self):
+        gold=Fraction(Decimal("1570.57"))
+        _check_stdout("credit","Restschuld nach Jahr 2: 1570.57",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("credit","Restschuld nach Jahr 2: 1570.58",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("credit","Restschuld 1570.57 und 1500",gold)
 
     def test_post_registration_accepts_successful_201_created(self):
         live=Live()
