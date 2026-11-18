@@ -253,6 +253,30 @@ _CODE_ONLY_SYSTEM = (
     "Falls die Aufgabe unbestimmt ist, gib eine Erklärung dafür per print aus. "
     "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
 )
+_RELATIONAL_EQUATIONS_SYSTEM = (
+    "\nNERAL-TEXTAUFGABE MIT MEHREREN UNBEKANNTEN: RATE KEINE "
+    "Einzelwerte und verwende KEINE fest vorgegebenen Lösungen. "
+    "Stelle zuerst die unbekannten Größen mit sympy.symbols(..., "
+    "integer=True) dar. Übertrage JEDE Relation aus der aktuellen "
+    "Frage einzeln in sympy.Eq(...), einschließlich der Gesamtsumme, "
+    "Differenzen ('mehr als', 'weniger als') und Multiplikatoren "
+    "('doppelt', 'dreifach'). Löse das entstehende Gleichungssystem "
+    "mit sympy.solve([...], [...], dict=True). "
+    "Prüfe die gefundene Belegung gegen JEDE Originalgleichung mit "
+    "assert, bevor Du die Zahlen als Name=Wert ausgibst. "
+    "Alle Zahlen stammen nur aus der aktuellen Nutzerfrage. "
+    "Verwende SymPy statt händischem algebraischem Raten; "
+    "bei keiner oder mehreren Lösungen gib keine erfundene Zuordnung aus."
+)
+
+
+def _is_relational_word_problem(source: object) -> bool:
+    return (type(source) is str and
+            "insgesamt" in source.casefold() and
+            any(term in source.casefold() for term in
+                ("mehr als", "weniger als", "doppelt", "dreifach", "so viele")))
+
+
 _Z3_CONSTRAINT_SYSTEM = (
     "\nNERAL Z3-JSON-MODUS, KEIN PYTHON: Schreibe AUSSCHLIESSLICH "
     "ein gültiges kompaktes JSON-Objekt ohne Markdown-Fences, ohne "
@@ -557,7 +581,10 @@ class ThreeTierRuntime:
         count_mode = constraint_mode and _is_constraint_count(source)
         base = [{"role": "system", "content": (
             turns[0]["content"] +
-            (_Z3_CONSTRAINT_SYSTEM if constraint_mode else _CODE_ONLY_SYSTEM))}]
+            (_Z3_CONSTRAINT_SYSTEM if constraint_mode else
+             _CODE_ONLY_SYSTEM + (
+                 _RELATIONAL_EQUATIONS_SYSTEM
+                 if _is_relational_word_problem(source) else "")))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
         succeeded = 0
