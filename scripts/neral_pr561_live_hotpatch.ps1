@@ -13,16 +13,20 @@ $newParent=Join-Path $env:LOCALAPPDATA ('NERAL/pr561-v1-'+$short)
 $newRoot=Join-Path $newParent 'NERAL-1.0-Local'
 $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
-  'neral_web_search.py'='d9a34976abe4824b2ef7c7ae65613b7f38ba5d40'
-  'neral_everyday_verified.py'='8f04ea7eaf624c5debddc8955012649d6ea1a276'
+  'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
+  'neral_web_api.py'='a4d621b318666d8521a758e7699ee19f408756ee'
+  'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
   'neral_three_tier_runtime.py'='5796223a47c1cec0362548715a775d7731bdaec7'
-  'static/neral-preview.js'='b886736b5be3cccf2fb4657124ff8ca4fef2f1a2'
+  'static/neral-preview.js'='42dcc9338bf5701ed3d982848c3db5ebe240b0b5'
+  'static/neral-web-live.js'='a0e30ebf2dbca66a25556a07740b5ac93bb4c472'
 }
 $approvedPrevious=[ordered]@{
   'neral_web_search.py'='b8b9fd6ca3acc1286d69a5b758914631d009d16f'
+  'neral_web_api.py'='3d9e8d779e514c31a1f243699d77d3a2565c18f6'
   'neral_everyday_verified.py'='6239a274a5049a32dde7408e1961244d2702dfbc'
   'neral_three_tier_runtime.py'='f3e5e2376999d821dd2a1aefc54be59a59ab0473'
   'static/neral-preview.js'='ce535f84c2e779d6619a968ca1e9b2582d20edbf'
+  'static/neral-web-live.js'='d17ae1b0c7f45f46206181200e27f2a075a37da9'
 }
 
 function HashFor([string]$rel,[string]$root) {
