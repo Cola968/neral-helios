@@ -214,6 +214,8 @@ _CODE_ONLY_SYSTEM = (
     "fehlenden Werte. Nutze bei Bedarf decimal.Decimal, fractions.Fraction, "
     "sympy oder z3. Prüfe im Skript so viele Zwischenschritte wie möglich "
     "mit assert. Gib den errechneten Endwert mit print(...) aus. "
+    "Bei mehreren benannten Personen oder Variablen drucke die Werte mit "
+    "eindeutigen Name=Wert-Bezeichnungen aus. "
     "Keine Dateien, kein Netzwerk, keine Shell, keine Installation, keine "
     "Eingaben und kein Zugriff auf andere Programme. "
     "Falls die Aufgabe unbestimmt ist, gib eine Erklärung dafür per print aus. "
@@ -400,7 +402,20 @@ class ThreeTierRuntime:
             code = _one_python_block(candidate)
             if code is None:
                 last_error = "Helios lieferte keinen einzelnen gültigen Python-Codeblock"
-                break
+                # Format failures never run in Docker, and get at most two
+                # bounded repairs. No malformed answer becomes verified.
+                prior = candidate[:1600] if type(candidate) is str else ""
+                prompt_turns = base + [
+                    {"role": "assistant", "content": prior},
+                    {"role": "user", "content": (
+                        "Deine vorherige Antwort enthielt keinen einzelnen "
+                        "gültigen Python-Codeblock. Der Code wurde NICHT "
+                        "ausgeführt. Schreibe genau EINEN ausführbaren "
+                        "\x60\x60\x60python-Codeblock ohne Text davor oder "
+                        "danach. Keine Dateien, kein Netzwerk, keine Shell. "
+                        "Gib die Rechenwerte mit print(...) aus.")},
+                ]
+                continue
             try:
                 report = self.execute_python(code)
             except Exception:
