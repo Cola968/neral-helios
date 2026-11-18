@@ -148,31 +148,12 @@ class Live:
             return json.loads(response.read(100000))
 
 
-def main():
-    api = Live()
-    completed = []
-    current_case = "session_bootstrap"
-    last_stdout = ""
-    last_metadata = {}
-    account_created = False
-    cleanup = False
-    password = "E2E-V2-" + secrets.token_hex(18)
-    try:
-        api.bootstrap()
-        session = api.call("/api/neral/preview/session")
-        if session.get("three_tier_enabled") is not True:
-            raise RuntimeError("Three-tier local service disabled")
-        api.csrf = session["csrf"]
-        user = "e2ev2" + secrets.token_hex(7)
-        registration = api.call("/api/neral/account/register",{"username":user,"password":password})
-        if registration.get("authenticated") is not True:
-            raise RuntimeError("Synthetic account registration failed")
-        account_created = True
-        api.csrf = registration["csrf"]
-        for kind, question, gold in _task_cases():
-            current_case = kind
-            last_stdout = ""
-            last_metadata = {}
+def _run_cases(api: Live, cases: list[tuple[str, str, object]]):
+    """Always attempt all five HTTP tasks; never confuse skipped with passed."""
+    passed, failed = [], []
+    for kind, question, gold in cases:
+        last_metadata, last_stdout = {}, ""
+        try:
             response = api.call("/api/neral/chat/three-tier",{
                 "tier":"Luna", "prompt":question, "history":[]})
             last_metadata = {k: response.get(k) for k in (
@@ -193,8 +174,68 @@ def main():
             stdout = response["text"].split(label,1)[1].split("\n\n",1)[0].strip()
             last_stdout = stdout[:220]
             _check_stdout(kind,stdout,gold)
-            completed.append(kind)
+        except Exception as exc:
+            failed.append(kind)
+            safe = {"case":kind, "pass":False, "failed_type":type(exc).__name__}
+            if isinstance(exc, (ValueError, RuntimeError)):
+                safe["check_error"] = str(exc)[:140]
+                safe["execution_metadata"] = last_metadata
+                if isinstance(exc, ValueError):
+                    safe["synthetic_stdout_preview"] = last_stdout
+            if isinstance(exc, HTTPError):
+                safe["http_status"] = exc.code
+                safe["endpoint"] = exc.url.removeprefix(BASE).split("?",1)[0]
+                try:
+                    packet = json.loads(exc.read(4096))
+                    error_code = packet.get("error_code")
+                    if error_code in (
+                        "hf_time_budget", "hf_token_budget", "hf_reasoning_unclosed",
+                        "hf_invalid_final", "gpu_memory", "context_exceeded",
+                        "runtime_unavailable"):
+                        safe["server_error_code"] = error_code
+                except (TypeError, ValueError, OSError):
+                    pass
+            print("NERAL_V2_REAL5_CASE",json.dumps(safe,ensure_ascii=False))
+        else:
+            passed.append(kind)
+            print("NERAL_V2_REAL5_CASE",json.dumps({
+                "case":kind, "pass":True,
+                "sandbox_executed":True, "verified":False},sort_keys=True))
+    return passed, failed
+
+
+def main():
+    api = Live()
+    completed, failed = [], []
+    cases = _task_cases()
+    attempted_cases = False
+    current_case = "session_bootstrap"
+    last_stdout = ""
+    last_metadata = {}
+    account_created = False
+    cleanup = False
+    password = "E2E-V2-" + secrets.token_hex(18)
+    try:
+        api.bootstrap()
+        session = api.call("/api/neral/preview/session")
+        if session.get("three_tier_enabled") is not True:
+            raise RuntimeError("Three-tier local service disabled")
+        api.csrf = session["csrf"]
+        user = "e2ev2" + secrets.token_hex(7)
+        registration = api.call("/api/neral/account/register",{"username":user,"password":password})
+        if registration.get("authenticated") is not True:
+            raise RuntimeError("Synthetic account registration failed")
+        account_created = True
+        api.csrf = registration["csrf"]
+        completed, failed = _run_cases(api, cases)
+        attempted_cases = True
     except (HTTPError, URLError, ValueError, KeyError, RuntimeError) as exc:
+        if not attempted_cases:
+            for kind, _, _ in cases:
+                print("NERAL_V2_REAL5_CASE",json.dumps({
+                    "case":kind, "pass":False, "status":"not_run",
+                    "reason":"session_bootstrap_failed"},sort_keys=True))
+                failed.append(kind)
         safe = {"passed":completed, "failed_type":type(exc).__name__,
                 "failed_case":current_case}
         if isinstance(exc, RuntimeError):
@@ -236,9 +277,10 @@ def main():
                 cleanup=False
         else:
             cleanup=True
-    success = len(completed)==5 and cleanup
+    success = len(completed)==5 and not failed and cleanup
     print("NERAL_V2_REAL5_RESULT",json.dumps({
         "pass":success, "cases_passed":len(completed),
+        "cases_failed":len(failed), "cases_tested":len(completed)+len(failed),
         "synthetic_account_deleted":cleanup, "real_local_http":True,
         "sandbox_success_required":True, "model_answers_independently_verified":False
     },sort_keys=True))
