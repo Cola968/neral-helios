@@ -8,9 +8,9 @@ function Initialize-NeralManagedSnapshot {
   # The build manifest includes pinned KaTeX assets generated from a
   # script-free, exact npm package. Build and verify before any service stop.
   # Existing complete assets are reused; no model or user-state files touched.
-  & $Python -B -m scripts.vendor_katex --root $Repo
+  & $Python -B -m scripts.vendor_katex --root $Repo | Out-Null
   if($LASTEXITCODE -ne 0){throw 'Pinned KaTeX release asset build/verification failed'}
-  & $Python -B -m scripts.vendor_katex --root $Repo --verify-only
+  & $Python -B -m scripts.vendor_katex --root $Repo --verify-only | Out-Null
   if($LASTEXITCODE -ne 0){throw 'Pinned KaTeX release assets did not verify'}
   $raw=@(& $Python -B -c 'import json;from scripts.build_neral_1_0_preview import REQUIRED_FILES;print(json.dumps(REQUIRED_FILES))' 2>&1)
   if($LASTEXITCODE -ne 0 -or @($raw).Count -ne 1){
