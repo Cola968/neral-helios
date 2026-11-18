@@ -234,7 +234,11 @@ _CODE_ONLY_SYSTEM = (
     "sympy oder z3. Bei kombinatorischen Zuordnungen nutze bevorzugt "
     "itertools.permutations und einfache Bedingungen statt komplexer "
     "verschachtelter Funktionen. Verwende nur ASCII-Bezeichner für Variablen "
-    "und Funktionen. Prüfe im Skript so viele Zwischenschritte wie möglich "
+    "und Funktionen. Bei Aufteilungs- oder Verhältnisaufgaben löse "
+    "die Gleichungen mit fractions.Fraction oder sympy aus genau den "
+    "aktuellen Nutzerangaben; rate niemals Zahlen, kopiere keine "
+    "Beispielwerte, und prüfe alle Beziehungen gegen den Originaltext. "
+    "Prüfe im Skript so viele Zwischenschritte wie möglich "
     "mit assert. Gib den errechneten Endwert mit print(...) aus. "
     "Bei mehreren benannten Personen oder Variablen drucke die Werte mit "
     "eindeutigen Name=Wert-Bezeichnungen aus. "
@@ -267,7 +271,13 @@ _Z3_CONSTRAINT_SYSTEM = (
     "objective='count_all' bei 'wie viele' oder 'Anzahl', "
     "sonst 'find_one'. JSON-Stringwerte verwenden doppelte Anführungszeichen. "
     "Der feste Compiler erstellt Z3, Assertions und Modellblocking; "
-    "DU erzeugst ausdrücklich KEINEN ausführbaren Python-Code."
+    "DU erzeugst ausdrücklich KEINEN ausführbaren Python-Code. "
+    "EXAKTES JSON-FORMATBEISPIEL, NICHT ALS LÖSUNG ÜBERNEHMEN: "
+    "{\\\"variables\\\":[{\\\"name\\\":\\\"x\\\",\\\"min\\\":0,\\\"max\\\":1}],"
+    "\\\"constraints\\\":[{\\\"rule_id\\\":\\\"R1\\\",\\\"description\\\":\\\"x ist eins\\\", "
+    "\\\"expr\\\":\\\"x == 1\\\"}],\\\"objective\\\":\\\"count_all\\\"}. "
+    "Ersetze ALLE Beispielwerte und Regeln durch die aktuelle Aufgabe. "
+    "Es darf KEIN vierter Top-Level-Schlüssel erscheinen."
 )
 _Z3_KEYWORD_RE = re.compile(
     r"(?iu)\b(?:schicht\w*|dienst\w*|plan(?:ung|e|en)?|pläne?|"
@@ -538,8 +548,13 @@ class ThreeTierRuntime:
                             + str(exc)[:220]
                             + ". Korrigiere das vollständige Z3-Regel-JSON. "
                             "Erfasse jede Regel aus der Originalfrage. "
-                            "Nur ein reines JSON-Objekt mit variables, constraints "
-                            "und objective; keine Python-Fences oder Erklärungen.")}
+                            "Nur ein reines JSON-Objekt mit exakt variables, "
+                            "constraints und objective, ohne zusätzliche Schlüssel. "
+                            "variables=[{name,min,max}], "
+                            "constraints=[{rule_id,description,expr}], "
+                            "objective=count_all oder find_one. "
+                            "Fülle aus der aktuellen Aufgabe alle Regeln neu aus. "
+                            "Keine Python-Fences oder Erklärungen.")}
                     ]
                     continue
             else:
@@ -589,6 +604,9 @@ class ThreeTierRuntime:
                     "einfachen, neuen Anweisungen. Nutze nur ASCII-Bezeichner "
                     "für Python-Variablen und Funktionen. Wiederhole keinen "
                     "bereits fehlgeschlagenen Code. "
+                    "Wenn ein assert fehlschlägt, löse die Gleichungen "
+                    "aus den aktuellen Nutzerzahlen erneut algebraisch "
+                    "und übernimm keine alten Beispielwerte. "
                     + ("Antworte ausschließlich mit einem vollständigen "
                        "JSON-Objekt ohne Markdown." if constraint_mode else
                        "Antworte ausschließlich mit einem einzelnen Python-"
