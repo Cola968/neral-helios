@@ -122,12 +122,23 @@ test("failed HEAD probes cannot hide genuine relevant search snippets from the l
   const search=calls.find(c=>c.url==="/api/web/search");
   assert.equal(search.body.query,"Flughafen Frankfurt");
   const model=calls.find(c=>c.url==="/api/neral/chat/generate");
-  assert.ok(model);
-  assert.match(model.body.prompt,/Frankfurt Airport/);
-  assert.doesNotMatch(model.body.prompt,/Die Websuche lieferte keine passenden Treffer/);
-  assert.match(model.body.prompt,/nicht.*unabhängig.*geprüft|ungeprüft/i);
+  assert.equal(model,undefined,"Provider snippets must not wait for local LLM");
+  assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
 });
 
+
+test("web hits render directly without a model wait and include a web tool badge",async()=>{
+  const hits=[{title:"EZB Leitzins aktuell",url:"https://www.ecb.europa.eu/stats/policy_and_exchange_rates/key_ecb_interest_rates/html/index.en.html",
+    snippet:"Aktuelle EZB Zinssätze und Termine",discovered:true,topically_relevant:true,reachable:false}];
+  const {calls,elements}=await runPrompt(
+    "Suche bitte aktuell im Web: Wie hoch ist heute der Leitzins der EZB? Nenne mir deine Quellen.",
+    {web:true,results:[],previews:hits});
+  assert.equal(calls.filter(c=>c.url==="/api/neral/chat/generate").length,0);
+  const rendered=JSON.stringify(elements.messages.children);
+  assert.match(rendered,/EZB Leitzins aktuell/);
+  assert.match(rendered,/Werkzeug: Websuche \(1 Quelle\)/);
+  assert.doesNotMatch(rendered,/Grenze:/);
+});
 
 test("Frankfurt no-hits boilerplate is corrected when independent web tool has actual sources",()=>{
   const source=fs.readFileSync(path.join(__dirname,"../static/neral-preview.js"),"utf8");
