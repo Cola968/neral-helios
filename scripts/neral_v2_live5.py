@@ -142,7 +142,7 @@ class Live:
                 headers["X-Neral-CSRF"] = self.csrf
         request = Request(BASE + path, data=raw, headers=headers,
                           method="POST" if raw is not None else "GET")
-        with self.opener.open(request, timeout=280) as response:
+        with self.opener.open(request, timeout=380) as response:
             if response.status not in (200, 201):
                 raise RuntimeError("Unexpected local HTTP status")
             return json.loads(response.read(100000))
@@ -213,7 +213,8 @@ def main():
             try:
                 packet = json.loads(exc.read(4096))
                 category = packet.get("error_code")
-                if category in ("hf_budget_exhausted", "hf_reasoning_unclosed",
+                if category in ("hf_time_budget", "hf_token_budget",
+                                "hf_reasoning_unclosed",
                                 "hf_invalid_final", "gpu_memory",
                                 "context_exceeded", "runtime_unavailable"):
                     safe["server_error_code"] = category
