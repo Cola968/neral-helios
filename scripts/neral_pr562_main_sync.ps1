@@ -9,8 +9,7 @@ Set-Location -LiteralPath $repo
 $merged='bf06134566caf0b48932c3690d7a4c570b9bef6a'
 & git merge-base --is-ancestor $merged HEAD
 if($LASTEXITCODE -ne 0){throw 'Checked-out HEAD does not include merged PR562'}
-$branch=(& git symbolic-ref --short HEAD).Trim()
-if($branch -ne 'main' -and $env:GITHUB_REF -ne 'refs/heads/main'){throw 'Main ref not checked out'}
+if($env:GITHUB_REF -ne 'refs/heads/main'){throw 'Main ref not checked out'}
 $head=(& git rev-parse HEAD).Trim()
 $taskName='NERAL-PR558-ThreeTier-909d1419c9ff'
 $root=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
@@ -28,7 +27,7 @@ $paths=@(
 function HashFor([string]$rel,[string]$from){
   $file=Join-Path $from $rel
   if(-not(Test-Path -LiteralPath $file -PathType Leaf)){return $null}
-  $actual=(& git -c core.autocrlf=true hash-object --path=$rel $file)
+  $actual=@(& git -c core.autocrlf=true hash-object --path=$rel $file)
   if($LASTEXITCODE -ne 0 -or @($actual).Count -ne 1){throw "Cannot hash approved runtime file: $rel"}
   return [string]$actual[0].Trim()
 }
