@@ -1,0 +1,65 @@
+name: NERAL PR561 read-only staged app import failure diagnostic
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/neral-pr561-staged-import-diagnostic.yml'
+permissions:
+  contents: read
+concurrency:
+  group: neral-pr561-staged-import-diagnostic
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows, x64, neral-gpu]
+    timeout-minutes: 7
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - name: Read only V1 Task Scheduler exit status and import modules without binding port
+        run: |
+          $ErrorActionPreference='Stop'
+          $newName='NERAL-PR561-V1-77e124c98e61'
+          $oldRoot=Join-Path $env:LOCALAPPDATA 'NERAL/three-tier-pr558-909d1419c9ff/NERAL-1.0-Local'
+          $newRoot=Join-Path $env:LOCALAPPDATA 'NERAL/pr561-v1-77e124c98e61/NERAL-1.0-Local'
+          $task=Get-ScheduledTask -TaskName $newName -ErrorAction SilentlyContinue
+          $info=if($task){Get-ScheduledTaskInfo -TaskName $newName -ErrorAction SilentlyContinue}else{$null}
+          $result=@{new_task_present=($null -ne $task);
+            new_task_state=if($task){[string]$task.State}else{'missing'};
+            last_result=if($info){[int]$info.LastTaskResult}else{-999};
+            new_root_present=(Test-Path $newRoot -PathType Container);
+            new_server_script_present=(Test-Path (Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1') -PathType Leaf);
+            imports_ok=$false;cli_help_ok=$false;error_class='';http_old_ready=$false}
+          $py='D:/neral-qlora/venv/Scripts/python.exe'
+          $dep=Join-Path $oldRoot 'local_state/three-tier-web-deps'
+          $env:PYTHONPATH=$dep+[IO.Path]::PathSeparator+$newRoot
+          if(Test-Path $newRoot -PathType Container){
+            Push-Location $newRoot
+            try{
+              $code=@'
+import importlib,sys
+for name in ('neral_preview_server','neral_three_tier_runtime','neral_everyday_verified','neral_web_search','neral_adaptive_planner','neral_tir_experimental'):
+    importlib.import_module(name)
+print('NERAL_ALL_IMPORTS_OK')
+'@
+              $out=@(& $py -B -c $code 2>&1)
+              $result.imports_ok=($LASTEXITCODE -eq 0 -and (@($out|Where-Object{$_ -match 'NERAL_ALL_IMPORTS_OK'}).Count -eq 1))
+              if(-not $result.imports_ok){
+                $err=($out -join ' ')
+                if($err -match '(?i)ModuleNotFoundError'){ $result.error_class='ModuleNotFoundError'}
+                elseif($err -match '(?i)ImportError'){ $result.error_class='ImportError'}
+                elseif($err -match '(?i)PermissionError'){ $result.error_class='PermissionError'}
+                elseif($err -match '(?i)SyntaxError'){ $result.error_class='SyntaxError'}
+                else{$result.error_class='OtherImportFailure'}
+              }
+              $help=@(& $py -B -m neral_preview_server --help 2>&1)
+              $result.cli_help_ok=($LASTEXITCODE -eq 0 -and (@($help|Where-Object{$_ -match 'experimental-three-tier-hf'}).Count -ge 1))
+            }finally{Pop-Location}
+          }
+          try{
+            $r=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/' -TimeoutSec 6
+            $result.http_old_ready=($r.StatusCode -eq 200)
+          }catch{}
+          Write-Host ('NERAL_PR561_NEW_TASK_DIAGNOSTIC '+($result|ConvertTo-Json -Compress))
+          exit 0
