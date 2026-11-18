@@ -114,6 +114,14 @@ class Live:
         self.opener = build_opener(HTTPCookieProcessor(self.cookies))
         self.csrf = None
 
+    def bootstrap(self) -> None:
+        """GET / first: the preview sets its session/CSRF cookie on this page."""
+        request = Request(BASE + "/", headers={"Origin": BASE}, method="GET")
+        with self.opener.open(request, timeout=15) as response:
+            if response.status != 200:
+                raise RuntimeError("Local NERAL start page was not ready")
+            response.read(8192)
+
     def call(self, path: str, data: object = None) -> dict:
         raw = json.dumps(data).encode("utf-8") if data is not None else None
         headers = {"Origin": BASE, "Accept": "application/json"}
@@ -124,7 +132,7 @@ class Live:
         request = Request(BASE + path, data=raw, headers=headers,
                           method="POST" if raw is not None else "GET")
         with self.opener.open(request, timeout=280) as response:
-            if response.status != 200:
+            if response.status not in (200, 201):
                 raise RuntimeError("Unexpected local HTTP status")
             return json.loads(response.read(100000))
 
@@ -136,6 +144,7 @@ def main():
     cleanup = False
     password = "E2E-V2-" + secrets.token_hex(18)
     try:
+        api.bootstrap()
         session = api.call("/api/neral/preview/session")
         if session.get("three_tier_enabled") is not True:
             raise RuntimeError("Three-tier local service disabled")
@@ -164,8 +173,11 @@ def main():
             _check_stdout(kind,stdout,gold)
             completed.append(kind)
     except (HTTPError, URLError, ValueError, KeyError, RuntimeError) as exc:
-        print("NERAL_V2_REAL5_FAILURE",json.dumps({"passed":completed,
-             "failed_type":type(exc).__name__},ensure_ascii=False))
+        safe = {"passed":completed, "failed_type":type(exc).__name__}
+        if isinstance(exc, HTTPError):
+            safe["http_status"] = exc.code
+            safe["endpoint"] = exc.url.removeprefix(BASE).split("?", 1)[0]
+        print("NERAL_V2_REAL5_FAILURE",json.dumps(safe,ensure_ascii=False))
     finally:
         if account_created:
             try:
