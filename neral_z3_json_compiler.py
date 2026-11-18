@@ -142,6 +142,13 @@ def compile_z3_json(raw: object) -> str:
     """
     if type(raw) is not str or not 2 <= len(raw.encode("utf-8")) <= 7000:
         raise SchemaError("JSON-Antwort fehlt oder überschreitet 7000 Byte")
+    # A single optional JSON fence is presentation, not executable code.
+    # No surrounding prose, multiple fences, or other languages are accepted.
+    fenced = re.fullmatch(
+        r"\s*\x60{3}(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n\x60{3}\s*",
+        raw, re.I)
+    if fenced is not None:
+        raw = fenced.group(1)
     try:
         payload = json.loads(raw, object_pairs_hook=_unique_pairs,
                              parse_constant=_bad_constant)
@@ -203,26 +210,26 @@ def compile_z3_json(raw: object) -> str:
     if seen_names != names:
         raise SchemaError("Jede Variable muss in mindestens einer Regel vorkommen")
 
-    lines = ["import z3"]
-    for var in variables:
-        name = var["name"]
-        lines.append(name + "=z3.Int(" + repr(name) + ")")
-    lines += [
-        "all_vars=[" + ",".join(v["name"] for v in variables) + "]",
+    # Compact deterministic construction keeps 12 variables / 16 rules
+    # inside the unchanged 4096-byte / 384-AST-node Docker limits.
+    named = [var["name"] for var in variables]
+    lines = [
+        "import z3",
+        "all_vars=z3.Ints(" + repr(" ".join(named)) + ")",
+        ",".join(named) + "=all_vars" if len(named)>1
+        else named[0] + ",=all_vars",
         "solver=z3.Solver()",
+        "bounds_lo=[" + ",".join(str(v["min"]) for v in variables) + "]",
+        "bounds_hi=[" + ",".join(str(v["max"]) for v in variables) + "]",
+        "for v,lo,hi in zip(all_vars,bounds_lo,bounds_hi):solver.add(v>=lo,v<=hi)",
+        "rule_ids=" + repr(" ".join(rid for rid,_,_ in compiled)) + ".split()",
+        "rules=[" + ",".join(expr for _,_,expr in compiled) + "]",
+        "for rid,rule in zip(rule_ids,rules):solver.add(rule)",
     ]
-    for var in variables:
-        n = var["name"]
-        lines.append(f"solver.add({n}>={var['min']},{n}<={var['max']})")
-    for rid, desc, expr in compiled:
-        # Comments are machine-generated from validated text, never code.
-        lines += [f"# {rid}: {desc}", f"rule_{rid}=({expr})",
-                  f"solver.add(rule_{rid})"]
-    lines.append("rules=[" + ",".join(
-        f"({rid!r},rule_{rid})" for rid, _, _ in compiled) + "]")
-    # One trusted assertion is evaluated for EVERY rule in each found model.
+    # The ID-to-expression pairing stays positional. Every rule goes into
+    # solver.add once and is independently asserted for every found model.
     checks = [
-        "    for rid,rule in rules:",
+        "    for rid,rule in zip(rule_ids,rules):",
         "        assert z3.is_true(m.eval(rule,model_completion=True)),rid",
     ]
     if payload["objective"] == "count_all":
