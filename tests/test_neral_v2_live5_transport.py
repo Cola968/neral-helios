@@ -91,6 +91,14 @@ class ClientTransport(unittest.TestCase):
         self.assertEqual(len(entries),5)
         self.assertEqual([e["pass"] for e in entries],[False,True,True,True,True])
 
+    def test_credit_two_year_label_and_euro_unit(self):
+        gold=Fraction(Decimal("2386.05"))
+        _check_stdout("credit","Restschuld nach 2 Jahren: 2386.05 Euro",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("credit","Restschuld nach 2 Jahren: 2386.06 Euro",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("credit","Restschuld nach 2 Jahren: 2386.05 Euro; Start 2000 Euro",gold)
+
     def test_credit_label_with_year_is_not_mistaken_for_second_result(self):
         gold=Fraction(Decimal("1570.57"))
         _check_stdout("credit","Restschuld nach Jahr 2: 1570.57",gold)
