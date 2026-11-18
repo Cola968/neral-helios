@@ -157,14 +157,28 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertFalse(r["sandbox_executed"])
         self.assertFalse(r["verified"])
 
+    def test_malformed_first_code_reply_is_repaired_but_never_executed(self):
+        calls=[]
+        rt,_,helios=runtime([
+            "Hier ist die Lösung: 42.",
+            "\x60\x60\x60python\nprint(20+22)\n\x60\x60\x60",
+            "Laut Sandbox ist es 42.",
+        ],lambda code:calls.append(code) or {"status":"PASSED","output":"42"})
+        out=rt.answer(turns("Berechne 20 plus 22."),"Luna")
+        self.assertEqual(calls,["print(20+22)"])
+        self.assertTrue(out["sandbox_executed"])
+        self.assertFalse(out["verified"])
+        self.assertEqual(out["sandbox_attempts"],2)
+        self.assertIn("gültigen Python-Codeblock",str(helios.calls[1][0]))
+
     def test_non_code_reply_is_not_executed_or_claimed_as_sandbox(self):
         seen=[]
-        rt,_,helios=runtime(["Meine Antwort: 42"],lambda c:seen.append(c))
+        rt,_,helios=runtime(["Meine Antwort: 42"]*3,lambda c:seen.append(c))
         r=rt.answer(turns("Berechne bitte 20 plus 22."),"Luna")
         self.assertEqual(seen,[])
         self.assertFalse(r["sandbox_executed"])
         self.assertFalse(r["verified"])
-        self.assertEqual(len(helios.calls),1)
+        self.assertEqual(len(helios.calls),3)
         self.assertNotIn("42",r["text"])
 
     def test_two_fenced_blocks_or_surrounding_prose_are_not_accepted(self):
@@ -172,7 +186,7 @@ class GenericCodeLoop(unittest.TestCase):
                      "\x60\x60\x60python\nprint(3)\n\x60\x60\x60",
                      "Hier mein Skript:\n\x60\x60\x60python\nprint(2)\n\x60\x60\x60"):
             seen=[]
-            rt,_,_=runtime([text],lambda code:seen.append(code))
+            rt,_,_=runtime([text]*3,lambda code:seen.append(code))
             r=rt.answer(turns("Berechne 1 plus 1."),"Luna")
             self.assertFalse(r["sandbox_executed"])
             self.assertEqual(seen,[])
