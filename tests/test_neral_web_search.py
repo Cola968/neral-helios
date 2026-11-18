@@ -292,4 +292,51 @@ class BingFallbackTests(unittest.TestCase):
         with self.assertRaises(WebSearchError):
             parse_bing_rss('<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss>&x;</rss>')
 
+
+class ServerRewriteAndStreamRegression(unittest.TestCase):
+    def test_server_rewrites_exact_ezb_user_question_before_external_request(self):
+        from urllib.parse import parse_qs, urlsplit
+        opener=Opener()
+        response=WebSearch(opener=opener).search(
+            "Suche bitte aktuell im Web: Wie hoch ist heute der Leitzins der EZB? Nenne mir deine Quellen.")
+        self.assertEqual(response["query"],"Leitzins EZB aktuell")
+        self.assertEqual(parse_qs(urlsplit(opener.calls[0][0].full_url).query)["q"],
+                         ["Leitzins EZB aktuell"])
+
+    def test_requests_max_four_seconds_for_search_and_fallback_providers(self):
+        from unittest.mock import patch
+        opener=Opener()
+        WebSearch(opener=opener).search("Flughafen Frankfurt")
+        self.assertTrue(opener.calls)
+        self.assertTrue(all(t <= 4.0 for _, t in opener.calls))
+        with patch("neral_web_search.parse_search_results",return_value=[]):
+            WebSearch(opener=opener).search("Boeing 787")
+        self.assertTrue(all(t <= 4.0 for _, t in opener.calls))
+
+    def test_query_rewrite_keeps_short_topics_undamaged(self):
+        from neral_web_search import rewrite_search_query
+        self.assertEqual(rewrite_search_query("NASA Artemis"),"NASA Artemis")
+        self.assertEqual(rewrite_search_query("Aktuelle BER Nachrichten"),"BER aktuell")
+        self.assertEqual(rewrite_search_query("Suche nach dem Berliner Flughafen"),"Berliner Flughafen")
+        self.assertEqual(rewrite_search_query("Leitzins EZB aktuell"),"Leitzins EZB aktuell")
+
+    def test_stream_starts_with_real_sse_status_before_provider_wait(self):
+        class SlowDummy:
+            def search(self, query, on_provider=None):
+                return {"query":query,"provider":"fixture","providers_contacted":[],
+                        "results":[],"external_request":True}
+        app=Flask("stream_test")
+        register_web_search_api(app,service=SlowDummy())
+        with app.test_client() as client:
+            response=client.post("/api/web/search/stream",
+                json={"query":"NASA Artemis","verify_links":True},
+                headers={"Accept":"text/event-stream"},buffered=False)
+            self.assertEqual(response.status_code,200)
+            self.assertIn("text/event-stream",response.content_type)
+            first=next(iter(response.response)).decode("utf8")
+            self.assertIn("data:",first)
+            self.assertIn('"type": "status"',first)
+            self.assertIn('"state": "searching"',first)
+
+
 if __name__=="__main__":unittest.main()
