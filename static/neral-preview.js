@@ -1006,6 +1006,10 @@
                result.adapter_loaded!==false)
         throw new Error("Modellherkunft stimmt nicht mit der aktiven Sitzung überein.");
       result.text=normaliseSearchRefusal(result.text,sources.length,webAttempted,verifiedSources.length);
+      // Do not surface legacy canned "Grenze:" labels as a separate model
+      // authority. Keep any substantive limitation text, simply label it
+      // transparently as a note (not as an independently proven restriction).
+      result.text=result.text.replace(/\bGrenze\s*:/giu,"Hinweis:");
       // A runtime greeting is not a researched answer. An outdated client
       // may have performed a search first; never attach unrelated source cards.
       const runtimeGreeting=result.tool_used==="runtime_greeting";
