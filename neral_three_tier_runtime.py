@@ -354,6 +354,22 @@ _CODE_SIGNAL = frozenset((
     "code","solver","z3","sympy","calculate","compute","solve","equation",
     "constraint","constraints","schedule","scheduling","optimization",
     "fraction","fractions","interest","discount","percent",
+    "uhr","uhrzeit","zeit","zeiten","zeitangabe","stunde","stunden",
+    "minute","minuten","sekunde","sekunden","tag","tage","tagen",
+    "woche","wochen","monat","monate","jahr","jahre","jahres",
+    "ferienhaus","übernachtung","nacht","nächte","stundenplan",
+    "chance","chancen","wahrscheinlichkeit","wahrscheinlichkeiten",
+    "statistik","statistisch","risiko","anteil","häufigkeit",
+    "tabelle","tabellen","tabellarisch","daten","datensatz",
+    "spalte","spalten","zeile","zeilen","filter","filtern",
+    "ausreißer","auswertung","summe","summieren","mittelwert",
+    "median","durchschnitt","mengen","menge","mengenangabe",
+    "reihenfolge","rangfolge","sortiere","ordne","position",
+    "wenn","falls","sofern","entweder","oder","voraussetzung",
+    "annahme","gilt","gelten","muss","müssen","darf","dürfen",
+    "früher","später","gleichzeitig","dauert","länger","kürzer",
+    "zwischen","bevor","danach","zuerst","zuletzt","folge",
+    "höher","niedriger","größte","kleinste","längste","kürzeste",
 ))
 
 
@@ -366,6 +382,10 @@ def _is_free_compute_task(source: object) -> bool:
     if source.startswith("[NERAL-WEBSTATUS"):
         return False
     if any(ch.isdecimal() for ch in source):
+        return True
+    # Punctuation and arithmetic symbols express comparisons even without
+    # canonical calculation verbs. No model call is a source proof.
+    if re.search(r"(?<![<>=!])[<>=](?![=>])|[%€$]|[+×÷]", source):
         return True
     words = set(re.findall(r"[\wäöüß]+", source.casefold()))
     return bool(words & _CODE_SIGNAL)
@@ -1028,12 +1048,20 @@ class ThreeTierRuntime:
         }
 
 
-    def answer(self, turns: list[dict], tier: str) -> dict:
+    def answer(self, turns: list[dict], tier: str, *,
+               force_sandbox: bool = False) -> dict:
+        if type(force_sandbox) is not bool:
+            raise ValueError("force_sandbox must be a JSON boolean")
         if tier not in TIERS:
             raise ValueError("Unapproved mode tier")
         if (type(turns) is not list or len(turns) < 2 or
                 turns[-1].get("role") != "user"):
             raise ValueError("Invalid local chat turns")
+        # Explicit user control bypasses source-only shortcuts. Never
+        # fabricate an execution: even greetings must attempt Docker.
+        if force_sandbox:
+            return self._free_code_loop(
+                turns, auto_from=tier if tier != "Helios" else None)
         # Recognize only complete, audited everyday sources. The default
         # Luna stop is automatically upgraded to a real independent Python
         # or Z3 tool result; no model-generated reasoning is called a proof.
@@ -1142,8 +1170,11 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
         if not request.is_json:
             return jsonify(error="JSON für Drei-Modell-Chat erforderlich."), 415
         payload = request.get_json(silent=True)
+        allowed = {"tier", "prompt", "history", "force_sandbox"}
         if (type(payload) is not dict or
-                set(payload) not in ({"tier", "prompt"}, {"tier", "prompt", "history"}) or
+                not {"tier", "prompt"} <= set(payload) or
+                not set(payload) <= allowed or
+                type(payload.get("force_sandbox", False)) is not bool or
                 payload.get("tier") not in TIERS):
             return jsonify(error="Ungültiger Luna/Terra/Helios-Modus."), 400
         try:
@@ -1158,7 +1189,8 @@ def register_three_tier_api(app, runtime: ThreeTierRuntime, *, busy):
             return jsonify(error="NERAL bearbeitet bereits eine Antwort."), 409
         try:
             started = time.monotonic()
-            result = runtime.answer(turns, payload["tier"])
+            result = runtime.answer(turns, payload["tier"],
+                                    force_sandbox=payload.get("force_sandbox", False))
             return jsonify({**result, "seconds": round(time.monotonic()-started, 4),
                             "runtime_tier_verified": True})
         except Exception as exc:
