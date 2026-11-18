@@ -1,3 +1,4 @@
+# User-authorized V1 runtime acceptance, pinned KaTeX source assets built before stop.
 # User-approved full-runtime V1 live retest with optional legacy file handling.
 # User-authorized retry: missing old web modules are backed up conditionally.
 # User-approved, rollback-protected V1 live browser gate with complete source overlay.
