@@ -10,6 +10,7 @@ preview chat lock. Nothing is downloaded or executed on the host.
 """
 from __future__ import annotations
 
+import ast
 import gc
 import hashlib
 import json
@@ -336,6 +337,48 @@ def _one_python_block(generated: object) -> str | None:
     return code
 
 
+def _constraint_code_issue(code: str, *, counted: bool) -> str | None:
+    """Static syntactic Z3 contract, NOT independent rule-completeness proof.
+
+    Do not run model code on the host. Reject scripts that lack executable
+    per-rule assertions before print and, for counts, complete model blocking.
+    """
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError:
+        return "Python-Code syntaktisch ungültig"
+    imports_z3 = any(
+        isinstance(node, ast.Import) and
+        any(alias.name == "z3" for alias in node.names)
+        for node in ast.walk(tree))
+    if not imports_z3:
+        return "Z3-Modul muss explizit mit import z3 importiert werden"
+    calls = [ast.unparse(n.func) for n in ast.walk(tree)
+             if isinstance(n, ast.Call)]
+    if not any(c in ("z3.Int", "z3.Bool") for c in calls):
+        return "Es fehlen Z3-Entscheidungsvariablen (z3.Int oder z3.Bool)"
+    if calls.count("solver.add") < 2:
+        return "Mehrere einzelne solver.add-Regeln sind erforderlich"
+    rule_comments = re.findall(r"(?m)^[ \t]*#\s*Regel\s*\d+", code, re.I)
+    if len(rule_comments) < 2:
+        return "Jede Regel braucht einen eigenen Kommentar '# Regel N'"
+    assertions = [n for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+    if len(assertions) < len(rule_comments):
+        return "Vor der Ausgabe fehlt eine assert-Prüfung pro Regel"
+    prints = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Name) and n.func.id == "print"]
+    if not prints or max(n.lineno for n in assertions) >= max(n.lineno for n in prints):
+        return "Regel-asserts müssen vor dem abschließenden print stehen"
+    if counted:
+        if not re.search(r"while\s+solver\.check\(\)\s*==\s*z3\.sat\s*:", code):
+            return "Zählaufgabe braucht while solver.check() == z3.sat"
+        if not re.search(r"solver\.add\s*\(\s*z3\.Or\s*\(", code):
+            return "Z3-Zählung ohne Blocking-Klausel"
+        if not re.search(r"v\s*!=\s*m\[v\]", code) or "all_vars" not in code:
+            return "Z3-Blocking muss jedes Modell über all_vars ausschließen"
+    return None
+
+
 def _sandbox_error(report: object) -> str:
     if type(report) is not dict:
         return "Sandbox-Rückgabe ungültig"
@@ -489,6 +532,26 @@ class ThreeTierRuntime:
                         "Gib die Rechenwerte mit print(...) aus.")},
                 ]
                 continue
+            if constraint_mode:
+                rule_issue = _constraint_code_issue(code, counted=count_mode)
+                if rule_issue is not None:
+                    last_error = "Z3-Regelprüfung: " + rule_issue
+                    failure_trace.append({"stage": "code_contract",
+                                          "error_type": "IncompleteZ3RuleChecks"})
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": candidate[:2300]},
+                        {"role": "user", "content": (
+                            "Der vorherige Code wurde aus Sicherheitsgründen "
+                            "NICHT ausgeführt. Z3-Regelprüfung fehlgeschlagen: "
+                            + rule_issue +
+                            ". Korrigiere mit import z3, einem individuellen "
+                            "# Regel N + solver.add(...) für JEDE Bedingung, "
+                            "einem assert pro Regel VOR dem abschließenden print "
+                            "und bei Zählaufgaben while solver.check() == z3.sat "
+                            "mit einer Blocking-Klausel über all_vars. "
+                            "Antworte nur mit einem Python-Codeblock.")}
+                    ]
+                    continue
             try:
                 report = self.execute_python(code)
             except Exception:
