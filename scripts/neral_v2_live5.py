@@ -208,6 +208,16 @@ def main():
         if isinstance(exc, HTTPError):
             safe["http_status"] = exc.code
             safe["endpoint"] = exc.url.removeprefix(BASE).split("?", 1)[0]
+            # The server sends only a sanitized classification (not prompts,
+            # model output or tracebacks); keep the same constraint in logs.
+            try:
+                packet = json.loads(exc.read(4096))
+                category = packet.get("error_code")
+                if category in ("hf_generation_incomplete", "gpu_memory",
+                                "context_exceeded", "runtime_unavailable"):
+                    safe["server_error_code"] = category
+            except (TypeError, ValueError, OSError):
+                pass
         print("NERAL_V2_REAL5_FAILURE",json.dumps(safe,ensure_ascii=False))
     finally:
         if account_created:
