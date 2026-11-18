@@ -295,6 +295,8 @@ class GenericCodeLoop(unittest.TestCase):
         instruction=helios.calls[0][0][0]["content"]
         self.assertIn("sympy.Eq",instruction)
         self.assertIn("sympy.solve",instruction)
+        self.assertIn("maximal 25",instruction)
+        self.assertNotIn("itertools.permutations",instruction)
         self.assertIn("assert",instruction)
         self.assertNotIn("NERAL Z3-JSON-MODUS",instruction)
 
