@@ -43,10 +43,32 @@ CASES = (
         "Verteile Morgen-, Abend- und Nachtschicht auf Ada, Berta und Cora, "
         "jede Person genau einmal. Ada darf nicht morgens, Berta nicht nachts, "
         "Cora nicht abends. Wie viele gültige Pläne sind möglich?",
-        "from itertools import permutations\n"
-        "valid=[p for p in permutations(('Ada','Berta','Cora')) "
-        "if p[0]!='Ada' and p[1]!='Cora' and p[2]!='Berta']\n"
-        "print(len(valid))",
+        "import z3\n"
+        "ada=z3.Int('ada'); berta=z3.Int('berta'); cora=z3.Int('cora')\n"
+        "all_vars=[ada,berta,cora]\n"
+        "solver=z3.Solver()\n"
+        "# Regel 1: eindeutige Schichten\n"
+        "solver.add(z3.Distinct(*all_vars))\n"
+        "# Regel 2: Schichtbereich\n"
+        "for v in all_vars: solver.add(z3.And(v>=0,v<=2))\n"
+        "# Regel 3: Ada nicht morgens\n"
+        "solver.add(ada!=0)\n"
+        "# Regel 4: Berta nicht nachts\n"
+        "solver.add(berta!=2)\n"
+        "# Regel 5: Cora nicht abends\n"
+        "solver.add(cora!=1)\n"
+        "count=0\n"
+        "while solver.check() == z3.sat:\n"
+        "    m=solver.model()\n"
+        "    a,b,c=[m[v].as_long() for v in all_vars]\n"
+        "    assert len({a,b,c})==3\n"
+        "    assert all(0<=v<=2 for v in (a,b,c))\n"
+        "    assert a!=0\n"
+        "    assert b!=2\n"
+        "    assert c!=1\n"
+        "    count+=1\n"
+        "    solver.add(z3.Or([v != m[v] for v in all_vars]))\n"
+        "print(count)",
         "2",
     ),
     (
@@ -184,6 +206,30 @@ class GenericCodeLoop(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertTrue(_is_constraint_task("Bitte "+text+" alle Fälle"))
         self.assertFalse(_is_constraint_task("Berechne 17 plus 19"))
+
+    def test_constraint_code_must_recheck_rules_and_block_enumerated_models(self):
+        from neral_three_tier_runtime import _constraint_code_issue
+        self.assertIsNotNone(_constraint_code_issue(
+            "import z3\\nsolver=z3.Solver()\\nprint(3)", counted=True))
+        self.assertIsNotNone(_constraint_code_issue(
+            "import z3\\nx=z3.Int('x')\\nsolver=z3.Solver()\\n"
+            "solver.add(x!=0)\\nwhile solver.check() == z3.sat:\\n"
+            " m=solver.model()\\n solver.add(z3.Or([x!=m[x]]))\\nprint(3)", counted=True))
+        self.assertIsNotNone(_constraint_code_issue(
+            "from itertools import permutations\\nprint(3)", counted=True))
+
+    def test_noncompliant_constraint_script_never_executes_in_docker(self):
+        seen=[]
+        rt,_,helios=runtime([
+            "\\x60\\x60\\x60python\\nprint(3)\\n\\x60\\x60\\x60"]*3,
+            lambda code:seen.append(code) or {"status":"PASSED","output":"3"})
+        result=rt._free_code_loop(turns(
+            "Wie viele zulässige Schichtpläne gibt es bei diesen Ausschlüssen?"),
+            auto_from="Luna")
+        self.assertEqual(seen,[])
+        self.assertFalse(result["sandbox_executed"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(helios.temperatures,[0.0,0.0,0.0])
 
     def test_failed_code_can_be_repaired_at_most_twice(self):
         seen=[]
