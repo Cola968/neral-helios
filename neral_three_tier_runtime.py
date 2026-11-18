@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import re
+from fractions import Fraction
 import time
 from collections.abc import Mapping
 
@@ -244,6 +245,11 @@ _CODE_ONLY_SYSTEM = (
     "eindeutigen Name=Wert-Bezeichnungen aus. "
     "Keine Dateien, kein Netzwerk, keine Shell, keine Installation, keine "
     "Eingaben und kein Zugriff auf andere Programme. "
+    "Bei exakten Bruchgleichungen mit x verwende fractions.Fraction "
+    "oder sympy.Rational für sämtliche Koeffizienten, setze "
+    "a mal x plus b gleich c als a*x+b=c an und löse nach x. "
+    "Verifiziere die Lösung durch Einsetzen: assert a*x+b==c. "
+    "Gib nur das exakte x aus und keine Zwischenergebnisse. "
     "Falls die Aufgabe unbestimmt ist, gib eine Erklärung dafür per print aus. "
     "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
 )
@@ -277,6 +283,8 @@ _Z3_CONSTRAINT_SYSTEM = (
     "\"constraints\":[{\"rule_id\":\"R1\",\"description\":\"x ist eins\", "
     "\"expr\":\"x == 1\"}],\"objective\":\"count_all\"}. "
     "Ersetze ALLE Beispielwerte und Regeln durch die aktuelle Aufgabe. "
+    "Die Wörter rules, result, explanation, answer sind als JSON-Schlüssel "
+    "auf oberster Ebene VERBOTEN; Regeln gehören NUR in constraints. "
     "Es darf KEIN vierter Top-Level-Schlüssel erscheinen."
 )
 _Z3_KEYWORD_RE = re.compile(
@@ -392,6 +400,42 @@ def _constraint_code_issue(code: str, *, counted: bool) -> str | None:
         if not re.search(r"v\s*!=\s*m\[v\]", code) or "all_vars" not in code:
             return "Z3-Blocking muss jedes Modell über all_vars ausschließen"
     return None
+
+
+_SOURCE_FRACTION_EQUATION = re.compile(
+    r"(?iu)\b(?P<anum>\d{1,6})\s*/\s*(?P<aden>\d{1,6})\s*"
+    r"(?:mal|\*)\s*x\s*(?:plus|\+)\s*"
+    r"(?P<bnum>\d{1,6})\s*/\s*(?P<bden>\d{1,6})\s*"
+    r"(?:gleich|=)\s*(?P<cnum>\d{1,7})\s*/\s*(?P<cden>\d{1,6})\b"
+)
+
+
+def _source_fraction_equation_ok(source: object, stdout: object) -> bool | None:
+    """Reject inconsistent sandbox output for unambiguous a*x+b=c source.
+
+    This is a limited source-grounded REJECTION oracle, never a model proof.
+    It does not synthesize code, change output or label anything verified.
+    """
+    if type(source) is not str:
+        return None
+    match = _SOURCE_FRACTION_EQUATION.search(source)
+    if match is None:
+        return None
+    if type(stdout) is not str:
+        return False
+    answer = re.fullmatch(
+        r"\s*(?:x\s*=\s*)?([-+]?\d{1,10}(?:/\d{1,10}|\.\d{1,8})?)\s*",
+        stdout, re.I)
+    if answer is None:
+        return False
+    try:
+        a = Fraction(int(match["anum"]), int(match["aden"]))
+        b = Fraction(int(match["bnum"]), int(match["bden"]))
+        c = Fraction(int(match["cnum"]), int(match["cden"]))
+        x = Fraction(answer.group(1))
+        return a * x + b == c
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return False
 
 
 def _sandbox_error(report: object) -> str:
@@ -541,7 +585,25 @@ class ThreeTierRuntime:
                         "error_type": "InvalidZ3JSON",
                         "detail": str(exc)[:170],
                     })
-                    prompt_turns = base + [
+                    forbidden = ("rules" if "unerwartet=rules" in str(exc)
+                                 else None)
+                    if forbidden:
+                        # Do not condition greedy decoding on the prior malformed
+                        # answer; force fresh regeneration with explicit key error.
+                        prompt_turns = base + [
+                            {"role": "user", "content": (
+                                "DEIN VORHERIGES JSON WAR ABGELEHNT. "
+                                "Der zusätzliche Top-Level-Schlüssel \"rules\" "
+                                "ist VERBOTEN. Entferne \"rules\" vollständig. "
+                                "Benutze ausschließlich die DREI Schlüssel "
+                                "\"variables\", \"constraints\", \"objective\". "
+                                "Die eigentlichen Regeln stehen NUR im Array "
+                                "\"constraints\" mit rule_id, description, expr. "
+                                "Erzeuge das JSON zur Originalaufgabe komplett "
+                                "neu, keine Erklärung, kein Markdown, kein Code.")}
+                        ]
+                    else:
+                        prompt_turns = base + [
                         {"role": "assistant", "content": prior},
                         {"role": "user", "content": (
                             "Dein JSON wurde NICHT als Python ausgeführt. Fehler: "
@@ -579,6 +641,29 @@ class ThreeTierRuntime:
             except Exception:
                 report = {"status": "UNAVAILABLE", "error_type": "SandboxUnavailable"}
             output = _sandbox_output(report)
+            if output is not None and not constraint_mode:
+                source_ok = _source_fraction_equation_ok(source, output)
+                if source_ok is False:
+                    # Docker ran, but its numeric output conflicts with the
+                    # original rational equation. Never publish it as success.
+                    last_error = "Eingabegleichung durch Einsetzen nicht erfüllt"
+                    failure_trace.append({
+                        "stage": "source_consistency",
+                        "error_type": "FractionEquationMismatch",
+                    })
+                    output = None
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Der Docker-Code wurde ausgeführt, aber die Ausgabe "
+                            "erfüllt die Eingabegleichung NICHT. "
+                            "Schreibe die Bruchgleichung a*x+b=c aus der "
+                            "ursprünglichen Nutzeraufgabe korrekt ab, löse "
+                            "exakt mit Fraction und prüfe mit assert "
+                            "a*x+b==c. Nutze keine Dezimalnäherungen. "
+                            "Nur ein neuer Python-Codeblock, kein Text.")}
+                    ]
+                    continue
             if output is not None:
                 succeeded = 1
                 break
