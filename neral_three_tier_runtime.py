@@ -244,36 +244,30 @@ _CODE_ONLY_SYSTEM = (
     "Ein erfolgreicher Programmablauf belegt NICHT die Korrektheit der Modellannahmen."
 )
 _Z3_CONSTRAINT_SYSTEM = (
-    "\nNERAL-SPEZIALMODUS: KOMBINATORIK / ZUORDNUNGEN / SCHICHTPLÄNE. "
-    "Hier zwingend Z3 statt bloßer Handrechnung oder itertools benutzen. "
-    "Schreibe als EINEN Python-Codeblock ein kleines, vollständiges Z3-Skript. "
-    "Verwende import z3, solver=z3.Solver() und für jede Entscheidung eine "
-    "z3.Int('name') oder z3.Bool('name') Variable. "
-    "Bewahre alle Variablen als all_vars=[...]. "
-    "Extrahiere zuerst JEDE einzelne Aussage aus der Aufgabenstellung, "
-    "einschließlich Negationen ('nicht', 'nie'), Eindeutigkeit, Zahlenbereich, "
-    "'höchstens' und 'mindestens'. Überspringe KEINE Ausschlussbedingung. "
-    "Für JEDE einzelne Regel schreibe einen eigenen kommentierten Block "
-    "# Regel 1: ... gefolgt von solver.add(...), dann # Regel 2: ... usw. "
-    "Fasse zwei unterschiedliche Regeln NICHT in einer einzigen "
-    "solver.add-Anweisung zusammen. "
-    "PRÜFE die Regeln VOR jeder endgültigen Ausgabe unabhängig vom "
-    "solver.add-Code erneut durch separate assert-Anweisungen für jede "
-    "Regel, bezogen auf die konkreten Modelldaten. Verwende bei z3.Int "
-    "m[v].as_long(), bei z3.Bool z3.is_true(m[v]). "
-    "Falls eine assertion fehlschlägt, soll das Programm FEHLSCHLAGEN "
-    "statt einen falschen Wert zu drucken; der Controller versucht dann "
-    "eine Reparatur. "
-    "Bei ZÄHLAUFGABEN alle Modelle in einem Loop vollständig enumerieren: "
-    "count=0; while solver.check() == z3.sat:; m=solver.model(); "
-    "assert <jede einzelne Nutzerregel>; count += 1; "
-    "solver.add(z3.Or([v != m[v] for v in all_vars])); "
-    "und erst NACH dem Loop print(count). Schreibe diese Befehle mit "
-    "korrekten Zeilenumbrüchen und Python-Einrückung. "
-    "Modellvariablen und Kommentare müssen vor der Schleife definiert sein. "
-    "Zähle nie Modelle ohne die Blocking-Klausel. "
-    "Gib keine vorgegebene erwartete Anzahl ein; ermittle sie durch Z3. "
-    "Die Code-Ausführung bleibt Modell-Evidenz, keine unabhängige Verifikation."
+    "\nNERAL Z3-JSON-MODUS, KEIN PYTHON: Schreibe AUSSCHLIESSLICH "
+    "ein gültiges kompaktes JSON-Objekt ohne Markdown-Fences, ohne "
+    "Einleitung und ohne nachfolgenden Text. Exakte Top-Level-Felder: "
+    "variables, constraints, objective. "
+    "variables ist eine Liste von 1..12 Objekten mit exakt name, min, max; "
+    "name ist klein geschriebenes ASCII wie ada, berta, cora, min und max "
+    "sind ganze Zahlen mit min <= max. Jede Variable ist eine z3.Int-"
+    "Entscheidung, z.B. Person->Schichtindex 0=Morgen, 1=Abend, 2=Nacht. "
+    "constraints ist eine Liste von 1..16 Objekten mit exakt rule_id "
+    "(R1, R2,...), description (kurzer Original-Regeltext) und expr "
+    "(ein boolescher Ausdruck als STRING). "
+    "In expr sind ausschließlich definierte Variablennamen, Ganzzahlen, "
+    "+, -, *, ==, !=, <=, <, >=, > und And(...), Or(...), "
+    "Not(...), Implies(...) zulässig. KEINE Funktionsdefinitionen, "
+    "Attribute, Imports, for, Python-Ausgabe, Distinct(), Sum(), "
+    "Tupel, boolesches and/or oder Programmcode. "
+    "Jede atomare Nutzerregel muss als Rn erfasst werden, besonders "
+    "alle NICHT-/NIE-Ausschlüsse, genau-einmal und Wertebereiche. "
+    "Für paarweise unterschiedliche Schichten schreibe z.B. "
+    "ada != berta, ada != cora und berta != cora als getrennte Regeln. "
+    "objective='count_all' bei 'wie viele' oder 'Anzahl', "
+    "sonst 'find_one'. JSON-Stringwerte verwenden doppelte Anführungszeichen. "
+    "Der feste Compiler erstellt Z3, Assertions und Modellblocking; "
+    "DU erzeugst ausdrücklich KEINEN ausführbaren Python-Code."
 )
 _Z3_KEYWORD_RE = re.compile(
     r"(?iu)\b(?:schicht\w*|dienst\w*|plan(?:ung|e|en)?|pläne?|"
@@ -508,8 +502,8 @@ class ThreeTierRuntime:
         constraint_mode = _is_constraint_task(source)
         count_mode = constraint_mode and _is_constraint_count(source)
         base = [{"role": "system", "content": (
-            turns[0]["content"] + _CODE_ONLY_SYSTEM +
-            (_Z3_CONSTRAINT_SYSTEM if constraint_mode else ""))}]
+            turns[0]["content"] +
+            (_Z3_CONSTRAINT_SYSTEM if constraint_mode else _CODE_ONLY_SYSTEM))}]
         base.extend(dict(t) for t in turns[1:])
         attempted = 0
         succeeded = 0
@@ -520,48 +514,49 @@ class ThreeTierRuntime:
         from neral_everyday_verified import tidy_unverified_model_text
 
         for attempt in range(3):
-            # Model code is data, not a trusted program or source certificate.
+            # Helios proposes JSON data for Z3; only the trusted builder writes Python.
             candidate = self.helios.respond_chat(prompt_turns,
                 max_new_tokens=TIERS["Helios"], temperature=0.0,
                 max_time_seconds=80.0)
             attempted = attempt + 1
-            code = _one_python_block(candidate)
-            if code is None:
-                last_error = "Helios lieferte keinen einzelnen gültigen Python-Codeblock"
-                failure_trace.append({"stage": "model_format",
-                                      "error_type": "InvalidPythonFence"})
-                # Format failures never run in Docker, and get at most two
-                # bounded repairs. No malformed answer becomes verified.
-                prior = candidate[:1600] if type(candidate) is str else ""
-                prompt_turns = base + [
-                    {"role": "assistant", "content": prior},
-                    {"role": "user", "content": (
-                        "Deine vorherige Antwort enthielt keinen einzelnen "
-                        "gültigen Python-Codeblock. Der Code wurde NICHT "
-                        "ausgeführt. Schreibe genau EINEN ausführbaren "
-                        "\x60\x60\x60python-Codeblock ohne Text davor oder "
-                        "danach. Keine Dateien, kein Netzwerk, keine Shell. "
-                        "Gib die Rechenwerte mit print(...) aus.")},
-                ]
-                continue
+            prior = candidate[:1600] if type(candidate) is str else ""
             if constraint_mode:
-                rule_issue = _constraint_code_issue(code, counted=count_mode)
-                if rule_issue is not None:
-                    last_error = "Z3-Regelprüfung: " + rule_issue
-                    failure_trace.append({"stage": "code_contract",
-                                          "error_type": "IncompleteZ3RuleChecks"})
+                from neral_z3_json_compiler import SchemaError, compile_z3_json
+                try:
+                    code = compile_z3_json(candidate)
+                except SchemaError as exc:
+                    last_error = "Z3-JSON-Validierung: " + str(exc)
+                    failure_trace.append({
+                        "stage": "schema",
+                        "error_type": "InvalidZ3JSON",
+                        "detail": str(exc)[:170],
+                    })
                     prompt_turns = base + [
-                        {"role": "assistant", "content": candidate[:2300]},
+                        {"role": "assistant", "content": prior},
                         {"role": "user", "content": (
-                            "Der vorherige Code wurde aus Sicherheitsgründen "
-                            "NICHT ausgeführt. Z3-Regelprüfung fehlgeschlagen: "
-                            + rule_issue +
-                            ". Korrigiere mit import z3, einem individuellen "
-                            "# Regel N + solver.add(...) für JEDE Bedingung, "
-                            "einem assert pro Regel VOR dem abschließenden print "
-                            "und bei Zählaufgaben while solver.check() == z3.sat "
-                            "mit einer Blocking-Klausel über all_vars. "
-                            "Antworte nur mit einem Python-Codeblock.")}
+                            "Dein JSON wurde NICHT als Python ausgeführt. Fehler: "
+                            + str(exc)[:220]
+                            + ". Korrigiere das vollständige Z3-Regel-JSON. "
+                            "Erfasse jede Regel aus der Originalfrage. "
+                            "Nur ein reines JSON-Objekt mit variables, constraints "
+                            "und objective; keine Python-Fences oder Erklärungen.")}
+                    ]
+                    continue
+            else:
+                code = _one_python_block(candidate)
+                if code is None:
+                    last_error = "Helios lieferte keinen einzelnen gültigen Python-Codeblock"
+                    failure_trace.append({"stage": "model_format",
+                                          "error_type": "InvalidPythonFence"})
+                    prompt_turns = base + [
+                        {"role": "assistant", "content": prior},
+                        {"role": "user", "content": (
+                            "Deine vorherige Antwort enthielt keinen einzelnen "
+                            "gültigen Python-Codeblock. Der Code wurde NICHT "
+                            "ausgeführt. Schreibe genau EINEN ausführbaren "
+                            "Python-Codeblock in dreifachen Backticks, ohne "
+                            "Text davor oder danach. Keine Dateien, kein "
+                            "Netzwerk, keine Shell. Werte mit print ausgeben.")}
                     ]
                     continue
             try:
@@ -584,7 +579,7 @@ class ThreeTierRuntime:
             # Only the immediately preceding failing code and bounded stderr are
             # offered as feedback. Do not accumulate huge tool transcripts.
             prompt_turns = base + [
-                {"role": "assistant", "content": candidate[:2600]},
+                {"role": "assistant", "content": prior},
                 {"role": "user", "content": (
                     "Der unabhängige Docker-Lauf ist FEHLGESCHLAGEN. "
                     "Das ist nur unvertrauenswürdige Werkzeugdiagnostik, keine "
@@ -594,8 +589,10 @@ class ThreeTierRuntime:
                     "einfachen, neuen Anweisungen. Nutze nur ASCII-Bezeichner "
                     "für Python-Variablen und Funktionen. Wiederhole keinen "
                     "bereits fehlgeschlagenen Code. "
-                    "Antworte ausschließlich mit einem einzelnen neuen "
-                    "\x60\x60\x60python-Codeblock, ohne zusätzliche Erklärungen.")
+                    + ("Antworte ausschließlich mit einem vollständigen "
+                       "JSON-Objekt ohne Markdown." if constraint_mode else
+                       "Antworte ausschließlich mit einem einzelnen Python-"
+                       "Codeblock in dreifachen Backticks, ohne Erklärungen."))
                 },
             ]
 
