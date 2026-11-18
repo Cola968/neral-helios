@@ -135,6 +135,8 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertEqual(r["sandbox_attempts"],3)
         self.assertEqual(len(helios.calls),4)
         self.assertIn("ValueError",str(helios.calls[1][0]))
+        self.assertIn("ASCII",str(helios.calls[1][0]))
+        self.assertIn("itertools.permutations",helios.calls[0][0][0]["content"])
         self.assertEqual(len(seen),3)
 
     def test_three_failed_runs_never_invent_a_verified_answer(self):
