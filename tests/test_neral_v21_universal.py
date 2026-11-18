@@ -108,6 +108,38 @@ class UniversalRouter(unittest.TestCase):
                 "tier":"Luna","prompt":"Vergleiche Daten","web_data":malicious})
             self.assertEqual(result.status_code,400)
 
+    def test_web_currency_sum_rejects_wrong_docker_stdout_and_repairs(self):
+        from neral_v21_attachment_data import web_currency_sum_expected
+        rows=[
+            {"title":"Monat A","snippet":"Betrag 2 Euro","url":"https://example.org/a"},
+            {"title":"Monat B","snippet":"Betrag 4 Euro","url":"https://example.org/b"},
+        ]
+        staged={"data/data1.json":json.dumps(rows).encode("utf-8")}
+        question="Addiere die Beträge in den bereitgestellten Web-Suchergebnissen."
+        self.assertEqual(str(web_currency_sum_expected(question,staged)),"6")
+        self.assertIsNone(web_currency_sum_expected("Erkläre nur den Artikel",staged))
+        self.assertIsNone(web_currency_sum_expected(question,{
+            "data/data1.json":json.dumps([
+                {**rows[0],"snippet":"Preis 2 Euro und Steuer 1 Euro"},rows[1]
+            ]).encode("utf-8")
+        }))
+        low=FakeHF("qwen3.5:4b",[])
+        high=FakeHF("qwen3.5:9b+neral-v2-full",[
+            "\x60\x60\x60python\nprint(5)\n\x60\x60\x60",
+            "\x60\x60\x60python\nprint(6)\n\x60\x60\x60",
+            "Die Docker-Sandbox ergibt 6."
+        ])
+        outputs=[]
+        runtime=ThreeTierRuntime(low,high,execute_python=lambda code:{"status":"FAILED"},
+            execute_dataset_python=lambda code,files:
+                outputs.append(code) or {"status":"PASSED","output":"5" if len(outputs)==1 else "6"})
+        result=runtime.answer(turns(question),"Luna",sandbox_files=staged)
+        self.assertEqual(result["sandbox_attempts"],2)
+        self.assertTrue(result["sandbox_executed"])
+        self.assertIn("Sandbox-Ausgabe (nicht unabhängig geprüft):\n6",result["text"])
+        self.assertIn("Webdaten",str(high.calls[1][0]))
+        self.assertFalse(result["verified"])
+
     def test_force_flag_strict_http_contract(self):
         runtime,low,high,executed=fixture()
         app=Flask("v21")
