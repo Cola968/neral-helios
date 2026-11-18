@@ -213,7 +213,8 @@ def main():
             try:
                 packet = json.loads(exc.read(4096))
                 category = packet.get("error_code")
-                if category in ("hf_generation_incomplete", "gpu_memory",
+                if category in ("hf_budget_exhausted", "hf_reasoning_unclosed",
+                                "hf_invalid_final", "gpu_memory",
                                 "context_exceeded", "runtime_unavailable"):
                     safe["server_error_code"] = category
             except (TypeError, ValueError, OSError):
