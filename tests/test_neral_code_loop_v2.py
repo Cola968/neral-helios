@@ -210,6 +210,20 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("JSON wurde NICHT",str(helios.calls[1][0]))
         self.assertEqual(helios.temperatures[:2],[0.0,0.0])
 
+    def test_z3_extra_schema_key_gets_targeted_repair(self):
+        data={"variables":[{"name":"a","min":0,"max":1}],
+              "constraints":[{"rule_id":"R1","description":"A ist eins","expr":"a == 1"}],
+              "objective":"count_all"}
+        with_schema={**data,"schema":{"type":"object"}}
+        rt,_,helios=runtime([json.dumps(with_schema),json.dumps(data),
+                              "Das Ergebnis lautet 1."],
+                             lambda _:{"status":"PASSED","output":"1"})
+        result=rt._free_code_loop(
+            turns("Wie viele zulässige Schichtpläne für Person A?"),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        self.assertIn('"schema"',str(helios.calls[1][0]))
+        self.assertEqual(result["sandbox_attempts"],2)
+
     def test_z3_extra_rules_key_gets_targeted_no_rules_repair(self):
         schema={
             "variables":[{"name":"a","min":0,"max":1}],
