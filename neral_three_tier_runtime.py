@@ -392,6 +392,7 @@ class ThreeTierRuntime:
         output = None
         prompt_turns = base
         last_error = "Keine ausführbare Codeantwort"
+        failure_trace = []
         from neral_everyday_verified import tidy_unverified_model_text
 
         for attempt in range(3):
@@ -402,6 +403,8 @@ class ThreeTierRuntime:
             code = _one_python_block(candidate)
             if code is None:
                 last_error = "Helios lieferte keinen einzelnen gültigen Python-Codeblock"
+                failure_trace.append({"stage": "model_format",
+                                      "error_type": "InvalidPythonFence"})
                 # Format failures never run in Docker, and get at most two
                 # bounded repairs. No malformed answer becomes verified.
                 prior = candidate[:1600] if type(candidate) is str else ""
@@ -425,6 +428,12 @@ class ThreeTierRuntime:
                 succeeded = 1
                 break
             last_error = _sandbox_error(report)
+            failure_trace.append({
+                "stage": "docker",
+                "status": report.get("status", "INVALID") if type(report) is dict else "INVALID",
+                "error_type": report.get("error_type") if type(report) is dict else "InvalidReport",
+                "detail": last_error[:170],
+            })
             if (type(report) is not dict or report.get("status") == "UNAVAILABLE"):
                 break
             # Only the immediately preceding failing code and bounded stderr are
@@ -488,6 +497,7 @@ class ThreeTierRuntime:
             "tool_used": "helios_code_sandbox" if succeeded else None,
             "tool_calls_succeeded": succeeded,
             "sandbox_attempts": attempted,
+            **({"sandbox_failure_trace": failure_trace} if not succeeded else {}),
             "verification_status": "generated_code_executed_unverified" if succeeded
                                    else "generated_code_execution_failed",
         }
