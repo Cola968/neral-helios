@@ -4,7 +4,7 @@ const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {spawn}=require("node:child_process"),crypto=require("node:crypto");
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const base="http://127.0.0.1:9690/";
-const out={status:"BLOCKED",real_browser:false,v1:{ezb:false,energy:false,boxes:false},account_deleted:false,live_sources:0};
+const out={status:"BLOCKED",real_browser:false,slider:[],v1:{ezb:false,energy:false,boxes:false},account_deleted:false,live_sources:0};
 let browser,ws,profile,csrf,password,stage="init",nextId=0;
 const pending=new Map();
 function check(ok,message){if(!ok)throw Error(message)}
