@@ -171,7 +171,8 @@ def create_preview_app(backend=None, *, secret_key=None, search_service=None, vi
     register_preview_attachment_api(
         app, backend, chat_busy, vision_analyzer=vision_analyzer,
         experimental_high_backend=experimental_high_backend,
-        prepare_model=app._neral_prepare_model)
+        prepare_model=app._neral_prepare_model,
+        three_tier_runtime=three_tier_runtime)
 
     from neral_local_voice import register_local_voice_api
     local_voice = register_local_voice_api(app, service=voice_service)
