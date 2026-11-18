@@ -23,10 +23,14 @@ $approved=[ordered]@{
 }
 $approvedPrevious=[ordered]@{
   'neral_web_search.py'='b8b9fd6ca3acc1286d69a5b758914631d009d16f'
-  'neral_web_api.py'='3d9e8d779e514c31a1f243699d77d3a2565c18f6'
   'neral_everyday_verified.py'='6239a274a5049a32dde7408e1961244d2702dfbc'
   'neral_three_tier_runtime.py'='f3e5e2376999d821dd2a1aefc54be59a59ab0473'
   'static/neral-preview.js'='ce535f84c2e779d6619a968ca1e9b2582d20edbf'
+}
+# These files may be absent from the previously installed (partial) preview.
+# If present, their old content must still match the reviewed baseline.
+$optionalPrevious=[ordered]@{
+  'neral_web_api.py'='3d9e8d779e514c31a1f243699d77d3a2565c18f6'
   'static/neral-web-live.js'='d17ae1b0c7f45f46206181200e27f2a075a37da9'
 }
 
@@ -130,6 +134,13 @@ if([string]$existing.Actions[0].Arguments -notlike ('*'+$oldServer+'*')){
 $extra=Get-ScheduledTask -TaskName $newName -ErrorAction SilentlyContinue
 if($extra -and [string]$extra.State -eq 'Running'){
   throw 'Unexpected alternate NERAL V1 task running; refuse to alter stable service'
+}
+foreach($rel in $optionalPrevious.Keys){
+  $existingPath=Join-Path $oldRoot $rel
+  if((Test-Path -LiteralPath $existingPath -PathType Leaf) -and
+     (HashFor $rel $oldRoot) -ne $optionalPrevious[$rel]){
+    throw "Unapproved old optional source differs: $rel"
+  }
 }
 foreach($rel in $approved.Keys){
   if((HashFor $rel $repo) -ne $approved[$rel]){throw "PR561 source changed: $rel"}
