@@ -36,6 +36,9 @@ _DISCLAIMER = re.compile(
 def tidy_unverified_model_text(answer: str) -> str:
     """Remove one misleading generic disclaimer, never manufacture proof."""
     text = _DISCLAIMER.sub("", answer)
+    # Also normalize other stale model-written headings. This does not
+    # present an unverified model claim as an independently proven limitation.
+    text = re.sub(r"\bGrenze\s*:", "Hinweis:", text, flags=re.IGNORECASE)
     return re.sub(r"([.!?])(?=(?:Rechnung|Plan|Ergebnis):)",
                   r"\1\n\n", text).strip()
 
