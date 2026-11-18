@@ -87,7 +87,7 @@ async function send(prompt,{web=false,kind}){
        "busy:document.getElementById('submit').disabled,error:document.getElementById('error')?.textContent||''};})()");
     if(x?.error&&!x.busy&&x.count<=original)throw Error("Chat UI returned error: "+String(x.error).slice(0,80));
     return x?.count>original&&!x.busy?x:null;
-  },160000);
+  },kind==="ezb"?23000:160000);
   check(result.badge_visible,"Tool-status line missing or hidden");
   check(!/Grenze:/i.test(result.body),"Unexpected canned Grenze text");
   return result;
@@ -112,11 +112,18 @@ async function main(){
     await evaluate("window.__e2e.csrf="+JSON.stringify(csrf)+";"+
       "window.dispatchEvent(new CustomEvent('neral:account-csrf',{detail:{csrf:"+JSON.stringify(csrf)+"}}));"+
       "window.__neralLiveNetwork=[];"+
+      "(()=>{const live=window.NeralWebLive;if(live&&typeof live.search==='function'){"+
+        "const f=live.search.bind(live);live.search=async opts=>{const d=await f(opts);"+
+        "window.__neralLiveNetwork.push({type:'search',status:200,"+
+        "query:typeof d.query==='string'?d.query:'',external_request:d.external_request===true,"+
+        "source_count:Array.isArray(d.results)?d.results.length:0,"+
+        "source_https:Array.isArray(d.results)&&d.results.every(s=>String(s.url||'').startsWith('https://'))});"+
+        "return d;};}})();"+
       "(()=>{const old=window.fetch.bind(window);window.fetch=async(...args)=>{"+
         "const route=String(args[0]||'');const r=await old(...args);"+
-        "if(route.includes('/api/neral/chat/three-tier')||route.includes('/api/web/search')){"+
+        "if(route.includes('/api/neral/chat/three-tier')){"+
           "r.clone().json().then(d=>{window.__neralLiveNetwork.push("+
-          "{type:route.includes('/api/web/search')?'search':'chat',status:r.status,"+
+          "{type:'chat',status:r.status,"+
           "query:typeof d.query==='string'?d.query:'',"+
           "external_request:d.external_request===true,"+
           "source_count:Array.isArray(d.results)?d.results.length:0,"+
@@ -126,7 +133,10 @@ async function main(){
         "}return r;};})();true");
     out.account_created=true;
     try{
+      const webStarted=Date.now();
       const web=await send("Suche bitte aktuell im Web: Wie hoch ist heute der Leitzins der EZB? Nenne mir deine Quellen.",{web:true,kind:"ezb"});
+      out.ezb_elapsed_ms=Date.now()-webStarted;
+      check(out.ezb_elapsed_ms<20000,"EZB search exceeds 20-second browser SLA");
       check(/^Werkzeug: Websuche \(\d+ Quellen?\)$/.test(web.status),"Web status not shown");
       const searched=await net("search");
       check(searched.status===200 && searched.external_request===true,"No real public web request");
