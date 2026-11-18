@@ -117,8 +117,10 @@ def _check_stdout(kind: str, stdout: str, gold: object) -> None:
         return
     if kind == "credit":
         # A year number in the label is context, not a second computed value.
-        stdout = re.sub(r"^\s*Restschuld\s+nach\s+Jahr\s+\d+\s*:\s*",
-                        "", stdout, count=1, flags=re.I)
+        stdout = re.sub(
+            r"^\s*Restschuld\s+nach\s+(?:Jahr\s+\d+|\d+\s+Jahren?)\s*:\s*",
+            "", stdout, count=1, flags=re.I)
+        stdout = re.sub(r"\s*(?:Euro|€)\s*$", "", stdout, count=1, flags=re.I)
     if _scalar_from_stdout(stdout) != gold:
         raise ValueError("Incorrect exact arithmetic / planning output")
 
