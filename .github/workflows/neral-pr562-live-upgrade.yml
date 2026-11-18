@@ -57,6 +57,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'V2 code-loop unittest regression failure'}
           & $py -B -m unittest discover -s tests -p test_neral_code_sandbox_image_v2.py -v
           if($LASTEXITCODE -ne 0){throw 'V2 Docker isolation unittest regression failure'}
+          & $py -B -m unittest discover -s tests -p test_neral_v2_live5_transport.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2 localhost CSRF transport regression failure'}
           Write-Host 'NERAL_PR562_PREINSTALL_CPU_SYNTAX_PASS'
       - name: Build isolated V2 solver and prove five real Helios tasks plus browser, else rollback V1
         if: steps.gate.outputs.run == 'true'
