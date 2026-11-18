@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/neral_pr561_live_hotpatch.ps1'
+      - 'scripts/neral_pr561_runtime_overlay.ps1'
       - '.github/workflows/neral-pr561-sync-static.yml'
 permissions:
   contents: read
@@ -15,23 +16,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Parse pinned complete-release installer and verify snapshot+rollback contracts
+      - name: Parse managed installer and isolated snapshot overlay without executing either
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $t=$null;$e=$null
-          [Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'scripts/neral_pr561_live_hotpatch.ps1'),
-            [ref]$t,[ref]$e) | Out-Null
-          if(@($e).Count -ne 0){
-            foreach($x in $e){Write-Host $x.Message}
-            throw 'PowerShell installer syntax invalid'
+          foreach($file in @('scripts/neral_pr561_live_hotpatch.ps1',
+                             'scripts/neral_pr561_runtime_overlay.ps1')){
+            $t=$null;$e=$null
+            [Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $file),[ref]$t,[ref]$e) | Out-Null
+            if(@($e).Count -ne 0){
+              foreach($x in $e){Write-Host ($file+': '+$x.Message)}
+              throw 'PowerShell source failed syntax inspection'
+            }
           }
-          $source=Get-Content scripts/neral_pr561_live_hotpatch.ps1 -Raw
-          foreach($needle in @('source-package-snapshot','rollback-before-pr561-v1',
-              'SOURCE_PACKAGE_SNAPSHOT_READY','FULL_MANAGED_RUNTIME_HASHES_PASS',
-              'Get-FileHash','managedBefore','StopOwnedTask')){
-            if(-not $source.Contains($needle)){throw 'Managed source backup or verification missing'}
+          $installer=Get-Content scripts/neral_pr561_live_hotpatch.ps1 -Raw
+          $overlay=Get-Content scripts/neral_pr561_runtime_overlay.ps1 -Raw
+          foreach($needle in @('Initialize-NeralManagedSnapshot',
+              'Install-NeralManagedRuntime','Restore-NeralManagedRuntime')){
+            if(-not $installer.Contains($needle)){throw 'Installer missing managed helper call'}
+          }
+          foreach($needle in @('source-package-snapshot','Get-FileHash',
+              'FULL_MANAGED_RUNTIME_HASHES_PASS','FULL_MANAGED_RUNTIME_ROLLBACK_PASS',
+              'local_state','Remove-Item')){
+            if(-not $overlay.Contains($needle)){throw 'Source snapshot or rollback protection absent'}
           }
           Write-Host 'NERAL_PR561_FULL_RELEASE_INSTALLER_PARSE_PASS'
       - name: Validate full Python runtime allowlist is locally readable
