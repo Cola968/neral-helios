@@ -50,15 +50,15 @@ class WebSearchContracts(unittest.TestCase):
     def test_only_explicit_query_is_sent_to_fixed_website(self):
         opener=Opener()
         result=WebSearch(opener=opener).search("  aktuelle   Raumfahrt News  ")
-        self.assertEqual(result["query"],"aktuelle Raumfahrt News")
+        self.assertEqual(result["query"],"Raumfahrt aktuell")
         self.assertTrue(result["external_request"])
         self.assertFalse(result["model_generated"])
         self.assertEqual(len(result["results"]),2)
         self.assertEqual(len(opener.calls),1)
         request, timeout=opener.calls[0]
         self.assertTrue(request.full_url.startswith("https://html.duckduckgo.com/html/?q="))
-        self.assertIn("aktuelle+Raumfahrt+News",request.full_url)
-        self.assertLessEqual(timeout,8)
+        self.assertIn("Raumfahrt+aktuell",request.full_url)
+        self.assertLessEqual(timeout,4)
         self.assertEqual(request.get_method(),"GET")
         self.assertNotIn("PRIVATE",request.full_url)
 
