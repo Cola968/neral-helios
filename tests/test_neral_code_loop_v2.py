@@ -221,8 +221,9 @@ class GenericCodeLoop(unittest.TestCase):
         result=rt._free_code_loop(
             turns("Wie viele zulässige Schichtpläne für Person A?"),auto_from="Luna")
         self.assertTrue(result["sandbox_executed"])
-        self.assertIn('"schema"',str(helios.calls[1][0]))
-        self.assertEqual(result["sandbox_attempts"],2)
+        # Complete canonical fields are sufficient; schema metadata is ignored.
+        self.assertEqual(result["sandbox_attempts"],1)
+        self.assertEqual(len(helios.calls),2)
 
     def test_z3_extra_rules_key_gets_targeted_no_rules_repair(self):
         schema={
