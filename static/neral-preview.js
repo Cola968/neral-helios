@@ -10,6 +10,7 @@
   const encoder=new TextEncoder();
   let csrf=null, busy=false, recognizer=null, listening=false;
   let threeTierEnabled=false; // Explicit local HF opt-in; legacy default unchanged.
+  const sandboxToggle=$("forceSandbox");
   let activeRequest=null, conversationEpoch=0;
   stopRequest.disabled=true;
   let attachments=[];
@@ -467,6 +468,7 @@
            pinned.tiers.join(",")!=="Luna,Terra,Helios")
           throw new Error("Drei-Modell-Profil nicht eindeutig verifiziert.");
         threeTierEnabled=true;
+        if(sandboxToggle)sandboxToggle.disabled=false;
         document.documentElement.dataset.neralThreeTier="true";
         browser.dispatchEvent?.(new CustomEvent("neral:three-tier-ready"));
       }
@@ -700,7 +702,7 @@
       fileStatus.textContent="Keine Dateien ausgewählt.";
       return;
     }
-    const valid=/\.(png|jpg|jpeg|webp|pdf|docx|txt|md|csv|json|py|js|ts|tsx|html|css|log|yml|yaml)$/i;
+    const valid=/\.(png|jpg|jpeg|webp|pdf|docx|txt|md|csv|xlsx|json|py|js|ts|tsx|html|css|log|yml|yaml)$/i;
     if(files.length>3 || files.some(f=>!valid.test(f.name) ||
        !Number.isInteger(f.size) || f.size<1 || f.size>4*1024*1024)){
       fileStatus.textContent="Anhang abgelehnt: maximal 3 Dateien à 4 MiB; nur zugelassene Formate.";
@@ -792,13 +794,10 @@
       errors.textContent="Websuche ist ausgeschaltet. Bitte den Schalter „Web“ aktivieren und die Anfrage erneut senden.";
       return;
     }
-    if(threeTierEnabled && attachments.length){
-      errors.textContent="Anhänge sind im experimentellen Drei-Modell-Modus noch nicht freigeschaltet.";
-      return;
-    }
     const modeRadio=form.querySelector('input[name="mode"]:checked')?.value;
     const selectedTier=threeTierEnabled
       ? ({fast:"Luna",terra:"Terra",think:"Helios"}[modeRadio] || "Luna") : null;
+    const forceSandbox=threeTierEnabled && sandboxToggle?.checked===true;
     const mode=modeRadio==="think" ? "think":"generate";
     if(listening)cancelRecognition();
     busy=true;
@@ -955,14 +954,18 @@
         data.append("prompt",modelPrompt);
         data.append("history",JSON.stringify(safeHistory()));
         data.append("mode",mode);
+        if(threeTierEnabled){
+          data.append("tier",selectedTier);
+          data.append("force_sandbox",forceSandbox?"true":"false");
+        }
         selectedAttachments.forEach(f=>data.append("files",f,f.name));
         path="/api/neral/preview/attachment-chat";
         options={method:"POST",headers:{"X-Neral-CSRF":csrf},body:data,signal};
       }
-      if(threeTierEnabled){
+      if(threeTierEnabled && !selectedAttachments.length){
         path="/api/neral/chat/three-tier";
         options.body=JSON.stringify({tier:selectedTier,prompt:modelPrompt,
-                                     history:safeHistory()});
+                                     history:safeHistory(),force_sandbox:forceSandbox});
       }
       const useLive=!threeTierEnabled && mode==="generate" && !selectedAttachments.length &&
         typeof browser.NeralLiveStream?.read==="function" &&
@@ -993,7 +996,9 @@
       if(controller.signal.aborted||startedEpoch!==conversationEpoch)return;
       if(typeof result.text!=="string"||!result.text.trim())
         throw new Error("Leere Modellantwort.");
-      const autoProof=threeTierEnabled &&
+      const tierResponse=threeTierEnabled && (!selectedAttachments.length ||
+        result.runtime_tier_verified===true);
+      const autoProof=tierResponse &&
         result.auto_promoted_from===selectedTier && selectedTier==="Luna" &&
         ["Terra","Helios"].includes(result.tier) &&
         result.model_generated===false && result.verified===true &&
@@ -1001,12 +1006,12 @@
         result.model_origin==="local_source_verified_tools_only" &&
         ((result.tier==="Terra" && result.proof_backend==="trusted_source_arithmetic") ||
          (result.tier==="Helios" && result.proof_backend==="z3_sat_witness"));
-      const autoEscalation=threeTierEnabled &&
+      const autoEscalation=tierResponse &&
         ["Luna","Terra"].includes(selectedTier) &&
         result.tier==="Helios" && result.auto_escalated_from===selectedTier &&
         result.verified===false && result.model_generated===true &&
         result.safe_to_promote===false && result.proof_backend===null;
-      if(threeTierEnabled){
+      if(tierResponse){
         if(result.runtime_tier_verified!==true ||
            (result.tier!==selectedTier && !autoProof && !autoEscalation))
           throw new Error("Modus oder Modellantwort nicht zugeordnet.");
@@ -1073,7 +1078,7 @@
         ? "Werkzeug: Helios Code-Sandbox (ausgeführt)"
         : sources.length
         ? "Werkzeug: Websuche ("+sources.length+" "+(sources.length === 1 ? "Quelle" : "Quellen")+")"
-        : threeTierEnabled
+        : tierResponse
         ? "Modus: "+result.tier+" ("+(result.tier === "Luna" ? "Direktantwort ohne Werkzeug" : "Modellantwort ungeprüft")+")"
         : (mode === "think" ? "Modus: HIGH (ungeprüft)" : "Modus: LOW (Direktantwort)");
       if(typeof result.model==="string" && !threeTierEnabled &&
