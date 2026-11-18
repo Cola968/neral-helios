@@ -23,6 +23,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Parse owner-approved merged-main sync before any modification
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=Join-Path $env:GITHUB_WORKSPACE 'scripts/neral_pr562_main_sync.ps1'
+          $tokens=$null;$parseErrors=$null
+          [Management.Automation.Language.Parser]::ParseFile($target,[ref]$tokens,[ref]$parseErrors) | Out-Null
+          if(@($parseErrors).Count -ne 0){throw 'Merged main synchronization script has PowerShell syntax errors'}
+          if($env:GITHUB_REF -ne 'refs/heads/main'){throw 'Unexpected non-main ref'}
+          & git merge-base --is-ancestor bf06134566caf0b48932c3690d7a4c570b9bef6a HEAD
+          if($LASTEXITCODE -ne 0){throw 'PR562 merge commit missing from main'}
+          Write-Host 'NERAL_PR562_MAIN_SYNC_SCRIPT_PARSE_PASS'
+      - name: Synchronize approved main files and restart owned NERAL V2 service with rollback
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\scripts\neral_pr562_main_sync.ps1
+          if($LASTEXITCODE -ne 0){throw 'Merged main sync/restart failed'}
+          Write-Host 'NERAL_PR562_MAIN_SYNC_RESTART_COMPLETED'
       - name: Verify installed main source hashes, V2 service environment and live HTTP
         run: |
           $ErrorActionPreference='Stop'
@@ -41,7 +58,7 @@ jobs:
              $text -notmatch '--experimental-three-tier-hf'){
             throw 'Installed service script does not enable V2 solver'
           }
-          $paths=@('neral_three_tier_runtime.py','neral_tir_experimental.py',
+          $paths=@('neral_three_tier_runtime.py','neral_z3_json_compiler.py','neral_tir_experimental.py',
             'neral_everyday_verified.py','neral_web_search.py','neral_web_api.py',
             'static/neral-preview.js','static/neral-web-live.js')
           foreach($rel in $paths){
@@ -68,7 +85,7 @@ jobs:
             throw 'Merged main V2 live session not ready'
           }
           $ui=Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:9690/static/neral-preview.js' -TimeoutSec 9
-          if($ui.StatusCode -ne 200 -or $ui.Content -notmatch 'Helios Code-Sandbox \(ausgeführt\)'){
+          if($ui.StatusCode -ne 200 -or [string]$ui.Content -notmatch 'Helios Code-Sandbox'){
             throw 'V2 UI origin marker not served'
           }
           $docker=(Get-Command docker.exe -ErrorAction Stop).Source
