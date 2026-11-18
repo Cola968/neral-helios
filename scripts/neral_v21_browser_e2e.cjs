@@ -133,7 +133,7 @@ async function main(){
         "}return r;};})();true");
     out.account_created=true;
     try{
-      const code=await send("Wie viele Buchstaben hat das Wort Universum? Gib die Anzahl durch Python aus.",{web:false,kind:"forced",force:true});
+      const code=await send("Wie viele Zeichen hat das Wort Universum?",{web:false,kind:"forced",force:true});
       const response=await net("chat");
       check(response.force_sandbox===true,"Force flag absent from actual HTTP payload");
       check(response.status===200 && response.verified===false &&
