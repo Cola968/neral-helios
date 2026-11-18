@@ -120,8 +120,8 @@ class GenericCodeLoop(unittest.TestCase):
 
     def test_code_generation_and_repair_are_forced_to_temperature_zero(self):
         rt,_,helios=runtime([
-            "\\x60\\x60\\x60python\\nraise ValueError('broken')\\n\\x60\\x60\\x60",
-            "\\x60\\x60\\x60python\\nprint(2)\\n\\x60\\x60\\x60",
+            "\x60\x60\x60python\nraise ValueError('broken')\n\x60\x60\x60",
+            "\x60\x60\x60python\nprint(2)\n\x60\x60\x60",
             "Sandbox returned 2",
         ], lambda code: (
             {"status":"FAILED","traceback":"ValueError"} if "raise" in code
@@ -131,34 +131,34 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertEqual(helios.temperatures[:2],[0.0,0.0])
 
     def test_z3_rule_prompt_for_shift_count_has_enumeration_and_asserts(self):
-        program=("import z3\\n"
-            "ada=z3.Int('ada'); berta=z3.Int('berta'); cora=z3.Int('cora')\\n"
-            "all_vars=[ada,berta,cora]\\n"
-            "solver=z3.Solver()\\n"
-            "# Regel 1: jede Schicht genau einmal\\n"
-            "solver.add(z3.Distinct(*all_vars))\\n"
-            "# Regel 2: jeder Slot liegt zwischen 0 und 2\\n"
-            "for v in all_vars: solver.add(z3.And(v>=0,v<=2))\\n"
-            "# Regel 3: Ada nicht morgens\\n"
-            "solver.add(ada!=0)\\n"
-            "# Regel 4: Berta nicht nachts\\n"
-            "solver.add(berta!=2)\\n"
-            "# Regel 5: Cora nicht abends\\n"
-            "solver.add(cora!=1)\\n"
-            "count=0\\n"
-            "while solver.check() == z3.sat:\\n"
-            "    m=solver.model()\\n"
-            "    a,b,c=[m[v].as_long() for v in all_vars]\\n"
-            "    assert len({a,b,c})==3\\n"
-            "    assert all(0<=v<=2 for v in (a,b,c))\\n"
-            "    assert a!=0\\n"
-            "    assert b!=2\\n"
-            "    assert c!=1\\n"
-            "    count+=1\\n"
-            "    solver.add(z3.Or([v != m[v] for v in all_vars]))\\n"
+        program=("import z3\n"
+            "ada=z3.Int('ada'); berta=z3.Int('berta'); cora=z3.Int('cora')\n"
+            "all_vars=[ada,berta,cora]\n"
+            "solver=z3.Solver()\n"
+            "# Regel 1: jede Schicht genau einmal\n"
+            "solver.add(z3.Distinct(*all_vars))\n"
+            "# Regel 2: jeder Slot liegt zwischen 0 und 2\n"
+            "for v in all_vars: solver.add(z3.And(v>=0,v<=2))\n"
+            "# Regel 3: Ada nicht morgens\n"
+            "solver.add(ada!=0)\n"
+            "# Regel 4: Berta nicht nachts\n"
+            "solver.add(berta!=2)\n"
+            "# Regel 5: Cora nicht abends\n"
+            "solver.add(cora!=1)\n"
+            "count=0\n"
+            "while solver.check() == z3.sat:\n"
+            "    m=solver.model()\n"
+            "    a,b,c=[m[v].as_long() for v in all_vars]\n"
+            "    assert len({a,b,c})==3\n"
+            "    assert all(0<=v<=2 for v in (a,b,c))\n"
+            "    assert a!=0\n"
+            "    assert b!=2\n"
+            "    assert c!=1\n"
+            "    count+=1\n"
+            "    solver.add(z3.Or([v != m[v] for v in all_vars]))\n"
             "print(count)")
         rt,_,helios=runtime([
-            "\\x60\\x60\\x60python\\n"+program+"\\n\\x60\\x60\\x60",
+            "\x60\x60\x60python\n"+program+"\n\x60\x60\x60",
             "Die Sandbox-Ausgabe lautet 2.",
         ],lambda code: {"status":"PASSED","output":"2"})
         question=("Ada, Berta und Cora besetzen Morgen-, Abend- und "
