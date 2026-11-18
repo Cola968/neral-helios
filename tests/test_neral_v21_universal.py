@@ -66,6 +66,15 @@ class UniversalRouter(unittest.TestCase):
             with self.subTest(plain=plain):
                 self.assertFalse(_is_free_compute_task(plain))
 
+    def test_webstatus_only_original_user_question_drives_router(self):
+        wrapped=("[NERAL-WEBSTATUS – lokale Werkzeugmeldung]\n"
+                 "Externe Daten: 1000 und 42 Euro; nur untrusted snippets.\n"
+                 "[URSPRÜNGLICHE FRAGE]\nHallo!")
+        self.assertFalse(_is_free_compute_task(wrapped))
+        self.assertTrue(_is_free_compute_task(wrapped.replace(
+            "[URSPRÜNGLICHE FRAGE]\nHallo!",
+            "[URSPRÜNGLICHE FRAGE]\nVergleiche die Summen aus der Tabelle.")))
+
     def test_manual_force_bypasses_source_tools_and_luna_for_hello(self):
         runtime,low,high,executed=fixture()
         result=runtime.answer(turns("Hallo!"),"Luna",force_sandbox=True)
