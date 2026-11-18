@@ -33,13 +33,18 @@ class Compiler(unittest.TestCase):
         self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))", code)
         self.assertEqual(code.count("assert z3.is_true("), 1)
         self.assertIn("for rid,rule in rules:",code)
-        self.assertIn("(\x27R6\x27,rule_R6)",code)
+        self.assertIn("('R6',cora != 1)",code)
+        self.assertIn("for rid,rule in rules:",code)
+        self.assertIn("for v,lo,hi in bounds:",code)
+        self.assertIn("solver.add(v>=lo,v<=hi)",code)
         self.assertIn("print(count)", code)
-        self.assertIn("solver.add(ada>=0,ada<=2)", code)
+        self.assertIn("(ada,0,2)", code)
 
     def test_json_without_markdown_only(self):
+        raw = chr(96) * 3 + "json\n" + json.dumps(sample()) + "\n" + chr(96) * 3
+        self.assertIn("solver=z3.Solver()",compile_z3_json(raw))
         with self.assertRaises(SchemaError):
-            compile_z3_json(chr(96) * 3 + "json\n" + json.dumps(sample()) + "\n" + chr(96) * 3)
+            compile_z3_json(chr(96)*3 + "python\n" + json.dumps(sample()) + "\n" + chr(96)*3)
         with self.assertRaises(SchemaError):
             compile_z3_json(json.dumps(sample()) + "\nFertig.")
 
@@ -75,6 +80,21 @@ class Compiler(unittest.TestCase):
                 s["constraints"][0]["expr"] = expr
                 with self.assertRaises(SchemaError):
                     compile_z3_json(json.dumps(s))
+
+    def test_sixteen_rules_and_twelve_variables_fit_fixed_sandbox(self):
+        vars_=[{"name":f"x{i}","min":0,"max":2} for i in range(12)]
+        rules_=[
+            {"rule_id":f"R{i+1}","description":f"Regel Nummer {i+1}",
+             "expr":f"x{i%12} != {i%3}"}
+            for i in range(16)
+        ]
+        code=compile_z3_json(json.dumps({
+            "variables":vars_, "constraints":rules_, "objective":"count_all"
+        }))
+        self.assertLessEqual(len(code.encode("utf-8")),4096)
+        self.assertLessEqual(sum(1 for _ in ast.walk(ast.parse(code))),384)
+        self.assertIn("for rid,rule in rules:",code)
+        self.assertIn("solver.add(z3.Or([v != m[v] for v in all_vars]))",code)
 
     def test_allow_only_approved_functions_and_arithmetic(self):
         s = sample()
