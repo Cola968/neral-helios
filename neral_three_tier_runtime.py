@@ -688,16 +688,18 @@ class ThreeTierRuntime:
                         "error_type": "InvalidZ3JSON",
                         "detail": str(exc)[:170],
                     })
-                    forbidden = ("rules" if "unerwartet=rules" in str(exc)
-                                 else None)
+                    forbidden = next((
+                        key for key in ("rules", "schema")
+                        if "unerwartet=" + key in str(exc)), None)
                     if forbidden:
                         # Do not condition greedy decoding on the prior malformed
                         # answer; force fresh regeneration with explicit key error.
                         prompt_turns = base + [
                             {"role": "user", "content": (
                                 "DEIN VORHERIGES JSON WAR ABGELEHNT. "
-                                "Der zusätzliche Top-Level-Schlüssel \"rules\" "
-                                "ist VERBOTEN. Entferne \"rules\" vollständig. "
+                                "Der zusätzliche Top-Level-Schlüssel \"" +
+                                forbidden + "\" ist VERBOTEN. Entferne ihn "
+                                "vollständig und verwende KEIN Wrapper-Schema. "
                                 "Benutze ausschließlich die DREI Schlüssel "
                                 "\"variables\", \"constraints\", \"objective\". "
                                 "Die eigentlichen Regeln stehen NUR im Array "
