@@ -4,7 +4,7 @@
 (() => {
   async function search({query,csrf,signal,onEvent}){
     const options={method:"POST",credentials:"same-origin",cache:"no-store",
-      headers:{"Content-Type":"application/json","X-Neral-CSRF":csrf},
+      headers:{"Content-Type":"application/json","Accept":"text/event-stream","X-Neral-CSRF":csrf},
       body:JSON.stringify({query,verify_links:true}),signal};
     let response=await fetch("/api/web/search/stream",options);
     if(response.status===404||response.status===405){
@@ -24,10 +24,15 @@
     const reader=response.body.getReader(),decoder=new TextDecoder();
     let buffer="",result=null,ended=false;
     const consume=line=>{
+      if(!line.trim()||line.startsWith(":"))return;
+      if(line.startsWith("data:"))line=line.slice(5).trim();
       if(!line.trim())return;
       let event;
       try{event=JSON.parse(line);}catch{throw new Error("Ungültiges Live-Suchergebnis.");}
       if(!event||typeof event!=="object")throw new Error("Ungültiges Live-Suchergebnis.");
+      if(event.type==="status"&&event.state==="searching"){
+        onEvent?.({type:"status",state:"searching"});
+      }
       if(event.type==="error")throw new Error(String(event.message||"Websuche fehlgeschlagen."));
       if(event.type==="provider"&&typeof event.name==="string"){
         onEvent?.({type:"provider",name:event.name});
