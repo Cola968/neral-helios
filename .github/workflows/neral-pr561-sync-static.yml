@@ -1,0 +1,45 @@
+name: NERAL PR561 safe Windows release sync syntax
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/neral_pr561_live_hotpatch.ps1'
+      - '.github/workflows/neral-pr561-sync-static.yml'
+permissions:
+  contents: read
+jobs:
+  windows-static:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse pinned complete-release installer and verify snapshot+rollback contracts
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=$null;$e=$null
+          [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/neral_pr561_live_hotpatch.ps1'),
+            [ref]$t,[ref]$e) | Out-Null
+          if(@($e).Count -ne 0){
+            foreach($x in $e){Write-Host $x.Message}
+            throw 'PowerShell installer syntax invalid'
+          }
+          $source=Get-Content scripts/neral_pr561_live_hotpatch.ps1 -Raw
+          foreach($needle in @('source-package-snapshot','rollback-before-pr561-v1',
+              'SOURCE_PACKAGE_SNAPSHOT_READY','FULL_MANAGED_RUNTIME_HASHES_PASS',
+              'Get-FileHash','managedBefore','StopOwnedTask')){
+            if(-not $source.Contains($needle)){throw 'Managed source backup or verification missing'}
+          }
+          Write-Host 'NERAL_PR561_FULL_RELEASE_INSTALLER_PARSE_PASS'
+      - name: Validate full Python runtime allowlist is locally readable
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $raw=python -B -c 'import json;from scripts.build_neral_1_0_preview import REQUIRED_FILES;print(json.dumps(REQUIRED_FILES))'
+          if($LASTEXITCODE -ne 0){throw 'Python manifest unavailable'}
+          $managed=@(ConvertFrom-Json -InputObject ($raw -join ''))
+          if($managed.Count -lt 80 -or $managed.Count -gt 150){throw 'Invalid managed source count'}
+          Write-Host ('NERAL_PR561_MANIFEST_PARSE_PASS files='+$managed.Count)
