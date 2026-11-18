@@ -4,6 +4,10 @@ on:
     branches: [main]
     paths:
       - 'scripts/neral_pr562_live_upgrade.ps1'
+      - 'neral_three_tier_runtime.py'
+      - 'neral_z3_json_compiler.py'
+      - 'scripts/neral_v2_live5.py'
+      - 'tests/test_neral_z3_json_compiler.py'
       - 'scripts/neral_pr562_browser_e2e.cjs'
       - '.github/workflows/neral-pr562-live-upgrade.yml'
 permissions:
@@ -49,12 +53,14 @@ jobs:
           & node --check scripts/neral_pr562_browser_e2e.cjs
           if($LASTEXITCODE -ne 0){throw 'Real Chrome V2 test source invalid'}
           $py='D:/neral-qlora/venv/Scripts/python.exe'
-          & $py -B -m py_compile neral_three_tier_runtime.py neral_tir_experimental.py scripts/neral_v2_live5.py
+          & $py -B -m py_compile neral_three_tier_runtime.py neral_z3_json_compiler.py neral_tir_experimental.py scripts/neral_v2_live5.py
           if($LASTEXITCODE -ne 0){throw 'V2 Python code syntax invalid'}
           # Both suites use stdlib unittest; do not install pytest into the
           # dedicated GPU/QLoRA inference virtual environment.
           & $py -B -m unittest discover -s tests -p test_neral_code_loop_v2.py -v
           if($LASTEXITCODE -ne 0){throw 'V2 code-loop unittest regression failure'}
+          & $py -B -m unittest discover -s tests -p test_neral_z3_json_compiler.py -v
+          if($LASTEXITCODE -ne 0){throw 'V2 JSON Z3 compiler regression failure'}
           & $py -B -m unittest discover -s tests -p test_neral_code_sandbox_image_v2.py -v
           if($LASTEXITCODE -ne 0){throw 'V2 Docker isolation unittest regression failure'}
           & $py -B -m unittest discover -s tests -p test_neral_v2_live5_transport.py -v
