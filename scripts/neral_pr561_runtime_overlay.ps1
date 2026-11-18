@@ -9,7 +9,7 @@ function Initialize-NeralManagedSnapshot {
   if($LASTEXITCODE -ne 0 -or @($raw).Count -ne 1){
     throw 'Managed preview manifest unavailable'
   }
-  $files=@(ConvertFrom-Json -InputObject ([string]$raw[0]))
+  $files=[string[]](ConvertFrom-Json -InputObject ([string]$raw[0]))
   if($files.Count -lt 80 -or $files.Count -gt 150){
     throw 'Unexpected number of managed preview sources'
   }
