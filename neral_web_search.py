@@ -718,6 +718,8 @@ class WebSearch:
     def search(self, query: str, on_provider=None) -> dict:
         if not isinstance(query, str) or any(ord(c) < 32 or ord(c) == 127 for c in query):
             raise WebSearchInputError("Bitte nur einen normalen Suchbegriff eingeben.")
+        if len(query.strip()) > MAX_QUERY_CHARS:
+            raise WebSearchInputError("Suchanfrage überschreitet das Eingabelimit.")
         cleaned = rewrite_search_query(query)
         if not 2 <= len(cleaned) <= MAX_QUERY_CHARS:
             raise WebSearchInputError("Suchbegriff muss 2 bis 160 Zeichen lang sein.")
