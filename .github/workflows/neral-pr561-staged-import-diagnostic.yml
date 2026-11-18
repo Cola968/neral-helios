@@ -63,3 +63,5 @@ print('NERAL_ALL_IMPORTS_OK')
           }catch{}
           Write-Host ('NERAL_PR561_NEW_TASK_DIAGNOSTIC '+($result|ConvertTo-Json -Compress))
           exit 0
+
+# Read-only retry after 9690 HTTP-ready check failed; do not modify service.
