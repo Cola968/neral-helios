@@ -167,3 +167,13 @@ html[data-theme=dark] .quick-add-panel .attach-control{color:var(--nr-text)}
   .composer-box,.quick-add-panel,.quick-add-menu>summary{animation:none!important;
     transition:none!important}
 }
+
+/* V2.1: compact, visible, opt-in sandbox next to the mode switch. */
+.neral-force-toggle{display:inline-flex;align-items:center;gap:6px;
+  padding:6px 9px;border:1px solid var(--nr-border,#d4d4d4);border-radius:11px;
+  cursor:pointer;white-space:nowrap;font-size:12px;line-height:1.2;color:inherit}
+.neral-force-toggle input{accent-color:var(--nr-accent,#2b6de0);margin:0}
+.neral-force-toggle:has(input:checked){background:var(--nr-active,rgba(100,120,150,.11))}
+.neral-force-toggle:has(input:disabled){opacity:.46;cursor:not-allowed}
+@media(max-width:600px){.neral-force-toggle{font-size:11px;padding:6px 7px}
+ .neral-force-toggle span{max-width:113px;white-space:normal}}
