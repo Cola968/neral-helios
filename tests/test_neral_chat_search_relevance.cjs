@@ -91,10 +91,9 @@ test("German inflected place lookup retains verified relevant airport source", a
      snippet:"Gebäck zum Backen",reachable:true}
   ]);
   assert.equal(calls.filter(c=>c.url==="/api/web/search").length,1);
-  const body=calls.find(c=>c.url==="/api/neral/chat/generate").body;
-  assert.match(body.prompt,/Flughafen Berlin Brandenburg/);
-  assert.doesNotMatch(body.prompt,/Rezept für Berliner Pfannkuchen/);
-  assert.doesNotMatch(body.prompt,/keine passenden Treffer/);
+  // Topic-matched search metadata is displayed immediately with source links
+  // instead of asking a local model to rewrite the provider's snippets.
+  assert.equal(calls.filter(c=>c.url==="/api/neral/chat/generate").length,0);
 });
 
 
