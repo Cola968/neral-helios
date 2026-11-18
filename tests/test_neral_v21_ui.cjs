@@ -24,3 +24,10 @@ test("attachment multipart preserves force flag and selected tier",()=>{
   assert.match(js,/\/api\/neral\/preview\/attachment-chat/);
   assert.doesNotMatch(js,/Anhänge sind im experimentellen Drei-Modell-Modus noch nicht freigeschaltet/);
 });
+
+test("quantitative public search results are explicitly handed to sandbox as bounded data",()=>{
+  assert.match(js,/function isWebDataQuestion/);
+  assert.match(js,/web_data:webData/);
+  assert.match(js,/https:\\\/\\\//);
+  assert.match(js,/forceSandbox\|\|isWebDataQuestion/);
+});
