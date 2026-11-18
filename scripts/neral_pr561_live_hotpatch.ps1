@@ -145,6 +145,8 @@ foreach($rel in $optionalPrevious.Keys){
 }
 foreach($rel in $approved.Keys){
   if((HashFor $rel $repo) -ne $approved[$rel]){throw "PR561 source changed: $rel"}
+}
+foreach($rel in $approvedPrevious.Keys){
   if((HashFor $rel $oldRoot) -ne $approvedPrevious[$rel]){throw "Original source hash drift: $rel"}
 }
 if((HashFor 'neral_preview_server.py' $oldRoot) -ne 'b8c6bbef8e14ffae09aa8294125c54592490b383'){
