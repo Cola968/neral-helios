@@ -27,7 +27,8 @@ $newServer=Join-Path $newRoot 'Start-Neral-Three-Tier-Service.ps1'
 $approved=[ordered]@{
   'neral_web_search.py'='08ae0fc8264fc9ace68f7e9a9a14a50a5b9c652c'
   'neral_everyday_verified.py'='25bb4af5535035ebb4498d1b70d03fc78f5f3d06'
-  'neral_three_tier_runtime.py'='c4fbb612479eb30170d45455e5474e534103e065'
+  'neral_three_tier_runtime.py'='c0d31890cbca0a6a651a2136cddf9d4d96a7ff9a'
+  'neral_z3_json_compiler.py'='cea7563e8d4ad70780ac80738e6aedd582f42359'
   'neral_tir_experimental.py'='d6aebf27f52a05bf59027b44053cf518b64e6d72'
   'static/neral-preview.js'='224a691c4ff9869d9513ec18ed7d554cfa3ed079'
 }
@@ -151,6 +152,9 @@ $dockerReady=$false
 try{& docker info --format '{{.ServerVersion}}' 2>$null|Out-Null
   $dockerReady=($LASTEXITCODE -eq 0)}catch{}
 if(-not $dockerReady){throw 'Offline Docker engine unavailable'}
+if(Test-Path -LiteralPath (Join-Path $oldRoot 'neral_z3_json_compiler.py') -PathType Leaf){
+  throw 'V1 install already contains unapproved new Z3 module'
+}
 & docker image inspect python:3.11-alpine *> $null
 if($LASTEXITCODE -ne 0){throw 'Pinned legacy Python sandbox image absent'}
 $probe=@(& docker run --rm --pull never --network none --read-only --memory 128m --cpus 0.5 --pids-limit 32 python:3.11-alpine python -B -c 'print(340*24*365/1000)')
@@ -272,6 +276,8 @@ try{
         Copy-Item -LiteralPath (Join-Path $backup $rel) -Destination (Join-Path $oldRoot $rel) -Force -ErrorAction Stop
         if((HashFor $rel $oldRoot) -ne $approvedPrevious[$rel]){throw 'Rollback verification failed'}
       }
+      $jsonModule=Join-Path $oldRoot 'neral_z3_json_compiler.py'
+      if(Test-Path -LiteralPath $jsonModule -PathType Leaf){Remove-Item -LiteralPath $jsonModule -Force -ErrorAction Stop}
       Copy-Item -LiteralPath $serviceBackup -Destination $oldServer -Force -ErrorAction Stop
       if([IO.File]::ReadAllText($oldServer) -ne $beforeService){
         throw 'Previous V1 service script rollback mismatch'
