@@ -229,6 +229,24 @@ class GenericCodeLoop(unittest.TestCase):
         self.assertIn("rules",str(helios.calls[1][0]))
         self.assertIn("verboten",str(helios.calls[1][0]).casefold())
 
+    def test_relational_word_problem_requires_symbolic_equations(self):
+        question=("Anna, Ben und Cora haben insgesamt 31 Spielchips. "
+                  "Ben besitzt 3 mehr als Anna. Cora besitzt exakt doppelt "
+                  "so viele wie Ben. Wie viele Chips hat jede Person?")
+        seen=[]
+        rt,_,helios=runtime([
+            "\x60\x60\x60python\nprint('Anna=4; Ben=7; Cora=14')\n\x60\x60\x60",
+            "Die Sandbox hat die Zahlen berechnet.",
+        ],lambda code:seen.append(code) or
+                  {"status":"PASSED","output":"Anna=4; Ben=7; Cora=14"})
+        result=rt._free_code_loop(turns(question),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        instruction=helios.calls[0][0][0]["content"]
+        self.assertIn("sympy.Eq",instruction)
+        self.assertIn("sympy.solve",instruction)
+        self.assertIn("assert",instruction)
+        self.assertNotIn("NERAL Z3-JSON-MODUS",instruction)
+
     def test_fraction_equation_rejects_wrong_executed_number_then_repairs(self):
         from neral_three_tier_runtime import _source_fraction_equation_ok
         source="Bestimme die Lösung x der Gleichung 3/4 mal x plus 5/6 gleich 23/6."
