@@ -5,7 +5,7 @@ No credentials, model calls, Docker runs or network connections here.
 import json
 import unittest
 from unittest.mock import patch
-from scripts.neral_v2_live5 import Live
+from scripts.neral_v2_live5 import Live, _check_stdout
 
 
 class Response:
@@ -45,6 +45,18 @@ class ClientTransport(unittest.TestCase):
         self.assertEqual(result["csrf"],"x"*32)
         self.assertEqual([x[0].split(":9690")[-1] for x in op.calls],
                          ["/", "/api/neral/preview/session"])
+
+    def test_independently_check_exact_ordered_unlabelled_chip_triplet(self):
+        gold={"Anna":9, "Ben":12, "Cora":24}
+        _check_stdout("chips","9 12 24",gold)
+        _check_stdout("chips","9, 12, 24",gold)
+        _check_stdout("chips","Anna = 9; Ben = 12; Cora = 24",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("chips","9 12 25",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("chips","9 12 24 2",gold)
+        with self.assertRaises(ValueError):
+            _check_stdout("chips","12 9 24",gold)
 
     def test_post_registration_accepts_successful_201_created(self):
         live=Live()
