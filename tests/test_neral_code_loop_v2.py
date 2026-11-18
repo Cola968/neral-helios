@@ -235,7 +235,11 @@ class GenericCodeLoop(unittest.TestCase):
         from neral_three_tier_runtime import _safe_runtime_error_code
         self.assertEqual(_safe_runtime_error_code(
             RuntimeError("HF response did not finish inside its token/time budget")),
-            "hf_generation_incomplete")
+            "hf_budget_exhausted")
+        self.assertEqual(_safe_runtime_error_code(
+            RuntimeError("Unclosed private model reasoning")), "hf_reasoning_unclosed")
+        self.assertEqual(_safe_runtime_error_code(
+            RuntimeError("Incomplete or untrusted HF final answer")), "hf_invalid_final")
         self.assertEqual(_safe_runtime_error_code(
             RuntimeError("Insufficient free GPU memory; secret text")),
             "gpu_memory")
