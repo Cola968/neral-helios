@@ -66,10 +66,12 @@ class FakeModel:
         self.adapter_sha256=sha
         self.loaded=False
         self.calls=[]
+        self.temperatures=[]
         self.replies=list(replies)
 
-    def respond_chat(self, turns, *, max_new_tokens):
+    def respond_chat(self, turns, *, max_new_tokens, temperature=None):
         self.loaded=True
+        self.temperatures.append(temperature)
         self.calls.append(([dict(m) for m in turns], max_new_tokens))
         if not self.replies:
             raise AssertionError("unexpected extra Helios model call")
@@ -115,6 +117,73 @@ class GenericCodeLoop(unittest.TestCase):
                 self.assertEqual(result["tool_calls_succeeded"],1)
                 self.assertEqual(result["proof_backend"],None)
                 self.assertIn(expected,result["text"])
+
+    def test_code_generation_and_repair_are_forced_to_temperature_zero(self):
+        rt,_,helios=runtime([
+            "\\x60\\x60\\x60python\\nraise ValueError('broken')\\n\\x60\\x60\\x60",
+            "\\x60\\x60\\x60python\\nprint(2)\\n\\x60\\x60\\x60",
+            "Sandbox returned 2",
+        ], lambda code: (
+            {"status":"FAILED","traceback":"ValueError"} if "raise" in code
+            else {"status":"PASSED","output":"2"}))
+        result=rt._free_code_loop(turns("Berechne 1 plus 1"),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        self.assertEqual(helios.temperatures[:2],[0.0,0.0])
+
+    def test_z3_rule_prompt_for_shift_count_has_enumeration_and_asserts(self):
+        program=("import z3\\n"
+            "ada=z3.Int('ada'); berta=z3.Int('berta'); cora=z3.Int('cora')\\n"
+            "all_vars=[ada,berta,cora]\\n"
+            "solver=z3.Solver()\\n"
+            "# Regel 1: jede Schicht genau einmal\\n"
+            "solver.add(z3.Distinct(*all_vars))\\n"
+            "# Regel 2: jeder Slot liegt zwischen 0 und 2\\n"
+            "for v in all_vars: solver.add(z3.And(v>=0,v<=2))\\n"
+            "# Regel 3: Ada nicht morgens\\n"
+            "solver.add(ada!=0)\\n"
+            "# Regel 4: Berta nicht nachts\\n"
+            "solver.add(berta!=2)\\n"
+            "# Regel 5: Cora nicht abends\\n"
+            "solver.add(cora!=1)\\n"
+            "count=0\\n"
+            "while solver.check() == z3.sat:\\n"
+            "    m=solver.model()\\n"
+            "    a,b,c=[m[v].as_long() for v in all_vars]\\n"
+            "    assert len({a,b,c})==3\\n"
+            "    assert all(0<=v<=2 for v in (a,b,c))\\n"
+            "    assert a!=0\\n"
+            "    assert b!=2\\n"
+            "    assert c!=1\\n"
+            "    count+=1\\n"
+            "    solver.add(z3.Or([v != m[v] for v in all_vars]))\\n"
+            "print(count)")
+        rt,_,helios=runtime([
+            "\\x60\\x60\\x60python\\n"+program+"\\n\\x60\\x60\\x60",
+            "Die Sandbox-Ausgabe lautet 2.",
+        ],lambda code: {"status":"PASSED","output":"2"})
+        question=("Ada, Berta und Cora besetzen Morgen-, Abend- und "
+                  "Nachtschicht. Ada darf nicht morgens arbeiten, Berta nicht "
+                  "nachts, Cora nicht abends. Wie viele zulässige Schichtpläne?")
+        result=rt._free_code_loop(turns(question),auto_from="Luna")
+        self.assertTrue(result["sandbox_executed"])
+        system=helios.calls[0][0][0]["content"]
+        self.assertIn("z3.Int",system)
+        self.assertIn("z3.Bool",system)
+        self.assertIn("solver.add",system)
+        self.assertIn("Regel 1",system)
+        self.assertIn("while solver.check() == z3.sat:",system)
+        self.assertIn("z3.Or([v != m[v] for v in all_vars])",system)
+        self.assertIn("assert",system)
+        self.assertEqual(helios.temperatures[0],0.0)
+
+    def test_z3_prompt_trigger_words_and_normal_arithmetic_boundary(self):
+        from neral_three_tier_runtime import _is_constraint_task
+        for text in ("Schicht", "Dienstplan", "zuordnen", "verteilen",
+                     "nicht zusammen", "nie", "höchstens", "mindestens",
+                     "zulässige", "Plan", "Ausschlussbedingung"):
+            with self.subTest(text=text):
+                self.assertTrue(_is_constraint_task("Bitte "+text+" alle Fälle"))
+        self.assertFalse(_is_constraint_task("Berechne 17 plus 19"))
 
     def test_failed_code_can_be_repaired_at_most_twice(self):
         seen=[]
