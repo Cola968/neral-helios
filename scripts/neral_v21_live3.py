@@ -34,7 +34,8 @@ def verify(result, *, label, expected=None):
     stdout=stdout_of(result)
     if expected is not None and not re.search(
             r"(?<!\d)"+re.escape(str(expected))+r"(?!\d)",stdout):
-        raise ValueError("Wrong independently checked value for "+label)
+        raise ValueError("Wrong independently checked value for "+label+
+                         "; synthetic stdout="+stdout[:90])
     return stdout
 
 
