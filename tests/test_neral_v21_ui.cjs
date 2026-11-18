@@ -15,7 +15,7 @@ test("force flag reaches three-tier JSON transport, with no silent legacy fallba
   assert.match(js,/force_sandbox:\s*forceSandbox/);
   assert.match(js,/selectedTier/);
   assert.match(js,/\/api\/neral\/chat\/three-tier/);
-  assert.match(js,/forceSandbox\.checked/);
+  assert.match(js,/sandboxToggle\?\.checked/);
 });
 
 test("attachment multipart preserves force flag and selected tier",()=>{
